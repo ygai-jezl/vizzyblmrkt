@@ -34,3 +34,18 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  # reCAPTCHA Enterprise (score-based) — public site key + server assessment.
+  - variable: RECAPTCHA_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: RECAPTCHA_PROJECT_ID
+    value: vizzybl-marketing-prod
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+    value: 6LdTVyEtAAAAAM_OltJ61kDmvsthyIUBcf5FCyrK
+    availability:
+      - BUILD
+      - RUNTIME

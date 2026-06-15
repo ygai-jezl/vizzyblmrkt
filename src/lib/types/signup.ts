@@ -44,6 +44,8 @@ export const SignupSchema = z.object({
   referralToken: z.string(),
   referralLink: z.string(),
   referredBySignupToken: z.string().nullable().optional(),
+  /** Double opt-in token; set while unverified, cleared on verification. */
+  verificationToken: z.string().nullable().optional(),
 
   // Sortable queue score (higher = closer to front). See lib/waitlist/scoring.ts
   score: z.number().int(),

@@ -27,6 +27,8 @@ export type { RegionConfig } from "./region";
 export { createTenant } from "./control";
 export { creditReferral } from "./referral";
 export type { CreditReferralResult } from "./referral";
+export { verifySignupByToken } from "./verification";
+export type { VerifyResult } from "./verification";
 export {
   TenantError,
   TenantNotFoundError,

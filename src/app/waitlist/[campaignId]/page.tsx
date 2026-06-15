@@ -18,6 +18,7 @@ export default async function HostedWaitlistPage({
   const { campaignId } = await params;
   const sp = await searchParams;
   const referredBySignupToken = typeof sp.ref === "string" ? sp.ref : undefined;
+  const justVerified = sp.verified === "1";
 
   const origin = originFromHeaders(await headers());
   const ctx = await resolveTenantFromOrigin(origin).catch(() => null);
@@ -39,6 +40,12 @@ export default async function HostedWaitlistPage({
       className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-8 px-6 py-16"
       style={style.widgetFontColor ? { color: style.widgetFontColor } : undefined}
     >
+      {justVerified ? (
+        <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-center text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
+          ✅ Email confirmed — your spot is locked in!
+        </div>
+      ) : null}
+
       <header className="space-y-2 text-center">
         <h1 className="text-3xl font-semibold tracking-tight">
           {campaign.waitlistName}

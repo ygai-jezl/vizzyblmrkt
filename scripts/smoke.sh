@@ -65,6 +65,30 @@ if grep -q 'smoke@test.com' /tmp/lb.json; then echo "PII LEAK in leaderboard"; f
 echo "--- leaderboard cache header (expect s-maxage) ---"
 curl -s -D - -o /dev/null "$BASE/api/waitlist/beta-launch/leaderboard" | grep -i "cache-control" || fail=1
 
+echo "--- double opt-in: referrer R joins beta-verify (expect needsVerification) ---"
+R=$(curl -s -X POST "$BASE/api/waitlist/beta-verify/signup" -H 'content-type: application/json' -d '{"email":"verify-r@test.com"}')
+echo "$R"
+RVT=$(echo "$R" | sed -n 's/.*"_devVerificationToken":"\([^"]*\)".*/\1/p')
+RREF=$(echo "$R" | sed -n 's/.*"referralToken":"\([A-Z0-9]*\)".*/\1/p')
+echo "$R" | grep -q '"needsVerification":true' || fail=1
+[ -n "$RVT" ] || { echo "no verification token"; fail=1; }
+
+echo "--- verify R (expect redirect) ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/waitlist/beta-verify/verify?token=$RVT")
+echo "HTTP $code"; case "$code" in 30[1278]) ;; *) fail=1;; esac
+
+echo "--- E joins via R's link (unverified) — R must NOT be credited yet ---"
+E=$(curl -s -X POST "$BASE/api/waitlist/beta-verify/signup" -H 'content-type: application/json' -d "{\"email\":\"verify-e@test.com\",\"referredBySignupToken\":\"$RREF\"}")
+EVT=$(echo "$E" | sed -n 's/.*"_devVerificationToken":"\([^"]*\)".*/\1/p')
+if curl -s "$BASE/api/waitlist/beta-verify/leaderboard" | grep -q '"amount_referred"'; then
+  echo "BUG: referrer credited before referee verified"; fail=1
+else echo "referrer not credited pre-verification ✓"; fi
+
+echo "--- verify E → referrer R now credited ---"
+curl -s -o /dev/null -w "verify HTTP %{http_code}\n" "$BASE/api/waitlist/beta-verify/verify?token=$EVT"
+LB=$(curl -s "$BASE/api/waitlist/beta-verify/leaderboard"); echo "$LB"
+echo "$LB" | grep -q '"amount_referred":1' || fail=1
+
 echo "--- admin: sign in via Auth emulator → session cookie ---"
 AUTH_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-127.0.0.1:9199}"
 ID=$(curl -s -X POST "http://$AUTH_HOST/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo" \
@@ -95,6 +119,52 @@ curl -s -b /tmp/cj.txt -o /tmp/act.json -w "action HTTP %{http_code}\n" -X POST 
   -H 'content-type: application/json' -d "{\"action\":\"offboard\",\"ids\":[\"$SID\"]}"
 cat /tmp/act.json; echo
 grep -q '"updated":1' /tmp/act.json || fail=1
+
+# --- Campaign settings (PUT) -------------------------------------------------
+# A full, strict CampaignSettings payload (the route rejects partials/unknowns).
+cat > /tmp/campaign_put.json <<'JSON'
+{
+  "waitlistName": "Vizzybl Beta (Updated)",
+  "waitlistUrlLocation": null,
+  "spotsToMoveUponReferral": 15,
+  "usesFirstnameLastname": false,
+  "usesLeaderboard": true,
+  "usesSignupVerification": false,
+  "hideCounts": false,
+  "removeWidgetHeaders": false,
+  "requiredContactDetail": "EMAIL",
+  "questions": [{ "question_value": "What will you use Vizzybl for?", "optional": true, "answer_value": null }],
+  "twitterMessage": "I just joined the Vizzybl waitlist!",
+  "sendEmailCongratulationsOnReferral": true,
+  "leaderboardLength": 5,
+  "configurationStyleJson": { "widgetButtonColor": "#111827", "socialLinks": { "twitter": "https://x.com/vizzybl" } }
+}
+JSON
+
+echo "--- admin: campaign PUT WITHOUT session is 401 ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/beta-launch" \
+  -H 'content-type: application/json' -d @/tmp/campaign_put.json)
+echo "HTTP $code"; [ "$code" = "401" ] || fail=1
+
+echo "--- admin: campaign PUT invalid body (expect 400) ---"
+code=$(curl -s -b /tmp/cj.txt -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/beta-launch" \
+  -H 'content-type: application/json' -d '{"nope":1}')
+echo "HTTP $code"; [ "$code" = "400" ] || fail=1
+
+echo "--- admin: campaign PUT unknown campaign (expect 404) ---"
+code=$(curl -s -b /tmp/cj.txt -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/does-not-exist" \
+  -H 'content-type: application/json' -d @/tmp/campaign_put.json)
+echo "HTTP $code"; [ "$code" = "404" ] || fail=1
+
+echo "--- admin: campaign PUT valid (expect ok:true) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/put.json -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/beta-launch" \
+  -H 'content-type: application/json' -d @/tmp/campaign_put.json)
+echo "HTTP $code"; cat /tmp/put.json; echo
+{ [ "$code" = "200" ] && grep -q '"ok":true' /tmp/put.json; } || fail=1
+
+echo "--- campaign update persisted: hosted page shows new name ---"
+curl -s -o /tmp/page2.html "$BASE/waitlist/beta-launch"
+grep -q "Vizzybl Beta (Updated)" /tmp/page2.html && echo "persisted ✓" || fail=1
 
 echo "==== SMOKE $([ $fail -eq 0 ] && echo PASS || echo FAIL) ===="
 exit $fail

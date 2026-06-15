@@ -36,3 +36,11 @@ export function generateReferralToken(length = 9): string {
   }
   return out;
 }
+
+/**
+ * High-entropy, URL-safe verification token for double opt-in. Longer than a
+ * referral token because clicking it confirms an account — must be unguessable.
+ */
+export function generateVerificationToken(): string {
+  return randomBytes(24).toString("base64url");
+}

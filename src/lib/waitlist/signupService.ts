@@ -6,6 +6,7 @@ import { computeScore } from "./scoring";
 import {
   normalizeEmail,
   generateReferralToken,
+  generateVerificationToken,
   deterministicSignupId,
 } from "./identifiers";
 import type { SignupInput } from "./signupInput";
@@ -74,6 +75,8 @@ export async function createSignup(
   const referralToken = generateReferralToken();
   const verified = !campaign.usesSignupVerification;
   const status: Signup["status"] = verified ? "verified_active" : "unverified";
+  // Double opt-in: an unverified signup gets a token to confirm via email.
+  const verificationToken = verified ? null : generateVerificationToken();
   const now = opts.now ?? new Date().toISOString();
 
   const data = {
@@ -90,6 +93,7 @@ export async function createSignup(
     referralToken,
     referralLink: buildReferralLink(campaign, referralToken, opts.hostedPageBaseUrl),
     referredBySignupToken: input.referredBySignupToken ?? null,
+    verificationToken,
     score: computeScore(0, campaign.spotsToMoveUponReferral),
     removedDate: null,
     removedPriority: null,

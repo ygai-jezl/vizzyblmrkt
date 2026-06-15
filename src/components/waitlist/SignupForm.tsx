@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { getRecaptchaToken } from "@/lib/security/recaptchaClient";
 
 interface Question {
   question_value: string;
@@ -22,6 +23,7 @@ interface SuccessState {
   alreadyJoined: boolean;
   referralLink: string;
   totalSignups: number;
+  needsVerification: boolean;
 }
 
 export function SignupForm({
@@ -65,6 +67,9 @@ export function SignupForm({
     if (answerList.length) body.answers = answerList;
 
     try {
+      const recaptchaToken = await getRecaptchaToken("signup");
+      if (recaptchaToken) body.recaptchaToken = recaptchaToken;
+
       const res = await fetch(`/api/waitlist/${campaignId}/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -83,12 +88,25 @@ export function SignupForm({
         alreadyJoined: !!data.alreadyJoined,
         referralLink: data.referralLink,
         totalSignups: data.totalSignups,
+        needsVerification: !!data.needsVerification,
       });
       setStatus("success");
     } catch {
       setError("Network error — please try again.");
       setStatus("error");
     }
+  }
+
+  if (status === "success" && success?.needsVerification) {
+    return (
+      <section className="space-y-3 rounded-xl border border-neutral-200 p-6 text-center dark:border-neutral-800">
+        <h2 className="text-xl font-semibold">Almost there — check your email 📧</h2>
+        <p className="text-sm text-neutral-500">
+          We sent a confirmation link to lock in your spot. Your place on the
+          waitlist is not counted until you confirm.
+        </p>
+      </section>
+    );
   }
 
   if (status === "success" && success) {

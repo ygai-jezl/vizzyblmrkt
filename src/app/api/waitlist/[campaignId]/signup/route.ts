@@ -12,6 +12,8 @@ import {
 } from "@/lib/waitlist/signupInput";
 import { createSignup } from "@/lib/waitlist/signupService";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
+import { sendEmail } from "@/lib/email";
+import { verificationEmail } from "@/lib/email/templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +80,29 @@ export async function POST(
     captchaValid: captcha.ok && !captcha.skipped,
   });
 
+  // Double opt-in: an unverified signup gets a confirmation email; the referrer
+  // is credited only once the referee verifies (see the verify route).
+  if (
+    !result.alreadyJoined &&
+    result.signup.status === "unverified" &&
+    result.signup.email &&
+    result.signup.verificationToken
+  ) {
+    try {
+      const verifyUrl = `${origin}/api/waitlist/${campaign.id}/verify?token=${encodeURIComponent(result.signup.verificationToken)}`;
+      await sendEmail(
+        verificationEmail({
+          to: result.signup.email,
+          waitlistName: campaign.waitlistName,
+          firstName: result.signup.firstName,
+          verifyUrl,
+        }),
+      );
+    } catch (err) {
+      console.warn(`verification email failed for ${campaign.id}:`, err);
+    }
+  }
+
   // Credit the referrer — only on a genuinely NEW, verified signup (idempotent
   // re-submits skip this). A credit failure must never fail the signup itself.
   if (
@@ -107,9 +132,14 @@ export async function POST(
     {
       alreadyJoined: result.alreadyJoined,
       status: result.signup.status,
+      needsVerification: result.signup.status === "unverified",
       referralToken: result.signup.referralToken,
       referralLink: result.signup.referralLink,
       totalSignups: result.totalSignups,
+      // Emulator-only test hook — never exposed against real Firestore.
+      ...(process.env.FIRESTORE_EMULATOR_HOST && result.signup.verificationToken
+        ? { _devVerificationToken: result.signup.verificationToken }
+        : {}),
     },
     { status: result.alreadyJoined ? 200 : 201 },
   );

@@ -76,6 +76,13 @@ describe("createSignup", () => {
     );
     expect(signup.status).toBe("unverified");
     expect(signup.verified).toBe(false);
+    expect(signup.verificationToken).toBeTruthy();
+  });
+
+  it("has no verification token when verification is not required", async () => {
+    const db = new FakeFirestore();
+    const { signup } = await createSignup(ctx, campaign(), { email: "n@o.com" }, opts(db));
+    expect(signup.verificationToken).toBeNull();
   });
 
   it("uses the campaign's waitlist URL for the referral link when set", async () => {

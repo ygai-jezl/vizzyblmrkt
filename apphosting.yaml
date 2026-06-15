@@ -36,6 +36,22 @@ env:
       - BUILD
       - RUNTIME
 
+  # reCAPTCHA Enterprise (score-based). Site key is public; the server-side
+  # assessment runs via ADC. Flip RECAPTCHA_ENABLED to enforce.
+  - variable: RECAPTCHA_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: RECAPTCHA_PROJECT_ID
+    value: vizzybl-marketing-dev
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+    value: 6Ld8SyEtAAAAAB1EXYkY2MKXK-BYHiL_s738O-vH
+    availability:
+      - BUILD
+      - RUNTIME
+
   # Secrets live in Secret Manager, never in this file. Wire them like so once
   # created (`firebase apphosting:secrets:set <name>`):
   #

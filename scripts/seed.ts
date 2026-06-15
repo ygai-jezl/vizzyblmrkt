@@ -12,8 +12,10 @@ async function main() {
     console.error("Set GOOGLE_CLOUD_PROJECT (e.g. vizzybl-marketing-dev).");
     process.exit(1);
   }
-  if (project.endsWith("-prod")) {
-    console.error(`Refusing to seed a prod project: ${project}`);
+  if (project.endsWith("-prod") && process.env.ALLOW_PROD_SEED !== "true") {
+    console.error(
+      `Refusing to seed a prod project: ${project}. Set ALLOW_PROD_SEED=true to override.`,
+    );
     process.exit(1);
   }
   const target = process.env.FIRESTORE_EMULATOR_HOST

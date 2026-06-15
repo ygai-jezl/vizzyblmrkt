@@ -61,20 +61,20 @@ firebase deploy --only firestore   # deploys rules + indexes to every DB in fire
 - `firestore.rules` is a deny-all backstop (server access bypasses rules; isolation is in app code).
 - `firestore.indexes.json` pre-creates the tenant-scoped composite indexes.
 
-### 3b. Regional data residency — additional databases (when needed)
-Only the US (`(default)`) database is provisioned at MVP. When an EU or Asia
-tenant arrives, create that region's NAMED database (location is **immutable** —
-choose carefully; there is **no Asia multi-region**):
+### 3b. Regional data residency — the three named databases
+All three regional databases are created in **dev** (`firebase.json` lists all
+three; `region.ts` has them `provisioned: true`). Location is **immutable** and
+there is **no Asia multi-region**:
 ```bash
 # EU (multi-region eur3):
 gcloud firestore databases create --project="$PROJECT" --database=signups-eu   --location=eur3
-# Asia (single region — Singapore; or asia-northeast1 Tokyo / asia-south1 Mumbai):
+# Asia (single region — Singapore):
 gcloud firestore databases create --project="$PROJECT" --database=signups-asia --location=asia-southeast1
 ```
-Then: (a) add a `{ "database": "signups-eu", "rules": ..., "indexes": ... }` entry
-to `firebase.json` and `firebase deploy --only firestore`; (b) flip `provisioned: true`
-for that region in `src/lib/tenant/region.ts`; (c) stand up a same-region
-`firestore-bigquery-export` instance → same-region BigQuery dataset (Phase 2).
+`firebase deploy --only firestore` pushes the deny-all rules + composite indexes
+to **all** databases listed in `firebase.json`. **Repeat the database creation in
+PROD** before routing an EU/Asia tenant there. Per-region
+`firestore-bigquery-export` → same-region BigQuery dataset is Phase 2.
 Each extra database bills from op #1 (Blaze required — only one DB is free).
 
 ## 4. Least-privilege service accounts

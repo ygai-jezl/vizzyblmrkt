@@ -27,13 +27,13 @@ The sibling app `vizzybl-portal` already ships this named-database pattern in pr
 - Control plane = `(default)` DB: `tenants` + `tenant_users` registry (routing/membership metadata, no end-user PII). Read first to resolve `host → tenant → region`.
 - Data plane = regional DBs: `campaigns` + `signups` (the PII), in the tenant's region.
 
-**Implemented in Phase 0 (region-ready, US-only provisioned):** `Region` enum + immutable `region` on the tenant schema; `src/lib/tenant/region.ts` (`REGION_CONFIGS` + non-defaulting `databaseIdForRegion`); parameterized `getDb(databaseId)` with per-id cache; `region` on `TenantContext`/claims; `forTenant(ctx)` routes campaigns/signups to the regional DB and `tenant_users` to the control plane, and **throws if `region` is absent**.
+**Implemented in Phase 0 (region-ready, all three databases provisioned in dev):** `Region` enum + immutable `region` on the tenant schema; `src/lib/tenant/region.ts` (`REGION_CONFIGS` + non-defaulting `databaseIdForRegion`); parameterized `getDb(databaseId)` with per-id cache; `region` on `TenantContext`/claims; `forTenant(ctx)` routes campaigns/signups to the regional DB and `tenant_users` to the control plane, and **throws if `region` is absent**.
 
 **Founder decisions — RESOLVED (2026-06-15):**
 - **Asia region = `asia-southeast1` (Singapore)** (immutable; matches the sibling app and the `gcp.resourceLocations` allow-list).
 - **EU = `eur3`** multi-region (5-nines, in-EU).
 - **Sovereignty = no** — residency only. Data-at-rest in-region + the `gcp.resourceLocations` org policy is sufficient. Assured Workloads / CMEK deferred unless a contract demands it.
-- **Provisioning reality:** dev + prod were stood up with the **US `(default)`@`nam5` database only**; **EU/Asia databases are deferred** until a tenant needs them. The code is region-ready (`region` on every tenant; `eu`/`asia` are `provisioned: false` and `databaseIdForRegion` throws for them). Turning a region on = create the named DB (`gcloud firestore databases create --database=signups-eu --location=eur3`), add a `firebase.json` entry, flip `provisioned: true`. See [[gcp-dev-provisioning]] for the live project IDs, App Hosting backends, and org policies.
+- **Provisioning:** all three regional databases now exist in **dev** (verified): `(default)`@`nam5` (US), `signups-eu`@`eur3` (EU), `signups-asia`@`asia-southeast1` (Asia). `region.ts` has all three `provisioned: true`; `firebase.json` lists all three so `firebase deploy --only firestore` pushes the deny-all rules + composite indexes to each. (Prod: provision the EU/Asia databases there before routing an EU/Asia tenant.) See [[gcp-dev-provisioning]] for the live project IDs, App Hosting backends, and org policies.
 
 ---
 

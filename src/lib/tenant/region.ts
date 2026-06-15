@@ -10,12 +10,12 @@ import type { Region } from "@/lib/types/tenant";
  * documentation of where each database was provisioned, not a runtime input.
  * `databaseId` is what the app actually uses to select the database.
  *
- * `provisioned` reflects what actually exists in GCP. Today only the US
- * `(default)` database (@nam5) is created; EU/Asia are deferred until a tenant
- * needs them. `databaseIdForRegion` THROWS for an unprovisioned region, so a
- * tenant's data can never be routed to a database that doesn't exist yet.
- * Lighting up EU/Asia = create the database + flip `provisioned: true` + add a
- * firebase.json entry — no schema migration (region is already on every tenant).
+ * `provisioned` reflects what actually exists in GCP. All three regional
+ * databases are now created: US `(default)`@nam5, EU `signups-eu`@eur3, Asia
+ * `signups-asia`@asia-southeast1. `databaseIdForRegion` THROWS for an
+ * unprovisioned region, so a tenant's data can never be routed to a database
+ * that doesn't exist yet. Adding a future region = create the database + flip
+ * `provisioned: true` + add a firebase.json entry — no schema migration.
  */
 export interface RegionConfig {
   code: Region;
@@ -44,14 +44,14 @@ export const REGION_CONFIGS: Record<Region, RegionConfig> = {
     databaseId: "signups-eu",
     displayName: "Europe",
     firestoreLocation: "eur3", // multi-region, >=99.999% SLA
-    provisioned: false,
+    provisioned: true,
   },
   asia: {
     code: "asia",
     databaseId: "signups-asia",
     displayName: "Asia",
     firestoreLocation: "asia-southeast1", // single region (no Asia multi-region), >=99.99% SLA
-    provisioned: false,
+    provisioned: true,
   },
 };
 

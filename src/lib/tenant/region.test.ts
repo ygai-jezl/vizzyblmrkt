@@ -4,23 +4,30 @@ import {
   DEFAULT_DATABASE_ID,
   databaseIdForRegion,
 } from "./region";
+import type { Region } from "@/lib/types/tenant";
 
 describe("region → database resolution", () => {
   it("maps the US region to the default database", () => {
     expect(databaseIdForRegion("us")).toBe(DEFAULT_DATABASE_ID);
   });
 
-  it("throws (never silently defaults) for an unprovisioned region", () => {
-    // eu/asia databases aren't provisioned yet — must fail loudly so a tenant's
-    // data is never written into the wrong region.
-    expect(() => databaseIdForRegion("eu")).toThrow(/not provisioned/);
-    expect(() => databaseIdForRegion("asia")).toThrow(/not provisioned/);
+  it("resolves EU and Asia to their named databases (now provisioned)", () => {
+    expect(databaseIdForRegion("eu")).toBe("signups-eu");
+    expect(databaseIdForRegion("asia")).toBe("signups-asia");
   });
 
-  it("only the US database is provisioned today", () => {
+  it("throws (never silently defaults) for an unknown region", () => {
+    // The provisioned-check guard still protects any future region added
+    // before its database exists; an unknown region must also fail loudly.
+    expect(() => databaseIdForRegion("antarctica" as Region)).toThrow(
+      /No database configured/,
+    );
+  });
+
+  it("all three regions are provisioned", () => {
     expect(REGION_CONFIGS.us.provisioned).toBe(true);
-    expect(REGION_CONFIGS.eu.provisioned).toBe(false);
-    expect(REGION_CONFIGS.asia.provisioned).toBe(false);
+    expect(REGION_CONFIGS.eu.provisioned).toBe(true);
+    expect(REGION_CONFIGS.asia.provisioned).toBe(true);
   });
 
   it("uses logical db ids decoupled from the immutable physical location", () => {

@@ -4,6 +4,16 @@
       "database": "(default)",
       "rules": "firestore.rules",
       "indexes": "firestore.indexes.json"
+    },
+    {
+      "database": "signups-eu",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    },
+    {
+      "database": "signups-asia",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
     }
   ],
   "emulators": {

@@ -91,6 +91,17 @@ emulator to catch.
   models `ignoreUndefinedProperties` and Firestore's missing-sort-field
   exclusion. Lint runs via the ESLint CLI (not the deprecated `next lint`).
 
+### Known limitation — self-referral (Phase 2, accept for now)
+The referral engine credits one referral per signup *document*. A determined
+user can still self-refer by signing up a second time with a different contact
+(`a+1@x.com`, or email-vs-phone on an `EITHER` campaign) using their own link.
+Truly closing this needs identity/verification — it's deferred to the **double
+opt-in** slice (and reCAPTCHA, currently flagged off). The
+`referrerToken === newSignupToken` guard in `creditReferral` is cheap
+defense-in-depth only (the new token is always freshly generated). Tracked, not
+fixed in Phase 2 slice 1. The leaderboard ranks by `amountReferred` (not the
+spots-weighted score) so it stays correct even when `spotsToMoveUponReferral` is 0.
+
 ### Open items carried forward
 - Confirm exact per-field PII masking spec for the public leaderboard (Phase 2).
 - Confirm leaderboard freshness tolerance (enables CDN/rollup caching vs live count).

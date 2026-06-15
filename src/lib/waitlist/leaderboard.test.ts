@@ -49,16 +49,30 @@ function seedSignup(
 }
 
 describe("getLeaderboard", () => {
-  it("ranks by score desc then earliest signup, masking PII", async () => {
+  it("ranks by referral count desc then earliest signup, masking PII", async () => {
     const db = new FakeFirestore();
     seedSignup(db, "s1", { firstName: "Ana", lastName: "Smith", amountReferred: 1, score: 10, createdAt: "2026-06-15T10:00:00Z" });
     seedSignup(db, "s2", { firstName: "Bo", lastName: "Jones", amountReferred: 3, score: 30, createdAt: "2026-06-15T11:00:00Z" });
     seedSignup(db, "s3", { firstName: "Cy", lastName: "Lee", amountReferred: 1, score: 10, createdAt: "2026-06-15T09:00:00Z" });
 
     const board = await getLeaderboard(ctx, campaign(), db);
-    expect(board.map((e) => e.first_name)).toEqual(["Bo", "Cy", "Ana"]); // 30, then 10/earlier, then 10/later
+    expect(board.map((e) => e.first_name)).toEqual(["Bo", "Cy", "Ana"]); // 3, then 1/earlier, then 1/later
     expect(board[0]).toMatchObject({ rank: 1, amount_referred: 3, last_name: "J." });
     expect(board.every((e) => !e.email?.includes("@example.com") || e.email.startsWith("u*"))).toBe(true);
+  });
+
+  it("still ranks referrers when spotsToMoveUponReferral is 0 (score is 0 for all)", async () => {
+    const db = new FakeFirestore();
+    // Many early non-referrers + later referrers — with score-based ranking the
+    // limit would have returned the early non-referrers and dropped the referrers.
+    for (let i = 0; i < 6; i++) {
+      seedSignup(db, `early${i}`, { amountReferred: 0, score: 0, createdAt: `2026-06-15T08:0${i}:00Z` });
+    }
+    seedSignup(db, "ref1", { firstName: "Late", amountReferred: 2, score: 0, createdAt: "2026-06-15T20:00:00Z" });
+    seedSignup(db, "ref2", { firstName: "Later", amountReferred: 5, score: 0, createdAt: "2026-06-15T21:00:00Z" });
+
+    const board = await getLeaderboard(ctx, campaign({ spotsToMoveUponReferral: 0 }), db);
+    expect(board.map((e) => e.amount_referred)).toEqual([5, 2]); // referrers still appear, ranked by count
   });
 
   it("excludes signups with zero referrals (empty board, not unreferred users)", async () => {

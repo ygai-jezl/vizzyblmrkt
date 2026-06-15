@@ -19,21 +19,25 @@ export async function getLeaderboard(
 ): Promise<PublicLeaderboardEntry[]> {
   if (!campaign.usesLeaderboard || campaign.leaderboardLength <= 0) return [];
 
+  // Rank by amountReferred directly (PRD: "highest number of referrals occupies
+  // index 0"), NOT by score. score = amountReferred × spotsToMoveUponReferral
+  // collapses to 0 for everyone when spots == 0 (a valid config — referrals as
+  // vanity milestones), which would break the ordering. The `> 0` filter is a
+  // range on the leading orderBy field, so the limit only ever counts real
+  // referrers. Requires the (tenantId, campaignId, status, amountReferred DESC,
+  // createdAt ASC) composite index.
   const rows = await forTenant(ctx, db).signups.find({
     where: [
       ["campaignId", "==", campaign.id],
       ["status", "==", "verified_active"],
+      ["amountReferred", ">", 0],
     ],
     orderBy: [
-      ["score", "desc"],
+      ["amountReferred", "desc"],
       ["createdAt", "asc"],
     ],
     limit: campaign.leaderboardLength,
   });
 
-  // score = amountReferred × spots, so 0-referral signups sort last; filtering
-  // after the limit still yields the true top referrers (up to leaderboardLength).
-  return rows
-    .filter((s) => s.amountReferred > 0)
-    .map((s, i) => toPublicLeaderboardEntry(s, i + 1));
+  return rows.map((s, i) => toPublicLeaderboardEntry(s, i + 1));
 }

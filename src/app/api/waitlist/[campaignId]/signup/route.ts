@@ -93,8 +93,13 @@ export async function POST(
         result.signup.referralToken,
         campaign.spotsToMoveUponReferral,
       );
-    } catch {
-      // best-effort; do not block the signup on referral attribution
+    } catch (err) {
+      // Best-effort: never block the signup on referral attribution. Log so a
+      // dropped credit is observable (transient Firestore/contention error).
+      console.warn(
+        `referral credit failed for campaign=${campaign.id} referrer=${parsed.data.referredBySignupToken}:`,
+        err,
+      );
     }
   }
 

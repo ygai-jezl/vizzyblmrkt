@@ -1,0 +1,31 @@
+# Firebase App Hosting — BASE config (dev defaults; overridden per environment
+# by apphosting.<env>.yaml, e.g. apphosting.prod.yaml).
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+
+runConfig:
+  # Dev scales to zero for $0 idle cost. Prod overrides minInstances to 1.
+  minInstances: 0
+  maxInstances: 10
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  - variable: GOOGLE_CLOUD_PROJECT
+    value: vizzybl-marketing-dev
+    availability:
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: vizzybl-marketing-dev
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # Secrets live in Secret Manager, never in this file. Wire them like so once
+  # created (`firebase apphosting:secrets:set <name>`):
+  #
+  # - variable: RECAPTCHA_API_KEY
+  #   secret: recaptcha-api-key
+  #   availability:
+  #     - RUNTIME

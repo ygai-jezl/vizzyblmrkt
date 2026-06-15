@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BACKSTOP ONLY. These rules deny ALL direct client-SDK access.
+//
+// Tenant isolation is enforced in application code (src/lib/tenant), because
+// every read/write flows through a server service account, and server access
+// BYPASSES Security Rules entirely. Rules cannot be the real control here.
+//
+// We deny everything so that if a browser ever talks to Firestore directly
+// (misconfig, leaked web key), it gets nothing. All legitimate traffic goes
+// through the server, which is authorized by IAM, not by these rules.
+// See docs/ARCHITECTURE-AND-DELIVERY.md §4.
+// ─────────────────────────────────────────────────────────────────────────────
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

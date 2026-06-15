@@ -1,0 +1,23 @@
+# Firebase App Hosting — PRODUCTION overrides (merged over apphosting.yaml).
+# Bound to the `prod` App Hosting environment.
+
+runConfig:
+  # minInstances: 1 keeps a warm instance so the public landing page meets its
+  # latency target (App Hosting bills a warm instance at a lower idle rate).
+  minInstances: 1
+  maxInstances: 50
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  - variable: GOOGLE_CLOUD_PROJECT
+    value: vizzybl-marketing-prod
+    availability:
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: vizzybl-marketing-prod
+    availability:
+      - BUILD
+      - RUNTIME

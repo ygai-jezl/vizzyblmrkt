@@ -1,0 +1,185 @@
+import { getDb } from "./firestore";
+import { TenantIsolationError, TenantValidationError } from "./errors";
+import type {
+  FirestoreLike,
+  OrderDir,
+  QueryLike,
+  TenantContext,
+  WhereOp,
+} from "./types";
+import type { Campaign } from "@/lib/types/campaign";
+import type { Signup } from "@/lib/types/signup";
+import type { TenantUser } from "@/lib/types/tenantUser";
+
+/** The reserved partition field present on every tenant-scoped document. */
+export const TENANT_FIELD = "tenantId" as const;
+
+export type WhereClause = [field: string, op: WhereOp, value: unknown];
+
+export interface FindOptions {
+  where?: WhereClause[];
+  orderBy?: Array<[field: string, dir: OrderDir]>;
+  limit?: number;
+}
+
+type TenantScoped = { tenantId: string; id: string };
+type CreateInput<T extends TenantScoped> = Omit<T, "tenantId" | "id">;
+
+/** Detects a Firestore ALREADY_EXISTS error (gRPC code 6) across admin + fake. */
+function isAlreadyExists(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  if (code === 6 || code === "already-exists" || code === "ALREADY_EXISTS") {
+    return true;
+  }
+  const message = (err as { message?: unknown }).message;
+  return typeof message === "string" && /already exists/i.test(message);
+}
+
+/**
+ * A tenant-scoped view of a single Firestore collection. EVERY operation is
+ * forced through the tenant predicate:
+ *
+ *  - find/count always inject `where(tenantId == ctx.tenantId)` and ignore any
+ *    caller attempt to override the tenant filter.
+ *  - getById re-checks the stored document's tenantId (defence in depth against
+ *    an id guessed from another tenant).
+ *  - create strips any caller-supplied tenantId/id and stamps the trusted one.
+ *  - update/delete verify tenant ownership before mutating, and refuse to change
+ *    the tenantId.
+ *
+ * This is the platform's #1 security control. See docs/ARCHITECTURE-AND-DELIVERY.md §4.
+ */
+export class TenantCollection<T extends TenantScoped> {
+  constructor(
+    private readonly db: FirestoreLike,
+    private readonly name: string,
+    private readonly tenantId: string,
+  ) {}
+
+  /** Base query, already partitioned to this tenant. */
+  private base(): QueryLike {
+    return this.db
+      .collection(this.name)
+      .where(TENANT_FIELD, "==", this.tenantId);
+  }
+
+  private applyWhere(q: QueryLike, where: WhereClause[] = []): QueryLike {
+    for (const [field, op, value] of where) {
+      // The tenant predicate is non-negotiable. Silently drop any attempt to
+      // re-filter (or widen) the tenant field.
+      if (field === TENANT_FIELD) continue;
+      q = q.where(field, op, value);
+    }
+    return q;
+  }
+
+  async find(opts: FindOptions = {}): Promise<T[]> {
+    let q = this.applyWhere(this.base(), opts.where);
+    for (const [field, dir] of opts.orderBy ?? []) q = q.orderBy(field, dir);
+    if (opts.limit != null) q = q.limit(opts.limit);
+    const snap = await q.get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
+  }
+
+  /**
+   * Aggregation count. Cheap per call (1 read per 1000 index entries) but it
+   * scales with dataset size and needs a matching composite index. Do NOT use
+   * it per-request on hot public paths (e.g. live leaderboard rank) — cache or
+   * denormalise into a counter instead. See docs/ARCHITECTURE-AND-DELIVERY.md §6.
+   */
+  async count(where: WhereClause[] = []): Promise<number> {
+    const q = this.applyWhere(this.base(), where);
+    const snap = await q.count().get();
+    return snap.data().count;
+  }
+
+  async getById(id: string): Promise<T | null> {
+    const snap = await this.db.collection(this.name).doc(id).get();
+    if (!snap.exists) return null;
+    const data = snap.data() ?? {};
+    // Defence in depth: a direct id fetch must still belong to this tenant.
+    if (data[TENANT_FIELD] !== this.tenantId) return null;
+    return { id: snap.id, ...data } as T;
+  }
+
+  /**
+   * Create a document with a caller-provided id (use a UUID for signups, a slug
+   * for campaigns). The tenantId is stamped from context — any tenantId/id in
+   * `data` is ignored.
+   *
+   * SECURITY: uses Firestore's ATOMIC create(), which rejects if the id already
+   * exists — in ANY tenant. We cannot pre-check with getById() (it is
+   * tenant-scoped and would report a foreign-tenant document as absent, letting
+   * a guessed id silently overwrite and re-home another tenant's record).
+   * A collision surfaces as TenantIsolationError; callers that need
+   * idempotent retries should handle it explicitly.
+   */
+  async create(id: string, data: CreateInput<T>): Promise<T> {
+    if (!id) throw new TenantValidationError("create() requires a document id");
+    const { tenantId: _t, id: _i, ...rest } = data as Record<string, unknown>;
+    const doc = { ...rest, [TENANT_FIELD]: this.tenantId };
+    try {
+      await this.db.collection(this.name).doc(id).create(doc);
+    } catch (err) {
+      if (isAlreadyExists(err)) {
+        throw new TenantIsolationError(
+          `${this.name}/${id} already exists; refusing to overwrite`,
+        );
+      }
+      throw err;
+    }
+    return { id, ...doc } as unknown as T;
+  }
+
+  async update(
+    id: string,
+    patch: Partial<CreateInput<T>>,
+  ): Promise<void> {
+    const existing = await this.getById(id); // verifies tenant ownership
+    if (!existing) {
+      throw new TenantIsolationError(
+        `${this.name}/${id} not found in tenant ${this.tenantId}`,
+      );
+    }
+    const { tenantId: _t, id: _i, ...rest } = patch as Record<string, unknown>;
+    await this.db.collection(this.name).doc(id).update(rest);
+  }
+
+  async delete(id: string): Promise<void> {
+    const existing = await this.getById(id); // verifies tenant ownership
+    if (!existing) {
+      throw new TenantIsolationError(
+        `${this.name}/${id} not found in tenant ${this.tenantId}`,
+      );
+    }
+    await this.db.collection(this.name).doc(id).delete();
+  }
+}
+
+/** The set of tenant-scoped repositories available within a request context. */
+export interface TenantRepositories {
+  campaigns: TenantCollection<Campaign>;
+  signups: TenantCollection<Signup>;
+  members: TenantCollection<TenantUser>;
+}
+
+/**
+ * Entry point for all tenant-scoped data access. Pass a request's
+ * TenantContext; receive repositories that can only ever see this tenant's
+ * data. In tests, inject a fake Firestore as the second argument.
+ */
+export function forTenant(
+  ctx: TenantContext,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): TenantRepositories {
+  if (!ctx?.tenantId) {
+    throw new TenantValidationError("TenantContext.tenantId is required");
+  }
+  const t = ctx.tenantId;
+  return {
+    campaigns: new TenantCollection<Campaign>(db, "campaigns", t),
+    signups: new TenantCollection<Signup>(db, "signups", t),
+    members: new TenantCollection<TenantUser>(db, "tenant_users", t),
+  };
+}

@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "vizzybl-marketing-dev",
+    "dev": "vizzybl-marketing-dev",
+    "prod": "vizzybl-marketing-prod"
+  }
+}

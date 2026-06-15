@@ -11,6 +11,7 @@ import { tenantContextFromClaims, type VerifiedClaims } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Region } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
+import { isAllowedAdmin } from "./allowlist";
 
 /**
  * Server-side admin session. Auth is decoupled from Firestore (no tenant data
@@ -36,6 +37,33 @@ function adminApp(): App {
     credential: applicationDefault(),
     projectId: process.env.GOOGLE_CLOUD_PROJECT,
   });
+}
+
+export type AdminAccess = "ready" | "needs_refresh" | "forbidden";
+
+/**
+ * Verify a Google ID token, gate by Workspace domain, and BOOTSTRAP the
+ * tenant/role claims on first sign-in. Returns:
+ *  - "forbidden"     → not an allowed account (no session)
+ *  - "needs_refresh" → just minted claims; the client must refresh its ID token
+ *                      and call again so the new token carries the claims
+ *  - "ready"         → the token already has tenant_id+region; create the session
+ */
+export async function ensureAdminAccess(idToken: string): Promise<AdminAccess> {
+  const auth = getAuth(adminApp());
+  const decoded = await auth.verifyIdToken(idToken);
+  if (!isAllowedAdmin(decoded.email, decoded.hd as string | undefined)) {
+    return "forbidden";
+  }
+  if (!decoded.tenant_id || !decoded.region) {
+    await auth.setCustomUserClaims(decoded.uid, {
+      tenant_id: process.env.ADMIN_BOOTSTRAP_TENANT_ID ?? "ten_vzb",
+      region: process.env.ADMIN_BOOTSTRAP_REGION ?? "us",
+      role: "admin",
+    });
+    return "needs_refresh";
+  }
+  return "ready";
 }
 
 /** Exchange a freshly-minted ID token for a long-lived session cookie. */

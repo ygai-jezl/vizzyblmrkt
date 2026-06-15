@@ -22,6 +22,20 @@ env:
       - BUILD
       - RUNTIME
 
+  # Public Firebase web config (NOT secrets — these ship in the client bundle).
+  # Required at BUILD time (NEXT_PUBLIC_* is inlined) for admin Google sign-in.
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyBG9TSeva0VaH-XUuohP2XKECn4taeLNzM
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: vizzybl-marketing-dev.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+
   # Secrets live in Secret Manager, never in this file. Wire them like so once
   # created (`firebase apphosting:secrets:set <name>`):
   #

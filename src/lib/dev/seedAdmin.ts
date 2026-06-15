@@ -7,7 +7,8 @@ import { getAuth } from "firebase-admin/auth";
  * the seed route only calls this when FIREBASE_AUTH_EMULATOR_HOST is set, so it
  * never provisions a real Identity Platform user by accident.
  */
-export const DEMO_ADMIN_EMAIL = "admin@vizzybl.test";
+// @yougrow.ai so it passes the admin domain gate; emulator-only test fixture.
+export const DEMO_ADMIN_EMAIL = "admin@yougrow.ai";
 export const DEMO_ADMIN_PASSWORD = "vizzybl-demo-pass";
 
 function app() {

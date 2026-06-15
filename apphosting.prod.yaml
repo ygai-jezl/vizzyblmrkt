@@ -21,3 +21,16 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  # Public Firebase web config (NOT secrets — shipped in the client bundle).
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyD_DhhchXkLC5qux5o0bL4wEHusANTIGGo
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: vizzybl-marketing-prod.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME

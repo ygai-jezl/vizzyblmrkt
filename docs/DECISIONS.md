@@ -4,6 +4,39 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0003 — Admin portal authentication (2026-06-15)
+
+Context: building the admin portal (All Signups dashboard). Founder decisions:
+
+- **Google Sign-In, restricted to the `@yougrow.ai` Workspace** (Google-only — no
+  email/password in the UI). Verified via the Google `hd` hosted-domain claim,
+  with an optional explicit `ADMIN_ALLOWED_EMAILS` allowlist for external accounts.
+- **Claims bootstrap:** access is gated by `tenant_id`/`region`/`role` custom
+  claims (a user cannot self-assign them). On first sign-in, an allowed account
+  is granted admin on the bootstrap tenant (`ten_vzb`/`us`) via a two-step
+  ID-token refresh (mint claims → refresh → session cookie). Per-tenant invites
+  that assign claims explicitly are a later (org/RBAC) slice.
+- **Session:** HttpOnly `__session` cookie (firebase-admin `createSessionCookie`),
+  `verifySessionCookie(checkRevoked=true)`; tenant context derived ONLY from the
+  verified claims, never from request input. The session/isolation layer is
+  identical regardless of sign-in method.
+
+Adversarial review (post-build) findings, all addressed:
+- **P0 fixed:** the public web config (`NEXT_PUBLIC_FIREBASE_API_KEY` /
+  `_AUTH_DOMAIN`) was never wired into App Hosting, so the deployed client shipped
+  `apiKey:"emulator"` and every login failed. Now set in `apphosting.yaml` /
+  `apphosting.prod.yaml` (public values, not secrets); the client fail-loud if the
+  key is missing outside the emulator.
+- **P2 fixed:** added a same-origin (Sec-Fetch-Site + Origin/host) guard on the
+  admin mutation route (CSRF defense-in-depth on top of SameSite=Lax).
+- **P2 (bounded, tracked):** the 5-day session cookie carries claims that
+  `setCustomUserClaims` alone doesn't revoke. No impact today (both roles may
+  manage signups; only NEW grants happen). Before shipping admin-only surfaces
+  (org/billing), call `revokeRefreshTokens(uid)` on downgrade or re-read live
+  claims for privileged actions.
+
+---
+
 ## ADR-0002 — Regional data residency (2026-06-15)
 
 Context: founder wants regional data residency (US / EU / Asia). Validated against

@@ -69,7 +69,7 @@ echo "--- admin: sign in via Auth emulator → session cookie ---"
 AUTH_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-127.0.0.1:9199}"
 ID=$(curl -s -X POST "http://$AUTH_HOST/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo" \
   -H 'content-type: application/json' \
-  -d '{"email":"admin@vizzybl.test","password":"vizzybl-demo-pass","returnSecureToken":true}' \
+  -d '{"email":"admin@yougrow.ai","password":"vizzybl-demo-pass","returnSecureToken":true}' \
   | sed -n 's/.*"idToken":"\([^"]*\)".*/\1/p')
 [ -n "$ID" ] && echo "got idToken (len ${#ID})" || { echo "no idToken from auth emulator"; fail=1; }
 curl -s -c /tmp/cj.txt -o /tmp/sess.json -w "session HTTP %{http_code}\n" -X POST "$BASE/api/auth/session" \

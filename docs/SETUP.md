@@ -146,37 +146,31 @@ gcloud recaptcha keys create --project="$PROJECT" \
 Put the **site key** in `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`. The server-side
 assessment uses ADC — no secret key in `NEXT_PUBLIC_*`.
 
-## 8. Identity Platform + admin portal auth (Phase 2)
-The admin portal signs in with email/password and exchanges the ID token for an
-HttpOnly session cookie. Steps for the **deployed** portal (local dev uses the
-Auth emulator — no console setup needed):
+## 8. Identity Platform + admin portal auth — Google Sign-In (Phase 2)
+The admin portal signs in with **Google** (restricted to the `@yougrow.ai`
+Workspace) and exchanges the ID token for an HttpOnly session cookie. On first
+sign-in the server mints the `tenant_id` / `region` / `role` claims (no manual
+user creation). Steps for the **deployed** portal (local dev uses the Auth
+emulator — no console setup needed):
 
 1. **Enable Identity Platform** (console → Identity Platform → Get started) and
-   turn on the **Email/Password** provider + **Email Enumeration Protection**.
-2. **Web app config** → put the public web config in the App Hosting env (these
-   are not secrets):
-   ```yaml
-   # apphosting.yaml
-   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-     value: <web api key>
-     availability: [BUILD, RUNTIME]
-   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-     value: vizzybl-marketing-dev.firebaseapp.com
-     availability: [BUILD, RUNTIME]
-   ```
-3. **Create the first admin user** + mint the claims the session layer requires
-   (`tenant_id`, `region`, `role`). The session cookie is invalid without them:
-   ```bash
-   # create the user (console → Authentication → Add user), get its UID, then:
-   gcloud auth print-access-token >/dev/null   # ensure ADC
-   # set claims via the Admin SDK / a one-off script:
-   #   getAuth().setCustomUserClaims(uid, { tenant_id: "ten_vzb", region: "us", role: "admin" })
-   ```
-   (Org-managed invites that mint these claims automatically are a later slice.)
+   turn on the **Google** provider. Add your App Hosting domains to the
+   authorized domains. (You can leave Email/Password disabled.)
+2. **Web config is already wired** into `apphosting.yaml` / `apphosting.prod.yaml`
+   (`NEXT_PUBLIC_FIREBASE_API_KEY` + `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` — public,
+   not secrets). Verify they match each project's Web app.
+3. **Access control** is env-driven (already set in the yaml defaults):
+   `ADMIN_ALLOWED_DOMAINS=yougrow.ai` (+ optional `ADMIN_ALLOWED_EMAILS`),
+   `NEXT_PUBLIC_ADMIN_HD=yougrow.ai`, and the bootstrap target
+   `ADMIN_BOOTSTRAP_TENANT_ID=ten_vzb` / `ADMIN_BOOTSTRAP_REGION=us`. Any
+   `@yougrow.ai` account that signs in is granted admin on the bootstrap tenant.
+4. **First real prod tenant:** before admins sign in on prod, create the real
+   `vizzybl.ai` tenant + campaign (a proper first-tenant flow, not the demo seed).
 
-> Local dev: `npm run smoke` seeds `admin@vizzybl.test` / `vizzybl-demo-pass`
-> into the Auth emulator with the right claims, so the full login → dashboard →
-> offboard flow is exercised without any console setup.
+> Local dev: `npm run smoke` seeds `admin@yougrow.ai` / `vizzybl-demo-pass` into
+> the Auth emulator with the right claims, exercising the full
+> sign-in → dashboard → offboard flow without any console setup. Real users never
+> use a password — the login UI is Google-only.
 
 ## 9. App Hosting backend + connect repo
 ```bash

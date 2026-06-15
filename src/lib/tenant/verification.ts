@@ -5,8 +5,11 @@ import type { TenantContext } from "./types";
 /**
  * Atomically verify a signup by its double-opt-in token. Runs in a transaction
  * so two concurrent clicks can't both flip (and thus can't both trigger a
- * referral credit). Clears the token on success. Scoped to tenant + campaign +
- * regional DB.
+ * referral credit). The token is intentionally NOT cleared, so a re-presented
+ * link (double-click, or a mail scanner that pre-fetches GET links) resolves to
+ * `already_verified` instead of a confusing "invalid link". Once status is
+ * verified_active the token confers nothing, and the status gate still bounds
+ * the referral credit to exactly once. Scoped to tenant + campaign + regional DB.
  */
 export interface VerifyResult {
   status: "verified" | "already_verified" | "not_found";
@@ -37,11 +40,7 @@ export async function verifySignupByToken(
     if (data.status === "verified_active") {
       return { status: "already_verified" as const };
     }
-    tx.update(doc.ref, {
-      verified: true,
-      status: "verified_active",
-      verificationToken: null,
-    });
+    tx.update(doc.ref, { verified: true, status: "verified_active" });
     return {
       status: "verified" as const,
       referralToken: data.referralToken as string,

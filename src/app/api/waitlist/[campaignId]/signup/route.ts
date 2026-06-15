@@ -88,9 +88,10 @@ export async function POST(
     result.signup.email &&
     result.signup.verificationToken
   ) {
+    const verifyUrl = `${origin}/api/waitlist/${campaign.id}/verify?token=${encodeURIComponent(result.signup.verificationToken)}`;
+    let emailSent = false;
     try {
-      const verifyUrl = `${origin}/api/waitlist/${campaign.id}/verify?token=${encodeURIComponent(result.signup.verificationToken)}`;
-      await sendEmail(
+      const r = await sendEmail(
         verificationEmail({
           to: result.signup.email,
           waitlistName: campaign.waitlistName,
@@ -98,8 +99,24 @@ export async function POST(
           verifyUrl,
         }),
       );
+      emailSent = r.sent;
     } catch (err) {
       console.warn(`verification email failed for ${campaign.id}:`, err);
+    }
+    // If a verification-required campaign couldn't actually send the email in a
+    // real environment (no/broken provider), don't strand the user as a stuck
+    // unverified signup: remove it and fail loudly so a retry can try again.
+    // The emulator log-provider path (dev/tests) is intentionally allowed.
+    if (!emailSent && !process.env.FIRESTORE_EMULATOR_HOST) {
+      try {
+        await forTenant(ctx).signups.delete(result.signup.id);
+      } catch {
+        /* best effort */
+      }
+      return NextResponse.json(
+        { error: "verification_unavailable" },
+        { status: 503 },
+      );
     }
   }
 

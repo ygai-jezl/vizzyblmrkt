@@ -21,13 +21,19 @@ export async function GET(
   const { campaignId } = await params;
   const token = new URL(req.url).searchParams.get("token") ?? "";
   const origin = originFromHeaders(req.headers);
-  const hosted = `${origin}/waitlist/${campaignId}`;
+
+  // Always redirect to a relative path resolved against the request URL — never
+  // reflect a (spoofable) Host header into the Location.
+  const back = (param: string) =>
+    NextResponse.redirect(
+      new URL(`/waitlist/${encodeURIComponent(campaignId)}?${param}`, req.url),
+    );
 
   const ctx = await resolveTenantFromOrigin(origin).catch(() => null);
-  if (!ctx) return NextResponse.redirect(`${hosted}?verify=invalid`);
+  if (!ctx) return back("verify=invalid");
 
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
-  if (!campaign) return NextResponse.redirect(`${hosted}?verify=invalid`);
+  if (!campaign) return back("verify=invalid");
 
   const result = await verifySignupByToken(ctx, campaignId, token);
 
@@ -46,9 +52,9 @@ export async function GET(
     }
   }
 
-  const param =
+  return back(
     result.status === "verified" || result.status === "already_verified"
       ? "verified=1"
-      : "verify=invalid";
-  return NextResponse.redirect(`${hosted}?${param}`);
+      : "verify=invalid",
+  );
 }

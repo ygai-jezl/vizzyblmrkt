@@ -49,5 +49,21 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/waitlist/nope/s
   -H 'content-type: application/json' -d '{"email":"x@y.com"}')
 echo "HTTP $code"; [ "$code" = "404" ] || fail=1
 
+echo "--- referral: B joins via A's token (expect 201) ---"
+REF=$(sed -n 's/.*"referralToken":"\([A-Z0-9]*\)".*/\1/p' /tmp/s1.json | head -1)
+echo "referrer token: $REF"
+code=$(curl -s -o /tmp/b.json -w "%{http_code}" -X POST "$BASE/api/waitlist/beta-launch/signup" \
+  -H 'content-type: application/json' -d "{\"email\":\"referred@test.com\",\"referredBySignupToken\":\"$REF\"}")
+echo "HTTP $code"; [ "$code" = "201" ] || fail=1
+
+echo "--- leaderboard (expect referrer with 1 referral, PII masked) ---"
+curl -s "$BASE/api/waitlist/beta-launch/leaderboard" -o /tmp/lb.json
+cat /tmp/lb.json; echo
+grep -q '"amount_referred":1' /tmp/lb.json || fail=1
+if grep -q 'smoke@test.com' /tmp/lb.json; then echo "PII LEAK in leaderboard"; fail=1; fi
+
+echo "--- leaderboard cache header (expect s-maxage) ---"
+curl -s -D - -o /dev/null "$BASE/api/waitlist/beta-launch/leaderboard" | grep -i "cache-control" || fail=1
+
 echo "==== SMOKE $([ $fail -eq 0 ] && echo PASS || echo FAIL) ===="
 exit $fail

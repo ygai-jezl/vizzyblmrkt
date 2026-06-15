@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   resolveTenantFromOrigin,
   forTenant,
+  creditReferral,
   TenantNotFoundError,
 } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
@@ -76,6 +77,26 @@ export async function POST(
     hostedPageBaseUrl: origin,
     captchaValid: captcha.ok && !captcha.skipped,
   });
+
+  // Credit the referrer — only on a genuinely NEW, verified signup (idempotent
+  // re-submits skip this). A credit failure must never fail the signup itself.
+  if (
+    !result.alreadyJoined &&
+    result.signup.status === "verified_active" &&
+    parsed.data.referredBySignupToken
+  ) {
+    try {
+      await creditReferral(
+        ctx,
+        campaign.id,
+        parsed.data.referredBySignupToken,
+        result.signup.referralToken,
+        campaign.spotsToMoveUponReferral,
+      );
+    } catch {
+      // best-effort; do not block the signup on referral attribution
+    }
+  }
 
   return NextResponse.json(
     {

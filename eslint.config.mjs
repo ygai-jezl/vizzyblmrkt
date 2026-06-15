@@ -83,7 +83,9 @@ const eslintConfig = [
     },
   },
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
+    // infra/** holds standalone Cloud Functions (CommonJS, own runtime) — not
+    // part of the Next app's lint scope.
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "infra/**"],
   },
 ];
 

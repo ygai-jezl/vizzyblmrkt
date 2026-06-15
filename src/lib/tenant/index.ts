@@ -25,6 +25,8 @@ export {
 } from "./region";
 export type { RegionConfig } from "./region";
 export { createTenant } from "./control";
+export { creditReferral } from "./referral";
+export type { CreditReferralResult } from "./referral";
 export {
   TenantError,
   TenantNotFoundError,

@@ -1,4 +1,4 @@
-import { getDb } from "./firestore";
+import { getDb, isAlreadyExists } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type {
@@ -25,17 +25,6 @@ export interface FindOptions {
 
 type TenantScoped = { tenantId: string; id: string };
 type CreateInput<T extends TenantScoped> = Omit<T, "tenantId" | "id">;
-
-/** Detects a Firestore ALREADY_EXISTS error (gRPC code 6) across admin + fake. */
-function isAlreadyExists(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const code = (err as { code?: unknown }).code;
-  if (code === 6 || code === "already-exists" || code === "ALREADY_EXISTS") {
-    return true;
-  }
-  const message = (err as { message?: unknown }).message;
-  return typeof message === "string" && /already exists/i.test(message);
-}
 
 /**
  * A tenant-scoped view of a single Firestore collection. EVERY operation is

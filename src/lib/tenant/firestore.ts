@@ -26,13 +26,18 @@ import { DEFAULT_DATABASE_ID } from "./region";
 const clients = new Map<string, Firestore>();
 
 function getApp(): App {
-  return (
-    getApps()[0] ??
-    initializeApp({
-      credential: applicationDefault(),
-      projectId: process.env.GOOGLE_CLOUD_PROJECT,
-    })
-  );
+  const existing = getApps()[0];
+  if (existing) return existing;
+  // Local dev/test against the Firestore emulator needs no credentials.
+  if (process.env.FIRESTORE_EMULATOR_HOST) {
+    return initializeApp({
+      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-vizzybl",
+    });
+  }
+  return initializeApp({
+    credential: applicationDefault(),
+    projectId: process.env.GOOGLE_CLOUD_PROJECT,
+  });
 }
 
 export function getDb(databaseId: string = DEFAULT_DATABASE_ID): Firestore {
@@ -52,4 +57,15 @@ export function getDb(databaseId: string = DEFAULT_DATABASE_ID): Firestore {
   }
   clients.set(databaseId, db);
   return db;
+}
+
+/** Detects a Firestore ALREADY_EXISTS error (gRPC code 6) across admin + fake. */
+export function isAlreadyExists(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  if (code === 6 || code === "already-exists" || code === "ALREADY_EXISTS") {
+    return true;
+  }
+  const message = (err as { message?: unknown }).message;
+  return typeof message === "string" && /already exists/i.test(message);
 }

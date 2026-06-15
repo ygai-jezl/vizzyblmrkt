@@ -24,6 +24,7 @@ export {
   databaseIdForRegion,
 } from "./region";
 export type { RegionConfig } from "./region";
+export { createTenant } from "./control";
 export {
   TenantError,
   TenantNotFoundError,

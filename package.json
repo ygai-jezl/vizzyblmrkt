@@ -13,11 +13,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "firebase emulators:exec --config firebase.integration.json --project demo-vizzybl 'bash scripts/smoke.sh'",
     "emulators": "firebase emulators:start --only firestore,auth"
   },
   "dependencies": {
     "firebase": "^10.13.0",
     "firebase-admin": "^13.6.0",
+    "google-auth-library": "^9.15.0",
     "lucide-react": "^0.562.0",
     "next": "^15.5.7",
     "react": "^18.3.0",

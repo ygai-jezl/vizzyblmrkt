@@ -146,10 +146,37 @@ gcloud recaptcha keys create --project="$PROJECT" \
 Put the **site key** in `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`. The server-side
 assessment uses ADC — no secret key in `NEXT_PUBLIC_*`.
 
-## 8. Identity Platform multi-tenancy (Phase 1, admin portal)
-Enable Identity Platform, turn on multi-tenancy (GCIP), and enable Email
-Enumeration Protection. Create a tenant per brand; mint `tenant_id` + `role`
-custom claims on users. (Console: Identity Platform → Settings → Security.)
+## 8. Identity Platform + admin portal auth (Phase 2)
+The admin portal signs in with email/password and exchanges the ID token for an
+HttpOnly session cookie. Steps for the **deployed** portal (local dev uses the
+Auth emulator — no console setup needed):
+
+1. **Enable Identity Platform** (console → Identity Platform → Get started) and
+   turn on the **Email/Password** provider + **Email Enumeration Protection**.
+2. **Web app config** → put the public web config in the App Hosting env (these
+   are not secrets):
+   ```yaml
+   # apphosting.yaml
+   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+     value: <web api key>
+     availability: [BUILD, RUNTIME]
+   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+     value: vizzybl-marketing-dev.firebaseapp.com
+     availability: [BUILD, RUNTIME]
+   ```
+3. **Create the first admin user** + mint the claims the session layer requires
+   (`tenant_id`, `region`, `role`). The session cookie is invalid without them:
+   ```bash
+   # create the user (console → Authentication → Add user), get its UID, then:
+   gcloud auth print-access-token >/dev/null   # ensure ADC
+   # set claims via the Admin SDK / a one-off script:
+   #   getAuth().setCustomUserClaims(uid, { tenant_id: "ten_vzb", region: "us", role: "admin" })
+   ```
+   (Org-managed invites that mint these claims automatically are a later slice.)
+
+> Local dev: `npm run smoke` seeds `admin@vizzybl.test` / `vizzybl-demo-pass`
+> into the Auth emulator with the right claims, so the full login → dashboard →
+> offboard flow is exercised without any console setup.
 
 ## 9. App Hosting backend + connect repo
 ```bash

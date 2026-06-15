@@ -60,13 +60,16 @@ const eslintConfig = [
       "no-restricted-imports": [
         "error",
         {
+          // The ban targets FIRESTORE access specifically. firebase-admin/auth
+          // and firebase-admin/app (session cookies, token verification, claims)
+          // are legitimately needed outside the tenant layer.
           paths: [
             { name: "firebase-admin", message: ISOLATION_MESSAGE },
+            { name: "firebase-admin/firestore", message: ISOLATION_MESSAGE },
             { name: "firebase/firestore", message: ISOLATION_MESSAGE },
             { name: "@google-cloud/firestore", message: ISOLATION_MESSAGE },
           ],
           patterns: [
-            { group: ["firebase-admin/*"], message: ISOLATION_MESSAGE },
             { group: ["@google-cloud/firestore/*"], message: ISOLATION_MESSAGE },
           ],
         },

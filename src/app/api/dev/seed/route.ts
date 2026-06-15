@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { seedDemoData } from "@/lib/dev/seedDemo";
+import { seedAdminUser } from "@/lib/dev/seedAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,5 +25,12 @@ export async function POST(req: Request) {
   }
 
   const result = await seedDemoData();
-  return NextResponse.json({ ok: true, ...result });
+
+  // Only seed an admin auth user against the Auth emulator (never real GCIP).
+  let admin: string | null = null;
+  if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    admin = (await seedAdminUser()).email;
+  }
+
+  return NextResponse.json({ ok: true, ...result, admin });
 }

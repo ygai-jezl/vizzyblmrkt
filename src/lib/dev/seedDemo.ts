@@ -8,6 +8,8 @@ import type { TenantContext } from "@/lib/tenant/types";
  */
 export const SEED_TENANT_ID = "ten_vzb";
 export const SEED_CAMPAIGN_ID = "beta-launch";
+/** Second demo campaign with double opt-in ON (for testing email verification). */
+export const SEED_VERIFY_CAMPAIGN_ID = "beta-verify";
 
 export const SEED_ALLOWED_ORIGINS = [
   "http://localhost:3002",
@@ -87,6 +89,32 @@ export async function seedDemoData(): Promise<SeedResult> {
   } catch (err) {
     if (err instanceof TenantIsolationError) result.campaign = "exists";
     else throw err;
+  }
+
+  // Second campaign with double opt-in enabled (idempotent).
+  try {
+    await forTenant(ctx).campaigns.create(SEED_VERIFY_CAMPAIGN_ID, {
+      waitlistName: "Vizzybl Beta (verified)",
+      waitlistUrlLocation: null,
+      spotsToMoveUponReferral: 10,
+      usesFirstnameLastname: false,
+      usesLeaderboard: true,
+      usesSignupVerification: true,
+      hideCounts: false,
+      removeWidgetHeaders: false,
+      requiredContactDetail: "EMAIL",
+      questions: [],
+      twitterMessage: "I just joined the Vizzybl waitlist!",
+      sendEmailCongratulationsOnReferral: true,
+      leaderboardLength: 5,
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        statusDescription: "You're on the list!",
+      },
+      createdAt: now,
+    } as never);
+  } catch (err) {
+    if (!(err instanceof TenantIsolationError)) throw err;
   }
 
   return result;

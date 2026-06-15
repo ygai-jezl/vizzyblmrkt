@@ -65,6 +65,30 @@ if grep -q 'smoke@test.com' /tmp/lb.json; then echo "PII LEAK in leaderboard"; f
 echo "--- leaderboard cache header (expect s-maxage) ---"
 curl -s -D - -o /dev/null "$BASE/api/waitlist/beta-launch/leaderboard" | grep -i "cache-control" || fail=1
 
+echo "--- double opt-in: referrer R joins beta-verify (expect needsVerification) ---"
+R=$(curl -s -X POST "$BASE/api/waitlist/beta-verify/signup" -H 'content-type: application/json' -d '{"email":"verify-r@test.com"}')
+echo "$R"
+RVT=$(echo "$R" | sed -n 's/.*"_devVerificationToken":"\([^"]*\)".*/\1/p')
+RREF=$(echo "$R" | sed -n 's/.*"referralToken":"\([A-Z0-9]*\)".*/\1/p')
+echo "$R" | grep -q '"needsVerification":true' || fail=1
+[ -n "$RVT" ] || { echo "no verification token"; fail=1; }
+
+echo "--- verify R (expect redirect) ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/waitlist/beta-verify/verify?token=$RVT")
+echo "HTTP $code"; case "$code" in 30[1278]) ;; *) fail=1;; esac
+
+echo "--- E joins via R's link (unverified) — R must NOT be credited yet ---"
+E=$(curl -s -X POST "$BASE/api/waitlist/beta-verify/signup" -H 'content-type: application/json' -d "{\"email\":\"verify-e@test.com\",\"referredBySignupToken\":\"$RREF\"}")
+EVT=$(echo "$E" | sed -n 's/.*"_devVerificationToken":"\([^"]*\)".*/\1/p')
+if curl -s "$BASE/api/waitlist/beta-verify/leaderboard" | grep -q '"amount_referred"'; then
+  echo "BUG: referrer credited before referee verified"; fail=1
+else echo "referrer not credited pre-verification ✓"; fi
+
+echo "--- verify E → referrer R now credited ---"
+curl -s -o /dev/null -w "verify HTTP %{http_code}\n" "$BASE/api/waitlist/beta-verify/verify?token=$EVT"
+LB=$(curl -s "$BASE/api/waitlist/beta-verify/leaderboard"); echo "$LB"
+echo "$LB" | grep -q '"amount_referred":1' || fail=1
+
 echo "--- admin: sign in via Auth emulator → session cookie ---"
 AUTH_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-127.0.0.1:9199}"
 ID=$(curl -s -X POST "http://$AUTH_HOST/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo" \

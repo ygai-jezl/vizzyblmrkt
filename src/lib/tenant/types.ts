@@ -1,13 +1,16 @@
 import type { TenantRole } from "@/lib/types/tenantUser";
+import type { Region } from "@/lib/types/tenant";
 
 /**
- * The verified identity a request operates under. CRITICAL: `tenantId` is
- * always derived server-side — from the verified host→tenant mapping (public
- * endpoints) or a verified ID-token claim (admin portal). It must NEVER be
- * taken from a request body or query string.
+ * The verified identity a request operates under. CRITICAL: `tenantId` and
+ * `region` are always derived server-side — from the verified host→tenant
+ * mapping (public endpoints) or a verified ID-token claim (admin portal). They
+ * must NEVER be taken from a request body or query string.
  */
 export interface TenantContext {
   tenantId: string;
+  /** Data-residency region — selects the regional Firestore database. */
+  region: Region;
   userId?: string;
   role?: TenantRole;
   /** How the tenant was established, for auditing. */

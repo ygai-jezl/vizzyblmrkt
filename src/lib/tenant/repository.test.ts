@@ -4,8 +4,8 @@ import { forTenant } from "./repository";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type { TenantContext } from "./types";
 
-const ctxA: TenantContext = { tenantId: "ten_A", source: "system" };
-const ctxB: TenantContext = { tenantId: "ten_B", source: "system" };
+const ctxA: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
+const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
 
 function signup(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -141,7 +141,15 @@ describe("TenantCollection isolation", () => {
   it("forTenant() rejects a context without a tenantId", () => {
     const db = new FakeFirestore();
     expect(() =>
-      forTenant({ tenantId: "", source: "system" }, db),
+      forTenant({ tenantId: "", region: "us", source: "system" }, db),
+    ).toThrow(TenantValidationError);
+  });
+
+  it("forTenant() rejects a context without a region (residency guardrail)", () => {
+    const db = new FakeFirestore();
+    expect(() =>
+      // region intentionally omitted — must throw, never silently default.
+      forTenant({ tenantId: "ten_A", source: "system" } as never, db),
     ).toThrow(TenantValidationError);
   });
 });

@@ -4,6 +4,35 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0002 — Regional data residency (2026-06-15)
+
+Context: founder wants regional data residency (US / EU / Asia). Validated against
+current Google docs — see [REGIONAL-DATA-RESIDENCY.md](./REGIONAL-DATA-RESIDENCY.md).
+The sibling app `vizzybl-portal` already ships this named-database pattern in prod.
+
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | **Residency scope** | **Per tenant/brand** — each brand pinned to one region; all its campaigns + signups co-located. Keeps leaderboard/referrals/analytics single-database (the only cheap, atomic shape given no cross-database queries). |
+| 2 | **What stays in-region** | **Data at rest only** — Firestore + BigQuery region-pinned; compute stays central (one US App Hosting backend reads all regional DBs) for the MVP. Full regional compute cells deferred until a latency SLA or in-transit/sovereignty requirement. |
+| 3 | **Backend structure** | **Named Firestore databases in one project per env** — `(default)`=US (`nam5`), `signups-eu`=EU (`eur3`), `signups-asia`=Asia (`asia-southeast1`), one service account reaching all via `getFirestore(app, databaseId)`. Per-region BigQuery datasets. Not project-per-region. |
+
+**Hard Google constraints baked into the design:**
+- A Firestore database's **location is immutable** → `region` is set at tenant creation and never changes (enforced at the tenant write path in Phase 1). This is why `region` is front-loaded into Phase 0.
+- **No Asia multi-region** — only US (`nam5`/`nam7`) and EU (`eur3`). Asia is single-region (`asia-southeast1`, ≥99.99% SLA vs ≥99.999% for US/EU).
+- **No cross-database / cross-location queries.** Per-tenant residency keeps each campaign in one DB so this never bites the leaderboard.
+- **Only one free database per project**; EU/Asia DBs bill from op #1 (Blaze required).
+- `getFirestore(app, databaseId)` carries a stale "preview" banner but is GA and proven in the sibling prod app; `db.settings({ databaseId })` does NOT work.
+
+**Control-plane / data-plane split:**
+- Control plane = `(default)` DB: `tenants` + `tenant_users` registry (routing/membership metadata, no end-user PII). Read first to resolve `host → tenant → region`.
+- Data plane = regional DBs: `campaigns` + `signups` (the PII), in the tenant's region.
+
+**Implemented in Phase 0 (region-ready, US-only provisioned):** `Region` enum + immutable `region` on the tenant schema; `src/lib/tenant/region.ts` (`REGION_CONFIGS` + non-defaulting `databaseIdForRegion`); parameterized `getDb(databaseId)` with per-id cache; `region` on `TenantContext`/claims; `forTenant(ctx)` routes campaigns/signups to the regional DB and `tenant_users` to the control plane, and **throws if `region` is absent**.
+
+**Founder decisions still open (immutable once chosen):** which Asia region (default `asia-southeast1` Singapore, matching the sibling); EU `eur3` multi-region vs single EU region (default `eur3`); sovereignty (Assured Workloads/CMEK) — deferred unless contractually required.
+
+---
+
 ## ADR-0001 — MVP runtime, security posture, tenancy & scoring (2026-06-15)
 
 Context: kickoff. PRD validated against current Google Cloud docs (see

@@ -11,6 +11,12 @@ Next.js 15 · React 18 · TypeScript · Tailwind · Zod · Vitest · Firebase
 - **Tenant-isolation layer** — `src/lib/tenant`. The #1 security control: every
   Firestore access is forced through `forTenant(ctx)` so it's partitioned by
   `tenantId`. Raw Firestore access is banned everywhere else by an ESLint rule.
+- **Regional data residency (region-ready)** — per-tenant residency via named
+  Firestore databases (US/EU/Asia). `region` is immutable on each tenant;
+  `forTenant(ctx)` routes `campaigns`/`signups` to the tenant's regional DB while
+  the `tenants`/`tenant_users` registry stays on the control-plane DB. Only US is
+  provisioned today; EU/Asia light up with no schema migration. See
+  [docs/REGIONAL-DATA-RESIDENCY.md](./docs/REGIONAL-DATA-RESIDENCY.md).
 - **Schema-aligned types** — `src/lib/types` (Zod): `tenants`, `tenant_users`,
   `campaigns`, `signups`.
 - **Scoring** — `src/lib/waitlist/scoring.ts` (integer-safe; uses the

@@ -7,6 +7,7 @@ function tenant(over: Record<string, unknown> = {}): Record<string, unknown> {
     tenantName: "Vizzybl AI",
     rootDomain: "vizzybl.ai",
     status: "active",
+    region: "us",
     allowedOrigins: ["https://vizzybl.ai", "https://waitlist.vizzybl.ai"],
     billingTier: "mvp_free",
     ownerId: "usr_owner",

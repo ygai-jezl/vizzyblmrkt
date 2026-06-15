@@ -5,6 +5,7 @@ import {
   type App,
 } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { DEFAULT_DATABASE_ID } from "./region";
 
 /**
  * The ONE place in the codebase permitted to touch Firestore directly (the
@@ -15,26 +16,40 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore";
  * Auth is via Application Default Credentials — the runtime service account on
  * App Hosting / Cloud Run. No key files, ever. Locally, set
  * FIRESTORE_EMULATOR_HOST to route at the emulator.
+ *
+ * Multi-region: pass a `databaseId` to select a region's named database. One
+ * app / one service account reaches all of them. NOTE (sibling-verified): you
+ * MUST use getFirestore(app, databaseId) — db.settings({ databaseId }) does NOT
+ * work. The `(default)` database is both the control plane (tenants registry)
+ * and the US data plane today.
  */
-let cached: Firestore | null = null;
+const clients = new Map<string, Firestore>();
 
-export function getDb(): Firestore {
-  if (cached) return cached;
-
-  let app: App | undefined = getApps()[0];
-  if (!app) {
-    app = initializeApp({
+function getApp(): App {
+  return (
+    getApps()[0] ??
+    initializeApp({
       credential: applicationDefault(),
       projectId: process.env.GOOGLE_CLOUD_PROJECT,
-    });
-  }
+    })
+  );
+}
 
-  cached = getFirestore(app);
+export function getDb(databaseId: string = DEFAULT_DATABASE_ID): Firestore {
+  const cached = clients.get(databaseId);
+  if (cached) return cached;
+
+  const app = getApp();
+  const db =
+    databaseId === DEFAULT_DATABASE_ID
+      ? getFirestore(app)
+      : getFirestore(app, databaseId);
   try {
     // Don't persist `undefined` fields (they break aggregation/index queries).
-    cached.settings({ ignoreUndefinedProperties: true });
+    db.settings({ ignoreUndefinedProperties: true });
   } catch {
     // settings() throws if the instance was already used elsewhere (e.g. HMR).
   }
-  return cached;
+  clients.set(databaseId, db);
+  return db;
 }

@@ -19,6 +19,12 @@ export {
   getTenantsForUser,
 } from "./registry";
 export {
+  REGION_CONFIGS,
+  DEFAULT_DATABASE_ID,
+  databaseIdForRegion,
+} from "./region";
+export type { RegionConfig } from "./region";
+export {
   TenantError,
   TenantNotFoundError,
   TenantIsolationError,

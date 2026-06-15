@@ -1,4 +1,5 @@
 import { getDb } from "./firestore";
+import { databaseIdForRegion } from "./region";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type {
   FirestoreLike,
@@ -167,19 +168,33 @@ export interface TenantRepositories {
 /**
  * Entry point for all tenant-scoped data access. Pass a request's
  * TenantContext; receive repositories that can only ever see this tenant's
- * data. In tests, inject a fake Firestore as the second argument.
+ * data.
+ *
+ * Residency routing: `campaigns` and `signups` (the PII) live in the tenant's
+ * REGIONAL database (selected from ctx.region); `tenant_users` (membership
+ * metadata, no end-user PII) stays in the control-plane (default) database
+ * alongside the `tenants` registry. In tests, inject a fake Firestore as the
+ * second argument — it backs every collection.
  */
 export function forTenant(
   ctx: TenantContext,
-  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+  db?: FirestoreLike,
 ): TenantRepositories {
   if (!ctx?.tenantId) {
     throw new TenantValidationError("TenantContext.tenantId is required");
   }
+  if (!ctx.region) {
+    // Non-defaulting on purpose: a silent default would write a tenant's data
+    // into the wrong region's database and break residency invisibly.
+    throw new TenantValidationError("TenantContext.region is required");
+  }
+  const regionalDb =
+    db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
+  const controlDb = db ?? (getDb() as unknown as FirestoreLike);
   const t = ctx.tenantId;
   return {
-    campaigns: new TenantCollection<Campaign>(db, "campaigns", t),
-    signups: new TenantCollection<Signup>(db, "signups", t),
-    members: new TenantCollection<TenantUser>(db, "tenant_users", t),
+    campaigns: new TenantCollection<Campaign>(regionalDb, "campaigns", t),
+    signups: new TenantCollection<Signup>(regionalDb, "signups", t),
+    members: new TenantCollection<TenantUser>(controlDb, "tenant_users", t),
   };
 }

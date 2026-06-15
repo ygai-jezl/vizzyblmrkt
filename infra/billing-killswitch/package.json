@@ -1,0 +1,14 @@
+{
+  "name": "billing-killswitch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud Function (Gen2) that disables a project's billing when a budget hard cap is exceeded. Deployed per env; see docs/SETUP.md §6.",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google-cloud/billing": "^4.0.0",
+    "@google-cloud/functions-framework": "^3.4.0"
+  }
+}

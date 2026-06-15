@@ -138,6 +138,25 @@ describe("TenantCollection isolation", () => {
     expect(db.raw("signups", "s1")).toBeUndefined();
   });
 
+  it("update() ignores attempts to change immutable identity fields (tenantId/id/createdAt)", async () => {
+    const db = new FakeFirestore();
+    const repo = forTenant(ctxA, db);
+    await repo.signups.create("s1", signup({ createdAt: "2026-06-15T16:00:00Z" }) as never);
+
+    await repo.signups.update("s1", {
+      isSpam: true,
+      tenantId: "ten_EVIL",
+      id: "evil",
+      createdAt: "2099-01-01T00:00:00Z",
+    } as never);
+
+    const raw = db.raw("signups", "s1")!;
+    expect(raw.isSpam).toBe(true); // mutable field updated
+    expect(raw.tenantId).toBe("ten_A"); // tenant never re-homed
+    expect(raw.createdAt).toBe("2026-06-15T16:00:00Z"); // createdAt immutable
+    expect(db.raw("signups", "evil")).toBeUndefined(); // id never changed
+  });
+
   it("forTenant() rejects a context without a tenantId", () => {
     const db = new FakeFirestore();
     expect(() =>

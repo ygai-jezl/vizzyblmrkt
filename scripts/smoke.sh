@@ -96,5 +96,55 @@ curl -s -b /tmp/cj.txt -o /tmp/act.json -w "action HTTP %{http_code}\n" -X POST 
 cat /tmp/act.json; echo
 grep -q '"updated":1' /tmp/act.json || fail=1
 
+# --- Campaign settings (PUT) -------------------------------------------------
+# A full, strict CampaignSettings payload (the route rejects partials/unknowns).
+cat > /tmp/campaign_put.json <<'JSON'
+{
+  "waitlistName": "Vizzybl Beta (Updated)",
+  "waitlistUrlLocation": null,
+  "spotsToMoveUponReferral": 15,
+  "usesFirstnameLastname": false,
+  "usesLeaderboard": true,
+  "usesSignupVerification": false,
+  "hideCounts": false,
+  "removeWidgetHeaders": false,
+  "requiredContactDetail": "EMAIL",
+  "questions": [{ "question_value": "What will you use Vizzybl for?", "optional": true, "answer_value": null }],
+  "twitterMessage": "I just joined the Vizzybl waitlist!",
+  "sendEmailCongratulationsOnReferral": true,
+  "leaderboardLength": 5,
+  "configurationStyleJson": { "widgetButtonColor": "#111827", "socialLinks": { "twitter": "https://x.com/vizzybl" } }
+}
+JSON
+
+echo "--- admin: campaign PUT WITHOUT session is 401 ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/beta-launch" \
+  -H 'content-type: application/json' -d @/tmp/campaign_put.json)
+echo "HTTP $code"; [ "$code" = "401" ] || fail=1
+
+echo "--- admin: campaign PUT invalid body (expect 400) ---"
+code=$(curl -s -b /tmp/cj.txt -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/beta-launch" \
+  -H 'content-type: application/json' -d '{"nope":1}')
+echo "HTTP $code"; [ "$code" = "400" ] || fail=1
+
+echo "--- admin: campaign PUT unknown campaign (expect 404) ---"
+code=$(curl -s -b /tmp/cj.txt -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/does-not-exist" \
+  -H 'content-type: application/json' -d @/tmp/campaign_put.json)
+echo "HTTP $code"; [ "$code" = "404" ] || fail=1
+
+echo "--- admin: campaign PUT valid (expect ok:true) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/put.json -w "%{http_code}" -X PUT "$BASE/api/admin/campaigns/beta-launch" \
+  -H 'content-type: application/json' -d @/tmp/campaign_put.json)
+echo "HTTP $code"; cat /tmp/put.json; echo
+{ [ "$code" = "200" ] && grep -q '"ok":true' /tmp/put.json; } || fail=1
+
+echo "--- campaign update persisted: admin settings page shows new name ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/settings.html -w "%{http_code}" "$BASE/admin/settings/beta-launch")
+echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Vizzybl Beta (Updated)" /tmp/settings.html; } && echo "persisted ✓" || fail=1
+
+echo "--- admin: settings list renders (expect 'Campaign settings') ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/settings_list.html -w "%{http_code}" "$BASE/admin/settings")
+echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Campaign settings" /tmp/settings_list.html; } && echo "list ✓" || fail=1
+
 echo "==== SMOKE $([ $fail -eq 0 ] && echo PASS || echo FAIL) ===="
 exit $fail

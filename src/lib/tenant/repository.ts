@@ -132,7 +132,15 @@ export class TenantCollection<T extends TenantScoped> {
         `${this.name}/${id} not found in tenant ${this.tenantId}`,
       );
     }
-    const { tenantId: _t, id: _i, ...rest } = patch as Record<string, unknown>;
+    // Identity/immutable fields are defended HERE (not just by callers' schemas):
+    // tenantId/id can never be re-homed, and createdAt can never be rewritten,
+    // regardless of what a caller passes in the patch.
+    const {
+      tenantId: _t,
+      id: _i,
+      createdAt: _c,
+      ...rest
+    } = patch as Record<string, unknown>;
     await this.db.collection(this.name).doc(id).update(rest);
   }
 

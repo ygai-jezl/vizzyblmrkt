@@ -20,7 +20,9 @@ export default async function AdminLayout({
             <Link href="/admin/signups" className="hover:text-neutral-900 dark:hover:text-neutral-100">
               Signups
             </Link>
-            <span className="text-neutral-300 dark:text-neutral-700">Settings (soon)</span>
+            <Link href="/admin/settings" className="hover:text-neutral-900 dark:hover:text-neutral-100">
+              Settings
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-3 text-sm text-neutral-500">

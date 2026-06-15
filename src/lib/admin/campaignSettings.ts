@@ -1,0 +1,106 @@
+import { z } from "zod";
+import {
+  ConfigurationStyleSchema,
+  RequiredContactDetail,
+  type Campaign,
+} from "@/lib/types/campaign";
+
+/**
+ * The admin-editable subset of a Campaign — everything that drives the hosted
+ * waitlist page, minus the immutable/identity fields (`id`, `tenantId`,
+ * `createdAt`) which are set once at creation and stamped server-side.
+ *
+ * This schema is the single validation contract for the settings editor: it is
+ * shared by the PUT API route (server enforcement) and the form component (its
+ * inferred type). `.strict()` rejects unknown keys so a caller can't smuggle
+ * `tenantId`/`id`/`createdAt` — or any other field — into the update path.
+ */
+
+/**
+ * A survey question in the form builder. Stricter than the stored
+ * `QuestionSchema`: question text must be non-empty, and an `answer_value` of
+ * an EMPTY array (a "multiple choice" with no options) collapses to `null`
+ * (free-text) so the hosted form never renders an empty dropdown.
+ */
+export const SettingsQuestionSchema = z.object({
+  question_value: z.string().trim().min(1, "question text is required").max(500),
+  optional: z.boolean(),
+  answer_value: z
+    .array(z.string().trim().min(1).max(200))
+    .max(50)
+    .nullable()
+    .transform((v) => (v && v.length > 0 ? v : null)),
+});
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const COLOR_FIELDS = [
+  "widgetBackgroundColor",
+  "widgetButtonColor",
+  "widgetFontColor",
+] as const;
+
+/**
+ * Branding config with the editable colour fields constrained to 6-digit hex.
+ * The stored ConfigurationStyleSchema is intentionally loose (any string); the
+ * settings editor must not be able to persist an invalid CSS colour that the
+ * swatch silently renders as black.
+ */
+const StyleSettingsSchema = ConfigurationStyleSchema.refine(
+  (s) => COLOR_FIELDS.every((k) => !s[k] || HEX_COLOR.test(s[k] as string)),
+  { message: "widget colours must be a 6-digit hex value like #4937E7" },
+);
+
+export const CampaignSettingsSchema = z
+  .object({
+    waitlistName: z.string().trim().min(1, "name is required").max(120),
+    waitlistUrlLocation: z.string().trim().max(2000).nullable().optional(),
+
+    // Gamification physics — the "spots skipped per referral" knob.
+    spotsToMoveUponReferral: z.number().int().min(0).max(1000),
+
+    // Behaviour toggles
+    usesFirstnameLastname: z.boolean(),
+    usesLeaderboard: z.boolean(),
+    usesSignupVerification: z.boolean(),
+    hideCounts: z.boolean(),
+    removeWidgetHeaders: z.boolean(),
+    requiredContactDetail: RequiredContactDetail,
+
+    // Form builder
+    questions: z.array(SettingsQuestionSchema).max(50),
+
+    // Marketing / notifications
+    twitterMessage: z.string().trim().max(280).optional(),
+    sendEmailCongratulationsOnReferral: z.boolean(),
+    leaderboardLength: z.number().int().min(0).max(1000),
+
+    // Branding
+    configurationStyleJson: StyleSettingsSchema,
+  })
+  .strict();
+
+export type CampaignSettings = z.infer<typeof CampaignSettingsSchema>;
+
+/** Project a stored Campaign down to its editable settings (form defaults). */
+export function toCampaignSettings(campaign: Campaign): CampaignSettings {
+  return {
+    waitlistName: campaign.waitlistName,
+    waitlistUrlLocation: campaign.waitlistUrlLocation ?? null,
+    spotsToMoveUponReferral: campaign.spotsToMoveUponReferral,
+    usesFirstnameLastname: campaign.usesFirstnameLastname,
+    usesLeaderboard: campaign.usesLeaderboard,
+    usesSignupVerification: campaign.usesSignupVerification,
+    hideCounts: campaign.hideCounts,
+    removeWidgetHeaders: campaign.removeWidgetHeaders,
+    requiredContactDetail: campaign.requiredContactDetail,
+    questions: campaign.questions.map((q) => ({
+      question_value: q.question_value,
+      optional: q.optional,
+      answer_value: q.answer_value,
+    })),
+    twitterMessage: campaign.twitterMessage,
+    sendEmailCongratulationsOnReferral: campaign.sendEmailCongratulationsOnReferral,
+    leaderboardLength: campaign.leaderboardLength,
+    configurationStyleJson: campaign.configurationStyleJson,
+  };
+}

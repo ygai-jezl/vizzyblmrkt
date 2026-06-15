@@ -49,7 +49,9 @@ export const CampaignSchema = z.object({
   // Marketing / notifications
   twitterMessage: z.string().optional(),
   sendEmailCongratulationsOnReferral: z.boolean(),
-  leaderboardLength: z.number().int().min(0),
+  // Capped to match the admin-editable range (CampaignSettingsSchema) so the
+  // stored shape can never exceed what the settings editor can round-trip.
+  leaderboardLength: z.number().int().min(0).max(1000),
 
   // UI customization
   configurationStyleJson: ConfigurationStyleSchema,

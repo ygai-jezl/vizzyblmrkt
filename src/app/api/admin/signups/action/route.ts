@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
+import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -18,25 +19,8 @@ const ActionSchema = z.object({
  * signups (forTenant verifies ownership before update/delete).
  */
 export async function POST(req: Request) {
-  // CSRF defense-in-depth (on top of the SameSite=Lax session cookie): reject
-  // cross-site state-changing requests.
-  const secFetchSite = req.headers.get("sec-fetch-site");
-  if (secFetchSite === "cross-site") {
-    return NextResponse.json({ error: "cross_site_forbidden" }, { status: 403 });
-  }
-  const origin = req.headers.get("origin");
-  if (origin) {
-    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-    let originHost: string | null = null;
-    try {
-      originHost = new URL(origin).host;
-    } catch {
-      originHost = null;
-    }
-    if (originHost !== host) {
-      return NextResponse.json({ error: "bad_origin" }, { status: 403 });
-    }
-  }
+  const blocked = sameOriginGuard(req);
+  if (blocked) return blocked;
 
   const ctx = await getAdminContext();
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

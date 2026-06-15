@@ -10,10 +10,12 @@ import type { Region } from "@/lib/types/tenant";
  * documentation of where each database was provisioned, not a runtime input.
  * `databaseId` is what the app actually uses to select the database.
  *
- * `provisioned` reflects the deployment runbook (docs/SETUP.md): all three
- * regional databases are created up front. The flag stays so a FUTURE region
- * can be added code-first (provisioned:false) and `databaseIdForRegion` will
- * refuse to route to it until its database actually exists.
+ * `provisioned` reflects what actually exists in GCP. Today only the US
+ * `(default)` database (@nam5) is created; EU/Asia are deferred until a tenant
+ * needs them. `databaseIdForRegion` THROWS for an unprovisioned region, so a
+ * tenant's data can never be routed to a database that doesn't exist yet.
+ * Lighting up EU/Asia = create the database + flip `provisioned: true` + add a
+ * firebase.json entry — no schema migration (region is already on every tenant).
  */
 export interface RegionConfig {
   code: Region;

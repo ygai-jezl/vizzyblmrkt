@@ -1,4 +1,9 @@
-import { createTenant, forTenant, TenantIsolationError } from "@/lib/tenant";
+import {
+  createTenant,
+  backfillTenantFavicon,
+  forTenant,
+  TenantIsolationError,
+} from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 
 /**
@@ -22,6 +27,8 @@ export const SEED_ALLOWED_ORIGINS = [
 
 export interface SeedResult {
   tenant: "created" | "exists";
+  /** Outcome of the favicon backfill on the (possibly pre-existing) tenant doc. */
+  favicon: "set" | "already_set" | "not_found";
   campaign: "created" | "exists";
   hostedPage: string;
 }
@@ -30,6 +37,7 @@ export async function seedDemoData(): Promise<SeedResult> {
   const now = new Date().toISOString();
   const result: SeedResult = {
     tenant: "created",
+    favicon: "already_set",
     campaign: "created",
     hostedPage: `/waitlist/${SEED_CAMPAIGN_ID}`,
   };
@@ -51,6 +59,10 @@ export async function seedDemoData(): Promise<SeedResult> {
     if (err instanceof TenantIsolationError) result.tenant = "exists";
     else throw err;
   }
+
+  // Backfill the brand favicon so tenant docs created before the field gain one
+  // (no-op when already set, e.g. a tenant just created above).
+  result.favicon = await backfillTenantFavicon(SEED_TENANT_ID);
 
   const ctx: TenantContext = {
     tenantId: SEED_TENANT_ID,

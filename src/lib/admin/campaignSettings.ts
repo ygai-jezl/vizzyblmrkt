@@ -81,6 +81,63 @@ export const CampaignSettingsSchema = z
 
 export type CampaignSettings = z.infer<typeof CampaignSettingsSchema>;
 
+/**
+ * A safe default settings object for a brand-new launch — the caller fills in
+ * the name (and may tweak a few knobs); everything else gets a sensible default
+ * that mirrors the seeded demo campaign. The full editor lives in the launch's
+ * Settings tab afterward.
+ */
+export function defaultCampaignSettings(): CampaignSettings {
+  return {
+    waitlistName: "",
+    waitlistUrlLocation: null,
+    spotsToMoveUponReferral: 10,
+    usesFirstnameLastname: false,
+    usesLeaderboard: true,
+    usesSignupVerification: false,
+    hideCounts: false,
+    removeWidgetHeaders: false,
+    requiredContactDetail: "EMAIL",
+    questions: [],
+    sendEmailCongratulationsOnReferral: true,
+    leaderboardLength: 5,
+    configurationStyleJson: {
+      widgetButtonColor: "#111827",
+      statusDescription: "You're on the list!",
+    },
+  };
+}
+
+/**
+ * Build a URL-safe campaign id (slug) from a launch name: lowercase, hyphenated,
+ * trimmed to a Firestore-friendly length. May return "" for an all-symbol name —
+ * callers must handle that (the create API rejects an empty/invalid id).
+ */
+export function slugifyCampaignId(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+}
+
+/** Ids reserved because they collide with static routes under /admin/launches. */
+const RESERVED_CAMPAIGN_IDS = new Set(["new"]);
+
+/**
+ * Validate a NORMALISED (already lowercased) campaign id used as the Firestore
+ * document id and the public `/waitlist/<id>` slug.
+ */
+export const CampaignIdSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/,
+    "use lowercase letters, numbers and hyphens (3–64 chars)",
+  )
+  .refine((s) => !RESERVED_CAMPAIGN_IDS.has(s), { message: "that id is reserved" });
+
 /** Project a stored Campaign down to its editable settings (form defaults). */
 export function toCampaignSettings(campaign: Campaign): CampaignSettings {
   return {

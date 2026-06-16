@@ -12,6 +12,32 @@ const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label
   { value: "EITHER", label: "Email or phone" },
 ];
 
+type Strategy = CampaignSettings["strategy"];
+
+const CAMPAIGN_GOAL_OPTIONS: { value: Strategy["campaignGoal"]; label: string }[] = [
+  { value: "PRE_LAUNCH_WAITLIST", label: "Build Pre-Launch Waitlist" },
+  { value: "ENTERPRISE_LEAD_GEN", label: "Enterprise Lead Generation" },
+  { value: "COHORT_WAVE_RELEASE", label: "Cohort Access Wave Release" },
+  { value: "GENERAL_AVAILABILITY", label: "Direct Product Launch / GA" },
+  { value: "EVENT_REGISTRATION", label: "Event / Webinar Registration" },
+];
+
+const TARGET_AUDIENCE_OPTIONS: { value: Strategy["targetAudience"]; label: string }[] = [
+  { value: "DEVELOPERS_TECHNICAL_FOUNDERS", label: "Developers & Technical Founders" },
+  { value: "ENTERPRISE_DECISION_MAKERS", label: "Enterprise Decision Makers" },
+  { value: "STARTUPS_INDIE_HACKERS", label: "Startups & Indie Hackers" },
+  { value: "PRODUCT_GROWTH_TEAMS", label: "Product & Growth Teams" },
+  { value: "GENERAL_CONSUMERS", label: "General Consumers" },
+];
+
+const BRAND_TONE_OPTIONS: { value: Strategy["brandTone"]; label: string }[] = [
+  { value: "TECHNICAL_PEER", label: "Developer-to-Developer" },
+  { value: "BOLD_CHALLENGER", label: "Bold & Disruptive" },
+  { value: "ENTERPRISE_TRUST", label: "Enterprise Polish" },
+  { value: "PRODUCT_LED_CASUAL", label: "Product-Led Casual" },
+  { value: "FOMO_EXCLUSIVE", label: "High-Scarcity FOMO" },
+];
+
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 /** Stable per-row id so React keys survive add/remove (no focus loss). */
@@ -72,6 +98,14 @@ export function CampaignSettingsForm({
     setForm((f) => ({
       ...f,
       configurationStyleJson: { ...f.configurationStyleJson, [key]: value },
+    }));
+    setDirty(true);
+    setStatus("idle");
+  }
+  function setStrategy<K extends keyof Strategy>(key: K, value: Strategy[K]) {
+    setForm((f) => ({
+      ...f,
+      strategy: { ...f.strategy, [key]: value },
     }));
     setDirty(true);
     setStatus("idle");
@@ -146,6 +180,12 @@ export function CampaignSettingsForm({
       // otherwise keep the old copy.
       twitterMessage: form.twitterMessage?.trim() ?? "",
       configurationStyleJson: style,
+      // Send an explicit "" (never undefined) so clearing the instructions
+      // overwrites the stored value (Firestore update() merges otherwise).
+      strategy: {
+        ...form.strategy,
+        customToneInstructions: form.strategy.customToneInstructions?.trim() ?? "",
+      },
       questions: questions.map((q) => ({
         question_value: q.question_value.trim(),
         optional: q.optional,
@@ -230,6 +270,46 @@ export function CampaignSettingsForm({
           label="Require email verification (double opt-in)"
           checked={form.usesSignupVerification}
           onChange={(v) => set("usesSignupVerification", v)}
+        />
+      </Section>
+
+      <Section
+        title="Strategy & Context"
+        description="The core objectives and brand-voice constraints your agents use."
+      >
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-[16rem] flex-1">
+            <SelectField
+              label="Campaign goal"
+              value={form.strategy.campaignGoal}
+              onChange={(v) => setStrategy("campaignGoal", v)}
+              options={CAMPAIGN_GOAL_OPTIONS}
+            />
+          </div>
+          <NumberField
+            label="Target count"
+            value={form.strategy.targetCount}
+            onChange={(v) => setStrategy("targetCount", v)}
+            min={0}
+          />
+        </div>
+        <SelectField
+          label="Target audience / CRM filter"
+          value={form.strategy.targetAudience}
+          onChange={(v) => setStrategy("targetAudience", v)}
+          options={TARGET_AUDIENCE_OPTIONS}
+        />
+        <SelectField
+          label="Brand tone & voice"
+          value={form.strategy.brandTone}
+          onChange={(v) => setStrategy("brandTone", v)}
+          options={BRAND_TONE_OPTIONS}
+        />
+        <TextAreaField
+          label="Custom instructions"
+          value={form.strategy.customToneInstructions ?? ""}
+          onChange={(v) => setStrategy("customToneInstructions", v)}
+          placeholder="Avoid corporate fluff. Speak like a peer. Focus on speed and APIs."
         />
       </Section>
 
@@ -482,6 +562,31 @@ function TextField({
         required={required}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+      />
+    </div>
+  );
+}
+
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-sm font-medium">{label}</label>
+      <textarea
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        rows={3}
         className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
       />
     </div>

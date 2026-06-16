@@ -1,7 +1,10 @@
 import { z } from "zod";
 import {
+  BrandToneType,
+  CampaignGoalType,
   ConfigurationStyleSchema,
   RequiredContactDetail,
+  TargetAudienceType,
   type Campaign,
 } from "@/lib/types/campaign";
 
@@ -50,6 +53,20 @@ const StyleSettingsSchema = ConfigurationStyleSchema.refine(
   { message: "widget colours must be a 6-digit hex value like #4937E7" },
 );
 
+/**
+ * Editable AI Strategy & Context. The enums (+ target count) carry sensible
+ * defaults so a payload that omits the whole `strategy` object — or any field in
+ * it — still saves cleanly; the free-text instructions are optional and may be
+ * cleared to "".
+ */
+const StrategySettingsSchema = z.object({
+  campaignGoal: CampaignGoalType.default("PRE_LAUNCH_WAITLIST"),
+  targetCount: z.number().int().min(0).max(1_000_000_000).default(10_000),
+  targetAudience: TargetAudienceType.default("DEVELOPERS_TECHNICAL_FOUNDERS"),
+  brandTone: BrandToneType.default("TECHNICAL_PEER"),
+  customToneInstructions: z.string().trim().max(2000).optional(),
+});
+
 export const CampaignSettingsSchema = z
   .object({
     waitlistName: z.string().trim().min(1, "name is required").max(120),
@@ -76,6 +93,10 @@ export const CampaignSettingsSchema = z
 
     // Branding
     configurationStyleJson: StyleSettingsSchema,
+
+    // AI Strategy & Context (nested, mirrors configurationStyleJson). A wholly
+    // omitted `strategy` falls back to the all-defaults object.
+    strategy: StrategySettingsSchema.default(() => StrategySettingsSchema.parse({})),
   })
   .strict();
 
@@ -104,6 +125,12 @@ export function defaultCampaignSettings(): CampaignSettings {
     configurationStyleJson: {
       widgetButtonColor: "#111827",
       statusDescription: "You're on the list!",
+    },
+    strategy: {
+      campaignGoal: "PRE_LAUNCH_WAITLIST",
+      targetCount: 10000,
+      targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
+      brandTone: "TECHNICAL_PEER",
     },
   };
 }
@@ -159,5 +186,13 @@ export function toCampaignSettings(campaign: Campaign): CampaignSettings {
     sendEmailCongratulationsOnReferral: campaign.sendEmailCongratulationsOnReferral,
     leaderboardLength: campaign.leaderboardLength,
     configurationStyleJson: campaign.configurationStyleJson,
+    // Backfill defaults for any campaign created before `strategy` existed.
+    strategy: {
+      campaignGoal: campaign.strategy?.campaignGoal ?? "PRE_LAUNCH_WAITLIST",
+      targetCount: campaign.strategy?.targetCount ?? 10000,
+      targetAudience: campaign.strategy?.targetAudience ?? "DEVELOPERS_TECHNICAL_FOUNDERS",
+      brandTone: campaign.strategy?.brandTone ?? "TECHNICAL_PEER",
+      customToneInstructions: campaign.strategy?.customToneInstructions,
+    },
   };
 }

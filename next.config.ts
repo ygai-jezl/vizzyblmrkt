@@ -40,7 +40,12 @@ const nextConfig: NextConfig = {
         // exposes what is already public on /waitlist/<id>, and the write path
         // is guarded by reCAPTCHA + double opt-in. X-Frame-Options is dropped
         // (it cannot express an allow-any), leaving CSP frame-ancestors to do
-        // the work. Per-tenant frame-ancestors tightening is a future hardening.
+        // the work.
+        // TODO(later, gated on real third-party tenants): replace `*` with a
+        // per-tenant embed allowlist. NOT tenant.allowedOrigins (those are the
+        // tenant's own Host-routing domains) — needs a dedicated field + Node
+        // middleware (this headers() block is static). See DECISIONS.md "Open
+        // items carried forward" and SETUP §12.
         source: "/embed/:path*",
         headers: [
           ...baseline,

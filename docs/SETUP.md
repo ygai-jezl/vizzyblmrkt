@@ -239,8 +239,13 @@ live, and copy. The snippet is:
   frame-ancestors *` and drops `X-Frame-Options` (in `next.config.ts`) so it can
   be framed anywhere; every other route stays `frame-ancestors 'none'`. The embed
   exposes only what is already public on `/waitlist/<id>`, and the write path is
-  guarded by reCAPTCHA + double opt-in. **Future hardening:** scope
-  `frame-ancestors` to each tenant's `allowedOrigins`.
+  guarded by reCAPTCHA + double opt-in.
+  - **TODO (later, gated on real third-party tenants):** restrict each tenant's
+    widget to an approved embed allowlist instead of `*`. This needs a *dedicated*
+    field (NOT `allowedOrigins`, which are the tenant's own Host-routing domains —
+    embed ancestors are the parent sites allowed to frame the widget) and
+    Node-runtime middleware (next.config `headers()` is static and can't read
+    Firestore per request). Tracked in DECISIONS.md → "Open items carried forward".
 
 ## Local development
 ```bash

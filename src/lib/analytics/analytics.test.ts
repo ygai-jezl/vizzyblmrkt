@@ -39,6 +39,18 @@ describe("aggregateSignups", () => {
     expect(a.lastReferralAt).toBe("2026-06-16T12:00:00Z");
   });
 
+  it("keeps Organic + Referred === Total when an offboarded member was referred", () => {
+    const a = aggregateSignups([
+      s({ status: "verified_active" }), // active, organic
+      s({ status: "offboarded", referredBySignupToken: "REF" }), // inactive, was referred
+    ]);
+    expect(a.totalSignups).toBe(1); // active list = the one verified member
+    expect(a.referredSignups).toBe(0); // offboarded not counted in the active list
+    expect(a.organicSignups).toBe(1);
+    expect(a.organicSignups + a.referredSignups).toBe(a.totalSignups);
+    expect(a.lastReferralAt).not.toBeNull(); // the referral event still registered
+  });
+
   it("builds UTM breakdowns sorted by count", () => {
     const a = aggregateSignups([
       s({ utm: { source: "twitter" } }),

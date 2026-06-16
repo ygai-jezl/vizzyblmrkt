@@ -86,7 +86,12 @@ export function aggregateSignups(
 
     totalReferrals += s.amountReferred ?? 0;
     if (s.referredBySignupToken) {
-      referredSignups++;
+      // Count referred over the SAME active population as totalSignups so that
+      // Organic + Referred === Total always holds (offboarded members are not in
+      // the active list). lastReferralAt still reflects any referral event.
+      if (s.status === "verified_active" || s.status === "unverified") {
+        referredSignups++;
+      }
       if (!lastReferralAt || s.createdAt > lastReferralAt) lastReferralAt = s.createdAt;
     }
     if (!lastSignupAt || s.createdAt > lastSignupAt) lastSignupAt = s.createdAt;
@@ -110,7 +115,7 @@ export function aggregateSignups(
     offboardedSignups,
     totalReferrals,
     referredSignups,
-    organicSignups: Math.max(0, totalSignups - referredSignups),
+    organicSignups: totalSignups - referredSignups, // referred ⊆ active ⇒ >= 0
     lastSignupAt,
     lastReferralAt,
     utm: {

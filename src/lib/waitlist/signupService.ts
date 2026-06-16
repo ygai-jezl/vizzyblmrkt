@@ -99,6 +99,9 @@ export async function createSignup(
     removedPriority: null,
     metadata: input.metadata,
     answers: buildAnswers(campaign, input),
+    utm:
+      input.utm && Object.values(input.utm).some(Boolean) ? input.utm : undefined,
+    referrerUrl: input.referrerUrl || null,
     createdAt: now,
   };
 

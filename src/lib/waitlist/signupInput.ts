@@ -23,6 +23,16 @@ export const SignupInputSchema = z
     referredBySignupToken: z.string().trim().min(1).max(64).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
     recaptchaToken: z.string().optional(),
+    utm: z
+      .object({
+        source: z.string().trim().max(200).optional(),
+        medium: z.string().trim().max(200).optional(),
+        campaign: z.string().trim().max(200).optional(),
+        content: z.string().trim().max(200).optional(),
+        term: z.string().trim().max(200).optional(),
+      })
+      .optional(),
+    referrerUrl: z.string().trim().max(2000).optional(),
   })
   .strict();
 

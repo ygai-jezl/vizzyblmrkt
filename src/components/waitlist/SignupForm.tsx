@@ -26,6 +26,18 @@ interface SuccessState {
   needsVerification: boolean;
 }
 
+/** Read the 5 standard UTM params from the current URL (undefined if none). */
+function readUtm(): Record<string, string> | undefined {
+  if (typeof window === "undefined") return undefined;
+  const p = new URLSearchParams(window.location.search);
+  const utm: Record<string, string> = {};
+  for (const k of ["source", "medium", "campaign", "content", "term"] as const) {
+    const v = p.get(`utm_${k}`);
+    if (v) utm[k] = v;
+  }
+  return Object.keys(utm).length ? utm : undefined;
+}
+
 export function SignupForm({
   campaignId,
   requiredContactDetail,
@@ -65,6 +77,12 @@ export function SignupForm({
       .filter((q) => (answers[q.question_value] ?? "").length > 0)
       .map((q) => ({ question_value: q.question_value, answer_value: answers[q.question_value]! }));
     if (answerList.length) body.answers = answerList;
+
+    const utm = readUtm();
+    if (utm) body.utm = utm;
+    if (typeof document !== "undefined" && document.referrer) {
+      body.referrerUrl = document.referrer;
+    }
 
     try {
       const recaptchaToken = await getRecaptchaToken("signup");

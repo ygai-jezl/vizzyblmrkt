@@ -14,6 +14,16 @@ export const SignupStatus = z.enum([
 ]);
 export type SignupStatus = z.infer<typeof SignupStatus>;
 
+/** The 5 standard UTM parameters captured at signup, for marketing attribution. */
+export const UtmSchema = z.object({
+  source: z.string().optional(),
+  medium: z.string().optional(),
+  campaign: z.string().optional(),
+  content: z.string().optional(),
+  term: z.string().optional(),
+});
+export type Utm = z.infer<typeof UtmSchema>;
+
 /** A user's answer to a configured campaign question. */
 export const AnswerSchema = z.object({
   question_value: z.string(),
@@ -57,6 +67,10 @@ export const SignupSchema = z.object({
   // Arbitrary developer payload + form answers
   metadata: z.record(z.string(), z.unknown()).optional(),
   answers: z.array(AnswerSchema).optional(),
+
+  // Marketing attribution captured at signup.
+  utm: UtmSchema.optional(),
+  referrerUrl: z.string().nullable().optional(),
 
   createdAt: z.string(),
 });

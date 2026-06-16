@@ -185,6 +185,29 @@ firebase apphosting:secrets:set recaptcha-api-key --project="$PROJECT"
 # then uncomment the matching block in apphosting.yaml
 ```
 
+## 11. Firestore → BigQuery analytics pipeline (data lake, for scale)
+The admin Analytics dashboard reads Firestore directly (real-time, exact, cheap
+at MVP scale). For full-scale / heavy analytics, stream signups into BigQuery
+with the **Stream Firestore to BigQuery** extension — **one instance + dataset
+per region** (so data stays in-region; requires Blaze, which we're on):
+```bash
+# US (default DB → US dataset). Repeat per region with its DB id + a same-region
+# dataset location (eu → eur3 → EU; asia → signups-asia → asia-southeast1).
+firebase ext:install firebase/firestore-bigquery-export --project="$PROJECT"
+#   COLLECTION_PATH=signups
+#   DATASET_ID=waitlist_us           (eu: waitlist_eu, asia: waitlist_asia)
+#   DATASET_LOCATION=US              (eu: EU, asia: asia-southeast1)
+#   DATABASE=(default)               (eu: signups-eu, asia: signups-asia)
+#   TABLE_ID=signups
+#   WILDCARD_IDS / schema views as needed for the answers map + utm fields
+```
+Then run an initial backfill (`fs-bq-import-collection`) for existing rows. The
+extension writes an append-only changelog (CREATE/UPDATE/DELETE) + a latest view;
+query the latest view, partition by date, cluster by tenantId, and enforce
+per-tenant isolation via authorized views / RLS. To move the dashboard onto it,
+implement `computeCampaignAnalytics`'s contract against BigQuery (the KPI shape
+is the seam). See docs/ARCHITECTURE-AND-DELIVERY.md §7 + VALIDATION-FINDINGS.md.
+
 ---
 
 ## Local development

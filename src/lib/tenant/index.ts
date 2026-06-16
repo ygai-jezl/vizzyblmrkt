@@ -24,7 +24,11 @@ export {
   databaseIdForRegion,
 } from "./region";
 export type { RegionConfig } from "./region";
-export { createTenant, backfillTenantFavicon } from "./control";
+export {
+  createTenant,
+  backfillTenantFavicon,
+  updateTenantConfig,
+} from "./control";
 export { deriveFaviconUrl } from "./favicon";
 export { creditReferral } from "./referral";
 export type { CreditReferralResult } from "./referral";

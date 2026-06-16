@@ -4,8 +4,10 @@ import { resolveTenantFromOrigin, forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
+import { StatusCheck } from "@/components/waitlist/StatusCheck";
 import {
   parseWidgetType,
+  parseWidgetMode,
   widgetVariant,
   parseThemeOverrides,
 } from "@/lib/widget/types";
@@ -35,6 +37,7 @@ export default async function EmbedPage({
 
   const widgetType = parseWidgetType(get("type"));
   const variant = widgetVariant(widgetType);
+  const mode = parseWidgetMode(get("mode"));
   const referredBySignupToken = get("ref");
   const theme = parseThemeOverrides(get);
 
@@ -55,9 +58,12 @@ export default async function EmbedPage({
   const totalSignups = showCount
     ? await repo.signups.count([["campaignId", "==", campaignId]])
     : 0;
-  // Only the full widget shows the leaderboard; mini/docked stay compact.
+  // Only the full widget shows the leaderboard; mini/docked and the status-check
+  // mode stay compact.
   const leaderboard =
-    variant === "full" ? await getLeaderboard(ctx, campaign) : [];
+    mode !== "CHECK" && variant === "full"
+      ? await getLeaderboard(ctx, campaign)
+      : [];
 
   return (
     <>
@@ -81,18 +87,26 @@ export default async function EmbedPage({
             </header>
           ) : null}
 
-          <SignupForm
-            campaignId={campaign.id}
-            requiredContactDetail={campaign.requiredContactDetail}
-            usesFirstnameLastname={campaign.usesFirstnameLastname}
-            questions={campaign.questions}
-            referredBySignupToken={referredBySignupToken}
-            buttonColor={buttonColor}
-            successMessage={style.statusDescription ?? "You're on the list!"}
-            joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
-            variant={variant}
-            embedded
-          />
+          {mode === "CHECK" ? (
+            <StatusCheck
+              campaignId={campaign.id}
+              buttonColor={buttonColor}
+              defaultOpen
+            />
+          ) : (
+            <SignupForm
+              campaignId={campaign.id}
+              requiredContactDetail={campaign.requiredContactDetail}
+              usesFirstnameLastname={campaign.usesFirstnameLastname}
+              questions={campaign.questions}
+              referredBySignupToken={referredBySignupToken}
+              buttonColor={buttonColor}
+              successMessage={style.statusDescription ?? "You're on the list!"}
+              joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+              variant={variant}
+              embedded
+            />
+          )}
 
           {leaderboard.length > 0 ? (
             <section className="space-y-2">

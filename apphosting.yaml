@@ -55,9 +55,13 @@ env:
   # Secrets live in Secret Manager, never in this file. Wire them like so once
   # created (`firebase apphosting:secrets:set <name>`):
   #
-  # Double opt-in email (Resend). REQUIRED before any campaign sets
-  # usesSignupVerification=true — without it, verification-required signups get a
-  # 503 (we refuse to strand them). EMAIL_FROM must be a Resend-verified domain.
+  # Transactional email. Provider precedence: Mandrill → Resend → log. REQUIRED
+  # before any campaign sets usesSignupVerification=true (else verification-
+  # required signups get a 503). EMAIL_FROM must be a verified sending domain.
+  # - variable: MANDRILL_API_KEY
+  #   secret: mandrill-api-key
+  #   availability:
+  #     - RUNTIME
   # - variable: RESEND_API_KEY
   #   secret: resend-api-key
   #   availability:
@@ -66,3 +70,47 @@ env:
   #   value: Vizzybl <noreply@vizzybl.ai>
   #   availability:
   #     - RUNTIME
+  #
+  # MailChimp Marketing — shared audience sync + broadcasts/journeys.
+  # - variable: MAILCHIMP_API_KEY
+  #   secret: mailchimp-api-key
+  #   availability:
+  #     - RUNTIME
+  # - variable: MAILCHIMP_AUDIENCE_ID
+  #   secret: mailchimp-audience-id
+  #   availability:
+  #     - RUNTIME
+  # - variable: MAILCHIMP_SERVER_PREFIX   # optional — else derived from the key
+  #   value: us21
+  #   availability:
+  #     - RUNTIME
+  #
+  # Email delivery worker secret (Cloud Scheduler → /api/admin/email/jobs/process).
+  # - variable: EMAIL_WORKER_SECRET
+  #   secret: email-worker-secret
+  #   availability:
+  #     - RUNTIME
+
+  # Agent 3 (Creative Director) — Gemini on Vertex AI. By default (no key) it uses
+  # the runtime service account via ADC (needs the Vertex AI API enabled + the SA
+  # granted roles/aiplatform.user). Alternatively provide a Vertex AI Express /
+  # Agent Platform key as the GEMINI_API_KEY secret below and the SDK switches to
+  # { vertexai:true, apiKey } — the SAME key works across local/dev/prod.
+  - variable: GOOGLE_GENAI_USE_VERTEXAI
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: GOOGLE_CLOUD_LOCATION
+    value: us-central1
+    availability:
+      - RUNTIME
+  # - variable: GEMINI_API_KEY
+  #   secret: gemini-api-key
+  #   availability:
+  #     - RUNTIME
+  # GCS bucket for Agent 3's generated hero images (public-read objects). Create
+  # it + grant allUsers:objectViewer before generating images.
+  - variable: EMAIL_ASSET_BUCKET
+    value: vizzybl-marketing-dev-email-assets
+    availability:
+      - RUNTIME

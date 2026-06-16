@@ -36,6 +36,28 @@ export async function createTenant(
 }
 
 /**
+ * Patch mutable fields on an existing tenant document (control-plane). The
+ * identity/immutable fields (`id`, `region`, `createdAt`) are stripped from any
+ * patch — a tenant can never be re-homed to another region. Stamps `updatedAt`.
+ * Used by admin settings, e.g. the per-tenant MailChimp / email-provider config.
+ */
+export async function updateTenantConfig(
+  id: string,
+  patch: Partial<Omit<Tenant, "id" | "region" | "createdAt">>,
+): Promise<void> {
+  const {
+    id: _i,
+    region: _r,
+    createdAt: _c,
+    ...rest
+  } = patch as Record<string, unknown>;
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({ ...rest, updatedAt: new Date().toISOString() });
+}
+
+/**
  * Backfill the brand favicon on an EXISTING tenant (for docs created before the
  * field existed). Idempotent: only writes when `faviconUrl` is empty, deriving
  * it from the stored `rootDomain`. Unlike `region`, the favicon is mutable, so a

@@ -11,9 +11,16 @@ import {
   validateSignupAgainstCampaign,
 } from "@/lib/waitlist/signupInput";
 import { createSignup } from "@/lib/waitlist/signupService";
+import { computeRanks } from "@/lib/waitlist/rank";
+import {
+  DEFAULT_SHARE_MESSAGE,
+  parseEnabledPlatforms,
+} from "@/lib/waitlist/socialPlatforms";
+import { renderMergeVars } from "@/lib/email/mergeVars";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
+import { syncSignupToAudience } from "@/lib/mailchimp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -145,6 +152,39 @@ export async function POST(
     }
   }
 
+  // No-verification campaigns are verified_active immediately → sync to the
+  // marketing audience now (verification campaigns sync on the verify step).
+  if (
+    !result.alreadyJoined &&
+    result.signup.status === "verified_active" &&
+    result.signup.email
+  ) {
+    try {
+      await syncSignupToAudience(ctx, campaign, result.signup);
+    } catch (err) {
+      console.warn(
+        `[mailchimp] audience sync on signup failed for ${campaign.id}:`,
+        err,
+      );
+    }
+  }
+
+  // Gamified payoff: the verified user's live position + a ready-to-share message.
+  // Rank only exists once verified_active (unverified signups aren't counted yet).
+  let rank: number | null = null;
+  if (result.signup.status === "verified_active") {
+    try {
+      const ranks = await computeRanks(ctx, campaign.id);
+      rank = ranks.get(result.signup.id) ?? null;
+    } catch (err) {
+      console.warn(`rank computation failed for ${campaign.id}:`, err);
+    }
+  }
+  const shareMessage = renderMergeVars(
+    campaign.configurationStyleJson.shareMessage || DEFAULT_SHARE_MESSAGE,
+    { signup: result.signup, campaign, rank: rank ?? undefined },
+  );
+
   return NextResponse.json(
     {
       alreadyJoined: result.alreadyJoined,
@@ -153,6 +193,14 @@ export async function POST(
       referralToken: result.signup.referralToken,
       referralLink: result.signup.referralLink,
       totalSignups: result.totalSignups,
+      // Post-signup share section (see components/waitlist/ShareSection).
+      rank,
+      amountReferred: result.signup.amountReferred,
+      hideCounts: campaign.hideCounts,
+      shareMessage,
+      enabledSharePlatforms: parseEnabledPlatforms(
+        campaign.configurationStyleJson.enabledSharePlatforms,
+      ),
       // Emulator-only test hook — never exposed against real Firestore.
       ...(process.env.FIRESTORE_EMULATOR_HOST && result.signup.verificationToken
         ? { _devVerificationToken: result.signup.verificationToken }

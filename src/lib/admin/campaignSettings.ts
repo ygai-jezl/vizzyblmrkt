@@ -7,6 +7,10 @@ import {
   TargetAudienceType,
   type Campaign,
 } from "@/lib/types/campaign";
+import {
+  SHARE_PLATFORM_IDS,
+  isSharePlatformId,
+} from "@/lib/waitlist/socialPlatforms";
 
 /**
  * The admin-editable subset of a Campaign — everything that drives the hosted
@@ -46,12 +50,26 @@ const COLOR_FIELDS = [
  * Branding config with the editable colour fields constrained to 6-digit hex.
  * The stored ConfigurationStyleSchema is intentionally loose (any string); the
  * settings editor must not be able to persist an invalid CSS colour that the
- * swatch silently renders as black.
+ * swatch silently renders as black. The two share fields are tightened too:
+ * `shareMessage` is length-capped, and `enabledSharePlatforms` rejects unknown
+ * ids and is normalised to the canonical order (deduped) via parseEnabledPlatforms.
  */
-const StyleSettingsSchema = ConfigurationStyleSchema.refine(
-  (s) => COLOR_FIELDS.every((k) => !s[k] || HEX_COLOR.test(s[k] as string)),
-  { message: "widget colours must be a 6-digit hex value like #4937E7" },
-);
+const StyleSettingsSchema = ConfigurationStyleSchema.extend({
+  // `.optional()` stays outermost on both so the keys remain optional in the
+  // inferred CampaignSettings type (matching the loose stored shape) — the
+  // unknown-id check lives in the object-level refine below, not as a per-field
+  // effect, which would otherwise force the key to be required.
+  shareMessage: z.string().trim().max(280).optional(),
+  enabledSharePlatforms: z.array(z.string()).max(SHARE_PLATFORM_IDS.length).optional(),
+})
+  .refine(
+    (s) => COLOR_FIELDS.every((k) => !s[k] || HEX_COLOR.test(s[k] as string)),
+    { message: "widget colours must be a 6-digit hex value like #4937E7" },
+  )
+  .refine(
+    (s) => !s.enabledSharePlatforms || s.enabledSharePlatforms.every(isSharePlatformId),
+    { message: "enabledSharePlatforms contains an unknown platform id" },
+  );
 
 /**
  * Editable AI Strategy & Context. The enums (+ target count) carry sensible
@@ -125,6 +143,7 @@ export function defaultCampaignSettings(): CampaignSettings {
     configurationStyleJson: {
       widgetButtonColor: "#111827",
       statusDescription: "You're on the list!",
+      enabledSharePlatforms: ["twitter", "whatsapp", "telegram", "email"],
     },
     strategy: {
       campaignGoal: "PRE_LAUNCH_WAITLIST",

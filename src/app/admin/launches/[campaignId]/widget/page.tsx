@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
+import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { WidgetBuilder } from "@/components/admin/WidgetBuilder";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,13 @@ export default async function LaunchWidgetPage({
       </div>
       <WidgetBuilder
         origin={origin}
-        campaigns={[{ id: campaign.id, waitlistName: campaign.waitlistName }]}
+        campaigns={[
+          {
+            id: campaign.id,
+            waitlistName: campaign.waitlistName,
+            settings: toCampaignSettings(campaign),
+          },
+        ]}
         initialCampaignId={campaign.id}
       />
     </div>

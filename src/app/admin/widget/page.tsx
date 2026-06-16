@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
+import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { WidgetBuilder } from "@/components/admin/WidgetBuilder";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export default async function WidgetPage() {
         campaigns={campaigns.map((c) => ({
           id: c.id,
           waitlistName: c.waitlistName,
+          settings: toCampaignSettings(c),
         }))}
         initialCampaignId={campaigns[0]!.id}
       />

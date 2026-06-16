@@ -234,3 +234,51 @@ describe("toCampaignSettings", () => {
     expect(CampaignSettingsSchema.safeParse(settings).success).toBe(true);
   });
 });
+
+describe("CampaignSettingsSchema — social share config", () => {
+  it("accepts a share message and known platform ids", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        shareMessage: "Join {{waitlist_name}} — I'm #{{current_rank}}",
+        enabledSharePlatforms: ["twitter", "reddit", "email"],
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.configurationStyleJson.enabledSharePlatforms).toEqual([
+        "twitter",
+        "reddit",
+        "email",
+      ]);
+    }
+  });
+
+  it("rejects an unknown share platform id", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        enabledSharePlatforms: ["twitter", "myspace"],
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects a share message longer than 280 chars", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        shareMessage: "x".repeat(281),
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("treats both share fields as optional (omitting them is valid)", () => {
+    const parsed = CampaignSettingsSchema.safeParse(VALID);
+    expect(parsed.success).toBe(true);
+  });
+});

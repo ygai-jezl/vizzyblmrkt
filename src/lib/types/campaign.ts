@@ -67,6 +67,13 @@ export const ConfigurationStyleSchema = z.object({
   // "Join the waitlist" when unset. The compact mini/docked variants keep "Join".
   joinButtonLabel: z.string().optional(),
   socialLinks: z.record(z.string(), z.string()).optional(),
+  // Post-signup viral sharing. `shareMessage` is a {{token}} template (same
+  // vocabulary as the email merge vars); `enabledSharePlatforms` lists the
+  // platform ids whose share buttons appear on the success screen. Kept loose
+  // here (any string) — the admin settings schema tightens both (see
+  // lib/admin/campaignSettings.ts). Distinct from the legacy `twitterMessage`.
+  shareMessage: z.string().optional(),
+  enabledSharePlatforms: z.array(z.string()).optional(),
 });
 export type ConfigurationStyle = z.infer<typeof ConfigurationStyleSchema>;
 

@@ -23,6 +23,9 @@ export default async function AdminLayout({
             <Link href="/admin/analytics" className="hover:text-neutral-900 dark:hover:text-neutral-100">
               Analytics
             </Link>
+            <Link href="/admin/widget" className="hover:text-neutral-900 dark:hover:text-neutral-100">
+              Widget
+            </Link>
             <Link href="/admin/settings" className="hover:text-neutral-900 dark:hover:text-neutral-100">
               Settings
             </Link>

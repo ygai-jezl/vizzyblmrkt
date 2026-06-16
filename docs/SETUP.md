@@ -210,6 +210,38 @@ is the seam). See docs/ARCHITECTURE-AND-DELIVERY.md §7 + VALIDATION-FINDINGS.md
 
 ---
 
+## 12. Embeddable widget (drop the waitlist on any site)
+The waitlist can be embedded on any external site as a self-resizing iframe — no
+build step or framework on the host page. Founders generate the snippet in the
+admin **Widget** tab (`/admin/widget`): pick a campaign + widget type, preview it
+live, and copy. The snippet is:
+```html
+<!-- Vizzybl waitlist widget -->
+<div data-vizzybl-campaign="beta-launch" data-vizzybl-type="WIDGET_1"></div>
+<script src="https://<your-app-origin>/embed.js" async></script>
+```
+- **Widget types:** `WIDGET_1` (full form), `WIDGET_2` (mini, email-only inline),
+  `WIDGET_3` (docked, email-only with the button inside the field).
+- **How it works:** `/embed.js` turns each `[data-vizzybl-campaign]` div into a
+  cross-origin iframe of `/embed/<campaign>` on the app origin, and keeps it
+  sized to its content via origin-checked `postMessage`. Because the iframe is
+  served from our origin, tenant resolution (by host) + the signup API + reCAPTCHA
+  all work same-origin inside the frame — **no CORS or cross-origin-tenant work**.
+- **Optional attributes:** `data-vizzybl-mode="CHECK"`, `data-vizzybl-ref="<token>"`
+  (passes a referral token through, so embeds stay viral),
+  `data-vizzybl-button-color` / `-bg-color` / `-font-color` (hex only — validated
+  server-side as a CSS-injection guard), `data-vizzybl-height` (fixed height,
+  disables auto-resize).
+- **Host-page hook:** on a successful signup the loader dispatches a
+  `vizzybl:signup` event on the host `window` (detail: `alreadyJoined`,
+  `needsVerification`, `totalSignups`) for analytics/redirects.
+- **Framing/security:** the `/embed/*` route sets `Content-Security-Policy:
+  frame-ancestors *` and drops `X-Frame-Options` (in `next.config.ts`) so it can
+  be framed anywhere; every other route stays `frame-ancestors 'none'`. The embed
+  exposes only what is already public on `/waitlist/<id>`, and the write path is
+  guarded by reCAPTCHA + double opt-in. **Future hardening:** scope
+  `frame-ancestors` to each tenant's `allowedOrigins`.
+
 ## Local development
 ```bash
 cp .env.example .env.local        # fill in values / point at the emulator

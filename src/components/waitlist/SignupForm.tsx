@@ -9,6 +9,9 @@ interface Question {
   answer_value: string[] | null;
 }
 
+/** Layout shapes — see src/lib/widget/types.ts. "full" is the hosted-page form. */
+export type SignupVariant = "full" | "mini" | "docked";
+
 interface Props {
   campaignId: string;
   requiredContactDetail: "EMAIL" | "PHONE" | "BOTH" | "EITHER";
@@ -17,6 +20,10 @@ interface Props {
   referredBySignupToken?: string;
   buttonColor: string;
   successMessage: string;
+  /** "full" (default) collects everything; "mini"/"docked" are email-only. */
+  variant?: SignupVariant;
+  /** When embedded in an iframe, emit a `vizzybl:signup` DOM event on success. */
+  embedded?: boolean;
 }
 
 interface SuccessState {
@@ -46,6 +53,8 @@ export function SignupForm({
   referredBySignupToken,
   buttonColor,
   successMessage,
+  variant = "full",
+  embedded = false,
 }: Props) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -57,8 +66,17 @@ export function SignupForm({
   const [success, setSuccess] = useState<SuccessState | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const showEmail = requiredContactDetail !== "PHONE";
-  const showPhone = requiredContactDetail === "PHONE" || requiredContactDetail === "BOTH" || requiredContactDetail === "EITHER";
+  // Compact variants collect email only — names, phone, and questions are
+  // suppressed regardless of campaign config (the API still validates).
+  const compact = variant !== "full";
+  const showName = !compact && usesFirstnameLastname;
+  const showEmail = compact || requiredContactDetail !== "PHONE";
+  const showPhone =
+    !compact &&
+    (requiredContactDetail === "PHONE" ||
+      requiredContactDetail === "BOTH" ||
+      requiredContactDetail === "EITHER");
+  const shownQuestions = compact ? [] : questions;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,14 +84,14 @@ export function SignupForm({
     setError(null);
 
     const body: Record<string, unknown> = {};
-    if (usesFirstnameLastname) {
+    if (showName) {
       body.firstName = firstName.trim();
       body.lastName = lastName.trim();
     }
     if (showEmail && email.trim()) body.email = email.trim();
     if (showPhone && phone.trim()) body.phone = phone.trim();
     if (referredBySignupToken) body.referredBySignupToken = referredBySignupToken;
-    const answerList = questions
+    const answerList = shownQuestions
       .filter((q) => (answers[q.question_value] ?? "").length > 0)
       .map((q) => ({ question_value: q.question_value, answer_value: answers[q.question_value]! }));
     if (answerList.length) body.answers = answerList;
@@ -109,6 +127,19 @@ export function SignupForm({
         needsVerification: !!data.needsVerification,
       });
       setStatus("success");
+      // In an embed, let the host page react (analytics, redirect, etc.). The
+      // embed wrapper bridges this DOM event to a postMessage to the parent.
+      if (embedded && typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("vizzybl:signup", {
+            detail: {
+              alreadyJoined: !!data.alreadyJoined,
+              needsVerification: !!data.needsVerification,
+              totalSignups: data.totalSignups,
+            },
+          }),
+        );
+      }
     } catch {
       setError("Network error — please try again.");
       setStatus("error");
@@ -117,11 +148,11 @@ export function SignupForm({
 
   if (status === "success" && success?.needsVerification) {
     return (
-      <section className="space-y-3 rounded-xl border border-neutral-200 p-6 text-center dark:border-neutral-800">
-        <h2 className="text-xl font-semibold">Almost there — check your email 📧</h2>
+      <section className="space-y-2 rounded-xl border border-neutral-200 p-5 text-center dark:border-neutral-800">
+        <h2 className="text-lg font-semibold">Almost there — check your email 📧</h2>
         <p className="text-sm text-neutral-500">
-          We sent a confirmation link to lock in your spot. Your place on the
-          waitlist is not counted until you confirm.
+          We sent a confirmation link to lock in your spot. Your place is not
+          counted until you confirm.
         </p>
       </section>
     );
@@ -129,8 +160,8 @@ export function SignupForm({
 
   if (status === "success" && success) {
     return (
-      <section className="space-y-4 rounded-xl border border-neutral-200 p-6 text-center dark:border-neutral-800">
-        <h2 className="text-xl font-semibold">
+      <section className="space-y-4 rounded-xl border border-neutral-200 p-5 text-center dark:border-neutral-800">
+        <h2 className="text-lg font-semibold">
           {success.alreadyJoined ? "You're already on the list 🎉" : successMessage}
         </h2>
         <p className="text-sm text-neutral-500">
@@ -149,9 +180,13 @@ export function SignupForm({
             className="rounded-md px-4 py-2 text-sm font-medium text-white"
             style={{ backgroundColor: buttonColor }}
             onClick={async () => {
-              await navigator.clipboard.writeText(success.referralLink);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
+              try {
+                await navigator.clipboard.writeText(success.referralLink);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              } catch {
+                /* clipboard blocked — the field is selectable as a fallback */
+              }
             }}
           >
             {copied ? "Copied" : "Copy"}
@@ -161,9 +196,63 @@ export function SignupForm({
     );
   }
 
+  // Docked: a single inline row with the button tucked inside the email field.
+  if (variant === "docked") {
+    return (
+      <form onSubmit={onSubmit} className="space-y-2">
+        <div className="relative">
+          <input
+            type="email"
+            required
+            value={email}
+            placeholder="you@example.com"
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-full border border-neutral-300 py-2.5 pl-4 pr-28 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          <button
+            type="submit"
+            disabled={status === "submitting"}
+            className="absolute right-1 top-1 bottom-1 rounded-full px-4 text-sm font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: buttonColor }}
+          >
+            {status === "submitting" ? "…" : "Join"}
+          </button>
+        </div>
+        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      </form>
+    );
+  }
+
+  // Mini: email + button on one inline row.
+  if (variant === "mini") {
+    return (
+      <form onSubmit={onSubmit} className="space-y-2">
+        <div className="flex gap-2">
+          <input
+            type="email"
+            required
+            value={email}
+            placeholder="you@example.com"
+            onChange={(e) => setEmail(e.target.value)}
+            className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          <button
+            type="submit"
+            disabled={status === "submitting"}
+            className="shrink-0 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: buttonColor }}
+          >
+            {status === "submitting" ? "Joining…" : "Join"}
+          </button>
+        </div>
+        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      </form>
+    );
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      {usesFirstnameLastname ? (
+      {showName ? (
         <div className="grid grid-cols-2 gap-3">
           <Field label="First name" value={firstName} onChange={setFirstName} required />
           <Field label="Last name" value={lastName} onChange={setLastName} required />
@@ -191,7 +280,7 @@ export function SignupForm({
         />
       ) : null}
 
-      {questions.map((q) => (
+      {shownQuestions.map((q) => (
         <div key={q.question_value} className="space-y-1">
           <label className="block text-sm font-medium">
             {q.question_value}

@@ -49,6 +49,30 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/waitlist/nope/s
   -H 'content-type: application/json' -d '{"email":"x@y.com"}')
 echo "HTTP $code"; [ "$code" = "404" ] || fail=1
 
+echo "--- embed.js loader (expect 200 + js content-type + loader body) ---"
+code=$(curl -s -o /tmp/embed.js -w "%{http_code}" -D /tmp/embedjs.hdr "$BASE/embed.js")
+echo "HTTP $code"; [ "$code" = "200" ] || fail=1
+grep -qi "content-type: text/javascript" /tmp/embedjs.hdr || { echo "embed.js wrong content-type"; fail=1; }
+grep -q "vizzybl:resize" /tmp/embed.js || { echo "embed.js missing loader body"; fail=1; }
+
+echo "--- embed page WIDGET_2 (expect 200 + campaign name) ---"
+code=$(curl -s -o /tmp/embed.html -w "%{http_code}" -D /tmp/embed.hdr "$BASE/embed/beta-launch?type=WIDGET_2")
+echo "HTTP $code"; [ "$code" = "200" ] || fail=1
+grep -q "Vizzybl Beta" /tmp/embed.html && echo "embed renders campaign ✓" || fail=1
+
+echo "--- embed is framable: frame-ancestors * AND no X-Frame-Options ---"
+grep -Fqi "frame-ancestors *" /tmp/embed.hdr && echo "frame-ancestors * ✓" || { echo "embed not framable"; fail=1; }
+if grep -qi "x-frame-options" /tmp/embed.hdr; then echo "BUG: embed has X-Frame-Options"; fail=1; fi
+
+echo "--- non-embed route still deny-framed (regression on the header split) ---"
+curl -s -o /dev/null -D /tmp/host.hdr "$BASE/waitlist/beta-launch"
+grep -qi "x-frame-options: deny" /tmp/host.hdr && echo "hosted page deny-framed ✓" || { echo "BUG: global frame headers lost"; fail=1; }
+
+echo "--- embed signup works same-origin (expect 201) ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/waitlist/beta-launch/signup" \
+  -H 'content-type: application/json' -d '{"email":"embed-smoke@test.com"}')
+echo "HTTP $code"; [ "$code" = "201" ] || fail=1
+
 echo "--- referral: B joins via A's token (expect 201) ---"
 REF=$(sed -n 's/.*"referralToken":"\([A-Z0-9]*\)".*/\1/p' /tmp/s1.json | head -1)
 echo "referrer token: $REF"

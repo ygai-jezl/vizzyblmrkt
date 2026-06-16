@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
-import { LogoutButton } from "@/components/admin/LogoutButton";
+import { forTenant, getTenantById, deriveFaviconUrl } from "@/lib/tenant";
+import { AdminSidebar } from "@/components/admin/AdminSidebar";
 
 export const dynamic = "force-dynamic";
 
@@ -11,34 +11,34 @@ export default async function AdminLayout({
 }) {
   const ctx = await requireAdminContext();
 
+  // requireAdminContext() returns only token claims (ids), so read the tenant
+  // record for the brand, and the campaigns to list as launches in the sidebar.
+  const [tenant, campaigns] = await Promise.all([
+    getTenantById(ctx.tenantId),
+    forTenant(ctx).campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 50 }),
+  ]);
+
+  const brand = {
+    name: tenant?.tenantName ?? ctx.tenantId,
+    // Prefer the stored favicon; derive from the domain for legacy tenant docs
+    // that predate the field; BrandFavicon shows a monogram if it still fails.
+    faviconUrl:
+      tenant?.faviconUrl || (tenant ? deriveFaviconUrl(tenant.rootDomain) : undefined),
+  };
+  const launches = campaigns.map((c) => ({ id: c.id, name: c.waitlistName }));
+
   return (
-    <div className="min-h-screen">
-      <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-3 dark:border-neutral-800">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold">vizzybl-marketing</span>
-          <nav className="flex gap-3 text-sm text-neutral-500">
-            <Link href="/admin/signups" className="hover:text-neutral-900 dark:hover:text-neutral-100">
-              Signups
-            </Link>
-            <Link href="/admin/analytics" className="hover:text-neutral-900 dark:hover:text-neutral-100">
-              Analytics
-            </Link>
-            <Link href="/admin/widget" className="hover:text-neutral-900 dark:hover:text-neutral-100">
-              Widget
-            </Link>
-            <Link href="/admin/settings" className="hover:text-neutral-900 dark:hover:text-neutral-100">
-              Settings
-            </Link>
-          </nav>
-        </div>
-        <div className="flex items-center gap-3 text-sm text-neutral-500">
-          <span className="hidden sm:inline">
-            {ctx.tenantId} · {ctx.region} · {ctx.role}
-          </span>
-          <LogoutButton />
-        </div>
-      </header>
-      <main className="px-6 py-6">{children}</main>
+    <div className="flex min-h-screen">
+      <AdminSidebar
+        brand={brand}
+        launches={launches}
+        ctx={{
+          tenantId: ctx.tenantId,
+          region: ctx.region,
+          role: ctx.role ?? "member",
+        }}
+      />
+      <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
     </div>
   );
 }

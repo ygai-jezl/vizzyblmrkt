@@ -25,6 +25,14 @@ export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
   rootDomain: z.string(),
+  /**
+   * Brand favicon URL, shown at the top of the admin shell. Pulled in
+   * automatically at tenant creation (derived from `rootDomain` — see
+   * src/lib/tenant/favicon.ts and createTenant). Defaults to "" so tenant
+   * documents predating this field still parse; the admin shell then derives a
+   * fallback at render time (or shows a monogram).
+   */
+  faviconUrl: z.string().default(""),
   status: TenantStatus,
   /** Data-residency region. IMMUTABLE once set (see Region). */
   region: Region,

@@ -14,6 +14,7 @@ import { createSignup } from "@/lib/waitlist/signupService";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
+import { syncSignupToAudience } from "@/lib/mailchimp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -140,6 +141,23 @@ export async function POST(
       // dropped credit is observable (transient Firestore/contention error).
       console.warn(
         `referral credit failed for campaign=${campaign.id} referrer=${parsed.data.referredBySignupToken}:`,
+        err,
+      );
+    }
+  }
+
+  // No-verification campaigns are verified_active immediately → sync to the
+  // marketing audience now (verification campaigns sync on the verify step).
+  if (
+    !result.alreadyJoined &&
+    result.signup.status === "verified_active" &&
+    result.signup.email
+  ) {
+    try {
+      await syncSignupToAudience(ctx, campaign, result.signup);
+    } catch (err) {
+      console.warn(
+        `[mailchimp] audience sync on signup failed for ${campaign.id}:`,
         err,
       );
     }

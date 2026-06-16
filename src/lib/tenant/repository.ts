@@ -11,6 +11,9 @@ import type {
 import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
 import type { TenantUser } from "@/lib/types/tenantUser";
+import type { Broadcast } from "@/lib/types/broadcast";
+import type { Journey } from "@/lib/types/journey";
+import type { EmailJob } from "@/lib/types/emailJob";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -160,6 +163,10 @@ export interface TenantRepositories {
   campaigns: TenantCollection<Campaign>;
   signups: TenantCollection<Signup>;
   members: TenantCollection<TenantUser>;
+  /** Email hub: one-off broadcasts, journey graphs, and the delivery queue. */
+  broadcasts: TenantCollection<Broadcast>;
+  journeys: TenantCollection<Journey>;
+  emailJobs: TenantCollection<EmailJob>;
 }
 
 /**
@@ -193,5 +200,9 @@ export function forTenant(
     campaigns: new TenantCollection<Campaign>(regionalDb, "campaigns", t),
     signups: new TenantCollection<Signup>(regionalDb, "signups", t),
     members: new TenantCollection<TenantUser>(controlDb, "tenant_users", t),
+    // Email-hub data is campaign/marketing PII → regional DB, like signups.
+    broadcasts: new TenantCollection<Broadcast>(regionalDb, "broadcasts", t),
+    journeys: new TenantCollection<Journey>(regionalDb, "journeys", t),
+    emailJobs: new TenantCollection<EmailJob>(regionalDb, "email_jobs", t),
   };
 }

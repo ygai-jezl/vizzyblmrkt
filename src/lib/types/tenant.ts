@@ -21,6 +21,21 @@ export type TenantStatus = z.infer<typeof TenantStatus>;
 export const Region = z.enum(["us", "eu", "asia"]);
 export type Region = z.infer<typeof Region>;
 
+/**
+ * Per-tenant MailChimp / email-provider config. Optional so tenant documents
+ * predating this field still parse. By default a tenant uses the SHARED
+ * MailChimp account (env-configured). When `requiresOwnApiKey` is true the
+ * tenant is gated OFF the shared account and MUST bring its own credentials
+ * (`apiKey` + `audienceId`). See src/lib/mailchimp/config.ts.
+ */
+export const MailchimpTenantConfigSchema = z.object({
+  requiresOwnApiKey: z.boolean().default(false),
+  apiKey: z.string().optional(),
+  serverPrefix: z.string().optional(),
+  audienceId: z.string().optional(),
+});
+export type MailchimpTenantConfig = z.infer<typeof MailchimpTenantConfigSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -41,6 +56,8 @@ export const TenantSchema = z.object({
   billingTier: z.string(),
   /** Firebase Auth UID of the primary creator. */
   ownerId: z.string(),
+  /** Per-tenant MailChimp / email-provider config + BYO feature gate. */
+  mailchimpConfig: MailchimpTenantConfigSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

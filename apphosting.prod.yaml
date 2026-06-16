@@ -49,3 +49,43 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  # Email hub — Agent 3 (Creative Director) via Vertex AI on the runtime SA (ADC).
+  - variable: GOOGLE_GENAI_USE_VERTEXAI
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: GOOGLE_CLOUD_LOCATION
+    value: us-central1
+    availability:
+      - RUNTIME
+  - variable: EMAIL_ASSET_BUCKET
+    value: vizzybl-marketing-prod-email-assets
+    availability:
+      - RUNTIME
+
+  # Secrets (create via `firebase apphosting:secrets:set <name>` then uncomment):
+  # - variable: MANDRILL_API_KEY        # transactional (verification + journeys)
+  #   secret: mandrill-api-key
+  #   availability:
+  #     - RUNTIME
+  # - variable: EMAIL_FROM
+  #   value: Vizzybl <noreply@vizzybl.ai>
+  #   availability:
+  #     - RUNTIME
+  # - variable: MAILCHIMP_API_KEY       # shared Marketing account
+  #   secret: mailchimp-api-key
+  #   availability:
+  #     - RUNTIME
+  # - variable: MAILCHIMP_AUDIENCE_ID
+  #   secret: mailchimp-audience-id
+  #   availability:
+  #     - RUNTIME
+  # - variable: EMAIL_WORKER_SECRET     # Cloud Scheduler → email/jobs/process
+  #   secret: email-worker-secret
+  #   availability:
+  #     - RUNTIME
+  # - variable: GEMINI_API_KEY          # Vertex AI Express / Agent Platform key
+  #   secret: gemini-api-key            # (omit to use ADC + runtime SA instead)
+  #   availability:
+  #     - RUNTIME

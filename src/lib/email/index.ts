@@ -1,6 +1,8 @@
 /**
- * Minimal transactional email abstraction. Uses Resend when RESEND_API_KEY is
- * set; otherwise logs the message (so the double opt-in flow works end-to-end in
+ * Minimal transactional email abstraction. Provider precedence: MailChimp
+ * Transactional (Mandrill) when MANDRILL_API_KEY is set, else Resend when
+ * RESEND_API_KEY is set; otherwise logs the message (so the double opt-in flow
+ * works end-to-end in
  * dev / before a provider is configured — the verification link still gets
  * generated and is visible in logs). Swap in SendGrid/SES/SMTP behind the same
  * interface later.
@@ -15,7 +17,7 @@ export interface EmailMessage {
 
 export interface EmailResult {
   sent: boolean;
-  provider: "resend" | "log";
+  provider: "mandrill" | "resend" | "log";
   id?: string;
   reason?: string;
 }
@@ -23,9 +25,73 @@ export interface EmailResult {
 const DEFAULT_FROM = "Vizzybl <onboarding@resend.dev>";
 
 export async function sendEmail(msg: EmailMessage): Promise<EmailResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (apiKey) return sendViaResend(msg, apiKey);
+  const mandrillKey = process.env.MANDRILL_API_KEY;
+  if (mandrillKey) return sendViaMandrill(msg, mandrillKey);
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) return sendViaResend(msg, resendKey);
   return logEmail(msg);
+}
+
+/**
+ * MailChimp Transactional (Mandrill). Mandrill needs the from-address split into
+ * email + display name, so we parse EMAIL_FROM ("Name <addr>" or bare "addr").
+ */
+async function sendViaMandrill(
+  msg: EmailMessage,
+  apiKey: string,
+): Promise<EmailResult> {
+  const { email: fromEmail, name: fromName } = parseFrom(
+    process.env.EMAIL_FROM ?? DEFAULT_FROM,
+  );
+  try {
+    const res = await fetch("https://mandrillapp.com/api/1.0/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: apiKey,
+        message: {
+          subject: msg.subject,
+          html: msg.html,
+          ...(msg.text ? { text: msg.text } : {}),
+          from_email: fromEmail,
+          ...(fromName ? { from_name: fromName } : {}),
+          to: [{ email: msg.to, type: "to" }],
+          ...(msg.replyTo ? { headers: { "Reply-To": msg.replyTo } } : {}),
+        },
+      }),
+    });
+    if (!res.ok) {
+      return { sent: false, provider: "mandrill", reason: `http_${res.status}` };
+    }
+    // Mandrill returns an array of per-recipient send results.
+    const data = (await res.json().catch(() => [])) as Array<{
+      status?: string;
+      _id?: string;
+      reject_reason?: string;
+    }>;
+    const first = Array.isArray(data) ? data[0] : undefined;
+    const accepted =
+      first?.status === "sent" ||
+      first?.status === "queued" ||
+      first?.status === "scheduled";
+    if (!accepted) {
+      return {
+        sent: false,
+        provider: "mandrill",
+        reason: first?.reject_reason ?? first?.status ?? "rejected",
+      };
+    }
+    return { sent: true, provider: "mandrill", id: first?._id };
+  } catch {
+    return { sent: false, provider: "mandrill", reason: "request_error" };
+  }
+}
+
+/** Split an RFC5322-ish "Name <addr>" (or a bare "addr") into parts. */
+function parseFrom(from: string): { email: string; name?: string } {
+  const m = from.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1] || undefined, email: m[2]!.trim() };
+  return { email: from.trim() };
 }
 
 async function sendViaResend(

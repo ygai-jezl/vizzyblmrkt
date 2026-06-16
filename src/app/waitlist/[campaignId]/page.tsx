@@ -65,6 +65,7 @@ export default async function HostedWaitlistPage({
         referredBySignupToken={referredBySignupToken}
         buttonColor={style.widgetButtonColor ?? "#111827"}
         successMessage={style.statusDescription ?? "You're on the list!"}
+        joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
       />
 
       {leaderboard.length > 0 ? (

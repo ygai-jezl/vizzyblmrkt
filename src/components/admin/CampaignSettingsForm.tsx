@@ -160,7 +160,7 @@ export function CampaignSettingsForm({
   function buildPayload(): CampaignSettings {
     const style: ConfigurationStyle = { ...form.configurationStyleJson };
     // Drop empty branding strings so we don't persist blank colours.
-    for (const key of ["widgetBackgroundColor", "widgetButtonColor", "widgetFontColor", "statusDescription"] as const) {
+    for (const key of ["widgetBackgroundColor", "widgetButtonColor", "widgetFontColor", "statusDescription", "joinButtonLabel"] as const) {
       if (!style[key]) delete style[key];
     }
     // Rebuild social links from the editor; drop rows with a blank label.
@@ -361,6 +361,12 @@ export function CampaignSettingsForm({
           value={form.configurationStyleJson.statusDescription ?? ""}
           onChange={(v) => setStyle("statusDescription", v)}
           placeholder="You're on the list!"
+        />
+        <TextField
+          label="Join button text"
+          value={form.configurationStyleJson.joinButtonLabel ?? ""}
+          onChange={(v) => setStyle("joinButtonLabel", v)}
+          placeholder="Join the waitlist"
         />
         <div className="space-y-2">
           <label className="block text-sm font-medium">Social links</label>

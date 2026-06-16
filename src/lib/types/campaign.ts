@@ -63,6 +63,9 @@ export const ConfigurationStyleSchema = z.object({
   widgetButtonColor: z.string().optional(),
   widgetFontColor: z.string().optional(),
   statusDescription: z.string().optional(),
+  // Label for the primary "join" CTA on the hosted/embed full form; defaults to
+  // "Join the waitlist" when unset. The compact mini/docked variants keep "Join".
+  joinButtonLabel: z.string().optional(),
   socialLinks: z.record(z.string(), z.string()).optional(),
 });
 export type ConfigurationStyle = z.infer<typeof ConfigurationStyleSchema>;

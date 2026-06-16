@@ -20,6 +20,8 @@ interface Props {
   referredBySignupToken?: string;
   buttonColor: string;
   successMessage: string;
+  /** Label for the primary CTA on the full form. Compact variants show "Join". */
+  joinButtonLabel: string;
   /** "full" (default) collects everything; "mini"/"docked" are email-only. */
   variant?: SignupVariant;
   /** When embedded in an iframe, emit a `vizzybl:signup` DOM event on success. */
@@ -53,6 +55,7 @@ export function SignupForm({
   referredBySignupToken,
   buttonColor,
   successMessage,
+  joinButtonLabel,
   variant = "full",
   embedded = false,
 }: Props) {
@@ -317,7 +320,7 @@ export function SignupForm({
         className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         style={{ backgroundColor: buttonColor }}
       >
-        {status === "submitting" ? "Joining…" : "Join the waitlist"}
+        {status === "submitting" ? "Joining…" : joinButtonLabel}
       </button>
     </form>
   );

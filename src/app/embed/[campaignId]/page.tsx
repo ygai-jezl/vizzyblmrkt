@@ -89,6 +89,7 @@ export default async function EmbedPage({
             referredBySignupToken={referredBySignupToken}
             buttonColor={buttonColor}
             successMessage={style.statusDescription ?? "You're on the list!"}
+            joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
             variant={variant}
             embedded
           />

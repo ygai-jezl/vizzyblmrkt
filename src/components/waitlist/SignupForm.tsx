@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { getRecaptchaToken } from "@/lib/security/recaptchaClient";
+import {
+  parseEnabledPlatforms,
+  type SharePlatformId,
+} from "@/lib/waitlist/socialPlatforms";
+import { ShareSection } from "./ShareSection";
 
 interface Question {
   question_value: string;
@@ -31,6 +36,13 @@ interface SuccessState {
   referralLink: string;
   totalSignups: number;
   needsVerification: boolean;
+  /** 1-based waitlist position; null until verified (verification campaigns). */
+  rank: number | null;
+  amountReferred: number;
+  /** Share-message template rendered server-side (merge vars resolved, no link). */
+  shareMessage: string;
+  enabledPlatforms: SharePlatformId[];
+  hideCounts: boolean;
 }
 
 /** Read the 5 standard UTM params from the current URL (undefined if none). */
@@ -64,7 +76,6 @@ export function SignupForm({
   const [status, setStatus] = useState<"idle" | "submitting" | "error" | "success">("idle");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessState | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // Compact variants collect email only — names, phone, and questions are
   // suppressed regardless of campaign config (the API still validates).
@@ -125,6 +136,11 @@ export function SignupForm({
         referralLink: data.referralLink,
         totalSignups: data.totalSignups,
         needsVerification: !!data.needsVerification,
+        rank: typeof data.rank === "number" ? data.rank : null,
+        amountReferred: typeof data.amountReferred === "number" ? data.amountReferred : 0,
+        shareMessage: typeof data.shareMessage === "string" ? data.shareMessage : "",
+        enabledPlatforms: parseEnabledPlatforms(data.enabledSharePlatforms),
+        hideCounts: !!data.hideCounts,
       });
       setStatus("success");
       // In an embed, let the host page react (analytics, redirect, etc.). The
@@ -164,34 +180,20 @@ export function SignupForm({
         <h2 className="text-lg font-semibold">
           {success.alreadyJoined ? "You're already on the list 🎉" : successMessage}
         </h2>
-        <p className="text-sm text-neutral-500">
-          {success.totalSignups.toLocaleString()} people have joined. Share your
-          link to move up the queue.
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly
-            value={success.referralLink}
-            className="flex-1 truncate rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-            onFocus={(e) => e.currentTarget.select()}
-          />
-          <button
-            type="button"
-            className="rounded-md px-4 py-2 text-sm font-medium text-white"
-            style={{ backgroundColor: buttonColor }}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(success.referralLink);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              } catch {
-                /* clipboard blocked — the field is selectable as a fallback */
-              }
-            }}
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
+        {!success.hideCounts && success.totalSignups > 0 ? (
+          <p className="text-sm text-neutral-500">
+            {success.totalSignups.toLocaleString()} people have joined.
+          </p>
+        ) : null}
+        <ShareSection
+          referralLink={success.referralLink}
+          shareMessage={success.shareMessage}
+          enabledPlatforms={success.enabledPlatforms}
+          rank={success.rank}
+          amountReferred={success.amountReferred}
+          hideCounts={success.hideCounts}
+          buttonColor={buttonColor}
+        />
       </section>
     );
   }

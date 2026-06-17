@@ -1,0 +1,9 @@
+# Runtime dependencies for the deployed Agent Runtime (reasoningEngine).
+# ADK 2.0 (GA 2026-05-19) is Python-only and carries the Memory Bank / Sessions
+# service classes. The [agent_engines] extra provides the Agent Runtime harness.
+google-adk>=2.0.0,<3.0.0
+google-cloud-aiplatform[agent_engines]>=1.112.0
+google-genai>=1.37.0,<2.0.0
+google-auth>=2.29.0,<3.0.0
+# google-adk imports this but doesn't always declare it.
+deprecated>=1.2.0,<2.0.0

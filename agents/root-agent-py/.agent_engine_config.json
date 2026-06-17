@@ -1,0 +1,8 @@
+{
+  "identity_type": "AGENT_IDENTITY",
+  "env_vars": {
+    "GOOGLE_GENAI_USE_VERTEXAI": "1",
+    "GOOGLE_CLOUD_LOCATION": "global",
+    "ROOT_AGENT_MODEL": "gemini-3.5-flash"
+  }
+}

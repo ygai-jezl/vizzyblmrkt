@@ -213,16 +213,23 @@ export function SignupForm({
         />
 
         {aiConversation?.enabled && success.referralToken ? (
-          <div className="space-y-2 border-t border-neutral-200 pt-4 dark:border-neutral-800">
-            <p className="text-sm font-medium">Want to jump the queue?</p>
-            <button
-              type="button"
-              onClick={() => setConvoOpen(true)}
-              className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white"
-              style={{ backgroundColor: buttonColor }}
-            >
-              🎙️ Boost your spot — talk to us
-            </button>
+          // Dark callout so the gradient glow reads against the light success card.
+          <div className="mt-2 space-y-3 rounded-xl bg-neutral-950 p-4">
+            <p className="text-sm font-medium text-white">Want to jump the queue?</p>
+            <div className="relative">
+              {/* Glow: a blurred premium gradient sitting behind the button. */}
+              <div
+                aria-hidden
+                className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-cyan-400 opacity-70 blur-md"
+              />
+              <button
+                type="button"
+                onClick={() => setConvoOpen(true)}
+                className="relative w-full rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 transition hover:ring-white/30"
+              >
+                🎙️ Boost your spot — talk to us
+              </button>
+            </div>
           </div>
         ) : null}
 

@@ -30,7 +30,9 @@ export const dynamic = "force-dynamic";
  */
 const Body = z.object({
   message: z.string().min(1).max(8000),
-  sessionId: z.string().optional(),
+  // nullish (not optional): the client hook starts sessionId as `null` and sends
+  // it on the first turn — `optional()` would 400 on null.
+  sessionId: z.string().nullish(),
   mode: z.enum(["thinking", "fast"]).default("thinking"),
 });
 

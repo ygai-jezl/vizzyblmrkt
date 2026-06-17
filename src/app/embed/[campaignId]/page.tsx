@@ -52,6 +52,10 @@ export default async function EmbedPage({
   const style = campaign.configurationStyleJson;
   const buttonColor = theme.buttonColor ?? style.widgetButtonColor ?? "#111827";
   const fontColor = theme.fontColor ?? style.widgetFontColor;
+  // Like button/font above, the saved campaign colour is the fallback when no
+  // per-embed query override is present — otherwise a saved background never
+  // reaches a real embed (the snippet carries no colour; only the preview does).
+  const backgroundColor = theme.backgroundColor ?? style.widgetBackgroundColor;
   const showHeader = !campaign.removeWidgetHeaders;
   const showCount = !campaign.hideCounts;
 
@@ -69,7 +73,7 @@ export default async function EmbedPage({
     <>
       {/* Force a transparent canvas so the widget blends into the host page. */}
       <style>{"html,body{background:transparent!important}body{margin:0}"}</style>
-      <EmbedAutoResize background={theme.backgroundColor}>
+      <EmbedAutoResize background={backgroundColor}>
         <div
           className="mx-auto flex max-w-md flex-col gap-5 px-4 py-4"
           style={fontColor ? { color: fontColor } : undefined}

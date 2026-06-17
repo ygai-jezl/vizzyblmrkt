@@ -13,6 +13,7 @@ import {
   Radar,
   LineChart,
   GitBranch,
+  Settings,
   ChevronLeft,
   ChevronRight,
   type LucideIcon,
@@ -81,6 +82,14 @@ const NEW_LAUNCH_LINK: NavLink = {
   matchPattern: "/admin/launches/new",
 };
 
+// Pinned at the bottom (above sign out). Global, tenant-wide account settings.
+const ACCOUNT_LINK: NavLink = {
+  href: "/admin/account",
+  label: "Account Settings",
+  icon: Settings,
+  matchPattern: "/admin/account",
+};
+
 export function AdminSidebar({ brand, launches, ctx }: AdminSidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -97,6 +106,7 @@ export function AdminSidebar({ brand, launches, ctx }: AdminSidebarProps) {
     ...STATIC_GROUPS.flatMap((g) => g.items),
     ...launchLinks,
     NEW_LAUNCH_LINK,
+    ACCOUNT_LINK,
   ];
 
   const matches = (link: NavLink) =>
@@ -212,6 +222,11 @@ export function AdminSidebar({ brand, launches, ctx }: AdminSidebarProps) {
           </div>
         ))}
       </nav>
+
+      {/* Pinned: global account settings (above sign out) */}
+      <div className="border-t border-neutral-200 px-2 py-2 dark:border-neutral-800">
+        {renderLink(ACCOUNT_LINK)}
+      </div>
 
       {/* Tenant context + sign out */}
       <div className="border-t border-neutral-200 px-3 py-3 dark:border-neutral-800">

@@ -155,7 +155,7 @@ function unconfiguredStream(): ReadableStream<Uint8Array> {
   const lines = [
     "The root agent isn't deployed yet.",
     "",
-    "Deploy `agents/root-agent-py` to Agent Runtime, then set **ROOT_AGENT_RESOURCE_ID** (and **ROOT_AGENT_LOCATION**) in the App Hosting config. The dashboard chat will connect automatically.",
+    "Deploy `agents/root_agent` to Agent Runtime, then set **ROOT_AGENT_RESOURCE_ID** (and **ROOT_AGENT_LOCATION**) in the App Hosting config. The dashboard chat will connect automatically.",
   ].join("\n");
   return new ReadableStream<Uint8Array>({
     start(controller) {

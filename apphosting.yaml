@@ -133,13 +133,13 @@ env:
   # (/api/admin/agent/chat) calls the reasoningEngine via :streamQuery using the
   # runtime SA's ADC token — grant that SA roles/aiplatform.user. ROOT_AGENT_LOCATION
   # is the engine's DEPLOY region. Uncomment + fill ROOT_AGENT_RESOURCE_ID after
-  # `agents/root-agent-py/deploy.sh` prints the reasoningEngines/<ID> tail; until
+  # `agents/root_agent/deploy.sh` prints the reasoningEngines/<ID> tail; until
   # then the chat streams a "not deployed yet" message.
   - variable: ROOT_AGENT_LOCATION
     value: us-central1
     availability:
       - RUNTIME
-  # - variable: ROOT_AGENT_RESOURCE_ID
-  #   value: "REPLACE_WITH_NUMERIC_ID"
-  #   availability:
-  #     - RUNTIME
+  - variable: ROOT_AGENT_RESOURCE_ID
+    value: "2597757299074269184"
+    availability:
+      - RUNTIME

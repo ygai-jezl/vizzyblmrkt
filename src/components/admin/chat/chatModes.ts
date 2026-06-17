@@ -2,7 +2,7 @@
  * Reasoning modes for the dashboard root agent. "Thinking" trades latency for
  * deliberate multi-step reasoning; "Fast" is snappier for simple asks. The mode
  * is sent to the agent proxy and applied server-side via the `[mode:…]` envelope
- * prefix (see agents/root-agent-py/callbacks/chat_mode.py in Phase 2+).
+ * prefix (see agents/root_agent/callbacks/chat_mode.py in Phase 2+).
  */
 export type ChatMode = "thinking" | "fast";
 

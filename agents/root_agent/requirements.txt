@@ -1,0 +1,19 @@
+# Runtime dependencies for the deployed Agent Runtime (reasoningEngine).
+#
+# Keep this MINIMAL. `google-adk` pulls its full, mutually-compatible tree
+# (google-genai>=2.4, google-auth, fastapi, uvicorn, Deprecated, …) — so do NOT
+# pin those yourself: a stale `google-genai<2.0` pin conflicts with adk 2.2.0
+# (which requires genai>=2.4) and the container build fails ResolutionImpossible.
+#
+# Pin adk EXACTLY to the version `adk deploy` runs with: the launcher it bakes
+# into the container calls `adk api_server` with version-specific flags
+# (e.g. --gemini_enterprise_app_name). Keep in lockstep with local `adk --version`.
+#
+# Memory Bank / Sessions are provided by Agent Runtime at deploy time; the agent
+# code never imports the aiplatform SDK classes, so aiplatform is not required.
+#
+# The [a2a] extra is REQUIRED: Agent Runtime launches `adk api_server` with
+# --gemini_enterprise_app_name, which builds an A2A task store and imports the
+# `a2a` SDK at startup. Without the extra the container starts then crashes with
+# ModuleNotFoundError: No module named 'a2a'.
+google-adk[a2a]==2.2.0

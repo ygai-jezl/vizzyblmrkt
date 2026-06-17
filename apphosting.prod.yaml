@@ -65,7 +65,7 @@ env:
       - RUNTIME
 
   # Dashboard root agent (ADK 2.0 on Agent Runtime). Deploy the prod engine with
-  # `ROOT_AGENT_PROJECT=vizzybl-marketing-prod agents/root-agent-py/deploy.sh`,
+  # `ROOT_AGENT_PROJECT=vizzybl-marketing-prod agents/root_agent/deploy.sh`,
   # then uncomment + fill ROOT_AGENT_RESOURCE_ID. The runtime SA needs
   # roles/aiplatform.user to call :streamQuery.
   - variable: ROOT_AGENT_LOCATION

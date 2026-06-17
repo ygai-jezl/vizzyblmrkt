@@ -48,3 +48,9 @@ serviceAccount*.json
 
 # claude code local (personal) settings
 .claude/settings.local.json
+
+# Python virtualenvs (e.g. agents/*/.venv) + bytecode caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/

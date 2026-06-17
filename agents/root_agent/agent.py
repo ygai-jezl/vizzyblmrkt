@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 
+from . import _project_fix  # noqa: F401  MUST precede google-auth — see _project_fix.py
 from google.adk.agents import LlmAgent
 
 from .callbacks.chat_mode import apply_chat_mode

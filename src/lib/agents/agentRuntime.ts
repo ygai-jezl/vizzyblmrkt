@@ -11,7 +11,7 @@ import type { ChatMode } from "@/components/admin/chat/chatModes";
  *
  * Vertex `:streamQuery` rejects unknown root-level request fields, so tenant/user
  * context and the reasoning mode ride as a prefix on the message text and are
- * stripped agent-side by the before_model_callbacks (see agents/root-agent-py).
+ * stripped agent-side by the before_model_callbacks (see agents/root_agent).
  */
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
@@ -47,8 +47,11 @@ export function reasoningEngineUrl(
   const resourceId = process.env.ROOT_AGENT_RESOURCE_ID;
   if (!project || !resourceId) throw new Error("agent_runtime_not_configured");
   const location = agentLocation();
+  // v1beta1, NOT v1: reasoningEngines :query/:streamQuery only serve on the
+  // v1beta1 endpoint for `adk deploy agent_engine` agents — the v1 path returns
+  // an HTML 404 at the gateway (this is what the Agent Platform SDK uses too).
   const base =
-    `https://${location}-aiplatform.googleapis.com/v1/projects/${project}` +
+    `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}` +
     `/locations/${location}/reasoningEngines/${resourceId}:${method}`;
   return sse ? `${base}?alt=sse` : base;
 }

@@ -39,6 +39,21 @@ export const SettingsQuestionSchema = z.object({
     .transform((v) => (v && v.length > 0 ? v : null)),
 });
 
+/** True for a syntactically valid http(s) URL — used to validate the Waitlist URL. */
+function isHttpUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Lenient single-address email check — used for the optional sender overrides. */
+function isEmail(s: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+}
+
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const COLOR_FIELDS = [
   "widgetBackgroundColor",
@@ -102,7 +117,19 @@ const AiConversationSettingsSchema = z.object({
 export const CampaignSettingsSchema = z
   .object({
     waitlistName: z.string().trim().min(1, "name is required").max(120),
-    waitlistUrlLocation: z.string().trim().max(2000).nullable().optional(),
+    // The public URL where this waitlist lives. Blank → the default hosted page
+    // (`{origin}/waitlist/<slug>`). When set (e.g. a brand who embedded the widget
+    // on their own site), it is used VERBATIM as the referral/share-link base, so
+    // it must be a full http(s) URL. An empty string is treated as blank.
+    waitlistUrlLocation: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine((s) => s === "" || isHttpUrl(s), {
+        message: "enter a full URL like https://yourbrand.com/early-access",
+      })
+      .nullable()
+      .optional(),
 
     // Gamification physics — the "spots skipped per referral" knob.
     spotsToMoveUponReferral: z.number().int().min(0).max(1000),
@@ -122,6 +149,29 @@ export const CampaignSettingsSchema = z
     twitterMessage: z.string().trim().max(280).optional(),
     sendEmailCongratulationsOnReferral: z.boolean(),
     leaderboardLength: z.number().int().min(0).max(1000),
+
+    // Per-launch email sender OVERRIDES. Blank/omitted → inherit the tenant
+    // default (Account Settings → Domains). The address must be a valid email
+    // (and its domain verified at the tenant level to actually be used). The
+    // Communication settings UI binds these; they are optional here so existing
+    // payloads that omit them still validate.
+    emailFromName: z.string().trim().max(120).optional(),
+    emailFromAddress: z
+      .string()
+      .trim()
+      .max(254)
+      .refine((s) => s === "" || isEmail(s), {
+        message: "enter a valid email address like hello@mail.yourbrand.com",
+      })
+      .optional(),
+    emailReplyTo: z
+      .string()
+      .trim()
+      .max(254)
+      .refine((s) => s === "" || isEmail(s), {
+        message: "enter a valid email address like replies@mail.yourbrand.com",
+      })
+      .optional(),
 
     // Branding
     configurationStyleJson: StyleSettingsSchema,
@@ -194,6 +244,16 @@ export function slugifyCampaignId(name: string): string {
     .replace(/-+$/g, "");
 }
 
+/**
+ * Append a numeric suffix (`-2`, `-3`, …) to a base slug to escape a collision,
+ * trimming the base so the result stays within the 64-char CampaignIdSchema cap.
+ * Callers must re-validate the result (a trim can land on a hyphen).
+ */
+export function suffixedCampaignId(base: string, n: number): string {
+  const suffix = `-${n}`;
+  return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+}
+
 /** Ids reserved because they collide with static routes under /admin/launches. */
 const RESERVED_CAMPAIGN_IDS = new Set(["new"]);
 
@@ -229,6 +289,9 @@ export function toCampaignSettings(campaign: Campaign): CampaignSettings {
     twitterMessage: campaign.twitterMessage,
     sendEmailCongratulationsOnReferral: campaign.sendEmailCongratulationsOnReferral,
     leaderboardLength: campaign.leaderboardLength,
+    emailFromName: campaign.emailFromName,
+    emailFromAddress: campaign.emailFromAddress,
+    emailReplyTo: campaign.emailReplyTo,
     configurationStyleJson: campaign.configurationStyleJson,
     // Backfill defaults for any campaign created before `strategy` existed.
     strategy: {

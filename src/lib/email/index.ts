@@ -13,6 +13,13 @@ export interface EmailMessage {
   html: string;
   text?: string;
   replyTo?: string;
+  /**
+   * Optional sender overrides for custom-domain sending (resolved from the
+   * tenant/campaign config — see src/lib/email/sender.ts). Each falls back to the
+   * env-configured EMAIL_FROM when undefined.
+   */
+  fromEmail?: string;
+  fromName?: string;
 }
 
 export interface EmailResult {
@@ -40,9 +47,9 @@ async function sendViaMandrill(
   msg: EmailMessage,
   apiKey: string,
 ): Promise<EmailResult> {
-  const { email: fromEmail, name: fromName } = parseFrom(
-    process.env.EMAIL_FROM ?? DEFAULT_FROM,
-  );
+  const parsed = parseFrom(process.env.EMAIL_FROM ?? DEFAULT_FROM);
+  const fromEmail = msg.fromEmail?.trim() || parsed.email;
+  const fromName = msg.fromName?.trim() || parsed.name;
   try {
     const res = await fetch("https://mandrillapp.com/api/1.0/messages/send", {
       method: "POST",
@@ -98,6 +105,10 @@ async function sendViaResend(
   msg: EmailMessage,
   apiKey: string,
 ): Promise<EmailResult> {
+  const parsed = parseFrom(process.env.EMAIL_FROM ?? DEFAULT_FROM);
+  const fromEmail = msg.fromEmail?.trim() || parsed.email;
+  const fromName = msg.fromName?.trim() || parsed.name;
+  const from = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -106,7 +117,7 @@ async function sendViaResend(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? DEFAULT_FROM,
+        from,
         to: [msg.to],
         subject: msg.subject,
         html: msg.html,

@@ -3,8 +3,10 @@ import {
   resolveTenantFromOrigin,
   forTenant,
   creditReferral,
+  getTenantById,
   TenantNotFoundError,
 } from "@/lib/tenant";
+import { resolveSender } from "@/lib/email/sender";
 import { originFromHeaders } from "@/lib/http/origin";
 import {
   SignupInputSchema,
@@ -98,14 +100,20 @@ export async function POST(
     const verifyUrl = `${origin}/api/waitlist/${campaign.id}/verify?token=${encodeURIComponent(result.signup.verificationToken)}`;
     let emailSent = false;
     try {
-      const r = await sendEmail(
-        verificationEmail({
+      // Send from the tenant/campaign custom domain when configured + verified.
+      const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+      const sender = resolveSender(tenant, campaign);
+      const r = await sendEmail({
+        ...verificationEmail({
           to: result.signup.email,
           waitlistName: campaign.waitlistName,
           firstName: result.signup.firstName,
           verifyUrl,
         }),
-      );
+        fromEmail: sender.fromEmail,
+        fromName: sender.fromName,
+        replyTo: sender.replyTo,
+      });
       emailSent = r.sent;
     } catch (err) {
       console.warn(`verification email failed for ${campaign.id}:`, err);

@@ -146,6 +146,15 @@ export const CampaignSchema = z.object({
   // Marketing / notifications
   twitterMessage: z.string().optional(),
   sendEmailCongratulationsOnReferral: z.boolean(),
+
+  // Per-launch email sender OVERRIDES (optional). When unset, the launch
+  // inherits the tenant-level default sender (Account Settings → Domains). A
+  // From address is only honoured if its domain is verified at the tenant level
+  // (see src/lib/email/sender.ts). The editor UI for these is the launch's
+  // Communication settings.
+  emailFromName: z.string().optional(),
+  emailFromAddress: z.string().optional(),
+  emailReplyTo: z.string().optional(),
   // Capped to match the admin-editable range (CampaignSettingsSchema) so the
   // stored shape can never exceed what the settings editor can round-trip.
   leaderboardLength: z.number().int().min(0).max(1000),

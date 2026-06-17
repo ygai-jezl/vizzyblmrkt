@@ -3,6 +3,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
+import { resolveSender } from "@/lib/email/sender";
 import { compileBroadcast, compileJourneyEmail } from "@/lib/agents";
 import {
   resolveMailchimpConfig,
@@ -133,11 +134,16 @@ async function processBroadcastJob(ctx: TenantContext, job: EmailJob): Promise<v
       { subject: b.subject, body: b.body, heroImageUrl: b.heroImageUrl ?? null },
       campaign,
     );
+    // Tenant/campaign sender identity overrides the env defaults. NOTE: a
+    // MailChimp Marketing campaign can only override the display name + reply-to;
+    // the From *address/domain* is governed by the MailChimp account's own domain
+    // authentication, so `sender.fromEmail` does not apply to broadcasts.
+    const sender = resolveSender(tenant, campaign);
     const created = await createCampaign(cfg.config, {
       subject: compiled.subject,
       title: `${campaign.waitlistName} — ${b.name}`,
-      fromName: campaign.waitlistName,
-      replyTo: replyToAddress(),
+      fromName: sender.fromName ?? campaign.waitlistName,
+      replyTo: sender.replyTo ?? replyToAddress(),
       segmentId,
     });
     if (!created.ok || !created.data?.id) {
@@ -195,6 +201,9 @@ async function processJourneyStepJob(
   const campaign = await forTenant(ctx).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
 
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const sender = resolveSender(tenant, campaign);
+
   let ranks = rankCache.get(journey.campaignId);
   if (!ranks) {
     ranks = await computeRanks(ctx, journey.campaignId);
@@ -218,6 +227,9 @@ async function processJourneyStepJob(
       subject: compiled.subject,
       html: compiled.html,
       text: compiled.text,
+      fromEmail: sender.fromEmail,
+      fromName: sender.fromName,
+      replyTo: sender.replyTo,
     });
     // "log" provider (dev, no key) counts as success so the chain still advances.
     if (!res.sent && res.provider !== "log") {

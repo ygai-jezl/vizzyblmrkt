@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
-import type { ConfigurationStyle } from "@/lib/types/campaign";
+import type { EmailSenderConfig } from "@/lib/types/tenant";
 
 const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label: string }[] = [
   { value: "EMAIL", label: "Email only" },
@@ -39,7 +39,8 @@ const BRAND_TONE_OPTIONS: { value: Strategy["brandTone"]; label: string }[] = [
   { value: "FOMO_EXCLUSIVE", label: "High-Scarcity FOMO" },
 ];
 
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+/** Lenient single-address email check for the optional sender overrides. */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /** Stable per-row id so React keys survive add/remove (no focus loss). */
 const uid = () => crypto.randomUUID();
@@ -53,12 +54,6 @@ interface UiQuestion {
   optionsText: string;
 }
 
-interface LinkRow {
-  id: string;
-  key: string;
-  value: string;
-}
-
 function toUiQuestions(settings: CampaignSettings): UiQuestion[] {
   return settings.questions.map((q) => ({
     id: uid(),
@@ -69,23 +64,18 @@ function toUiQuestions(settings: CampaignSettings): UiQuestion[] {
   }));
 }
 
-function toLinkRows(settings: CampaignSettings): LinkRow[] {
-  return Object.entries(settings.configurationStyleJson.socialLinks ?? {}).map(
-    ([key, value]) => ({ id: uid(), key, value }),
-  );
-}
-
 export function CampaignSettingsForm({
   campaignId,
   initial,
+  senderConfig,
 }: {
   campaignId: string;
   initial: CampaignSettings;
+  senderConfig: EmailSenderConfig;
 }) {
   const router = useRouter();
   const [form, setForm] = useState<CampaignSettings>(initial);
   const [questions, setQuestions] = useState<UiQuestion[]>(() => toUiQuestions(initial));
-  const [socialLinks, setSocialLinks] = useState<LinkRow[]>(() => toLinkRows(initial));
   // Probe topics edited as a one-per-line textarea (mirrors question options).
   const [probeTopicsText, setProbeTopicsText] = useState(
     () => initial.aiConversation.probeTopics?.join("\n") ?? "",
@@ -96,14 +86,6 @@ export function CampaignSettingsForm({
 
   function set<K extends keyof CampaignSettings>(key: K, value: CampaignSettings[K]) {
     setForm((f) => ({ ...f, [key]: value }));
-    setDirty(true);
-    setStatus("idle");
-  }
-  function setStyle<K extends keyof ConfigurationStyle>(key: K, value: ConfigurationStyle[K]) {
-    setForm((f) => ({
-      ...f,
-      configurationStyleJson: { ...f.configurationStyleJson, [key]: value },
-    }));
     setDirty(true);
     setStatus("idle");
   }
@@ -136,59 +118,28 @@ export function CampaignSettingsForm({
   function updateQuestion(i: number, patch: Partial<UiQuestion>) {
     setQuestionsAndDirty(questions.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
   }
-  function setLinksAndDirty(next: LinkRow[]) {
-    setSocialLinks(next);
-    setDirty(true);
-    setStatus("idle");
-  }
 
   /**
-   * Client-side checks for lossy/ambiguous input the server can't detect after
-   * the fact (the socialLinks Record has already collapsed duplicates/blanks by
-   * the time it serialises). Returns human-readable errors; empty = ok.
+   * Client-side checks for the optional sender overrides so a malformed address
+   * is caught inline rather than only by the server schema. Returns
+   * human-readable errors; empty = ok. (Branding/colours now live in the Embed &
+   * Design tab, which validates its own fields.)
    */
   function validate(): string[] {
     const errs: string[] = [];
-    const colorFields: [keyof ConfigurationStyle, string][] = [
-      ["widgetBackgroundColor", "Background colour"],
-      ["widgetButtonColor", "Button colour"],
-      ["widgetFontColor", "Font colour"],
-    ];
-    for (const [k, label] of colorFields) {
-      const v = form.configurationStyleJson[k];
-      if (typeof v === "string" && v.trim() && !HEX_RE.test(v.trim())) {
-        errs.push(`${label} must be a 6-digit hex value like #4937E7.`);
-      }
+    const addr = form.emailFromAddress?.trim();
+    if (addr && !EMAIL_RE.test(addr)) {
+      errs.push("From address must be a valid email like hello@mail.yourbrand.com.");
     }
-    const seen = new Set<string>();
-    socialLinks.forEach((l, i) => {
-      const key = l.key.trim();
-      if (!key && l.value.trim()) {
-        errs.push(`Social link #${i + 1} has a URL but no label.`);
-      }
-      if (key) {
-        if (seen.has(key)) errs.push(`Duplicate social link label: "${key}".`);
-        seen.add(key);
-      }
-    });
+    const reply = form.emailReplyTo?.trim();
+    if (reply && !EMAIL_RE.test(reply)) {
+      errs.push("Reply-to must be a valid email address.");
+    }
     return errs;
   }
 
   /** Build the wire payload. The server schema re-validates and normalises. */
   function buildPayload(): CampaignSettings {
-    const style: ConfigurationStyle = { ...form.configurationStyleJson };
-    // Drop empty branding strings so we don't persist blank colours.
-    for (const key of ["widgetBackgroundColor", "widgetButtonColor", "widgetFontColor", "statusDescription", "joinButtonLabel"] as const) {
-      if (!style[key]) delete style[key];
-    }
-    // Rebuild social links from the editor; drop rows with a blank label.
-    const links: Record<string, string> = {};
-    for (const { key, value } of socialLinks) {
-      const k = key.trim();
-      if (k) links[k] = value.trim();
-    }
-    if (Object.keys(links).length > 0) style.socialLinks = links;
-    else delete style.socialLinks;
     return {
       ...form,
       waitlistName: form.waitlistName.trim(),
@@ -197,7 +148,10 @@ export function CampaignSettingsForm({
       // overwrites the stored value — Firestore update() is a merge and would
       // otherwise keep the old copy.
       twitterMessage: form.twitterMessage?.trim() ?? "",
-      configurationStyleJson: style,
+      // Branding (colours, copy, social links) now lives in the Embed & Design
+      // tab. Pass configurationStyleJson straight through so this form never
+      // clobbers values that tab owns.
+      configurationStyleJson: form.configurationStyleJson,
       // Send an explicit "" (never undefined) so clearing the instructions
       // overwrites the stored value (Firestore update() merges otherwise).
       strategy: {
@@ -257,7 +211,6 @@ export function CampaignSettingsForm({
         const settings = data.settings as CampaignSettings;
         setForm(settings);
         setQuestions(toUiQuestions(settings));
-        setSocialLinks(toLinkRows(settings));
         setProbeTopicsText(settings.aiConversation.probeTopics?.join("\n") ?? "");
       }
       setDirty(false);
@@ -269,6 +222,12 @@ export function CampaignSettingsForm({
     }
   }
 
+  // Domains the tenant can actually send from (verified at the provider). Only
+  // these may back a custom From address — see resolveSender in lib/email.
+  const verifiedDomains = (senderConfig.domains ?? [])
+    .filter((d) => d.status === "verified")
+    .map((d) => d.domain);
+
   return (
     <form onSubmit={onSubmit} className="space-y-8">
       <Section title="Basics" description="The waitlist name and what each signup must provide.">
@@ -278,11 +237,17 @@ export function CampaignSettingsForm({
           onChange={(v) => set("waitlistName", v)}
           required
         />
+        <ReadOnlyField
+          label="Page slug (locked)"
+          value={`/waitlist/${campaignId}`}
+          hint="Set when the launch was created and can't be changed — this is your default Vizzybl page."
+        />
         <TextField
-          label="URL slug"
+          label="Waitlist URL"
           value={form.waitlistUrlLocation ?? ""}
           onChange={(v) => set("waitlistUrlLocation", v)}
-          placeholder="e.g. beta-launch (optional)"
+          placeholder="https://yourbrand.com/early-access (optional)"
+          hint="Where your waitlist lives. Leave blank to use your Vizzybl page above. If you've embedded the widget on your own site, paste that page's full URL so referral links point to your domain."
         />
         <SelectField
           label="Required contact detail"
@@ -417,89 +382,29 @@ export function CampaignSettingsForm({
         />
       </Section>
 
-      <Section title="Branding" description="Colours and copy for the hosted widget.">
-        <ColorField
-          label="Background colour"
-          value={form.configurationStyleJson.widgetBackgroundColor ?? ""}
-          onChange={(v) => setStyle("widgetBackgroundColor", v)}
+      <Section
+        title="Communication"
+        description="Who launch emails come from, and referral notifications."
+      >
+        <SenderDefaultNote senderConfig={senderConfig} />
+        <TextField
+          label="From name"
+          value={form.emailFromName ?? ""}
+          onChange={(v) => set("emailFromName", v)}
+          placeholder={senderConfig.senderName || "Your brand"}
+          hint="Display name shown on launch emails. Blank = account default."
         />
-        <ColorField
-          label="Button colour"
-          value={form.configurationStyleJson.widgetButtonColor ?? ""}
-          onChange={(v) => setStyle("widgetButtonColor", v)}
-        />
-        <ColorField
-          label="Font colour"
-          value={form.configurationStyleJson.widgetFontColor ?? ""}
-          onChange={(v) => setStyle("widgetFontColor", v)}
+        <SenderAddressField
+          verifiedDomains={verifiedDomains}
+          value={form.emailFromAddress ?? ""}
+          onChange={(v) => set("emailFromAddress", v)}
         />
         <TextField
-          label="Success message"
-          value={form.configurationStyleJson.statusDescription ?? ""}
-          onChange={(v) => setStyle("statusDescription", v)}
-          placeholder="You're on the list!"
-        />
-        <TextField
-          label="Join button text"
-          value={form.configurationStyleJson.joinButtonLabel ?? ""}
-          onChange={(v) => setStyle("joinButtonLabel", v)}
-          placeholder="Join the waitlist"
-        />
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Social links</label>
-          {socialLinks.length === 0 ? (
-            <p className="text-sm text-neutral-500">No social links.</p>
-          ) : null}
-          {socialLinks.map((l, i) => (
-            <div key={l.id} className="flex items-center gap-2">
-              <input
-                value={l.key}
-                onChange={(e) =>
-                  setLinksAndDirty(socialLinks.map((s, idx) => (idx === i ? { ...s, key: e.target.value } : s)))
-                }
-                placeholder="Label (e.g. twitter)"
-                aria-label="Social link label"
-                className="w-40 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-              />
-              <input
-                value={l.value}
-                onChange={(e) =>
-                  setLinksAndDirty(socialLinks.map((s, idx) => (idx === i ? { ...s, value: e.target.value } : s)))
-                }
-                placeholder="https://…"
-                aria-label="Social link URL"
-                className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-              />
-              <button
-                type="button"
-                onClick={() => setLinksAndDirty(socialLinks.filter((_, idx) => idx !== i))}
-                className="rounded-md border border-red-300 px-2.5 py-2 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setLinksAndDirty([...socialLinks, { id: uid(), key: "", value: "" }])}
-            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
-          >
-            + Add link
-          </button>
-        </div>
-        <Toggle
-          label="Remove widget headers"
-          checked={form.removeWidgetHeaders}
-          onChange={(v) => set("removeWidgetHeaders", v)}
-        />
-      </Section>
-
-      <Section title="Marketing" description="Social share copy and referral notifications.">
-        <TextField
-          label="Twitter / X share message"
-          value={form.twitterMessage ?? ""}
-          onChange={(v) => set("twitterMessage", v)}
-          placeholder="I just joined the waitlist!"
+          label="Reply-to"
+          value={form.emailReplyTo ?? ""}
+          onChange={(v) => set("emailReplyTo", v)}
+          placeholder={senderConfig.replyTo || "replies@yourbrand.com"}
+          hint="Where replies go. Blank = account default."
         />
         <Toggle
           label="Email congratulations on each referral"
@@ -630,12 +535,14 @@ function TextField({
   onChange,
   placeholder,
   required,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   required?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="space-y-1">
@@ -647,6 +554,31 @@ function TextField({
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
       />
+      {hint ? <p className="text-xs text-neutral-500">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** Display-only field — used for immutable values like the locked page slug. */
+function ReadOnlyField({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-sm font-medium">{label}</label>
+      <input
+        readOnly
+        value={value}
+        onFocus={(e) => e.currentTarget.select()}
+        className="w-full cursor-default rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/50 dark:text-neutral-400"
+      />
+      {hint ? <p className="text-xs text-neutral-500">{hint}</p> : null}
     </div>
   );
 }
@@ -753,33 +685,97 @@ function SelectField<T extends string>({
   );
 }
 
-function ColorField({
-  label,
+/** Read-only summary of the tenant default sender (Account Settings → Domains). */
+function SenderDefaultNote({ senderConfig }: { senderConfig: EmailSenderConfig }) {
+  const tenantFrom =
+    senderConfig.fromLocalPart && senderConfig.fromDomain
+      ? `${senderConfig.fromLocalPart}@${senderConfig.fromDomain}`
+      : null;
+  const hasDefault = Boolean(senderConfig.senderName || tenantFrom || senderConfig.replyTo);
+  return (
+    <p className="text-xs text-neutral-500">
+      {hasDefault ? (
+        <>
+          Inherits{" "}
+          {senderConfig.senderName ? <>“{senderConfig.senderName}” </> : null}
+          {tenantFrom ? <>&lt;{tenantFrom}&gt; </> : null}
+          {senderConfig.replyTo ? <>· reply-to {senderConfig.replyTo} </> : null}
+          from your account default. Override per launch below.{" "}
+        </>
+      ) : (
+        <>No account default sender set yet. </>
+      )}
+      <a href="/admin/account" className="underline">
+        Manage in Account Settings
+      </a>
+      .
+    </p>
+  );
+}
+
+/**
+ * Per-launch From-address override: a local-part input plus a verified-domain
+ * selector (a dropdown only when more than one domain is verified). A custom
+ * From address is only honoured when its domain is verified, so we constrain the
+ * choice to verified domains; with none, the override is disabled. Blank local
+ * part → empty string → inherit the account default.
+ */
+function SenderAddressField({
+  verifiedDomains,
   value,
   onChange,
 }: {
-  label: string;
+  verifiedDomains: string[];
   value: string;
   onChange: (v: string) => void;
 }) {
+  const at = value.lastIndexOf("@");
+  const local = at >= 0 ? value.slice(0, at) : value;
+  const domain = at >= 0 ? value.slice(at + 1) : (verifiedDomains[0] ?? "");
+  const compose = (l: string, d: string) => onChange(l.trim() && d ? `${l.trim()}@${d}` : "");
+
   return (
     <div className="space-y-1">
-      <label className="block text-sm font-medium">{label}</label>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={HEX_RE.test(value) ? value : "#000000"}
-          onChange={(e) => onChange(e.target.value)}
-          aria-label={`${label} swatch`}
-          className="h-9 w-12 cursor-pointer rounded border border-neutral-300 bg-transparent dark:border-neutral-700"
-        />
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="#000000"
-          className="w-32 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-        />
-      </div>
+      <label className="block text-sm font-medium">From address</label>
+      {verifiedDomains.length === 0 ? (
+        <p className="text-sm text-neutral-500">
+          Add &amp; verify a sending domain in{" "}
+          <a href="/admin/account" className="underline">
+            Account Settings
+          </a>{" "}
+          to send from your own address.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <input
+              value={local}
+              onChange={(e) => compose(e.target.value, domain)}
+              placeholder="hello"
+              aria-label="From address local part"
+              className="w-40 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+            />
+            <span className="text-sm text-neutral-500">@</span>
+            {verifiedDomains.length === 1 ? (
+              <span className="text-sm">{verifiedDomains[0]}</span>
+            ) : (
+              <select
+                value={domain}
+                onChange={(e) => compose(local, e.target.value)}
+                aria-label="From address domain"
+                className="rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+              >
+                {verifiedDomains.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <p className="text-xs text-neutral-500">Blank = account default.</p>
+        </>
+      )}
     </div>
   );
 }

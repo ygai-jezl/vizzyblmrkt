@@ -17,7 +17,7 @@ export function LaunchTabs({ campaignId }: { campaignId: string }) {
     { href: `${base}/analytics`, label: "Analytics", exact: false },
     { href: `${base}/broadcasts`, label: "Broadcasts", exact: false },
     { href: `${base}/journey`, label: "Journey", exact: false },
-    { href: `${base}/widget`, label: "Widget", exact: false },
+    { href: `${base}/widget`, label: "Embed & Design", exact: false },
     { href: `${base}/settings`, label: "Settings", exact: false },
   ];
 

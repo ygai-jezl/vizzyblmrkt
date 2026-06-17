@@ -22,10 +22,10 @@ export default async function LaunchWidgetPage({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold">Widget</h2>
+        <h2 className="text-sm font-semibold">Embed &amp; Design</h2>
         <p className="mt-1 text-sm text-neutral-500">
-          Embed this launch&apos;s waitlist on any site. Pick a widget type, then
-          copy the snippet.
+          Style this launch&apos;s waitlist and embed it on any site. Tweak the
+          branding, preview each surface, then copy the snippet.
         </p>
       </div>
       <WidgetBuilder

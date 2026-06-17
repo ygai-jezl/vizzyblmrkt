@@ -45,9 +45,26 @@ const nextConfig: NextConfig = {
         headers: [...baseline, ...lockedFrame, micSelf],
       },
       {
-        // Every route EXCEPT the embed widget and the waitlist pages (handled
-        // above). The negative lookahead also skips /embed.js.
-        source: "/((?!embed|waitlist).*)",
+        // Admin-only live preview for the Embed & Design builder. Same-origin
+        // framable (the builder iframes it); X-Frame-Options SAMEORIGIN + CSP
+        // frame-ancestors 'self'. Free-text branding params are safe here because
+        // the route is admin-gated — unlike the public /embed route.
+        source: "/admin/launches/:campaignId/preview",
+        headers: [
+          ...baseline,
+          noDevices,
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          {
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
+          },
+        ],
+      },
+      {
+        // Every route EXCEPT the embed widget, the waitlist pages, and the admin
+        // preview frame (all handled above). The negative lookahead also skips
+        // /embed.js.
+        source: "/((?!embed|waitlist|admin/launches/[^/]+/preview).*)",
         headers: [...baseline, ...lockedFrame, noDevices],
       },
       {

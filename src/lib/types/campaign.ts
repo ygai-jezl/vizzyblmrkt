@@ -92,6 +92,36 @@ export const StrategySchema = z.object({
 });
 export type Strategy = z.infer<typeof StrategySchema>;
 
+/**
+ * Conversation modality. Voice-only today (the Gemini Live API real-time audio
+ * session); declared as an enum so a future TEXT mode can be added without a
+ * schema migration.
+ */
+export const AiConversationModality = z.enum(["VOICE"]);
+export type AiConversationModality = z.infer<typeof AiConversationModality>;
+
+/**
+ * Post-signup AI conversation — the optional, per-launch Gemini Live voice chat
+ * that quizzes a fresh signup on *why* they want the product (capturing "golden
+ * data") and, on completion, boosts their waitlist queue position. Stored as a
+ * single nested object alongside `strategy`/`configurationStyleJson`; OPTIONAL on
+ * the stored shape so legacy campaigns read cleanly (`toCampaignSettings`
+ * backfills defaults). The system prompt the model actually runs is built
+ * server-side from `strategy` + these fields and never reaches the browser.
+ */
+export const AiConversationSchema = z.object({
+  enabled: z.boolean(),
+  // CTA framing shown on the public page ("Boost your spot — talk to us for 60s").
+  introLine: z.string().max(280).optional(),
+  // What the AI should try to learn — seeds the server-side system instruction.
+  conversationGoal: z.string().max(1000).optional(),
+  // Topics the AI gently probes, one at a time.
+  probeTopics: z.array(z.string().max(200)).max(10).optional(),
+  // Referral-equivalent boost applied to the signup's queue rank on completion.
+  leaderboardBonus: z.number().int().min(0).max(1000),
+});
+export type AiConversation = z.infer<typeof AiConversationSchema>;
+
 export const CampaignSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -128,6 +158,10 @@ export const CampaignSchema = z.object({
   // TenantCollection.find/getById). The settings editor always writes it, and
   // `toCampaignSettings` backfills defaults for any legacy doc that lacks it.
   strategy: StrategySchema.optional(),
+
+  // Post-signup Gemini Live voice conversation. OPTIONAL on the stored shape for
+  // the same backward-compatibility reason as `strategy` above.
+  aiConversation: AiConversationSchema.optional(),
 
   createdAt: z.string(),
 });

@@ -40,6 +40,30 @@ export function isGeminiConfigured(): boolean {
   return getClient() !== null;
 }
 
+let liveCached: GoogleGenAI | null | undefined;
+
+/**
+ * Developer-API client used ONLY to mint Live API ephemeral tokens for the
+ * post-signup voice conversation. Deliberately SEPARATE from getClient() above:
+ * ephemeral tokens and the Live API are Gemini *Developer API*
+ * (generativelanguage, v1alpha) features and are NOT supported on the Vertex
+ * backend the text/image path uses in prod — so this needs its own classic
+ * `GEMINI_LIVE_API_KEY` ("AIza*"). Returns null when unset so the conversation
+ * feature degrades off (the token route 503s and the public CTA stays hidden).
+ */
+export function getLiveTokenClient(): GoogleGenAI | null {
+  if (liveCached !== undefined) return liveCached;
+  const apiKey = process.env.GEMINI_LIVE_API_KEY;
+  liveCached = apiKey
+    ? new GoogleGenAI({ apiKey, httpOptions: { apiVersion: "v1alpha" } })
+    : null;
+  return liveCached;
+}
+
+export function isLiveConfigured(): boolean {
+  return getLiveTokenClient() !== null;
+}
+
 /** Generate text, or null on missing config / error. */
 export async function generateText(prompt: string): Promise<string | null> {
   const ai = getClient();

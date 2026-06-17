@@ -6,7 +6,15 @@ import {
   parseEnabledPlatforms,
   type SharePlatformId,
 } from "@/lib/waitlist/socialPlatforms";
+import dynamic from "next/dynamic";
 import { ShareSection } from "./ShareSection";
+
+// Lazy-loaded so the Gemini Live SDK (@google/genai) is only fetched when a user
+// actually opens the conversation — keeping the waitlist + embed bundles lean.
+const ConversationModal = dynamic(
+  () => import("@/components/waitlist/ConversationModal").then((m) => m.ConversationModal),
+  { ssr: false },
+);
 
 interface Question {
   question_value: string;
@@ -31,10 +39,13 @@ interface Props {
   variant?: SignupVariant;
   /** When embedded in an iframe, emit a `vizzybl:signup` DOM event on success. */
   embedded?: boolean;
+  /** Post-signup AI voice conversation config (the CTA shown on success). */
+  aiConversation?: { enabled: boolean; introLine?: string };
 }
 
 interface SuccessState {
   alreadyJoined: boolean;
+  referralToken: string;
   referralLink: string;
   totalSignups: number;
   needsVerification: boolean;
@@ -70,7 +81,9 @@ export function SignupForm({
   joinButtonLabel,
   variant = "full",
   embedded = false,
+  aiConversation,
 }: Props) {
+  const [convoOpen, setConvoOpen] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -136,6 +149,7 @@ export function SignupForm({
       }
       setSuccess({
         alreadyJoined: !!data.alreadyJoined,
+        referralToken: data.referralToken,
         referralLink: data.referralLink,
         totalSignups: data.totalSignups,
         needsVerification: !!data.needsVerification,
@@ -197,6 +211,30 @@ export function SignupForm({
           hideCounts={success.hideCounts}
           buttonColor={buttonColor}
         />
+
+        {aiConversation?.enabled && success.referralToken ? (
+          <div className="space-y-2 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+            <p className="text-sm font-medium">Want to jump the queue?</p>
+            <button
+              type="button"
+              onClick={() => setConvoOpen(true)}
+              className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white"
+              style={{ backgroundColor: buttonColor }}
+            >
+              🎙️ Boost your spot — talk to us
+            </button>
+          </div>
+        ) : null}
+
+        {convoOpen && success.referralToken ? (
+          <ConversationModal
+            campaignId={campaignId}
+            referralToken={success.referralToken}
+            introLine={aiConversation?.introLine}
+            buttonColor={buttonColor}
+            onClose={() => setConvoOpen(false)}
+          />
+        ) : null}
       </section>
     );
   }

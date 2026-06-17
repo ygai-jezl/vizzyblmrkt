@@ -13,6 +13,7 @@ const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label
 ];
 
 type Strategy = CampaignSettings["strategy"];
+type AiConversation = CampaignSettings["aiConversation"];
 
 const CAMPAIGN_GOAL_OPTIONS: { value: Strategy["campaignGoal"]; label: string }[] = [
   { value: "PRE_LAUNCH_WAITLIST", label: "Build Pre-Launch Waitlist" },
@@ -85,6 +86,10 @@ export function CampaignSettingsForm({
   const [form, setForm] = useState<CampaignSettings>(initial);
   const [questions, setQuestions] = useState<UiQuestion[]>(() => toUiQuestions(initial));
   const [socialLinks, setSocialLinks] = useState<LinkRow[]>(() => toLinkRows(initial));
+  // Probe topics edited as a one-per-line textarea (mirrors question options).
+  const [probeTopicsText, setProbeTopicsText] = useState(
+    () => initial.aiConversation.probeTopics?.join("\n") ?? "",
+  );
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errors, setErrors] = useState<string[]>([]);
@@ -107,6 +112,19 @@ export function CampaignSettingsForm({
       ...f,
       strategy: { ...f.strategy, [key]: value },
     }));
+    setDirty(true);
+    setStatus("idle");
+  }
+  function setAiConversation<K extends keyof AiConversation>(key: K, value: AiConversation[K]) {
+    setForm((f) => ({
+      ...f,
+      aiConversation: { ...f.aiConversation, [key]: value },
+    }));
+    setDirty(true);
+    setStatus("idle");
+  }
+  function setProbeTopicsAndDirty(text: string) {
+    setProbeTopicsText(text);
     setDirty(true);
     setStatus("idle");
   }
@@ -186,6 +204,16 @@ export function CampaignSettingsForm({
         ...form.strategy,
         customToneInstructions: form.strategy.customToneInstructions?.trim() ?? "",
       },
+      // Same merge gotcha: send explicit ""/[] for cleared conversation fields.
+      aiConversation: {
+        ...form.aiConversation,
+        introLine: form.aiConversation.introLine?.trim() ?? "",
+        conversationGoal: form.aiConversation.conversationGoal?.trim() ?? "",
+        probeTopics: probeTopicsText
+          .split("\n")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      },
       questions: questions.map((q) => ({
         question_value: q.question_value.trim(),
         optional: q.optional,
@@ -230,6 +258,7 @@ export function CampaignSettingsForm({
         setForm(settings);
         setQuestions(toUiQuestions(settings));
         setSocialLinks(toLinkRows(settings));
+        setProbeTopicsText(settings.aiConversation.probeTopics?.join("\n") ?? "");
       }
       setDirty(false);
       setStatus("saved");
@@ -311,6 +340,54 @@ export function CampaignSettingsForm({
           onChange={(v) => setStrategy("customToneInstructions", v)}
           placeholder="Avoid corporate fluff. Speak like a peer. Focus on speed and APIs."
         />
+      </Section>
+
+      <Section
+        title="AI Conversation"
+        description="An optional post-signup voice chat (Gemini Live) that asks new signups why they joined — and boosts their queue position when they finish."
+      >
+        <Toggle
+          label="Enable post-signup AI voice conversation"
+          checked={form.aiConversation.enabled}
+          onChange={(v) => setAiConversation("enabled", v)}
+        />
+        {form.aiConversation.enabled ? (
+          <>
+            <TextField
+              label="Call-to-action line"
+              value={form.aiConversation.introLine ?? ""}
+              onChange={(v) => setAiConversation("introLine", v)}
+              placeholder="Boost your spot — chat with us for 60 seconds about why you joined."
+            />
+            <TextAreaField
+              label="Conversation goal"
+              value={form.aiConversation.conversationGoal ?? ""}
+              onChange={(v) => setAiConversation("conversationGoal", v)}
+              placeholder="Understand the problem they're hoping this solves and how they'd use it."
+            />
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">Topics to probe (one per line)</label>
+              <textarea
+                value={probeTopicsText}
+                onChange={(e) => setProbeTopicsAndDirty(e.target.value)}
+                rows={4}
+                placeholder={"What problem are you trying to solve?\nWhat do you use today?\nWhat would make this a must-have?"}
+                className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+              />
+              <p className="text-xs text-neutral-500">Up to 10. The AI covers them gently, one at a time.</p>
+            </div>
+            <NumberField
+              label="Leaderboard boost on completion"
+              value={form.aiConversation.leaderboardBonus}
+              onChange={(v) => setAiConversation("leaderboardBonus", v)}
+              min={0}
+              max={1000}
+            />
+            <p className="text-xs text-neutral-500">
+              Referral-equivalent boost to the user&apos;s queue position when they finish the chat. 0 = no boost.
+            </p>
+          </>
+        ) : null}
       </Section>
 
       <Section title="Gamification" description="Referral rewards and the leaderboard.">

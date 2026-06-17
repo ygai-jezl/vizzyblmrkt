@@ -89,3 +89,13 @@ env:
   #   secret: gemini-api-key            # (omit to use ADC + runtime SA instead)
   #   availability:
   #     - RUNTIME
+
+  # Gemini Live voice conversation: PROD has no key yet, so override the base's
+  # dev secret with an empty value → the feature stays OFF in prod and a prod
+  # rollout never depends on the dev-only `gemini-live-api-key` secret. To enable
+  # in prod: create the secret in the prod project (`firebase apphosting:secrets:set
+  # gemini-live-api-key --project prod`) then swap this for `secret: gemini-live-api-key`.
+  - variable: GEMINI_LIVE_API_KEY
+    value: ""
+    availability:
+      - RUNTIME

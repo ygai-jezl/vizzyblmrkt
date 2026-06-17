@@ -18,7 +18,12 @@ export {
   compileJourneyEmail,
   type CompiledEmail,
 } from "./compiler";
-export { isGeminiConfigured } from "./gemini";
+export { isGeminiConfigured, getLiveTokenClient, isLiveConfigured } from "./gemini";
+export {
+  LIVE_MODEL,
+  buildLiveSystemInstruction,
+  buildLiveConnectConfig,
+} from "./liveConversation";
 export {
   renderPrompt,
   getPrompt,

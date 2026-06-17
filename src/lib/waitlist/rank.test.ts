@@ -46,4 +46,36 @@ describe("computeRanks", () => {
     expect(ranks.size).toBe(1);
     expect(ranks.get("x")).toBe(1);
   });
+
+  it("folds engagementBonus into the queue rank (completing the chat moves a user up)", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a", {
+      tenantId: "ten_x", campaignId: "c1", status: "verified_active",
+      amountReferred: 3, score: 0, createdAt: "2026-01-01T00:00:00Z",
+    });
+    // 1 referral + a 5-spot conversation bonus → effective weight 6, ahead of 'a'.
+    db.seed("signups", "b", {
+      tenantId: "ten_x", campaignId: "c1", status: "verified_active",
+      amountReferred: 1, engagementBonus: 5, score: 0, createdAt: "2026-01-02T00:00:00Z",
+    });
+    const ranks = await computeRanks(ctx, "c1", db);
+    expect(ranks.get("b")).toBe(1);
+    expect(ranks.get("a")).toBe(2);
+  });
+
+  it("is unchanged when no signup has an engagementBonus (feature off)", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a", {
+      tenantId: "ten_x", campaignId: "c1", status: "verified_active",
+      amountReferred: 5, score: 0, createdAt: "2026-01-02T00:00:00Z",
+    });
+    db.seed("signups", "b", {
+      tenantId: "ten_x", campaignId: "c1", status: "verified_active",
+      amountReferred: 5, score: 0, createdAt: "2026-01-01T00:00:00Z",
+    });
+    const ranks = await computeRanks(ctx, "c1", db);
+    // Equal referrals → earlier createdAt wins, exactly as before.
+    expect(ranks.get("b")).toBe(1);
+    expect(ranks.get("a")).toBe(2);
+  });
 });

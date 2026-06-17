@@ -85,6 +85,20 @@ const StrategySettingsSchema = z.object({
   customToneInstructions: z.string().trim().max(2000).optional(),
 });
 
+/**
+ * Editable post-signup AI conversation config. Defaulted (disabled, no bonus) so
+ * a payload that omits the whole `aiConversation` object still saves cleanly. The
+ * free-text framing/goal may be cleared to ""; probe topics default to an empty
+ * array. Mirrors the `strategy` defaulting above.
+ */
+const AiConversationSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  introLine: z.string().trim().max(280).optional(),
+  conversationGoal: z.string().trim().max(1000).optional(),
+  probeTopics: z.array(z.string().trim().min(1).max(200)).max(10).default([]),
+  leaderboardBonus: z.number().int().min(0).max(1000).default(0),
+});
+
 export const CampaignSettingsSchema = z
   .object({
     waitlistName: z.string().trim().min(1, "name is required").max(120),
@@ -115,6 +129,12 @@ export const CampaignSettingsSchema = z
     // AI Strategy & Context (nested, mirrors configurationStyleJson). A wholly
     // omitted `strategy` falls back to the all-defaults object.
     strategy: StrategySettingsSchema.default(() => StrategySettingsSchema.parse({})),
+
+    // Post-signup AI conversation (nested). A wholly omitted object falls back to
+    // the disabled all-defaults object.
+    aiConversation: AiConversationSettingsSchema.default(() =>
+      AiConversationSettingsSchema.parse({}),
+    ),
   })
   .strict();
 
@@ -150,6 +170,11 @@ export function defaultCampaignSettings(): CampaignSettings {
       targetCount: 10000,
       targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
       brandTone: "TECHNICAL_PEER",
+    },
+    aiConversation: {
+      enabled: false,
+      probeTopics: [],
+      leaderboardBonus: 0,
     },
   };
 }
@@ -212,6 +237,14 @@ export function toCampaignSettings(campaign: Campaign): CampaignSettings {
       targetAudience: campaign.strategy?.targetAudience ?? "DEVELOPERS_TECHNICAL_FOUNDERS",
       brandTone: campaign.strategy?.brandTone ?? "TECHNICAL_PEER",
       customToneInstructions: campaign.strategy?.customToneInstructions,
+    },
+    // Backfill defaults for any campaign created before `aiConversation` existed.
+    aiConversation: {
+      enabled: campaign.aiConversation?.enabled ?? false,
+      introLine: campaign.aiConversation?.introLine,
+      conversationGoal: campaign.aiConversation?.conversationGoal,
+      probeTopics: campaign.aiConversation?.probeTopics ?? [],
+      leaderboardBonus: campaign.aiConversation?.leaderboardBonus ?? 0,
     },
   };
 }

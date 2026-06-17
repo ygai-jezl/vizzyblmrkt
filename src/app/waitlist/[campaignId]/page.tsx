@@ -67,6 +67,11 @@ export default async function HostedWaitlistPage({
         buttonColor={style.widgetButtonColor ?? "#111827"}
         successMessage={style.statusDescription ?? "You're on the list!"}
         joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+        aiConversation={
+          campaign.aiConversation?.enabled
+            ? { enabled: true, introLine: campaign.aiConversation.introLine }
+            : undefined
+        }
       />
 
       <StatusCheck

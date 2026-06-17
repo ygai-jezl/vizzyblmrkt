@@ -108,6 +108,20 @@ env:
   #   secret: gemini-api-key
   #   availability:
   #     - RUNTIME
+  #
+  # Gemini Live API — post-signup voice conversation. DEVELOPER-API key ("AIza*"),
+  # NOT the Vertex path above: ephemeral tokens + Live are Developer-API only.
+  # Enabled for DEV here; PROD overrides this to an empty value (feature off) in
+  # apphosting.prod.yaml until a prod key is provisioned, so a prod rollout never
+  # depends on a secret that only exists in the dev project.
+  - variable: GEMINI_LIVE_API_KEY
+    secret: gemini-live-api-key
+    availability:
+      - RUNTIME
+  # - variable: GEMINI_LIVE_MODEL          # optional — defaults to gemini-3.1-flash-live-preview
+  #   value: gemini-3.1-flash-live-preview
+  #   availability:
+  #     - RUNTIME
   # GCS bucket for Agent 3's generated hero images (public-read objects). Create
   # it + grant allUsers:objectViewer before generating images.
   - variable: EMAIL_ASSET_BUCKET

@@ -2,9 +2,11 @@ import { type WidgetMode, type WidgetType } from "./types";
 
 /**
  * Live-preview vocabulary for the admin Embed & Design builder. The builder
- * iframes an ADMIN-ONLY route (src/app/admin/launches/[campaignId]/preview) and
- * passes the founder's UNSAVED branding edits as query params, so every tweak is
- * reflected instantly without a save round-trip.
+ * iframes an ADMIN-ONLY route (src/app/admin-preview/[campaignId]) and passes
+ * the founder's UNSAVED branding edits as query params, so every tweak is
+ * reflected instantly without a save round-trip. The route sits OUTSIDE the
+ * /admin tree on purpose — clear of the admin sidebar + launch-tab layouts — so
+ * the frame shows only the hosted page or the bare widget.
  *
  * This is deliberately separate from the public embed snippet (snippet.ts):
  * because the preview route is admin-gated + same-origin-framed, it can safely
@@ -70,5 +72,5 @@ export function buildPreviewUrl({
   const joinLabel = draft?.joinButtonLabel?.trim();
   if (joinLabel) qs.set("joinLabel", joinLabel);
   qs.set("header", draft?.removeWidgetHeaders ? "0" : "1");
-  return `${base}/admin/launches/${encodeURIComponent(campaignId)}/preview?${qs.toString()}`;
+  return `${base}/admin-preview/${encodeURIComponent(campaignId)}?${qs.toString()}`;
 }

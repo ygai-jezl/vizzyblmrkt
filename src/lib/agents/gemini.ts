@@ -54,8 +54,12 @@ let liveCached: GoogleGenAI | null | undefined;
 export function getLiveTokenClient(): GoogleGenAI | null {
   if (liveCached !== undefined) return liveCached;
   const apiKey = process.env.GEMINI_LIVE_API_KEY;
+  // `vertexai: false` is REQUIRED: deployed envs set GOOGLE_GENAI_USE_VERTEXAI=true
+  // (for Agent 3), and the SDK would otherwise read that env var and treat THIS
+  // client as a Vertex backend — where authTokens.create (ephemeral tokens) is
+  // unsupported ("only supported by the Gemini Developer API"). Force Developer API.
   liveCached = apiKey
-    ? new GoogleGenAI({ apiKey, httpOptions: { apiVersion: "v1alpha" } })
+    ? new GoogleGenAI({ vertexai: false, apiKey, httpOptions: { apiVersion: "v1alpha" } })
     : null;
   return liveCached;
 }

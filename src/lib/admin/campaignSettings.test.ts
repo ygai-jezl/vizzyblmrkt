@@ -144,6 +144,117 @@ describe("CampaignSettingsSchema", () => {
   });
 });
 
+describe("CampaignSettingsSchema — AI Strategy & Context", () => {
+  it("applies strategy defaults when `strategy` is omitted", () => {
+    const parsed = CampaignSettingsSchema.safeParse(VALID);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.strategy).toEqual({
+        campaignGoal: "PRE_LAUNCH_WAITLIST",
+        targetCount: 10000,
+        targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
+        brandTone: "TECHNICAL_PEER",
+      });
+    }
+  });
+
+  it("accepts and round-trips explicit strategy values (trimming instructions)", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      strategy: {
+        campaignGoal: "ENTERPRISE_LEAD_GEN",
+        targetCount: 500,
+        targetAudience: "ENTERPRISE_DECISION_MAKERS",
+        brandTone: "ENTERPRISE_TRUST",
+        customToneInstructions: "  Be concise.  ",
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.strategy.campaignGoal).toBe("ENTERPRISE_LEAD_GEN");
+      expect(parsed.data.strategy.targetCount).toBe(500);
+      expect(parsed.data.strategy.brandTone).toBe("ENTERPRISE_TRUST");
+      expect(parsed.data.strategy.customToneInstructions).toBe("Be concise.");
+    }
+  });
+
+  it("rejects an unknown campaignGoal or brandTone", () => {
+    for (const bad of [{ campaignGoal: "WORLD_DOMINATION" }, { brandTone: "SHOUTY" }]) {
+      const parsed = CampaignSettingsSchema.safeParse({
+        ...(VALID as object),
+        strategy: bad,
+      });
+      expect(parsed.success, `should reject ${JSON.stringify(bad)}`).toBe(false);
+    }
+  });
+
+  it("rejects a negative or non-integer targetCount", () => {
+    for (const bad of [-1, 3.5]) {
+      const parsed = CampaignSettingsSchema.safeParse({
+        ...(VALID as object),
+        strategy: { targetCount: bad },
+      });
+      expect(parsed.success, `should reject targetCount ${bad}`).toBe(false);
+    }
+  });
+});
+
+describe("CampaignSettingsSchema — AI Conversation", () => {
+  it("defaults to a disabled, no-bonus conversation when omitted", () => {
+    const parsed = CampaignSettingsSchema.safeParse(VALID);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.aiConversation).toEqual({
+        enabled: false,
+        probeTopics: [],
+        leaderboardBonus: 0,
+      });
+    }
+  });
+
+  it("round-trips explicit conversation config (trimming + topic dedupe-of-blanks)", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      aiConversation: {
+        enabled: true,
+        introLine: "  Boost your spot  ",
+        conversationGoal: "Learn why they joined",
+        probeTopics: ["  budget  ", "timeline"],
+        leaderboardBonus: 5,
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.aiConversation.enabled).toBe(true);
+      expect(parsed.data.aiConversation.introLine).toBe("Boost your spot");
+      expect(parsed.data.aiConversation.probeTopics).toEqual(["budget", "timeline"]);
+      expect(parsed.data.aiConversation.leaderboardBonus).toBe(5);
+    }
+  });
+
+  it("rejects a leaderboardBonus out of 0..1000 or non-integer", () => {
+    for (const bad of [-1, 1001, 2.5]) {
+      const parsed = CampaignSettingsSchema.safeParse({
+        ...(VALID as object),
+        aiConversation: { enabled: true, leaderboardBonus: bad },
+      });
+      expect(parsed.success, `should reject bonus ${bad}`).toBe(false);
+    }
+  });
+
+  it("rejects more than 10 probe topics", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      aiConversation: {
+        enabled: true,
+        leaderboardBonus: 0,
+        probeTopics: Array.from({ length: 11 }, (_, i) => `topic ${i}`),
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
+
 describe("toCampaignSettings", () => {
   it("projects a stored campaign to its editable settings and round-trips", () => {
     const campaign: Campaign = {
@@ -172,7 +283,66 @@ describe("toCampaignSettings", () => {
     expect(settings).not.toHaveProperty("id");
     expect(settings).not.toHaveProperty("tenantId");
     expect(settings).not.toHaveProperty("createdAt");
+    // A legacy campaign with no `strategy` backfills sensible defaults.
+    expect(settings.strategy.campaignGoal).toBe("PRE_LAUNCH_WAITLIST");
+    expect(settings.strategy.brandTone).toBe("TECHNICAL_PEER");
+    // A legacy campaign with no `aiConversation` backfills the disabled default.
+    expect(settings.aiConversation).toEqual({
+      enabled: false,
+      introLine: undefined,
+      conversationGoal: undefined,
+      probeTopics: [],
+      leaderboardBonus: 0,
+    });
     // And the projection itself is a valid settings payload.
     expect(CampaignSettingsSchema.safeParse(settings).success).toBe(true);
+  });
+});
+
+describe("CampaignSettingsSchema — social share config", () => {
+  it("accepts a share message and known platform ids", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        shareMessage: "Join {{waitlist_name}} — I'm #{{current_rank}}",
+        enabledSharePlatforms: ["twitter", "reddit", "email"],
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.configurationStyleJson.enabledSharePlatforms).toEqual([
+        "twitter",
+        "reddit",
+        "email",
+      ]);
+    }
+  });
+
+  it("rejects an unknown share platform id", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        enabledSharePlatforms: ["twitter", "myspace"],
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects a share message longer than 280 chars", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        shareMessage: "x".repeat(281),
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("treats both share fields as optional (omitting them is valid)", () => {
+    const parsed = CampaignSettingsSchema.safeParse(VALID);
+    expect(parsed.success).toBe(true);
   });
 });

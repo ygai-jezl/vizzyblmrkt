@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { computeScore, comparePriority, signupUnixSeconds } from "./scoring";
+import {
+  computeScore,
+  comparePriority,
+  signupUnixSeconds,
+  effectiveReferralWeight,
+} from "./scoring";
+
+describe("effectiveReferralWeight", () => {
+  it("equals amountReferred when there is no engagement bonus", () => {
+    expect(effectiveReferralWeight({ amountReferred: 4 })).toBe(4);
+    expect(effectiveReferralWeight({ amountReferred: 0, engagementBonus: 0 })).toBe(0);
+  });
+
+  it("adds the conversation engagement bonus to referrals", () => {
+    expect(effectiveReferralWeight({ amountReferred: 1, engagementBonus: 5 })).toBe(6);
+  });
+});
 
 describe("computeScore", () => {
   it("is zero with no referrals", () => {

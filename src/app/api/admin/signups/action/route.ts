@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
+import { removeSignupFromAudience } from "@/lib/mailchimp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,13 +38,18 @@ export async function POST(req: Request) {
   const failed: string[] = [];
   for (const id of ids) {
     try {
+      // Capture the email BEFORE mutating so we can drop them from the audience.
+      const existing = await repo.getById(id);
       if (action === "offboard") {
-        // TODO(email): trigger the offboarding email pipeline once email ships.
         await repo.update(id, { status: "offboarded", removedDate: now });
       } else {
         await repo.delete(id);
       }
       updated += 1;
+      // Best-effort: archive them from the MailChimp audience too.
+      if (existing?.email) {
+        void removeSignupFromAudience(ctx, existing.email).catch(() => {});
+      }
     } catch {
       // Cross-tenant / missing ids are refused by the repository — record, skip.
       failed.push(id);

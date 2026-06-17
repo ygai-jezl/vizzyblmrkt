@@ -21,6 +21,72 @@ export type TenantStatus = z.infer<typeof TenantStatus>;
 export const Region = z.enum(["us", "eu", "asia"]);
 export type Region = z.infer<typeof Region>;
 
+/**
+ * Per-tenant MailChimp / email-provider config. Optional so tenant documents
+ * predating this field still parse. By default a tenant uses the SHARED
+ * MailChimp account (env-configured). When `requiresOwnApiKey` is true the
+ * tenant is gated OFF the shared account and MUST bring its own credentials
+ * (`apiKey` + `audienceId`). See src/lib/mailchimp/config.ts.
+ */
+export const MailchimpTenantConfigSchema = z.object({
+  requiresOwnApiKey: z.boolean().default(false),
+  apiKey: z.string().optional(),
+  serverPrefix: z.string().optional(),
+  audienceId: z.string().optional(),
+});
+export type MailchimpTenantConfig = z.infer<typeof MailchimpTenantConfigSchema>;
+
+/**
+ * One DNS record a tenant must publish to authenticate a custom sending domain
+ * (SPF / DKIM / DMARC). `valid` reflects what the email provider (Mandrill) last
+ * observed — see src/lib/email/senderDomains.ts.
+ */
+export const SenderDnsRecordSchema = z.object({
+  type: z.enum(["TXT", "CNAME", "MX"]),
+  host: z.string(),
+  value: z.string(),
+  valid: z.boolean().default(false),
+});
+export type SenderDnsRecord = z.infer<typeof SenderDnsRecordSchema>;
+
+/**
+ * A custom email-sending domain the tenant is verifying / has verified. Status
+ * is driven by the provider's DKIM+SPF checks; `records` is what the admin must
+ * publish at their DNS host. Until a domain is "verified" it must not be used as
+ * a From address (mail would fail authentication).
+ */
+export const SenderDomainSchema = z.object({
+  domain: z.string(),
+  status: z.enum(["pending", "verified", "failed"]).default("pending"),
+  dkimValid: z.boolean().default(false),
+  spfValid: z.boolean().default(false),
+  records: z.array(SenderDnsRecordSchema).default([]),
+  addedAt: z.string(),
+  lastCheckedAt: z.string().optional(),
+  /** Last provider status/error detail surfaced to the admin. */
+  detail: z.string().optional(),
+});
+export type SenderDomain = z.infer<typeof SenderDomainSchema>;
+
+/**
+ * Tenant-level (global) email sender identity + verified sending domains. Reused
+ * across every launch; a launch may override the name/address/reply-to per
+ * campaign (see Campaign.email* fields). Optional so tenant documents predating
+ * this field still parse.
+ */
+export const EmailSenderConfigSchema = z.object({
+  /** Display name on outbound mail, e.g. "Acme Team". */
+  senderName: z.string().optional(),
+  /** Local-part of the From address, e.g. "hello". */
+  fromLocalPart: z.string().optional(),
+  /** Verified domain the From address sends from, e.g. "mail.acme.com". */
+  fromDomain: z.string().optional(),
+  /** Reply-To address shown to recipients. */
+  replyTo: z.string().optional(),
+  domains: z.array(SenderDomainSchema).default([]),
+});
+export type EmailSenderConfig = z.infer<typeof EmailSenderConfigSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -41,6 +107,10 @@ export const TenantSchema = z.object({
   billingTier: z.string(),
   /** Firebase Auth UID of the primary creator. */
   ownerId: z.string(),
+  /** Per-tenant MailChimp / email-provider config + BYO feature gate. */
+  mailchimpConfig: MailchimpTenantConfigSchema.optional(),
+  /** Global custom-domain email sender identity + verified domains. */
+  emailSenderConfig: EmailSenderConfigSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -86,9 +86,10 @@ const eslintConfig = [
     },
   },
   {
-    // infra/** holds standalone Cloud Functions (CommonJS, own runtime) — not
-    // part of the Next app's lint scope.
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "infra/**"],
+    // infra/** holds standalone Cloud Functions (CommonJS, own runtime); agents/**
+    // is the Python ADK agent + its .venv (bundled JS) — neither is part of the
+    // Next app's lint scope.
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "infra/**", "agents/**"],
   },
 ];
 

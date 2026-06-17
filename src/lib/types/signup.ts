@@ -32,6 +32,28 @@ export const AnswerSchema = z.object({
 });
 export type Answer = z.infer<typeof AnswerSchema>;
 
+/** One turn of the post-signup AI voice conversation transcript. */
+export const ConversationTurnSchema = z.object({
+  role: z.enum(["user", "model"]),
+  text: z.string(),
+});
+export type ConversationTurn = z.infer<typeof ConversationTurnSchema>;
+
+/**
+ * Captured "golden data" from a completed Gemini Live voice conversation: the
+ * full transcript (built from input/output audio transcriptions) plus an
+ * optional summary. `bonusApplied` guards the one-time leaderboard boost so a
+ * re-submitted completion can't double-credit.
+ */
+export const AiConversationDataSchema = z.object({
+  completed: z.boolean(),
+  transcript: z.array(ConversationTurnSchema).max(200),
+  summary: z.string().optional(),
+  capturedAt: z.string(), // ISO 8601
+  bonusApplied: z.boolean(),
+});
+export type AiConversationData = z.infer<typeof AiConversationDataSchema>;
+
 export const SignupSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -67,6 +89,12 @@ export const SignupSchema = z.object({
   // Arbitrary developer payload + form answers
   metadata: z.record(z.string(), z.unknown()).optional(),
   answers: z.array(AnswerSchema).optional(),
+
+  // Post-signup AI voice conversation: captured transcript/summary + the
+  // referral-equivalent boost folded into ranking. Both optional so existing
+  // signups read cleanly; see lib/waitlist/rank.ts for how the bonus is applied.
+  aiConversation: AiConversationDataSchema.optional(),
+  engagementBonus: z.number().int().min(0).optional(),
 
   // Marketing attribution captured at signup.
   utm: UtmSchema.optional(),

@@ -4,6 +4,7 @@ import { resolveTenantFromOrigin, forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
+import { StatusCheck } from "@/components/waitlist/StatusCheck";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +66,17 @@ export default async function HostedWaitlistPage({
         referredBySignupToken={referredBySignupToken}
         buttonColor={style.widgetButtonColor ?? "#111827"}
         successMessage={style.statusDescription ?? "You're on the list!"}
+        joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+        aiConversation={
+          campaign.aiConversation?.enabled
+            ? { enabled: true, introLine: campaign.aiConversation.introLine }
+            : undefined
+        }
+      />
+
+      <StatusCheck
+        campaignId={campaign.id}
+        buttonColor={style.widgetButtonColor ?? "#111827"}
       />
 
       {leaderboard.length > 0 ? (

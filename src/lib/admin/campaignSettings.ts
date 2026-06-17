@@ -1,9 +1,16 @@
 import { z } from "zod";
 import {
+  BrandToneType,
+  CampaignGoalType,
   ConfigurationStyleSchema,
   RequiredContactDetail,
+  TargetAudienceType,
   type Campaign,
 } from "@/lib/types/campaign";
+import {
+  SHARE_PLATFORM_IDS,
+  isSharePlatformId,
+} from "@/lib/waitlist/socialPlatforms";
 
 /**
  * The admin-editable subset of a Campaign — everything that drives the hosted
@@ -32,6 +39,21 @@ export const SettingsQuestionSchema = z.object({
     .transform((v) => (v && v.length > 0 ? v : null)),
 });
 
+/** True for a syntactically valid http(s) URL — used to validate the Waitlist URL. */
+function isHttpUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Lenient single-address email check — used for the optional sender overrides. */
+function isEmail(s: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+}
+
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const COLOR_FIELDS = [
   "widgetBackgroundColor",
@@ -43,17 +65,71 @@ const COLOR_FIELDS = [
  * Branding config with the editable colour fields constrained to 6-digit hex.
  * The stored ConfigurationStyleSchema is intentionally loose (any string); the
  * settings editor must not be able to persist an invalid CSS colour that the
- * swatch silently renders as black.
+ * swatch silently renders as black. The two share fields are tightened too:
+ * `shareMessage` is length-capped, and `enabledSharePlatforms` rejects unknown
+ * ids and is normalised to the canonical order (deduped) via parseEnabledPlatforms.
  */
-const StyleSettingsSchema = ConfigurationStyleSchema.refine(
-  (s) => COLOR_FIELDS.every((k) => !s[k] || HEX_COLOR.test(s[k] as string)),
-  { message: "widget colours must be a 6-digit hex value like #4937E7" },
-);
+const StyleSettingsSchema = ConfigurationStyleSchema.extend({
+  // `.optional()` stays outermost on both so the keys remain optional in the
+  // inferred CampaignSettings type (matching the loose stored shape) — the
+  // unknown-id check lives in the object-level refine below, not as a per-field
+  // effect, which would otherwise force the key to be required.
+  shareMessage: z.string().trim().max(280).optional(),
+  enabledSharePlatforms: z.array(z.string()).max(SHARE_PLATFORM_IDS.length).optional(),
+})
+  .refine(
+    (s) => COLOR_FIELDS.every((k) => !s[k] || HEX_COLOR.test(s[k] as string)),
+    { message: "widget colours must be a 6-digit hex value like #4937E7" },
+  )
+  .refine(
+    (s) => !s.enabledSharePlatforms || s.enabledSharePlatforms.every(isSharePlatformId),
+    { message: "enabledSharePlatforms contains an unknown platform id" },
+  );
+
+/**
+ * Editable AI Strategy & Context. The enums (+ target count) carry sensible
+ * defaults so a payload that omits the whole `strategy` object — or any field in
+ * it — still saves cleanly; the free-text instructions are optional and may be
+ * cleared to "".
+ */
+const StrategySettingsSchema = z.object({
+  campaignGoal: CampaignGoalType.default("PRE_LAUNCH_WAITLIST"),
+  targetCount: z.number().int().min(0).max(1_000_000_000).default(10_000),
+  targetAudience: TargetAudienceType.default("DEVELOPERS_TECHNICAL_FOUNDERS"),
+  brandTone: BrandToneType.default("TECHNICAL_PEER"),
+  customToneInstructions: z.string().trim().max(2000).optional(),
+});
+
+/**
+ * Editable post-signup AI conversation config. Defaulted (disabled, no bonus) so
+ * a payload that omits the whole `aiConversation` object still saves cleanly. The
+ * free-text framing/goal may be cleared to ""; probe topics default to an empty
+ * array. Mirrors the `strategy` defaulting above.
+ */
+const AiConversationSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  introLine: z.string().trim().max(280).optional(),
+  conversationGoal: z.string().trim().max(1000).optional(),
+  probeTopics: z.array(z.string().trim().min(1).max(200)).max(10).default([]),
+  leaderboardBonus: z.number().int().min(0).max(1000).default(0),
+});
 
 export const CampaignSettingsSchema = z
   .object({
     waitlistName: z.string().trim().min(1, "name is required").max(120),
-    waitlistUrlLocation: z.string().trim().max(2000).nullable().optional(),
+    // The public URL where this waitlist lives. Blank → the default hosted page
+    // (`{origin}/waitlist/<slug>`). When set (e.g. a brand who embedded the widget
+    // on their own site), it is used VERBATIM as the referral/share-link base, so
+    // it must be a full http(s) URL. An empty string is treated as blank.
+    waitlistUrlLocation: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine((s) => s === "" || isHttpUrl(s), {
+        message: "enter a full URL like https://yourbrand.com/early-access",
+      })
+      .nullable()
+      .optional(),
 
     // Gamification physics — the "spots skipped per referral" knob.
     spotsToMoveUponReferral: z.number().int().min(0).max(1000),
@@ -74,8 +150,41 @@ export const CampaignSettingsSchema = z
     sendEmailCongratulationsOnReferral: z.boolean(),
     leaderboardLength: z.number().int().min(0).max(1000),
 
+    // Per-launch email sender OVERRIDES. Blank/omitted → inherit the tenant
+    // default (Account Settings → Domains). The address must be a valid email
+    // (and its domain verified at the tenant level to actually be used). The
+    // Communication settings UI binds these; they are optional here so existing
+    // payloads that omit them still validate.
+    emailFromName: z.string().trim().max(120).optional(),
+    emailFromAddress: z
+      .string()
+      .trim()
+      .max(254)
+      .refine((s) => s === "" || isEmail(s), {
+        message: "enter a valid email address like hello@mail.yourbrand.com",
+      })
+      .optional(),
+    emailReplyTo: z
+      .string()
+      .trim()
+      .max(254)
+      .refine((s) => s === "" || isEmail(s), {
+        message: "enter a valid email address like replies@mail.yourbrand.com",
+      })
+      .optional(),
+
     // Branding
     configurationStyleJson: StyleSettingsSchema,
+
+    // AI Strategy & Context (nested, mirrors configurationStyleJson). A wholly
+    // omitted `strategy` falls back to the all-defaults object.
+    strategy: StrategySettingsSchema.default(() => StrategySettingsSchema.parse({})),
+
+    // Post-signup AI conversation (nested). A wholly omitted object falls back to
+    // the disabled all-defaults object.
+    aiConversation: AiConversationSettingsSchema.default(() =>
+      AiConversationSettingsSchema.parse({}),
+    ),
   })
   .strict();
 
@@ -104,6 +213,18 @@ export function defaultCampaignSettings(): CampaignSettings {
     configurationStyleJson: {
       widgetButtonColor: "#111827",
       statusDescription: "You're on the list!",
+      enabledSharePlatforms: ["twitter", "whatsapp", "telegram", "email"],
+    },
+    strategy: {
+      campaignGoal: "PRE_LAUNCH_WAITLIST",
+      targetCount: 10000,
+      targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
+      brandTone: "TECHNICAL_PEER",
+    },
+    aiConversation: {
+      enabled: false,
+      probeTopics: [],
+      leaderboardBonus: 0,
     },
   };
 }
@@ -121,6 +242,16 @@ export function slugifyCampaignId(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
     .replace(/-+$/g, "");
+}
+
+/**
+ * Append a numeric suffix (`-2`, `-3`, …) to a base slug to escape a collision,
+ * trimming the base so the result stays within the 64-char CampaignIdSchema cap.
+ * Callers must re-validate the result (a trim can land on a hyphen).
+ */
+export function suffixedCampaignId(base: string, n: number): string {
+  const suffix = `-${n}`;
+  return `${base.slice(0, 64 - suffix.length)}${suffix}`;
 }
 
 /** Ids reserved because they collide with static routes under /admin/launches. */
@@ -158,6 +289,25 @@ export function toCampaignSettings(campaign: Campaign): CampaignSettings {
     twitterMessage: campaign.twitterMessage,
     sendEmailCongratulationsOnReferral: campaign.sendEmailCongratulationsOnReferral,
     leaderboardLength: campaign.leaderboardLength,
+    emailFromName: campaign.emailFromName,
+    emailFromAddress: campaign.emailFromAddress,
+    emailReplyTo: campaign.emailReplyTo,
     configurationStyleJson: campaign.configurationStyleJson,
+    // Backfill defaults for any campaign created before `strategy` existed.
+    strategy: {
+      campaignGoal: campaign.strategy?.campaignGoal ?? "PRE_LAUNCH_WAITLIST",
+      targetCount: campaign.strategy?.targetCount ?? 10000,
+      targetAudience: campaign.strategy?.targetAudience ?? "DEVELOPERS_TECHNICAL_FOUNDERS",
+      brandTone: campaign.strategy?.brandTone ?? "TECHNICAL_PEER",
+      customToneInstructions: campaign.strategy?.customToneInstructions,
+    },
+    // Backfill defaults for any campaign created before `aiConversation` existed.
+    aiConversation: {
+      enabled: campaign.aiConversation?.enabled ?? false,
+      introLine: campaign.aiConversation?.introLine,
+      conversationGoal: campaign.aiConversation?.conversationGoal,
+      probeTopics: campaign.aiConversation?.probeTopics ?? [],
+      leaderboardBonus: campaign.aiConversation?.leaderboardBonus ?? 0,
+    },
   };
 }

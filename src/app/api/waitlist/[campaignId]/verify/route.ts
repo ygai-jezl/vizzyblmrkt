@@ -6,6 +6,7 @@ import {
   creditReferral,
 } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
+import { syncSignupToAudience } from "@/lib/mailchimp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,26 @@ export async function GET(
       );
     } catch (err) {
       console.warn(`referral credit on verify failed for ${campaign.id}:`, err);
+    }
+  }
+
+  // Newly verified → push them into the marketing audience (best-effort). The
+  // verification token is not cleared on verify, so it still resolves the row.
+  if (result.status === "verified") {
+    try {
+      const rows = await forTenant(ctx).signups.find({
+        where: [
+          ["campaignId", "==", campaignId],
+          ["verificationToken", "==", token],
+        ],
+        limit: 1,
+      });
+      if (rows[0]) await syncSignupToAudience(ctx, campaign, rows[0]);
+    } catch (err) {
+      console.warn(
+        `[mailchimp] audience sync on verify failed for ${campaign.id}:`,
+        err,
+      );
     }
   }
 

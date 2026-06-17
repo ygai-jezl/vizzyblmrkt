@@ -96,6 +96,14 @@ export async function seedDemoData(): Promise<SeedResult> {
         widgetFontColor: "#111827",
         statusDescription: "You're on the list!",
       },
+      strategy: {
+        campaignGoal: "PRE_LAUNCH_WAITLIST",
+        targetCount: 10000,
+        targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
+        brandTone: "TECHNICAL_PEER",
+        customToneInstructions:
+          "Avoid corporate fluff. Speak like a peer. Focus on speed and APIs.",
+      },
       createdAt: now,
     } as never);
   } catch (err) {
@@ -122,6 +130,12 @@ export async function seedDemoData(): Promise<SeedResult> {
       configurationStyleJson: {
         widgetButtonColor: "#111827",
         statusDescription: "You're on the list!",
+      },
+      strategy: {
+        campaignGoal: "PRE_LAUNCH_WAITLIST",
+        targetCount: 10000,
+        targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
+        brandTone: "TECHNICAL_PEER",
       },
       createdAt: now,
     } as never);

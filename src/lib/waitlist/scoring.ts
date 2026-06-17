@@ -32,6 +32,22 @@ export function computeScore(
   return amountReferred * spotsToMoveUponReferral;
 }
 
+/**
+ * Effective referral weight used for QUEUE RANKING (not the public top-referrers
+ * list): a signup's verified referrals plus any `engagementBonus` earned by
+ * completing the post-signup AI conversation. Kept separate from the stored
+ * `amountReferred` (which remains the literal, honestly-displayed referral count)
+ * so the boost moves a user up their queue position without faking referrals.
+ * When no signup has a bonus this equals `amountReferred`, so ranking is
+ * unchanged. See lib/waitlist/rank.ts.
+ */
+export function effectiveReferralWeight(s: {
+  amountReferred: number;
+  engagementBonus?: number;
+}): number {
+  return s.amountReferred + (s.engagementBonus ?? 0);
+}
+
 /** Queue ordinal used as the deterministic tie-breaker. Integer Unix SECONDS. */
 export function signupUnixSeconds(createdAtIso: string): number {
   const ms = Date.parse(createdAtIso);

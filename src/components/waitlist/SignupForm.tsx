@@ -2,6 +2,19 @@
 
 import { useState } from "react";
 import { getRecaptchaToken } from "@/lib/security/recaptchaClient";
+import {
+  parseEnabledPlatforms,
+  type SharePlatformId,
+} from "@/lib/waitlist/socialPlatforms";
+import dynamic from "next/dynamic";
+import { ShareSection } from "./ShareSection";
+
+// Lazy-loaded so the Gemini Live SDK (@google/genai) is only fetched when a user
+// actually opens the conversation — keeping the waitlist + embed bundles lean.
+const ConversationModal = dynamic(
+  () => import("@/components/waitlist/ConversationModal").then((m) => m.ConversationModal),
+  { ssr: false },
+);
 
 interface Question {
   question_value: string;
@@ -20,17 +33,29 @@ interface Props {
   referredBySignupToken?: string;
   buttonColor: string;
   successMessage: string;
+  /** Label for the primary CTA on the full form. Compact variants show "Join". */
+  joinButtonLabel: string;
   /** "full" (default) collects everything; "mini"/"docked" are email-only. */
   variant?: SignupVariant;
   /** When embedded in an iframe, emit a `vizzybl:signup` DOM event on success. */
   embedded?: boolean;
+  /** Post-signup AI voice conversation config (the CTA shown on success). */
+  aiConversation?: { enabled: boolean; introLine?: string };
 }
 
 interface SuccessState {
   alreadyJoined: boolean;
+  referralToken: string;
   referralLink: string;
   totalSignups: number;
   needsVerification: boolean;
+  /** 1-based waitlist position; null until verified (verification campaigns). */
+  rank: number | null;
+  amountReferred: number;
+  /** Share-message template rendered server-side (merge vars resolved, no link). */
+  shareMessage: string;
+  enabledPlatforms: SharePlatformId[];
+  hideCounts: boolean;
 }
 
 /** Read the 5 standard UTM params from the current URL (undefined if none). */
@@ -53,9 +78,12 @@ export function SignupForm({
   referredBySignupToken,
   buttonColor,
   successMessage,
+  joinButtonLabel,
   variant = "full",
   embedded = false,
+  aiConversation,
 }: Props) {
+  const [convoOpen, setConvoOpen] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -64,7 +92,6 @@ export function SignupForm({
   const [status, setStatus] = useState<"idle" | "submitting" | "error" | "success">("idle");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessState | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // Compact variants collect email only — names, phone, and questions are
   // suppressed regardless of campaign config (the API still validates).
@@ -122,9 +149,15 @@ export function SignupForm({
       }
       setSuccess({
         alreadyJoined: !!data.alreadyJoined,
+        referralToken: data.referralToken,
         referralLink: data.referralLink,
         totalSignups: data.totalSignups,
         needsVerification: !!data.needsVerification,
+        rank: typeof data.rank === "number" ? data.rank : null,
+        amountReferred: typeof data.amountReferred === "number" ? data.amountReferred : 0,
+        shareMessage: typeof data.shareMessage === "string" ? data.shareMessage : "",
+        enabledPlatforms: parseEnabledPlatforms(data.enabledSharePlatforms),
+        hideCounts: !!data.hideCounts,
       });
       setStatus("success");
       // In an embed, let the host page react (analytics, redirect, etc.). The
@@ -164,34 +197,51 @@ export function SignupForm({
         <h2 className="text-lg font-semibold">
           {success.alreadyJoined ? "You're already on the list 🎉" : successMessage}
         </h2>
-        <p className="text-sm text-neutral-500">
-          {success.totalSignups.toLocaleString()} people have joined. Share your
-          link to move up the queue.
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly
-            value={success.referralLink}
-            className="flex-1 truncate rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-            onFocus={(e) => e.currentTarget.select()}
+        {!success.hideCounts && success.totalSignups > 0 ? (
+          <p className="text-sm text-neutral-500">
+            {success.totalSignups.toLocaleString()} people have joined.
+          </p>
+        ) : null}
+        <ShareSection
+          referralLink={success.referralLink}
+          shareMessage={success.shareMessage}
+          enabledPlatforms={success.enabledPlatforms}
+          rank={success.rank}
+          amountReferred={success.amountReferred}
+          hideCounts={success.hideCounts}
+          buttonColor={buttonColor}
+        />
+
+        {aiConversation?.enabled && success.referralToken ? (
+          // Dark callout so the gradient glow reads against the light success card.
+          <div className="mt-2 space-y-3 rounded-xl bg-neutral-950 p-4">
+            <p className="text-sm font-medium text-white">Want to jump the queue?</p>
+            <div className="relative">
+              {/* Glow: a blurred premium gradient sitting behind the button. */}
+              <div
+                aria-hidden
+                className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-cyan-400 opacity-70 blur-md"
+              />
+              <button
+                type="button"
+                onClick={() => setConvoOpen(true)}
+                className="relative w-full rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 transition hover:ring-white/30"
+              >
+                🎙️ Boost your spot — talk to us
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {convoOpen && success.referralToken ? (
+          <ConversationModal
+            campaignId={campaignId}
+            referralToken={success.referralToken}
+            introLine={aiConversation?.introLine}
+            buttonColor={buttonColor}
+            onClose={() => setConvoOpen(false)}
           />
-          <button
-            type="button"
-            className="rounded-md px-4 py-2 text-sm font-medium text-white"
-            style={{ backgroundColor: buttonColor }}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(success.referralLink);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              } catch {
-                /* clipboard blocked — the field is selectable as a fallback */
-              }
-            }}
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
+        ) : null}
       </section>
     );
   }
@@ -317,7 +367,7 @@ export function SignupForm({
         className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         style={{ backgroundColor: buttonColor }}
       >
-        {status === "submitting" ? "Joining…" : "Join the waitlist"}
+        {status === "submitting" ? "Joining…" : joinButtonLabel}
       </button>
     </form>
   );

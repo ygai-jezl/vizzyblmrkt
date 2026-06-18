@@ -11,12 +11,14 @@ export type {
 export {
   resolveTenantFromOrigin,
   tenantContextFromClaims,
+  resolveActiveTenant,
 } from "./context";
 export type { VerifiedClaims } from "./context";
 export {
   getTenantById,
   getTenantByOrigin,
   getTenantsForUser,
+  getTenantMembership,
 } from "./registry";
 export {
   REGION_CONFIGS,
@@ -28,6 +30,7 @@ export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,
+  addTenantMember,
 } from "./control";
 export { deriveFaviconUrl } from "./favicon";
 export { creditReferral } from "./referral";

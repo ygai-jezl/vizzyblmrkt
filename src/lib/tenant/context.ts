@@ -1,7 +1,7 @@
 import type { FirestoreLike, TenantContext } from "./types";
 import type { TenantRole } from "@/lib/types/tenantUser";
 import type { Region } from "@/lib/types/tenant";
-import { getTenantByOrigin } from "./registry";
+import { getTenantByOrigin, getTenantById, getTenantMembership } from "./registry";
 import { TenantNotFoundError, TenantValidationError } from "./errors";
 
 /**
@@ -55,6 +55,44 @@ export function tenantContextFromClaims(claims: VerifiedClaims): TenantContext {
     region: claims.region,
     userId: claims.uid,
     role: claims.role ?? "member",
+    source: "idtoken",
+  };
+}
+
+/**
+ * Given the HOME tenant context (from verified ID-token claims) and a CANDIDATE
+ * tenant id named by the `active_tenant` cookie, return the context the request
+ * should operate under — the heart of brand switching.
+ *
+ * The candidate is RE-AUTHORIZED on every call: the user must hold a
+ * `tenant_users` membership for it AND the tenant must not be suspended. On any
+ * failure (no candidate, not a member, tenant missing/deleted, suspended) we
+ * return the home context UNCHANGED. A switch can therefore only ever move the
+ * user to a tenant they independently belong to — never an escalation; the
+ * worst case is their own home tenant. `region` (for regional DB routing) and
+ * `role` are taken AUTHORITATIVELY from the target docs, never from the client.
+ */
+export async function resolveActiveTenant(
+  home: TenantContext,
+  candidateTenantId: string | undefined,
+  db?: FirestoreLike,
+): Promise<TenantContext> {
+  if (!candidateTenantId || candidateTenantId === home.tenantId || !home.userId) {
+    return home;
+  }
+  const membership = db
+    ? await getTenantMembership(home.userId, candidateTenantId, db)
+    : await getTenantMembership(home.userId, candidateTenantId);
+  if (!membership) return home; // not a member → ignore the cookie (no escalation)
+  const tenant = db
+    ? await getTenantById(candidateTenantId, db)
+    : await getTenantById(candidateTenantId);
+  if (!tenant || tenant.status === "suspended") return home; // deleted/suspended → ignore
+  return {
+    tenantId: tenant.id,
+    region: tenant.region,
+    userId: home.userId,
+    role: membership.role,
     source: "idtoken",
   };
 }

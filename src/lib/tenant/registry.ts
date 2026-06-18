@@ -59,3 +59,24 @@ export async function getTenantsForUser(
     .get();
   return snap.docs.map((d) => TenantUserSchema.parse({ id: d.id, ...d.data() }));
 }
+
+/**
+ * Resolve a SINGLE user↔tenant membership, or null if the user is not a member.
+ * Narrower (and cheaper) than getTenantsForUser — used on the per-request auth
+ * path to re-authorize a tenant the active_tenant cookie names as a candidate.
+ */
+export async function getTenantMembership(
+  userId: string,
+  tenantId: string,
+  db: FirestoreLike = defaultDb(),
+): Promise<TenantUser | null> {
+  const snap = await db
+    .collection("tenant_users")
+    .where("userId", "==", userId)
+    .where("tenantId", "==", tenantId)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  const d = snap.docs[0]!;
+  return TenantUserSchema.parse({ id: d.id, ...d.data() });
+}

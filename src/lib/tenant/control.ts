@@ -1,8 +1,10 @@
 import type { z } from "zod";
 import { getDb, isAlreadyExists } from "./firestore";
+import type { FirestoreLike } from "./types";
 import { TenantIsolationError } from "./errors";
 import { deriveFaviconUrl } from "./favicon";
 import { TenantSchema, type Tenant } from "@/lib/types/tenant";
+import type { TenantRole } from "@/lib/types/tenantUser";
 
 /**
  * Control-plane writes — the `tenants` registry lives in the (default) database,
@@ -77,4 +79,28 @@ export async function backfillTenantFavicon(
   if (!faviconUrl) return "already_set"; // no domain to derive from — nothing to do
   await ref.update({ faviconUrl, updatedAt: new Date().toISOString() });
   return "set";
+}
+
+/**
+ * Record a user↔tenant membership in the flat control-plane `tenant_users`
+ * collection (the writer side of getTenantsForUser / getTenantMembership). The
+ * doc id is deterministic (`${tenantId}_${userId}`) so a repeat call is a no-op
+ * via the atomic `create()` rather than a duplicate row — i.e. idempotent.
+ */
+export async function addTenantMember(
+  userId: string,
+  tenantId: string,
+  role: TenantRole = "admin",
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<void> {
+  const id = `${tenantId}_${userId}`;
+  try {
+    await db
+      .collection("tenant_users")
+      .doc(id)
+      .create({ userId, tenantId, role, joinedAt: new Date().toISOString() });
+  } catch (err) {
+    if (isAlreadyExists(err)) return; // already a member — idempotent
+    throw err;
+  }
 }

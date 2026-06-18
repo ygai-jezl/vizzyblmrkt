@@ -50,10 +50,41 @@ export const SenderDnsRecordSchema = z.object({
 export type SenderDnsRecord = z.infer<typeof SenderDnsRecordSchema>;
 
 /**
- * A custom email-sending domain the tenant is verifying / has verified. Status
- * is driven by the provider's DKIM+SPF checks; `records` is what the admin must
- * publish at their DNS host. Until a domain is "verified" it must not be used as
- * a From address (mail would fail authentication).
+ * How a tenant proved control of a domain, gating the WEB-ROUTING capability
+ * (its origin in allowedOrigins + on the reCAPTCHA key). `email_match`: the
+ * creating admin's verified-email registrable domain equals the claimed domain.
+ * `dns_txt`: the admin published our challenge TXT. `mandrill_dns`: the domain
+ * is already email-verified via Mandrill (publishing those records proves DNS
+ * control). See src/lib/domains/ownership.ts.
+ */
+export const DomainOwnershipSchema = z.object({
+  method: z.enum(["email_match", "dns_txt", "mandrill_dns"]),
+  verifiedAt: z.string(),
+  /** Firebase UID of the admin who proved ownership. */
+  verifiedBy: z.string(),
+  /** Matched email domain or the challenge TXT host, for the audit trail. */
+  evidence: z.string().optional(),
+});
+export type DomainOwnership = z.infer<typeof DomainOwnershipSchema>;
+
+/**
+ * What a domain is enabled for. `email`: send From it (Mandrill DKIM/SPF).
+ * `webRouting`: serve the widget from it (origin in allowedOrigins + on the
+ * reCAPTCHA key). Defaulted so domain docs predating this field parse as
+ * no-capabilities (email status is still driven by the existing fields).
+ */
+export const DomainCapabilitiesSchema = z.object({
+  email: z.boolean().default(false),
+  webRouting: z.boolean().default(false),
+});
+export type DomainCapabilities = z.infer<typeof DomainCapabilitiesSchema>;
+
+/**
+ * A custom domain the tenant is verifying / has verified. Originally email-only
+ * (Mandrill DKIM+SPF + ownership — `status`/`dkimValid`/`spfValid`/`records`/
+ * `verifyTxtKey`); now also a first-class verified domain that can carry the
+ * web-routing capability once OWNERSHIP is proven. `records` is what the admin
+ * publishes at their DNS host. Until "verified" it must not be a From address.
  */
 export const SenderDomainSchema = z.object({
   domain: z.string(),
@@ -67,6 +98,18 @@ export const SenderDomainSchema = z.object({
   verifyTxtKey: z.string().optional(),
   /** Last provider status/error detail surfaced to the admin. */
   detail: z.string().optional(),
+  /** Proof of DNS control — gates the web-routing capability. */
+  ownership: DomainOwnershipSchema.optional(),
+  /**
+   * What this domain is enabled for (email sending / web routing). Optional so
+   * existing domain docs (and email-only callers) parse untouched; absent ⇒ no
+   * web-routing capability.
+   */
+  capabilities: DomainCapabilitiesSchema.optional(),
+  /** Pending DNS-TXT ownership challenge token (cleared once proven). */
+  dnsTxtToken: z.string().optional(),
+  /** When web routing was last revoked (origins pulled from allowedOrigins). */
+  revokedAt: z.string().optional(),
 });
 export type SenderDomain = z.infer<typeof SenderDomainSchema>;
 

@@ -19,6 +19,11 @@ interface DnsRecord {
   valid: boolean;
 }
 
+interface DomainCapabilities {
+  email: boolean;
+  webRouting: boolean;
+}
+
 interface SenderDomain {
   domain: string;
   status: DomainStatus;
@@ -29,6 +34,8 @@ interface SenderDomain {
   lastCheckedAt?: string;
   verifyTxtKey?: string;
   detail?: string;
+  capabilities?: DomainCapabilities;
+  ownership?: { method: string };
 }
 
 interface ConfigResponse {
@@ -62,6 +69,9 @@ export function DomainsSettings() {
   const [newDomain, setNewDomain] = useState("");
   const [adding, setAdding] = useState(false);
   const [busyDomain, setBusyDomain] = useState<string | null>(null);
+  // Pending DNS-TXT ownership challenges for web routing, keyed by domain.
+  const [routingChallenge, setRoutingChallenge] = useState<Record<string, DnsRecord>>({});
+  const [routingBusy, setRoutingBusy] = useState<string | null>(null);
 
   function applyConfig(data: ConfigResponse) {
     setSenderName(data.senderName);
@@ -260,6 +270,72 @@ export function DomainsSettings() {
     }
   }
 
+  function mergeDomain(updated: SenderDomain) {
+    setDomains((ds) => ds.map((d) => (d.domain === updated.domain ? updated : d)));
+  }
+
+  // Enable web routing for a domain: prove ownership (email-match / Mandrill /
+  // DNS-TXT) then auto-provision allowedOrigins + reCAPTCHA. A `needsDns` reply
+  // means the admin must publish our challenge TXT, then click again to verify.
+  async function enableWebRouting(domain: string) {
+    setRoutingBusy(domain);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/account/domains/web-routing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        needsDns?: boolean;
+        record?: DnsRecord;
+        domain?: SenderDomain;
+        error?: string;
+      };
+      if (data.needsDns && data.record) {
+        setRoutingChallenge((c) => ({ ...c, [domain]: data.record! }));
+        return;
+      }
+      if (!res.ok || !data.ok || !data.domain) {
+        setError(
+          data.error === "reserved_domain"
+            ? "That domain can't be used for routing."
+            : "Couldn't enable widget routing for that domain.",
+        );
+        return;
+      }
+      mergeDomain(data.domain);
+      setRoutingChallenge((c) => {
+        const { [domain]: _drop, ...rest } = c;
+        return rest;
+      });
+    } catch {
+      setError("Couldn't enable widget routing. Please try again.");
+    } finally {
+      setRoutingBusy(null);
+    }
+  }
+
+  async function disableWebRouting(domain: string) {
+    setRoutingBusy(domain);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/account/domains/web-routing", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { domain?: SenderDomain };
+      if (!res.ok || !data.domain) throw new Error("disable_failed");
+      mergeDomain(data.domain);
+    } catch {
+      setError("Couldn't disable widget routing. Please try again.");
+    } finally {
+      setRoutingBusy(null);
+    }
+  }
+
   if (loading) {
     return <p className="text-sm text-neutral-500">Loading…</p>;
   }
@@ -324,8 +400,12 @@ export function DomainsSettings() {
                 key={d.domain}
                 domain={d}
                 busy={busyDomain === d.domain}
+                routingBusy={routingBusy === d.domain}
+                routingChallenge={routingChallenge[d.domain]}
                 onVerify={() => void verifyDomain(d.domain)}
                 onRemove={() => void removeDomain(d.domain)}
+                onEnableRouting={() => void enableWebRouting(d.domain)}
+                onDisableRouting={() => void disableWebRouting(d.domain)}
               />
             ))}
           </div>
@@ -446,20 +526,34 @@ function StatusBadge({ status }: { status: DomainStatus }) {
 function DomainCard({
   domain,
   busy,
+  routingBusy,
+  routingChallenge,
   onVerify,
   onRemove,
+  onEnableRouting,
+  onDisableRouting,
 }: {
   domain: SenderDomain;
   busy: boolean;
+  routingBusy: boolean;
+  routingChallenge?: DnsRecord;
   onVerify: () => void;
   onRemove: () => void;
+  onEnableRouting: () => void;
+  onDisableRouting: () => void;
 }) {
+  const webRouting = domain.capabilities?.webRouting ?? false;
   return (
     <div className="space-y-4 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm">{domain.domain}</span>
           <StatusBadge status={domain.status} />
+          {webRouting ? (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+              Widget routing
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {domain.status !== "verified" ? (
@@ -497,6 +591,49 @@ function DomainCard({
       {domain.detail ? (
         <p className="text-xs text-neutral-400">Provider note: {domain.detail}</p>
       ) : null}
+
+      <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-900">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">Embed widget on this domain</p>
+            <p className="text-xs text-neutral-500">
+              {webRouting
+                ? "Your waitlist widget can be served from this domain."
+                : "Serve the waitlist widget from this domain (instead of the default platform host)."}
+            </p>
+          </div>
+          {webRouting ? (
+            <button
+              type="button"
+              onClick={onDisableRouting}
+              className={OUTLINE_BTN}
+              disabled={routingBusy}
+            >
+              {routingBusy ? "Working…" : "Disable"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onEnableRouting}
+              className={OUTLINE_BTN}
+              disabled={routingBusy}
+            >
+              {routingBusy ? "Working…" : routingChallenge ? "Verify ownership" : "Use for widget"}
+            </button>
+          )}
+        </div>
+
+        {!webRouting && routingChallenge ? (
+          <div className="space-y-2">
+            <p className="text-xs text-neutral-500">
+              Publish this DNS record to prove you own the domain, then click
+              &ldquo;Verify ownership&rdquo;. (Skipped automatically if you signed in with an
+              email at this domain, or it&apos;s already email-verified.)
+            </p>
+            <DnsRecordsTable records={[routingChallenge]} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

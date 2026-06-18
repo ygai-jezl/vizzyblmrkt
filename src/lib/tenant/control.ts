@@ -82,6 +82,75 @@ export async function backfillTenantFavicon(
 }
 
 /**
+ * Add an allow-listed ORIGIN to a tenant (host→tenant routing for custom
+ * domains). Read-modify-write on the control-plane doc; idempotent (a duplicate
+ * is a no-op). Returns whether the array actually changed. Trust/uniqueness
+ * checks live in the web-routing provisioner — this is the persistence step.
+ */
+export async function addAllowedOrigin(
+  tenantId: string,
+  origin: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<{ added: boolean }> {
+  const ref = db.collection("tenants").doc(tenantId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new TenantIsolationError(`tenant ${tenantId} not found`);
+  const current = (snap.data()?.allowedOrigins as string[] | undefined) ?? [];
+  if (current.includes(origin)) return { added: false };
+  await ref.update({
+    allowedOrigins: [...current, origin],
+    updatedAt: new Date().toISOString(),
+  });
+  return { added: true };
+}
+
+/** Remove an allow-listed origin from a tenant (revoke web routing). Idempotent. */
+export async function removeAllowedOrigin(
+  tenantId: string,
+  origin: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<{ removed: boolean }> {
+  const ref = db.collection("tenants").doc(tenantId);
+  const snap = await ref.get();
+  if (!snap.exists) return { removed: false };
+  const current = (snap.data()?.allowedOrigins as string[] | undefined) ?? [];
+  if (!current.includes(origin)) return { removed: false };
+  await ref.update({
+    allowedOrigins: current.filter((o) => o !== origin),
+    updatedAt: new Date().toISOString(),
+  });
+  return { removed: true };
+}
+
+/**
+ * Append-only audit entry for a domain web-routing grant/revoke, in the flat
+ * control-plane `domain_grants` collection. Every auto-grant (incl. the
+ * email-match fast path) is recorded so a domain claim is always traceable.
+ */
+export interface DomainGrantAudit {
+  tenantId: string;
+  host: string;
+  action: "grant" | "revoke";
+  method?: string;
+  actorUid?: string;
+  recaptcha?: string;
+  createdAt: string;
+}
+
+export async function logDomainGrant(
+  entry: DomainGrantAudit,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<void> {
+  const id = `${entry.tenantId}_${entry.host}_${entry.createdAt}`.replace(/[^\w.-]/g, "_");
+  try {
+    await db.collection("domain_grants").doc(id).create({ ...entry });
+  } catch (err) {
+    if (isAlreadyExists(err)) return; // dup audit write — fine
+    throw err;
+  }
+}
+
+/**
  * Record a user↔tenant membership in the flat control-plane `tenant_users`
  * collection (the writer side of getTenantsForUser / getTenantMembership). The
  * doc id is deterministic (`${tenantId}_${userId}`) so a repeat call is a no-op

@@ -190,4 +190,9 @@ export class FakeFirestore implements FirestoreLike {
   raw(collection: string, id: string): Doc | undefined {
     return this.cols.get(collection)?.get(id);
   }
+
+  /** All documents in a collection (to assert appends, e.g. audit rows). */
+  dump(collection: string): Doc[] {
+    return Array.from(this.cols.get(collection)?.values() ?? []);
+  }
 }

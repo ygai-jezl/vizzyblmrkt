@@ -136,13 +136,17 @@ function toStatus(r: {
   }
   const dkimValid = Boolean(r.data.dkim?.valid);
   const spfValid = Boolean(r.data.spf?.valid);
-  // `valid_signing` is Mandrill's own "ready to sign for this domain" verdict.
-  const ready = Boolean(r.data.valid_signing) || (dkimValid && spfValid);
+  const ownershipValid = Boolean(r.data.verified_at) || Boolean(r.data.valid_signing);
+  // `valid_signing` is Mandrill's composite "ready to sign" verdict (DKIM + SPF +
+  // domain ownership). The fallback must ALSO require ownership: DKIM+SPF without
+  // a confirmed owner is a state Mandrill still treats as unsigned, so it must not
+  // count as "verified" — that would authorize a From address that can't send.
+  const ready = Boolean(r.data.valid_signing) || (dkimValid && spfValid && ownershipValid);
   return {
     ok: true,
     dkimValid,
     spfValid,
-    ownershipValid: Boolean(r.data.verified_at) || Boolean(r.data.valid_signing),
+    ownershipValid,
     verifyTxtKey: r.data.verify_txt_key?.trim() || undefined,
     status: ready ? "verified" : "pending",
     detail: r.data.dkim?.error || r.data.spf?.error || undefined,

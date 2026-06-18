@@ -116,7 +116,7 @@ export function DomainsSettings() {
       const res = await fetch("/api/admin/account/domains/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain }),
+        body: JSON.stringify({ domain, background: true }),
       });
       if (!res.ok) return true; // transient — keep polling
       const data = (await res.json()) as {
@@ -138,6 +138,7 @@ export function DomainsSettings() {
   useEffect(() => {
     if (!providerConfigured || !hasPendingDomains) return;
     let active = true;
+    let running = false; // a tick is mid-flight — prevents overlapping ticks
     let timer: ReturnType<typeof setTimeout> | undefined;
     let polls = 0;
     const MAX_POLLS = 40; // ~20 min at 30s, then fall back to manual Verify
@@ -148,29 +149,34 @@ export function DomainsSettings() {
     };
 
     const tick = async () => {
-      if (!active) return;
+      if (!active || running) return; // never overlap two ticks (would race /verify)
       if (document.visibilityState !== "visible") {
         schedule(); // stay alive but idle until the tab is focused again
         return;
       }
       const pending = domainsRef.current.filter((d) => d.status !== "verified");
       if (pending.length === 0 || polls >= MAX_POLLS) return; // all done / gave up
+      running = true;
       polls += 1;
-      for (const d of pending) {
-        if (!active) return;
-        const keepGoing = await pollVerify(d.domain);
-        if (!keepGoing) {
-          active = false;
-          return;
+      try {
+        for (const d of pending) {
+          if (!active) return;
+          const keepGoing = await pollVerify(d.domain);
+          if (!keepGoing) {
+            active = false;
+            return;
+          }
         }
+      } finally {
+        running = false;
       }
       schedule();
     };
 
     const onVisible = () => {
-      if (active && document.visibilityState === "visible") {
+      if (active && !running && document.visibilityState === "visible") {
         if (timer) clearTimeout(timer);
-        void tick(); // poll immediately on refocus
+        void tick(); // poll immediately on refocus (unless a tick is already running)
       }
     };
 
@@ -667,9 +673,11 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
                 </td>
                 <td className="px-3 py-2 font-mono">{r.type}</td>
                 <td className="px-3 py-2 font-mono break-all">{r.host}</td>
-                <td className="px-3 py-2 font-mono break-all">{r.value}</td>
+                <td className="px-3 py-2 font-mono break-all">
+                  {r.value || <span className="text-neutral-400">—</span>}
+                </td>
                 <td className="px-3 py-2 text-right">
-                  <CopyButton value={r.value} label={`Copy ${r.type} value`} />
+                  {r.value ? <CopyButton value={r.value} label={`Copy ${r.type} value`} /> : null}
                 </td>
               </tr>
             ))}

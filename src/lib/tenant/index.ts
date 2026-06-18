@@ -31,6 +31,7 @@ export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,
+  updateTenantSenderConfig,
   addTenantMember,
   addAllowedOrigin,
   removeAllowedOrigin,

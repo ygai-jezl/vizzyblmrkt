@@ -3,7 +3,12 @@ import { getDb, isAlreadyExists } from "./firestore";
 import type { FirestoreLike } from "./types";
 import { TenantIsolationError } from "./errors";
 import { deriveFaviconUrl } from "./favicon";
-import { TenantSchema, type Tenant } from "@/lib/types/tenant";
+import {
+  TenantSchema,
+  EmailSenderConfigSchema,
+  type Tenant,
+  type EmailSenderConfig,
+} from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
 /**
@@ -57,6 +62,30 @@ export async function updateTenantConfig(
     .collection("tenants")
     .doc(id)
     .update({ ...rest, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * Atomically read-modify-write a tenant's `emailSenderConfig` inside a Firestore
+ * transaction. The `domains[]` array has several concurrent writers — the domain
+ * auto-poll, manual Verify, add-domain, and the web-routing DNS challenge — all
+ * mutating the same map field, so a plain read-modify-write loses updates (the
+ * last writer overwrites the whole array). `mutate` receives the FRESHEST config
+ * read inside the transaction and returns the next one; returning it unchanged is
+ * a valid no-op-ish write. Returns the persisted config.
+ */
+export async function updateTenantSenderConfig(
+  id: string,
+  mutate: (current: EmailSenderConfig) => EmailSenderConfig,
+): Promise<EmailSenderConfig> {
+  const db = getDb();
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const current = EmailSenderConfigSchema.parse(snap.data()?.emailSenderConfig ?? {});
+    const next = mutate(current);
+    tx.update(ref, { emailSenderConfig: next, updatedAt: new Date().toISOString() });
+    return next;
+  });
 }
 
 /**

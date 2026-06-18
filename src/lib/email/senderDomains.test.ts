@@ -107,6 +107,32 @@ describe("addSendingDomain / checkSendingDomain", () => {
     });
   });
 
+  it("does NOT mark verified on DKIM+SPF alone when ownership is unconfirmed", async () => {
+    // Intermediate state: DKIM + SPF resolve before the ownership TXT does. Mandrill
+    // still treats this as unsigned (valid_signing=false), so it must stay pending —
+    // marking it verified would authorize a From address that can't actually send.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          domain: "acme.com",
+          dkim: { valid: true },
+          spf: { valid: true },
+          verified_at: null,
+          valid_signing: false,
+        }),
+      })) as unknown as typeof fetch,
+    );
+    const r = await checkSendingDomain("acme.com");
+    expect(r).toMatchObject({
+      dkimValid: true,
+      spfValid: true,
+      ownershipValid: false,
+      status: "pending",
+    });
+  });
+
   it("surfaces a provider HTTP error reason", async () => {
     vi.stubGlobal(
       "fetch",

@@ -5,6 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import {
   getSenderConfig,
   saveSenderConfig,
+  mutateSenderConfig,
   normalizeDomain,
   isValidDomain,
 } from "@/lib/admin/senderConfig";
@@ -152,8 +153,13 @@ export async function POST(req: Request) {
     ...(detail ? { detail } : {}),
   };
 
-  const next: EmailSenderConfig = { ...config, domains: [...config.domains, entry] };
-  await saveSenderConfig(ctx.tenantId, next);
+  // Atomic append: re-check for the domain in the FRESH config so a concurrent
+  // verify/add tick can't be clobbered by a stale full-array overwrite.
+  const next = await mutateSenderConfig(ctx.tenantId, (cur) =>
+    cur.domains.some((d) => d.domain === domain)
+      ? cur // added concurrently — idempotent
+      : { ...cur, domains: [...cur.domains, entry] },
+  );
   return NextResponse.json(present(next));
 }
 

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  resolveTenantFromOrigin,
+  resolveTenantForRequest,
   forTenant,
   TenantNotFoundError,
 } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
+import { tenantParamFromUrl } from "@/lib/http/tenantParam";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 
 export const runtime = "nodejs";
@@ -21,10 +22,11 @@ export async function GET(
 ) {
   const { campaignId } = await params;
   const origin = originFromHeaders(req.headers);
+  const tenantId = tenantParamFromUrl(req.url);
 
   let ctx;
   try {
-    ctx = await resolveTenantFromOrigin(origin);
+    ctx = await resolveTenantForRequest({ tenantId, origin });
   } catch (err) {
     if (err instanceof TenantNotFoundError) {
       return NextResponse.json({ error: "unknown_tenant" }, { status: 404 });

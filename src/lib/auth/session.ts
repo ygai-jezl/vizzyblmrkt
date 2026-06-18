@@ -137,6 +137,8 @@ export async function getHomeAdminContext(): Promise<TenantContext | null> {
       tenant_id: decoded.tenant_id as string | undefined,
       region: decoded.region as Region | undefined,
       role: decoded.role as TenantRole | undefined,
+      email: decoded.email,
+      emailVerified: decoded.email_verified,
     };
     return tenantContextFromClaims(claims);
   } catch {

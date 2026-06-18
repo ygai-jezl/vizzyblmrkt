@@ -10,6 +10,7 @@ export type {
 } from "./repository";
 export {
   resolveTenantFromOrigin,
+  resolveTenantForRequest,
   tenantContextFromClaims,
   resolveActiveTenant,
 } from "./context";

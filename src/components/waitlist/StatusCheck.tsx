@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getRecaptchaToken } from "@/lib/security/recaptchaClient";
+import { appendTenantParam } from "@/lib/http/tenantParam";
 import { parseEnabledPlatforms } from "@/lib/waitlist/socialPlatforms";
 import { ShareSection } from "./ShareSection";
 
@@ -50,14 +51,17 @@ export function StatusCheck({
     setResult(null);
     try {
       const recaptchaToken = await getRecaptchaToken("status");
-      const res = await fetch(`/api/waitlist/${campaignId}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          ...(recaptchaToken ? { recaptchaToken } : {}),
-        }),
-      });
+      const res = await fetch(
+        appendTenantParam(`/api/waitlist/${campaignId}/status`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim(),
+            ...(recaptchaToken ? { recaptchaToken } : {}),
+          }),
+        },
+      );
       const data = await res.json().catch(() => ({}));
       if (res.status === 404) {
         setError("We couldn't find a signup for that email.");

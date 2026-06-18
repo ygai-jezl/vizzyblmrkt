@@ -8,6 +8,7 @@ import {
   type WidgetType,
 } from "@/lib/widget/types";
 import { buildEmbedSnippet } from "@/lib/widget/snippet";
+import { appendTenantParam } from "@/lib/http/tenantParam";
 import { buildPreviewUrl, type PreviewSurface } from "@/lib/widget/preview";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
 import type { ConfigurationStyle } from "@/lib/types/campaign";
@@ -100,10 +101,17 @@ function previewMessage(template: string, waitlistName: string): string {
  */
 export function WidgetBuilder({
   origin,
+  embedOrigin,
+  tenantId,
   campaigns,
   initialCampaignId,
 }: {
+  /** The admin's own request origin — used for the (authenticated) preview iframe. */
   origin: string;
+  /** The platform host the public snippet/hosted page load from (PLATFORM_ORIGIN). */
+  embedOrigin: string;
+  /** Tenant id baked into the snippet so the shared platform host resolves it. */
+  tenantId: string;
   campaigns: CampaignOption[];
   initialCampaignId: string;
 }) {
@@ -178,10 +186,13 @@ export function WidgetBuilder({
   // The snippet is for the embed widgets only; Hosted isn't embeddable.
   const widgetType: WidgetType = surface === "hosted" ? "WIDGET_1" : surface;
   const snippet = useMemo(
-    () => buildEmbedSnippet({ origin, campaignId, widgetType, mode }),
-    [origin, campaignId, widgetType, mode],
+    () => buildEmbedSnippet({ origin: embedOrigin, campaignId, tenantId, widgetType, mode }),
+    [embedOrigin, campaignId, tenantId, widgetType, mode],
   );
-  const hostedUrl = `${origin.replace(/\/+$/, "")}/waitlist/${campaignId}`;
+  const hostedUrl = appendTenantParam(
+    `${embedOrigin.replace(/\/+$/, "")}/waitlist/${campaignId}`,
+    tenantId,
+  );
 
   async function putSettings(
     payload: CampaignSettings,

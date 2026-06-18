@@ -10,6 +10,7 @@ import {
   deterministicSignupId,
 } from "./identifiers";
 import type { SignupInput } from "./signupInput";
+import { appendTenantParam } from "@/lib/http/tenantParam";
 
 export interface CreateSignupOptions {
   /** Injected fake Firestore for tests. */
@@ -18,6 +19,11 @@ export interface CreateSignupOptions {
   hostedPageBaseUrl?: string;
   /** Whether reCAPTCHA passed a real (non-skipped) assessment. */
   captchaValid?: boolean;
+  /**
+   * Tenant id to carry on the referral link (`?t=`) when the hosted page is on
+   * the shared platform host. Omit for custom-domain hosting (origin-resolved).
+   */
+  tenantId?: string;
   /** ISO timestamp; injectable for deterministic tests. */
   now?: string;
 }
@@ -33,12 +39,17 @@ function buildReferralLink(
   campaign: Campaign,
   token: string,
   hostedPageBaseUrl?: string,
+  tenantId?: string,
 ): string {
-  const base =
-    campaign.waitlistUrlLocation ??
-    `${hostedPageBaseUrl ?? ""}/waitlist/${campaign.id}`;
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}ref=${token}`;
+  // A custom waitlist URL is the customer's own page (origin-resolved); only the
+  // platform-hosted fallback needs the tenant hint to resolve on the shared host.
+  if (campaign.waitlistUrlLocation) {
+    const base = campaign.waitlistUrlLocation;
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}ref=${token}`;
+  }
+  const base = `${hostedPageBaseUrl ?? ""}/waitlist/${campaign.id}?ref=${token}`;
+  return appendTenantParam(base, tenantId);
 }
 
 function buildAnswers(campaign: Campaign, input: SignupInput): Answer[] | undefined {
@@ -91,7 +102,12 @@ export async function createSignup(
     status,
     amountReferred: 0,
     referralToken,
-    referralLink: buildReferralLink(campaign, referralToken, opts.hostedPageBaseUrl),
+    referralLink: buildReferralLink(
+      campaign,
+      referralToken,
+      opts.hostedPageBaseUrl,
+      opts.tenantId,
+    ),
     referredBySignupToken: input.referredBySignupToken ?? null,
     verificationToken,
     score: computeScore(0, campaign.spotsToMoveUponReferral),

@@ -5,6 +5,32 @@ import { getTenantByOrigin, getTenantById, getTenantMembership } from "./registr
 import { TenantNotFoundError, TenantValidationError } from "./errors";
 
 /**
+ * Establish a TenantContext for a PUBLIC request, preferring an EXPLICIT tenant
+ * id (the `?t=` hint carried by widgets served from the shared platform host)
+ * and falling back to the request ORIGIN (custom domains + already-deployed
+ * snippets with no `t`). Suspended/missing tenants are treated as not-found.
+ *
+ * The tenant id is a routing hint only — exactly the same trust level as the
+ * Host header (see src/lib/http/tenantParam.ts). It selects which tenant's
+ * PUBLIC campaign + reCAPTCHA-gated signup path runs; it can never authorize a
+ * privileged action, and every data access remains tenant-partitioned.
+ */
+export async function resolveTenantForRequest(
+  input: { tenantId?: string; origin: string },
+  db?: FirestoreLike,
+): Promise<TenantContext> {
+  const id = input.tenantId?.trim();
+  if (id) {
+    const tenant = db ? await getTenantById(id, db) : await getTenantById(id);
+    if (!tenant || tenant.status === "suspended") {
+      throw new TenantNotFoundError(`No active tenant for id: ${id}`);
+    }
+    return { tenantId: tenant.id, region: tenant.region, source: "tenant_param" };
+  }
+  return resolveTenantFromOrigin(input.origin, db);
+}
+
+/**
  * Establish a TenantContext for a PUBLIC request from its origin (scheme +
  * host). Suspended tenants are treated as not-found. The tenant's `region`
  * (read from the control-plane registry) is carried so downstream data access
@@ -36,6 +62,9 @@ export interface VerifiedClaims {
   /** Residency region, minted onto the token at tenant creation (immutable). */
   region?: Region;
   role?: TenantRole;
+  /** Standard Firebase claims, carried for the domain-ownership fast-path. */
+  email?: string;
+  emailVerified?: boolean;
 }
 
 /**
@@ -55,6 +84,10 @@ export function tenantContextFromClaims(claims: VerifiedClaims): TenantContext {
     region: claims.region,
     userId: claims.uid,
     role: claims.role ?? "member",
+    ...(claims.email ? { email: claims.email } : {}),
+    ...(claims.emailVerified !== undefined
+      ? { emailVerified: claims.emailVerified }
+      : {}),
     source: "idtoken",
   };
 }
@@ -93,6 +126,9 @@ export async function resolveActiveTenant(
     region: tenant.region,
     userId: home.userId,
     role: membership.role,
+    // Same human → carry their verified email across the brand switch.
+    ...(home.email ? { email: home.email } : {}),
+    ...(home.emailVerified !== undefined ? { emailVerified: home.emailVerified } : {}),
     source: "idtoken",
   };
 }

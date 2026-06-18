@@ -12,6 +12,7 @@ import {
  */
 export const EMBED_ATTR = {
   campaign: "data-vizzybl-campaign",
+  tenant: "data-vizzybl-tenant",
   type: "data-vizzybl-type",
   mode: "data-vizzybl-mode",
   ref: "data-vizzybl-ref",
@@ -27,6 +28,8 @@ export const EMBED_SCRIPT_PATH = "/embed.js";
 export interface EmbedUrlParams {
   origin: string;
   campaignId: string;
+  /** Explicit tenant id, carried as `?t=` for shared-platform-host routing. */
+  tenantId?: string;
   widgetType?: WidgetType;
   mode?: WidgetMode;
   ref?: string;
@@ -41,6 +44,7 @@ export interface EmbedUrlParams {
 export function buildEmbedUrl({
   origin,
   campaignId,
+  tenantId,
   widgetType = DEFAULT_WIDGET_TYPE,
   mode,
   ref,
@@ -48,6 +52,7 @@ export function buildEmbedUrl({
 }: EmbedUrlParams): string {
   const base = origin.replace(/\/+$/, "");
   const qs = new URLSearchParams({ type: widgetType });
+  if (tenantId) qs.set("t", tenantId);
   if (mode === "CHECK") qs.set("mode", "CHECK");
   if (ref) qs.set("ref", ref);
   if (theme?.buttonColor) qs.set("buttonColor", theme.buttonColor);
@@ -68,6 +73,8 @@ function escapeAttr(value: string): string {
 export interface EmbedSnippetParams {
   origin: string;
   campaignId: string;
+  /** Explicit tenant id baked into the snippet for shared-platform-host routing. */
+  tenantId?: string;
   widgetType?: WidgetType;
   mode?: WidgetMode;
 }
@@ -80,14 +87,16 @@ export interface EmbedSnippetParams {
 export function buildEmbedSnippet({
   origin,
   campaignId,
+  tenantId,
   widgetType = DEFAULT_WIDGET_TYPE,
   mode,
 }: EmbedSnippetParams): string {
   const base = origin.replace(/\/+$/, "");
   const attrs = [
     `${EMBED_ATTR.campaign}="${escapeAttr(campaignId)}"`,
-    `${EMBED_ATTR.type}="${escapeAttr(widgetType)}"`,
   ];
+  if (tenantId) attrs.push(`${EMBED_ATTR.tenant}="${escapeAttr(tenantId)}"`);
+  attrs.push(`${EMBED_ATTR.type}="${escapeAttr(widgetType)}"`);
   if (mode === "CHECK") attrs.push(`${EMBED_ATTR.mode}="CHECK"`);
   return [
     "<!-- Vizzybl waitlist widget -->",

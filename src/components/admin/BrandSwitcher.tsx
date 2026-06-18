@@ -69,7 +69,12 @@ export function BrandSwitcher({
       });
       if (res.ok) {
         setIsOpen(false);
-        router.refresh(); // re-render server components under the new tenant
+        // Land on the dashboard, NOT the current URL: tenant-scoped deep routes
+        // (e.g. /admin/launches/<id>) don't exist in the brand we just switched
+        // into and would 404. replace() (not push) avoids leaving that now-stale
+        // URL in history; refresh() re-renders /admin under the new tenant.
+        router.replace("/admin");
+        router.refresh();
         return;
       }
       // Brand may have been suspended/removed or membership revoked since the

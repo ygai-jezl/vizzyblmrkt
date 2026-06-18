@@ -63,6 +63,8 @@ export const SenderDomainSchema = z.object({
   records: z.array(SenderDnsRecordSchema).default([]),
   addedAt: z.string(),
   lastCheckedAt: z.string().optional(),
+  /** Mandrill's per-domain ownership token; published as `mandrill_verify.<key>`. */
+  verifyTxtKey: z.string().optional(),
   /** Last provider status/error detail surfaced to the admin. */
   detail: z.string().optional(),
 });

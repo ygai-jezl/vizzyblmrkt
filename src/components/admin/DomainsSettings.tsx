@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Trash2 } from "lucide-react";
 
 /**
@@ -27,6 +27,7 @@ interface SenderDomain {
   records: DnsRecord[];
   addedAt: string;
   lastCheckedAt?: string;
+  verifyTxtKey?: string;
   detail?: string;
 }
 
@@ -91,6 +92,86 @@ export function DomainsSettings() {
   }, []);
 
   const verifiedDomains = domains.filter((d) => d.status === "verified");
+  const hasPendingDomains = domains.some((d) => d.status !== "verified");
+
+  // Latest domains, readable by the background poller without re-subscribing it.
+  const domainsRef = useRef(domains);
+  domainsRef.current = domains;
+
+  // Quietly re-check one pending domain in the background. Unlike the manual
+  // Verify button it never sets busy/error state — a transient provider timeout
+  // shouldn't flash UI while polling. Returns false to tell the poller to stop.
+  const pollVerify = useCallback(async (domain: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/admin/account/domains/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      if (!res.ok) return true; // transient — keep polling
+      const data = (await res.json()) as {
+        domains: SenderDomain[];
+        providerConfigured: boolean;
+      };
+      setDomains(data.domains);
+      setProviderConfigured(data.providerConfigured);
+      return data.providerConfigured; // stop if the provider got unconfigured
+    } catch {
+      return true; // network blip — keep polling
+    }
+  }, []);
+
+  // Auto-poll verification for pending domains so status flips without the admin
+  // re-clicking Verify. No new infra: client-side only, paused when the tab is
+  // hidden, serialized per tick (the verify route is read-modify-write on one
+  // tenant doc), and capped so a tab left open doesn't poll forever.
+  useEffect(() => {
+    if (!providerConfigured || !hasPendingDomains) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    const MAX_POLLS = 40; // ~20 min at 30s, then fall back to manual Verify
+    const INTERVAL_MS = 30_000;
+
+    const schedule = () => {
+      if (active) timer = setTimeout(() => void tick(), INTERVAL_MS);
+    };
+
+    const tick = async () => {
+      if (!active) return;
+      if (document.visibilityState !== "visible") {
+        schedule(); // stay alive but idle until the tab is focused again
+        return;
+      }
+      const pending = domainsRef.current.filter((d) => d.status !== "verified");
+      if (pending.length === 0 || polls >= MAX_POLLS) return; // all done / gave up
+      polls += 1;
+      for (const d of pending) {
+        if (!active) return;
+        const keepGoing = await pollVerify(d.domain);
+        if (!keepGoing) {
+          active = false;
+          return;
+        }
+      }
+      schedule();
+    };
+
+    const onVisible = () => {
+      if (active && document.visibilityState === "visible") {
+        if (timer) clearTimeout(timer);
+        void tick(); // poll immediately on refocus
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    schedule();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [providerConfigured, hasPendingDomains, pollVerify]);
 
   async function addDomain() {
     const value = newDomain.trim().toLowerCase();
@@ -403,7 +484,14 @@ function DomainCard({
           This domain is verified and ready to use as an email sender.
         </p>
       ) : (
-        <DnsRecordsTable records={domain.records} />
+        <>
+          {!domain.verifyTxtKey ? (
+            <p className="text-xs text-neutral-400">
+              Click Verify to fetch this domain&apos;s ownership record.
+            </p>
+          ) : null}
+          <DnsRecordsTable records={domain.records} />
+        </>
       )}
 
       {domain.detail ? (
@@ -442,21 +530,21 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
                 </td>
                 <td className="px-3 py-2 font-mono">{r.type}</td>
                 <td className="px-3 py-2 font-mono break-all">{r.host}</td>
-                <td className="px-3 py-2 font-mono break-all">
-                  {r.value || (
-                    <span className="text-neutral-400">
-                      Set MANDRILL_DKIM_TXT_VALUE (Mailchimp Transactional → Domains)
-                    </span>
-                  )}
-                </td>
+                <td className="px-3 py-2 font-mono break-all">{r.value}</td>
                 <td className="px-3 py-2 text-right">
-                  {r.value ? <CopyButton value={r.value} label={`Copy ${r.type} value`} /> : null}
+                  <CopyButton value={r.value} label={`Copy ${r.type} value`} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {records.some((r) => r.host.startsWith("_dmarc.")) ? (
+        <p className="text-xs text-neutral-400">
+          DMARC isn&apos;t checked automatically — once the <code>_dmarc</code> record is
+          published you&apos;re all set.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -121,13 +121,17 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
   let dkimValid = false;
   let spfValid = false;
+  let ownershipValid = false;
+  let verifyTxtKey: string | undefined;
   let status: SenderDomain["status"] = "pending";
   let detail: string | undefined;
   if (mandrillConfigured()) {
-    await addSendingDomain(domain); // register (idempotent provider-side)
+    const added = await addSendingDomain(domain); // register + mint ownership token (idempotent provider-side)
     const checked = await checkSendingDomain(domain);
     dkimValid = checked.dkimValid;
     spfValid = checked.spfValid;
+    ownershipValid = checked.ownershipValid;
+    verifyTxtKey = checked.verifyTxtKey ?? added.verifyTxtKey;
     status = checked.status;
     detail = checked.detail;
   }
@@ -137,8 +141,13 @@ export async function POST(req: Request) {
     status,
     dkimValid,
     spfValid,
-    records: applyRecordValidity(senderDnsRecords(domain), { dkimValid, spfValid }),
+    records: applyRecordValidity(senderDnsRecords(domain, verifyTxtKey), {
+      dkimValid,
+      spfValid,
+      ownershipValid,
+    }),
     addedAt: now,
+    ...(verifyTxtKey ? { verifyTxtKey } : {}),
     ...(mandrillConfigured() ? { lastCheckedAt: now } : {}),
     ...(detail ? { detail } : {}),
   };

@@ -8,8 +8,10 @@ import {
   normalizeDomain,
 } from "@/lib/admin/senderConfig";
 import {
+  addSendingDomain,
   applyRecordValidity,
   checkSendingDomain,
+  senderDnsRecords,
   mandrillConfigured,
 } from "@/lib/email/senderDomains";
 import type { EmailSenderConfig } from "@/lib/types/tenant";
@@ -51,15 +53,26 @@ export async function POST(req: Request) {
     });
   }
 
+  // Only senders/add-domain mints the ownership token; backfill it for domains
+  // added before a provider existed so their ownership TXT can be published.
+  let verifyTxtKey = target.verifyTxtKey;
+  if (!verifyTxtKey) {
+    const added = await addSendingDomain(domain);
+    verifyTxtKey = added.verifyTxtKey;
+  }
+
   const checked = await checkSendingDomain(domain);
+  verifyTxtKey = verifyTxtKey ?? checked.verifyTxtKey;
   const now = new Date().toISOString();
   const updated = {
     ...target,
     status: checked.status,
     dkimValid: checked.dkimValid,
     spfValid: checked.spfValid,
-    records: applyRecordValidity(target.records, checked),
+    // Regenerate from scratch so legacy single-TXT DKIM rows heal to the CNAME set.
+    records: applyRecordValidity(senderDnsRecords(domain, verifyTxtKey), checked),
     lastCheckedAt: now,
+    ...(verifyTxtKey ? { verifyTxtKey } : {}),
     ...(checked.detail ? { detail: checked.detail } : { detail: undefined }),
   };
 

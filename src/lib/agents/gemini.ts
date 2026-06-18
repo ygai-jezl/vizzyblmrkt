@@ -53,12 +53,17 @@ let liveCached: GoogleGenAI | null | undefined;
  */
 export function getLiveTokenClient(): GoogleGenAI | null {
   if (liveCached !== undefined) return liveCached;
-  const apiKey = process.env.GEMINI_LIVE_API_KEY;
+  // Only a real Developer-API key ("AIza*") counts as configured. Anything else —
+  // unset, empty, or an explicit OFF sentinel like "disabled" — degrades the
+  // feature off. (App Hosting's yaml validator rejects an empty `value: ""`, so
+  // prod uses a non-empty sentinel to keep this disabled without a prod key.)
+  const apiKey = process.env.GEMINI_LIVE_API_KEY?.trim();
+  const liveEnabled = !!apiKey && apiKey.startsWith("AIza");
   // `vertexai: false` is REQUIRED: deployed envs set GOOGLE_GENAI_USE_VERTEXAI=true
   // (for Agent 3), and the SDK would otherwise read that env var and treat THIS
   // client as a Vertex backend — where authTokens.create (ephemeral tokens) is
   // unsupported ("only supported by the Gemini Developer API"). Force Developer API.
-  liveCached = apiKey
+  liveCached = liveEnabled
     ? new GoogleGenAI({ vertexai: false, apiKey, httpOptions: { apiVersion: "v1alpha" } })
     : null;
   return liveCached;

@@ -104,11 +104,14 @@ env:
   #     - RUNTIME
 
   # Gemini Live voice conversation: PROD has no key yet, so override the base's
-  # dev secret with an empty value → the feature stays OFF in prod and a prod
-  # rollout never depends on the dev-only `gemini-live-api-key` secret. To enable
-  # in prod: create the secret in the prod project (`firebase apphosting:secrets:set
-  # gemini-live-api-key --project prod`) then swap this for `secret: gemini-live-api-key`.
+  # dev secret with a non-key sentinel → the feature stays OFF in prod (the gate
+  # in src/lib/agents/gemini.ts only enables on an "AIza*" key) and a prod rollout
+  # never depends on the dev-only `gemini-live-api-key` secret. NOTE: App Hosting's
+  # yaml validator rejects an empty `value: ""`, hence the sentinel rather than "".
+  # To enable in prod: create the secret in the prod project (`firebase
+  # apphosting:secrets:set gemini-live-api-key --project prod`) then swap this for
+  # `secret: gemini-live-api-key`.
   - variable: GEMINI_LIVE_API_KEY
-    value: ""
+    value: "disabled"
     availability:
       - RUNTIME

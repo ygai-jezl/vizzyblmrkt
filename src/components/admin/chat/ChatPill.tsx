@@ -65,7 +65,7 @@ export function ChatPill({ onSubmit, isLoading, mode, onModeChange }: ChatPillPr
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={onKeyDown}
         rows={1}
-        placeholder="Ask Vizzybl"
+        placeholder="Ask Vizzy"
         disabled={isLoading}
         className="min-h-[24px] flex-1 resize-none self-center bg-transparent py-1.5 text-base outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
       />

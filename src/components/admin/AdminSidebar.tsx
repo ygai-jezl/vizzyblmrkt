@@ -18,7 +18,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
-import { BrandFavicon } from "./BrandFavicon";
+import { BrandSwitcher, type BrandOption } from "./BrandSwitcher";
 import { LogoutButton } from "./LogoutButton";
 
 interface NavLink {
@@ -36,7 +36,7 @@ interface NavGroup {
 }
 
 export interface AdminSidebarProps {
-  brand: { name: string; faviconUrl?: string };
+  brands: BrandOption[];
   launches: Array<{ id: string; name: string }>;
   ctx: { tenantId: string; region: string; role: string };
 }
@@ -90,7 +90,7 @@ const ACCOUNT_LINK: NavLink = {
   matchPattern: "/admin/account",
 };
 
-export function AdminSidebar({ brand, launches, ctx }: AdminSidebarProps) {
+export function AdminSidebar({ brands, launches, ctx }: AdminSidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -167,14 +167,9 @@ export function AdminSidebar({ brand, launches, ctx }: AdminSidebarProps) {
         collapsed ? "w-16" : "w-64"
       }`}
     >
-      {/* Brand (tenant) + collapse toggle */}
+      {/* Brand switcher + collapse toggle */}
       <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-3 py-3 dark:border-neutral-800">
-        <div className="flex min-w-0 items-center gap-2">
-          <BrandFavicon name={brand.name} faviconUrl={brand.faviconUrl} />
-          {!collapsed && (
-            <span className="truncate text-sm font-semibold">{brand.name}</span>
-          )}
-        </div>
+        <BrandSwitcher brands={brands} collapsed={collapsed} />
         {!collapsed && (
           <button
             onClick={() => setCollapsed(true)}

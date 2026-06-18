@@ -22,6 +22,11 @@ export const dynamic = "force-dynamic";
  * a save. Because the route requires an admin session and is only same-origin
  * framable (frame-ancestors 'self' in next.config.ts), it can accept free-text
  * copy overrides that must never be settable on the public /embed route.
+ *
+ * It lives at the top level (NOT under /admin/launches/...) on purpose: the
+ * builder iframes it, and being outside the admin route tree keeps it clear of
+ * the admin sidebar + launch-tab layouts, so the frame renders only the hosted
+ * page (Hosted surface) or the bare widget (Full/Mini/Docked).
  */
 export default async function LaunchPreviewPage({
   params,

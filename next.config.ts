@@ -48,8 +48,9 @@ const nextConfig: NextConfig = {
         // Admin-only live preview for the Embed & Design builder. Same-origin
         // framable (the builder iframes it); X-Frame-Options SAMEORIGIN + CSP
         // frame-ancestors 'self'. Free-text branding params are safe here because
-        // the route is admin-gated — unlike the public /embed route.
-        source: "/admin/launches/:campaignId/preview",
+        // the route is admin-gated (requireAdminContext) — unlike the public
+        // /embed route. Lives outside /admin so the frame is free of admin chrome.
+        source: "/admin-preview/:campaignId",
         headers: [
           ...baseline,
           noDevices,
@@ -64,7 +65,7 @@ const nextConfig: NextConfig = {
         // Every route EXCEPT the embed widget, the waitlist pages, and the admin
         // preview frame (all handled above). The negative lookahead also skips
         // /embed.js.
-        source: "/((?!embed|waitlist|admin/launches/[^/]+/preview).*)",
+        source: "/((?!embed|waitlist|admin-preview/[^/]+).*)",
         headers: [...baseline, ...lockedFrame, noDevices],
       },
       {

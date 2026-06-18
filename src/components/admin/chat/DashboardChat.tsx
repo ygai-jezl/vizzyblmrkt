@@ -52,7 +52,7 @@ export function DashboardChat({ userName }: { userName?: string }) {
           onModeChange={chat.setMode}
         />
         <p className="mt-2 text-center text-xs text-neutral-400">
-          Vizzybl can make mistakes. Verify important actions before approving.
+          Vizzy can make mistakes. Verify important actions before approving.
         </p>
       </div>
     </div>

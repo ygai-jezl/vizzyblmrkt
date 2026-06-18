@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
-import { getTenantByOrigin, getTenantById, getTenantsForUser } from "./registry";
+import {
+  getTenantByOrigin,
+  getTenantById,
+  getTenantsForUser,
+  getTenantMembership,
+} from "./registry";
 
 function tenant(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -62,5 +67,37 @@ describe("tenant registry", () => {
 
     const got = await getTenantsForUser("usr_1", db);
     expect(got.map((t) => t.tenantId).sort()).toEqual(["ten_A", "ten_B"]);
+  });
+
+  it("getTenantMembership returns the membership for an existing user↔tenant pair", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenant_users", "tu1", {
+      userId: "usr_1",
+      tenantId: "ten_A",
+      role: "admin",
+      joinedAt: "2026-06-15T16:00:00Z",
+    });
+    db.seed("tenant_users", "tu2", {
+      userId: "usr_1",
+      tenantId: "ten_B",
+      role: "member",
+      joinedAt: "2026-06-15T16:00:00Z",
+    });
+
+    const m = await getTenantMembership("usr_1", "ten_B", db);
+    expect(m).toMatchObject({ userId: "usr_1", tenantId: "ten_B", role: "member" });
+  });
+
+  it("getTenantMembership returns null when the user is not a member of that tenant", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenant_users", "tu1", {
+      userId: "usr_1",
+      tenantId: "ten_A",
+      role: "admin",
+      joinedAt: "2026-06-15T16:00:00Z",
+    });
+
+    expect(await getTenantMembership("usr_1", "ten_B", db)).toBeNull();
+    expect(await getTenantMembership("usr_2", "ten_A", db)).toBeNull();
   });
 });

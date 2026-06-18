@@ -145,10 +145,15 @@ export async function getHomeAdminContext(): Promise<TenantContext | null> {
 }
 
 /**
- * The authenticated admin's EFFECTIVE TenantContext — the home context with the
- * active-brand override applied. Null if not signed in.
+ * The EFFECTIVE context plus the home tenant id, from a SINGLE session
+ * verification. The admin layout needs both: the effective (post-override)
+ * context to scope the page, and the home tenant id so the brand switcher always
+ * lists the user's home brand (which has no tenant_users membership row and so
+ * would otherwise disappear once they switch away from it).
  */
-export async function getAdminContext(): Promise<TenantContext | null> {
+export async function getAdminContextWithHome(): Promise<
+  { ctx: TenantContext; homeTenantId: string } | null
+> {
   const home = await getHomeAdminContext();
   if (!home) return null;
   const active = (await cookies()).get(ACTIVE_TENANT_COOKIE)?.value;
@@ -159,10 +164,19 @@ export async function getAdminContext(): Promise<TenantContext | null> {
   // there would operate under the wrong tenant/region (a wrong-tenant write
   // risk), so fail closed (null → re-auth) instead.
   try {
-    return await resolveActiveTenant(home, active);
+    const ctx = await resolveActiveTenant(home, active);
+    return { ctx, homeTenantId: home.tenantId };
   } catch {
     return null;
   }
+}
+
+/**
+ * The authenticated admin's EFFECTIVE TenantContext — the home context with the
+ * active-brand override applied. Null if not signed in.
+ */
+export async function getAdminContext(): Promise<TenantContext | null> {
+  return (await getAdminContextWithHome())?.ctx ?? null;
 }
 
 /** Require a signed-in admin; redirect to /login otherwise. */

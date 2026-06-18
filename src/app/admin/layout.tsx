@@ -1,4 +1,5 @@
-import { requireAdminContext } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
+import { getAdminContextWithHome } from "@/lib/auth/session";
 import {
   forTenant,
   getTenantById,
@@ -15,7 +16,9 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const ctx = await requireAdminContext();
+  const session = await getAdminContextWithHome();
+  if (!session) redirect("/login");
+  const { ctx, homeTenantId } = session;
 
   // requireAdminContext() returns only token claims (ids), so read the tenant
   // record for the brand, the campaigns to list as launches, and the user's
@@ -37,11 +40,14 @@ export default async function AdminLayout({
       tenant?.faviconUrl || (tenant ? deriveFaviconUrl(tenant.rootDomain) : undefined),
   };
 
-  // Brand switcher list = the current/home tenant (always shown, even with no
-  // membership row) ∪ the user's memberships, deduped. Reuse the home tenant doc
-  // already fetched above; read the rest. Suspended brands are dropped so you
-  // can't switch into one.
-  const brandIds = [...new Set([ctx.tenantId, ...memberships.map((m) => m.tenantId)])];
+  // Brand switcher list = the home tenant (claims; always shown, even with no
+  // membership row) ∪ the active tenant ∪ the user's memberships, deduped. Using
+  // the HOME id here (not just the active one) is what keeps the home brand in
+  // the list after the user switches into another brand. Suspended brands are
+  // dropped so you can't switch into one.
+  const brandIds = [
+    ...new Set([homeTenantId, ctx.tenantId, ...memberships.map((m) => m.tenantId)]),
+  ];
   const brandDocs = await Promise.all(
     // Per-doc resilience: one bad/unparseable brand doc is skipped, not fatal.
     brandIds.map((id) =>

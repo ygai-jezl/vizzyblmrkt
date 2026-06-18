@@ -78,14 +78,16 @@ env:
   #     - RUNTIME
 
   # Secrets (create via `firebase apphosting:secrets:set <name>` then uncomment):
-  # - variable: MANDRILL_API_KEY        # transactional (verification + journeys)
-  #   secret: mandrill-api-key
-  #   availability:
-  #     - RUNTIME
-  # - variable: EMAIL_FROM
-  #   value: Vizzybl <noreply@vizzybl.ai>
-  #   availability:
-  #     - RUNTIME
+  - variable: MANDRILL_API_KEY        # transactional (verification + journeys)
+    secret: mandrill-api-key
+    availability:
+      - RUNTIME
+  # Sender must be a Mandrill-verified domain (vizzybl.ai: DKIM+SPF valid).
+  # yougrow.ai is NOT yet verified — don't send from it until its DKIM is published.
+  - variable: EMAIL_FROM
+    value: Vizzybl <noreply@vizzybl.ai>
+    availability:
+      - RUNTIME
   # - variable: MAILCHIMP_API_KEY       # shared Marketing account
   #   secret: mailchimp-api-key
   #   availability:

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 
 const SITE_URL =
-  "https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app";
+  "https://vizzybl-marketing-prod--vizzybl-marketing-prod.us-central1.hosted.app";
 
 export const metadata: Metadata = {
   title: "YouGrow.ai — The agentic growth loop",
@@ -108,13 +108,18 @@ export default function Home() {
       </footer>
 
       {/*
-        Loads our own embed loader. We use a RELATIVE "/embed.js" (not the absolute
-        dev URL) so the loader resolves its iframe origin from the env serving this
-        page (local→local, dev→dev, prod→prod). "afterInteractive" injects the tag
-        after hydration, so the data-vizzybl-campaign div above is already in the DOM
-        when the loader's scan() runs.
+        Loads our embed loader, pinned to the PRODUCTION /embed.js. The loader
+        derives its iframe origin from its own script src, so this routes the widget
+        — and therefore every waitlist signup — to the prod environment even when
+        this page is viewed on the dev deploy or locally. The agentic-growth-loop
+        campaign must exist in prod for the widget to render. "afterInteractive"
+        injects the tag after hydration, so the data-vizzybl-campaign div above is
+        already in the DOM when the loader's scan() runs.
       */}
-      <Script src="/embed.js" strategy="afterInteractive" />
+      <Script
+        src="https://vizzybl-marketing-prod--vizzybl-marketing-prod.us-central1.hosted.app/embed.js"
+        strategy="afterInteractive"
+      />
     </main>
   );
 }

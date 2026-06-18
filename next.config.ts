@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
     const baseline = [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      // Keep the opener handle to popups we open so Firebase Auth's
+      // signInWithPopup can poll popup.closed without the browser blocking the
+      // call (the repeated "Cross-Origin-Opener-Policy would block the
+      // window.closed call" console warnings). Ignored for iframed documents,
+      // so it leaves the framable /embed widget unaffected.
+      { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
       {
         key: "Strict-Transport-Security",
         value: "max-age=63072000; includeSubDomains; preload",

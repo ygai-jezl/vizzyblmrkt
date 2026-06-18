@@ -72,6 +72,7 @@ const LOADER = String.raw`(function () {
     function add(key, val) {
       if (val) qs.push(key + '=' + encodeURIComponent(val));
     }
+    add('t', el.getAttribute('data-vizzybl-tenant'));
     add('type', el.getAttribute('data-vizzybl-type'));
     add('mode', el.getAttribute('data-vizzybl-mode'));
     add('ref', el.getAttribute('data-vizzybl-ref'));

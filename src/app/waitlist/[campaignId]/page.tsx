@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { resolveTenantFromOrigin, forTenant } from "@/lib/tenant";
+import { resolveTenantForRequest, forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
@@ -20,9 +20,10 @@ export default async function HostedWaitlistPage({
   const sp = await searchParams;
   const referredBySignupToken = typeof sp.ref === "string" ? sp.ref : undefined;
   const justVerified = sp.verified === "1";
+  const tenantId = typeof sp.t === "string" ? sp.t : undefined;
 
   const origin = originFromHeaders(await headers());
-  const ctx = await resolveTenantFromOrigin(origin).catch(() => null);
+  const ctx = await resolveTenantForRequest({ tenantId, origin }).catch(() => null);
   if (!ctx) notFound();
 
   const repo = forTenant(ctx);

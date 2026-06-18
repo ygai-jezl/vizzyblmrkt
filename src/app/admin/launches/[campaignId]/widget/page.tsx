@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
+import { platformOrigin } from "@/lib/platform/origin";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { WidgetBuilder } from "@/components/admin/WidgetBuilder";
 
@@ -18,6 +19,7 @@ export default async function LaunchWidgetPage({
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) notFound();
   const origin = originFromHeaders(await headers());
+  const embedOrigin = platformOrigin() || origin;
 
   return (
     <div className="space-y-4">
@@ -30,6 +32,8 @@ export default async function LaunchWidgetPage({
       </div>
       <WidgetBuilder
         origin={origin}
+        embedOrigin={embedOrigin}
+        tenantId={ctx.tenantId}
         campaigns={[
           {
             id: campaign.id,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  resolveTenantFromOrigin,
+  resolveTenantForRequest,
   forTenant,
   creditReferral,
   getTenantById,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/tenant";
 import { resolveSender } from "@/lib/email/sender";
 import { originFromHeaders } from "@/lib/http/origin";
+import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import {
   SignupInputSchema,
   validateSignupAgainstCampaign,
@@ -33,11 +34,13 @@ export async function POST(
 ) {
   const { campaignId } = await params;
   const origin = originFromHeaders(req.headers);
+  const tenantId = tenantParamFromUrl(req.url);
 
-  // Resolve tenant + region from the request host (routing only).
+  // Resolve tenant + region from the explicit ?t= hint, else the request host
+  // (routing only — never an authorization grant).
   let ctx;
   try {
-    ctx = await resolveTenantFromOrigin(origin);
+    ctx = await resolveTenantForRequest({ tenantId, origin });
   } catch (err) {
     if (err instanceof TenantNotFoundError) {
       return NextResponse.json({ error: "unknown_tenant" }, { status: 404 });
@@ -84,9 +87,15 @@ export async function POST(
     );
   }
 
+  // When resolved via the shared platform host (?t=), links back to ourselves
+  // must carry the tenant id so they resolve the same tenant. On a custom domain
+  // (origin-resolved) it's omitted — the host already identifies the tenant.
+  const linkTenantId = ctx.source === "tenant_param" ? ctx.tenantId : undefined;
+
   const result = await createSignup(ctx, campaign, parsed.data, {
     hostedPageBaseUrl: origin,
     captchaValid: captcha.ok && !captcha.skipped,
+    tenantId: linkTenantId,
   });
 
   // Double opt-in: an unverified signup gets a confirmation email; the referrer
@@ -97,7 +106,10 @@ export async function POST(
     result.signup.email &&
     result.signup.verificationToken
   ) {
-    const verifyUrl = `${origin}/api/waitlist/${campaign.id}/verify?token=${encodeURIComponent(result.signup.verificationToken)}`;
+    const verifyUrl = appendTenantParam(
+      `${origin}/api/waitlist/${campaign.id}/verify?token=${encodeURIComponent(result.signup.verificationToken)}`,
+      linkTenantId,
+    );
     let emailSent = false;
     try {
       // Send from the tenant/campaign custom domain when configured + verified.

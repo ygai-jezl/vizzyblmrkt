@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getRecaptchaToken } from "@/lib/security/recaptchaClient";
+import { appendTenantParam } from "@/lib/http/tenantParam";
 import {
   parseEnabledPlatforms,
   type SharePlatformId,
@@ -133,11 +134,14 @@ export function SignupForm({
       const recaptchaToken = await getRecaptchaToken("signup");
       if (recaptchaToken) body.recaptchaToken = recaptchaToken;
 
-      const res = await fetch(`/api/waitlist/${campaignId}/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(
+        appendTenantParam(`/api/waitlist/${campaignId}/signup`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
       const data = await res.json();
       if (!res.ok) {
         const issues = Array.isArray(data.issues)

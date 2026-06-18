@@ -35,6 +35,16 @@ env:
       - BUILD
       - RUNTIME
 
+  # Canonical platform host every brand's widget is served from by default
+  # (shared-host routing; tenant resolved from the ?t= hint). MUST be a domain
+  # registered on the reCAPTCHA key below. yougrow.ai doubles as the dogfood
+  # tenant's brand domain — intentional. See src/lib/platform/origin.ts.
+  - variable: NEXT_PUBLIC_PLATFORM_ORIGIN
+    value: https://yougrow.ai
+    availability:
+      - BUILD
+      - RUNTIME
+
   # reCAPTCHA Enterprise (score-based) — public site key + server assessment.
   - variable: RECAPTCHA_ENABLED
     value: "true"

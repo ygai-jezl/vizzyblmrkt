@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import {
   resolveTenantFromOrigin,
+  resolveTenantForRequest,
   tenantContextFromClaims,
   resolveActiveTenant,
 } from "./context";
@@ -37,6 +38,49 @@ describe("resolveTenantFromOrigin", () => {
     db.seed("tenants", "ten_s", tenant({ status: "suspended" }));
     await expect(
       resolveTenantFromOrigin("https://vizzybl.ai", db),
+    ).rejects.toBeInstanceOf(TenantNotFoundError);
+  });
+});
+
+describe("resolveTenantForRequest", () => {
+  it("prefers the explicit tenant id, carrying region + source=tenant_param", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_eu", tenant({ region: "eu", allowedOrigins: [] }));
+
+    // Note: no allow-listed origin — resolution succeeds purely on the id.
+    const ctx = await resolveTenantForRequest(
+      { tenantId: "ten_eu", origin: "https://yougrow.ai" },
+      db,
+    );
+    expect(ctx).toMatchObject({
+      tenantId: "ten_eu",
+      region: "eu",
+      source: "tenant_param",
+    });
+  });
+
+  it("falls back to origin resolution when no tenant id is given", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_host", tenant());
+    const ctx = await resolveTenantForRequest(
+      { origin: "https://vizzybl.ai" },
+      db,
+    );
+    expect(ctx).toMatchObject({ tenantId: "ten_host", source: "host" });
+  });
+
+  it("rejects an unknown tenant id", async () => {
+    const db = new FakeFirestore();
+    await expect(
+      resolveTenantForRequest({ tenantId: "ten_missing", origin: "https://x" }, db),
+    ).rejects.toBeInstanceOf(TenantNotFoundError);
+  });
+
+  it("rejects a suspended tenant id", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_s", tenant({ status: "suspended" }));
+    await expect(
+      resolveTenantForRequest({ tenantId: "ten_s", origin: "https://x" }, db),
     ).rejects.toBeInstanceOf(TenantNotFoundError);
   });
 });

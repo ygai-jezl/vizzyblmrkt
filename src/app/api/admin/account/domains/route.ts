@@ -5,6 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import {
   getSenderConfig,
   saveSenderConfig,
+  mutateSenderConfig,
   normalizeDomain,
   isValidDomain,
 } from "@/lib/admin/senderConfig";
@@ -121,13 +122,17 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
   let dkimValid = false;
   let spfValid = false;
+  let ownershipValid = false;
+  let verifyTxtKey: string | undefined;
   let status: SenderDomain["status"] = "pending";
   let detail: string | undefined;
   if (mandrillConfigured()) {
-    await addSendingDomain(domain); // register (idempotent provider-side)
+    const added = await addSendingDomain(domain); // register + mint ownership token (idempotent provider-side)
     const checked = await checkSendingDomain(domain);
     dkimValid = checked.dkimValid;
     spfValid = checked.spfValid;
+    ownershipValid = checked.ownershipValid;
+    verifyTxtKey = checked.verifyTxtKey ?? added.verifyTxtKey;
     status = checked.status;
     detail = checked.detail;
   }
@@ -137,14 +142,24 @@ export async function POST(req: Request) {
     status,
     dkimValid,
     spfValid,
-    records: applyRecordValidity(senderDnsRecords(domain), { dkimValid, spfValid }),
+    records: applyRecordValidity(senderDnsRecords(domain, verifyTxtKey), {
+      dkimValid,
+      spfValid,
+      ownershipValid,
+    }),
     addedAt: now,
+    ...(verifyTxtKey ? { verifyTxtKey } : {}),
     ...(mandrillConfigured() ? { lastCheckedAt: now } : {}),
     ...(detail ? { detail } : {}),
   };
 
-  const next: EmailSenderConfig = { ...config, domains: [...config.domains, entry] };
-  await saveSenderConfig(ctx.tenantId, next);
+  // Atomic append: re-check for the domain in the FRESH config so a concurrent
+  // verify/add tick can't be clobbered by a stale full-array overwrite.
+  const next = await mutateSenderConfig(ctx.tenantId, (cur) =>
+    cur.domains.some((d) => d.domain === domain)
+      ? cur // added concurrently — idempotent
+      : { ...cur, domains: [...cur.domains, entry] },
+  );
   return NextResponse.json(present(next));
 }
 

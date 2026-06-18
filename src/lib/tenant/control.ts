@@ -3,7 +3,12 @@ import { getDb, isAlreadyExists } from "./firestore";
 import type { FirestoreLike } from "./types";
 import { TenantIsolationError } from "./errors";
 import { deriveFaviconUrl } from "./favicon";
-import { TenantSchema, type Tenant } from "@/lib/types/tenant";
+import {
+  TenantSchema,
+  EmailSenderConfigSchema,
+  type Tenant,
+  type EmailSenderConfig,
+} from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
 /**
@@ -60,6 +65,30 @@ export async function updateTenantConfig(
 }
 
 /**
+ * Atomically read-modify-write a tenant's `emailSenderConfig` inside a Firestore
+ * transaction. The `domains[]` array has several concurrent writers — the domain
+ * auto-poll, manual Verify, add-domain, and the web-routing DNS challenge — all
+ * mutating the same map field, so a plain read-modify-write loses updates (the
+ * last writer overwrites the whole array). `mutate` receives the FRESHEST config
+ * read inside the transaction and returns the next one; returning it unchanged is
+ * a valid no-op-ish write. Returns the persisted config.
+ */
+export async function updateTenantSenderConfig(
+  id: string,
+  mutate: (current: EmailSenderConfig) => EmailSenderConfig,
+): Promise<EmailSenderConfig> {
+  const db = getDb();
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const current = EmailSenderConfigSchema.parse(snap.data()?.emailSenderConfig ?? {});
+    const next = mutate(current);
+    tx.update(ref, { emailSenderConfig: next, updatedAt: new Date().toISOString() });
+    return next;
+  });
+}
+
+/**
  * Backfill the brand favicon on an EXISTING tenant (for docs created before the
  * field existed). Idempotent: only writes when `faviconUrl` is empty, deriving
  * it from the stored `rootDomain`. Unlike `region`, the favicon is mutable, so a
@@ -79,6 +108,75 @@ export async function backfillTenantFavicon(
   if (!faviconUrl) return "already_set"; // no domain to derive from — nothing to do
   await ref.update({ faviconUrl, updatedAt: new Date().toISOString() });
   return "set";
+}
+
+/**
+ * Add an allow-listed ORIGIN to a tenant (host→tenant routing for custom
+ * domains). Read-modify-write on the control-plane doc; idempotent (a duplicate
+ * is a no-op). Returns whether the array actually changed. Trust/uniqueness
+ * checks live in the web-routing provisioner — this is the persistence step.
+ */
+export async function addAllowedOrigin(
+  tenantId: string,
+  origin: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<{ added: boolean }> {
+  const ref = db.collection("tenants").doc(tenantId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new TenantIsolationError(`tenant ${tenantId} not found`);
+  const current = (snap.data()?.allowedOrigins as string[] | undefined) ?? [];
+  if (current.includes(origin)) return { added: false };
+  await ref.update({
+    allowedOrigins: [...current, origin],
+    updatedAt: new Date().toISOString(),
+  });
+  return { added: true };
+}
+
+/** Remove an allow-listed origin from a tenant (revoke web routing). Idempotent. */
+export async function removeAllowedOrigin(
+  tenantId: string,
+  origin: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<{ removed: boolean }> {
+  const ref = db.collection("tenants").doc(tenantId);
+  const snap = await ref.get();
+  if (!snap.exists) return { removed: false };
+  const current = (snap.data()?.allowedOrigins as string[] | undefined) ?? [];
+  if (!current.includes(origin)) return { removed: false };
+  await ref.update({
+    allowedOrigins: current.filter((o) => o !== origin),
+    updatedAt: new Date().toISOString(),
+  });
+  return { removed: true };
+}
+
+/**
+ * Append-only audit entry for a domain web-routing grant/revoke, in the flat
+ * control-plane `domain_grants` collection. Every auto-grant (incl. the
+ * email-match fast path) is recorded so a domain claim is always traceable.
+ */
+export interface DomainGrantAudit {
+  tenantId: string;
+  host: string;
+  action: "grant" | "revoke";
+  method?: string;
+  actorUid?: string;
+  recaptcha?: string;
+  createdAt: string;
+}
+
+export async function logDomainGrant(
+  entry: DomainGrantAudit,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<void> {
+  const id = `${entry.tenantId}_${entry.host}_${entry.createdAt}`.replace(/[^\w.-]/g, "_");
+  try {
+    await db.collection("domain_grants").doc(id).create({ ...entry });
+  } catch (err) {
+    if (isAlreadyExists(err)) return; // dup audit write — fine
+    throw err;
+  }
 }
 
 /**

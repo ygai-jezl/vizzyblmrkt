@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Trash2 } from "lucide-react";
 
 /**
@@ -19,6 +19,11 @@ interface DnsRecord {
   valid: boolean;
 }
 
+interface DomainCapabilities {
+  email: boolean;
+  webRouting: boolean;
+}
+
 interface SenderDomain {
   domain: string;
   status: DomainStatus;
@@ -27,7 +32,10 @@ interface SenderDomain {
   records: DnsRecord[];
   addedAt: string;
   lastCheckedAt?: string;
+  verifyTxtKey?: string;
   detail?: string;
+  capabilities?: DomainCapabilities;
+  ownership?: { method: string };
 }
 
 interface ConfigResponse {
@@ -61,6 +69,9 @@ export function DomainsSettings() {
   const [newDomain, setNewDomain] = useState("");
   const [adding, setAdding] = useState(false);
   const [busyDomain, setBusyDomain] = useState<string | null>(null);
+  // Pending DNS-TXT ownership challenges for web routing, keyed by domain.
+  const [routingChallenge, setRoutingChallenge] = useState<Record<string, DnsRecord>>({});
+  const [routingBusy, setRoutingBusy] = useState<string | null>(null);
 
   function applyConfig(data: ConfigResponse) {
     setSenderName(data.senderName);
@@ -91,6 +102,92 @@ export function DomainsSettings() {
   }, []);
 
   const verifiedDomains = domains.filter((d) => d.status === "verified");
+  const hasPendingDomains = domains.some((d) => d.status !== "verified");
+
+  // Latest domains, readable by the background poller without re-subscribing it.
+  const domainsRef = useRef(domains);
+  domainsRef.current = domains;
+
+  // Quietly re-check one pending domain in the background. Unlike the manual
+  // Verify button it never sets busy/error state — a transient provider timeout
+  // shouldn't flash UI while polling. Returns false to tell the poller to stop.
+  const pollVerify = useCallback(async (domain: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/admin/account/domains/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, background: true }),
+      });
+      if (!res.ok) return true; // transient — keep polling
+      const data = (await res.json()) as {
+        domains: SenderDomain[];
+        providerConfigured: boolean;
+      };
+      setDomains(data.domains);
+      setProviderConfigured(data.providerConfigured);
+      return data.providerConfigured; // stop if the provider got unconfigured
+    } catch {
+      return true; // network blip — keep polling
+    }
+  }, []);
+
+  // Auto-poll verification for pending domains so status flips without the admin
+  // re-clicking Verify. No new infra: client-side only, paused when the tab is
+  // hidden, serialized per tick (the verify route is read-modify-write on one
+  // tenant doc), and capped so a tab left open doesn't poll forever.
+  useEffect(() => {
+    if (!providerConfigured || !hasPendingDomains) return;
+    let active = true;
+    let running = false; // a tick is mid-flight — prevents overlapping ticks
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    const MAX_POLLS = 40; // ~20 min at 30s, then fall back to manual Verify
+    const INTERVAL_MS = 30_000;
+
+    const schedule = () => {
+      if (active) timer = setTimeout(() => void tick(), INTERVAL_MS);
+    };
+
+    const tick = async () => {
+      if (!active || running) return; // never overlap two ticks (would race /verify)
+      if (document.visibilityState !== "visible") {
+        schedule(); // stay alive but idle until the tab is focused again
+        return;
+      }
+      const pending = domainsRef.current.filter((d) => d.status !== "verified");
+      if (pending.length === 0 || polls >= MAX_POLLS) return; // all done / gave up
+      running = true;
+      polls += 1;
+      try {
+        for (const d of pending) {
+          if (!active) return;
+          const keepGoing = await pollVerify(d.domain);
+          if (!keepGoing) {
+            active = false;
+            return;
+          }
+        }
+      } finally {
+        running = false;
+      }
+      schedule();
+    };
+
+    const onVisible = () => {
+      if (active && !running && document.visibilityState === "visible") {
+        if (timer) clearTimeout(timer);
+        void tick(); // poll immediately on refocus (unless a tick is already running)
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    schedule();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [providerConfigured, hasPendingDomains, pollVerify]);
 
   async function addDomain() {
     const value = newDomain.trim().toLowerCase();
@@ -179,6 +276,72 @@ export function DomainsSettings() {
     }
   }
 
+  function mergeDomain(updated: SenderDomain) {
+    setDomains((ds) => ds.map((d) => (d.domain === updated.domain ? updated : d)));
+  }
+
+  // Enable web routing for a domain: prove ownership (email-match / Mandrill /
+  // DNS-TXT) then auto-provision allowedOrigins + reCAPTCHA. A `needsDns` reply
+  // means the admin must publish our challenge TXT, then click again to verify.
+  async function enableWebRouting(domain: string) {
+    setRoutingBusy(domain);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/account/domains/web-routing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        needsDns?: boolean;
+        record?: DnsRecord;
+        domain?: SenderDomain;
+        error?: string;
+      };
+      if (data.needsDns && data.record) {
+        setRoutingChallenge((c) => ({ ...c, [domain]: data.record! }));
+        return;
+      }
+      if (!res.ok || !data.ok || !data.domain) {
+        setError(
+          data.error === "reserved_domain"
+            ? "That domain can't be used for routing."
+            : "Couldn't enable widget routing for that domain.",
+        );
+        return;
+      }
+      mergeDomain(data.domain);
+      setRoutingChallenge((c) => {
+        const { [domain]: _drop, ...rest } = c;
+        return rest;
+      });
+    } catch {
+      setError("Couldn't enable widget routing. Please try again.");
+    } finally {
+      setRoutingBusy(null);
+    }
+  }
+
+  async function disableWebRouting(domain: string) {
+    setRoutingBusy(domain);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/account/domains/web-routing", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { domain?: SenderDomain };
+      if (!res.ok || !data.domain) throw new Error("disable_failed");
+      mergeDomain(data.domain);
+    } catch {
+      setError("Couldn't disable widget routing. Please try again.");
+    } finally {
+      setRoutingBusy(null);
+    }
+  }
+
   if (loading) {
     return <p className="text-sm text-neutral-500">Loading…</p>;
   }
@@ -243,8 +406,12 @@ export function DomainsSettings() {
                 key={d.domain}
                 domain={d}
                 busy={busyDomain === d.domain}
+                routingBusy={routingBusy === d.domain}
+                routingChallenge={routingChallenge[d.domain]}
                 onVerify={() => void verifyDomain(d.domain)}
                 onRemove={() => void removeDomain(d.domain)}
+                onEnableRouting={() => void enableWebRouting(d.domain)}
+                onDisableRouting={() => void disableWebRouting(d.domain)}
               />
             ))}
           </div>
@@ -365,20 +532,34 @@ function StatusBadge({ status }: { status: DomainStatus }) {
 function DomainCard({
   domain,
   busy,
+  routingBusy,
+  routingChallenge,
   onVerify,
   onRemove,
+  onEnableRouting,
+  onDisableRouting,
 }: {
   domain: SenderDomain;
   busy: boolean;
+  routingBusy: boolean;
+  routingChallenge?: DnsRecord;
   onVerify: () => void;
   onRemove: () => void;
+  onEnableRouting: () => void;
+  onDisableRouting: () => void;
 }) {
+  const webRouting = domain.capabilities?.webRouting ?? false;
   return (
     <div className="space-y-4 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm">{domain.domain}</span>
           <StatusBadge status={domain.status} />
+          {webRouting ? (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+              Widget routing
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {domain.status !== "verified" ? (
@@ -403,12 +584,62 @@ function DomainCard({
           This domain is verified and ready to use as an email sender.
         </p>
       ) : (
-        <DnsRecordsTable records={domain.records} />
+        <>
+          {!domain.verifyTxtKey ? (
+            <p className="text-xs text-neutral-400">
+              Click Verify to fetch this domain&apos;s ownership record.
+            </p>
+          ) : null}
+          <DnsRecordsTable records={domain.records} />
+        </>
       )}
 
       {domain.detail ? (
         <p className="text-xs text-neutral-400">Provider note: {domain.detail}</p>
       ) : null}
+
+      <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-900">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">Embed widget on this domain</p>
+            <p className="text-xs text-neutral-500">
+              {webRouting
+                ? "Your waitlist widget can be served from this domain."
+                : "Serve the waitlist widget from this domain (instead of the default platform host)."}
+            </p>
+          </div>
+          {webRouting ? (
+            <button
+              type="button"
+              onClick={onDisableRouting}
+              className={OUTLINE_BTN}
+              disabled={routingBusy}
+            >
+              {routingBusy ? "Working…" : "Disable"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onEnableRouting}
+              className={OUTLINE_BTN}
+              disabled={routingBusy}
+            >
+              {routingBusy ? "Working…" : routingChallenge ? "Verify ownership" : "Use for widget"}
+            </button>
+          )}
+        </div>
+
+        {!webRouting && routingChallenge ? (
+          <div className="space-y-2">
+            <p className="text-xs text-neutral-500">
+              Publish this DNS record to prove you own the domain, then click
+              &ldquo;Verify ownership&rdquo;. (Skipped automatically if you signed in with an
+              email at this domain, or it&apos;s already email-verified.)
+            </p>
+            <DnsRecordsTable records={[routingChallenge]} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -443,11 +674,7 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
                 <td className="px-3 py-2 font-mono">{r.type}</td>
                 <td className="px-3 py-2 font-mono break-all">{r.host}</td>
                 <td className="px-3 py-2 font-mono break-all">
-                  {r.value || (
-                    <span className="text-neutral-400">
-                      Set MANDRILL_DKIM_TXT_VALUE (Mailchimp Transactional → Domains)
-                    </span>
-                  )}
+                  {r.value || <span className="text-neutral-400">—</span>}
                 </td>
                 <td className="px-3 py-2 text-right">
                   {r.value ? <CopyButton value={r.value} label={`Copy ${r.type} value`} /> : null}
@@ -457,6 +684,12 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
           </tbody>
         </table>
       </div>
+      {records.some((r) => r.host.startsWith("_dmarc.")) ? (
+        <p className="text-xs text-neutral-400">
+          DMARC isn&apos;t checked automatically — once the <code>_dmarc</code> record is
+          published you&apos;re all set.
+        </p>
+      ) : null}
     </div>
   );
 }

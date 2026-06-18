@@ -10,6 +10,7 @@ export type {
 } from "./repository";
 export {
   resolveTenantFromOrigin,
+  resolveTenantForRequest,
   tenantContextFromClaims,
   resolveActiveTenant,
 } from "./context";
@@ -30,8 +31,13 @@ export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,
+  updateTenantSenderConfig,
   addTenantMember,
+  addAllowedOrigin,
+  removeAllowedOrigin,
+  logDomainGrant,
 } from "./control";
+export type { DomainGrantAudit } from "./control";
 export { deriveFaviconUrl } from "./favicon";
 export { creditReferral } from "./referral";
 export type { CreditReferralResult } from "./referral";

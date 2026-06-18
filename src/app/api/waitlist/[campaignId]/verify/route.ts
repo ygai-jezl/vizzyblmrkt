@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import {
-  resolveTenantFromOrigin,
+  resolveTenantForRequest,
   forTenant,
   verifySignupByToken,
   creditReferral,
 } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
+import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import { syncSignupToAudience } from "@/lib/mailchimp";
 
 export const runtime = "nodejs";
@@ -22,15 +23,23 @@ export async function GET(
   const { campaignId } = await params;
   const token = new URL(req.url).searchParams.get("token") ?? "";
   const origin = originFromHeaders(req.headers);
+  const tenantId = tenantParamFromUrl(req.url);
 
   // Always redirect to a relative path resolved against the request URL — never
-  // reflect a (spoofable) Host header into the Location.
+  // reflect a (spoofable) Host header into the Location. Carry the ?t= hint so
+  // the hosted page resolves the same tenant on the shared platform host.
   const back = (param: string) =>
     NextResponse.redirect(
-      new URL(`/waitlist/${encodeURIComponent(campaignId)}?${param}`, req.url),
+      new URL(
+        appendTenantParam(
+          `/waitlist/${encodeURIComponent(campaignId)}?${param}`,
+          tenantId,
+        ),
+        req.url,
+      ),
     );
 
-  const ctx = await resolveTenantFromOrigin(origin).catch(() => null);
+  const ctx = await resolveTenantForRequest({ tenantId, origin }).catch(() => null);
   if (!ctx) return back("verify=invalid");
 
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);

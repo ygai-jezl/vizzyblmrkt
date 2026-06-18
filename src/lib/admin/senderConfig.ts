@@ -1,4 +1,4 @@
-import { getTenantById, updateTenantConfig } from "@/lib/tenant";
+import { getTenantById, updateTenantConfig, updateTenantSenderConfig } from "@/lib/tenant";
 import type { EmailSenderConfig } from "@/lib/types/tenant";
 
 /**
@@ -20,6 +20,20 @@ export async function saveSenderConfig(
   config: EmailSenderConfig,
 ): Promise<void> {
   await updateTenantConfig(tenantId, { emailSenderConfig: config });
+}
+
+/**
+ * Atomically mutate the tenant's sender config (transactional read-modify-write).
+ * Use this for per-domain updates so concurrent writers — the verify auto-poll,
+ * add-domain, and the web-routing DNS challenge — can't clobber each other's
+ * changes to the shared `domains[]` array. The mutator must re-find the domain in
+ * the FRESH config it receives so it preserves fields written concurrently.
+ */
+export async function mutateSenderConfig(
+  tenantId: string,
+  mutate: (current: EmailSenderConfig) => EmailSenderConfig,
+): Promise<EmailSenderConfig> {
+  return updateTenantSenderConfig(tenantId, mutate);
 }
 
 /** Lowercase + trim a domain for storage/compare. */

@@ -70,6 +70,15 @@ describe("buildEmbedUrl", () => {
       buildEmbedUrl({ origin: "https://app.vizzybl.ai", campaignId: "beta-launch" }),
     ).toBe("https://app.vizzybl.ai/embed/beta-launch?type=WIDGET_1");
   });
+  it("adds the tenant id as ?t= when provided", () => {
+    const url = buildEmbedUrl({
+      origin: "https://yougrow.ai",
+      campaignId: "c1",
+      tenantId: "ten_acme",
+    });
+    expect(url).toContain("t=ten_acme");
+    expect(url).toContain("type=WIDGET_1");
+  });
   it("adds mode, ref, and validated theme colors", () => {
     const url = buildEmbedUrl({
       origin: "https://app.vizzybl.ai/",
@@ -100,6 +109,14 @@ describe("buildEmbedSnippet", () => {
     expect(snippet).toContain('data-vizzybl-campaign="beta-launch"');
     expect(snippet).toContain('data-vizzybl-type="WIDGET_3"');
     expect(snippet).toContain('<script src="https://app.vizzybl.ai/embed.js" async>');
+  });
+  it("adds the tenant attribute only when a tenant id is provided", () => {
+    expect(
+      buildEmbedSnippet({ origin: "https://x", campaignId: "c" }),
+    ).not.toContain("data-vizzybl-tenant");
+    expect(
+      buildEmbedSnippet({ origin: "https://x", campaignId: "c", tenantId: "ten_acme" }),
+    ).toContain('data-vizzybl-tenant="ten_acme"');
   });
   it("adds the CHECK mode attribute only when requested", () => {
     expect(

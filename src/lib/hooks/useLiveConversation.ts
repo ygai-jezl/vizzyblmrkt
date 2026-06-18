@@ -8,6 +8,7 @@ import {
   type Session,
 } from "@google/genai";
 import { getRecaptchaToken } from "@/lib/security/recaptchaClient";
+import { appendTenantParam } from "@/lib/http/tenantParam";
 import type { ConversationTurn } from "@/lib/types/signup";
 
 /**
@@ -217,7 +218,7 @@ export function useLiveConversation({
       // 2. Mint a locked ephemeral token from our server.
       const recaptchaToken = await getRecaptchaToken("conversation");
       const tokenRes = await fetch(
-        `/api/waitlist/${campaignId}/conversation/token`,
+        appendTenantParam(`/api/waitlist/${campaignId}/conversation/token`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -312,7 +313,7 @@ export function useLiveConversation({
     try {
       const recaptchaToken = await getRecaptchaToken("conversation");
       const res = await fetch(
-        `/api/waitlist/${campaignId}/conversation/complete`,
+        appendTenantParam(`/api/waitlist/${campaignId}/conversation/complete`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

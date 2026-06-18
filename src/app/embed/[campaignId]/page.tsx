@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { resolveTenantFromOrigin, forTenant } from "@/lib/tenant";
+import { resolveTenantForRequest, forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
@@ -42,7 +42,10 @@ export default async function EmbedPage({
   const theme = parseThemeOverrides(get);
 
   const origin = originFromHeaders(await headers());
-  const ctx = await resolveTenantFromOrigin(origin).catch(() => null);
+  const ctx = await resolveTenantForRequest({
+    tenantId: get("t"),
+    origin,
+  }).catch(() => null);
   if (!ctx) notFound();
 
   const repo = forTenant(ctx);

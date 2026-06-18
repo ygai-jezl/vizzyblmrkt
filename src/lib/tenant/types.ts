@@ -13,8 +13,15 @@ export interface TenantContext {
   region: Region;
   userId?: string;
   role?: TenantRole;
+  /**
+   * The verified admin's email + whether the provider verified it. Carried from
+   * the session cookie for the domain-ownership email-match fast-path (see
+   * src/lib/domains/ownership.ts). Present only on admin (idtoken) contexts.
+   */
+  email?: string;
+  emailVerified?: boolean;
   /** How the tenant was established, for auditing. */
-  source: "host" | "idtoken" | "system";
+  source: "host" | "tenant_param" | "idtoken" | "system";
 }
 
 /**

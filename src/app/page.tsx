@@ -108,18 +108,19 @@ export default function Home() {
       </footer>
 
       {/*
-        Loads our embed loader, pinned to the PRODUCTION /embed.js. The loader
-        derives its iframe origin from its own script src, so this routes the widget
-        — and therefore every waitlist signup — to the prod environment even when
-        this page is viewed on the dev deploy or locally. The agentic-growth-loop
-        campaign must exist in prod for the widget to render. "afterInteractive"
-        injects the tag after hydration, so the data-vizzybl-campaign div above is
-        already in the DOM when the loader's scan() runs.
+        Loads our embed loader from the canonical PLATFORM ORIGIN (yougrow.ai —
+        see NEXT_PUBLIC_PLATFORM_ORIGIN / src/lib/platform/origin.ts). The loader
+        derives its iframe origin from its own script src, so the widget — and
+        every signup — routes to prod even when this page is viewed on the dev
+        deploy or locally. It MUST be the platform origin, not the raw
+        *.hosted.app deploy URL: that bare host is in no tenant's allowedOrigins
+        (or maps to the wrong tenant), so the embed's host→tenant resolution
+        fails and renders a 404. yougrow.ai resolves to the dogfood tenant that
+        owns the agentic-growth-loop campaign, so the widget renders.
+        "afterInteractive" injects the tag after hydration, so the
+        data-vizzybl-campaign div above is already in the DOM when scan() runs.
       */}
-      <Script
-        src="https://vizzybl-marketing-prod--vizzybl-marketing-prod.us-central1.hosted.app/embed.js"
-        strategy="afterInteractive"
-      />
+      <Script src="https://yougrow.ai/embed.js" strategy="afterInteractive" />
     </main>
   );
 }

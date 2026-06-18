@@ -25,19 +25,24 @@ export async function GET(
   const origin = originFromHeaders(req.headers);
   const tenantId = tenantParamFromUrl(req.url);
 
-  // Always redirect to a relative path resolved against the request URL — never
-  // reflect a (spoofable) Host header into the Location. Carry the ?t= hint so
+  // Emit a RELATIVE Location: the browser resolves it against the public URL it
+  // actually navigated to (the host in the confirmation email). This never
+  // reflects a (spoofable) Host header, and — critically — avoids `req.url`,
+  // which on App Hosting/Cloud Run is the internal bind (http://0.0.0.0:8080)
+  // and would otherwise produce an unreachable Location. Carry the ?t= hint so
   // the hosted page resolves the same tenant on the shared platform host.
   const back = (param: string) =>
-    NextResponse.redirect(
-      new URL(
-        appendTenantParam(
+    new NextResponse(null, {
+      // 303 See Other: this GET performed a side effect (verification); send the
+      // client on to the result page with a plain GET.
+      status: 303,
+      headers: {
+        Location: appendTenantParam(
           `/waitlist/${encodeURIComponent(campaignId)}?${param}`,
           tenantId,
         ),
-        req.url,
-      ),
-    );
+      },
+    });
 
   const ctx = await resolveTenantForRequest({ tenantId, origin }).catch(() => null);
   if (!ctx) return back("verify=invalid");

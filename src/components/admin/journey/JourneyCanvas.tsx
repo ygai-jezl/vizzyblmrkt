@@ -14,8 +14,14 @@ import {
   type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { Journey, JourneyStatus } from "@/lib/types/journey";
-import { TriggerNode, EmailNode, WaitNode } from "./nodes";
+import type {
+  Journey,
+  JourneyStatus,
+  JourneyBranch,
+} from "@/lib/types/journey";
+import type { Question } from "@/lib/types/campaign";
+import { branchLabel, DEFAULT_BRANCH } from "@/lib/journey/conditions";
+import { TriggerNode, EmailNode, WaitNode, ConditionNode } from "./nodes";
 import { NodeInspector } from "./NodeInspector";
 
 /**
@@ -30,6 +36,20 @@ const STATUS_STYLES: Record<JourneyStatus, string> = {
   paused: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
 };
 
+/** Label a condition branch edge ("Default" or the branch's rule) for readability. */
+function branchEdgeLabel(
+  nodes: ReadonlyArray<{ id: string; data?: unknown }>,
+  source: string,
+  sourceHandle: string | null | undefined,
+): string | undefined {
+  if (!sourceHandle) return undefined;
+  if (sourceHandle === DEFAULT_BRANCH) return "Default";
+  const node = nodes.find((n) => n.id === source);
+  const data = (node?.data ?? {}) as { branches?: JourneyBranch[] };
+  const b = data.branches?.find((br) => br.id === sourceHandle);
+  return b ? branchLabel(b) : undefined;
+}
+
 function seedGraph(j: Journey): { nodes: Node[]; edges: Edge[] } {
   if (j.graph.nodes.length > 0) {
     return {
@@ -43,6 +63,8 @@ function seedGraph(j: Journey): { nodes: Node[]; edges: Edge[] } {
         id: e.id,
         source: e.source,
         target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        label: branchEdgeLabel(j.graph.nodes, e.source, e.sourceHandle),
       })),
     };
   }
@@ -56,9 +78,11 @@ function seedGraph(j: Journey): { nodes: Node[]; edges: Edge[] } {
 export function JourneyCanvas({
   campaignId,
   initial,
+  questions = [],
 }: {
   campaignId: string;
   initial: Journey;
+  questions?: Question[];
 }) {
   const router = useRouter();
   const seeded = useMemo(() => seedGraph(initial), [initial]);
@@ -70,20 +94,52 @@ export function JourneyCanvas({
   const [msg, setMsg] = useState<string | null>(null);
 
   const nodeTypes = useMemo(
-    () => ({ trigger: TriggerNode, email: EmailNode, wait: WaitNode }),
+    () => ({
+      trigger: TriggerNode,
+      email: EmailNode,
+      wait: WaitNode,
+      condition: ConditionNode,
+    }),
     [],
   );
+  // Capture the branch a connection leaves from (sourceHandle) and keep at most
+  // one edge per (source, handle) — so each branch routes to exactly one place
+  // and non-condition nodes stay single-outgoing (the worker follows one edge).
   const onConnect = useCallback(
-    (c: Connection) => setEdges((eds) => addEdge(c, eds)),
-    [setEdges],
+    (c: Connection) =>
+      setEdges((eds) => {
+        const cleaned = eds.filter(
+          (e) =>
+            !(
+              e.source === c.source &&
+              (e.sourceHandle ?? null) === (c.sourceHandle ?? null)
+            ),
+        );
+        return addEdge(
+          { ...c, label: branchEdgeLabel(nodes, c.source, c.sourceHandle) },
+          cleaned,
+        );
+      }),
+    [setEdges, nodes],
   );
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
 
-  function addNode(type: "email" | "wait") {
+  function addNode(type: "email" | "wait" | "condition") {
     const id = `${type}_${crypto.randomUUID()}`;
     const data: Record<string, unknown> =
-      type === "email" ? { subject: "", body: "" } : { waitHours: 24 };
+      type === "email"
+        ? { subject: "", body: "" }
+        : type === "wait"
+          ? { waitHours: 24 }
+          : {
+              branches: [
+                {
+                  id: `br_${crypto.randomUUID()}`,
+                  condition: { field: "madeReferral", operator: "is_false" },
+                },
+              ],
+            };
     setNodes((nds) => [
       ...nds,
       { id, type, position: { x: 180, y: 120 + nds.length * 90 }, data },
@@ -111,7 +167,12 @@ export function JourneyCanvas({
         position: n.position,
         data: n.data,
       })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+      })),
     };
     const res = await fetch(`/api/admin/campaigns/${campaignId}/journey`, {
       method: "PUT",
@@ -178,6 +239,13 @@ export function JourneyCanvas({
         >
           ⏱ Add wait
         </button>
+        <button
+          type="button"
+          onClick={() => addNode("condition")}
+          className="rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        >
+          ⤳ Add condition
+        </button>
         <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
         <button
           type="button"
@@ -237,6 +305,7 @@ export function JourneyCanvas({
         <NodeInspector
           node={selected}
           campaignId={campaignId}
+          questions={questions}
           onUpdate={updateNodeData}
           onDelete={deleteNode}
           onClose={() => setSelectedId(null)}

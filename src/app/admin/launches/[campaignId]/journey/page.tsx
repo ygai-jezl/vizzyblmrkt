@@ -13,7 +13,10 @@ export default async function LaunchJourneyPage({
   const ctx = await requireAdminContext();
   const { campaignId } = await params;
   const id = `journey_${campaignId}`;
-  const existing = await forTenant(ctx).journeys.getById(id);
+  const [existing, campaign] = await Promise.all([
+    forTenant(ctx).journeys.getById(id),
+    forTenant(ctx).campaigns.getById(campaignId),
+  ]);
   const journey: Journey =
     existing ?? {
       id,
@@ -34,7 +37,11 @@ export default async function LaunchJourneyPage({
           activate.
         </p>
       </div>
-      <JourneyCanvas campaignId={campaignId} initial={journey} />
+      <JourneyCanvas
+        campaignId={campaignId}
+        initial={journey}
+        questions={campaign?.questions ?? []}
+      />
     </div>
   );
 }

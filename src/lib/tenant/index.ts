@@ -38,6 +38,17 @@ export {
   logDomainGrant,
 } from "./control";
 export type { DomainGrantAudit } from "./control";
+export {
+  recordLaunchDeletion,
+  writeAuditObject,
+  auditObjectPath,
+  auditEntryId,
+} from "./audit";
+export type { LaunchDeletionAudit, LaunchDeletionCounts } from "./audit";
+export { gcsAuditSink } from "./auditSink";
+export type { AuditObjectSink } from "./auditSink";
+export { deleteLaunch } from "./launchDeletion";
+export type { DeleteLaunchResult } from "./launchDeletion";
 export { deriveFaviconUrl } from "./favicon";
 export { creditReferral } from "./referral";
 export type { CreditReferralResult } from "./referral";

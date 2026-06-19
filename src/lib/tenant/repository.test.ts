@@ -157,6 +157,54 @@ describe("TenantCollection isolation", () => {
     expect(db.raw("signups", "evil")).toBeUndefined(); // id never changed
   });
 
+  it("deleteWhere() removes only this tenant's matching docs and returns the count", async () => {
+    const db = new FakeFirestore();
+    // Tenant A: two signups in camp1, one in camp2.
+    db.seed("signups", "a1", signup({ tenantId: "ten_A", campaignId: "camp1" }));
+    db.seed("signups", "a2", signup({ tenantId: "ten_A", campaignId: "camp1" }));
+    db.seed("signups", "a3", signup({ tenantId: "ten_A", campaignId: "camp2" }));
+    // Tenant B has a signup in camp1 too — must NOT be touched.
+    db.seed("signups", "b1", signup({ tenantId: "ten_B", campaignId: "camp1" }));
+
+    const removed = await forTenant(ctxA, db).signups.deleteWhere([
+      ["campaignId", "==", "camp1"],
+    ]);
+
+    expect(removed).toBe(2);
+    expect(db.raw("signups", "a1")).toBeUndefined();
+    expect(db.raw("signups", "a2")).toBeUndefined();
+    expect(db.raw("signups", "a3")).toBeDefined(); // other campaign untouched
+    expect(db.raw("signups", "b1")).toBeDefined(); // other tenant untouched
+  });
+
+  it("deleteWhere() pages through more docs than the page size", async () => {
+    const db = new FakeFirestore();
+    for (let i = 0; i < 7; i += 1) {
+      db.seed("signups", `s${i}`, signup({ tenantId: "ten_A", campaignId: "camp1" }));
+    }
+    const removed = await forTenant(ctxA, db).signups.deleteWhere(
+      [["campaignId", "==", "camp1"]],
+      { pageSize: 2 },
+    );
+    expect(removed).toBe(7);
+    expect(await forTenant(ctxA, db).signups.count()).toBe(0);
+  });
+
+  it("deleteWhere() cannot be widened past the tenant predicate", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    db.seed("signups", "b1", signup({ tenantId: "ten_B" }));
+
+    // Malicious attempt to also purge tenant B by re-filtering the tenant field.
+    const removed = await forTenant(ctxA, db).signups.deleteWhere([
+      ["tenantId", "==", "ten_B"],
+    ]);
+
+    expect(removed).toBe(1); // only A's own doc
+    expect(db.raw("signups", "a1")).toBeUndefined();
+    expect(db.raw("signups", "b1")).toBeDefined();
+  });
+
   it("forTenant() rejects a context without a tenantId", () => {
     const db = new FakeFirestore();
     expect(() =>

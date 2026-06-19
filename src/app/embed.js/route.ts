@@ -103,7 +103,11 @@ const LOADER = String.raw`(function () {
     iframe.src = src;
     iframe.title = 'Waitlist signup';
     iframe.loading = 'lazy';
-    iframe.setAttribute('allow', 'clipboard-write');
+    // 'microphone' (bare token → delegates to the iframe's own src origin)
+    // lets the post-signup Gemini Live voice conversation capture audio. The
+    // framed /embed doc also self-permits it (Permissions-Policy in next.config),
+    // and the customer's host page must not strip the mic from subframes.
+    iframe.setAttribute('allow', 'clipboard-write; microphone');
     iframe.style.width = '100%';
     iframe.style.border = '0';
     iframe.style.display = 'block';

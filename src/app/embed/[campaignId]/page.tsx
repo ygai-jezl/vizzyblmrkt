@@ -63,6 +63,14 @@ export default async function EmbedPage({
   const backgroundColor = theme.backgroundColor ?? style.widgetBackgroundColor;
   const showHeader = !campaign.removeWidgetHeaders;
   const showCount = !campaign.hideCounts;
+  // Post-signup voice CTA. Applies to every variant: the compact mini/docked
+  // treatment is pre-signup only — on success all variants render the same
+  // SignupSuccess card, and EmbedAutoResize grows the iframe to fit it (exactly
+  // as it already does for the social-share section). Mic delegation for the
+  // iframe is handled in next.config.ts + embed.js.
+  const aiConversation = campaign.aiConversation?.enabled
+    ? { enabled: true, introLine: campaign.aiConversation.introLine }
+    : undefined;
 
   const totalSignups = showCount
     ? await repo.signups.count([["campaignId", "==", campaignId]])
@@ -117,6 +125,7 @@ export default async function EmbedPage({
               joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
               variant={variant}
               embedded
+              aiConversation={aiConversation}
             />
           )}
 

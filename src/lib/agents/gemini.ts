@@ -47,18 +47,23 @@ let liveCached: GoogleGenAI | null | undefined;
  * post-signup voice conversation. Deliberately SEPARATE from getClient() above:
  * ephemeral tokens and the Live API are Gemini *Developer API*
  * (generativelanguage, v1alpha) features and are NOT supported on the Vertex
- * backend the text/image path uses in prod — so this needs its own classic
- * `GEMINI_LIVE_API_KEY` ("AIza*"). Returns null when unset so the conversation
- * feature degrades off (the token route 503s and the public CTA stays hidden).
+ * backend the text/image path uses in prod — so this needs its own
+ * `GEMINI_LIVE_API_KEY` (a Gemini Developer-API key from AI Studio). Returns null
+ * when unset so the conversation feature degrades off (the token route 503s).
  */
 export function getLiveTokenClient(): GoogleGenAI | null {
   if (liveCached !== undefined) return liveCached;
-  // Only a real Developer-API key ("AIza*") counts as configured. Anything else —
-  // unset, empty, or an explicit OFF sentinel like "disabled" — degrades the
-  // feature off. (App Hosting's yaml validator rejects an empty `value: ""`, so
-  // prod uses a non-empty sentinel to keep this disabled without a prod key.)
+  // A non-empty key enables the feature. We deliberately do NOT match on a key
+  // PREFIX: as of 2026 all new Google AI Studio keys are "authorization keys"
+  // (bound to a service account, restricted to the Generative Language API by
+  // default) and no longer use the legacy "AIza*" format — a prefix check would
+  // reject these valid Developer-API keys. The only OFF states are unset/empty or
+  // the explicit "disabled" sentinel (App Hosting's yaml validator rejects an
+  // empty `value: ""`, so envs without a key use that sentinel instead). A wrong
+  // value now surfaces as a logged authTokens.create failure (token route catch)
+  // instead of silently degrading off, which is far easier to diagnose.
   const apiKey = process.env.GEMINI_LIVE_API_KEY?.trim();
-  const liveEnabled = !!apiKey && apiKey.startsWith("AIza");
+  const liveEnabled = !!apiKey && apiKey.toLowerCase() !== "disabled";
   // `vertexai: false` is REQUIRED: deployed envs set GOOGLE_GENAI_USE_VERTEXAI=true
   // (for Agent 3), and the SDK would otherwise read that env var and treat THIS
   // client as a Vertex backend — where authTokens.create (ephemeral tokens) is

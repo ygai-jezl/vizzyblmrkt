@@ -5,6 +5,7 @@ import {
   getTenantById,
   getTenantsForUser,
   getTenantMembership,
+  listAllTenants,
 } from "./registry";
 
 function tenant(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -42,6 +43,21 @@ describe("tenant registry", () => {
   it("getTenantById returns null for an unknown id", async () => {
     const db = new FakeFirestore();
     expect(await getTenantById("nope", db)).toBeNull();
+  });
+
+  it("listAllTenants enumerates every tenant across regions (for the scheduled worker)", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_us", tenant({ region: "us" }));
+    db.seed("tenants", "ten_eu", tenant({ region: "eu", rootDomain: "yougrow.ai" }));
+    db.seed("tenants", "ten_asia", tenant({ region: "asia" }));
+
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_asia", "ten_eu", "ten_us"]);
+    expect(all.map((t) => t.region).sort()).toEqual(["asia", "eu", "us"]);
+  });
+
+  it("listAllTenants returns an empty list when there are no tenants", async () => {
+    expect(await listAllTenants(new FakeFirestore())).toEqual([]);
   });
 
   it("lists all tenant associations for a user", async () => {

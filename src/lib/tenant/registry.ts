@@ -48,6 +48,19 @@ export async function getTenantByOrigin(
   return TenantSchema.parse({ id: doc.id, ...doc.data() });
 }
 
+/**
+ * List EVERY tenant in the registry. Used only by trusted system jobs (e.g. the
+ * scheduled email-delivery worker) that must fan out across all tenants/regions
+ * — there is no single tenant context for a cron. Reads the control-plane
+ * `tenants` registry; callers still build a per-tenant context to touch data.
+ */
+export async function listAllTenants(
+  db: FirestoreLike = defaultDb(),
+): Promise<Tenant[]> {
+  const snap = await db.collection("tenants").get();
+  return snap.docs.map((d) => TenantSchema.parse({ id: d.id, ...d.data() }));
+}
+
 /** List every tenant association for a logged-in user (single fast read). */
 export async function getTenantsForUser(
   userId: string,

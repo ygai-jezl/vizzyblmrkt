@@ -118,10 +118,14 @@ env:
   #   secret: mailchimp-audience-id
   #   availability:
   #     - RUNTIME
-  # - variable: EMAIL_WORKER_SECRET     # Cloud Scheduler → email/jobs/process
-  #   secret: email-worker-secret
-  #   availability:
-  #     - RUNTIME
+  # Shared secret the scheduled delivery worker (Cloud Scheduler) presents as
+  # `X-Worker-Secret` to POST /api/admin/email/jobs/process; the cron then drains
+  # every tenant's queue across all regions. Provision BEFORE deploying this file:
+  #   infra/email-worker/setup.sh secret vizzybl-marketing-prod
+  - variable: EMAIL_WORKER_SECRET
+    secret: email-worker-secret
+    availability:
+      - RUNTIME
   # - variable: GEMINI_API_KEY          # Vertex AI Express / Agent Platform key
   #   secret: gemini-api-key            # (omit to use ADC + runtime SA instead)
   #   availability:

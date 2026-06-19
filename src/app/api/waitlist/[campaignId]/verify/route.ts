@@ -8,6 +8,7 @@ import {
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import { syncSignupToAudience } from "@/lib/mailchimp";
+import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,20 +71,38 @@ export async function GET(
   // Newly verified → push them into the marketing audience (best-effort). The
   // verification token is not cleared on verify, so it still resolves the row.
   if (result.status === "verified") {
-    try {
-      const rows = await forTenant(ctx).signups.find({
+    const rows = await forTenant(ctx)
+      .signups.find({
         where: [
           ["campaignId", "==", campaignId],
           ["verificationToken", "==", token],
         ],
         limit: 1,
-      });
-      if (rows[0]) await syncSignupToAudience(ctx, campaign, rows[0]);
-    } catch (err) {
-      console.warn(
-        `[mailchimp] audience sync on verify failed for ${campaign.id}:`,
-        err,
-      );
+      })
+      .catch(() => []);
+    const signup = rows[0];
+    if (signup) {
+      // Two best-effort, INDEPENDENT side effects: keep the marketing audience in
+      // sync, and enrol the new subscriber into the active journey (so late
+      // joiners — anyone verifying after the journey was activated — still get the
+      // sequence). Each is isolated so one failing can't skip the other, and
+      // neither can break the verification redirect.
+      try {
+        await syncSignupToAudience(ctx, campaign, signup);
+      } catch (err) {
+        console.warn(
+          `[mailchimp] audience sync on verify failed for ${campaign.id}:`,
+          err,
+        );
+      }
+      try {
+        await enrollSignupInActiveJourney(ctx, campaign.id, signup);
+      } catch (err) {
+        console.warn(
+          `[journey] enrollment on verify failed for ${campaign.id}:`,
+          err,
+        );
+      }
     }
   }
 

@@ -1,5 +1,6 @@
-import { forTenant, getTenantById } from "@/lib/tenant";
-import type { TenantContext } from "@/lib/tenant/types";
+import { forTenant, getTenantById, listAllTenants } from "@/lib/tenant";
+import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
+import type { Region, Tenant } from "@/lib/types/tenant";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
@@ -104,6 +105,62 @@ export async function processEmailJobs(
     }
   }
   return { processed: jobs.length, done, failed };
+}
+
+export interface TenantDrainResult {
+  tenants: number;
+  processed: number;
+  done: number;
+  failed: number;
+  perTenant: Array<
+    | { tenantId: string; region: Region; processed: number; done: number; failed: number }
+    | { tenantId: string; region: Region; error: string }
+  >;
+}
+
+/**
+ * Fan the delivery worker out over EVERY tenant, across all regional databases
+ * (US/EU/Asia). The scheduled (Cloud Scheduler) worker calls this: a single cron
+ * has no one tenant context, so it must drain each tenant's queue in turn. One
+ * tenant's failure (e.g. an unprovisioned region, or a transient read error) is
+ * logged and skipped so it can never stall the others.
+ */
+export async function processEmailJobsForAllTenants(
+  limitPerTenant = 100,
+  deps: {
+    listTenants?: () => Promise<Tenant[]>;
+    drain?: (
+      ctx: TenantContext,
+      limit: number,
+    ) => Promise<{ processed: number; done: number; failed: number }>;
+  } = {},
+): Promise<TenantDrainResult> {
+  const listTenants = deps.listTenants ?? listAllTenants;
+  const drain = deps.drain ?? processEmailJobs;
+  const tenants = await listTenants();
+  let processed = 0;
+  let done = 0;
+  let failed = 0;
+  const perTenant: TenantDrainResult["perTenant"] = [];
+  for (const t of tenants) {
+    const ctx: TenantContext = {
+      tenantId: t.id,
+      region: t.region,
+      source: "system",
+    };
+    try {
+      const r = await drain(ctx, limitPerTenant);
+      processed += r.processed;
+      done += r.done;
+      failed += r.failed;
+      perTenant.push({ tenantId: t.id, region: t.region, ...r });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "error";
+      console.warn(`[delivery] tenant ${t.id} (${t.region}) drain failed: ${msg}`);
+      perTenant.push({ tenantId: t.id, region: t.region, error: msg });
+    }
+  }
+  return { tenants: tenants.length, processed, done, failed, perTenant };
 }
 
 // ---- Broadcast (MailChimp Marketing campaign) -----------------------------
@@ -318,13 +375,7 @@ export async function activateJourney(
   ctx: TenantContext,
   journey: Journey,
 ): Promise<{ enqueued: number }> {
-  const entry = findEntryNode(journey.graph);
-  if (!entry) return { enqueued: 0 };
-  // Entry may BE (or lead to) an email or a condition node.
-  const first =
-    entry.type === "email" || entry.type === "condition"
-      ? { nodeId: entry.id, delayHours: 0 }
-      : resolveNextStep(journey.graph, entry.id);
+  const first = firstStep(journey);
   if (!first) return { enqueued: 0 };
 
   const subs = await forTenant(ctx).signups.find({
@@ -348,6 +399,85 @@ export async function activateJourney(
     if (r === "enqueued") enqueued += 1;
   }
   return { enqueued };
+}
+
+/**
+ * The journey's first reachable step (an email or a condition), plus the delay
+ * summed from any wait nodes between the entry and it. Shared by activation
+ * (enrol the existing audience) and per-signup enrolment (enrol a late joiner),
+ * so both compute the entry identically. Null when the graph has no entry or the
+ * entry leads nowhere.
+ */
+function firstStep(
+  journey: Journey,
+): { nodeId: string; delayHours: number } | null {
+  const entry = findEntryNode(journey.graph);
+  if (!entry) return null;
+  // Entry may BE (or lead to) an email or a condition node.
+  return entry.type === "email" || entry.type === "condition"
+    ? { nodeId: entry.id, delayHours: 0 }
+    : resolveNextStep(journey.graph, entry.id);
+}
+
+/**
+ * Enrol a single (newly verified) signup into the campaign's journey when one is
+ * active — enqueue its first step. Idempotent per (journey, node, recipient) via
+ * the same dedupe key activation uses, so it's safe even if activation already
+ * enrolled them. Called best-effort from the signup/verify paths so late joiners
+ * (anyone who verifies AFTER activation) still enter the sequence; the scheduled
+ * worker then drains the step. A missing/inactive/empty journey just "skips".
+ */
+export async function enrollSignupInActiveJourney(
+  ctx: TenantContext,
+  campaignId: string,
+  signup: { id: string; email?: string | null },
+  db?: FirestoreLike,
+): Promise<"enqueued" | "skipped"> {
+  if (!signup.email) return "skipped";
+  const journey = await forTenant(ctx, db).journeys.getById(
+    `journey_${campaignId}`,
+  );
+  if (!journey || journey.status !== "active") return "skipped";
+  const first = firstStep(journey);
+  if (!first) return "skipped";
+  const when = new Date(Date.now() + first.delayHours * 3600_000).toISOString();
+  const r = await enqueueEmailJob(
+    ctx,
+    {
+      type: "journey_step",
+      campaignId,
+      dedupeKey: `journey:${journey.id}:${first.nodeId}:${signup.id}`,
+      payload: { journeyId: journey.id, nodeId: first.nodeId, signupId: signup.id },
+      scheduledAt: when,
+    },
+    db,
+  );
+  return r === "enqueued" ? "enqueued" : "skipped";
+}
+
+export type JourneyValidation = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Structural pre-flight for activation. Without it, activating an empty or
+ * half-wired graph returns HTTP 200 yet enqueues nobody and silently sends
+ * nothing. Requires: an entry node, that leads to a sendable step, with at least
+ * one email node carrying real subject + body content.
+ */
+export function validateJourneyGraph(graph: JourneyGraph): JourneyValidation {
+  const entry = findEntryNode(graph);
+  if (!entry) return { ok: false, reason: "no_entry_node" };
+  const first =
+    entry.type === "email" || entry.type === "condition"
+      ? entry.id
+      : resolveNextStep(graph, entry.id)?.nodeId;
+  if (!first) return { ok: false, reason: "entry_leads_nowhere" };
+  const emails = graph.nodes.filter((n) => n.type === "email");
+  if (emails.length === 0) return { ok: false, reason: "no_email_node" };
+  const hasContent = emails.some(
+    (n) => (n.data.subject ?? "").trim() && (n.data.body ?? "").trim(),
+  );
+  if (!hasContent) return { ok: false, reason: "email_missing_content" };
+  return { ok: true };
 }
 
 /** Entry = the trigger node, else the first node with no incoming edge. */

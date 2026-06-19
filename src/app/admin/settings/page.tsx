@@ -34,6 +34,11 @@ export default async function SettingsPage() {
                 <span>
                   <span className="font-medium">{c.waitlistName}</span>
                   <span className="ml-2 text-neutral-400">/{c.id}</span>
+                  {c.archivedAt ? (
+                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                      Archived
+                    </span>
+                  ) : null}
                 </span>
                 <span className="text-neutral-400">Edit →</span>
               </Link>

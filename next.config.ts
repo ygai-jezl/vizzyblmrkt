@@ -21,10 +21,11 @@ const nextConfig: NextConfig = {
         value: "max-age=63072000; includeSubDomains; preload",
       },
     ];
-    // Permissions-Policy is per-surface: only the public waitlist pages may use
-    // the microphone (the optional Gemini Live voice conversation). Everything
-    // else keeps it disabled. Sources below are mutually exclusive so a single
-    // Permissions-Policy lands on every route (no duplicate/conflicting header).
+    // Permissions-Policy is per-surface: only the public waitlist pages and the
+    // embeddable widget may use the microphone (the optional Gemini Live voice
+    // conversation). Everything else keeps it disabled. Sources below are
+    // mutually exclusive so a single Permissions-Policy lands on every route
+    // (no duplicate/conflicting header).
     const noDevices = {
       key: "Permissions-Policy",
       value: "camera=(), microphone=(), geolocation=()",
@@ -88,7 +89,13 @@ const nextConfig: NextConfig = {
         source: "/embed/:path*",
         headers: [
           ...baseline,
-          noDevices,
+          // microphone=(self) so the post-signup Gemini Live voice conversation
+          // works inside the framed widget. (self) permits only the embed's own
+          // origin — the parent still has to delegate via the iframe `allow`
+          // attribute in /embed.js, and the customer's host page must itself
+          // permit the mic. Server-side the conversation stays feature-gated on
+          // campaign.aiConversation.enabled (conversation/token route).
+          micSelf,
           {
             key: "Content-Security-Policy",
             value: "frame-ancestors *; object-src 'none'; base-uri 'self'",

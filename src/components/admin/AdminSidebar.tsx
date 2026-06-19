@@ -14,8 +14,10 @@ import {
   LineChart,
   GitBranch,
   Settings,
+  Archive,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import { BrandSwitcher, type BrandOption } from "./BrandSwitcher";
@@ -38,6 +40,8 @@ interface NavGroup {
 export interface AdminSidebarProps {
   brands: BrandOption[];
   launches: Array<{ id: string; name: string }>;
+  /** Archived (closed) launches — rendered in a separate, collapsed section. */
+  archivedLaunches: Array<{ id: string; name: string }>;
   ctx: { tenantId: string; region: string; role: string };
 }
 
@@ -90,9 +94,15 @@ const ACCOUNT_LINK: NavLink = {
   matchPattern: "/admin/account",
 };
 
-export function AdminSidebar({ brands, launches, ctx }: AdminSidebarProps) {
+export function AdminSidebar({
+  brands,
+  launches,
+  archivedLaunches,
+  ctx,
+}: AdminSidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
   const launchLinks: NavLink[] = launches.map((l) => ({
     href: `/admin/launches/${l.id}`,
@@ -101,10 +111,18 @@ export function AdminSidebar({ brands, launches, ctx }: AdminSidebarProps) {
     matchPattern: `/admin/launches/${l.id}`,
   }));
 
+  const archivedLinks: NavLink[] = archivedLaunches.map((l) => ({
+    href: `/admin/launches/${l.id}`,
+    label: l.name,
+    icon: Archive,
+    matchPattern: `/admin/launches/${l.id}`,
+  }));
+
   // Every link that participates in active-state resolution.
   const allLinks: NavLink[] = [
     ...STATIC_GROUPS.flatMap((g) => g.items),
     ...launchLinks,
+    ...archivedLinks,
     NEW_LAUNCH_LINK,
     ACCOUNT_LINK,
   ];
@@ -208,6 +226,33 @@ export function AdminSidebar({ brands, launches, ctx }: AdminSidebarProps) {
           )}
           {renderLink(NEW_LAUNCH_LINK)}
         </div>
+
+        {/* Archived launches (closed but preserved) — collapsible, hidden when
+            empty. Auto-expands when the current route is an archived launch. */}
+        {archivedLinks.length > 0 &&
+          (collapsed ? (
+            <div className="space-y-0.5">
+              <div className="mx-2 my-2 border-t border-neutral-200 dark:border-neutral-800" />
+              {archivedLinks.map(renderLink)}
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => setArchivedOpen((v) => !v)}
+                className="flex w-full items-center justify-between px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+              >
+                <span>Archived</span>
+                {archivedOpen || archivedLinks.some(isActive) ? (
+                  <ChevronDown size={12} />
+                ) : (
+                  <ChevronRight size={12} />
+                )}
+              </button>
+              {(archivedOpen || archivedLinks.some(isActive)) &&
+                archivedLinks.map(renderLink)}
+            </div>
+          ))}
 
         {/* Data Engine + Strategy Hub */}
         {STATIC_GROUPS.slice(1).map((group) => (

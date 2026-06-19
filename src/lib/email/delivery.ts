@@ -173,6 +173,11 @@ async function processBroadcastJob(ctx: TenantContext, job: EmailJob): Promise<v
   if (b.status === "sent") return; // idempotent re-run
   const campaign = await forTenant(ctx).campaigns.getById(b.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
+  // Archived (closed) launch: don't dispatch queued broadcasts. Skip WITHOUT
+  // throwing — a throw would burn retries and eventually park the job as
+  // "failed"; instead the job is simply left unsent while the launch is closed
+  // (pausing the journey doesn't cover broadcasts, so this is the guard for them).
+  if (campaign.archivedAt) return;
 
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const cfg = resolveMailchimpConfig(tenant);
@@ -260,6 +265,10 @@ async function processJourneyStepJob(
 
   const campaign = await forTenant(ctx).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
+  // Belt-and-braces: archiving a launch pauses its journey (which already stops
+  // the chain above via the status guard), but if a journey is somehow active on
+  // an archived launch, halt the step here too.
+  if (campaign.archivedAt) return;
 
   // Rank is needed by email merge-vars AND rank-based conditions; cache per run.
   let ranks = rankCache.get(journey.campaignId);

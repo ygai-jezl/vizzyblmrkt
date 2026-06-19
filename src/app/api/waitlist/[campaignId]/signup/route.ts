@@ -16,6 +16,7 @@ import {
 import { createSignup } from "@/lib/waitlist/signupService";
 import { buildSharePayload } from "@/lib/waitlist/postSignup";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
+import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
 import { syncSignupToAudience } from "@/lib/mailchimp";
@@ -47,6 +48,10 @@ export async function POST(
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) {
     return NextResponse.json({ error: "campaign_not_found" }, { status: 404 });
+  }
+  // Archived launches are closed to NEW signups (data preserved, just no intake).
+  if (isClosed(campaign)) {
+    return NextResponse.json({ error: WAITLIST_CLOSED }, { status: 409 });
   }
 
   // Shape validation (strict: rejects unknown fields).

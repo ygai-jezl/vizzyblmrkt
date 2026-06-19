@@ -125,8 +125,10 @@ env:
   #   value: gemini-3.1-flash-live-preview
   #   availability:
   #     - RUNTIME
-  # GCS bucket for Agent 3's generated hero images (public-read objects). Create
-  # it + grant allUsers:objectViewer before generating images.
+  # PRIVATE GCS bucket for Agent 3's generated hero images. The org enforces
+  # uniform bucket-level access + domain-restricted sharing, so objects can NOT
+  # be made public — images are served via /api/email-asset/<path> by the runtime
+  # compute SA, which holds objectCreator+objectViewer on this bucket.
   - variable: EMAIL_ASSET_BUCKET
     value: vizzybl-marketing-dev-email-assets
     availability:

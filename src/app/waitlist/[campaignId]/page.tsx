@@ -7,6 +7,8 @@ import { buildSharePayload } from "@/lib/waitlist/postSignup";
 import { SignupForm } from "@/components/waitlist/SignupForm";
 import { SignupSuccess } from "@/components/waitlist/SignupSuccess";
 import { StatusCheck } from "@/components/waitlist/StatusCheck";
+import { WaitlistClosed } from "@/components/waitlist/WaitlistClosed";
+import { isClosed } from "@/lib/waitlist/closed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,17 +108,23 @@ export default async function HostedWaitlistPage({
         />
       ) : (
         <>
-          <SignupForm
-            campaignId={campaign.id}
-            requiredContactDetail={campaign.requiredContactDetail}
-            usesFirstnameLastname={campaign.usesFirstnameLastname}
-            questions={campaign.questions}
-            referredBySignupToken={referredBySignupToken}
-            buttonColor={buttonColor}
-            successMessage={style.statusDescription ?? "You're on the list!"}
-            joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
-            aiConversation={aiConversation}
-          />
+          {/* Archived launches close the join form but keep the (read-only)
+              status check, so existing signups can still look up their spot. */}
+          {isClosed(campaign) ? (
+            <WaitlistClosed />
+          ) : (
+            <SignupForm
+              campaignId={campaign.id}
+              requiredContactDetail={campaign.requiredContactDetail}
+              usesFirstnameLastname={campaign.usesFirstnameLastname}
+              questions={campaign.questions}
+              referredBySignupToken={referredBySignupToken}
+              buttonColor={buttonColor}
+              successMessage={style.statusDescription ?? "You're on the list!"}
+              joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+              aiConversation={aiConversation}
+            />
+          )}
 
           <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} />
         </>

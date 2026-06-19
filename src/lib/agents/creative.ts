@@ -1,5 +1,6 @@
 import type { Campaign } from "@/lib/types/campaign";
 import { MERGE_VARS } from "@/lib/email/mergeVars";
+import { platformOrigin } from "@/lib/platform/origin";
 import { renderPrompt } from "./prompts/registry";
 import { generateText, generateImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
@@ -61,12 +62,24 @@ export interface GenerateHeroImageInput {
   campaign: Campaign;
   brief: string;
   tenantId: string;
+  /**
+   * Absolute base URL (scheme + host) the email-asset proxy link is built from.
+   * Falls back to NEXT_PUBLIC_PLATFORM_ORIGIN, then a relative path. Recipients
+   * load images via `<base>/api/email-asset/<path>` (see imageStore.ts).
+   */
+  baseUrl?: string;
 }
+
+/** Why an image couldn't be produced — surfaced verbatim to the operator. */
+export type HeroImageFailure =
+  | "image_model_unavailable" // Imagen unconfigured or errored
+  | "no_asset_bucket" // EMAIL_ASSET_BUCKET not set
+  | "store_failed"; // upload to the bucket threw
 
 export interface GenerateHeroImageResult {
   imageUrl: string | null;
   source: "agent3" | "unavailable";
-  reason?: string;
+  reason?: HeroImageFailure;
 }
 
 export async function generateHeroImage(
@@ -82,11 +95,12 @@ export async function generateHeroImage(
   if (!img) {
     return { imageUrl: null, source: "unavailable", reason: "image_model_unavailable" };
   }
-  const url = await storeEmailImage(input.tenantId, input.campaign.id, img);
-  if (!url) {
-    return { imageUrl: null, source: "unavailable", reason: "no_asset_bucket" };
+  const stored = await storeEmailImage(input.tenantId, input.campaign.id, img);
+  if (!stored.ok) {
+    return { imageUrl: null, source: "unavailable", reason: stored.reason };
   }
-  return { imageUrl: url, source: "agent3" };
+  const base = (input.baseUrl || platformOrigin()).replace(/\/+$/, "");
+  return { imageUrl: `${base}/api/email-asset/${stored.path}`, source: "agent3" };
 }
 
 // ---- internals ------------------------------------------------------------

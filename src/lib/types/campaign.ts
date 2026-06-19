@@ -173,6 +173,16 @@ export const CampaignSchema = z.object({
   aiConversation: AiConversationSchema.optional(),
 
   createdAt: z.string(),
+
+  // Archived ("closed") state. Set to an ISO-8601 timestamp when the launch is
+  // archived; null/absent means active (the only value every legacy doc has).
+  // Presence STOPS public signups, pauses the active journey, and moves the
+  // launch out of the admin "Active Launches" list — the launch's data is fully
+  // preserved (nothing purged) and stays readable for agents/analytics. Cleared
+  // by writing `null` on restore (NOT undefined — `ignoreUndefinedProperties`
+  // would drop the key and silently fail the clear). Treat presence as the
+  // archived test everywhere: `!!campaign.archivedAt`.
+  archivedAt: z.string().nullable().optional(),
 });
 
 export type Campaign = z.infer<typeof CampaignSchema>;

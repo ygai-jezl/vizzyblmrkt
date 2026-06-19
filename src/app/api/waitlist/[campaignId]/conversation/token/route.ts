@@ -8,6 +8,7 @@ import {
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl } from "@/lib/http/tenantParam";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
+import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { getLiveTokenClient } from "@/lib/agents/gemini";
 import { LIVE_MODEL, buildLiveConnectConfig } from "@/lib/agents/liveConversation";
 
@@ -52,6 +53,11 @@ export async function POST(
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) {
     return NextResponse.json({ error: "campaign_not_found" }, { status: 404 });
+  }
+  // Closed launch: minting a token is new participation (and grants a leaderboard
+  // boost), so it stops once the launch is archived.
+  if (isClosed(campaign)) {
+    return NextResponse.json({ error: WAITLIST_CLOSED }, { status: 409 });
   }
   // Feature gate: the whole conversation surface is off unless the launch enabled it.
   if (!campaign.aiConversation?.enabled) {

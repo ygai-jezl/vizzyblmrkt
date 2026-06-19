@@ -12,6 +12,14 @@ export interface CopyVariant {
   body: string;
 }
 
+/** Operator-facing messages keyed by the API's failure `reason`. */
+const IMAGE_ERROR_DEFAULT = "Image generation is unavailable right now.";
+const IMAGE_ERRORS: Record<string, string> = {
+  no_asset_bucket: "Image storage isn't configured (EMAIL_ASSET_BUCKET).",
+  store_failed: "The image was generated but couldn't be saved to storage. Try again.",
+  image_model_unavailable: IMAGE_ERROR_DEFAULT,
+};
+
 export function CreativeDirectorPanel({
   campaignId,
   performanceHint,
@@ -76,11 +84,7 @@ export function CreativeDirectorPanel({
         onApplyImage(data.imageUrl as string);
         setNote("Hero image added.");
       } else {
-        setNote(
-          data.reason === "no_asset_bucket"
-            ? "Image storage isn't configured (EMAIL_ASSET_BUCKET)."
-            : "Image generation is unavailable right now.",
-        );
+        setNote(IMAGE_ERRORS[data.reason as string] ?? IMAGE_ERROR_DEFAULT);
       }
     } finally {
       setLoadingImage(false);

@@ -41,25 +41,32 @@ export interface LaunchDeletionCounts {
   emailJobs: number;
 }
 
-/** Immutable record of a single launch-deletion attempt (success or failure). */
+/**
+ * Immutable record of a single launch lifecycle event. Covers the destructive
+ * `launch.delete` (with per-collection counts + an "initiated"→"completed"/"failed"
+ * lifecycle) AND the reversible, non-destructive `launch.archive`/`launch.restore`
+ * (a single "recorded" event, no counts — nothing is purged).
+ */
 export interface LaunchDeletionAudit {
-  action: "launch.delete";
+  action: "launch.delete" | "launch.archive" | "launch.restore";
   // WHO — the authenticated actor, from the verified session/ID-token context.
   actorUid?: string;
   actorEmail?: string;
   actorRole?: TenantRole;
-  // WHERE — the tenant and residency region of the purged data.
+  // WHERE — the tenant and residency region of the affected data.
   tenantId: string;
   region: Region;
   // WHAT — the launch. `campaignName` is operational metadata, not member PII.
   campaignId: string;
   campaignName: string;
-  // OUTCOME. "initiated" is written BEFORE the purge (durable intent, zero counts
-  // yet); "completed"/"failed" after. A "failed" row carries whatever was purged
-  // before the error plus the error message, so even a partial deletion — or a
-  // process that dies mid-purge — is fully traceable.
-  status: "initiated" | "completed" | "failed";
-  deleted: LaunchDeletionCounts;
+  // OUTCOME. For delete: "initiated" is written BEFORE the purge (durable intent,
+  // zero counts yet); "completed"/"failed" after — a "failed" row carries whatever
+  // was purged before the error, so even a partial/crashed delete is traceable.
+  // For archive/restore (nothing destroyed): a single "recorded" event.
+  status: "initiated" | "completed" | "failed" | "recorded";
+  // Per-collection purge counts. Set only on the delete path; omitted for the
+  // archive/restore events, which destroy nothing.
+  deleted?: LaunchDeletionCounts;
   reason?: string;
   // On a "failed" row: a human-readable message plus a structured code (e.g. the
   // Firestore gRPC code) so a post-incident audit can tell a PERMISSION_DENIED
@@ -86,9 +93,14 @@ export function auditEntryId(entry: LaunchDeletionAudit): string {
   );
 }
 
-/** GCS object path for an audit entry, under the launch-delete prefix. */
+/**
+ * GCS object path for an audit entry, under a per-action prefix derived from
+ * `entry.action` (e.g. `audit/launch-delete/...`, `audit/launch-archive/...`).
+ * Note `"launch.delete"` maps to the same `launch-delete` prefix used before
+ * this was generalised, so existing delete records keep the same path.
+ */
 export function auditObjectPath(entry: LaunchDeletionAudit): string {
-  return `audit/launch-delete/${auditEntryId(entry)}.json`;
+  return `audit/${entry.action.replace(".", "-")}/${auditEntryId(entry)}.json`;
 }
 
 /**

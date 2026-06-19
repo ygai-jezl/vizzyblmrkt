@@ -8,6 +8,7 @@ import {
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl } from "@/lib/http/tenantParam";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
+import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { computeRanks } from "@/lib/waitlist/rank";
 import type { AiConversationData } from "@/lib/types/signup";
 
@@ -58,6 +59,11 @@ export async function POST(
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) {
     return NextResponse.json({ error: "campaign_not_found" }, { status: 404 });
+  }
+  // Closed launch: completion applies a NEW leaderboard boost (mutates ranking),
+  // so it stops once the launch is archived.
+  if (isClosed(campaign)) {
+    return NextResponse.json({ error: WAITLIST_CLOSED }, { status: 409 });
   }
   if (!campaign.aiConversation?.enabled) {
     return NextResponse.json({ error: "feature_disabled" }, { status: 404 });

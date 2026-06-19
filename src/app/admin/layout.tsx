@@ -74,13 +74,21 @@ export default async function AdminLayout({
     });
   }
 
-  const launches = campaigns.map((c) => ({ id: c.id, name: c.waitlistName }));
+  // Archived launches are "closed" but preserved; split them out so they sit in
+  // a separate, collapsed sidebar section instead of cluttering Active Launches.
+  const launches = campaigns
+    .filter((c) => !c.archivedAt)
+    .map((c) => ({ id: c.id, name: c.waitlistName }));
+  const archivedLaunches = campaigns
+    .filter((c) => !!c.archivedAt)
+    .map((c) => ({ id: c.id, name: c.waitlistName }));
 
   return (
     <div className="flex min-h-screen">
       <AdminSidebar
         brands={brands}
         launches={launches}
+        archivedLaunches={archivedLaunches}
         ctx={{
           tenantId: ctx.tenantId,
           region: ctx.region,

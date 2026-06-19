@@ -5,6 +5,8 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
 import { StatusCheck } from "@/components/waitlist/StatusCheck";
+import { WaitlistClosed } from "@/components/waitlist/WaitlistClosed";
+import { isClosed } from "@/lib/waitlist/closed";
 import {
   parseWidgetType,
   parseWidgetMode,
@@ -100,6 +102,9 @@ export default async function EmbedPage({
               buttonColor={buttonColor}
               defaultOpen
             />
+          ) : isClosed(campaign) ? (
+            // Archived launch: show a compact closed notice instead of the form.
+            <WaitlistClosed compact />
           ) : (
             <SignupForm
               campaignId={campaign.id}

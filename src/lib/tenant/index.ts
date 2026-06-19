@@ -50,6 +50,8 @@ export { gcsAuditSink } from "./auditSink";
 export type { AuditObjectSink } from "./auditSink";
 export { deleteLaunch } from "./launchDeletion";
 export type { DeleteLaunchResult } from "./launchDeletion";
+export { setLaunchArchived } from "./launchArchive";
+export type { ArchiveAction, SetArchiveResult } from "./launchArchive";
 export { deriveFaviconUrl } from "./favicon";
 export { creditReferral } from "./referral";
 export type { CreditReferralResult } from "./referral";

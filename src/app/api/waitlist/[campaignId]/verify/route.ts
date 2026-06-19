@@ -87,9 +87,16 @@ export async function GET(
     }
   }
 
-  return back(
-    result.status === "verified" || result.status === "already_verified"
-      ? "verified=1"
-      : "verify=invalid",
-  );
+  if (result.status === "verified" || result.status === "already_verified") {
+    // Carry the verified signup's (already-public) referral token so the hosted
+    // landing can resolve the signup and render the FULL post-signup payoff —
+    // referral link, share buttons, position, and the voice CTA — instead of a
+    // bare "email confirmed" notice. Critical for embed signups, whose confirm
+    // link is a top-level navigation off the customer's site onto our host.
+    const rt = result.referralToken
+      ? `&rt=${encodeURIComponent(result.referralToken)}`
+      : "";
+    return back(`verified=1${rt}`);
+  }
+  return back("verify=invalid");
 }

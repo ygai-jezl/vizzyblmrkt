@@ -97,9 +97,24 @@ RREF=$(echo "$R" | sed -n 's/.*"referralToken":"\([A-Z0-9]*\)".*/\1/p')
 echo "$R" | grep -q '"needsVerification":true' || fail=1
 [ -n "$RVT" ] || { echo "no verification token"; fail=1; }
 
-echo "--- verify R (expect redirect) ---"
-code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/waitlist/beta-verify/verify?token=$RVT")
-echo "HTTP $code"; case "$code" in 30[1278]) ;; *) fail=1;; esac
+echo "--- verify R (expect redirect; Location carries verified=1 AND rt=<referralToken>) ---"
+code=$(curl -s -o /dev/null -D /tmp/verify.hdr -w "%{http_code}" "$BASE/api/waitlist/beta-verify/verify?token=$RVT")
+echo "HTTP $code"; case "$code" in 30[12378]) ;; *) fail=1;; esac
+RLOC=$(sed -n 's/^[Ll]ocation: //p' /tmp/verify.hdr | tr -d '\r')
+echo "redirect Location: $RLOC"
+echo "$RLOC" | grep -q 'verified=1' || { echo "BUG: verify redirect missing verified=1"; fail=1; }
+echo "$RLOC" | grep -q "rt=$RREF" || { echo "BUG: verify redirect missing rt=<referralToken>"; fail=1; }
+
+echo "--- post-verification page renders the FULL payoff (share/referral), not a blank join form ---"
+curl -s -o /tmp/postverify.html "$BASE/waitlist/beta-verify?verified=1&rt=$RREF"
+grep -q "Email confirmed" /tmp/postverify.html || { echo "BUG: post-verify missing confirmation banner"; fail=1; }
+grep -q "Refer friends to move up the list." /tmp/postverify.html && echo "post-verify share payoff ✓" || { echo "BUG: post-verify missing share payoff"; fail=1; }
+if grep -q "Join the waitlist" /tmp/postverify.html; then echo "BUG: post-verify still shows the blank join form"; fail=1; fi
+
+echo "--- post-verification with a bogus rt falls back to the plain confirmed page (no payoff) ---"
+curl -s -o /tmp/postverify_bad.html "$BASE/waitlist/beta-verify?verified=1&rt=NOTAREALTOKEN"
+grep -q "Email confirmed" /tmp/postverify_bad.html || { echo "BUG: bogus-rt page missing banner"; fail=1; }
+grep -q "Join the waitlist" /tmp/postverify_bad.html && echo "bogus-rt falls back to join form ✓" || { echo "BUG: bogus rt did not fall back safely"; fail=1; }
 
 echo "--- E joins via R's link (unverified) — R must NOT be credited yet ---"
 E=$(curl -s -X POST "$BASE/api/waitlist/beta-verify/signup" -H 'content-type: application/json' -d "{\"email\":\"verify-e@test.com\",\"referredBySignupToken\":\"$RREF\"}")

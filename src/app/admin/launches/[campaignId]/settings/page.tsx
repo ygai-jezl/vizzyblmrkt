@@ -4,6 +4,7 @@ import { forTenant } from "@/lib/tenant";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
+import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,12 @@ export default async function LaunchSettingsPage({
         initial={toCampaignSettings(campaign)}
         senderConfig={senderConfig}
       />
+      {ctx.role === "admin" ? (
+        <DeleteLaunchSection
+          campaignId={campaign.id}
+          campaignName={campaign.waitlistName}
+        />
+      ) : null}
     </div>
   );
 }

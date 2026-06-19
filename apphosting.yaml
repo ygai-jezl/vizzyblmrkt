@@ -129,6 +129,15 @@ env:
     availability:
       - RUNTIME
 
+  # WORM audit trail: a GCS bucket with a LOCKED retention policy where launch
+  # deletions are recorded immutably. The runtime SA holds objectCreator only
+  # (append, never read/overwrite/delete). Provision via infra/audit-log/setup.sh
+  # BEFORE deletions run in this env; when unset the audit sink is a no-op.
+  - variable: AUDIT_LOG_BUCKET
+    value: vizzybl-marketing-dev-audit-log
+    availability:
+      - RUNTIME
+
   # Dashboard root agent (ADK 2.0 on Agent Runtime). The proxy
   # (/api/admin/agent/chat) calls the reasoningEngine via :streamQuery using the
   # runtime SA's ADC token — grant that SA roles/aiplatform.user. ROOT_AGENT_LOCATION

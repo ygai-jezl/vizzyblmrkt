@@ -156,6 +156,40 @@ export class TenantCollection<T extends TenantScoped> {
     }
     await this.db.collection(this.name).doc(id).delete();
   }
+
+  /**
+   * Hard-delete EVERY document in this tenant matching `where`, in bounded
+   * pages, and return the number removed. The tenant predicate is always
+   * applied (a bulk delete can never escape this tenant), and any caller attempt
+   * to re-filter the tenant field is dropped — same guarantee as find().
+   *
+   * Pagination re-queries with a `limit` until a page comes back empty: deleted
+   * docs drop out of the next query's result, so no cursor/startAfter is needed
+   * (works identically against firebase-admin and the in-memory fake). Each page
+   * is deleted by id directly — the query already proved tenant ownership, so a
+   * per-doc getById re-check would only burn reads on a destructive bulk purge.
+   *
+   * Intended for irreversible cleanup (purging a launch's children), NOT a hot
+   * path. `maxPages` is a runaway backstop, not an expected limit.
+   */
+  async deleteWhere(
+    where: WhereClause[],
+    opts: { pageSize?: number; maxPages?: number } = {},
+  ): Promise<number> {
+    const pageSize = opts.pageSize ?? 200;
+    const maxPages = opts.maxPages ?? 100_000;
+    let total = 0;
+    for (let page = 0; page < maxPages; page += 1) {
+      const snap = await this.applyWhere(this.base(), where).limit(pageSize).get();
+      if (snap.empty) break;
+      await Promise.all(
+        snap.docs.map((d) => this.db.collection(this.name).doc(d.id).delete()),
+      );
+      total += snap.docs.length;
+      if (snap.docs.length < pageSize) break; // last (partial) page
+    }
+    return total;
+  }
 }
 
 /** The set of tenant-scoped repositories available within a request context. */

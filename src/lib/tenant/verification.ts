@@ -13,7 +13,12 @@ import type { TenantContext } from "./types";
  */
 export interface VerifyResult {
   status: "verified" | "already_verified" | "not_found";
-  /** Present when status === "verified" — used to credit the referrer once. */
+  /**
+   * Present when status is "verified" or "already_verified". On a fresh verify
+   * it credits the referrer once; on either status it lets the post-verification
+   * landing resolve the signup and render the full post-signup payoff. (It is the
+   * already-public referral token, so re-presenting it via a re-click is safe.)
+   */
   referralToken?: string;
   referredBySignupToken?: string | null;
 }
@@ -38,7 +43,10 @@ export async function verifySignupByToken(
     const doc = snap.docs[0]!;
     const data = doc.data();
     if (data.status === "verified_active") {
-      return { status: "already_verified" as const };
+      return {
+        status: "already_verified" as const,
+        referralToken: data.referralToken as string,
+      };
     }
     tx.update(doc.ref, { verified: true, status: "verified_active" });
     return {

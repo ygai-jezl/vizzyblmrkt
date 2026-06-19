@@ -11,12 +11,7 @@ import {
   deterministicSignupId,
   normalizeEmail,
 } from "@/lib/waitlist/identifiers";
-import { computeRanks } from "@/lib/waitlist/rank";
-import {
-  DEFAULT_SHARE_MESSAGE,
-  parseEnabledPlatforms,
-} from "@/lib/waitlist/socialPlatforms";
-import { renderMergeVars } from "@/lib/email/mergeVars";
+import { buildSharePayload } from "@/lib/waitlist/postSignup";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
 
 export const runtime = "nodejs";
@@ -110,27 +105,6 @@ export async function POST(
   }
 
   // verified_active — the user's own data, returned unmasked.
-  let rank: number | null = null;
-  try {
-    const ranks = await computeRanks(ctx, campaign.id);
-    rank = ranks.get(signup.id) ?? null;
-  } catch (err) {
-    console.warn(`rank computation failed for ${campaign.id}:`, err);
-  }
-  const shareMessage = renderMergeVars(
-    campaign.configurationStyleJson.shareMessage || DEFAULT_SHARE_MESSAGE,
-    { signup, campaign, rank: rank ?? undefined },
-  );
-
-  return NextResponse.json({
-    status: "verified_active",
-    rank,
-    amountReferred: signup.amountReferred,
-    referralLink: signup.referralLink,
-    hideCounts: campaign.hideCounts,
-    shareMessage,
-    enabledSharePlatforms: parseEnabledPlatforms(
-      campaign.configurationStyleJson.enabledSharePlatforms,
-    ),
-  });
+  const share = await buildSharePayload(ctx, campaign, signup);
+  return NextResponse.json({ status: "verified_active", ...share });
 }

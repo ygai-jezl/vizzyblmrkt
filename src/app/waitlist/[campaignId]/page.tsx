@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { resolveTenantForRequest, forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
+import { buildSharePayload } from "@/lib/waitlist/postSignup";
 import { SignupForm } from "@/components/waitlist/SignupForm";
+import { SignupSuccess } from "@/components/waitlist/SignupSuccess";
 import { StatusCheck } from "@/components/waitlist/StatusCheck";
 
 export const runtime = "nodejs";
@@ -20,6 +22,9 @@ export default async function HostedWaitlistPage({
   const sp = await searchParams;
   const referredBySignupToken = typeof sp.ref === "string" ? sp.ref : undefined;
   const justVerified = sp.verified === "1";
+  // Set by the double-opt-in confirm redirect: the just-verified signup's
+  // (public) referral token, used to render its full post-signup payoff.
+  const verifiedReferralToken = typeof sp.rt === "string" ? sp.rt : undefined;
   const tenantId = typeof sp.t === "string" ? sp.t : undefined;
 
   const origin = originFromHeaders(await headers());
@@ -36,6 +41,30 @@ export default async function HostedWaitlistPage({
   const leaderboard = await getLeaderboard(ctx, campaign);
 
   const style = campaign.configurationStyleJson;
+  const buttonColor = style.widgetButtonColor ?? "#111827";
+  const aiConversation = campaign.aiConversation?.enabled
+    ? { enabled: true, introLine: campaign.aiConversation.introLine }
+    : undefined;
+
+  // Just confirmed via the email link? Resolve that signup (equality-only query)
+  // and render the same success payoff the signup form shows — referral link,
+  // share buttons, position, and the voice CTA — instead of a bare banner.
+  let verified: Awaited<ReturnType<typeof buildSharePayload>> & {
+    referralToken: string;
+  } | null = null;
+  if (justVerified && verifiedReferralToken) {
+    const [signup] = await repo.signups.find({
+      where: [
+        ["campaignId", "==", campaignId],
+        ["referralToken", "==", verifiedReferralToken],
+      ],
+      limit: 1,
+    });
+    if (signup && signup.status === "verified_active") {
+      const share = await buildSharePayload(ctx, campaign, signup);
+      verified = { ...share, referralToken: signup.referralToken };
+    }
+  }
 
   return (
     <main
@@ -59,26 +88,39 @@ export default async function HostedWaitlistPage({
         ) : null}
       </header>
 
-      <SignupForm
-        campaignId={campaign.id}
-        requiredContactDetail={campaign.requiredContactDetail}
-        usesFirstnameLastname={campaign.usesFirstnameLastname}
-        questions={campaign.questions}
-        referredBySignupToken={referredBySignupToken}
-        buttonColor={style.widgetButtonColor ?? "#111827"}
-        successMessage={style.statusDescription ?? "You're on the list!"}
-        joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
-        aiConversation={
-          campaign.aiConversation?.enabled
-            ? { enabled: true, introLine: campaign.aiConversation.introLine }
-            : undefined
-        }
-      />
+      {verified ? (
+        // Post-verification: the confirmed signup gets the full payoff (referral
+        // link, share, position, voice) rather than a blank "join" form.
+        <SignupSuccess
+          campaignId={campaign.id}
+          heading={style.statusDescription ?? "You're on the list!"}
+          hideCounts={verified.hideCounts}
+          rank={verified.rank}
+          amountReferred={verified.amountReferred}
+          referralLink={verified.referralLink}
+          referralToken={verified.referralToken}
+          shareMessage={verified.shareMessage}
+          enabledPlatforms={verified.enabledSharePlatforms}
+          buttonColor={buttonColor}
+          aiConversation={aiConversation}
+        />
+      ) : (
+        <>
+          <SignupForm
+            campaignId={campaign.id}
+            requiredContactDetail={campaign.requiredContactDetail}
+            usesFirstnameLastname={campaign.usesFirstnameLastname}
+            questions={campaign.questions}
+            referredBySignupToken={referredBySignupToken}
+            buttonColor={buttonColor}
+            successMessage={style.statusDescription ?? "You're on the list!"}
+            joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+            aiConversation={aiConversation}
+          />
 
-      <StatusCheck
-        campaignId={campaign.id}
-        buttonColor={style.widgetButtonColor ?? "#111827"}
-      />
+          <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} />
+        </>
+      )}
 
       {leaderboard.length > 0 ? (
         <section className="space-y-3">

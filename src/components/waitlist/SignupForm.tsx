@@ -7,15 +7,7 @@ import {
   parseEnabledPlatforms,
   type SharePlatformId,
 } from "@/lib/waitlist/socialPlatforms";
-import dynamic from "next/dynamic";
-import { ShareSection } from "./ShareSection";
-
-// Lazy-loaded so the Gemini Live SDK (@google/genai) is only fetched when a user
-// actually opens the conversation — keeping the waitlist + embed bundles lean.
-const ConversationModal = dynamic(
-  () => import("@/components/waitlist/ConversationModal").then((m) => m.ConversationModal),
-  { ssr: false },
-);
+import { SignupSuccess } from "./SignupSuccess";
 
 interface Question {
   question_value: string;
@@ -84,7 +76,6 @@ export function SignupForm({
   embedded = false,
   aiConversation,
 }: Props) {
-  const [convoOpen, setConvoOpen] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -197,56 +188,20 @@ export function SignupForm({
 
   if (status === "success" && success) {
     return (
-      <section className="space-y-4 rounded-xl border border-neutral-200 p-5 text-center dark:border-neutral-800">
-        <h2 className="text-lg font-semibold">
-          {success.alreadyJoined ? "You're already on the list 🎉" : successMessage}
-        </h2>
-        {!success.hideCounts && success.totalSignups > 0 ? (
-          <p className="text-sm text-neutral-500">
-            {success.totalSignups.toLocaleString()} people have joined.
-          </p>
-        ) : null}
-        <ShareSection
-          referralLink={success.referralLink}
-          shareMessage={success.shareMessage}
-          enabledPlatforms={success.enabledPlatforms}
-          rank={success.rank}
-          amountReferred={success.amountReferred}
-          hideCounts={success.hideCounts}
-          buttonColor={buttonColor}
-        />
-
-        {aiConversation?.enabled && success.referralToken ? (
-          // Dark callout so the gradient glow reads against the light success card.
-          <div className="mt-2 space-y-3 rounded-xl bg-neutral-950 p-4">
-            <p className="text-sm font-medium text-white">Want to jump the queue?</p>
-            <div className="relative">
-              {/* Glow: a blurred premium gradient sitting behind the button. */}
-              <div
-                aria-hidden
-                className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-cyan-400 opacity-70 blur-md"
-              />
-              <button
-                type="button"
-                onClick={() => setConvoOpen(true)}
-                className="relative w-full rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 transition hover:ring-white/30"
-              >
-                🎙️ Boost your spot — talk to us
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {convoOpen && success.referralToken ? (
-          <ConversationModal
-            campaignId={campaignId}
-            referralToken={success.referralToken}
-            introLine={aiConversation?.introLine}
-            buttonColor={buttonColor}
-            onClose={() => setConvoOpen(false)}
-          />
-        ) : null}
-      </section>
+      <SignupSuccess
+        campaignId={campaignId}
+        heading={success.alreadyJoined ? "You're already on the list 🎉" : successMessage}
+        totalSignups={success.totalSignups}
+        hideCounts={success.hideCounts}
+        rank={success.rank}
+        amountReferred={success.amountReferred}
+        referralLink={success.referralLink}
+        referralToken={success.referralToken}
+        shareMessage={success.shareMessage}
+        enabledPlatforms={success.enabledPlatforms}
+        buttonColor={buttonColor}
+        aiConversation={aiConversation}
+      />
     );
   }
 

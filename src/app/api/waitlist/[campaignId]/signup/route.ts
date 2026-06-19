@@ -14,12 +14,7 @@ import {
   validateSignupAgainstCampaign,
 } from "@/lib/waitlist/signupInput";
 import { createSignup } from "@/lib/waitlist/signupService";
-import { computeRanks } from "@/lib/waitlist/rank";
-import {
-  DEFAULT_SHARE_MESSAGE,
-  parseEnabledPlatforms,
-} from "@/lib/waitlist/socialPlatforms";
-import { renderMergeVars } from "@/lib/email/mergeVars";
+import { buildSharePayload } from "@/lib/waitlist/postSignup";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
@@ -189,21 +184,9 @@ export async function POST(
     }
   }
 
-  // Gamified payoff: the verified user's live position + a ready-to-share message.
-  // Rank only exists once verified_active (unverified signups aren't counted yet).
-  let rank: number | null = null;
-  if (result.signup.status === "verified_active") {
-    try {
-      const ranks = await computeRanks(ctx, campaign.id);
-      rank = ranks.get(result.signup.id) ?? null;
-    } catch (err) {
-      console.warn(`rank computation failed for ${campaign.id}:`, err);
-    }
-  }
-  const shareMessage = renderMergeVars(
-    campaign.configurationStyleJson.shareMessage || DEFAULT_SHARE_MESSAGE,
-    { signup: result.signup, campaign, rank: rank ?? undefined },
-  );
+  // Gamified payoff: the verified user's live position + a ready-to-share message
+  // (rank only exists once verified_active — unverified signups aren't counted).
+  const share = await buildSharePayload(ctx, campaign, result.signup);
 
   return NextResponse.json(
     {
@@ -211,16 +194,9 @@ export async function POST(
       status: result.signup.status,
       needsVerification: result.signup.status === "unverified",
       referralToken: result.signup.referralToken,
-      referralLink: result.signup.referralLink,
       totalSignups: result.totalSignups,
       // Post-signup share section (see components/waitlist/ShareSection).
-      rank,
-      amountReferred: result.signup.amountReferred,
-      hideCounts: campaign.hideCounts,
-      shareMessage,
-      enabledSharePlatforms: parseEnabledPlatforms(
-        campaign.configurationStyleJson.enabledSharePlatforms,
-      ),
+      ...share,
       // Emulator-only test hook — never exposed against real Firestore.
       ...(process.env.FIRESTORE_EMULATOR_HOST && result.signup.verificationToken
         ? { _devVerificationToken: result.signup.verificationToken }

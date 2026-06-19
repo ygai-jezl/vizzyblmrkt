@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { forTenant, TenantIsolationError } from "@/lib/tenant";
+import { forTenant } from "@/lib/tenant";
 import {
   CampaignSettingsSchema,
   CampaignIdSchema,
   slugifyCampaignId,
 } from "@/lib/admin/campaignSettings";
+import { createLaunch, LaunchIdTakenError } from "@/lib/admin/createLaunch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,8 +17,9 @@ export const dynamic = "force-dynamic";
  * authenticated via the admin session cookie (NOT host origin), and the write
  * goes through the tenant-scoped repository so the campaign is always stamped
  * with the admin's own tenant. The id is the public `/waitlist/<id>` slug —
- * taken from the caller or derived from the name — and `create()` atomically
- * rejects a collision (surfaced as 409).
+ * taken from the caller or derived from the name. A DERIVED slug that collides
+ * is auto-suffixed (`-2`, `-3`, …) so a brand never blocks another's launch
+ * name; an EXPLICIT slug that collides is reported as 409 (see createLaunch).
  *
  * Body: `{ id?: string, settings: CampaignSettings }`.
  */
@@ -47,6 +49,7 @@ export async function POST(req: Request) {
   }
 
   const provided = typeof body?.id === "string" ? body.id : "";
+  const explicit = provided.trim().length > 0;
   const rawId = (provided.trim() || slugifyCampaignId(settings.data.waitlistName)).toLowerCase();
   const id = CampaignIdSchema.safeParse(rawId);
   if (!id.success) {
@@ -57,20 +60,21 @@ export async function POST(req: Request) {
   }
 
   try {
-    await forTenant(ctx).campaigns.create(id.data, {
-      ...settings.data,
-      createdAt: new Date().toISOString(),
-    });
+    const createdId = await createLaunch(
+      forTenant(ctx).campaigns,
+      id.data,
+      { ...settings.data, createdAt: new Date().toISOString() },
+      { explicit },
+    );
+    return NextResponse.json({ ok: true, id: createdId }, { status: 201 });
   } catch (err) {
-    // Atomic create() rejects an id that already exists in ANY tenant.
-    if (err instanceof TenantIsolationError) {
+    // Explicit slug taken (or derived suffixes exhausted) → conflict.
+    if (err instanceof LaunchIdTakenError) {
       return NextResponse.json(
-        { error: "id_taken", message: `A launch with id "${id.data}" already exists.` },
+        { error: "id_taken", message: err.message },
         { status: 409 },
       );
     }
     throw err;
   }
-
-  return NextResponse.json({ ok: true, id: id.data }, { status: 201 });
 }

@@ -5,6 +5,7 @@ import {
   getSharePlatform,
   isSharePlatformId,
   parseEnabledPlatforms,
+  renderSampleShareMessage,
 } from "./socialPlatforms";
 
 // A link + message with characters that MUST be percent-encoded (space, &, #, ').
@@ -86,6 +87,34 @@ describe("parseEnabledPlatforms", () => {
     expect(parseEnabledPlatforms(undefined)).toEqual([]);
     expect(parseEnabledPlatforms(null)).toEqual([]);
     expect(parseEnabledPlatforms([])).toEqual([]);
+  });
+});
+
+describe("renderSampleShareMessage", () => {
+  it("substitutes the waitlist name and sample merge vars", () => {
+    const out = renderSampleShareMessage(
+      "{{first_name}} is #{{current_rank}} on {{waitlist_name}} ({{referral_count}} refs)",
+      "Acme",
+    );
+    expect(out).toBe("Alex is #42 on Acme (3 refs)");
+  });
+
+  it("drops the referral link token (each platform appends the link)", () => {
+    expect(renderSampleShareMessage("Join me {{referral_link}}", "Acme")).toBe(
+      "Join me",
+    );
+  });
+
+  it("tolerates whitespace inside the braces and trims the result", () => {
+    expect(
+      renderSampleShareMessage("  Join {{  waitlist_name  }}  ", "Acme"),
+    ).toBe("Join Acme");
+  });
+
+  it("leaves text without tokens untouched", () => {
+    expect(renderSampleShareMessage("Come join us!", "Acme")).toBe(
+      "Come join us!",
+    );
   });
 });
 

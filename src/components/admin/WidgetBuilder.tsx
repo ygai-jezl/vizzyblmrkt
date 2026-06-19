@@ -9,13 +9,18 @@ import {
 } from "@/lib/widget/types";
 import { buildEmbedSnippet } from "@/lib/widget/snippet";
 import { appendTenantParam } from "@/lib/http/tenantParam";
-import { buildPreviewUrl, type PreviewSurface } from "@/lib/widget/preview";
+import {
+  buildPreviewUrl,
+  type PreviewMode,
+  type PreviewSurface,
+} from "@/lib/widget/preview";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
 import type { ConfigurationStyle } from "@/lib/types/campaign";
 import {
   DEFAULT_SHARE_MESSAGE,
   SHARE_PLATFORMS,
   parseEnabledPlatforms,
+  renderSampleShareMessage,
   type SharePlatformId,
 } from "@/lib/waitlist/socialPlatforms";
 import { SocialIcon } from "@/components/waitlist/socialIcons";
@@ -77,17 +82,6 @@ function extractBranding(s: CampaignSettings | undefined): BrandingDraft {
   };
 }
 
-/** Sample merge-var substitution so the Social preview reads naturally. */
-function previewMessage(template: string, waitlistName: string): string {
-  return template
-    .replace(/\{\{\s*waitlist_name\s*\}\}/g, waitlistName)
-    .replace(/\{\{\s*first_name\s*\}\}/g, "Alex")
-    .replace(/\{\{\s*current_rank\s*\}\}/g, "42")
-    .replace(/\{\{\s*referral_count\s*\}\}/g, "3")
-    .replace(/\{\{\s*referral_link\s*\}\}/g, "")
-    .trim();
-}
-
 /**
  * Founder-facing builder for a launch's waitlist surfaces. Two sub-tabs:
  *  - Design: pick a surface (Hosted page or one of the three embed widgets) and a
@@ -119,7 +113,7 @@ export function WidgetBuilder({
   const [tab, setTab] = useState<Tab>("design");
   const [campaignId, setCampaignId] = useState(initialCampaignId);
   const [surface, setSurface] = useState<PreviewSurface>("WIDGET_1");
-  const [mode, setMode] = useState<WidgetMode>("SIGNUP");
+  const [mode, setMode] = useState<PreviewMode>("SIGNUP");
 
   // Per-campaign settings, kept in state so a save can re-seed from the server.
   const [settingsById, setSettingsById] = useState<Record<string, CampaignSettings>>(
@@ -185,9 +179,19 @@ export function WidgetBuilder({
 
   // The snippet is for the embed widgets only; Hosted isn't embeddable.
   const widgetType: WidgetType = surface === "hosted" ? "WIDGET_1" : surface;
+  // The snippet embeds the sign-up widget; the post-signup screen is just that
+  // widget's success state, so "Post sign-up" reuses the SIGNUP snippet.
+  const snippetMode: WidgetMode = mode === "CHECK" ? "CHECK" : "SIGNUP";
   const snippet = useMemo(
-    () => buildEmbedSnippet({ origin: embedOrigin, campaignId, tenantId, widgetType, mode }),
-    [embedOrigin, campaignId, tenantId, widgetType, mode],
+    () =>
+      buildEmbedSnippet({
+        origin: embedOrigin,
+        campaignId,
+        tenantId,
+        widgetType,
+        mode: snippetMode,
+      }),
+    [embedOrigin, campaignId, tenantId, widgetType, snippetMode],
   );
   const hostedUrl = appendTenantParam(
     `${embedOrigin.replace(/\/+$/, "")}/waitlist/${campaignId}`,
@@ -395,8 +399,8 @@ function DesignTab({
 }: {
   surface: PreviewSurface;
   setSurface: (s: PreviewSurface) => void;
-  mode: WidgetMode;
-  setMode: (m: WidgetMode) => void;
+  mode: PreviewMode;
+  setMode: (m: PreviewMode) => void;
   branding: BrandingDraft;
   updateBranding: (patch: Partial<BrandingDraft>) => void;
   brandingDirty: boolean;
@@ -448,27 +452,37 @@ function DesignTab({
       <p className="text-xs text-neutral-500">{description}</p>
 
       {!isHosted ? (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-neutral-500">Mode</span>
-          {(
-            [
-              ["SIGNUP", "Sign-up"],
-              ["CHECK", "Check status"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setMode(value)}
-              className={`rounded-md border px-3 py-1 text-xs ${
-                mode === value
-                  ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                  : "border-neutral-300 dark:border-neutral-700"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-neutral-500">Mode</span>
+            {(
+              [
+                ["SIGNUP", "Sign-up"],
+                ["CHECK", "Check status"],
+                ["SUCCESS", "Post sign-up"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                className={`rounded-md border px-3 py-1 text-xs ${
+                  mode === value
+                    ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+                    : "border-neutral-300 dark:border-neutral-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {mode === "SUCCESS" ? (
+            <p className="text-xs text-neutral-500">
+              The payoff screen visitors see right after joining — shown with
+              sample position and referral data. Share buttons come from the
+              Social tab. The embed snippet below stays the sign-up widget.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -687,7 +701,7 @@ function SocialTab({
   saveError: string | null;
   onSave: () => void;
 }) {
-  const resolved = previewMessage(shareMessage || DEFAULT_SHARE_MESSAGE, waitlistName);
+  const resolved = renderSampleShareMessage(shareMessage || DEFAULT_SHARE_MESSAGE, waitlistName);
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <section className="space-y-5">

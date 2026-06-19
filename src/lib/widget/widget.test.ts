@@ -7,6 +7,7 @@ import {
   widgetVariant,
 } from "./types";
 import { buildEmbedUrl, buildEmbedSnippet } from "./snippet";
+import { buildPreviewUrl } from "./preview";
 
 describe("parseWidgetType", () => {
   it("accepts the three known types case-insensitively", () => {
@@ -133,5 +134,35 @@ describe("buildEmbedSnippet", () => {
     });
     expect(snippet).not.toContain('onload="alert(1)"');
     expect(snippet).toContain("&quot;");
+  });
+});
+
+describe("buildPreviewUrl", () => {
+  const base = { origin: "https://admin.x", campaignId: "c", surface: "WIDGET_1" as const };
+
+  it("always carries the surface and an explicit header flag", () => {
+    const url = buildPreviewUrl(base);
+    expect(url.startsWith("https://admin.x/admin-preview/c?")).toBe(true);
+    expect(url).toContain("surface=WIDGET_1");
+    // header defaults to kept (1) when no draft toggles it.
+    expect(url).toContain("header=1");
+  });
+
+  it("SIGNUP mode adds neither a mode nor a preview param", () => {
+    const url = buildPreviewUrl({ ...base, mode: "SIGNUP" });
+    expect(url).not.toContain("mode=");
+    expect(url).not.toContain("preview=");
+  });
+
+  it("CHECK mode adds mode=CHECK (not a preview param)", () => {
+    const url = buildPreviewUrl({ ...base, mode: "CHECK" });
+    expect(url).toContain("mode=CHECK");
+    expect(url).not.toContain("preview=");
+  });
+
+  it("SUCCESS rides as preview=success and never as a public mode", () => {
+    const url = buildPreviewUrl({ ...base, mode: "SUCCESS" });
+    expect(url).toContain("preview=success");
+    expect(url).not.toContain("mode=");
   });
 });

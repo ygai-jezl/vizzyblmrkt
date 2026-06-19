@@ -65,8 +65,11 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # MUST be "global": this project serves Gemini text models ONLY on the global
+  # Vertex endpoint (us-central1 → 404); Imagen serves on both. The SDK routes
+  # location:"global" to aiplatform.googleapis.com. See src/lib/agents/gemini.ts.
   - variable: GOOGLE_CLOUD_LOCATION
-    value: us-central1
+    value: global
     availability:
       - RUNTIME
   - variable: EMAIL_ASSET_BUCKET

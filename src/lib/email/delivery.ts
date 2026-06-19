@@ -15,6 +15,7 @@ import {
   campaignTag,
 } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
+import { selectBranch } from "@/lib/journey/conditions";
 import { enqueueEmailJob } from "./jobs";
 
 const MAX_ATTEMPTS = 3;
@@ -192,7 +193,9 @@ async function processJourneyStepJob(
   if (journey.status !== "active") return; // paused/draft → stop the chain
 
   const node = journey.graph.nodes.find((n) => n.id === nodeId);
-  if (!node || node.type !== "email") throw new Error("email_node_not_found");
+  if (!node || (node.type !== "email" && node.type !== "condition")) {
+    throw new Error("journey_node_not_found");
+  }
 
   const signup = await forTenant(ctx).signups.getById(signupId);
   // Recipient gone/unverified → silently drop (don't fail, don't continue).
@@ -201,14 +204,26 @@ async function processJourneyStepJob(
   const campaign = await forTenant(ctx).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
 
-  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
-  const sender = resolveSender(tenant, campaign);
-
+  // Rank is needed by email merge-vars AND rank-based conditions; cache per run.
   let ranks = rankCache.get(journey.campaignId);
   if (!ranks) {
     ranks = await computeRanks(ctx, journey.campaignId);
     rankCache.set(journey.campaignId, ranks);
   }
+  const rank = ranks.get(signup.id);
+
+  // Condition node: evaluate live data, route down the matching branch. Nothing
+  // is sent — the condition's job already absorbed any preceding wait, so it
+  // fires (and reads fresh data) at exactly the right time.
+  if (node.type === "condition") {
+    const handle = selectBranch(node.data.branches, { signup, campaign, rank });
+    const next = resolveNextStep(journey.graph, nodeId, handle);
+    if (next) await enqueueNext(ctx, journey, next, signupId);
+    return;
+  }
+
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const sender = resolveSender(tenant, campaign);
 
   const compiled = compileJourneyEmail(
     {
@@ -216,7 +231,7 @@ async function processJourneyStepJob(
       body: node.data.body ?? "",
       heroImageUrl: node.data.heroImageUrl ?? null,
     },
-    { signup, campaign, rank: ranks.get(signup.id) },
+    { signup, campaign, rank },
   );
 
   // Send once per job: if a prior attempt already dispatched (then failed during
@@ -240,18 +255,26 @@ async function processJourneyStepJob(
     });
   }
 
-  // Schedule the next email node (walking through any wait nodes).
-  const next = resolveNextEmail(journey.graph, nodeId);
-  if (next) {
-    const when = new Date(Date.now() + next.delayHours * 3600_000).toISOString();
-    await enqueueEmailJob(ctx, {
-      type: "journey_step",
-      campaignId: journey.campaignId,
-      dedupeKey: `journey:${journeyId}:${next.nodeId}:${signupId}`,
-      payload: { journeyId, nodeId: next.nodeId, signupId },
-      scheduledAt: when,
-    });
-  }
+  // Schedule the next step (walking through any wait nodes).
+  const next = resolveNextStep(journey.graph, nodeId);
+  if (next) await enqueueNext(ctx, journey, next, signupId);
+}
+
+/** Enqueue the next journey step for a recipient. Idempotent per (node, recipient). */
+async function enqueueNext(
+  ctx: TenantContext,
+  journey: Journey,
+  next: { nodeId: string; delayHours: number },
+  signupId: string,
+): Promise<void> {
+  const when = new Date(Date.now() + next.delayHours * 3600_000).toISOString();
+  await enqueueEmailJob(ctx, {
+    type: "journey_step",
+    campaignId: journey.campaignId,
+    dedupeKey: `journey:${journey.id}:${next.nodeId}:${signupId}`,
+    payload: { journeyId: journey.id, nodeId: next.nodeId, signupId },
+    scheduledAt: when,
+  });
 }
 
 // ---- Orchestration helpers ------------------------------------------------
@@ -297,10 +320,11 @@ export async function activateJourney(
 ): Promise<{ enqueued: number }> {
   const entry = findEntryNode(journey.graph);
   if (!entry) return { enqueued: 0 };
+  // Entry may BE (or lead to) an email or a condition node.
   const first =
-    entry.type === "email"
+    entry.type === "email" || entry.type === "condition"
       ? { nodeId: entry.id, delayHours: 0 }
-      : resolveNextEmail(journey.graph, entry.id);
+      : resolveNextStep(journey.graph, entry.id);
   if (!first) return { enqueued: 0 };
 
   const subs = await forTenant(ctx).signups.find({
@@ -334,30 +358,43 @@ function findEntryNode(graph: JourneyGraph): JourneyNode | null {
   return graph.nodes.find((n) => !hasIncoming.has(n.id)) ?? null;
 }
 
+export type NextStepType = "email" | "condition";
+
 /**
- * From a node, follow the first outgoing edge through any wait nodes (summing
- * their hours) until the next email node. Returns null at a dead end. Guards
- * against cycles.
+ * From a node, follow outgoing edges through any wait nodes (summing their
+ * hours) until the next email OR condition node. When leaving a condition node,
+ * pass its chosen `branchHandle` to take the matching branch edge; otherwise the
+ * single outgoing edge is followed. Returns null at a dead end (incl. an
+ * unconnected branch). Guards against cycles.
  */
-export function resolveNextEmail(
+export function resolveNextStep(
   graph: JourneyGraph,
   fromNodeId: string,
-): { nodeId: string; delayHours: number } | null {
+  branchHandle?: string,
+): { nodeId: string; delayHours: number; type: NextStepType } | null {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const firstTarget = (id: string): string | undefined =>
-    graph.edges.find((e) => e.source === id)?.target;
+  const pick = (id: string, handle?: string) => {
+    const outs = graph.edges.filter((e) => e.source === id);
+    return handle
+      ? outs.find((e) => (e.sourceHandle ?? null) === handle)
+      : outs[0];
+  };
 
   let current = fromNodeId;
   let delayHours = 0;
+  let handle = branchHandle; // branch-directed only on the first hop
   const seen = new Set<string>([fromNodeId]);
 
   for (let i = 0; i <= graph.nodes.length; i += 1) {
-    const nextId = firstTarget(current);
+    const nextId = pick(current, handle)?.target;
+    handle = undefined;
     if (!nextId || seen.has(nextId)) return null;
     seen.add(nextId);
     const node = byId.get(nextId);
     if (!node) return null;
-    if (node.type === "email") return { nodeId: nextId, delayHours };
+    if (node.type === "email") return { nodeId: nextId, delayHours, type: "email" };
+    if (node.type === "condition")
+      return { nodeId: nextId, delayHours, type: "condition" };
     if (node.type === "wait") delayHours += node.data.waitHours ?? 0;
     current = nextId;
   }

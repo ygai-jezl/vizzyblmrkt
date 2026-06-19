@@ -3,6 +3,7 @@ import {
   resolveNextStep,
   validateJourneyGraph,
   enrollSignupInActiveJourney,
+  processEmailJobs,
   processEmailJobsForAllTenants,
 } from "./delivery";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -331,6 +332,83 @@ describe("enrollSignupInActiveJourney", () => {
       db,
     );
     expect(r).toBe("skipped");
+  });
+});
+
+describe("processEmailJobs — recipient-gone jobs are dropped, not tombstoned", () => {
+  const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
+  const activeGraph = graph(
+    [
+      ["trigger", "trigger"],
+      ["email1", "email"],
+    ],
+    [["trigger", "email1"]],
+  );
+  const dedupe = "journey:journey_camp1:email1:s1";
+
+  function seedActiveJourney(db: FakeFirestore) {
+    db.seed("journeys", "journey_camp1", {
+      tenantId: "ten_A",
+      campaignId: "camp1",
+      status: "active",
+      graph: activeGraph,
+      createdAt: "2026-06-19T00:00:00Z",
+      updatedAt: "2026-06-19T00:00:00Z",
+    });
+  }
+
+  // A due first-step job from an earlier enrolment, whose recipient is gone.
+  function seedDueJob(db: FakeFirestore) {
+    db.seed("email_jobs", dedupe, {
+      tenantId: "ten_A",
+      campaignId: "camp1",
+      type: "journey_step",
+      status: "pending",
+      dedupeKey: dedupe,
+      scheduledAt: "2020-01-01T00:00:00.000Z", // due (in the past)
+      attempts: 0,
+      claimedAt: null,
+      emailSentAt: null,
+      payload: { journeyId: "journey_camp1", nodeId: "email1", signupId: "s1" },
+      lastError: null,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      processedAt: null,
+    });
+  }
+
+  it("deletes a step whose recipient no longer exists (frees the dedupe key)", async () => {
+    const db = new FakeFirestore();
+    seedActiveJourney(db);
+    seedDueJob(db); // enrolled earlier; s1 since deleted (not seeded)
+
+    const r = await processEmailJobs(ctx, 25, db);
+
+    expect(r).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    // GONE — not parked as a "done" tombstone that would block re-enrolment.
+    expect(db.dump("email_jobs")).toHaveLength(0);
+  });
+
+  it("lets a re-created signup re-enroll once the stale job was dropped", async () => {
+    const db = new FakeFirestore();
+    seedActiveJourney(db);
+    seedDueJob(db);
+
+    // Worker runs while the recipient is gone → job dropped.
+    await processEmailJobs(ctx, 25, db);
+    expect(db.raw("email_jobs", dedupe)).toBeUndefined();
+
+    // Contact re-signs-up with the same email → same deterministic id "s1".
+    // Before the fix this returned "skipped" (the tombstone owned the dedupe
+    // key forever); now the key is free, so enrolment succeeds and they get the
+    // first email.
+    const r = await enrollSignupInActiveJourney(
+      ctx,
+      "camp1",
+      { id: "s1", email: "a@b.com" },
+      db,
+    );
+    expect(r).toBe("enqueued");
+    expect(db.raw("email_jobs", dedupe)).toMatchObject({ status: "pending" });
   });
 });
 

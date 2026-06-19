@@ -3,7 +3,11 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import { activateJourney, processEmailJobs } from "@/lib/email/delivery";
+import {
+  activateJourney,
+  processEmailJobs,
+  validateJourneyGraph,
+} from "@/lib/email/delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +44,16 @@ export async function POST(
   if (parsed.data.action === "pause") {
     await forTenant(ctx).journeys.update(id, { status: "paused", updatedAt: now });
     return NextResponse.json({ ok: true, status: "paused" });
+  }
+
+  // Refuse to activate an empty/half-wired journey: it would flip to "active",
+  // enqueue nobody, and silently send nothing — the worst kind of failure.
+  const valid = validateJourneyGraph(journey.graph);
+  if (!valid.ok) {
+    return NextResponse.json(
+      { error: "journey_invalid", reason: valid.reason },
+      { status: 422 },
+    );
   }
 
   await forTenant(ctx).journeys.update(id, { status: "active", updatedAt: now });

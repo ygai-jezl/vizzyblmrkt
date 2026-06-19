@@ -1,5 +1,5 @@
 import { forTenant, TenantIsolationError } from "@/lib/tenant";
-import type { TenantContext } from "@/lib/tenant/types";
+import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailJobType } from "@/lib/types/emailJob";
 
 /**
@@ -19,10 +19,11 @@ export interface EnqueueInput {
 export async function enqueueEmailJob(
   ctx: TenantContext,
   input: EnqueueInput,
+  db?: FirestoreLike,
 ): Promise<"enqueued" | "duplicate"> {
   const now = new Date().toISOString();
   try {
-    await forTenant(ctx).emailJobs.create(input.dedupeKey, {
+    await forTenant(ctx, db).emailJobs.create(input.dedupeKey, {
       campaignId: input.campaignId,
       type: input.type,
       status: "pending",

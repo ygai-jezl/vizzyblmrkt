@@ -118,24 +118,27 @@ env:
   #   secret: mailchimp-audience-id
   #   availability:
   #     - RUNTIME
-  # - variable: EMAIL_WORKER_SECRET     # Cloud Scheduler → email/jobs/process
-  #   secret: email-worker-secret
-  #   availability:
-  #     - RUNTIME
+  # Shared secret the scheduled delivery worker (Cloud Scheduler) presents as
+  # `X-Worker-Secret` to POST /api/admin/email/jobs/process; the cron then drains
+  # every tenant's queue across all regions. Provision BEFORE deploying this file:
+  #   infra/email-worker/setup.sh secret vizzybl-marketing-prod
+  - variable: EMAIL_WORKER_SECRET
+    secret: email-worker-secret
+    availability:
+      - RUNTIME
   # - variable: GEMINI_API_KEY          # Vertex AI Express / Agent Platform key
   #   secret: gemini-api-key            # (omit to use ADC + runtime SA instead)
   #   availability:
   #     - RUNTIME
 
-  # Gemini Live voice conversation: PROD has no key yet, so override the base's
-  # dev secret with a non-key sentinel → the feature stays OFF in prod (the gate
-  # in src/lib/agents/gemini.ts only enables on an "AIza*" key) and a prod rollout
-  # never depends on the dev-only `gemini-live-api-key` secret. NOTE: App Hosting's
-  # yaml validator rejects an empty `value: ""`, hence the sentinel rather than "".
-  # To enable in prod: create the secret in the prod project (`firebase
-  # apphosting:secrets:set gemini-live-api-key --project prod`) then swap this for
-  # `secret: gemini-live-api-key`.
+  # Gemini Live voice conversation (post-signup voice chat). REQUIRES a Gemini
+  # *Developer-API* key ("AIza*") — NOT the Vertex/ADC path the email+image
+  # generation above uses. Live ephemeral tokens (authTokens.create, v1alpha) are
+  # Developer-API only, so getLiveTokenClient() in src/lib/agents/gemini.ts forces
+  # vertexai:false and only enables on an "AIza*" key. The prod secret MUST exist
+  # BEFORE deploying this file or the rollout fails to resolve it:
+  #   firebase apphosting:secrets:set gemini-live-api-key --project vizzybl-marketing-prod
   - variable: GEMINI_LIVE_API_KEY
-    value: "disabled"
+    secret: gemini-live-api-key
     availability:
       - RUNTIME

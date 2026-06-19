@@ -19,6 +19,7 @@ import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
 import { syncSignupToAudience } from "@/lib/mailchimp";
+import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -179,6 +180,16 @@ export async function POST(
     } catch (err) {
       console.warn(
         `[mailchimp] audience sync on signup failed for ${campaign.id}:`,
+        err,
+      );
+    }
+    // Enrol immediately-active (no-verification) signups into the journey too —
+    // verification campaigns enrol on the verify step instead.
+    try {
+      await enrollSignupInActiveJourney(ctx, campaign.id, result.signup);
+    } catch (err) {
+      console.warn(
+        `[journey] enrollment on signup failed for ${campaign.id}:`,
         err,
       );
     }

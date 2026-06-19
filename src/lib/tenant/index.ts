@@ -20,6 +20,7 @@ export {
   getTenantByOrigin,
   getTenantsForUser,
   getTenantMembership,
+  listAllTenants,
 } from "./registry";
 export {
   REGION_CONFIGS,

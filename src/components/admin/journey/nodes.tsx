@@ -62,39 +62,69 @@ export function WaitNode({ data, selected }: NodeProps) {
   );
 }
 
+/** Title block height (px) and per-branch row height (px) — drive handle offsets. */
+const COND_HEADER_H = 36;
+const COND_ROW_H = 24;
+
 export function ConditionNode({ data, selected }: NodeProps) {
   const branches = (data.branches as JourneyBranch[] | undefined) ?? [];
-  // Each branch gets a right-side source handle, vertically centred on its own
-  // row; the implicit Default (else) branch is last. The handle lives inside the
-  // (relative) row so React Flow centres it on that row — no manual offsets.
+  // One right-side source handle per branch (vertically centred on its row),
+  // plus the implicit Default (else) branch last. Handles are DIRECT children of
+  // the node so React Flow can start a connection from them; the label rows are
+  // pointer-events-none so they never intercept the connection drag.
   const rows: Array<{ id: string; label: string; isDefault?: boolean }> = [
     ...branches.map((b) => ({ id: b.id, label: branchLabel(b) })),
     { id: DEFAULT_BRANCH, label: "Default", isDefault: true },
   ];
+  const height = COND_HEADER_H + rows.length * COND_ROW_H + 4;
   return (
-    <div className={box(selected, "border-sky-500")}>
+    <div
+      className={`relative w-48 rounded-md border bg-white shadow-sm dark:bg-neutral-900 ${
+        selected ? "border-sky-500" : "border-neutral-300 dark:border-neutral-700"
+      }`}
+      style={{ height }}
+    >
       <Handle type="target" position={Position.Top} />
-      <div className="text-xs font-semibold text-sky-700 dark:text-sky-400">
-        ⤳ Switch
+      <div className="px-2 pt-1.5">
+        <div className="text-xs font-semibold text-sky-700 dark:text-sky-400">
+          ⤳ Switch
+        </div>
+        <div className="text-[10px] text-neutral-500">first match wins</div>
       </div>
-      <div className="text-[10px] text-neutral-500">first match wins</div>
-      {/* -mr-2 counteracts the box p-2 so branch handles sit on the right border. */}
-      <div className="mt-1 -mr-2 space-y-px">
-        {rows.map((r) => (
-          <div key={r.id} className="relative flex h-[22px] items-center">
-            <span
-              className={`truncate pr-3 text-[10px] ${
-                r.isDefault
-                  ? "text-neutral-400"
-                  : "text-neutral-600 dark:text-neutral-400"
-              }`}
-            >
-              {r.label}
-            </span>
-            <Handle id={r.id} type="source" position={Position.Right} />
-          </div>
-        ))}
-      </div>
+
+      {/* Visual labels only — never capture pointer events. */}
+      {rows.map((r, i) => (
+        <div
+          key={r.id}
+          className="pointer-events-none absolute inset-x-0 flex items-center px-2"
+          style={{ top: COND_HEADER_H + i * COND_ROW_H, height: COND_ROW_H }}
+        >
+          <span
+            className={`truncate pr-2 text-[10px] ${
+              r.isDefault
+                ? "text-neutral-400"
+                : "text-neutral-600 dark:text-neutral-400"
+            }`}
+          >
+            {r.label}
+          </span>
+        </div>
+      ))}
+
+      {/* Interactive branch handles, on top, one per row. */}
+      {rows.map((r, i) => (
+        <Handle
+          key={`h-${r.id}`}
+          id={r.id}
+          type="source"
+          position={Position.Right}
+          style={{
+            top: COND_HEADER_H + i * COND_ROW_H + COND_ROW_H / 2,
+            width: 9,
+            height: 9,
+          }}
+        />
+      ))}
     </div>
   );
 }

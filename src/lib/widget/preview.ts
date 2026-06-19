@@ -21,6 +21,16 @@ import { type WidgetMode, type WidgetType } from "./types";
  */
 export type PreviewSurface = "hosted" | WidgetType;
 
+/**
+ * The states the Embed & Design builder can preview: the public widget modes
+ * (signup / check-status) plus a preview-only "post-signup success" screen.
+ * SUCCESS is deliberately NOT a public WidgetMode — there's no embeddable
+ * "success" widget; a visitor reaches it by completing the signup form. So it
+ * never flows into the embed snippet or the public /embed route, only into the
+ * admin-only preview route as `?preview=success`.
+ */
+export type PreviewMode = WidgetMode | "SUCCESS";
+
 /** Unsaved branding edits mirrored into the preview as query params. */
 export interface PreviewBrandingDraft {
   widgetBackgroundColor?: string;
@@ -35,7 +45,7 @@ export interface PreviewUrlParams {
   origin: string;
   campaignId: string;
   surface: PreviewSurface;
-  mode?: WidgetMode;
+  mode?: PreviewMode;
   draft?: PreviewBrandingDraft;
 }
 
@@ -64,6 +74,9 @@ export function buildPreviewUrl({
   const base = origin.replace(/\/+$/, "");
   const qs = new URLSearchParams({ surface });
   if (mode === "CHECK") qs.set("mode", "CHECK");
+  // The post-signup screen is the signup form's success state (not a distinct
+  // mode), so it rides as its own param rather than overloading `mode`.
+  else if (mode === "SUCCESS") qs.set("preview", "success");
   if (draft?.widgetButtonColor) qs.set("buttonColor", draft.widgetButtonColor);
   if (draft?.widgetBackgroundColor) qs.set("bgColor", draft.widgetBackgroundColor);
   if (draft?.widgetFontColor) qs.set("fontColor", draft.widgetFontColor);

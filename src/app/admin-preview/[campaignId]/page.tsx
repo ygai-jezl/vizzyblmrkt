@@ -3,6 +3,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
+import { SignupSuccess } from "@/components/waitlist/SignupSuccess";
 import { StatusCheck } from "@/components/waitlist/StatusCheck";
 import {
   parseWidgetMode,
@@ -10,6 +11,11 @@ import {
   parseThemeOverrides,
 } from "@/lib/widget/types";
 import { parsePreviewSurface } from "@/lib/widget/preview";
+import {
+  DEFAULT_SHARE_MESSAGE,
+  parseEnabledPlatforms,
+  renderSampleShareMessage,
+} from "@/lib/waitlist/socialPlatforms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +55,9 @@ export default async function LaunchPreviewPage({
   const isHosted = surface === "hosted";
   const variant = surface === "hosted" ? "full" : widgetVariant(surface);
   const mode = parseWidgetMode(get("mode"));
+  // Preview-only "post-signup" screen — the signup form's success state shown on
+  // its own so a founder can style the payoff. Not a public mode (see preview.ts).
+  const previewSuccess = get("preview") === "success" && !isHosted;
   const theme = parseThemeOverrides(get);
 
   const style = campaign.configurationStyleJson;
@@ -64,6 +73,22 @@ export default async function LaunchPreviewPage({
     headerParam === "0" ? true : headerParam === "1" ? false : campaign.removeWidgetHeaders;
   const showHeader = isHosted ? true : !removeHeaders;
   const showCount = !campaign.hideCounts;
+
+  // Post-signup payoff inputs. Share platforms + message come from the saved
+  // campaign (edited on the Social tab); colours + success copy reflect the live
+  // Design draft above. The voice CTA appears only when the campaign enables it.
+  const enabledPlatforms = previewSuccess
+    ? parseEnabledPlatforms(style.enabledSharePlatforms)
+    : [];
+  const sampleShareMessage = previewSuccess
+    ? renderSampleShareMessage(
+        style.shareMessage || DEFAULT_SHARE_MESSAGE,
+        campaign.waitlistName,
+      )
+    : "";
+  const aiConversation = campaign.aiConversation?.enabled
+    ? { enabled: true, introLine: campaign.aiConversation.introLine }
+    : undefined;
 
   const totalSignups = showCount
     ? await repo.signups.count([["campaignId", "==", campaignId]])
@@ -117,6 +142,23 @@ export default async function LaunchPreviewPage({
             />
             <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} />
           </>
+        ) : previewSuccess ? (
+          // The post-signup payoff a visitor sees after joining, with sample
+          // position/referral data so the founder can style it in place.
+          <SignupSuccess
+            campaignId={campaign.id}
+            heading={successMessage}
+            totalSignups={totalSignups}
+            hideCounts={campaign.hideCounts}
+            rank={42}
+            amountReferred={3}
+            referralLink="https://example.com/waitlist?ref=DEMO1234"
+            referralToken="PREVIEW"
+            shareMessage={sampleShareMessage}
+            enabledPlatforms={enabledPlatforms}
+            buttonColor={buttonColor}
+            aiConversation={aiConversation}
+          />
         ) : mode === "CHECK" ? (
           <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} defaultOpen />
         ) : (

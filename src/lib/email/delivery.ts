@@ -24,6 +24,16 @@ const MAX_ATTEMPTS = 3;
 const LEASE_MS = 5 * 60_000;
 
 /**
+ * Outcome of processing a single job. "done" parks it as complete; "drop"
+ * DELETES it so its dedupe key is freed. Journey-step job ids ARE the dedupe key
+ * (`journey:{journeyId}:{nodeId}:{signupId}`) and signup ids are deterministic
+ * from (campaign, email) — so a job tombstoned as "done" for a now-absent
+ * recipient would permanently block re-enrollment of a deleted-then-re-added
+ * contact (same email → same signup id → same key). Dropping prevents that.
+ */
+type JobOutcome = "done" | "drop";
+
+/**
  * Drain due jobs from the queue. Idempotent + best-effort: a failed job retries
  * up to MAX_ATTEMPTS, then parks as "failed". Designed to be kicked inline after
  * enqueue (immediate sends) AND on a schedule (Cloud Scheduler) for future
@@ -32,6 +42,7 @@ const LEASE_MS = 5 * 60_000;
 export async function processEmailJobs(
   ctx: TenantContext,
   limit = 25,
+  db?: FirestoreLike,
 ): Promise<{ processed: number; done: number; failed: number }> {
   const nowMs = Date.now();
   const now = new Date(nowMs).toISOString();
@@ -40,7 +51,7 @@ export async function processEmailJobs(
   // Due pending jobs, PLUS jobs whose "processing" claim has expired (a prior
   // worker crashed mid-run) so they can be reclaimed rather than stuck forever.
   const [due, stale] = await Promise.all([
-    forTenant(ctx).emailJobs.find({
+    forTenant(ctx, db).emailJobs.find({
       where: [
         ["status", "==", "pending"],
         ["scheduledAt", "<=", now],
@@ -48,7 +59,7 @@ export async function processEmailJobs(
       orderBy: [["scheduledAt", "asc"]],
       limit,
     }),
-    forTenant(ctx).emailJobs.find({
+    forTenant(ctx, db).emailJobs.find({
       where: [
         ["status", "==", "processing"],
         ["claimedAt", "<=", staleBefore],
@@ -71,24 +82,32 @@ export async function processEmailJobs(
 
   for (const job of jobs) {
     const attempts = job.attempts + 1;
-    await forTenant(ctx).emailJobs.update(job.id, {
+    await forTenant(ctx, db).emailJobs.update(job.id, {
       status: "processing",
       attempts,
       claimedAt: new Date().toISOString(),
     });
     try {
-      if (job.type === "broadcast") await processBroadcastJob(ctx, job);
-      else await processJourneyStepJob(ctx, job, rankCache);
-      await forTenant(ctx).emailJobs.update(job.id, {
-        status: "done",
-        processedAt: new Date().toISOString(),
-        lastError: null,
-      });
+      let outcome: JobOutcome = "done";
+      if (job.type === "broadcast") await processBroadcastJob(ctx, job, db);
+      else outcome = await processJourneyStepJob(ctx, job, rankCache, db);
+      if (outcome === "drop") {
+        // Recipient gone/unverified: DELETE the job rather than tombstone it.
+        // A "done" row would keep the dedupe key forever and block a re-created
+        // /re-verified contact (deterministic id) from ever re-enrolling.
+        await forTenant(ctx, db).emailJobs.delete(job.id);
+      } else {
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: "done",
+          processedAt: new Date().toISOString(),
+          lastError: null,
+        });
+      }
       done += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       const exhausted = attempts >= MAX_ATTEMPTS;
-      await forTenant(ctx).emailJobs.update(job.id, {
+      await forTenant(ctx, db).emailJobs.update(job.id, {
         status: exhausted ? "failed" : "pending",
         lastError: msg,
         processedAt: exhausted ? new Date().toISOString() : null,
@@ -96,7 +115,7 @@ export async function processEmailJobs(
       if (exhausted && job.type === "broadcast") {
         const bid = String(job.payload.broadcastId ?? "");
         if (bid) {
-          await forTenant(ctx)
+          await forTenant(ctx, db)
             .broadcasts.update(bid, { status: "failed", lastError: msg })
             .catch(() => {});
         }
@@ -165,13 +184,17 @@ export async function processEmailJobsForAllTenants(
 
 // ---- Broadcast (MailChimp Marketing campaign) -----------------------------
 
-async function processBroadcastJob(ctx: TenantContext, job: EmailJob): Promise<void> {
+async function processBroadcastJob(
+  ctx: TenantContext,
+  job: EmailJob,
+  db?: FirestoreLike,
+): Promise<void> {
   const broadcastId = String(job.payload.broadcastId ?? "");
-  const repo = forTenant(ctx).broadcasts;
+  const repo = forTenant(ctx, db).broadcasts;
   const b = await repo.getById(broadcastId);
   if (!b) throw new Error("broadcast_not_found");
   if (b.status === "sent") return; // idempotent re-run
-  const campaign = await forTenant(ctx).campaigns.getById(b.campaignId);
+  const campaign = await forTenant(ctx, db).campaigns.getById(b.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
   // Archived (closed) launch: don't dispatch queued broadcasts. Skip WITHOUT
   // throwing — a throw would burn retries and eventually park the job as
@@ -245,30 +268,34 @@ async function processJourneyStepJob(
   ctx: TenantContext,
   job: EmailJob,
   rankCache: Map<string, Map<string, number>>,
-): Promise<void> {
+  db?: FirestoreLike,
+): Promise<JobOutcome> {
   const journeyId = String(job.payload.journeyId ?? "");
   const nodeId = String(job.payload.nodeId ?? "");
   const signupId = String(job.payload.signupId ?? "");
 
-  const journey = await forTenant(ctx).journeys.getById(journeyId);
+  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
   if (!journey) throw new Error("journey_not_found");
-  if (journey.status !== "active") return; // paused/draft → stop the chain
+  if (journey.status !== "active") return "done"; // paused/draft → stop the chain
 
   const node = journey.graph.nodes.find((n) => n.id === nodeId);
   if (!node || (node.type !== "email" && node.type !== "condition")) {
     throw new Error("journey_node_not_found");
   }
 
-  const signup = await forTenant(ctx).signups.getById(signupId);
-  // Recipient gone/unverified → silently drop (don't fail, don't continue).
-  if (!signup || signup.status !== "verified_active" || !signup.email) return;
+  const signup = await forTenant(ctx, db).signups.getById(signupId);
+  // Recipient gone/unverified → drop the job (delete it) so its dedupe key is
+  // freed. Don't fail (no retry) and don't tombstone as "done" (that would block
+  // a re-created/re-verified contact with the same deterministic id from ever
+  // re-enrolling — the exact bug this guards against).
+  if (!signup || signup.status !== "verified_active" || !signup.email) return "drop";
 
-  const campaign = await forTenant(ctx).campaigns.getById(journey.campaignId);
+  const campaign = await forTenant(ctx, db).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
   // Belt-and-braces: archiving a launch pauses its journey (which already stops
   // the chain above via the status guard), but if a journey is somehow active on
   // an archived launch, halt the step here too.
-  if (campaign.archivedAt) return;
+  if (campaign.archivedAt) return "done";
 
   // Rank is needed by email merge-vars AND rank-based conditions; cache per run.
   let ranks = rankCache.get(journey.campaignId);
@@ -284,8 +311,8 @@ async function processJourneyStepJob(
   if (node.type === "condition") {
     const handle = selectBranch(node.data.branches, { signup, campaign, rank });
     const next = resolveNextStep(journey.graph, nodeId, handle);
-    if (next) await enqueueNext(ctx, journey, next, signupId);
-    return;
+    if (next) await enqueueNext(ctx, journey, next, signupId, db);
+    return "done";
   }
 
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
@@ -316,14 +343,15 @@ async function processJourneyStepJob(
     if (!res.sent && res.provider !== "log") {
       throw new Error(`send:${res.reason ?? "failed"}`);
     }
-    await forTenant(ctx).emailJobs.update(job.id, {
+    await forTenant(ctx, db).emailJobs.update(job.id, {
       emailSentAt: new Date().toISOString(),
     });
   }
 
   // Schedule the next step (walking through any wait nodes).
   const next = resolveNextStep(journey.graph, nodeId);
-  if (next) await enqueueNext(ctx, journey, next, signupId);
+  if (next) await enqueueNext(ctx, journey, next, signupId, db);
+  return "done";
 }
 
 /** Enqueue the next journey step for a recipient. Idempotent per (node, recipient). */
@@ -332,15 +360,20 @@ async function enqueueNext(
   journey: Journey,
   next: { nodeId: string; delayHours: number },
   signupId: string,
+  db?: FirestoreLike,
 ): Promise<void> {
   const when = new Date(Date.now() + next.delayHours * 3600_000).toISOString();
-  await enqueueEmailJob(ctx, {
-    type: "journey_step",
-    campaignId: journey.campaignId,
-    dedupeKey: `journey:${journey.id}:${next.nodeId}:${signupId}`,
-    payload: { journeyId: journey.id, nodeId: next.nodeId, signupId },
-    scheduledAt: when,
-  });
+  await enqueueEmailJob(
+    ctx,
+    {
+      type: "journey_step",
+      campaignId: journey.campaignId,
+      dedupeKey: `journey:${journey.id}:${next.nodeId}:${signupId}`,
+      payload: { journeyId: journey.id, nodeId: next.nodeId, signupId },
+      scheduledAt: when,
+    },
+    db,
+  );
 }
 
 // ---- Orchestration helpers ------------------------------------------------

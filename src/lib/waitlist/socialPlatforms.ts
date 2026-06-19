@@ -136,3 +136,24 @@ export function buildShareUrl(
  */
 export const DEFAULT_SHARE_MESSAGE =
   "I just joined the {{waitlist_name}} waitlist — come join me!";
+
+/**
+ * Render a share-message template with representative SAMPLE values, for admin
+ * previews only (the Embed & Design builder's Social tab + its post-signup
+ * preview). Mirrors the {{token}} vocabulary of the real server-side renderer
+ * (lib/email/mergeVars) but with stand-in data, so a founder sees how their copy
+ * reads before anyone has actually signed up. The referral link is dropped
+ * ({{referral_link}} → "") because every share button appends the real link.
+ */
+export function renderSampleShareMessage(
+  template: string,
+  waitlistName: string,
+): string {
+  return template
+    .replace(/\{\{\s*waitlist_name\s*\}\}/g, waitlistName)
+    .replace(/\{\{\s*first_name\s*\}\}/g, "Alex")
+    .replace(/\{\{\s*current_rank\s*\}\}/g, "42")
+    .replace(/\{\{\s*referral_count\s*\}\}/g, "3")
+    .replace(/\{\{\s*referral_link\s*\}\}/g, "")
+    .trim();
+}

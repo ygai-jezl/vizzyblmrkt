@@ -1,115 +1,25 @@
-"""`build_email_journey` tool — save a journey DRAFT on the canvas.
+"""`build_email_journey` FunctionTool — a thin ADK wrapper over canvas_client.
 
-This tool does NOT persist anything itself. It reads the signed canvas capability
-token + active campaign id from session state (set by the root agent's
-context-envelope callback) and POSTs the agent-assembled graph to the Next.js
-canvas endpoint, which fills copy via the Creative Director, validates, and saves
-a DRAFT. The token is opaque here — signing/verifying both happen in the app, so
-no secret lives in the agent runtime.
-
-The `google.adk` import is under TYPE_CHECKING so the pure request/response
-helpers stay unit-testable without ADK installed (ADK 2.x needs Python 3.10+).
+IMPORTANT (do not "tidy" this back into TYPE_CHECKING):
+ADK builds this tool's function declaration by RESOLVING the parameter annotations
+at runtime to recognize and strip the injected `tool_context`. So `ToolContext`
+must be a real runtime import, and this module must NOT use
+`from __future__ import annotations` (PEP 563 would turn the annotations into
+strings that ADK then fails to resolve → NameError in build_function_declaration,
+crashing the agent turn). The pure, ADK-free logic lives in canvas_client.py so
+it stays unit-testable without ADK.
 """
 
-from __future__ import annotations
+from google.adk.tools import ToolContext
 
-import json
-import os
-import urllib.error
-import urllib.request
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from google.adk.tools import ToolContext
-
-CANVAS_PATH = "/api/agent/canvas"
-_TIMEOUT_SECONDS = 60
-
-
-def build_request_payload(campaign_id: str, brief: str, graph: dict) -> dict:
-    """Shape the canvas-endpoint request body. Pure (testable without ADK)."""
-    return {
-        "kind": "journey",
-        "campaignId": campaign_id,
-        "brief": brief or "",
-        "graph": graph or {"nodes": [], "edges": []},
-        "action": "save_draft",
-    }
-
-
-def _error_message(body: dict) -> str:
-    code = body.get("error")
-    if code == "journey_active":
-        return (
-            "That launch already has an ACTIVE journey. Ask the operator to pause "
-            "it first if they want it rebuilt."
-        )
-    if code == "campaign_not_found":
-        return "I couldn't find that launch in this account."
-    if code == "invalid_graph":
-        issues = body.get("issues") or []
-        detail = "; ".join(str(i) for i in issues[:5])
-        return f"The journey structure was invalid: {detail}" if detail else (
-            "The journey structure was invalid."
-        )
-    if code == "unknown_kind":
-        return "That canvas type isn't available."
-    if code == "canvas_auth_unconfigured":
-        return "Journey authoring isn't enabled in this environment yet."
-    return "I couldn't save the journey draft just now. Please try again."
-
-
-def parse_canvas_response(status_code: int, body_text: str) -> dict:
-    """Normalize the endpoint response into a tool-result dict. Pure (testable)."""
-    try:
-        body = json.loads(body_text) if body_text else {}
-    except (json.JSONDecodeError, ValueError):
-        body = {}
-    if not isinstance(body, dict):
-        body = {}
-
-    if 200 <= status_code < 300 and body.get("ok"):
-        return {
-            "status": "success",
-            "journeyId": body.get("journeyId"),
-            "journeyStatus": body.get("status"),
-            "warnings": body.get("warnings", []),
-            "message": body.get("summary")
-            or "Saved the journey as a draft. Review it on the Journey Canvas.",
-        }
-    return {
-        "status": "error",
-        "code": body.get("error", f"http_{status_code}"),
-        "message": _error_message(body),
-    }
-
-
-def _post_canvas(url: str, payload: dict, token: str) -> "tuple[int, str]":
-    """POST to the canvas endpoint. Isolated so tests can monkeypatch it."""
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Canvas-Context": token,
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
-            return resp.status, resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", errors="replace")
-    except urllib.error.URLError as exc:
-        return 0, json.dumps({"error": "network_error", "detail": str(exc.reason)})
+from .canvas_client import author_journey_via_canvas
 
 
 def build_email_journey(
     campaign_id: str,
     brief: str,
     graph: dict,
-    tool_context: "ToolContext",
+    tool_context: ToolContext,
 ) -> dict:
     """Save a multi-step email journey as a DRAFT for the operator to review.
 
@@ -134,27 +44,4 @@ def build_email_journey(
         A status dict to relay to the operator.
     """
     state = getattr(tool_context, "state", None) or {}
-    token = state.get("ctxToken")
-    resolved_campaign = campaign_id or state.get("campaignId")
-
-    if not token:
-        return {
-            "status": "unavailable",
-            "message": "Journey authoring isn't available in this session yet.",
-        }
-    if not resolved_campaign:
-        return {
-            "status": "needs_campaign",
-            "message": "Which launch should I build this journey for?",
-        }
-
-    base = os.environ.get("CANVAS_CALLBACK_URL", "").rstrip("/")
-    if not base:
-        return {
-            "status": "unavailable",
-            "message": "Journey authoring isn't configured (no callback URL).",
-        }
-
-    payload = build_request_payload(resolved_campaign, brief, graph)
-    status_code, body_text = _post_canvas(base + CANVAS_PATH, payload, token)
-    return parse_canvas_response(status_code, body_text)
+    return author_journey_via_canvas(state, campaign_id, brief, graph)

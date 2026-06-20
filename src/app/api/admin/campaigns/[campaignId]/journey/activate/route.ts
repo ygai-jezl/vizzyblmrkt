@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { forTenant } from "@/lib/tenant";
-import {
-  activateJourney,
-  processEmailJobs,
-  validateJourneyGraph,
-} from "@/lib/email/delivery";
+import { setJourneyState } from "@/lib/journey/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,31 +29,13 @@ export async function POST(
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
-  const id = `journey_${campaignId}`;
-  const journey = await forTenant(ctx).journeys.getById(id);
-  if (!journey) {
-    return NextResponse.json({ error: "journey_not_found" }, { status: 404 });
-  }
-  const now = new Date().toISOString();
-
-  if (parsed.data.action === "pause") {
-    await forTenant(ctx).journeys.update(id, { status: "paused", updatedAt: now });
-    return NextResponse.json({ ok: true, status: "paused" });
-  }
-
-  // Refuse to activate an empty/half-wired journey: it would flip to "active",
-  // enqueue nobody, and silently send nothing — the worst kind of failure.
-  const valid = validateJourneyGraph(journey.graph);
-  if (!valid.ok) {
+  const result = await setJourneyState(ctx, campaignId, parsed.data.action);
+  if (!result.ok) {
+    const status = result.error === "journey_not_found" ? 404 : 422;
     return NextResponse.json(
-      { error: "journey_invalid", reason: valid.reason },
-      { status: 422 },
+      { error: result.error, ...(result.reason ? { reason: result.reason } : {}) },
+      { status },
     );
   }
-
-  await forTenant(ctx).journeys.update(id, { status: "active", updatedAt: now });
-  const fresh = await forTenant(ctx).journeys.getById(id);
-  const { enqueued } = await activateJourney(ctx, fresh!);
-  const result = await processEmailJobs(ctx);
-  return NextResponse.json({ ok: true, status: "active", enqueued, result });
+  return NextResponse.json(result);
 }

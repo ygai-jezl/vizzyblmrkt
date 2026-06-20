@@ -27,6 +27,6 @@ if _PKG_NAME not in sys.modules:
     pkg.__path__ = [str(_ROOT)]
     sys.modules[_PKG_NAME] = pkg
 
-    for sub in ("agent_logging", "callbacks", "context", "prompts"):
+    for sub in ("agent_logging", "callbacks", "context", "prompts", "sub_agents"):
         if (_ROOT / sub / "__init__.py").exists():
             importlib.import_module(f"{_PKG_NAME}.{sub}")

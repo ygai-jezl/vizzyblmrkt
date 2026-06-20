@@ -20,8 +20,12 @@ export interface TenantContext {
    */
   email?: string;
   emailVerified?: boolean;
-  /** How the tenant was established, for auditing. */
-  source: "host" | "tenant_param" | "idtoken" | "system";
+  /**
+   * How the tenant was established, for auditing. `agent` = reconstructed from a
+   * signed capability token minted by the verified admin-chat proxy and echoed
+   * back by an agent tool (see src/lib/canvas/auth.ts).
+   */
+  source: "host" | "tenant_param" | "idtoken" | "system" | "agent";
 }
 
 /**

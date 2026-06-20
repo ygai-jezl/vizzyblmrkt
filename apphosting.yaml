@@ -90,6 +90,18 @@ env:
   #   secret: email-worker-secret
   #   availability:
   #     - RUNTIME
+  #
+  # Signs the short-lived capability token the admin-chat proxy mints so the
+  # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
+  # journey DRAFT. Keep COMMENTED until the secret exists; while unset, agent
+  # journey authoring is off and chat is unaffected. Provision + uncomment, and
+  # deploy the root agent with CANVAS_CALLBACK_URL set to the dev App Hosting
+  # origin (CANVAS_CALLBACK_URL=<dev-url> bash agents/root_agent/deploy.sh):
+  #   firebase apphosting:secrets:set canvas-context-signing-key --project vizzybl-marketing-dev
+  # - variable: CANVAS_CONTEXT_SIGNING_KEY
+  #   secret: canvas-context-signing-key
+  #   availability:
+  #     - RUNTIME
 
   # Agent 3 (Creative Director) — Gemini on Vertex AI. By default (no key) it uses
   # the runtime service account via ADC (needs the Vertex AI API enabled + the SA

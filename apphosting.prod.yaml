@@ -128,6 +128,18 @@ env:
     secret: email-worker-secret
     availability:
       - RUNTIME
+  # Signs the short-lived capability token the admin-chat proxy mints so the
+  # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
+  # journey DRAFT, scoped to the verified tenant. Keep COMMENTED until the secret
+  # exists (an unresolved secret fails the rollout); while unset, agent journey
+  # authoring is simply off — chat is unaffected. Provision per env with the full
+  # grant-access triple (see infra notes / apphosting-secret-iam-triple), then
+  # uncomment + redeploy the root agent with CANVAS_CALLBACK_URL set:
+  #   firebase apphosting:secrets:set canvas-context-signing-key --project vizzybl-marketing-prod
+  # - variable: CANVAS_CONTEXT_SIGNING_KEY
+  #   secret: canvas-context-signing-key
+  #   availability:
+  #     - RUNTIME
   # - variable: GEMINI_API_KEY          # Vertex AI Express / Agent Platform key
   #   secret: gemini-api-key            # (omit to use ADC + runtime SA instead)
   #   availability:

@@ -13,6 +13,7 @@ import {
   mapVertexEvent,
   parseUpstreamRecords,
 } from "@/lib/agents/agentRuntime";
+import { mintCanvasContextOrNull } from "@/lib/canvas/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,9 @@ const Body = z.object({
   // it on the first turn — `optional()` would 400 on null.
   sessionId: z.string().nullish(),
   mode: z.enum(["thinking", "fast"]).default("thinking"),
+  // The launch the operator is working in, if any. Lets the Campaign Ops
+  // sub-agent author a journey draft for the right campaign.
+  campaignId: z.string().max(200).nullish(),
 });
 
 const encoder = new TextEncoder();
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
-  const { message, sessionId, mode } = parsed.data;
+  const { message, sessionId, mode, campaignId } = parsed.data;
 
   if (!isAgentRuntimeConfigured()) {
     return new Response(unconfiguredStream(), { headers: SSE_HEADERS });
@@ -60,7 +64,12 @@ export async function POST(req: Request) {
 
   const traceId = randomUUID();
   const userId = compositeUserId(ctx);
-  const text = contextEnvelope(ctx, traceId, mode) + message;
+  // Mint a short-lived signed capability token so the Campaign Ops sub-agent can
+  // call back to save a journey draft scoped to THIS verified tenant. Null when
+  // the signing key isn't configured — chat still works, agent authoring is off.
+  const ctxToken = mintCanvasContextOrNull(ctx);
+  const text =
+    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId }) + message;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

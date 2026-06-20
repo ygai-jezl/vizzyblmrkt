@@ -56,20 +56,32 @@ export function reasoningEngineUrl(
   return sse ? `${base}?alt=sse` : base;
 }
 
-/** Build the `[ctx:{…}] [mode:…] ` prefix the agent's callbacks consume + strip. */
+/**
+ * Build the `[ctx:{…}] [mode:…] ` prefix the agent's callbacks consume + strip.
+ *
+ * `extras` can carry a signed canvas capability token (`ctxToken`) and the active
+ * `campaignId` so the Campaign Ops sub-agent can author a journey draft. Both
+ * MUST be brace-free strings — the agent-side envelope parser regex is
+ * non-greedy and a nested `}` would truncate the JSON (see context_envelope.py).
+ * The Python callback writes every key into session state generically, so no
+ * agent-side change is needed to surface them.
+ */
 export function contextEnvelope(
   ctx: TenantContext,
   traceId: string,
   mode?: ChatMode,
+  extras?: { ctxToken?: string | null; campaignId?: string | null },
 ): string {
-  const payload = JSON.stringify({
+  const payload: Record<string, unknown> = {
     tenantId: ctx.tenantId,
     userId: ctx.userId,
     region: ctx.region,
     traceId,
-  });
+  };
+  if (extras?.ctxToken) payload.ctxToken = extras.ctxToken;
+  if (extras?.campaignId) payload.campaignId = extras.campaignId;
   const modePrefix = mode ? `[mode:${mode}] ` : "";
-  return `[ctx:${payload}] ${modePrefix}`;
+  return `[ctx:${JSON.stringify(payload)}] ${modePrefix}`;
 }
 
 /** Memory Bank scope key — composite prevents cross-tenant memory bleed. */

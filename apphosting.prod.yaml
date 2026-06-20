@@ -86,18 +86,20 @@ env:
     availability:
       - RUNTIME
 
-  # Dashboard root agent (ADK 2.0 on Agent Runtime). Deploy the prod engine with
-  # `ROOT_AGENT_PROJECT=vizzybl-marketing-prod agents/root_agent/deploy.sh`,
-  # then uncomment + fill ROOT_AGENT_RESOURCE_ID. The runtime SA needs
-  # roles/aiplatform.user to call :streamQuery.
+  # Dashboard root agent (ADK 2.0 on Agent Runtime). Deployed 2026-06-20 to
+  # reasoningEngines/5390059436788154368 (project vizzybl-marketing-prod,
+  # us-central1) under the dedicated root-agent@vizzybl-marketing-prod SA. The
+  # App Hosting runtime SA calls :streamQuery via the least-priv custom role
+  # `reasoningEngineInvoker` (query + get) — NOT roles/aiplatform.user.
+  # Re-deploy: `ROOT_AGENT_PROJECT=vizzybl-marketing-prod bash agents/root_agent/deploy.sh`.
   - variable: ROOT_AGENT_LOCATION
     value: us-central1
     availability:
       - RUNTIME
-  # - variable: ROOT_AGENT_RESOURCE_ID
-  #   value: "REPLACE_WITH_NUMERIC_ID"
-  #   availability:
-  #     - RUNTIME
+  - variable: ROOT_AGENT_RESOURCE_ID
+    value: "5390059436788154368"
+    availability:
+      - RUNTIME
 
   # Secrets (create via `firebase apphosting:secrets:set <name>` then uncomment):
   - variable: MANDRILL_API_KEY        # transactional (verification + journeys)

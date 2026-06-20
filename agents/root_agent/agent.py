@@ -34,7 +34,7 @@ root_agent = LlmAgent(
     name="vizzybl_marketing_root",
     model=DEFAULT_MODEL,
     description=(
-        "Vizzybl Marketing root orchestrator — GTM command center for launches, "
+        "YouGrow.ai root orchestrator — GTM command center for launches, "
         "email broadcasts/journeys, creative, signups, and analytics."
     ),
     instruction=build_dynamic_instruction,

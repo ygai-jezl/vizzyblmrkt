@@ -414,7 +414,7 @@ function DesignTab({
   const [copied, setCopied] = useState<"snippet" | "link" | null>(null);
   const isHosted = surface === "hosted";
   const description = isHosted
-    ? "Your standalone Vizzybl waitlist page — the full experience hosted at /waitlist."
+    ? "Your standalone YouGrow.ai waitlist page — the full experience hosted at /waitlist."
     : WIDGET_TYPE_META[surface].description;
   const links = branding.socialLinks;
 

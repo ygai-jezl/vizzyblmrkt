@@ -29,7 +29,7 @@ export interface EmailResult {
   reason?: string;
 }
 
-const DEFAULT_FROM = "Vizzybl <onboarding@resend.dev>";
+const DEFAULT_FROM = "YouGrow.ai <onboarding@resend.dev>";
 
 export async function sendEmail(msg: EmailMessage): Promise<EmailResult> {
   const mandrillKey = process.env.MANDRILL_API_KEY;

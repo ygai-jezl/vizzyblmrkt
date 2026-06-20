@@ -240,14 +240,14 @@ export function CampaignSettingsForm({
         <ReadOnlyField
           label="Page slug (locked)"
           value={`/waitlist/${campaignId}`}
-          hint="Set when the launch was created and can't be changed — this is your default Vizzybl page."
+          hint="Set when the launch was created and can't be changed — this is your default YouGrow.ai page."
         />
         <TextField
           label="Waitlist URL"
           value={form.waitlistUrlLocation ?? ""}
           onChange={(v) => set("waitlistUrlLocation", v)}
           placeholder="https://yourbrand.com/early-access (optional)"
-          hint="Where your waitlist lives. Leave blank to use your Vizzybl page above. If you've embedded the widget on your own site, paste that page's full URL so referral links point to your domain."
+          hint="Where your waitlist lives. Leave blank to use your YouGrow.ai page above. If you've embedded the widget on your own site, paste that page's full URL so referral links point to your domain."
         />
         <SelectField
           label="Required contact detail"

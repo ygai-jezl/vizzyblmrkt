@@ -43,6 +43,18 @@ else
   ADK=(adk)
 fi
 
+# The app origin the Campaign Ops sub-agent calls back to (POST
+# <url>/api/agent/canvas) to save journey drafts. Per-project default; override
+# with CANVAS_CALLBACK_URL=... ./deploy.sh. Empty is allowed — the build_journey
+# tool degrades to "authoring unavailable" until it's set (e.g. for dev, set it
+# to the dev App Hosting origin).
+if [ -z "${CANVAS_CALLBACK_URL:-}" ]; then
+  case "$PROJECT" in
+    vizzybl-marketing-prod) CANVAS_CALLBACK_URL="https://yougrow.ai" ;;
+    *) CANVAS_CALLBACK_URL="" ;;
+  esac
+fi
+
 # Render the engine config for THIS project: the SA email is deterministic per
 # project, so dev and prod each deploy under their own dedicated identity. The
 # committed file is the dev-rendered output (regenerating it for dev is a no-op).
@@ -54,7 +66,8 @@ cat > "$SCRIPT_DIR/.agent_engine_config.json" <<EOF
   "env_vars": {
     "GOOGLE_GENAI_USE_VERTEXAI": "1",
     "GOOGLE_CLOUD_LOCATION": "global",
-    "ROOT_AGENT_MODEL": "gemini-3.5-flash"
+    "ROOT_AGENT_MODEL": "gemini-3.5-flash",
+    "CANVAS_CALLBACK_URL": "${CANVAS_CALLBACK_URL}"
   }
 }
 EOF

@@ -183,3 +183,17 @@ env:
     value: "2597757299074269184"
     availability:
       - RUNTIME
+  # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). KEY is the
+  # per-webhook signing key from the Mandrill dashboard; URL must match the
+  # registered public URL byte-for-byte (it is part of the HMAC signature). NOTE:
+  # dev does NOT send via Mandrill by default (MANDRILL_API_KEY above is commented
+  # → emails are logged), so no opens/clicks arrive here until a dev Mandrill key +
+  # a dev webhook (pointing at this URL, signed by this secret) are set up.
+  - variable: MANDRILL_WEBHOOK_KEY
+    secret: mandrill-webhook-key
+    availability:
+      - RUNTIME
+  - variable: MANDRILL_WEBHOOK_URL
+    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app/api/webhooks/mandrill
+    availability:
+      - RUNTIME

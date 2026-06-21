@@ -114,6 +114,19 @@ env:
     value: Vizzybl <noreply@vizzybl.ai>
     availability:
       - RUNTIME
+  # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). KEY is the
+  # per-webhook signing key from the Mandrill dashboard; URL MUST match the
+  # registered public URL byte-for-byte (it is part of the HMAC signature — a
+  # trailing slash or www mismatch makes every event 401). Secret provisioned with
+  # the full grant-access triple (see apphosting-secret-iam-triple).
+  - variable: MANDRILL_WEBHOOK_KEY
+    secret: mandrill-webhook-key
+    availability:
+      - RUNTIME
+  - variable: MANDRILL_WEBHOOK_URL
+    value: https://yougrow.ai/api/webhooks/mandrill
+    availability:
+      - RUNTIME
   # - variable: MAILCHIMP_API_KEY       # shared Marketing account
   #   secret: mailchimp-api-key
   #   availability:

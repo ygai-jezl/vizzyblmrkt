@@ -35,17 +35,20 @@ export function computeScore(
 /**
  * Effective referral weight used for QUEUE RANKING (not the public top-referrers
  * list): a signup's verified referrals plus any `engagementBonus` earned by
- * completing the post-signup AI conversation. Kept separate from the stored
- * `amountReferred` (which remains the literal, honestly-displayed referral count)
- * so the boost moves a user up their queue position without faking referrals.
- * When no signup has a bonus this equals `amountReferred`, so ranking is
- * unchanged. See lib/waitlist/rank.ts.
+ * completing the post-signup AI conversation, plus any `manualBoost` an admin
+ * applied via the "Move up" action. Kept separate from the stored `amountReferred`
+ * (which remains the literal, honestly-displayed referral count) so a boost moves
+ * a user up their queue position without faking referrals. When no signup has a
+ * bonus/boost this equals `amountReferred`, so ranking is unchanged. The public
+ * leaderboard ranks on `amountReferred` directly, so neither bonus leaks into it.
+ * See lib/waitlist/rank.ts.
  */
 export function effectiveReferralWeight(s: {
   amountReferred: number;
   engagementBonus?: number;
+  manualBoost?: number;
 }): number {
-  return s.amountReferred + (s.engagementBonus ?? 0);
+  return s.amountReferred + (s.engagementBonus ?? 0) + (s.manualBoost ?? 0);
 }
 
 /** Queue ordinal used as the deterministic tie-breaker. Integer Unix SECONDS. */

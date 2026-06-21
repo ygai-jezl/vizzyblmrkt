@@ -21,6 +21,12 @@ import { allocateVariant, resolveArmContent } from "@/lib/journey/allocation";
 import { syncBroadcastStats } from "@/lib/mailchimp/reports";
 import { enqueueEmailJob } from "./jobs";
 import { recordEmailEvent } from "./events";
+import { renderMergeVars } from "./mergeVars";
+import {
+  offboardingEmail,
+  DEFAULT_OFFBOARDING_SUBJECT,
+  DEFAULT_OFFBOARDING_BODY,
+} from "./templates";
 import { processContactEnrichJob } from "@/lib/crm/enrichWorker";
 import { processContactEraseJob } from "@/lib/crm/eraseWorker";
 
@@ -103,6 +109,9 @@ export async function processEmailJobs(
           break;
         case "journey_step":
           outcome = await processJourneyStepJob(ctx, job, rankCache, db);
+          break;
+        case "lifecycle":
+          outcome = await processLifecycleJob(ctx, job, db);
           break;
         case "contact_enrich":
           outcome = await processContactEnrichJob(ctx, job, db);
@@ -296,6 +305,53 @@ async function processBroadcastJob(
 }
 
 // ---- Journey step (per-recipient, Mandrill) -------------------------------
+
+/**
+ * Transactional lifecycle email (currently: offboarding). Best-effort by design —
+ * a missing recipient/campaign, a disabled toggle, or a recipient who is no longer
+ * offboarded resolves to "done" (no retry, no resend). Enqueued from the admin
+ * offboard action; idempotent via the dedupeKey (`offboard:{signupId}`) and the
+ * `emailSentAt` guard so a post-send failure retry never double-sends.
+ */
+async function processLifecycleJob(
+  ctx: TenantContext,
+  job: EmailJob,
+  db?: FirestoreLike,
+): Promise<JobOutcome> {
+  if (job.emailSentAt) return "done"; // already dispatched on a prior attempt
+
+  const signupId = String(job.payload.signupId ?? "");
+  const signup = await forTenant(ctx, db).signups.getById(signupId);
+  // Only send if they are still offboarded with an email — re-activated or
+  // deleted in the meantime → no-op (the lifecycle event no longer holds).
+  if (!signup || signup.status !== "offboarded" || !signup.email) return "done";
+
+  const campaign = await forTenant(ctx, db).campaigns.getById(signup.campaignId);
+  if (!campaign?.offboardingEmail?.enabled) return "done"; // toggle off → no-op
+
+  const offb = campaign.offboardingEmail;
+  const mergeCtx = { signup, campaign };
+  const subject = renderMergeVars(offb.subject?.trim() || DEFAULT_OFFBOARDING_SUBJECT, mergeCtx);
+  const body = renderMergeVars(offb.body?.trim() || DEFAULT_OFFBOARDING_BODY, mergeCtx);
+
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const sender = resolveSender(tenant, campaign);
+  const res = await sendEmail({
+    ...offboardingEmail({ to: signup.email, subject, body }),
+    fromEmail: sender.fromEmail,
+    fromName: sender.fromName,
+    replyTo: sender.replyTo,
+  });
+  // "log" provider (dev/tests) counts as success, like the journey send.
+  if (!res.sent && res.provider !== "log") {
+    throw new Error(`send:${res.reason ?? "failed"}`);
+  }
+  await forTenant(ctx, db).emailJobs.update(job.id, {
+    emailSentAt: new Date().toISOString(),
+    mandrillMessageId: res.id ?? null,
+  });
+  return "done";
+}
 
 async function processJourneyStepJob(
   ctx: TenantContext,

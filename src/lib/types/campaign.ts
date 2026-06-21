@@ -122,6 +122,20 @@ export const AiConversationSchema = z.object({
 });
 export type AiConversation = z.infer<typeof AiConversationSchema>;
 
+/**
+ * Offboarding lifecycle email — sent automatically when an admin offboards a
+ * signup (PRD "Agentic Email Hub" §4.4). Default OFF so no surprise sends.
+ * `subject`/`body` support merge tokens ({{first_name}}, {{waitlist_name}}, …);
+ * blank falls back to default copy (see src/lib/email/templates.ts). OPTIONAL on
+ * the stored shape so legacy campaigns read cleanly.
+ */
+export const OffboardingEmailSchema = z.object({
+  enabled: z.boolean(),
+  subject: z.string().optional(),
+  body: z.string().optional(),
+});
+export type OffboardingEmail = z.infer<typeof OffboardingEmailSchema>;
+
 export const CampaignSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -155,6 +169,9 @@ export const CampaignSchema = z.object({
   emailFromName: z.string().optional(),
   emailFromAddress: z.string().optional(),
   emailReplyTo: z.string().optional(),
+
+  // Offboarding lifecycle email (optional; default-off when absent).
+  offboardingEmail: OffboardingEmailSchema.optional(),
   // Capped to match the admin-editable range (CampaignSettingsSchema) so the
   // stored shape can never exceed what the settings editor can round-trip.
   leaderboardLength: z.number().int().min(0).max(1000),

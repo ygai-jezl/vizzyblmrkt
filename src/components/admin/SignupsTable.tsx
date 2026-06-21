@@ -10,6 +10,8 @@ export interface AdminSignupRow {
   lastName: string | null;
   status: string;
   amountReferred: number;
+  /** 1-based queue position; only set in a per-launch view, null when unranked. */
+  rank?: number;
   createdAt: string;
 }
 
@@ -19,12 +21,28 @@ const STATUS_STYLES: Record<string, string> = {
   offboarded: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
 };
 
-export function SignupsTable({ initialRows }: { initialRows: AdminSignupRow[] }) {
+/**
+ * Admin signups table. `mode` switches between the Active list (offboard / delete
+ * + per-launch move) and the Offboarded directory (delete only — PRD §4.2). Move
+ * controls need a single selection and a `campaignId` (rank is per-campaign).
+ */
+export function SignupsTable({
+  initialRows,
+  mode = "active",
+  campaignId,
+}: {
+  initialRows: AdminSignupRow[];
+  mode?: "active" | "offboarded";
+  campaignId?: string;
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [positions, setPositions] = useState(10);
 
   const rows = initialRows;
+  const showRank = !!campaignId;
+  const canMove = mode === "active" && !!campaignId;
   const allSelected = rows.length > 0 && selected.size === rows.length;
 
   function toggleAll() {
@@ -60,10 +78,37 @@ export function SignupsTable({ initialRows }: { initialRows: AdminSignupRow[] })
     router.refresh();
   }
 
+  async function move(action: "move_to_top" | "move_up") {
+    if (selected.size !== 1 || !campaignId) return;
+    const id = [...selected][0]!;
+    setBusy(true);
+    const res = await fetch("/api/admin/signups/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        id,
+        campaignId,
+        ...(action === "move_up" ? { positions } : {}),
+      }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      window.alert(
+        res.status === 409
+          ? "Only verified, active signups can be moved."
+          : "Move failed. Please try again.",
+      );
+      return;
+    }
+    setSelected(new Set());
+    router.refresh();
+  }
+
   if (rows.length === 0) {
     return (
       <p className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-        No signups yet.
+        {mode === "offboarded" ? "No offboarded signups." : "No signups yet."}
       </p>
     );
   }
@@ -71,15 +116,48 @@ export function SignupsTable({ initialRows }: { initialRows: AdminSignupRow[] })
   return (
     <div className="space-y-3">
       {selected.size > 0 ? (
-        <div className="flex items-center gap-3 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
           <span className="font-medium">{selected.size} selected</span>
-          <button
-            disabled={busy}
-            onClick={() => run("offboard")}
-            className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-white disabled:opacity-60 dark:border-neutral-700"
-          >
-            Offboard
-          </button>
+
+          {canMove && selected.size === 1 ? (
+            <>
+              <button
+                disabled={busy}
+                onClick={() => move("move_to_top")}
+                className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-white disabled:opacity-60 dark:border-neutral-700"
+              >
+                Move to top
+              </button>
+              <span className="inline-flex items-center gap-1">
+                <button
+                  disabled={busy}
+                  onClick={() => move("move_up")}
+                  className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-white disabled:opacity-60 dark:border-neutral-700"
+                >
+                  Move up
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  value={positions}
+                  onChange={(e) => setPositions(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-16 rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700 dark:bg-neutral-900"
+                  aria-label="positions to move up"
+                />
+                <span className="text-neutral-500">spots</span>
+              </span>
+            </>
+          ) : null}
+
+          {mode === "active" ? (
+            <button
+              disabled={busy}
+              onClick={() => run("offboard")}
+              className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-white disabled:opacity-60 dark:border-neutral-700"
+            >
+              Offboard
+            </button>
+          ) : null}
           <button
             disabled={busy}
             onClick={() => run("delete")}
@@ -97,6 +175,7 @@ export function SignupsTable({ initialRows }: { initialRows: AdminSignupRow[] })
               <th className="w-10 px-3 py-2">
                 <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all" />
               </th>
+              {showRank ? <th className="px-3 py-2 text-right font-medium">Rank</th> : null}
               <th className="px-3 py-2 font-medium">Email</th>
               <th className="px-3 py-2 font-medium">Name</th>
               <th className="px-3 py-2 font-medium">Status</th>
@@ -118,6 +197,11 @@ export function SignupsTable({ initialRows }: { initialRows: AdminSignupRow[] })
                     aria-label={`Select ${r.email ?? r.id}`}
                   />
                 </td>
+                {showRank ? (
+                  <td className="px-3 py-2 text-right tabular-nums text-neutral-500">
+                    {r.rank != null ? `#${r.rank}` : "—"}
+                  </td>
+                ) : null}
                 <td className="px-3 py-2">{r.email ?? "—"}</td>
                 <td className="px-3 py-2">
                   {[r.firstName, r.lastName].filter(Boolean).join(" ") || "—"}

@@ -9,6 +9,9 @@ import { z } from "zod";
 export const EmailJobType = z.enum([
   "broadcast",
   "journey_step",
+  // Transactional lifecycle email (e.g. offboarding). payload: { signupId }.
+  // Async so a bulk offboard (up to 500) never blocks the admin request.
+  "lifecycle",
   // CRM (Unified CRM feature) — ride the same cron-drained worker + queue.
   // Engagement (opens/clicks) is captured by the Mandrill webhook → email_events,
   // so the CRM needs no polling job here.

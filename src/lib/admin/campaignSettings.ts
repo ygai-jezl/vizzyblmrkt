@@ -114,6 +114,14 @@ const AiConversationSettingsSchema = z.object({
   leaderboardBonus: z.number().int().min(0).max(1000).default(0),
 });
 
+// Offboarding lifecycle email. Subject/body accept merge tokens; blank → default
+// copy at send time. Default-off so enabling is an explicit admin choice.
+const OffboardingEmailSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  subject: z.string().trim().max(200).optional(),
+  body: z.string().trim().max(5000).optional(),
+});
+
 export const CampaignSettingsSchema = z
   .object({
     waitlistName: z.string().trim().min(1, "name is required").max(120),
@@ -173,6 +181,12 @@ export const CampaignSettingsSchema = z
       })
       .optional(),
 
+    // Offboarding lifecycle email (default-off). A wholly omitted object falls
+    // back to the disabled all-defaults object.
+    offboardingEmail: OffboardingEmailSettingsSchema.default(() =>
+      OffboardingEmailSettingsSchema.parse({}),
+    ),
+
     // Branding
     configurationStyleJson: StyleSettingsSchema,
 
@@ -226,6 +240,7 @@ export function defaultCampaignSettings(): CampaignSettings {
       probeTopics: [],
       leaderboardBonus: 0,
     },
+    offboardingEmail: { enabled: false },
   };
 }
 
@@ -292,6 +307,11 @@ export function toCampaignSettings(campaign: Campaign): CampaignSettings {
     emailFromName: campaign.emailFromName,
     emailFromAddress: campaign.emailFromAddress,
     emailReplyTo: campaign.emailReplyTo,
+    offboardingEmail: {
+      enabled: campaign.offboardingEmail?.enabled ?? false,
+      subject: campaign.offboardingEmail?.subject,
+      body: campaign.offboardingEmail?.body,
+    },
     configurationStyleJson: campaign.configurationStyleJson,
     // Backfill defaults for any campaign created before `strategy` existed.
     strategy: {

@@ -63,6 +63,22 @@ describe("computeRanks", () => {
     expect(ranks.get("a")).toBe(2);
   });
 
+  it("folds the admin manualBoost into the queue rank (Move up overtakes referrers)", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a", {
+      tenantId: "ten_x", campaignId: "c1", status: "verified_active",
+      amountReferred: 4, score: 0, createdAt: "2026-01-01T00:00:00Z",
+    });
+    // 0 referrals but a 5-spot admin boost → effective weight 5, ahead of 'a' (4).
+    db.seed("signups", "b", {
+      tenantId: "ten_x", campaignId: "c1", status: "verified_active",
+      amountReferred: 0, manualBoost: 5, score: 0, createdAt: "2026-01-02T00:00:00Z",
+    });
+    const ranks = await computeRanks(ctx, "c1", db);
+    expect(ranks.get("b")).toBe(1);
+    expect(ranks.get("a")).toBe(2);
+  });
+
   it("is unchanged when no signup has an engagementBonus (feature off)", async () => {
     const db = new FakeFirestore();
     db.seed("signups", "a", {

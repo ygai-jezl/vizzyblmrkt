@@ -96,6 +96,14 @@ export const SignupSchema = z.object({
   aiConversation: AiConversationDataSchema.optional(),
   engagementBonus: z.number().int().min(0).optional(),
 
+  /**
+   * Admin "Move up" boost — a manual, additive queue-position bump set from the
+   * Signups dashboard. Folded into `effectiveReferralWeight` (queue ranking only,
+   * NOT the public referral leaderboard, which stays honest on amountReferred).
+   * Monotonic: the move-up action only ever increases it, never moves a user down.
+   */
+  manualBoost: z.number().int().min(0).optional(),
+
   // Marketing attribution captured at signup.
   utm: UtmSchema.optional(),
   referrerUrl: z.string().nullable().optional(),

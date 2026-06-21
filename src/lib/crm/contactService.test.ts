@@ -3,7 +3,11 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
-import { upsertContactFromSignup } from "./contactService";
+import {
+  upsertContactFromSignup,
+  recordSignupContactStatus,
+  recomputeContactStatus,
+} from "./contactService";
 
 const ctx: TenantContext = { tenantId: "ten_a", region: "us", source: "system" };
 const campaign = {} as Campaign; // contactService ignores the campaign body
@@ -127,5 +131,86 @@ describe("upsertContactFromSignup", () => {
       { db },
     );
     expect(nothing).toBeNull();
+  });
+});
+
+describe("recomputeContactStatus", () => {
+  it("is active while any link is live, else offboarded, else deleted", () => {
+    expect(recomputeContactStatus([{ status: "verified_active" }])).toBe("active");
+    expect(recomputeContactStatus([{ status: "unverified" }])).toBe("active");
+    expect(
+      recomputeContactStatus([{ status: "offboarded" }, { status: "verified_active" }]),
+    ).toBe("active");
+    expect(
+      recomputeContactStatus([{ status: "offboarded" }, { status: "offboarded" }]),
+    ).toBe("offboarded");
+    expect(recomputeContactStatus([])).toBe("deleted");
+  });
+});
+
+describe("recordSignupContactStatus", () => {
+  it("flags the contact offboarded but RETAINS it (record + email kept)", async () => {
+    const db = new FakeFirestore();
+    const s = makeSignup({ id: "sig_off", campaignId: "camp1" });
+    await upsertContactFromSignup(ctx, campaign, s, { db, now: "t0" });
+
+    const updated = await recordSignupContactStatus(
+      ctx,
+      { ...s, status: "offboarded" },
+      { db, now: "t1" },
+    );
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("offboarded");
+    expect(updated!.campaigns[0]!.status).toBe("offboarded");
+    expect(updated!.email).toBe("jo@acme.com"); // still reachable in the CRM
+
+    // Persisted (not just the returned copy).
+    const fetched = await upsertContactFromSignup(
+      ctx,
+      campaign,
+      { ...s, status: "offboarded" },
+      { db, now: "t2" },
+    );
+    expect(fetched!.contact.status).toBe("offboarded");
+  });
+
+  it("stays active when another campaign link is still live (multi-campaign)", async () => {
+    const db = new FakeFirestore();
+    const c1 = makeSignup({ id: "s_c1", campaignId: "camp1" });
+    const c2 = makeSignup({ id: "s_c2", campaignId: "camp2" });
+    await upsertContactFromSignup(ctx, campaign, c1, { db, now: "t0" });
+    await upsertContactFromSignup(ctx, campaign, c2, { db, now: "t0" });
+
+    const updated = await recordSignupContactStatus(
+      ctx,
+      { ...c1, status: "offboarded" },
+      { db, now: "t1" },
+    );
+    expect(updated!.status).toBe("active"); // camp2 link still verified_active
+    expect(updated!.campaigns).toHaveLength(2);
+  });
+
+  it("removes the link on delete and recomputes status, keeping the doc", async () => {
+    const db = new FakeFirestore();
+    const s = makeSignup({ id: "sig_del", campaignId: "camp1" });
+    await upsertContactFromSignup(ctx, campaign, s, { db, now: "t0" });
+
+    const updated = await recordSignupContactStatus(ctx, s, {
+      remove: true,
+      db,
+      now: "t1",
+    });
+    expect(updated!.campaigns).toHaveLength(0);
+    expect(updated!.status).toBe("deleted");
+  });
+
+  it("no-ops (returns null) when the person has no contact", async () => {
+    const db = new FakeFirestore();
+    const r = await recordSignupContactStatus(
+      ctx,
+      makeSignup({ email: "ghost@acme.com", status: "offboarded" }),
+      { db },
+    );
+    expect(r).toBeNull();
   });
 });

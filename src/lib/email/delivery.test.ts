@@ -6,6 +6,7 @@ import {
   processEmailJobs,
   processEmailJobsForAllTenants,
 } from "./delivery";
+import { enqueueEmailJob } from "./jobs";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { JourneyGraph } from "@/lib/types/journey";
@@ -409,6 +410,88 @@ describe("processEmailJobs — recipient-gone jobs are dropped, not tombstoned",
     );
     expect(r).toBe("enqueued");
     expect(db.raw("email_jobs", dedupe)).toMatchObject({ status: "pending" });
+  });
+});
+
+describe("processEmailJobs — lifecycle (offboarding) email", () => {
+  const ctx: TenantContext = { tenantId: "ten_L", region: "us", source: "system" };
+
+  function seedJob(db: FakeFirestore, signupId: string) {
+    db.seed("email_jobs", `offboard:${signupId}`, {
+      tenantId: "ten_L",
+      campaignId: "camp1",
+      type: "lifecycle",
+      status: "pending",
+      dedupeKey: `offboard:${signupId}`,
+      scheduledAt: "2020-01-01T00:00:00.000Z", // due
+      attempts: 0,
+      claimedAt: null,
+      emailSentAt: null,
+      payload: { signupId },
+      lastError: null,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      processedAt: null,
+    });
+  }
+
+  it("no-ops (done, no send) when the campaign's offboarding email is disabled", async () => {
+    const db = new FakeFirestore();
+    db.seed("campaigns", "camp1", {
+      tenantId: "ten_L",
+      offboardingEmail: { enabled: false },
+    });
+    db.seed("signups", "s1", {
+      tenantId: "ten_L",
+      campaignId: "camp1",
+      status: "offboarded",
+      email: "a@b.com",
+    });
+    seedJob(db, "s1");
+
+    const r = await processEmailJobs(ctx, 25, db);
+    expect(r).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({
+      status: "done",
+      emailSentAt: null, // never sent
+    });
+  });
+
+  it("no-ops when the recipient is no longer offboarded", async () => {
+    const db = new FakeFirestore();
+    db.seed("campaigns", "camp1", {
+      tenantId: "ten_L",
+      offboardingEmail: { enabled: true },
+    });
+    db.seed("signups", "s1", {
+      tenantId: "ten_L",
+      campaignId: "camp1",
+      status: "verified_active", // re-activated before the job ran
+      email: "a@b.com",
+    });
+    seedJob(db, "s1");
+
+    const r = await processEmailJobs(ctx, 25, db);
+    expect(r).toMatchObject({ done: 1 });
+    expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({
+      status: "done",
+      emailSentAt: null,
+    });
+  });
+
+  it("dedupes a second offboard enqueue for the same signup (idempotent)", async () => {
+    const db = new FakeFirestore();
+    const a = await enqueueEmailJob(
+      ctx,
+      { type: "lifecycle", campaignId: "camp1", dedupeKey: "offboard:s9", payload: { signupId: "s9" } },
+      db,
+    );
+    const b = await enqueueEmailJob(
+      ctx,
+      { type: "lifecycle", campaignId: "camp1", dedupeKey: "offboard:s9", payload: { signupId: "s9" } },
+      db,
+    );
+    expect(a).toBe("enqueued");
+    expect(b).toBe("duplicate");
   });
 });
 

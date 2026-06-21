@@ -15,6 +15,15 @@ describe("effectiveReferralWeight", () => {
   it("adds the conversation engagement bonus to referrals", () => {
     expect(effectiveReferralWeight({ amountReferred: 1, engagementBonus: 5 })).toBe(6);
   });
+
+  it("adds the admin manualBoost (Move up) on top of referrals + bonus", () => {
+    expect(effectiveReferralWeight({ amountReferred: 2, manualBoost: 10 })).toBe(12);
+    expect(
+      effectiveReferralWeight({ amountReferred: 1, engagementBonus: 3, manualBoost: 4 }),
+    ).toBe(8);
+    // No boost/bonus → unchanged (feature-off parity).
+    expect(effectiveReferralWeight({ amountReferred: 7 })).toBe(7);
+  });
 });
 
 describe("computeScore", () => {

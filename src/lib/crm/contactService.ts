@@ -5,6 +5,7 @@ import type { Signup } from "@/lib/types/signup";
 import type {
   Contact,
   ContactCampaignLink,
+  ContactStatus,
   ConsentStatus,
   ContactEnrichmentStatus,
 } from "@/lib/types/contact";
@@ -83,6 +84,24 @@ function higherConsent(existing: ConsentStatus, next: ConsentStatus): ConsentSta
   if (existing === "deleted") return existing; // erased contacts stay erased
   if (existing === "verified_active") return existing;
   return next;
+}
+
+/**
+ * The contact's lifecycle status, derived from ALL its campaign links. A person
+ * is "active" while any signup is live (verified or unverified), "offboarded"
+ * once every live signup has been offboarded, and "deleted" only when no links
+ * remain (the operational signup purge — PII erasure is the separate GDPR
+ * `contact_erase` path, which sets status independently). This keeps an
+ * offboarded person fully present in the CRM, just flagged.
+ */
+export function recomputeContactStatus(
+  links: ReadonlyArray<{ status: string }>,
+): ContactStatus {
+  if (links.some((l) => l.status === "verified_active" || l.status === "unverified")) {
+    return "active";
+  }
+  if (links.some((l) => l.status === "offboarded")) return "offboarded";
+  return "deleted";
 }
 
 /**
@@ -207,6 +226,9 @@ export async function upsertContactFromSignup(
     campaigns,
     campaignIds,
     totalReferred,
+    // Recompute lifecycle status across all links so a re-signup/verify (and the
+    // offboard/delete sync below) keeps the top-level status honest.
+    status: recomputeContactStatus(campaigns),
     utm: signup.utm ?? existing.utm,
     referrerUrl: signup.referrerUrl ?? existing.referrerUrl ?? null,
     enrichment: nextEnrichment,
@@ -245,4 +267,49 @@ export async function recordSignupContact(
     );
   }
   return res;
+}
+
+/**
+ * Reflect a signup LIFECYCLE change (offboard / delete) onto the person's CRM
+ * contact, KEEPING the record. Replaces this campaign's link with the updated
+ * signup's status (or removes it when `remove` is set, for a hard signup delete)
+ * and recomputes the contact's top-level status across all remaining links.
+ *
+ * Best-effort and idempotent; returns null when the person has no contact yet
+ * (e.g. created before the CRM, or phone-only with nothing to key on). Never
+ * enqueues enrichment — this is a state change, not a new signup. PII erasure is
+ * the separate GDPR `contact_erase` path; this only retags/segments the contact.
+ */
+export async function recordSignupContactStatus(
+  ctx: TenantContext,
+  signup: Signup,
+  opts: { remove?: boolean; db?: FirestoreLike; now?: string } = {},
+): Promise<Contact | null> {
+  const email = signup.email ? normalizeEmail(signup.email) : null;
+  const contactKey = email ?? signup.phone?.trim() ?? null;
+  if (!contactKey) return null;
+
+  const repo = forTenant(ctx, opts.db);
+  const id = deterministicContactId(ctx.tenantId, contactKey);
+  const existing = await repo.contacts.getById(id);
+  if (!existing) return null;
+  // Defence in depth: deterministic ids are globally colliding — never touch a
+  // contact that isn't this tenant's (getById already re-checks, belt-and-braces).
+  if (existing.tenantId !== ctx.tenantId) return null;
+
+  const others = existing.campaigns.filter((c) => c.campaignId !== signup.campaignId);
+  const campaigns = opts.remove ? others : [...others, linkFromSignup(signup)];
+  const campaignIds = Array.from(new Set(campaigns.map((c) => c.campaignId)));
+  const totalReferred = campaigns.reduce((s, c) => s + (c.amountReferred ?? 0), 0);
+  const now = opts.now ?? new Date().toISOString();
+
+  const patch = {
+    campaigns,
+    campaignIds,
+    totalReferred,
+    status: recomputeContactStatus(campaigns),
+    updatedAt: now,
+  };
+  await repo.contacts.update(id, patch as never);
+  return { ...existing, ...patch } as Contact;
 }

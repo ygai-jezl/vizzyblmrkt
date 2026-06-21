@@ -25,6 +25,41 @@ export function verificationEmail(opts: {
   };
 }
 
+/**
+ * Default offboarding copy (merge-token strings). Used when an admin enables the
+ * offboarding email but leaves the subject/body blank. Rendered through
+ * renderMergeVars at send time (see processLifecycleJob), so the tokens resolve
+ * per-recipient. Kept as plain text — the offboarding email is intentionally
+ * simple (body is escaped + newline-wrapped into HTML by offboardingEmail).
+ */
+export const DEFAULT_OFFBOARDING_SUBJECT =
+  "You're off the waitlist for {{waitlist_name}} 🎉";
+export const DEFAULT_OFFBOARDING_BODY =
+  "Hi {{first_name}},\n\n" +
+  "Great news — you've been moved off the {{waitlist_name}} waitlist and now have access.\n\n" +
+  "Thanks for being an early supporter!";
+
+/**
+ * Offboarding lifecycle email. Takes the FINAL (already merge-rendered) subject
+ * and body; the body is treated as plain text — escaped and newline-wrapped into
+ * a simple branded HTML shell (no admin-authored HTML, so nothing to inject).
+ */
+export function offboardingEmail(opts: {
+  to: string;
+  subject: string;
+  body: string;
+}): EmailMessage {
+  const safeBody = escapeHtml(opts.body).replace(/\n/g, "<br>");
+  return {
+    to: opts.to,
+    subject: opts.subject,
+    text: opts.body,
+    html: `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
+  <div>${safeBody}</div>
+</body></html>`,
+  };
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

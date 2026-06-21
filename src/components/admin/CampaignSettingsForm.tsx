@@ -14,6 +14,7 @@ const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label
 
 type Strategy = CampaignSettings["strategy"];
 type AiConversation = CampaignSettings["aiConversation"];
+type OffboardingEmail = CampaignSettings["offboardingEmail"];
 
 const CAMPAIGN_GOAL_OPTIONS: { value: Strategy["campaignGoal"]; label: string }[] = [
   { value: "PRE_LAUNCH_WAITLIST", label: "Build Pre-Launch Waitlist" },
@@ -105,6 +106,17 @@ export function CampaignSettingsForm({
     setDirty(true);
     setStatus("idle");
   }
+  function setOffboardingEmail<K extends keyof OffboardingEmail>(
+    key: K,
+    value: OffboardingEmail[K],
+  ) {
+    setForm((f) => ({
+      ...f,
+      offboardingEmail: { ...f.offboardingEmail, [key]: value },
+    }));
+    setDirty(true);
+    setStatus("idle");
+  }
   function setProbeTopicsAndDirty(text: string) {
     setProbeTopicsText(text);
     setDirty(true);
@@ -167,6 +179,12 @@ export function CampaignSettingsForm({
           .split("\n")
           .map((t) => t.trim())
           .filter(Boolean),
+      },
+      // Send explicit "" for cleared subject/body so the merge update overwrites.
+      offboardingEmail: {
+        ...form.offboardingEmail,
+        subject: form.offboardingEmail.subject?.trim() ?? "",
+        body: form.offboardingEmail.body?.trim() ?? "",
       },
       questions: questions.map((q) => ({
         question_value: q.question_value.trim(),
@@ -411,6 +429,35 @@ export function CampaignSettingsForm({
           checked={form.sendEmailCongratulationsOnReferral}
           onChange={(v) => set("sendEmailCongratulationsOnReferral", v)}
         />
+
+        <div className="space-y-3 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+          <Toggle
+            label="Send an offboarding email when a signup is offboarded"
+            checked={form.offboardingEmail.enabled}
+            onChange={(v) => setOffboardingEmail("enabled", v)}
+          />
+          {form.offboardingEmail.enabled ? (
+            <>
+              <TextField
+                label="Subject"
+                value={form.offboardingEmail.subject ?? ""}
+                onChange={(v) => setOffboardingEmail("subject", v)}
+                placeholder="You're off the waitlist for {{waitlist_name}} 🎉"
+                hint="Blank = default copy."
+              />
+              <TextAreaField
+                label="Body"
+                value={form.offboardingEmail.body ?? ""}
+                onChange={(v) => setOffboardingEmail("body", v)}
+                placeholder={"Hi {{first_name}},\n\nGreat news — you're off the waitlist…"}
+              />
+              <p className="text-xs text-neutral-500">
+                Tokens: {"{{first_name}}"}, {"{{last_name}}"}, {"{{waitlist_name}}"},{" "}
+                {"{{referral_link}}"}. Plain text only.
+              </p>
+            </>
+          ) : null}
+        </div>
       </Section>
 
       <Section title="Questions" description="Survey questions shown on the signup form.">

@@ -8,6 +8,10 @@ PORT=3099
 BASE="http://localhost:$PORT"
 export ALLOW_SEED=true
 export GOOGLE_CLOUD_PROJECT=demo-vizzybl
+# Force the log email provider so the smoke never fires real emails and sends are
+# deterministic (a real MANDRILL_API_KEY in .env.local would otherwise be used).
+export MANDRILL_API_KEY=""
+export RESEND_API_KEY=""
 
 npx next start -p "$PORT" >/tmp/next-smoke.log 2>&1 &
 NEXT_PID=$!
@@ -159,6 +163,26 @@ curl -s -b /tmp/cj.txt -o /tmp/act.json -w "action HTTP %{http_code}\n" -X POST 
 cat /tmp/act.json; echo
 grep -q '"updated":1' /tmp/act.json || fail=1
 
+echo "--- admin: offboarded directory tab shows the offboarded user; active hides it ---"
+curl -s -b /tmp/cj.txt -o /tmp/off.html "$BASE/admin/launches/beta-launch/signups?status=offboarded"
+grep -q "referred@test.com" /tmp/off.html && echo "offboarded tab ✓" || { echo "BUG: offboarded user missing from directory"; fail=1; }
+curl -s -b /tmp/cj.txt -o /tmp/active.html "$BASE/admin/launches/beta-launch/signups"
+if grep -q "referred@test.com" /tmp/active.html; then echo "BUG: offboarded user still in active list"; fail=1; else echo "active tab clean ✓"; fi
+
+echo "--- admin: per-launch signups shows a Rank column ---"
+grep -q ">Rank<" /tmp/active.html && echo "rank column ✓" || { echo "BUG: no rank column"; fail=1; }
+
+echo "--- admin: move_to_top a verified signup (expect ok + rank 1) ---"
+MID="sig_$(printf 'beta-launch\nembed-smoke@test.com' | shasum -a 256 | cut -c1-40)"
+curl -s -b /tmp/cj.txt -o /tmp/move.json -w "move HTTP %{http_code}\n" -X POST "$BASE/api/admin/signups/action" \
+  -H 'content-type: application/json' -d "{\"action\":\"move_to_top\",\"id\":\"$MID\",\"campaignId\":\"beta-launch\"}"
+cat /tmp/move.json; echo
+{ grep -q '"ok":true' /tmp/move.json && grep -q '"rank":1' /tmp/move.json; } || { echo "BUG: move_to_top failed"; fail=1; }
+
+echo "--- move is queue-only: public leaderboard (by referrals) is unchanged ---"
+curl -s "$BASE/api/waitlist/beta-launch/leaderboard" -o /tmp/lb2.json
+grep -q '"amount_referred":1' /tmp/lb2.json && echo "leaderboard unchanged ✓" || { echo "BUG: move leaked into leaderboard"; fail=1; }
+
 # --- Campaign settings (PUT) -------------------------------------------------
 # A full, strict CampaignSettings payload (the route rejects partials/unknowns).
 cat > /tmp/campaign_put.json <<'JSON'
@@ -176,6 +200,7 @@ cat > /tmp/campaign_put.json <<'JSON'
   "twitterMessage": "I just joined the Vizzybl waitlist!",
   "sendEmailCongratulationsOnReferral": true,
   "leaderboardLength": 5,
+  "offboardingEmail": { "enabled": true, "subject": "Off the {{waitlist_name}} list 🎉", "body": "Hi {{first_name}}, you are off the waitlist!" },
   "configurationStyleJson": { "widgetButtonColor": "#111827", "socialLinks": { "twitter": "https://x.com/vizzybl" } }
 }
 JSON
@@ -208,6 +233,41 @@ echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Vizzybl Beta (Updated)" /tm
 echo "--- admin: settings list renders (expect 'Campaign settings') ---"
 code=$(curl -s -b /tmp/cj.txt -o /tmp/settings_list.html -w "%{http_code}" "$BASE/admin/settings")
 echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Campaign settings" /tmp/settings_list.html; } && echo "list ✓" || fail=1
+
+# --- Offboarding lifecycle email (offboardingEmail was enabled by the PUT above) ---
+echo "--- offboarding email: sign up a fresh user, offboard, drain the worker ---"
+curl -s -o /dev/null -w "signup HTTP %{http_code}\n" -X POST "$BASE/api/waitlist/beta-launch/signup" \
+  -H 'content-type: application/json' -d '{"email":"offb-smoke@test.com","firstName":"Off"}'
+OID="sig_$(printf 'beta-launch\noffb-smoke@test.com' | shasum -a 256 | cut -c1-40)"
+curl -s -b /tmp/cj.txt -o /tmp/offact.json -w "offboard HTTP %{http_code}\n" -X POST "$BASE/api/admin/signups/action" \
+  -H 'content-type: application/json' -d "{\"action\":\"offboard\",\"ids\":[\"$OID\"]}"
+grep -q '"updated":1' /tmp/offact.json || fail=1
+
+curl -s -b /tmp/cj.txt -o /tmp/proc.json -w "worker HTTP %{http_code}\n" -X POST "$BASE/api/admin/email/jobs/process"
+cat /tmp/proc.json; echo
+grep -q '"ok":true' /tmp/proc.json || fail=1
+
+# Offboarded user RETAINED in the CRM, flagged offboarded (B2) — via the CRM API.
+echo "--- offboard retains the CRM contact, flagged offboarded ---"
+CID="ct_$(printf 'ten_vzb\noffb-smoke@test.com' | shasum -a 256 | cut -c1-40)"
+curl -s -b /tmp/cj.txt -o /tmp/contact.json "$BASE/api/admin/crm/contacts/$CID"
+grep -q '"status":"offboarded"' /tmp/contact.json && echo "contact retained + offboarded ✓" \
+  || { echo "BUG: CRM contact not retained/offboarded"; head -c 400 /tmp/contact.json; echo; fail=1; }
+
+# Lifecycle job processed + sent — read it from the emulator (us → (default) db).
+# emailSentAt is only written after a successful send, so its presence proves it.
+echo "--- offboarding email: lifecycle job processed + sent ---"
+FS="http://${FIRESTORE_EMULATOR_HOST}/v1/projects/${GOOGLE_CLOUD_PROJECT}/databases/(default)/documents"
+curl -s -H "Authorization: Bearer owner" "$FS/email_jobs/offboard:${OID}" -o /tmp/job.json
+node -e '
+  let j; try { j = require("/tmp/job.json"); } catch (e) { console.error("no job doc"); process.exit(1); }
+  const f = j.fields || {};
+  const status = (f.status || {}).stringValue;
+  const sent = (f.emailSentAt || {}).stringValue;
+  console.log("lifecycle status=" + status + " emailSentAt=" + sent);
+  if (status !== "done" || !sent) process.exit(1);
+  console.log("offboarding email sent ✓");
+' || { echo "BUG: offboarding lifecycle job not sent"; head -c 400 /tmp/job.json; echo; fail=1; }
 
 echo "==== SMOKE $([ $fail -eq 0 ] && echo PASS || echo FAIL) ===="
 exit $fail

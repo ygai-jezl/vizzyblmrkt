@@ -37,6 +37,25 @@ export const MailchimpTenantConfigSchema = z.object({
 export type MailchimpTenantConfig = z.infer<typeof MailchimpTenantConfigSchema>;
 
 /**
+ * Per-tenant Unified CRM gates. Optional so existing tenant docs parse; all
+ * gates default OFF. These enforce the residency/privacy/abuse controls:
+ * enrichment + engagement polling ship data to US/global vendors, so they are
+ * OPT-IN and — for EU tenants — additionally require BYO vendor keys + a manual
+ * DPA acknowledgement before any cross-region transfer. See the CRM plan §H.
+ */
+export const CrmTenantConfigSchema = z.object({
+  /** Allow Agent-1 company enrichment (Gemini/Vertex). Default false. */
+  enrichmentEnabled: z.boolean().default(false),
+  /** Allow engagement polling (Mandrill/MailChimp). Default false. */
+  engagementSyncEnabled: z.boolean().default(false),
+  /** EU only: signed off that a DPA/SCC basis exists for vendor transfers. */
+  gdprDpaVerified: z.boolean().default(false),
+  /** Optional override of the per-tenant daily unique-company enrich cap. */
+  dailyEnrichCap: z.number().int().positive().optional(),
+});
+export type CrmTenantConfig = z.infer<typeof CrmTenantConfigSchema>;
+
+/**
  * One DNS record a tenant must publish to authenticate a custom sending domain
  * (SPF / DKIM / DMARC). `valid` reflects what the email provider (Mandrill) last
  * observed — see src/lib/email/senderDomains.ts.
@@ -156,6 +175,8 @@ export const TenantSchema = z.object({
   mailchimpConfig: MailchimpTenantConfigSchema.optional(),
   /** Global custom-domain email sender identity + verified domains. */
   emailSenderConfig: EmailSenderConfigSchema.optional(),
+  /** Unified CRM feature gates (enrichment / engagement / EU DPA). */
+  crmConfig: CrmTenantConfigSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

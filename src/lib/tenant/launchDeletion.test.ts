@@ -248,6 +248,7 @@ function dbThatFailsDeletingFrom(
         where: (...a) => col.where(...a),
         orderBy: (...a) => col.orderBy(...a),
         limit: (n) => col.limit(n),
+        startAfter: (...a) => col.startAfter(...a),
         get: () => col.get(),
         count: () => col.count(),
         doc: (id?: string) => {

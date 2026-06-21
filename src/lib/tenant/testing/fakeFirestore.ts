@@ -68,6 +68,7 @@ class FakeQuery implements QueryLike {
     protected filters: Array<[string, WhereOp, unknown]> = [],
     protected orders: Array<[string, OrderDir]> = [],
     protected lim?: number,
+    protected after?: unknown[],
   ) {}
 
   where(field: string, op: WhereOp, value: unknown): QueryLike {
@@ -76,6 +77,7 @@ class FakeQuery implements QueryLike {
       [...this.filters, [field, op, value]],
       this.orders,
       this.lim,
+      this.after,
     );
   }
 
@@ -85,11 +87,16 @@ class FakeQuery implements QueryLike {
       this.filters,
       [...this.orders, [field, dir]],
       this.lim,
+      this.after,
     );
   }
 
   limit(n: number): QueryLike {
-    return new FakeQuery(this.store, this.filters, this.orders, n);
+    return new FakeQuery(this.store, this.filters, this.orders, n, this.after);
+  }
+
+  startAfter(...values: unknown[]): QueryLike {
+    return new FakeQuery(this.store, this.filters, this.orders, this.lim, values);
   }
 
   protected rows(): Row[] {
@@ -110,6 +117,21 @@ class FakeQuery implements QueryLike {
         const bv = b.data[field] as number | string;
         const c = av < bv ? -1 : av > bv ? 1 : 0;
         return dir === "asc" ? c : -c;
+      });
+    }
+    // Cursor: keep only rows that sort strictly AFTER the supplied tuple
+    // (aligned to orderBy), matching firebase-admin startAfter() semantics.
+    if (this.after) {
+      const cursor = this.after;
+      rows = rows.filter((r) => {
+        for (let i = 0; i < this.orders.length; i++) {
+          const [field, dir] = this.orders[i]!;
+          const av = r.data[field] as number | string;
+          const bv = cursor[i] as number | string;
+          const c = av < bv ? -1 : av > bv ? 1 : 0;
+          if (c !== 0) return (dir === "asc" ? c : -c) > 0;
+        }
+        return false; // exactly equal to the cursor → excluded
       });
     }
     if (this.lim != null) rows = rows.slice(0, this.lim);

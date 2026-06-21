@@ -21,6 +21,7 @@ import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
 import { syncSignupToAudience } from "@/lib/mailchimp";
 import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
+import { recordSignupContact } from "@/lib/crm/contactService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -198,6 +199,16 @@ export async function POST(
         err,
       );
     }
+  }
+
+  // Unified CRM: materialise/refresh the person-level contact for ANY retained
+  // signup (verified or unverified — a failed-verification signup was already
+  // deleted above, so no orphan contact). Best-effort: a CRM hiccup must never
+  // fail the signup. Corporate + verified contacts also queue Agent-1 enrichment.
+  try {
+    await recordSignupContact(ctx, campaign, result.signup);
+  } catch (err) {
+    console.warn(`[crm] contact upsert on signup failed for ${campaign.id}:`, err);
   }
 
   // Gamified payoff: the verified user's live position + a ready-to-share message

@@ -94,6 +94,58 @@ export async function generateText(prompt: string): Promise<string | null> {
   }
 }
 
+/** Extract the first JSON object from model text (tolerates ```json fences/prose). */
+function parseFirstJson(text: string): unknown | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+export interface GroundedJsonResult {
+  /** Parsed JSON object, or null when the model errored / returned no JSON. */
+  json: unknown | null;
+  groundingUsed: boolean;
+  model: string;
+}
+
+/**
+ * Generate a grounded (Google Search) JSON response. Returns null only when
+ * Gemini is UNCONFIGURED (caller degrades to "unavailable"); a configured-but-
+ * failed call returns { json: null } so the caller can distinguish parse/transport
+ * failures from missing config. Used by the Market Intelligence Agent (Agent 1).
+ * PII-safe: never logs the prompt (it can carry a company domain / sample email).
+ */
+export async function generateGroundedJson(
+  prompt: string,
+): Promise<GroundedJsonResult | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  try {
+    const res = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] },
+    });
+    const cand = res.candidates?.[0] as { groundingMetadata?: unknown } | undefined;
+    return {
+      json: parseFirstJson(res.text ?? ""),
+      groundingUsed: cand?.groundingMetadata != null,
+      model: TEXT_MODEL,
+    };
+  } catch (err) {
+    console.warn(
+      "[gemini] generateGroundedJson failed:",
+      err instanceof Error ? err.message.slice(0, 200) : "error",
+    );
+    return { json: null, groundingUsed: false, model: TEXT_MODEL };
+  }
+}
+
 export interface GeneratedImage {
   bytes: Buffer;
   mimeType: string;

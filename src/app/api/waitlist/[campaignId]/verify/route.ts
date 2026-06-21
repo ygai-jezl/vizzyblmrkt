@@ -9,6 +9,7 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import { syncSignupToAudience } from "@/lib/mailchimp";
 import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
+import { recordSignupContact } from "@/lib/crm/contactService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +103,19 @@ export async function GET(
           `[journey] enrollment on verify failed for ${campaign.id}:`,
           err,
         );
+      }
+      // Unified CRM: refresh the contact now that this person is verified —
+      // flips consent to verified_active and (for corporate domains) queues
+      // Agent-1 enrichment. Force verified state: we're in the verified branch,
+      // so don't depend on the just-read row's status being fresh.
+      try {
+        await recordSignupContact(ctx, campaign, {
+          ...signup,
+          status: "verified_active",
+          verified: true,
+        });
+      } catch (err) {
+        console.warn(`[crm] contact upsert on verify failed for ${campaign.id}:`, err);
       }
     }
   }

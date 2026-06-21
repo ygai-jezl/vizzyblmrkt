@@ -444,6 +444,7 @@ describe("processEmailJobs — lifecycle (offboarding) email", () => {
       tenantId: "ten_L",
       campaignId: "camp1",
       status: "offboarded",
+      verified: true,
       email: "a@b.com",
     });
     seedJob(db, "s1");
@@ -453,6 +454,29 @@ describe("processEmailJobs — lifecycle (offboarding) email", () => {
     expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({
       status: "done",
       emailSentAt: null, // never sent
+    });
+  });
+
+  it("no-ops for an offboarded signup that was never verified (consent)", async () => {
+    const db = new FakeFirestore();
+    db.seed("campaigns", "camp1", {
+      tenantId: "ten_L",
+      offboardingEmail: { enabled: true },
+    });
+    db.seed("signups", "s1", {
+      tenantId: "ten_L",
+      campaignId: "camp1",
+      status: "offboarded",
+      verified: false, // never confirmed their email → no outbound
+      email: "a@b.com",
+    });
+    seedJob(db, "s1");
+
+    const r = await processEmailJobs(ctx, 25, db);
+    expect(r).toMatchObject({ done: 1 });
+    expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({
+      status: "done",
+      emailSentAt: null,
     });
   });
 

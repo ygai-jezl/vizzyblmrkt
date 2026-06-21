@@ -322,16 +322,26 @@ async function processLifecycleJob(
 
   const signupId = String(job.payload.signupId ?? "");
   const signup = await forTenant(ctx, db).signups.getById(signupId);
-  // Only send if they are still offboarded with an email — re-activated or
-  // deleted in the meantime → no-op (the lifecycle event no longer holds).
-  if (!signup || signup.status !== "offboarded" || !signup.email) return "done";
+  // Only send if they are still offboarded, VERIFIED, and have an email. Consent:
+  // no outbound to a contact below verified_active (see contact.ts §H2) — so a
+  // never-verified (unconfirmed-email) signup gets no offboarding email, exactly
+  // like the journey handler's verified_active guard. A re-activated/deleted
+  // recipient also no-ops (the lifecycle event no longer holds).
+  if (!signup || signup.status !== "offboarded" || !signup.verified || !signup.email) {
+    return "done";
+  }
 
   const campaign = await forTenant(ctx, db).campaigns.getById(signup.campaignId);
   if (!campaign?.offboardingEmail?.enabled) return "done"; // toggle off → no-op
 
   const offb = campaign.offboardingEmail;
   const mergeCtx = { signup, campaign };
-  const subject = renderMergeVars(offb.subject?.trim() || DEFAULT_OFFBOARDING_SUBJECT, mergeCtx);
+  // Strip CRLF from the subject so a merge-token value (e.g. a crafted firstName)
+  // can't smuggle extra email headers. The body is fine — it's HTML-escaped and
+  // newlines become <br>.
+  const subject = renderMergeVars(offb.subject?.trim() || DEFAULT_OFFBOARDING_SUBJECT, mergeCtx)
+    .replace(/[\r\n]+/g, " ")
+    .trim();
   const body = renderMergeVars(offb.body?.trim() || DEFAULT_OFFBOARDING_BODY, mergeCtx);
 
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);

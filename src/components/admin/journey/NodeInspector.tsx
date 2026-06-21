@@ -6,6 +6,8 @@ import type {
   JourneyBranch,
   JourneyCondition,
   ConditionOperator,
+  AbTest,
+  AbVariant,
 } from "@/lib/types/journey";
 import type { Question } from "@/lib/types/campaign";
 import {
@@ -63,24 +65,31 @@ export function NodeInspector({
       </div>
 
       {node.type === "email" ? (
-        <EmailComposer
-          mode="journey-node"
-          campaignId={campaignId}
-          value={{
-            subject: String(data.subject ?? ""),
-            body: String(data.body ?? ""),
-            heroImageUrl: (data.heroImageUrl as string | null) ?? null,
-            agentMeta: data.agentMeta as EmailComposerValue["agentMeta"],
-          }}
-          onChange={(v) =>
-            onUpdate(node.id, {
-              subject: v.subject,
-              body: v.body,
-              heroImageUrl: v.heroImageUrl ?? null,
-              agentMeta: v.agentMeta,
-            })
-          }
-        />
+        <div className="space-y-4">
+          <EmailComposer
+            mode="journey-node"
+            campaignId={campaignId}
+            value={{
+              subject: String(data.subject ?? ""),
+              body: String(data.body ?? ""),
+              heroImageUrl: (data.heroImageUrl as string | null) ?? null,
+              agentMeta: data.agentMeta as EmailComposerValue["agentMeta"],
+            }}
+            onChange={(v) =>
+              onUpdate(node.id, {
+                subject: v.subject,
+                body: v.body,
+                heroImageUrl: v.heroImageUrl ?? null,
+                agentMeta: v.agentMeta,
+              })
+            }
+          />
+          <AbTestEditor
+            abTest={data.abTest as AbTest | undefined}
+            campaignId={campaignId}
+            onChange={(abTest) => onUpdate(node.id, { abTest })}
+          />
+        </div>
       ) : null}
 
       {node.type === "wait" ? (
@@ -111,6 +120,163 @@ export function NodeInspector({
           The journey starts here when a signup becomes verified. Connect this to
           the first email or wait step.
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+function newVariant(): AbVariant {
+  return { variantId: `var_${crypto.randomUUID()}`, subject: "", body: "", heroImageUrl: null };
+}
+
+/**
+ * A/B authoring for an email node. The node's base copy (above) is always the
+ * CONTROL; this adds 1–2 challenger variants and the % of recipients that enter
+ * the test (the rest get control). Results + winner promotion live in the
+ * launch's Analytics → Emails tab, NOT here — authoring only.
+ */
+function AbTestEditor({
+  abTest,
+  campaignId,
+  onChange,
+}: {
+  abTest: AbTest | undefined;
+  campaignId: string;
+  onChange: (next: AbTest | undefined) => void;
+}) {
+  // A promoted test is history — the winner is already in the base copy above.
+  if (abTest?.status === "promoted") {
+    return (
+      <div className="mt-2 rounded-md border border-green-200 bg-green-50/60 p-3 text-xs text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
+        A/B test promoted — the winning version is now the email above. Toggle a
+        new test to run another.{" "}
+        <button
+          type="button"
+          onClick={() => onChange(undefined)}
+          className="underline"
+        >
+          Start a new test
+        </button>
+      </div>
+    );
+  }
+
+  const enabled = !!abTest?.enabled;
+
+  function enable() {
+    onChange({ enabled: true, variants: [newVariant()], splitPercent: 50, status: "running" });
+  }
+  function setSplit(p: number) {
+    if (!abTest) return;
+    onChange({ ...abTest, splitPercent: Math.min(100, Math.max(1, Math.round(p) || 1)) });
+  }
+  function updateVariant(idx: number, patch: Partial<AbVariant>) {
+    if (!abTest) return;
+    onChange({
+      ...abTest,
+      variants: abTest.variants.map((v, i) => (i === idx ? { ...v, ...patch } : v)),
+    });
+  }
+  function addVariant() {
+    if (!abTest || abTest.variants.length >= 2) return;
+    onChange({ ...abTest, variants: [...abTest.variants, newVariant()] });
+  }
+  function removeVariant(idx: number) {
+    if (!abTest) return;
+    const variants = abTest.variants.filter((_, i) => i !== idx);
+    onChange(variants.length === 0 ? undefined : { ...abTest, variants });
+  }
+
+  return (
+    <div className="mt-2 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold">A/B test</h4>
+          <p className="text-xs text-neutral-500">
+            Try alternate versions of this email — the email above is the control.
+          </p>
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => (e.target.checked ? enable() : onChange(undefined))}
+          />
+          Run A/B test
+        </label>
+      </div>
+
+      {enabled && abTest ? (
+        <div className="mt-3 space-y-4">
+          <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+            % of recipients entering the test
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={abTest.splitPercent}
+                onChange={(e) => setSplit(Number(e.target.value))}
+                className="w-24 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+              />
+              <span className="text-xs font-normal text-neutral-500">
+                The other {100 - abTest.splitPercent}% get the control.
+              </span>
+            </div>
+          </label>
+
+          {abTest.variants.map((v, i) => (
+            <div
+              key={v.variantId}
+              className="rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral-500">
+                  Variant {String.fromCharCode(65 + i)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeVariant(i)}
+                  className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                >
+                  Remove
+                </button>
+              </div>
+              <EmailComposer
+                mode="journey-node"
+                campaignId={campaignId}
+                value={{
+                  subject: v.subject,
+                  body: v.body,
+                  heroImageUrl: v.heroImageUrl ?? null,
+                }}
+                onChange={(val) =>
+                  updateVariant(i, {
+                    subject: val.subject,
+                    body: val.body,
+                    heroImageUrl: val.heroImageUrl ?? null,
+                  })
+                }
+              />
+            </div>
+          ))}
+
+          {abTest.variants.length < 2 ? (
+            <button
+              type="button"
+              onClick={addVariant}
+              className="rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+            >
+              + Add another variant
+            </button>
+          ) : null}
+
+          <p className="rounded-md bg-neutral-50 p-2 text-xs text-neutral-500 dark:bg-neutral-900/40">
+            Review results and promote a winner from this launch&apos;s{" "}
+            <span className="font-medium">Analytics → Emails</span> tab once the
+            test has run.
+          </p>
+        </div>
       ) : null}
     </div>
   );

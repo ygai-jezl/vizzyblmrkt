@@ -52,6 +52,35 @@ export const JourneyBranchSchema = z.object({
 });
 export type JourneyBranch = z.infer<typeof JourneyBranchSchema>;
 
+/**
+ * A/B test on a single email node. The node's base subject/body is always the
+ * implicit CONTROL arm; `variants` holds 1–2 challengers (so 2–3 arms total).
+ * Hold-out semantics: `splitPercent` is the % of recipients that ENTER the test
+ * (split across the challengers); the rest receive the control. Allocation is
+ * deterministic per (node, recipient) — see lib/journey/allocation.ts.
+ */
+export const AbVariantSchema = z.object({
+  variantId: z.string(), // "var_<uuid>" — never "control" (that's the base copy)
+  subject: z.string(),
+  body: z.string(),
+  heroImageUrl: z.string().nullable().optional(),
+});
+export type AbVariant = z.infer<typeof AbVariantSchema>;
+
+export const AbTestStatus = z.enum(["running", "promoted"]);
+export type AbTestStatus = z.infer<typeof AbTestStatus>;
+
+export const AbTestSchema = z.object({
+  enabled: z.boolean(),
+  variants: z.array(AbVariantSchema).min(1).max(2),
+  splitPercent: z.number().int().min(1).max(100),
+  status: AbTestStatus,
+  /** Set once a winner is promoted ("control" or a variant id). */
+  winnerVariantId: z.string().nullable().optional(),
+  startedAt: z.string().optional(),
+});
+export type AbTest = z.infer<typeof AbTestSchema>;
+
 export const JourneyNodeDataSchema = z.object({
   label: z.string().optional(),
   // email node
@@ -59,6 +88,9 @@ export const JourneyNodeDataSchema = z.object({
   body: z.string().optional(),
   heroImageUrl: z.string().nullable().optional(),
   agentMeta: AgentMetaSchema.optional(),
+  // email node — optional A/B test (absent = single-email behaviour; base
+  // subject/body is the control arm).
+  abTest: AbTestSchema.optional(),
   // wait node
   waitHours: z.number().int().nonnegative().optional(),
   // condition node — ordered; first match wins. Recipients matching no branch

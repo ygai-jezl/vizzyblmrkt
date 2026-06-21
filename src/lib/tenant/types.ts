@@ -71,6 +71,8 @@ export interface QueryLike {
   where(field: string, op: WhereOp, value: unknown): QueryLike;
   orderBy(field: string, dir?: OrderDir): QueryLike;
   limit(n: number): QueryLike;
+  /** Cursor pagination: values aligned to the active orderBy() fields. */
+  startAfter(...values: unknown[]): QueryLike;
   get(): Promise<QuerySnapLike>;
   count(): AggregateQueryLike;
 }

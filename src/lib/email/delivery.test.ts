@@ -427,6 +427,7 @@ describe("processEmailJobsForAllTenants (multi-tenant fan-out)", () => {
         seen.push({ tenantId: c.tenantId, region: c.region });
         return { processed: 2, done: 2, failed: 0 };
       },
+      syncStats: async () => {},
     });
     expect(seen).toEqual([
       { tenantId: "ten_us", region: "us" },
@@ -443,6 +444,7 @@ describe("processEmailJobsForAllTenants (multi-tenant fan-out)", () => {
         if (c.region === "eu") throw new Error("eu_db_unavailable");
         return { processed: 1, done: 1, failed: 0 };
       },
+      syncStats: async () => {},
     });
     expect(r.tenants).toBe(3);
     expect(r.processed).toBe(2); // us + asia only
@@ -462,6 +464,7 @@ describe("processEmailJobsForAllTenants (multi-tenant fan-out)", () => {
         limits.push(limit);
         return { processed: 0, done: 0, failed: 0 };
       },
+      syncStats: async () => {},
     });
     expect(limits).toEqual([7]);
   });

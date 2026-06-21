@@ -20,6 +20,20 @@ export interface EmailMessage {
    */
   fromEmail?: string;
   fromName?: string;
+  /**
+   * Provider-side engagement tracking (Mandrill only). Off unless set — turning
+   * it on lets Mandrill record opens/clicks and POST them to our webhook.
+   */
+  track?: { opens?: boolean; clicks?: boolean };
+  /**
+   * Per-message metadata echoed back verbatim on Mandrill open/click/send
+   * webhooks (as `msg.metadata`). This is how an inbound event is attributed to
+   * a journey step + recipient + A/B arm with NO database lookup. Flat
+   * string→string map. Resend/log providers ignore it.
+   */
+  metadata?: Record<string, string>;
+  /** Mandrill tags (each ≤50 chars and must not start with "_"). */
+  tags?: string[];
 }
 
 export interface EmailResult {
@@ -64,6 +78,10 @@ async function sendViaMandrill(
           ...(fromName ? { from_name: fromName } : {}),
           to: [{ email: msg.to, type: "to" }],
           ...(msg.replyTo ? { headers: { "Reply-To": msg.replyTo } } : {}),
+          ...(msg.track?.opens ? { track_opens: true } : {}),
+          ...(msg.track?.clicks ? { track_clicks: true } : {}),
+          ...(msg.metadata ? { metadata: msg.metadata } : {}),
+          ...(msg.tags && msg.tags.length ? { tags: msg.tags } : {}),
         },
       }),
     });

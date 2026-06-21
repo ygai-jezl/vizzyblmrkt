@@ -14,6 +14,9 @@ import type { TenantUser } from "@/lib/types/tenantUser";
 import type { Broadcast } from "@/lib/types/broadcast";
 import type { Journey } from "@/lib/types/journey";
 import type { EmailJob } from "@/lib/types/emailJob";
+import type { EmailEvent } from "@/lib/types/emailEvent";
+import type { Contact } from "@/lib/types/contact";
+import type { Company } from "@/lib/types/company";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -24,6 +27,12 @@ export interface FindOptions {
   where?: WhereClause[];
   orderBy?: Array<[field: string, dir: OrderDir]>;
   limit?: number;
+  /**
+   * Cursor for keyset pagination — the order-field values of the last row of the
+   * previous page (aligned to `orderBy`). Prefer this over an offset for the CRM
+   * lists. Add an `id`/`createdAt` tiebreak to `orderBy` to disambiguate ties.
+   */
+  startAfter?: unknown[];
 }
 
 type TenantScoped = { tenantId: string; id: string };
@@ -70,6 +79,7 @@ export class TenantCollection<T extends TenantScoped> {
   async find(opts: FindOptions = {}): Promise<T[]> {
     let q = this.applyWhere(this.base(), opts.where);
     for (const [field, dir] of opts.orderBy ?? []) q = q.orderBy(field, dir);
+    if (opts.startAfter != null) q = q.startAfter(...opts.startAfter);
     if (opts.limit != null) q = q.limit(opts.limit);
     const snap = await q.get();
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
@@ -201,6 +211,12 @@ export interface TenantRepositories {
   broadcasts: TenantCollection<Broadcast>;
   journeys: TenantCollection<Journey>;
   emailJobs: TenantCollection<EmailJob>;
+  /** Per-recipient engagement events (opens/clicks/...) from Mandrill webhooks. */
+  emailEvents: TenantCollection<EmailEvent>;
+  /** Unified CRM: person records + company intelligence. Email history is read
+   *  from `emailEvents` (the Mandrill-webhook engagement stream), keyed by signupId. */
+  contacts: TenantCollection<Contact>;
+  companies: TenantCollection<Company>;
 }
 
 /**
@@ -238,5 +254,9 @@ export function forTenant(
     broadcasts: new TenantCollection<Broadcast>(regionalDb, "broadcasts", t),
     journeys: new TenantCollection<Journey>(regionalDb, "journeys", t),
     emailJobs: new TenantCollection<EmailJob>(regionalDb, "email_jobs", t),
+    emailEvents: new TenantCollection<EmailEvent>(regionalDb, "email_events", t),
+    // Unified CRM PII → regional DB, like signups.
+    contacts: new TenantCollection<Contact>(regionalDb, "contacts", t),
+    companies: new TenantCollection<Company>(regionalDb, "companies", t),
   };
 }

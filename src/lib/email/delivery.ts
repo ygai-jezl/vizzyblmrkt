@@ -17,7 +17,12 @@ import {
 } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
 import { selectBranch } from "@/lib/journey/conditions";
+import { allocateVariant, resolveArmContent } from "@/lib/journey/allocation";
+import { syncBroadcastStats } from "@/lib/mailchimp/reports";
 import { enqueueEmailJob } from "./jobs";
+import { recordEmailEvent } from "./events";
+import { processContactEnrichJob } from "@/lib/crm/enrichWorker";
+import { processContactEraseJob } from "@/lib/crm/eraseWorker";
 
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
@@ -88,9 +93,28 @@ export async function processEmailJobs(
       claimedAt: new Date().toISOString(),
     });
     try {
+      // Exhaustive dispatch (§H5): a new EmailJobType must be handled here or the
+      // `never` check below fails to compile — it can never silently fall through
+      // to the journey-step handler.
       let outcome: JobOutcome = "done";
-      if (job.type === "broadcast") await processBroadcastJob(ctx, job, db);
-      else outcome = await processJourneyStepJob(ctx, job, rankCache, db);
+      switch (job.type) {
+        case "broadcast":
+          await processBroadcastJob(ctx, job, db);
+          break;
+        case "journey_step":
+          outcome = await processJourneyStepJob(ctx, job, rankCache, db);
+          break;
+        case "contact_enrich":
+          outcome = await processContactEnrichJob(ctx, job, db);
+          break;
+        case "contact_erase":
+          outcome = await processContactEraseJob(ctx, job, db);
+          break;
+        default: {
+          const _exhaustive: never = job.type;
+          throw new Error(`unknown job type: ${String(_exhaustive)}`);
+        }
+      }
       if (outcome === "drop") {
         // Recipient gone/unverified: DELETE the job rather than tombstone it.
         // A "done" row would keep the dedupe key forever and block a re-created
@@ -152,10 +176,13 @@ export async function processEmailJobsForAllTenants(
       ctx: TenantContext,
       limit: number,
     ) => Promise<{ processed: number; done: number; failed: number }>;
+    /** Refresh broadcast open/click stats from MailChimp. Injectable for tests. */
+    syncStats?: (ctx: TenantContext) => Promise<unknown>;
   } = {},
 ): Promise<TenantDrainResult> {
   const listTenants = deps.listTenants ?? listAllTenants;
   const drain = deps.drain ?? processEmailJobs;
+  const syncStats = deps.syncStats ?? syncBroadcastStats;
   const tenants = await listTenants();
   let processed = 0;
   let done = 0;
@@ -173,6 +200,12 @@ export async function processEmailJobsForAllTenants(
       done += r.done;
       failed += r.failed;
       perTenant.push({ tenantId: t.id, region: t.region, ...r });
+      // Refresh broadcast open/click stats from MailChimp (separate source from
+      // the Mandrill engagement webhook). Best-effort — never let it fail the run.
+      await syncStats(ctx).catch((err) => {
+        const msg = err instanceof Error ? err.message : "error";
+        console.warn(`[delivery] tenant ${t.id} broadcast-stats sync failed: ${msg}`);
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       console.warn(`[delivery] tenant ${t.id} (${t.region}) drain failed: ${msg}`);
@@ -318,14 +351,12 @@ async function processJourneyStepJob(
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const sender = resolveSender(tenant, campaign);
 
-  const compiled = compileJourneyEmail(
-    {
-      subject: node.data.subject ?? "",
-      body: node.data.body ?? "",
-      heroImageUrl: node.data.heroImageUrl ?? null,
-    },
-    { signup, campaign, rank },
-  );
+  // Which A/B arm this recipient gets ("control" or a variant id). Deterministic
+  // per (node, recipient) so a retry re-derives the same arm — and the dedupe key
+  // is unchanged, preserving idempotency. No test configured → always "control".
+  const variantId = allocateVariant(node.id, signup.id, node.data.abTest).variantId;
+  const arm = resolveArmContent(node, variantId);
+  const compiled = compileJourneyEmail(arm, { signup, campaign, rank });
 
   // Send once per job: if a prior attempt already dispatched (then failed during
   // the next-step enqueue), don't re-send — just continue to scheduling.
@@ -338,6 +369,18 @@ async function processJourneyStepJob(
       fromEmail: sender.fromEmail,
       fromName: sender.fromName,
       replyTo: sender.replyTo,
+      track: { opens: true, clicks: true },
+      // Echoed back verbatim on Mandrill open/click webhooks — attributes the
+      // event to this step + recipient + A/B arm with no database lookup.
+      metadata: {
+        tenantId: ctx.tenantId,
+        campaignId: journey.campaignId,
+        journeyId: journey.id,
+        nodeId: node.id,
+        signupId: signup.id,
+        variantId,
+      },
+      tags: ["journey", `node-${node.id}`],
     });
     // "log" provider (dev, no key) counts as success so the chain still advances.
     if (!res.sent && res.provider !== "log") {
@@ -345,7 +388,29 @@ async function processJourneyStepJob(
     }
     await forTenant(ctx, db).emailJobs.update(job.id, {
       emailSentAt: new Date().toISOString(),
+      mandrillMessageId: res.id ?? null,
+      variantId,
     });
+    // Record the send as an engagement event ourselves rather than depend on
+    // Mandrill's "Message is sent" webhook for the denominator — open/click rates
+    // are computed over delivered, and "enrolled"/"sent" counts come from these
+    // `send` rows. Idempotent (same dedupe id) so it collapses with a webhook
+    // "send" if that event is also enabled; best-effort so a failure here can
+    // never re-send the email (the emailSentAt guard above already committed).
+    await recordEmailEvent(
+      ctx,
+      {
+        campaignId: journey.campaignId,
+        journeyId: journey.id,
+        nodeId: node.id,
+        signupId: signup.id,
+        variantId,
+        type: "send",
+        ts: new Date().toISOString(),
+        mandrillMessageId: res.id ?? null,
+      },
+      db,
+    ).catch(() => {});
   }
 
   // Schedule the next step (walking through any wait nodes).

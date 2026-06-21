@@ -91,6 +91,20 @@ env:
   #   availability:
   #     - RUNTIME
   #
+  # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). The KEY
+  # is the per-webhook signing key from the Mandrill dashboard; the URL must be
+  # the exact registered public URL (it is part of the HMAC signature). The
+  # secret needs the full grant-access triple (viewer + service-agent
+  # versionManager + secretAccessor), not just secretAccessor.
+  # - variable: MANDRILL_WEBHOOK_KEY
+  #   secret: mandrill-webhook-key
+  #   availability:
+  #     - RUNTIME
+  # - variable: MANDRILL_WEBHOOK_URL
+  #   value: https://yougrow.ai/api/webhooks/mandrill
+  #   availability:
+  #     - RUNTIME
+  #
   # Signs the short-lived capability token the admin-chat proxy mints so the
   # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
   # journey DRAFT. Keep COMMENTED until the secret exists; while unset, agent

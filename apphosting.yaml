@@ -60,14 +60,14 @@ env:
   # BQ-backed breakdowns degrade gracefully to the Firestore path — so this is
   # OFF by default and only flipped on once the datasets + backfill are verified.
   - variable: ANALYTICS_BQ_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   # Public mirror of the flag so the embed widget can tree-shake the view beacon
   # to a no-op when the pipeline is off (NEXT_PUBLIC_* is inlined at BUILD).
   - variable: NEXT_PUBLIC_ANALYTICS_BQ_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

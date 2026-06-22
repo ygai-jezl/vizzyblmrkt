@@ -17,8 +17,22 @@
     }
   ],
   "emulators": {
-    "auth": { "port": 9099 },
-    "firestore": { "port": 8080 },
-    "ui": { "enabled": true }
+    "auth": {
+      "port": 9099
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": true
+    }
+  },
+  "extensions": {
+    "fsbq-signups-us": "firebase/firestore-bigquery-export@0.3.2",
+    "fsbq-email-events-us": "firebase/firestore-bigquery-export@0.3.2",
+    "fsbq-signups-eu": "firebase/firestore-bigquery-export@0.3.2",
+    "fsbq-email-events-eu": "firebase/firestore-bigquery-export@0.3.2",
+    "fsbq-signups-asia": "firebase/firestore-bigquery-export@0.3.2",
+    "fsbq-email-events-asia": "firebase/firestore-bigquery-export@0.3.2"
   }
 }

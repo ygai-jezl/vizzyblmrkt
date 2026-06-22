@@ -93,6 +93,19 @@ describe("buildWidgetViewRow", () => {
     expect(row.ua_class).toBe("unknown");
     expect(row.is_bot).toBe(true);
   });
+
+  it("classifies the CLIENT-supplied UA, not the edge-rewritten request header", () => {
+    // App Hosting rewrites the request User-Agent to "Google" at the origin, so a
+    // real browser would be misclassified from the header. The body UA wins.
+    const edgeHeader = new Headers({ "user-agent": "Google" });
+    const withUa = ViewBeaconSchema.parse({
+      campaignId: "c1",
+      ua: "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    });
+    const row = buildWidgetViewRow(withUa, edgeHeader, "t", "c1");
+    expect(row.ua_class).toBe("browser");
+    expect(row.is_bot).toBe(false);
+  });
 });
 
 describe("clientIp / isIpLiteral", () => {

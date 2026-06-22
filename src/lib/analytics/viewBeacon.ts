@@ -25,6 +25,11 @@ export function sendViewBeacon(campaignId: string): void {
       // is dropped by JSON.stringify → server falls back to origin resolution).
       t: sp.get("t") ?? undefined,
       ref: document.referrer || undefined,
+      // The client's own UA — App Hosting's edge rewrites the request User-Agent
+      // header to "Google" at the origin, so the server can't read it from
+      // headers. Sent here so the server can classify real browsers vs bots
+      // (only the bucketed class is stored, never this raw string).
+      ua: navigator.userAgent || undefined,
       utm: {
         source: sp.get("utm_source") ?? undefined,
         medium: sp.get("utm_medium") ?? undefined,

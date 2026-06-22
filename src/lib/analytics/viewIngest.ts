@@ -30,6 +30,9 @@ export const ViewBeaconSchema = z
     t: Str(200),
     /** Raw referrer URL (reduced to host server-side; never stored raw). */
     ref: Str(2048),
+    /** Client navigator.userAgent — the request-header UA is unreliable (App
+     *  Hosting's edge rewrites it to "Google"); classified to a bucket, never stored raw. */
+    ua: Str(512),
     utm: z
       .object({
         source: Str(200),
@@ -102,7 +105,9 @@ export function buildWidgetViewRow(
   tenantId: string,
   campaignId: string,
 ): WidgetViewRow {
-  const uaClass = classifyUa(headers.get("user-agent"));
+  // Prefer the client-supplied UA (the request header is rewritten to "Google"
+  // by App Hosting's edge); fall back to the header for non-edge callers.
+  const uaClass = classifyUa(input.ua || headers.get("user-agent"));
   const now = new Date();
   return {
     event_id: randomUUID(),

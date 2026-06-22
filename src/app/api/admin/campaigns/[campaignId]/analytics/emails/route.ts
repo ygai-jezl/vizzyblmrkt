@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { computeEmailAnalytics } from "@/lib/analytics/email";
+import { computeHybridEmailAnalytics } from "@/lib/analytics/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +16,6 @@ export async function GET(req: Request, { params }: RouteParams) {
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { campaignId } = await params;
-  const analytics = await computeEmailAnalytics(ctx, campaignId);
+  const analytics = await computeHybridEmailAnalytics(ctx, campaignId);
   return NextResponse.json({ analytics });
 }

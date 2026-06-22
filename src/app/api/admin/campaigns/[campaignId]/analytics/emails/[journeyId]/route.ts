@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { journeyIdFor } from "@/lib/journey/service";
-import { computeSequenceEmailBreakdown } from "@/lib/analytics/email";
+import { computeHybridSequenceBreakdown } from "@/lib/analytics/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,6 @@ export async function GET(req: Request, { params }: RouteParams) {
   if (journeyId !== expected) {
     return NextResponse.json({ error: "journey_mismatch" }, { status: 400 });
   }
-  const breakdown = await computeSequenceEmailBreakdown(ctx, expected);
+  const breakdown = await computeHybridSequenceBreakdown(ctx, expected);
   return NextResponse.json({ breakdown });
 }

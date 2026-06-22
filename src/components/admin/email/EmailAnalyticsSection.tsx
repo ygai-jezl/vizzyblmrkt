@@ -115,6 +115,7 @@ export function EmailAnalyticsSection({ campaignId }: { campaignId: string }) {
               <th className="px-3 py-2 text-right font-medium">Delivery</th>
               <th className="px-3 py-2 text-right font-medium">Open rate</th>
               <th className="px-3 py-2 text-right font-medium">Click rate</th>
+              <th className="px-3 py-2 text-right font-medium">Unsubscribed</th>
             </tr>
           </thead>
           <tbody>
@@ -134,10 +135,11 @@ export function EmailAnalyticsSection({ campaignId }: { campaignId: string }) {
                     <td className="px-3 py-2 text-right tabular-nums">{pct(s.delivered / Math.max(1, s.sent))}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{pct(s.openRate)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{pct(s.clickRate)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{s.unsubscribed.toLocaleString()}</td>
                   </tr>
                   {isOpen ? (
                     <tr className="border-b border-neutral-100 dark:border-neutral-900">
-                      <td colSpan={5} className="bg-neutral-50/50 px-3 py-3 dark:bg-neutral-900/30">
+                      <td colSpan={6} className="bg-neutral-50/50 px-3 py-3 dark:bg-neutral-900/30">
                         {breakdownLoading === s.id ? (
                           <p className="text-xs text-neutral-500">Loading emails…</p>
                         ) : (
@@ -164,6 +166,7 @@ export function EmailAnalyticsSection({ campaignId }: { campaignId: string }) {
                 <td className="px-3 py-2 text-right tabular-nums">{b.pending ? "—" : pct(1)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{b.pending ? "—" : pct(b.openRate)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{b.pending ? "—" : pct(b.clickRate)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{b.pending ? "—" : b.unsubscribed.toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
@@ -208,6 +211,7 @@ function SequenceBreakdown({
               <span>{n.sent.toLocaleString()} sent</span>
               <span>{pct(n.openRate)} open</span>
               <span>{pct(n.clickRate)} click</span>
+              <span>{n.unsubscribed.toLocaleString()} unsub</span>
             </div>
           )}
         </div>
@@ -238,6 +242,7 @@ function ArmTable({
           <th className="py-1 text-right font-medium">Sent</th>
           <th className="py-1 text-right font-medium">Open</th>
           <th className="py-1 text-right font-medium">Click</th>
+          <th className="py-1 text-right font-medium">Unsub</th>
           <th className="py-1 text-right font-medium">Confidence</th>
           <th className="py-1 text-right font-medium"></th>
         </tr>
@@ -262,6 +267,7 @@ function ArmTable({
               <td className="py-1 text-right tabular-nums">{a.sent.toLocaleString()}</td>
               <td className="py-1 text-right tabular-nums">{pct(a.openRate)}</td>
               <td className="py-1 text-right tabular-nums">{pct(a.clickRate)}</td>
+              <td className="py-1 text-right tabular-nums">{a.unsubscribed.toLocaleString()}</td>
               <td className="py-1 text-right">
                 {hint ? <ConfidenceTag value={hint} /> : <span className="text-neutral-300">—</span>}
               </td>

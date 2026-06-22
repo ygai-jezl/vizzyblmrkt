@@ -242,7 +242,21 @@ async function processBroadcastJob(
   // throwing — a throw would burn retries and eventually park the job as
   // "failed"; instead the job is simply left unsent while the launch is closed
   // (pausing the journey doesn't cover broadcasts, so this is the guard for them).
-  if (campaign.archivedAt) return;
+  if (campaign.archivedAt) {
+    // A scheduled send whose launch closed before its time would otherwise stay
+    // "scheduled" with a now-past time forever (the job is consumed as "done").
+    // Reconcile it to a visible, editable state. Archiving proactively cancels
+    // scheduled broadcasts; this also covers one scheduled on an already-archived
+    // launch, or a schedule/archive race.
+    if (b.status === "scheduled") {
+      await repo.update(broadcastId, {
+        status: "failed",
+        lastError: "launch_archived",
+        scheduledAt: null,
+      });
+    }
+    return;
+  }
 
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const cfg = resolveMailchimpConfig(tenant);
@@ -509,28 +523,44 @@ async function enqueueNext(
 
 // ---- Orchestration helpers ------------------------------------------------
 
-/** Enqueue (and let the worker send) a broadcast. Idempotent per broadcast id. */
+/**
+ * Enqueue (and let the worker send) a broadcast. Idempotent per broadcast id.
+ * `scheduledAt` (ISO) defers delivery: the worker only picks the job up once
+ * `scheduledAt <= now`, so passing a future time queues a scheduled send;
+ * omitting it sends as soon as the worker next runs.
+ */
 export async function enqueueBroadcast(
   ctx: TenantContext,
   broadcastId: string,
   campaignId: string,
+  scheduledAt?: string,
+  db?: FirestoreLike,
 ): Promise<"enqueued" | "duplicate"> {
   const dedupeKey = `broadcast:${broadcastId}`;
-  const r = await enqueueEmailJob(ctx, {
-    type: "broadcast",
-    campaignId,
-    dedupeKey,
-    payload: { broadcastId },
-  });
+  const when = scheduledAt ?? new Date().toISOString();
+  const r = await enqueueEmailJob(
+    ctx,
+    {
+      type: "broadcast",
+      campaignId,
+      dedupeKey,
+      payload: { broadcastId },
+      scheduledAt: when,
+    },
+    db,
+  );
   if (r === "duplicate") {
-    // A prior send parked the job as "failed" — resurrect it so the operator's
-    // retry actually re-runs (the atomic create alone would silently no-op).
-    const existing = await forTenant(ctx).emailJobs.getById(dedupeKey);
-    if (existing && existing.status === "failed") {
-      await forTenant(ctx).emailJobs.update(dedupeKey, {
+    // Re-arm an existing entry to `when`. A still-"pending" job is a prior
+    // schedule being re-timed (re-schedule, or "send now" collapsing it to now);
+    // a "failed" job is a prior send the operator is retrying — the atomic create
+    // alone would silently no-op either. An in-flight ("processing") or completed
+    // ("done") job is left untouched so a send already under way can't be re-armed.
+    const existing = await forTenant(ctx, db).emailJobs.getById(dedupeKey);
+    if (existing && (existing.status === "pending" || existing.status === "failed")) {
+      await forTenant(ctx, db).emailJobs.update(dedupeKey, {
         status: "pending",
         attempts: 0,
-        scheduledAt: new Date().toISOString(),
+        scheduledAt: when,
         claimedAt: null,
         lastError: null,
       });
@@ -538,6 +568,27 @@ export async function enqueueBroadcast(
     }
   }
   return r;
+}
+
+/**
+ * Cancel a not-yet-sent scheduled broadcast: delete its queued job so it never
+ * fires. Returns true when the job is gone (deleted, or already absent — so a
+ * retry after a partial cancel is safe). Returns false when the job has already
+ * been claimed by the worker ("processing") or completed — too late to cancel.
+ */
+export async function cancelScheduledBroadcast(
+  ctx: TenantContext,
+  broadcastId: string,
+  db?: FirestoreLike,
+): Promise<boolean> {
+  const dedupeKey = `broadcast:${broadcastId}`;
+  const existing = await forTenant(ctx, db).emailJobs.getById(dedupeKey);
+  if (!existing) return true; // nothing queued — already effectively canceled
+  if (existing.status === "pending" || existing.status === "failed") {
+    await forTenant(ctx, db).emailJobs.delete(dedupeKey);
+    return true;
+  }
+  return false; // "processing" / "done" — the send is already under way or done
 }
 
 /**

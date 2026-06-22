@@ -3,6 +3,8 @@ import {
   resolveNextStep,
   validateJourneyGraph,
   enrollSignupInActiveJourney,
+  enqueueBroadcast,
+  cancelScheduledBroadcast,
   processEmailJobs,
   processEmailJobsForAllTenants,
 } from "./delivery";
@@ -574,5 +576,195 @@ describe("processEmailJobsForAllTenants (multi-tenant fan-out)", () => {
       syncStats: async () => {},
     });
     expect(limits).toEqual([7]);
+  });
+});
+
+describe("enqueueBroadcast — scheduling", () => {
+  const ctx: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
+  const key = "broadcast:bcast1";
+
+  function seedJob(db: FakeFirestore, status: string, scheduledAt: string) {
+    db.seed("email_jobs", key, {
+      tenantId: "ten_B",
+      campaignId: "camp1",
+      type: "broadcast",
+      status,
+      dedupeKey: key,
+      scheduledAt,
+      attempts: status === "failed" ? 3 : 1,
+      claimedAt: status === "processing" ? "2026-06-01T00:00:00.000Z" : null,
+      emailSentAt: null,
+      payload: { broadcastId: "bcast1" },
+      lastError: status === "failed" ? "boom" : null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      processedAt: null,
+    });
+  }
+
+  it("queues a future-scheduled job the worker leaves until due", async () => {
+    const db = new FakeFirestore();
+    const future = new Date(Date.now() + 24 * 3600_000).toISOString();
+    const r = await enqueueBroadcast(ctx, "bcast1", "camp1", future, db);
+    expect(r).toBe("enqueued");
+    expect(db.raw("email_jobs", key)).toMatchObject({
+      type: "broadcast",
+      status: "pending",
+      scheduledAt: future,
+      payload: { broadcastId: "bcast1" },
+    });
+    // Not yet due → the worker drains nothing and the job stays pending.
+    const drain = await processEmailJobs(ctx, 25, db);
+    expect(drain.processed).toBe(0);
+    expect(db.raw("email_jobs", key)).toMatchObject({ status: "pending" });
+  });
+
+  it("defaults to immediate (≈now) when no time is given", async () => {
+    const db = new FakeFirestore();
+    const before = Date.now();
+    await enqueueBroadcast(ctx, "bcast1", "camp1", undefined, db);
+    const job = db.raw("email_jobs", key)!;
+    expect(job.status).toBe("pending");
+    expect(Date.parse(job.scheduledAt as string)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("re-times an already-pending (scheduled) job instead of duplicating", async () => {
+    const db = new FakeFirestore();
+    const t1 = new Date(Date.now() + 3600_000).toISOString();
+    const t2 = new Date(Date.now() + 2 * 3600_000).toISOString();
+    const first = await enqueueBroadcast(ctx, "bcast1", "camp1", t1, db);
+    const second = await enqueueBroadcast(ctx, "bcast1", "camp1", t2, db);
+    expect(first).toBe("enqueued");
+    expect(second).toBe("enqueued");
+    expect(db.dump("email_jobs")).toHaveLength(1);
+    expect(db.raw("email_jobs", key)).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      scheduledAt: t2,
+    });
+  });
+
+  it("resurrects a failed job (retry) with the new time", async () => {
+    const db = new FakeFirestore();
+    seedJob(db, "failed", "2026-01-01T00:00:00.000Z");
+    const future = new Date(Date.now() + 3600_000).toISOString();
+    const r = await enqueueBroadcast(ctx, "bcast1", "camp1", future, db);
+    expect(r).toBe("enqueued");
+    expect(db.raw("email_jobs", key)).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      scheduledAt: future,
+      lastError: null,
+    });
+  });
+
+  it("leaves an in-flight (processing) job untouched", async () => {
+    const db = new FakeFirestore();
+    seedJob(db, "processing", "2026-06-01T00:00:00.000Z");
+    const r = await enqueueBroadcast(ctx, "bcast1", "camp1", undefined, db);
+    expect(r).toBe("duplicate");
+    expect(db.raw("email_jobs", key)).toMatchObject({
+      status: "processing",
+      attempts: 1,
+    });
+  });
+});
+
+describe("processEmailJobs — scheduled broadcast on an archived launch", () => {
+  const ctx: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
+  const key = "broadcast:bcast1";
+
+  it("reconciles a scheduled broadcast to failed instead of leaving it stuck", async () => {
+    const db = new FakeFirestore();
+    db.seed("campaigns", "camp1", {
+      tenantId: "ten_B",
+      waitlistName: "Launch",
+      archivedAt: "2026-06-01T00:00:00.000Z",
+    });
+    db.seed("broadcasts", "bcast1", {
+      tenantId: "ten_B",
+      campaignId: "camp1",
+      name: "B",
+      subject: "s",
+      body: "b",
+      status: "scheduled",
+      scheduledAt: "2020-01-01T00:00:00.000Z",
+      mailchimpCampaignId: null,
+      stats: null,
+      lastError: null,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      sentAt: null,
+    });
+    db.seed("email_jobs", key, {
+      tenantId: "ten_B",
+      campaignId: "camp1",
+      type: "broadcast",
+      status: "pending",
+      dedupeKey: key,
+      scheduledAt: "2020-01-01T00:00:00.000Z", // due (past)
+      attempts: 0,
+      claimedAt: null,
+      emailSentAt: null,
+      payload: { broadcastId: "bcast1" },
+      lastError: null,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      processedAt: null,
+    });
+
+    const r = await processEmailJobs(ctx, 25, db);
+    expect(r).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    // Not stuck on "scheduled" with a past time — surfaced as failed + cleared.
+    expect(db.raw("broadcasts", "bcast1")).toMatchObject({
+      status: "failed",
+      lastError: "launch_archived",
+      scheduledAt: null,
+    });
+    expect(db.raw("email_jobs", key)).toMatchObject({ status: "done" });
+  });
+});
+
+describe("cancelScheduledBroadcast", () => {
+  const ctx: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
+  const key = "broadcast:bcast1";
+
+  it("deletes a pending job and reports success", async () => {
+    const db = new FakeFirestore();
+    await enqueueBroadcast(
+      ctx,
+      "bcast1",
+      "camp1",
+      new Date(Date.now() + 3600_000).toISOString(),
+      db,
+    );
+    const ok = await cancelScheduledBroadcast(ctx, "bcast1", db);
+    expect(ok).toBe(true);
+    expect(db.raw("email_jobs", key)).toBeUndefined();
+  });
+
+  it("is a no-op success when nothing is queued", async () => {
+    const db = new FakeFirestore();
+    const ok = await cancelScheduledBroadcast(ctx, "bcast1", db);
+    expect(ok).toBe(true);
+  });
+
+  it("refuses (false) once the worker has claimed the job", async () => {
+    const db = new FakeFirestore();
+    db.seed("email_jobs", key, {
+      tenantId: "ten_B",
+      campaignId: "camp1",
+      type: "broadcast",
+      status: "processing",
+      dedupeKey: key,
+      scheduledAt: "2026-06-01T00:00:00.000Z",
+      attempts: 1,
+      claimedAt: "2026-06-01T00:00:00.000Z",
+      emailSentAt: null,
+      payload: { broadcastId: "bcast1" },
+      lastError: null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      processedAt: null,
+    });
+    const ok = await cancelScheduledBroadcast(ctx, "bcast1", db);
+    expect(ok).toBe(false);
+    expect(db.raw("email_jobs", key)).toMatchObject({ status: "processing" });
   });
 });

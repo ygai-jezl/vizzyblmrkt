@@ -61,16 +61,16 @@ env:
       - RUNTIME
 
   # Firestore→BigQuery analytics (Phase 2, docs/SETUP.md §11). Dataset ids are
-  # not secrets; the same-named datasets live in the PROD project. Keep the flag
-  # "false" until the prod extensions + backfill are verified (see the rollout
-  # sequence in the plan) — until then analytics degrades to the Firestore path.
+  # not secrets; the same-named datasets live in the PROD project. Enabled
+  # 2026-06-22 after the prod extensions deployed + backfill verified (4 US + 2 EU
+  # signups). When off, analytics degrades gracefully to the Firestore path.
   - variable: ANALYTICS_BQ_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_ANALYTICS_BQ_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

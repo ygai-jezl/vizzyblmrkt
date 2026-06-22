@@ -86,7 +86,7 @@ export default async function EmbedPage({
     <>
       {/* Force a transparent canvas so the widget blends into the host page. */}
       <style>{"html,body{background:transparent!important}body{margin:0}"}</style>
-      <EmbedAutoResize background={backgroundColor}>
+      <EmbedAutoResize background={backgroundColor} campaignId={campaign.id}>
         <div
           className="mx-auto flex max-w-md flex-col gap-5 px-4 py-4"
           style={fontColor ? { color: fontColor } : undefined}

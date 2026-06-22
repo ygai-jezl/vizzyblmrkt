@@ -96,6 +96,22 @@ export async function setLaunchArchived(
       await repo.journeys.update(journeyId, { status: "paused", updatedAt: now });
       journeyPaused = true;
     }
+    // Cancel any scheduled (not-yet-sent) broadcasts so a closed launch never
+    // fires a deferred send and none is left stuck showing a future time. Mirrors
+    // the journey pause above. A broadcast the worker has already claimed (job is
+    // "processing"/"done") is left alone — same safety as cancelScheduledBroadcast.
+    // (Single campaignId equality filter — no composite index needed.)
+    const broadcasts = await repo.broadcasts.find({
+      where: [["campaignId", "==", campaignId]],
+    });
+    for (const b of broadcasts) {
+      if (b.status !== "scheduled") continue;
+      const jobKey = `broadcast:${b.id}`;
+      const job = await repo.emailJobs.getById(jobKey);
+      if (job && job.status !== "pending" && job.status !== "failed") continue;
+      if (job) await repo.emailJobs.delete(jobKey);
+      await repo.broadcasts.update(b.id, { status: "draft", scheduledAt: null });
+    }
   } else {
     await repo.campaigns.update(campaignId, { archivedAt: null });
   }

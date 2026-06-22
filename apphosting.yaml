@@ -52,6 +52,38 @@ env:
       - BUILD
       - RUNTIME
 
+  # Firestore→BigQuery analytics pipeline (Phase 2, docs/SETUP.md §11). Dataset
+  # ids are NOT secrets. One same-region dataset per residency region; the
+  # firestore-bigquery-export extension mirrors `signups` + `email_events` into
+  # them, and the app writes widget impressions to a `widget_views` table there.
+  # When ANALYTICS_BQ_ENABLED != "true" (or a region dataset is unset) the
+  # BQ-backed breakdowns degrade gracefully to the Firestore path — so this is
+  # OFF by default and only flipped on once the datasets + backfill are verified.
+  - variable: ANALYTICS_BQ_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Public mirror of the flag so the embed widget can tree-shake the view beacon
+  # to a no-op when the pipeline is off (NEXT_PUBLIC_* is inlined at BUILD).
+  - variable: NEXT_PUBLIC_ANALYTICS_BQ_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BQ_DATASET_US
+    value: waitlist_us
+    availability:
+      - RUNTIME
+  - variable: BQ_DATASET_EU
+    value: waitlist_eu
+    availability:
+      - RUNTIME
+  - variable: BQ_DATASET_ASIA
+    value: waitlist_asia
+    availability:
+      - RUNTIME
+
   # Secrets live in Secret Manager, never in this file. Wire them like so once
   # created (`firebase apphosting:secrets:set <name>`):
   #

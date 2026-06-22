@@ -9,6 +9,8 @@ import { AgentMetaSchema } from "./email";
  */
 export const BroadcastStatus = z.enum([
   "draft",
+  // Queued for delivery at a future `scheduledAt`; not yet handed to the worker.
+  "scheduled",
   "queued",
   "sending",
   "sent",
@@ -20,6 +22,8 @@ export const BroadcastStatsSchema = z.object({
   emailsSent: z.number().int().nonnegative().optional(),
   openRate: z.number().optional(),
   clickRate: z.number().optional(),
+  /** Unique unsubscribes for this broadcast (count, not a rate). */
+  unsubscribed: z.number().int().nonnegative().optional(),
 });
 export type BroadcastStats = z.infer<typeof BroadcastStatsSchema>;
 
@@ -38,6 +42,9 @@ export const BroadcastSchema = z.object({
   agentMeta: AgentMetaSchema.optional(),
   /** Surfaced to the operator when status === "failed". */
   lastError: z.string().nullable().optional(),
+  /** ISO instant a scheduled send is set for (status === "scheduled"); null once
+   *  sent or unscheduled. Mirrors the queued job's `scheduledAt` for display. */
+  scheduledAt: z.string().nullable().optional(),
   createdAt: z.string(),
   sentAt: z.string().nullable().optional(),
 });

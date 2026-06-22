@@ -4,6 +4,9 @@ import type { EmailEvent } from "@/lib/types/emailEvent";
 import type { Journey } from "@/lib/types/journey";
 import { journeyIdFor } from "@/lib/journey/service";
 import { CONTROL } from "@/lib/journey/allocation";
+import { computeBqEmailBreakdown, type RawEngagement } from "./bigquery";
+
+const RAW_ZERO: RawEngagement = { sent: 0, opened: 0, clicked: 0, failed: 0, unsubscribed: 0 };
 
 /**
  * Email engagement analytics for a launch's Analytics tab. Two grains:
@@ -26,6 +29,7 @@ export interface EngagementCounts {
   delivered: number;
   opened: number; // unique opens
   clicked: number; // unique clicks
+  unsubscribed: number; // unique unsubscribes (count, not a rate)
   openRate: number; // opened / delivered (0..1)
   clickRate: number; // clicked / delivered (0..1)
 }
@@ -45,6 +49,7 @@ export interface BroadcastRow {
   delivered: number;
   openRate: number;
   clickRate: number;
+  unsubscribed: number; // unique unsubscribes (count) from the MailChimp report
   /** Stats not yet synced from MailChimp (show "—" / pending in the UI). */
   pending: boolean;
 }
@@ -63,37 +68,47 @@ export interface EmailAnalytics {
 
 /** Pure aggregation over a set of events. Exported for testing. */
 export function aggregateEvents(events: EmailEvent[]): EngagementCounts {
-  let sent = 0;
-  let opened = 0;
-  let clicked = 0;
-  let failed = 0; // hard bounces + rejects → undelivered
+  const raw: RawEngagement = { ...RAW_ZERO };
   for (const e of events) {
     switch (e.type) {
       case "send":
-        sent += 1;
+        raw.sent += 1;
         break;
       case "open":
-        opened += 1;
+        raw.opened += 1;
         break;
       case "click":
-        clicked += 1;
+        raw.clicked += 1;
         break;
       case "bounce":
       case "reject":
-        failed += 1;
+        raw.failed += 1;
+        break;
+      case "unsub":
+        raw.unsubscribed += 1; // post-delivery; does NOT reduce delivered
         break;
       default:
-        break; // soft_bounce/spam/unsub don't reduce delivered
+        break; // soft_bounce/spam don't reduce delivered
     }
   }
-  const delivered = Math.max(0, sent - failed);
+  return engagementFromRaw(raw);
+}
+
+/**
+ * Shared delivered/open-rate/click-rate math from raw event-type tallies. The
+ * single source of truth for both the Firestore path (aggregateEvents) and the
+ * BigQuery path (computeBqEmailBreakdown returns the same RawEngagement shape).
+ */
+export function engagementFromRaw(raw: RawEngagement): EngagementCounts {
+  const delivered = Math.max(0, raw.sent - raw.failed);
   return {
-    sent,
+    sent: raw.sent,
     delivered,
-    opened,
-    clicked,
-    openRate: delivered > 0 ? opened / delivered : 0,
-    clickRate: delivered > 0 ? clicked / delivered : 0,
+    opened: raw.opened,
+    clicked: raw.clicked,
+    unsubscribed: raw.unsubscribed,
+    openRate: delivered > 0 ? raw.opened / delivered : 0,
+    clickRate: delivered > 0 ? raw.clicked / delivered : 0,
   };
 }
 
@@ -133,11 +148,27 @@ export async function computeEmailAnalytics(
     });
   }
 
+  const broadcasts = await loadBroadcastRows(ctx, campaignId, db);
+
+  return { cards: computeCards(sequences, broadcasts), sequences, broadcasts, truncated };
+}
+
+/**
+ * Sent broadcasts for a launch as BroadcastRow[]. Broadcast engagement comes from
+ * MailChimp reports synced onto broadcast.stats (small, bounded) — it is NOT in
+ * email_events, so this stays a Firestore read in both the Firestore and BigQuery
+ * paths. Shared by computeEmailAnalytics and computeHybridEmailAnalytics.
+ */
+async function loadBroadcastRows(
+  ctx: TenantContext,
+  campaignId: string,
+  db?: FirestoreLike,
+): Promise<BroadcastRow[]> {
   const broadcastsRaw = await forTenant(ctx, db).broadcasts.find({
     where: [["campaignId", "==", campaignId]],
     limit: 500,
   });
-  const broadcasts: BroadcastRow[] = broadcastsRaw
+  return broadcastsRaw
     .filter((b) => b.status === "sent")
     .map((b) => {
       const stats = b.stats ?? null;
@@ -150,11 +181,10 @@ export async function computeEmailAnalytics(
         delivered: sent,
         openRate: stats?.openRate ?? 0,
         clickRate: stats?.clickRate ?? 0,
+        unsubscribed: stats?.unsubscribed ?? 0,
         pending: !stats,
       };
     });
-
-  return { cards: computeCards(sequences, broadcasts), sequences, broadcasts, truncated };
 }
 
 /** Launch-wide KPI roll-up across sequences (exact counts) + broadcasts (rates). */
@@ -250,4 +280,86 @@ export async function computeSequenceEmailBreakdown(
     });
 
   return { nodes, truncated };
+}
+
+/**
+ * Hybrid email analytics: full-population sequence engagement from BigQuery (no
+ * 50k cap) + broadcasts from Firestore. Falls back to the Firestore-capped path
+ * when BigQuery is off/unconfigured/errors. `computeEmailAnalytics` stays the
+ * Firestore seam.
+ */
+export async function computeHybridEmailAnalytics(
+  ctx: TenantContext,
+  campaignId: string,
+  db?: FirestoreLike,
+): Promise<EmailAnalytics> {
+  const journeyId = journeyIdFor(campaignId);
+  const bq = await computeBqEmailBreakdown(ctx, journeyId).catch(() => null);
+  if (!bq) return computeEmailAnalytics(ctx, campaignId, db);
+
+  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
+  const sequences: SequenceRow[] = [];
+  if (journey) {
+    sequences.push({
+      kind: "sequence",
+      id: journeyId,
+      name: sequenceName(journey),
+      enrolled: bq.sequence.enrolled,
+      ...engagementFromRaw(bq.sequence),
+    });
+  }
+  const broadcasts = await loadBroadcastRows(ctx, campaignId, db);
+  // BigQuery has no read cap → never truncated.
+  return { cards: computeCards(sequences, broadcasts), sequences, broadcasts, truncated: false };
+}
+
+/**
+ * Hybrid per-email (per-node) breakdown: full-population per-node / per-arm
+ * counts from BigQuery (no 50k cap). Falls back to the Firestore path when
+ * BigQuery is off/unconfigured/errors. Node STRUCTURE (which nodes exist, their
+ * labels + A/B config) always comes from the journey doc, so every email node is
+ * listed even when it has zero events.
+ */
+export async function computeHybridSequenceBreakdown(
+  ctx: TenantContext,
+  journeyId: string,
+  db?: FirestoreLike,
+): Promise<{ nodes: NodeBreakdown[]; truncated: boolean }> {
+  const bq = await computeBqEmailBreakdown(ctx, journeyId).catch(() => null);
+  if (!bq) return computeSequenceEmailBreakdown(ctx, journeyId, db);
+
+  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
+  if (!journey) return { nodes: [], truncated: false };
+
+  const byNode = new Map(bq.nodes.map((n) => [n.nodeId, n]));
+  const nodes: NodeBreakdown[] = journey.graph.nodes
+    .filter((n) => n.type === "email")
+    .map((node) => {
+      const bqNode = byNode.get(node.id);
+      const counts = engagementFromRaw(bqNode?.counts ?? RAW_ZERO);
+      const ab = node.data.abTest;
+      let arms: ArmBreakdown[] = [];
+      if (ab) {
+        const armCounts = new Map(
+          (bqNode?.arms ?? []).map((a) => [a.variantId, a.counts]),
+        );
+        const armIds = [CONTROL, ...ab.variants.map((v) => v.variantId)];
+        arms = armIds.map((vid, i) => ({
+          variantId: vid,
+          label: vid === CONTROL ? "Control" : `Variant ${String.fromCharCode(64 + i)}`,
+          ...engagementFromRaw(armCounts.get(vid) ?? RAW_ZERO),
+        }));
+      }
+      return {
+        nodeId: node.id,
+        label: node.data.label || node.data.subject || "Untitled email",
+        abTest: !!ab,
+        status: ab?.status,
+        winnerVariantId: ab?.winnerVariantId ?? null,
+        arms,
+        ...counts,
+      };
+    });
+
+  return { nodes, truncated: false };
 }

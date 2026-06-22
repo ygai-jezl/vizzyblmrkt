@@ -43,6 +43,7 @@ export async function syncBroadcastStats(
           emailsSent: report.data.emails_sent,
           openRate: report.data.opens?.open_rate,
           clickRate: report.data.clicks?.click_rate,
+          unsubscribed: report.data.unsubscribed,
         },
       })
       .catch(() => {});

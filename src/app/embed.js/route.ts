@@ -79,6 +79,14 @@ const LOADER = String.raw`(function () {
     add('buttonColor', el.getAttribute('data-vizzybl-button-color'));
     add('bgColor', el.getAttribute('data-vizzybl-bg-color'));
     add('fontColor', el.getAttribute('data-vizzybl-font-color'));
+    // Pass the HOST page's UTM params through to the iframe so the view beacon
+    // (which runs INSIDE the same-origin frame and can't read the parent's URL)
+    // can attribute impressions to the campaign that drove the visit.
+    try {
+      var host = new URLSearchParams(location.search);
+      var utm = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+      for (var u = 0; u < utm.length; u++) add(utm[u], host.get(utm[u]));
+    } catch (e) {}
     var query = qs.length ? ('?' + qs.join('&')) : '';
     return ORIGIN + '/embed/' + encodeURIComponent(campaign) + query;
   }

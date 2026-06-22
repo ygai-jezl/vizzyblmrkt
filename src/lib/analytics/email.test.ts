@@ -46,6 +46,19 @@ describe("aggregateEvents", () => {
     expect(counts.clickRate).toBeCloseTo(0.5);
   });
 
+  it("counts unsubscribes without reducing delivered", () => {
+    const counts = aggregateEvents([
+      ev({ type: "send" }),
+      ev({ type: "send" }),
+      ev({ type: "unsub" }),
+      ev({ type: "unsub" }),
+    ]);
+    // unsub is post-delivery: 2 sends, 0 failed → 2 delivered, 2 unsubscribed.
+    expect(counts.sent).toBe(2);
+    expect(counts.delivered).toBe(2);
+    expect(counts.unsubscribed).toBe(2);
+  });
+
   it("yields zero rates with no delivered", () => {
     expect(aggregateEvents([]).openRate).toBe(0);
   });
@@ -62,6 +75,7 @@ describe("computeCards", () => {
       delivered: 90,
       opened: 45,
       clicked: 9,
+      unsubscribed: 2,
       openRate: 0.5,
       clickRate: 0.1,
     };
@@ -73,6 +87,7 @@ describe("computeCards", () => {
       delivered: 100,
       openRate: 0.4,
       clickRate: 0.1,
+      unsubscribed: 1,
       pending: false,
     };
     const cards = computeCards([seq], [bc]);
@@ -135,20 +150,27 @@ describe("computeEmailAnalytics + breakdown (fake Firestore)", () => {
       { signupId: "s4", variantId: "var_a", type: "send" },
       { signupId: "s3", variantId: "var_a", type: "open" },
       { signupId: "s4", variantId: "var_a", type: "open" },
+      // one unsubscribe per arm
+      { signupId: "s2", variantId: "control", type: "unsub" },
+      { signupId: "s4", variantId: "var_a", type: "unsub" },
     ]);
 
     const a = await computeEmailAnalytics(ctx, "c1", db);
     expect(a.sequences).toHaveLength(1);
     expect(a.sequences[0]!.enrolled).toBe(4); // s1..s4 distinct senders
     expect(a.sequences[0]!.sent).toBe(4);
+    expect(a.sequences[0]!.unsubscribed).toBe(2); // one per arm
 
     const { nodes } = await computeSequenceEmailBreakdown(ctx, "journey_c1", db);
     const node = nodes.find((n) => n.nodeId === "email1")!;
     expect(node.abTest).toBe(true);
+    expect(node.unsubscribed).toBe(2); // node-level sum across arms
     const control = node.arms.find((x) => x.variantId === "control")!;
     const varA = node.arms.find((x) => x.variantId === "var_a")!;
     expect(control.openRate).toBeCloseTo(0.5); // 1/2
     expect(varA.openRate).toBeCloseTo(1.0); // 2/2
+    expect(control.unsubscribed).toBe(1);
+    expect(varA.unsubscribed).toBe(1);
   });
 
   it("includes sent broadcasts as rows and marks unsynced stats pending", async () => {
@@ -160,7 +182,7 @@ describe("computeEmailAnalytics + breakdown (fake Firestore)", () => {
       subject: "s",
       body: "b",
       status: "sent",
-      stats: { emailsSent: 200, openRate: 0.3, clickRate: 0.05 },
+      stats: { emailsSent: 200, openRate: 0.3, clickRate: 0.05, unsubscribed: 4 },
       createdAt: "2026-06-10T00:00:00.000Z",
     });
     db.seed("broadcasts", "b2", {
@@ -178,6 +200,9 @@ describe("computeEmailAnalytics + breakdown (fake Firestore)", () => {
     const synced = a.broadcasts.find((b) => b.id === "b1")!;
     expect(synced.enrolled).toBe(200);
     expect(synced.openRate).toBeCloseTo(0.3);
-    expect(a.broadcasts.find((b) => b.id === "b2")!.pending).toBe(true);
+    expect(synced.unsubscribed).toBe(4);
+    const unsynced = a.broadcasts.find((b) => b.id === "b2")!;
+    expect(unsynced.pending).toBe(true);
+    expect(unsynced.unsubscribed).toBe(0); // no stats yet → defaults to 0
   });
 });

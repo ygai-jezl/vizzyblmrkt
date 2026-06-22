@@ -186,27 +186,76 @@ firebase apphosting:secrets:set recaptcha-api-key --project="$PROJECT"
 ```
 
 ## 11. Firestore → BigQuery analytics pipeline (data lake, for scale)
-The admin Analytics dashboard reads Firestore directly (real-time, exact, cheap
-at MVP scale). For full-scale / heavy analytics, stream signups into BigQuery
-with the **Stream Firestore to BigQuery** extension — **one instance + dataset
-per region** (so data stays in-region; requires Blaze, which we're on):
+The admin Analytics dashboard is **hybrid**: real-time lifecycle KPIs come from
+Firestore (exact + instant), and heavy/historical breakdowns + widget impressions
+come from BigQuery when the pipeline is configured. It is **OFF by default** and
+degrades gracefully — until you flip `ANALYTICS_BQ_ENABLED=true` in a configured
+environment, the dashboard renders exactly as the Firestore-only path did. The
+seam is `computeHybridAnalytics` (signups) / `computeHybridEmailAnalytics` (email
+engagement) in `src/lib/analytics/`.
+
+### 11.1 Stream extensions — `signups` + `email_events`, per region
+Mirror **both** high-volume collections with the **Stream Firestore to BigQuery**
+extension (one collection-path per instance → **6 instances total**: 2 collections
+× 3 regions). One same-region dataset per region keeps data in-region; requires
+Blaze (we're on it). The trigger function MUST co-locate with its source DB.
 ```bash
-# US (default DB → US dataset). Repeat per region with its DB id + a same-region
-# dataset location (eu → eur3 → EU; asia → signups-asia → asia-southeast1).
+# Per region (US shown). Repeat for eu (signups-eu → EU) and asia
+# (signups-asia → asia-southeast1), and for BOTH collections below.
 firebase ext:install firebase/firestore-bigquery-export --project="$PROJECT"
-#   COLLECTION_PATH=signups
-#   DATASET_ID=waitlist_us           (eu: waitlist_eu, asia: waitlist_asia)
-#   DATASET_LOCATION=US              (eu: EU, asia: asia-southeast1)
-#   DATABASE=(default)               (eu: signups-eu, asia: signups-asia)
-#   TABLE_ID=signups
-#   WILDCARD_IDS / schema views as needed for the answers map + utm fields
+#   COLLECTION_PATH=signups   |  email_events     (run the install once per collection)
+#   DATASET_ID=waitlist_us            (eu: waitlist_eu, asia: waitlist_asia)
+#   DATASET_LOCATION=US               (eu: EU, asia: asia-southeast1)
+#   DATABASE=(default)                (eu: signups-eu, asia: signups-asia)
+#   TABLE_ID=signups          |  email_events
+#   LOCATION (function/trigger): us-central1 | europe-west4 | asia-southeast1
+#   Promote tenantId to a typed STRING column; partition changelog by date,
+#   cluster by tenant_id (clustering can't read the JSON `data` blob).
 ```
-Then run an initial backfill (`fs-bq-import-collection`) for existing rows. The
-extension writes an append-only changelog (CREATE/UPDATE/DELETE) + a latest view;
-query the latest view, partition by date, cluster by tenantId, and enforce
-per-tenant isolation via authorized views / RLS. To move the dashboard onto it,
-implement `computeCampaignAnalytics`'s contract against BigQuery (the KPI shape
-is the seam). See docs/ARCHITECTURE-AND-DELIVERY.md §7 + VALIDATION-FINDINGS.md.
+Then backfill existing rows per collection (`fs-bq-import-collection`).
+
+### 11.2 Typed "latest" views the query layer reads
+The extension writes an append-only changelog + a `*_raw_latest` dedup view
+(delivery is at-least-once + unordered). Create one typed projection view per
+dataset that the app queries:
+- `signups_latest` — `tenant_id, campaign_id, status, utm_*, referrer_url,
+  created_at` (excludes deletes / `status='deleted'`).
+- `email_events_latest` — `tenant_id, campaign_id, journey_id, node_id,
+  signup_id, variant_id, type, event_ts`.
+All app queries bind `@tenant_id` (parameterized) — never interpolated. RLS is
+NOT used (it binds to IAM principals, not query params); isolation is enforced in
+app code, mirroring `TenantCollection`.
+
+### 11.3 `widget_views` table + the impression beacon (PRD §4.2)
+"Views over Time" and true "Referrer Sources" come from widget IMPRESSIONS, which
+never touch Firestore. The embed client fires a same-origin beacon
+(`src/lib/analytics/viewBeacon.ts`, via `EmbedAutoResize`) to the public
+`POST /api/track/view` endpoint, which writes a **PII-free** row to an app-owned
+`widget_views` table (one per dataset; partition by `ingest_day`, cluster by
+`tenant_id, campaign_id`):
+```sql
+CREATE TABLE `$PROJECT.waitlist_us.widget_views` (
+  event_id STRING NOT NULL, tenant_id STRING NOT NULL, campaign_id STRING NOT NULL,
+  event_ts TIMESTAMP NOT NULL, referrer_host STRING,
+  utm_source STRING, utm_medium STRING, utm_campaign STRING, utm_content STRING, utm_term STRING,
+  ua_class STRING, is_bot BOOL, ingest_day DATE NOT NULL
+) PARTITION BY ingest_day CLUSTER BY tenant_id, campaign_id;
+```
+The endpoint is OWASP-hardened (`src/lib/analytics/viewIngest.ts`): strict Zod
+input, server-derived tenant (body `t` is a routing hint only), campaign
+re-validated under that tenant, bot filter, per-IP+campaign rate limit, no
+PII/IP/cookie/raw-UA stored, always a body-less 204. See
+docs/ARCHITECTURE-AND-DELIVERY.md §5.
+
+### 11.4 IAM + env
+Grant the App Hosting compute SA (ADC, no keys): `roles/bigquery.jobUser`
+(project) + `roles/bigquery.dataViewer` **dataset-scoped** on each `waitlist_*` +
+`roles/bigquery.dataEditor` on the `widget_views` table (ingest writes). Enable
+BigQuery Data Access audit logs. Then set the env (already in `apphosting*.yaml`,
+flag off): `ANALYTICS_BQ_ENABLED`, `NEXT_PUBLIC_ANALYTICS_BQ_ENABLED`,
+`BQ_DATASET_US/EU/ASIA`. Validate backfill counts against
+`forTenant(ctx).signups.count(...)` / `.emailEvents.count(...)` before flipping
+the flag. See docs/ARCHITECTURE-AND-DELIVERY.md §7 + VALIDATION-FINDINGS.md.
 
 ---
 

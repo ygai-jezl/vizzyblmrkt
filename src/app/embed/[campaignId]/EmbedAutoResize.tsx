@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { sendViewBeacon } from "@/lib/analytics/viewBeacon";
+
+// Module-level fire-once guard: survives React 18 StrictMode's dev double-invoke
+// of effects, while still firing exactly once per iframe document load (each
+// embed render is a fresh document, so this state resets per impression).
+const beaconFired = new Set<string>();
 
 /**
- * Client wrapper for the embed iframe. Two jobs, both via postMessage to the
- * parent (the host site), which the /embed.js loader listens for:
+ * Client wrapper for the embed iframe. Three jobs:
  *  1. Keep the iframe sized to its content (ResizeObserver on the inner box).
- *  2. Bridge the `vizzybl:signup` DOM event (emitted by SignupForm) to the host.
+ *  2. Bridge the `vizzybl:signup` DOM event (emitted by SignupForm) to the host
+ *     via postMessage, which the /embed.js loader listens for.
+ *  3. Fire the widget-view beacon once on mount (impression tracking).
  *
  * Outbound messages use "*" because the host origin is arbitrary and unknown;
  * the payloads (content height, public signup counts) are non-sensitive, and
@@ -15,11 +22,20 @@ import { useEffect, useRef } from "react";
 export function EmbedAutoResize({
   children,
   background,
+  campaignId,
 }: {
   children: React.ReactNode;
   background?: string;
+  campaignId?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+
+  // Impression beacon — once per render, no-op unless the pipeline flag is on.
+  useEffect(() => {
+    if (!campaignId || beaconFired.has(campaignId)) return;
+    beaconFired.add(campaignId);
+    sendViewBeacon(campaignId);
+  }, [campaignId]);
 
   useEffect(() => {
     const el = ref.current;

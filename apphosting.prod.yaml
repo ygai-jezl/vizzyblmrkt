@@ -60,6 +60,33 @@ env:
       - BUILD
       - RUNTIME
 
+  # Firestore→BigQuery analytics (Phase 2, docs/SETUP.md §11). Dataset ids are
+  # not secrets; the same-named datasets live in the PROD project. Keep the flag
+  # "false" until the prod extensions + backfill are verified (see the rollout
+  # sequence in the plan) — until then analytics degrades to the Firestore path.
+  - variable: ANALYTICS_BQ_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_ANALYTICS_BQ_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BQ_DATASET_US
+    value: waitlist_us
+    availability:
+      - RUNTIME
+  - variable: BQ_DATASET_EU
+    value: waitlist_eu
+    availability:
+      - RUNTIME
+  - variable: BQ_DATASET_ASIA
+    value: waitlist_asia
+    availability:
+      - RUNTIME
+
   # Email hub — Agent 3 (Creative Director) via Vertex AI on the runtime SA (ADC).
   - variable: GOOGLE_GENAI_USE_VERTEXAI
     value: "true"

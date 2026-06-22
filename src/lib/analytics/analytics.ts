@@ -1,6 +1,7 @@
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Signup } from "@/lib/types/signup";
+import { computeBqBreakdowns } from "./bigquery";
 
 /**
  * Real-time campaign analytics computed from Firestore (tenant-scoped via
@@ -147,8 +148,95 @@ function topRows(map: Map<string, number>): CountRow[] {
 function hostOf(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
-    return new URL(url).host || null;
+    // hostname (not host) — drops any port, matching BigQuery's NET.HOST and the
+    // view-beacon referrerHost() so signup-referrer rows agree across sources.
+    return new URL(url).hostname || null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The hybrid superset returned to the dashboard. Lifecycle KPIs always come from
+ * Firestore (real-time, exact); the heavy breakdowns come from BigQuery when the
+ * pipeline is configured, and two impression-only metrics (`viewsByDay`,
+ * `viewReferrerSources`) are present only when widget view-tracking has data.
+ * `source` lets the UI label provenance and show the PRD's warning tooltips.
+ */
+export interface HybridCampaignAnalytics extends CampaignAnalytics {
+  /** Widget impressions over time — present only when view-tracking has data. */
+  viewsByDay?: CountRow[];
+  /** Referrer hosts of all widget VIEWS (true impressions, bot-filtered). */
+  viewReferrerSources?: CountRow[];
+  source: {
+    /** "bigquery" only when the headline counts were taken from the uncapped BQ
+     *  aggregation (i.e. the Firestore read was capped at 10k); else "firestore". */
+    kpis: "firestore" | "bigquery";
+    breakdowns: "firestore" | "bigquery";
+    views: "bigquery" | "absent";
+  };
+}
+
+/**
+ * Hybrid analytics: real-time KPIs from Firestore + heavy/historical breakdowns
+ * and widget-view metrics from BigQuery. Falls back to the Firestore-only
+ * breakdowns when the BigQuery pipeline is off, unconfigured, or errors — so the
+ * dashboard renders identically to today until the flag is flipped in a
+ * configured environment. `computeCampaignAnalytics` stays the Firestore seam.
+ */
+export async function computeHybridAnalytics(
+  ctx: TenantContext,
+  campaignId: string,
+  db?: FirestoreLike,
+): Promise<HybridCampaignAnalytics> {
+  // 1. Lifecycle KPIs always from Firestore (exact + instant) for normal sizes.
+  const fs = await computeCampaignAnalytics(ctx, campaignId, db);
+  // 2. Heavy breakdowns + impressions from BigQuery; null on any off-ramp.
+  const bq = await computeBqBreakdowns(ctx, campaignId).catch(() => null);
+  const views: "bigquery" | "absent" =
+    bq && bq.hasViews && bq.viewsByDay.length > 0 ? "bigquery" : "absent";
+
+  if (!bq) {
+    return {
+      ...fs,
+      source: { kpis: "firestore", breakdowns: "firestore", views: "absent" },
+    };
+  }
+
+  // 3. Lag guard: if BigQuery has no signup rows yet but Firestore shows signups,
+  //    the mirror is still catching up (at-least-once, async). Keep the Firestore
+  //    breakdowns + KPIs rather than blanking the dashboard; widget views are an
+  //    independent table, so still surface them.
+  const bqSignupsReady = bq.signupsByDay.length > 0 || fs.totalSignups === 0;
+  if (!bqSignupsReady) {
+    return {
+      ...fs,
+      viewsByDay: bq.viewsByDay,
+      viewReferrerSources: bq.viewReferrerSources,
+      source: { kpis: "firestore", breakdowns: "firestore", views },
+    };
+  }
+
+  // 4. BigQuery signup data is ready → heavy breakdowns come from BigQuery. When
+  //    the Firestore KPI aggregation was CAPPED at 10k, replace the headline count
+  //    cards with the uncapped BigQuery counts so totals are correct at scale
+  //    (last-event timestamps stay Firestore real-time). Otherwise keep the
+  //    Firestore real-time KPIs. Only clear the truncation banner once the cards
+  //    actually reflect uncapped data.
+  const useBqKpis = fs.truncated && bq.kpis !== null;
+  return {
+    ...fs,
+    ...(useBqKpis ? bq.kpis! : {}),
+    truncated: useBqKpis ? false : fs.truncated,
+    utm: bq.utm,
+    referrerSources: bq.referrerSources,
+    signupsByDay: bq.signupsByDay,
+    viewsByDay: bq.viewsByDay,
+    viewReferrerSources: bq.viewReferrerSources,
+    source: {
+      kpis: useBqKpis ? "bigquery" : "firestore",
+      breakdowns: "bigquery",
+      views,
+    },
+  };
 }

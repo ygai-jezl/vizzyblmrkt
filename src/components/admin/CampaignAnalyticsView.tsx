@@ -1,12 +1,19 @@
 import type {
-  CampaignAnalytics,
+  HybridCampaignAnalytics,
   CountRow,
 } from "@/lib/analytics/analytics";
 
 /**
  * Presentational analytics view for a single campaign: a truncation banner, the
- * KPI stat grid, the signups-per-day bars, and the UTM/referrer breakdown
- * tables. Pure (server-safe) — it just renders a CampaignAnalytics object.
+ * KPI stat grid, the signups-per-day bars, the widget-impression metrics (Views
+ * over Time + true Referrer Sources, from the BigQuery view-beacon pipeline), and
+ * the UTM/referrer breakdown tables. Pure (server-safe) — it just renders a
+ * HybridCampaignAnalytics object.
+ *
+ * KPI cards + signup breakdowns are always present (Firestore real-time or
+ * BigQuery at scale). The impression metrics are present only when widget
+ * view-tracking is configured AND has data; otherwise an explanatory note is
+ * shown (PRD §4.2: these require the embeddable widget layer + the pipeline).
  *
  * Shared by the global Analytics page (which adds the campaign-switcher pills)
  * and the per-launch Analytics tab (already scoped to one launch), so both
@@ -15,14 +22,15 @@ import type {
 export function CampaignAnalyticsView({
   analytics: a,
 }: {
-  analytics: CampaignAnalytics;
+  analytics: HybridCampaignAnalytics;
 }) {
+  const viewsActive = a.source.views === "bigquery";
   return (
     <div className="space-y-6">
       {a.truncated ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          Showing the first 10,000 signups. Connect the BigQuery pipeline for
-          full-scale analytics (docs/SETUP.md §11).
+          Headline totals are based on the first 10,000 signups. Enable the
+          BigQuery pipeline for exact full-scale totals (docs/SETUP.md §11).
         </p>
       ) : null}
 
@@ -45,13 +53,42 @@ export function CampaignAnalyticsView({
         )}
       </Section>
 
+      <Section
+        title="Views over time"
+        tip="Widget impressions — every time the embedded widget renders, even without a signup. Requires the no-code widget layer + the BigQuery pipeline; headless/API integrations are not counted."
+      >
+        {viewsActive && a.viewsByDay?.length ? (
+          <TimeSeries rows={a.viewsByDay} label="views" />
+        ) : (
+          <Empty>
+            View tracking isn’t active for this launch yet. Embed the widget (it
+            beacons impressions automatically) and enable the BigQuery pipeline
+            (docs/SETUP.md §11) to populate this.
+          </Empty>
+        )}
+      </Section>
+
       <div className="grid gap-6 md:grid-cols-2">
         <UtmTable title="UTM Source" rows={a.utm.source} />
         <UtmTable title="UTM Medium" rows={a.utm.medium} />
         <UtmTable title="UTM Campaign" rows={a.utm.campaign} />
         <UtmTable title="UTM Content" rows={a.utm.content} />
         <UtmTable title="UTM Term" rows={a.utm.term} />
-        <UtmTable title="Referrer sources" rows={a.referrerSources} />
+        <UtmTable
+          title="Referrer sources (views)"
+          rows={viewsActive ? (a.viewReferrerSources ?? []) : []}
+          tip="Where viewers came from before seeing the widget (all impressions). Requires the widget layer + the BigQuery pipeline."
+          emptyNote={
+            viewsActive
+              ? undefined
+              : "Needs widget view-tracking — see “Views over time” above."
+          }
+        />
+        <UtmTable
+          title="Referrers (of signups)"
+          rows={a.referrerSources}
+          tip="Referrer host of people who actually signed up (captured at conversion). Available without view-tracking."
+        />
       </div>
     </div>
   );
@@ -79,12 +116,36 @@ function Stat({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  tip,
+  children,
+}: {
+  title: string;
+  tip?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-semibold">{title}</h2>
+      <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+        {title}
+        {tip ? <Tip text={tip} /> : null}
+      </h2>
       {children}
     </section>
+  );
+}
+
+/** Native-title info marker — a hover tooltip with no client JS (server-safe). */
+function Tip({ text }: { text: string }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] font-normal text-neutral-400 dark:border-neutral-700"
+    >
+      i
+    </span>
   );
 }
 
@@ -108,11 +169,68 @@ function BarList({ rows }: { rows: CountRow[] }) {
   );
 }
 
-function UtmTable({ title, rows }: { title: string; rows: CountRow[] }) {
+/**
+ * Minimal inline-SVG trend line (chronological day → count). Hand-rolled to keep
+ * the analytics view a pure server component with zero client/charting deps,
+ * matching the existing Stat/BarList/UtmTable style. Rows are assumed sorted
+ * chronologically (the analytics layer sorts them).
+ */
+function TimeSeries({ rows, label }: { rows: CountRow[]; label: string }) {
+  const W = 640;
+  const H = 96;
+  const PAD = 6;
+  const n = rows.length;
+  const max = Math.max(...rows.map((r) => r.count), 1);
+  const total = rows.reduce((sum, r) => sum + r.count, 0);
+  const px = (i: number) => (n <= 1 ? W / 2 : PAD + (i * (W - 2 * PAD)) / (n - 1));
+  const py = (c: number) => H - PAD - (c / max) * (H - 2 * PAD);
+  const line = rows.map((r, i) => `${px(i).toFixed(1)},${py(r.count).toFixed(1)}`).join(" ");
+  const area = `${PAD},${H - PAD} ${line} ${px(n - 1).toFixed(1)},${H - PAD}`;
+  const first = rows[0]?.value ?? "";
+  const last = rows[n - 1]?.value ?? "";
   return (
-    <Section title={title}>
+    <div className="space-y-1">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-24 w-full"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`${total} ${label} over ${n} day${n === 1 ? "" : "s"}`}
+      >
+        <polygon points={area} className="fill-neutral-200/60 dark:fill-neutral-800/60" />
+        <polyline
+          points={line}
+          className="fill-none stroke-neutral-800 dark:stroke-neutral-200"
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <div className="flex justify-between text-[10px] tabular-nums text-neutral-400">
+        <span>{first}</span>
+        <span>
+          {total.toLocaleString()} {label} · peak {max.toLocaleString()}/day
+        </span>
+        <span>{last}</span>
+      </div>
+    </div>
+  );
+}
+
+function UtmTable({
+  title,
+  rows,
+  tip,
+  emptyNote,
+}: {
+  title: string;
+  rows: CountRow[];
+  tip?: string;
+  emptyNote?: string;
+}) {
+  return (
+    <Section title={title} tip={tip}>
       {rows.length === 0 ? (
-        <Empty>No data.</Empty>
+        <Empty>{emptyNote ?? "No data."}</Empty>
       ) : (
         <div className="overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-800">
           <table className="w-full text-sm">

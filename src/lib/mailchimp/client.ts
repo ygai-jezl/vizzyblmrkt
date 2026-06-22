@@ -178,6 +178,8 @@ export interface CampaignReport {
   emails_sent: number;
   opens: { open_rate: number };
   clicks: { click_rate: number };
+  /** Top-level unique unsubscribe count from the MailChimp report. */
+  unsubscribed: number;
 }
 
 export async function getCampaignReport(

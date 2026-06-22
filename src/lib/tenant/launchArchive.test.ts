@@ -132,6 +132,61 @@ describe("setLaunchArchived", () => {
     expect(typeof db.raw("campaigns", "camp1")!.archivedAt).toBe("string");
   });
 
+  it("cancels scheduled broadcasts (drops the job, reverts to draft) when archiving", async () => {
+    const db = new FakeFirestore();
+    seedCampaign(db, "ten_A", "camp1");
+    // A scheduled broadcast with a queued (pending) delivery job.
+    db.seed("broadcasts", "bcast1", {
+      tenantId: "ten_A",
+      campaignId: "camp1",
+      name: "Teaser",
+      subject: "s",
+      body: "b",
+      status: "scheduled",
+      scheduledAt: "2027-01-01T00:00:00.000Z",
+      createdAt: "2026-06-15T16:00:00Z",
+      sentAt: null,
+    });
+    db.seed("email_jobs", "broadcast:bcast1", {
+      tenantId: "ten_A",
+      campaignId: "camp1",
+      type: "broadcast",
+      status: "pending",
+      dedupeKey: "broadcast:bcast1",
+      scheduledAt: "2027-01-01T00:00:00.000Z",
+      attempts: 0,
+      claimedAt: null,
+      emailSentAt: null,
+      payload: { broadcastId: "bcast1" },
+      lastError: null,
+      createdAt: "2026-06-15T16:00:00Z",
+      processedAt: null,
+    });
+    // An already-sent broadcast must be left untouched.
+    db.seed("broadcasts", "bcast2", {
+      tenantId: "ten_A",
+      campaignId: "camp1",
+      name: "Past send",
+      subject: "s",
+      body: "b",
+      status: "sent",
+      scheduledAt: null,
+      createdAt: "2026-06-10T16:00:00Z",
+      sentAt: "2026-06-11T16:00:00Z",
+    });
+
+    await setLaunchArchived(ctxAdmin, "camp1", "archive", {}, db, new FakeAuditSink());
+
+    // Scheduled broadcast reverted to draft and its job removed.
+    expect(db.raw("broadcasts", "bcast1")).toMatchObject({
+      status: "draft",
+      scheduledAt: null,
+    });
+    expect(db.raw("email_jobs", "broadcast:bcast1")).toBeUndefined();
+    // The sent broadcast is left as-is.
+    expect(db.raw("broadcasts", "bcast2")!.status).toBe("sent");
+  });
+
   it("restores a launch: clears archivedAt (null) and leaves the paused journey paused", async () => {
     const db = new FakeFirestore();
     seedCampaign(db, "ten_A", "camp1", { archivedAt: "2026-06-18T10:00:00Z" });

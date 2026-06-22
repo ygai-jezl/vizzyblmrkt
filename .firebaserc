@@ -3,5 +3,18 @@
     "default": "vizzybl-marketing-dev",
     "dev": "vizzybl-marketing-dev",
     "prod": "vizzybl-marketing-prod"
+  },
+  "targets": {},
+  "etags": {
+    "vizzybl-marketing-dev": {
+      "extensionInstances": {
+        "fsbq-email-events-asia": "ab626de9dfad25460f879558392e4a5aee51cbd1c06ca68d0c53a6b8b601b23d",
+        "fsbq-email-events-eu": "fc06b836c47ed87640354010f0dbd3983a39449e6bc599e32e0ffa8e235a4118",
+        "fsbq-email-events-us": "7d1120d6b1df0bc237364232ed2d76df643e3f2a05c7712e57a1c7ac0dfa59a0",
+        "fsbq-signups-asia": "771c47f3639d70c05cc78d80f868150e60f898ea63ea66c8b9a897db850b1ca3",
+        "fsbq-signups-eu": "f81e26e0e685dc923d82781cc7b8c2c036ca6996b35fd6268b00db3935e82efd",
+        "fsbq-signups-us": "a08b4726acad8b8a215464983904070d16fb3ff873a3bd48c06517f5a50b81ab"
+      }
+    }
   }
 }

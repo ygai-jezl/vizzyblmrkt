@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
-import { computeCampaignAnalytics } from "@/lib/analytics/analytics";
+import { computeHybridAnalytics } from "@/lib/analytics/analytics";
 import { CampaignAnalyticsView } from "@/components/admin/CampaignAnalyticsView";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function AnalyticsPage({
   }
 
   const selected = campaigns.find((c) => c.id === sp.campaign) ?? campaigns[0]!;
-  const analytics = await computeCampaignAnalytics(ctx, selected.id);
+  const analytics = await computeHybridAnalytics(ctx, selected.id);
 
   return (
     <div className="space-y-6">

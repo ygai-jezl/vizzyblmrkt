@@ -2,8 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // firebase-admin is server-only; never bundle it for the browser.
-  serverExternalPackages: ["firebase-admin"],
+  // firebase-admin + the BigQuery client are server-only; never bundle them for
+  // the browser. @google-cloud/bigquery is loaded lazily by the analytics layer
+  // (only when ANALYTICS_BQ_ENABLED), but mark it external so the build never
+  // tries to bundle its native/transitive deps.
+  serverExternalPackages: ["firebase-admin", "@google-cloud/bigquery"],
   // Security headers applied to every response. The public landing pages and
   // the admin portal both inherit these baseline protections.
   async headers() {

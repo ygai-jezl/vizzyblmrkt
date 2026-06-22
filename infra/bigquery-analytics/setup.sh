@@ -259,19 +259,27 @@ backfill() {
     read -r region db dataset loc fnloc fsloc <<<"$spec"
     for col in "${COLLECTIONS[@]}"; do
       echo "    -> ${col} (DB ${db}) into ${dataset}.${col}_raw_changelog"
-      # An empty/absent collection (e.g. email_events before any Mandrill events,
-      # or a region with no signups yet) makes the import exit non-zero — that is
-      # NOT a real failure, so don't let it abort the remaining regions.
-      npx -y @firebaseextensions/fs-bq-import-collection \
-        --non-interactive \
-        --project="${PROJECT}" \
-        --source-collection-path="${col}" \
-        --firestore-instance-id="${db}" \
-        --dataset="${dataset}" \
-        --dataset-location="${loc}" \
-        --table-name-prefix="${col}" \
-        --query-collection-group=false \
-        || echo "    (skipped ${col}/${region} — empty or absent collection; OK if no data yet)"
+      # Capture output so a REAL failure (auth/permission) is surfaced loudly and
+      # not masked as an empty-collection skip. An empty/absent collection (e.g.
+      # email_events before any events, or a region with no signups) is the only
+      # non-fatal case. (set -e is bypassed inside an `if` condition.)
+      if out="$(npx -y @firebaseextensions/fs-bq-import-collection \
+            --non-interactive \
+            --project="${PROJECT}" \
+            --source-collection-path="${col}" \
+            --firestore-instance-id="${db}" \
+            --dataset="${dataset}" \
+            --dataset-location="${loc}" \
+            --table-name-prefix="${col}" \
+            --query-collection-group=false 2>&1)"; then
+        echo "${out}" | grep -E "Finished importing" || echo "    (done: ${col}/${region})"
+      elif echo "${out}" | grep -qiE "does not exist or is empty"; then
+        echo "    (skipped ${col}/${region} — empty/absent collection; OK if no data yet)"
+      else
+        echo "    ⚠️  ${col}/${region} import FAILED (NOT an empty collection):"
+        echo "${out}" | grep -iE "invalid_grant|reauth|denied|unauthenticated|error" | tail -2 | sed 's/^/         /'
+        echo "       → if invalid_grant/reauth: run 'gcloud auth application-default login', then re-run backfill"
+      fi
     done
   done
   echo "    Backfill complete. Run: ./setup.sh validate ${PROJECT}"

@@ -126,6 +126,31 @@ describe("CampaignSettingsSchema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("accepts a configurationStyleJson with a pill joinButtonShape", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        joinButtonShape: "pill",
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.configurationStyleJson.joinButtonShape).toBe("pill");
+    }
+  });
+
+  it("rejects an unknown joinButtonShape", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      configurationStyleJson: {
+        widgetButtonColor: "#111827",
+        joinButtonShape: "square",
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("accepts a configurationStyleJson with socialLinks", () => {
     const parsed = CampaignSettingsSchema.safeParse({
       ...(VALID as object),

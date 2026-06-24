@@ -152,6 +152,7 @@ export default async function EmbedPage({
               buttonColor={buttonColor}
               successMessage={style.statusDescription ?? t("widget.success.onList")}
               joinButtonLabel={style.joinButtonLabel ?? t("widget.signup.joinCta")}
+              joinButtonShape={style.joinButtonShape ?? "rounded"}
               variant={variant}
               embedded
               aiConversation={aiConversation}

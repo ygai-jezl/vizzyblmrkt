@@ -29,6 +29,8 @@ interface Props {
   successMessage: string;
   /** Label for the primary CTA on the full form. Compact variants show "Join". */
   joinButtonLabel: string;
+  /** CTA shape: "rounded" (default) or "pill". Docked stays a pill regardless. */
+  joinButtonShape?: "rounded" | "pill";
   /** "full" (default) collects everything; "mini"/"docked" are email-only. */
   variant?: SignupVariant;
   /** When embedded in an iframe, emit a `vizzybl:signup` DOM event on success. */
@@ -76,6 +78,7 @@ export function SignupForm({
   buttonColor,
   successMessage,
   joinButtonLabel,
+  joinButtonShape = "rounded",
   variant = "full",
   embedded = false,
   aiConversation,
@@ -92,6 +95,10 @@ export function SignupForm({
   const [status, setStatus] = useState<"idle" | "submitting" | "error" | "success">("idle");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessState | null>(null);
+
+  // Join CTA corner radius. The docked variant keeps rounded-full (it's docked
+  // inside a pill-shaped input); full + mini honour the founder's shape choice.
+  const ctaRadius = joinButtonShape === "pill" ? "rounded-full" : "rounded-md";
 
   // Compact variants collect email only — names, phone, and questions are
   // suppressed regardless of campaign config (the API still validates).
@@ -257,7 +264,7 @@ export function SignupForm({
           <button
             type="submit"
             disabled={status === "submitting"}
-            className="shrink-0 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className={`shrink-0 ${ctaRadius} px-4 py-2 text-sm font-semibold text-white disabled:opacity-60`}
             style={{ backgroundColor: buttonColor }}
           >
             {status === "submitting" ? t("widget.signup.joining") : t("widget.signup.join")}
@@ -334,7 +341,7 @@ export function SignupForm({
       <button
         type="submit"
         disabled={status === "submitting"}
-        className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+        className={`w-full ${ctaRadius} px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60`}
         style={{ backgroundColor: buttonColor }}
       >
         {status === "submitting" ? t("widget.signup.joining") : joinButtonLabel}

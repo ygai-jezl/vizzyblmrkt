@@ -38,6 +38,7 @@ export interface PreviewBrandingDraft {
   widgetFontColor?: string;
   statusDescription?: string;
   joinButtonLabel?: string;
+  joinButtonShape?: "rounded" | "pill";
   removeWidgetHeaders?: boolean;
 }
 
@@ -84,6 +85,7 @@ export function buildPreviewUrl({
   if (success) qs.set("success", success);
   const joinLabel = draft?.joinButtonLabel?.trim();
   if (joinLabel) qs.set("joinLabel", joinLabel);
+  if (draft?.joinButtonShape) qs.set("shape", draft.joinButtonShape);
   qs.set("header", draft?.removeWidgetHeaders ? "0" : "1");
   return `${base}/admin-preview/${encodeURIComponent(campaignId)}?${qs.toString()}`;
 }

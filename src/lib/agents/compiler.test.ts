@@ -52,4 +52,32 @@ describe("compileBroadcast (audience-wide, MailChimp tags)", () => {
     const out = compileBroadcast({ subject: "URGENT!!", body: "x" }, ent);
     expect(out.warnings).toContain("subject_shouting");
   });
+
+  it("detects shouting in non-Latin cased scripts (Cyrillic), not just ASCII", () => {
+    const ent = {
+      waitlistName: "Бета",
+      strategy: { brandTone: "ENTERPRISE_TRUST" },
+    } as unknown as Campaign;
+    // "СРОЧНО" = 6 Cyrillic uppercase letters — would slip past the old /[A-Z]/.
+    const out = compileBroadcast({ subject: "СРОЧНО предложение", body: "x" }, ent);
+    expect(out.warnings).toContain("subject_shouting");
+  });
+
+  it("does NOT false-flag caseless scripts (Japanese) as shouting", () => {
+    const ent = {
+      waitlistName: "ベータ",
+      strategy: { brandTone: "ENTERPRISE_TRUST" },
+    } as unknown as Campaign;
+    const out = compileBroadcast({ subject: "緊急セール今すぐご登録", body: "x" }, ent);
+    expect(out.warnings).not.toContain("subject_shouting");
+  });
+
+  it("counts full-width (CJK) exclamation marks toward the excess-exclamation gate", () => {
+    const ent = {
+      waitlistName: "ベータ",
+      strategy: { brandTone: "ENTERPRISE_TRUST" },
+    } as unknown as Campaign;
+    const out = compileBroadcast({ subject: "登録してね！！", body: "x" }, ent);
+    expect(out.warnings).toContain("subject_excess_exclamation");
+  });
 });

@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict
 
 from ..prompts.system_instruction import ROOT_SYSTEM_INSTRUCTION
+from .language import language_directive
 
 if TYPE_CHECKING:
     from google.adk.agents.readonly_context import ReadonlyContext
@@ -52,10 +53,16 @@ def build_dynamic_instruction(ctx: "ReadonlyContext") -> str:
     """Callable instruction. ADK invokes this each turn to build the system prompt."""
     state = getattr(ctx, "state", None) if ctx else None
     brand_settings = (state.get("brandSettings") if state else None) or None
+    # Operator content language, forwarded by the chat proxy in the [ctx:] envelope
+    # (absent/"en" ⇒ no directive, so the English path is unchanged).
+    locale = state.get("locale") if state else None
 
     base = ROOT_SYSTEM_INSTRUCTION
-    if not brand_settings:
-        return base
+    brand_block = _format_brand_block(brand_settings) if brand_settings else ""
+    instruction = f"{brand_block}\n\n{base}" if brand_block else base
 
-    brand_block = _format_brand_block(brand_settings)
-    return f"{brand_block}\n\n{base}" if brand_block else base
+    directive = language_directive(locale)
+    if directive:
+        # Prepend so the language constraint is the first thing the model reads.
+        instruction = f"{directive}\n\n{instruction}"
+    return instruction

@@ -22,6 +22,7 @@ import { verificationEmail } from "@/lib/email/templates";
 import { syncSignupToAudience } from "@/lib/mailchimp";
 import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
 import { recordSignupContact } from "@/lib/crm/contactService";
+import { resolveVisitorLocale } from "@/lib/i18n/locale";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,10 +95,25 @@ export async function POST(
   // (origin-resolved) it's omitted — the host already identifies the tenant.
   const linkTenantId = ctx.source === "tenant_param" ? ctx.tenantId : undefined;
 
+  // Load the tenant once: feeds both the email sender and the locale fallback.
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+
+  // Re-validate the visitor's claimed language server-side: an explicit body
+  // value is honoured only if the launch supports it, else Accept-Language, else
+  // the launch/tenant default. Stored so this signup's emails match the language
+  // they signed up in.
+  const visitorLocale = resolveVisitorLocale({
+    explicit: parsed.data.locale,
+    acceptLanguage: req.headers.get("accept-language"),
+    campaign,
+    tenant,
+  });
+
   const result = await createSignup(ctx, campaign, parsed.data, {
     hostedPageBaseUrl: origin,
     captchaValid: captcha.ok && !captcha.skipped,
     tenantId: linkTenantId,
+    locale: visitorLocale,
   });
 
   // Double opt-in: an unverified signup gets a confirmation email; the referrer
@@ -115,7 +131,6 @@ export async function POST(
     let emailSent = false;
     try {
       // Send from the tenant/campaign custom domain when configured + verified.
-      const tenant = await getTenantById(ctx.tenantId).catch(() => null);
       const sender = resolveSender(tenant, campaign);
       const r = await sendEmail({
         ...verificationEmail({
@@ -123,6 +138,7 @@ export async function POST(
           waitlistName: campaign.waitlistName,
           firstName: result.signup.firstName,
           verifyUrl,
+          locale: visitorLocale,
         }),
         fromEmail: sender.fromEmail,
         fromName: sender.fromName,

@@ -154,6 +154,8 @@ describe("CampaignSettingsSchema — AI Strategy & Context", () => {
         targetCount: 10000,
         targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
         brandTone: "TECHNICAL_PEER",
+        defaultLocale: "en",
+        supportedLocales: ["en"],
       });
     }
   });
@@ -176,6 +178,34 @@ describe("CampaignSettingsSchema — AI Strategy & Context", () => {
       expect(parsed.data.strategy.brandTone).toBe("ENTERPRISE_TRUST");
       expect(parsed.data.strategy.customToneInstructions).toBe("Be concise.");
     }
+  });
+
+  it("accepts a supported content language and round-trips it", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      strategy: { defaultLocale: "fr", supportedLocales: ["fr"] },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.strategy.defaultLocale).toBe("fr");
+      expect(parsed.data.strategy.supportedLocales).toEqual(["fr"]);
+    }
+  });
+
+  it("rejects an unsupported content language", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      strategy: { defaultLocale: "xx", supportedLocales: ["xx"] },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects a default language that is not in the supported set", () => {
+    const parsed = CampaignSettingsSchema.safeParse({
+      ...(VALID as object),
+      strategy: { defaultLocale: "fr", supportedLocales: ["en"] },
+    });
+    expect(parsed.success).toBe(false);
   });
 
   it("rejects an unknown campaignGoal or brandTone", () => {

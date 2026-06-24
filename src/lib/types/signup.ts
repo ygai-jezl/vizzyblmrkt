@@ -108,6 +108,14 @@ export const SignupSchema = z.object({
   utm: UtmSchema.optional(),
   referrerUrl: z.string().nullable().optional(),
 
+  /**
+   * Content language resolved for this visitor at signup time (BCP-47 base code,
+   * e.g. "fr"). Lets transactional + lifecycle emails render in the language they
+   * signed up in. Optional so existing signups read cleanly; absent ⇒ the launch
+   * default. CONTENT LANGUAGE ONLY — independent of the tenant's data-residency.
+   */
+  locale: z.string().nullable().optional(),
+
   createdAt: z.string(),
 });
 

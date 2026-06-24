@@ -70,7 +70,7 @@ export function contextEnvelope(
   ctx: TenantContext,
   traceId: string,
   mode?: ChatMode,
-  extras?: { ctxToken?: string | null; campaignId?: string | null },
+  extras?: { ctxToken?: string | null; campaignId?: string | null; locale?: string | null },
 ): string {
   const payload: Record<string, unknown> = {
     tenantId: ctx.tenantId,
@@ -80,6 +80,9 @@ export function contextEnvelope(
   };
   if (extras?.ctxToken) payload.ctxToken = extras.ctxToken;
   if (extras?.campaignId) payload.campaignId = extras.campaignId;
+  // Operator content language for the root agent. Omitted for English so the
+  // common-case envelope is unchanged; the Python side no-ops on "en" anyway.
+  if (extras?.locale && extras.locale !== "en") payload.locale = extras.locale;
   const modePrefix = mode ? `[mode:${mode}] ` : "";
   return `[ctx:${JSON.stringify(payload)}] ${modePrefix}`;
 }

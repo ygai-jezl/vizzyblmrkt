@@ -11,6 +11,7 @@ import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { getLiveTokenClient } from "@/lib/agents/gemini";
 import { LIVE_MODEL, buildLiveConnectConfig } from "@/lib/agents/liveConversation";
+import { isLiveSupportedLocale, resolveCampaignLocale } from "@/lib/i18n/locale";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,6 +111,12 @@ export async function POST(
     return NextResponse.json({ error: "already_completed" }, { status: 409 });
   }
 
+  // The native-audio Live model only speaks the languages in the Live voice set.
+  // If the launch's content language is text-only (e.g. zh), fall back to an
+  // English voice chat rather than asking the model to speak a language it can't.
+  const contentLocale = resolveCampaignLocale(campaign);
+  const voiceLocale = isLiveSupportedLocale(contentLocale) ? contentLocale : "en";
+
   try {
     const token = await live.authTokens.create({
       config: {
@@ -120,7 +127,7 @@ export async function POST(
         // Lock the model + per-launch prompt/modality server-side.
         liveConnectConstraints: {
           model: LIVE_MODEL,
-          config: buildLiveConnectConfig(campaign),
+          config: buildLiveConnectConfig(campaign, voiceLocale),
         },
         httpOptions: { apiVersion: "v1alpha" },
       },

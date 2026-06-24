@@ -65,8 +65,13 @@ function qaWarnings(content: EmailContent, campaign: Campaign): string[] {
   if (!content.body.trim()) w.push("empty_body");
   // ENTERPRISE_TRUST pairs with the strictest brand-safety gate (see campaign.ts).
   if (campaign.strategy?.brandTone === "ENTERPRISE_TRUST") {
-    if (/[A-Z]{6,}/.test(content.subject)) w.push("subject_shouting");
-    if ((content.subject.match(/!/g)?.length ?? 0) > 1) {
+    // `\p{Lu}` (any Unicode uppercase letter) catches shouting in every cased
+    // script — Latin-with-accents, Greek, Cyrillic — not just ASCII. Caseless
+    // scripts (Arabic, CJK, Hebrew, Devanagari) have no uppercase, so shouting
+    // isn't expressible via case there and correctly never trips this check.
+    if (/\p{Lu}{6,}/u.test(content.subject)) w.push("subject_shouting");
+    // Count ASCII and full-width (CJK) exclamation marks.
+    if ((content.subject.match(/[!！]/g)?.length ?? 0) > 1) {
       w.push("subject_excess_exclamation");
     }
   }

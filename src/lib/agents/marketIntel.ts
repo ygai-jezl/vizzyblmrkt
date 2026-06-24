@@ -1,6 +1,7 @@
 import type { Region } from "@/lib/types/tenant";
 import { CompanyProfileSchema, type CompanyProfile } from "@/lib/types/company";
 import { registrableDomain } from "@/lib/domains/registrableDomain";
+import { languageDirective } from "@/lib/i18n/locale";
 import { generateGroundedJson } from "./gemini";
 
 /**
@@ -19,6 +20,12 @@ export interface EnrichCompanyInput {
   domain: string;
   sampleEmail?: string | null;
   contextHint?: string | null;
+  /**
+   * Content language (base code, e.g. "fr") for the narrative fields
+   * (`description`, `industry`, …). The JSON KEYS stay English; only the prose
+   * values localize. Defaults to English when unset. Independent of `region`.
+   */
+  language?: string | null;
 }
 
 export interface EnrichCompanyResult {
@@ -31,7 +38,13 @@ export interface EnrichCompanyResult {
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-function buildPrompt(domain: string, sampleEmail: string | null, hint: string | null): string {
+function buildPrompt(
+  domain: string,
+  sampleEmail: string | null,
+  hint: string | null,
+  language: string | null,
+): string {
+  const dir = languageDirective(language);
   const lines = [
     `You are a market-intelligence analyst. Research the company that owns the domain "${domain}" and return a single JSON object describing it.`,
     sampleEmail ? `A person signed up using the email "${sampleEmail}".` : "",
@@ -42,6 +55,8 @@ function buildPrompt(domain: string, sampleEmail: string | null, hint: string | 
     "Rules: use ONLY verifiable information from search; set a field to null when unknown — never guess.",
     "All text fields must be PLAIN TEXT (no HTML, no markdown). `description` <= 2 sentences.",
     "`confidence` is your 0-1 confidence in the overall profile.",
+    // Localize only the human-readable VALUES; the JSON keys above stay English.
+    dir ? `Write the text values in the required language. ${dir}` : "",
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -76,7 +91,9 @@ export async function enrichCompany(input: EnrichCompanyInput): Promise<EnrichCo
       ? input.sampleEmail
       : null;
 
-  const res = await generateGroundedJson(buildPrompt(domain, sampleEmail, input.contextHint ?? null));
+  const res = await generateGroundedJson(
+    buildPrompt(domain, sampleEmail, input.contextHint ?? null, input.language ?? null),
+  );
   if (!res) {
     return { profile: null, source: "unavailable", model: null, groundingUsed: false, reason: "model_unavailable" };
   }

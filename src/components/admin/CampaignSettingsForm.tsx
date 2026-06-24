@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
 import type { EmailSenderConfig } from "@/lib/types/tenant";
+import { LOCALES, isLiveSupportedLocale, languageName } from "@/lib/i18n/locale";
 
 const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label: string }[] = [
   { value: "EMAIL", label: "Email only" },
@@ -39,6 +40,12 @@ const BRAND_TONE_OPTIONS: { value: Strategy["brandTone"]; label: string }[] = [
   { value: "PRODUCT_LED_CASUAL", label: "Product-Led Casual" },
   { value: "FOMO_EXCLUSIVE", label: "High-Scarcity FOMO" },
 ];
+
+/** Content language the agents author copy + run the voice chat in. */
+const LOCALE_OPTIONS: { value: string; label: string }[] = LOCALES.map((l) => ({
+  value: l.code,
+  label: l.liveCode ? l.name : `${l.name} (text only)`,
+}));
 
 /** Lenient single-address email check for the optional sender overrides. */
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -95,6 +102,35 @@ export function CampaignSettingsForm({
       ...f,
       strategy: { ...f.strategy, [key]: value },
     }));
+    setDirty(true);
+    setStatus("idle");
+  }
+  // Content language: the launch's DEFAULT. Changing it preserves any additional
+  // languages already offered and guarantees the default stays in the supported set.
+  function setContentLanguage(code: string) {
+    setForm((f) => {
+      const extras = f.strategy.supportedLocales.filter(
+        (c) => c !== f.strategy.defaultLocale && c !== code,
+      );
+      return {
+        ...f,
+        strategy: { ...f.strategy, defaultLocale: code, supportedLocales: [code, ...extras] },
+      };
+    });
+    setDirty(true);
+    setStatus("idle");
+  }
+  // Additional languages the launch is offered in (visitors get a switcher + are
+  // auto-detected into these). The default is always kept in the set.
+  function toggleSupportedLocale(code: string) {
+    setForm((f) => {
+      const has = f.strategy.supportedLocales.includes(code);
+      const next = has
+        ? f.strategy.supportedLocales.filter((c) => c !== code)
+        : [...f.strategy.supportedLocales, code];
+      if (!next.includes(f.strategy.defaultLocale)) next.unshift(f.strategy.defaultLocale);
+      return { ...f, strategy: { ...f.strategy, supportedLocales: next } };
+    });
     setDirty(true);
     setStatus("idle");
   }
@@ -317,6 +353,32 @@ export function CampaignSettingsForm({
           onChange={(v) => setStrategy("brandTone", v)}
           options={BRAND_TONE_OPTIONS}
         />
+        <SelectField
+          label="Content language"
+          value={form.strategy.defaultLocale}
+          onChange={setContentLanguage}
+          options={LOCALE_OPTIONS}
+        />
+        <div className="space-y-1">
+          <label className="block text-sm font-medium">
+            Also offer in{" "}
+            <span className="font-normal text-neutral-400">
+              (visitors auto-detect into these and can switch)
+            </span>
+          </label>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+            {LOCALES.filter((l) => l.code !== form.strategy.defaultLocale).map((l) => (
+              <label key={l.code} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.strategy.supportedLocales.includes(l.code)}
+                  onChange={() => toggleSupportedLocale(l.code)}
+                />
+                {l.liveCode ? l.name : `${l.name} (text only)`}
+              </label>
+            ))}
+          </div>
+        </div>
         <TextAreaField
           label="Custom instructions"
           value={form.strategy.customToneInstructions ?? ""}
@@ -334,6 +396,12 @@ export function CampaignSettingsForm({
           checked={form.aiConversation.enabled}
           onChange={(v) => setAiConversation("enabled", v)}
         />
+        {form.aiConversation.enabled && !isLiveSupportedLocale(form.strategy.defaultLocale) ? (
+          <p className="text-xs text-amber-600 dark:text-amber-500">
+            The voice chat doesn&apos;t support {languageName(form.strategy.defaultLocale)} yet, so
+            it will run in English. Email copy and the rest of the page stay in your chosen language.
+          </p>
+        ) : null}
         {form.aiConversation.enabled ? (
           <>
             <TextField

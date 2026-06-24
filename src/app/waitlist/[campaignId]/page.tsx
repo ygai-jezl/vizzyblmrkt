@@ -1,6 +1,6 @@
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { resolveTenantForRequest, forTenant } from "@/lib/tenant";
+import { resolveTenantForRequest, forTenant, getTenantById } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { buildSharePayload } from "@/lib/waitlist/postSignup";
@@ -8,7 +8,10 @@ import { SignupForm } from "@/components/waitlist/SignupForm";
 import { SignupSuccess } from "@/components/waitlist/SignupSuccess";
 import { StatusCheck } from "@/components/waitlist/StatusCheck";
 import { WaitlistClosed } from "@/components/waitlist/WaitlistClosed";
+import { LanguageSwitcher } from "@/components/waitlist/LanguageSwitcher";
 import { isClosed } from "@/lib/waitlist/closed";
+import { localeInfo, resolveVisitorLocale, supportedLocalesFor } from "@/lib/i18n/locale";
+import { getMessage, getWidgetMessages, formatNumber, pluralText } from "@/lib/i18n/messages";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,13 +32,28 @@ export default async function HostedWaitlistPage({
   const verifiedReferralToken = typeof sp.rt === "string" ? sp.rt : undefined;
   const tenantId = typeof sp.t === "string" ? sp.t : undefined;
 
-  const origin = originFromHeaders(await headers());
+  const hdrs = await headers();
+  const origin = originFromHeaders(hdrs);
   const ctx = await resolveTenantForRequest({ tenantId, origin }).catch(() => null);
   if (!ctx) notFound();
 
   const repo = forTenant(ctx);
   const campaign = await repo.campaigns.getById(campaignId);
   if (!campaign) notFound();
+
+  // Per-visitor content language (see embed page for the resolution chain).
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const cookieLng = (await cookies()).get("lng")?.value;
+  const locale = resolveVisitorLocale({
+    explicit: (typeof sp.lng === "string" && sp.lng ? sp.lng : undefined) ?? cookieLng,
+    acceptLanguage: hdrs.get("accept-language"),
+    campaign,
+    tenant,
+  });
+  const messages = getWidgetMessages(locale);
+  const dir = localeInfo(locale).dir;
+  const supportedLocales = supportedLocalesFor(campaign, tenant);
+  const t = (key: string, vars?: Record<string, string | number>) => getMessage(locale, key, vars);
 
   const totalSignups = await repo.signups.count([
     ["campaignId", "==", campaignId],
@@ -71,11 +89,18 @@ export default async function HostedWaitlistPage({
   return (
     <main
       className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-8 px-6 py-16"
+      lang={locale}
+      dir={dir}
       style={style.widgetFontColor ? { color: style.widgetFontColor } : undefined}
     >
+      <LanguageSwitcher
+        locales={supportedLocales}
+        current={locale}
+        label={t("widget.common.language")}
+      />
       {justVerified ? (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-center text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
-          ✅ Email confirmed — your spot is locked in!
+          {t("widget.verified.banner")}
         </div>
       ) : null}
 
@@ -85,7 +110,7 @@ export default async function HostedWaitlistPage({
         </h1>
         {!campaign.hideCounts && totalSignups > 0 ? (
           <p className="text-sm text-neutral-500">
-            Join {totalSignups.toLocaleString()} others on the waitlist.
+            {t("widget.header.joinOthers", { count: formatNumber(locale, totalSignups) })}
           </p>
         ) : null}
       </header>
@@ -95,7 +120,7 @@ export default async function HostedWaitlistPage({
         // link, share, position, voice) rather than a blank "join" form.
         <SignupSuccess
           campaignId={campaign.id}
-          heading={style.statusDescription ?? "You're on the list!"}
+          heading={style.statusDescription ?? t("widget.success.onList")}
           hideCounts={verified.hideCounts}
           rank={verified.rank}
           amountReferred={verified.amountReferred}
@@ -105,13 +130,15 @@ export default async function HostedWaitlistPage({
           enabledPlatforms={verified.enabledSharePlatforms}
           buttonColor={buttonColor}
           aiConversation={aiConversation}
+          messages={messages}
+          locale={locale}
         />
       ) : (
         <>
           {/* Archived launches close the join form but keep the (read-only)
               status check, so existing signups can still look up their spot. */}
           {isClosed(campaign) ? (
-            <WaitlistClosed />
+            <WaitlistClosed message={t("widget.closed.message")} />
           ) : (
             <SignupForm
               campaignId={campaign.id}
@@ -120,20 +147,27 @@ export default async function HostedWaitlistPage({
               questions={campaign.questions}
               referredBySignupToken={referredBySignupToken}
               buttonColor={buttonColor}
-              successMessage={style.statusDescription ?? "You're on the list!"}
-              joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+              successMessage={style.statusDescription ?? t("widget.success.onList")}
+              joinButtonLabel={style.joinButtonLabel ?? t("widget.signup.joinCta")}
               aiConversation={aiConversation}
+              messages={messages}
+              locale={locale}
             />
           )}
 
-          <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} />
+          <StatusCheck
+            campaignId={campaign.id}
+            buttonColor={buttonColor}
+            messages={messages}
+            locale={locale}
+          />
         </>
       )}
 
       {leaderboard.length > 0 ? (
         <section className="space-y-3">
           <h2 className="text-center text-sm font-semibold uppercase tracking-widest text-neutral-500">
-            Top referrers
+            {t("widget.leaderboard.title")}
           </h2>
           <ol className="space-y-1">
             {leaderboard.map((entry) => (
@@ -145,11 +179,10 @@ export default async function HostedWaitlistPage({
                   <span className="mr-2 tabular-nums text-neutral-400">
                     #{entry.rank}
                   </span>
-                  {entry.first_name ?? "Someone"} {entry.last_name ?? ""}
+                  {entry.first_name ?? t("widget.leaderboard.someone")} {entry.last_name ?? ""}
                 </span>
                 <span className="font-medium tabular-nums">
-                  {entry.amount_referred} referral
-                  {entry.amount_referred === 1 ? "" : "s"}
+                  {pluralText(messages, locale, entry.amount_referred, "widget.leaderboard.referrals")}
                 </span>
               </li>
             ))}

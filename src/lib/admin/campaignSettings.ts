@@ -11,6 +11,12 @@ import {
   SHARE_PLATFORM_IDS,
   isSharePlatformId,
 } from "@/lib/waitlist/socialPlatforms";
+import {
+  DEFAULT_LOCALE,
+  SUPPORTED_LOCALES,
+  isSupportedLocale,
+  normalizeLocale,
+} from "@/lib/i18n/locale";
 
 /**
  * The admin-editable subset of a Campaign — everything that drives the hosted
@@ -92,13 +98,35 @@ const StyleSettingsSchema = ConfigurationStyleSchema.extend({
  * it — still saves cleanly; the free-text instructions are optional and may be
  * cleared to "".
  */
-const StrategySettingsSchema = z.object({
-  campaignGoal: CampaignGoalType.default("PRE_LAUNCH_WAITLIST"),
-  targetCount: z.number().int().min(0).max(1_000_000_000).default(10_000),
-  targetAudience: TargetAudienceType.default("DEVELOPERS_TECHNICAL_FOUNDERS"),
-  brandTone: BrandToneType.default("TECHNICAL_PEER"),
-  customToneInstructions: z.string().trim().max(2000).optional(),
-});
+const StrategySettingsSchema = z
+  .object({
+    campaignGoal: CampaignGoalType.default("PRE_LAUNCH_WAITLIST"),
+    targetCount: z.number().int().min(0).max(1_000_000_000).default(10_000),
+    targetAudience: TargetAudienceType.default("DEVELOPERS_TECHNICAL_FOUNDERS"),
+    brandTone: BrandToneType.default("TECHNICAL_PEER"),
+    customToneInstructions: z.string().trim().max(2000).optional(),
+    // Content language(s) the agents author in. `defaultLocale` is the base
+    // content language; the multi-language picker + per-visitor resolution land
+    // in Phase 5, so today `supportedLocales` tracks [defaultLocale]. Both are
+    // validated against the curated SUPPORTED_LOCALES set. CONTENT LANGUAGE ONLY
+    // — orthogonal to the tenant's immutable data-residency `region`.
+    defaultLocale: z
+      .string()
+      .trim()
+      .default(DEFAULT_LOCALE)
+      .refine(isSupportedLocale, { message: "unsupported language" }),
+    supportedLocales: z
+      .array(z.string().trim())
+      .max(SUPPORTED_LOCALES.length)
+      .default([DEFAULT_LOCALE])
+      .refine((arr) => arr.every(isSupportedLocale), {
+        message: "supportedLocales contains an unsupported language",
+      }),
+  })
+  .refine((s) => s.supportedLocales.includes(s.defaultLocale), {
+    message: "the default language must be one of the supported languages",
+    path: ["supportedLocales"],
+  });
 
 /**
  * Editable post-signup AI conversation config. Defaulted (disabled, no bonus) so
@@ -234,6 +262,8 @@ export function defaultCampaignSettings(): CampaignSettings {
       targetCount: 10000,
       targetAudience: "DEVELOPERS_TECHNICAL_FOUNDERS",
       brandTone: "TECHNICAL_PEER",
+      defaultLocale: DEFAULT_LOCALE,
+      supportedLocales: [DEFAULT_LOCALE],
     },
     aiConversation: {
       enabled: false,
@@ -320,6 +350,15 @@ export function toCampaignSettings(campaign: Campaign): CampaignSettings {
       targetAudience: campaign.strategy?.targetAudience ?? "DEVELOPERS_TECHNICAL_FOUNDERS",
       brandTone: campaign.strategy?.brandTone ?? "TECHNICAL_PEER",
       customToneInstructions: campaign.strategy?.customToneInstructions,
+      // Normalise stored codes and guarantee the default is in the supported set.
+      defaultLocale: normalizeLocale(campaign.strategy?.defaultLocale) ?? DEFAULT_LOCALE,
+      supportedLocales: (() => {
+        const def = normalizeLocale(campaign.strategy?.defaultLocale) ?? DEFAULT_LOCALE;
+        const extra = (campaign.strategy?.supportedLocales ?? [])
+          .map((c) => normalizeLocale(c))
+          .filter((c): c is string => !!c);
+        return Array.from(new Set([def, ...extra]));
+      })(),
     },
     // Backfill defaults for any campaign created before `aiConversation` existed.
     aiConversation: {

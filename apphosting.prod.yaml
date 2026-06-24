@@ -154,14 +154,25 @@ env:
     value: https://yougrow.ai/api/webhooks/mandrill
     availability:
       - RUNTIME
-  # - variable: MAILCHIMP_API_KEY       # shared Marketing account
-  #   secret: mailchimp-api-key
-  #   availability:
-  #     - RUNTIME
-  # - variable: MAILCHIMP_AUDIENCE_ID
-  #   secret: mailchimp-audience-id
-  #   availability:
-  #     - RUNTIME
+  # MailChimp Marketing — shared audience sync + Broadcasts. Provision the two
+  # secrets BEFORE deploying this file (firebase apphosting:secrets:set + grantaccess
+  # for the full IAM triple — see apphosting-secret-iam-triple). NOTE: broadcasts also
+  # need the launch's subscribers synced into the audience (tag waitlist-<campaignId>);
+  # since this was never live in prod, run the audience backfill after first deploy.
+  - variable: MAILCHIMP_API_KEY        # shared Marketing account (us9)
+    secret: mailchimp-api-key
+    availability:
+      - RUNTIME
+  - variable: MAILCHIMP_AUDIENCE_ID
+    secret: mailchimp-audience-id
+    availability:
+      - RUNTIME
+  # Non-secret data-center prefix. Derivable from the key suffix ("…-us9"), but set
+  # explicitly to match dev and remove any derive risk.
+  - variable: MAILCHIMP_SERVER_PREFIX
+    value: us9
+    availability:
+      - RUNTIME
   # Shared secret the scheduled delivery worker (Cloud Scheduler) presents as
   # `X-Worker-Secret` to POST /api/admin/email/jobs/process; the cron then drains
   # every tenant's queue across all regions. Provision BEFORE deploying this file:

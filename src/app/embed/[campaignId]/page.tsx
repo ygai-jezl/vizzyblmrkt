@@ -1,12 +1,15 @@
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { resolveTenantForRequest, forTenant } from "@/lib/tenant";
+import { resolveTenantForRequest, forTenant, getTenantById } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { getLeaderboard } from "@/lib/waitlist/leaderboard";
 import { SignupForm } from "@/components/waitlist/SignupForm";
 import { StatusCheck } from "@/components/waitlist/StatusCheck";
 import { WaitlistClosed } from "@/components/waitlist/WaitlistClosed";
+import { LanguageSwitcher } from "@/components/waitlist/LanguageSwitcher";
 import { isClosed } from "@/lib/waitlist/closed";
+import { localeInfo, resolveVisitorLocale, supportedLocalesFor } from "@/lib/i18n/locale";
+import { getMessage, getWidgetMessages, formatNumber, pluralText } from "@/lib/i18n/messages";
 import {
   parseWidgetType,
   parseWidgetMode,
@@ -43,7 +46,8 @@ export default async function EmbedPage({
   const referredBySignupToken = get("ref");
   const theme = parseThemeOverrides(get);
 
-  const origin = originFromHeaders(await headers());
+  const hdrs = await headers();
+  const origin = originFromHeaders(hdrs);
   const ctx = await resolveTenantForRequest({
     tenantId: get("t"),
     origin,
@@ -53,6 +57,22 @@ export default async function EmbedPage({
   const repo = forTenant(ctx);
   const campaign = await repo.campaigns.getById(campaignId);
   if (!campaign) notFound();
+
+  // Per-visitor content language: ?lng= / cookie → Accept-Language → launch
+  // default, clamped to the launch's supported set (campaign over tenant).
+  // Resolved server-side so SSR and hydration agree.
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const cookieLng = (await cookies()).get("lng")?.value;
+  const locale = resolveVisitorLocale({
+    explicit: (get("lng") || undefined) ?? cookieLng,
+    acceptLanguage: hdrs.get("accept-language"),
+    campaign,
+    tenant,
+  });
+  const messages = getWidgetMessages(locale);
+  const dir = localeInfo(locale).dir;
+  const supportedLocales = supportedLocalesFor(campaign, tenant);
+  const t = (key: string, vars?: Record<string, string | number>) => getMessage(locale, key, vars);
 
   const style = campaign.configurationStyleJson;
   const buttonColor = theme.buttonColor ?? style.widgetButtonColor ?? "#111827";
@@ -89,8 +109,15 @@ export default async function EmbedPage({
       <EmbedAutoResize background={backgroundColor} campaignId={campaign.id}>
         <div
           className="mx-auto flex max-w-md flex-col gap-5 px-4 py-4"
+          lang={locale}
+          dir={dir}
           style={fontColor ? { color: fontColor } : undefined}
         >
+          <LanguageSwitcher
+            locales={supportedLocales}
+            current={locale}
+            label={t("widget.common.language")}
+          />
           {showHeader ? (
             <header className="space-y-1 text-center">
               <h1 className="text-xl font-semibold tracking-tight">
@@ -98,7 +125,7 @@ export default async function EmbedPage({
               </h1>
               {showCount && totalSignups > 0 ? (
                 <p className="text-xs text-neutral-500">
-                  Join {totalSignups.toLocaleString()} others on the waitlist.
+                  {t("widget.header.joinOthers", { count: formatNumber(locale, totalSignups) })}
                 </p>
               ) : null}
             </header>
@@ -109,10 +136,12 @@ export default async function EmbedPage({
               campaignId={campaign.id}
               buttonColor={buttonColor}
               defaultOpen
+              messages={messages}
+              locale={locale}
             />
           ) : isClosed(campaign) ? (
             // Archived launch: show a compact closed notice instead of the form.
-            <WaitlistClosed compact />
+            <WaitlistClosed compact message={t("widget.closed.message")} />
           ) : (
             <SignupForm
               campaignId={campaign.id}
@@ -121,18 +150,20 @@ export default async function EmbedPage({
               questions={campaign.questions}
               referredBySignupToken={referredBySignupToken}
               buttonColor={buttonColor}
-              successMessage={style.statusDescription ?? "You're on the list!"}
-              joinButtonLabel={style.joinButtonLabel ?? "Join the waitlist"}
+              successMessage={style.statusDescription ?? t("widget.success.onList")}
+              joinButtonLabel={style.joinButtonLabel ?? t("widget.signup.joinCta")}
               variant={variant}
               embedded
               aiConversation={aiConversation}
+              messages={messages}
+              locale={locale}
             />
           )}
 
           {leaderboard.length > 0 ? (
             <section className="space-y-2">
               <h2 className="text-center text-xs font-semibold uppercase tracking-widest text-neutral-500">
-                Top referrers
+                {t("widget.leaderboard.title")}
               </h2>
               <ol className="space-y-1">
                 {leaderboard.map((entry) => (
@@ -144,11 +175,10 @@ export default async function EmbedPage({
                       <span className="mr-2 tabular-nums text-neutral-400">
                         #{entry.rank}
                       </span>
-                      {entry.first_name ?? "Someone"} {entry.last_name ?? ""}
+                      {entry.first_name ?? t("widget.leaderboard.someone")} {entry.last_name ?? ""}
                     </span>
                     <span className="font-medium tabular-nums">
-                      {entry.amount_referred} referral
-                      {entry.amount_referred === 1 ? "" : "s"}
+                      {pluralText(messages, locale, entry.amount_referred, "widget.leaderboard.referrals")}
                     </span>
                   </li>
                 ))}

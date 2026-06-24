@@ -1,6 +1,8 @@
 import type { Campaign } from "@/lib/types/campaign";
 import { MERGE_VARS } from "@/lib/email/mergeVars";
 import { platformOrigin } from "@/lib/platform/origin";
+import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
+import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
 import { generateText, generateImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
@@ -23,6 +25,12 @@ export interface DraftCopyInput {
   variantCount?: number;
   /** Human-readable prior-send performance summary, fed to the model. */
   performance?: string;
+  /**
+   * Content language (base code, e.g. "fr") to write the copy in. Defaults to the
+   * launch's resolved locale (`campaign.strategy.defaultLocale` → "en"). An
+   * explicit value lets a caller override per request (e.g. a per-recipient send).
+   */
+  locale?: string;
 }
 
 export interface DraftCopyResult {
@@ -42,8 +50,10 @@ function strategyVars(campaign: Campaign): Record<string, string> {
 
 export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult> {
   const count = Math.min(Math.max(input.variantCount ?? 3, 1), 5);
+  const locale = input.locale ?? resolveCampaignLocale(input.campaign);
   const prompt = renderPrompt("creative.draft_copy", {
     ...strategyVars(input.campaign),
+    response_language_directive: languageDirective(locale),
     performance: input.performance ?? "No prior sends yet.",
     merge_vars: MERGE_VARS.map((v) => `{{${v}}}`).join(", "),
     brief: input.brief,
@@ -55,7 +65,7 @@ export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult>
   if (parsed && parsed.length > 0) {
     return { variants: parsed.slice(0, count), source: "agent3" };
   }
-  return { variants: fallbackVariants(input, count), source: "fallback" };
+  return { variants: fallbackVariants(input, count, locale), source: "fallback" };
 }
 
 export interface GenerateHeroImageInput {
@@ -122,24 +132,33 @@ function parseVariants(raw: string): CopyVariant[] | null {
   }
 }
 
-function fallbackVariants(input: DraftCopyInput, count: number): CopyVariant[] {
+/**
+ * Deterministic copy used when the model is unavailable. Strings come from the
+ * locale message catalog (English base; localizes per-locale as translations are
+ * added) so a non-English launch isn't silently shipped English connective copy.
+ * The operator's own `brief` is passed through verbatim (already in their language)
+ * and `{{merge_tokens}}` survive untouched for the send pipeline.
+ */
+function fallbackVariants(input: DraftCopyInput, count: number, locale: string): CopyVariant[] {
   const name = input.campaign.waitlistName;
-  const brief = escapeHtml(input.brief.trim() || `News from ${name}`);
+  const briefHtml = escapeHtml(
+    input.brief.trim() || getMessage(locale, "email.fallback.body.newsFrom", { name }),
+  );
   const subjects = [
-    `${name}: ${truncate(input.brief, 48) || "an update for you"}`,
-    `You're on the move, {{first_name}} 🚀`,
-    `A quick update from ${name}`,
-    `Don't miss this, {{first_name}}`,
-    `${name} — what's next`,
+    getMessage(locale, "email.fallback.subject.update", {
+      name,
+      brief: truncate(input.brief, 48) || getMessage(locale, "email.fallback.subject.default"),
+    }),
+    getMessage(locale, "email.fallback.subject.climbing"),
+    getMessage(locale, "email.fallback.subject.quickUpdate", { name }),
+    getMessage(locale, "email.fallback.subject.dontMiss"),
+    getMessage(locale, "email.fallback.subject.whatsNext", { name }),
   ];
+  const greeting = getMessage(locale, "email.fallback.body.greeting");
+  const rankLine = getMessage(locale, "email.fallback.body.rankLine", { name: escapeHtml(name) });
   return Array.from({ length: count }, (_, i) => ({
     subject: subjects[i % subjects.length]!,
-    body:
-      `<p>Hi {{first_name}},</p>` +
-      `<p>${brief}</p>` +
-      `<p>You're currently <strong>#{{current_rank}}</strong> on the ${escapeHtml(
-        name,
-      )} waitlist. Share your link to climb: <a href="{{referral_link}}">{{referral_link}}</a></p>`,
+    body: `<p>${greeting}</p><p>${briefHtml}</p><p>${rankLine}</p>`,
   }));
 }
 

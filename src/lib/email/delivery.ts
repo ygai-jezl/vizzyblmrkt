@@ -16,6 +16,7 @@ import {
   campaignTag,
 } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
+import { resolveCampaignLocale } from "@/lib/i18n/locale";
 import { selectBranch } from "@/lib/journey/conditions";
 import { allocateVariant, resolveArmContent } from "@/lib/journey/allocation";
 import { syncBroadcastStats } from "@/lib/mailchimp/reports";
@@ -24,8 +25,8 @@ import { recordEmailEvent } from "./events";
 import { renderMergeVars } from "./mergeVars";
 import {
   offboardingEmail,
-  DEFAULT_OFFBOARDING_SUBJECT,
-  DEFAULT_OFFBOARDING_BODY,
+  defaultOffboardingSubject,
+  defaultOffboardingBody,
 } from "./templates";
 import { processContactEnrichJob } from "@/lib/crm/enrichWorker";
 import { processContactEraseJob } from "@/lib/crm/eraseWorker";
@@ -350,18 +351,22 @@ async function processLifecycleJob(
 
   const offb = campaign.offboardingEmail;
   const mergeCtx = { signup, campaign };
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  // Render the default copy in the language the recipient signed up in (admin-
+  // authored subject/body override, and are already in their chosen language);
+  // falls back to the launch then tenant default.
+  const locale = signup.locale ?? resolveCampaignLocale(campaign, tenant);
   // Strip CRLF from the subject so a merge-token value (e.g. a crafted firstName)
   // can't smuggle extra email headers. The body is fine — it's HTML-escaped and
   // newlines become <br>.
-  const subject = renderMergeVars(offb.subject?.trim() || DEFAULT_OFFBOARDING_SUBJECT, mergeCtx)
+  const subject = renderMergeVars(offb.subject?.trim() || defaultOffboardingSubject(locale), mergeCtx)
     .replace(/[\r\n]+/g, " ")
     .trim();
-  const body = renderMergeVars(offb.body?.trim() || DEFAULT_OFFBOARDING_BODY, mergeCtx);
+  const body = renderMergeVars(offb.body?.trim() || defaultOffboardingBody(locale), mergeCtx);
 
-  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const sender = resolveSender(tenant, campaign);
   const res = await sendEmail({
-    ...offboardingEmail({ to: signup.email, subject, body }),
+    ...offboardingEmail({ to: signup.email, subject, body, locale }),
     fromEmail: sender.fromEmail,
     fromName: sender.fromName,
     replyTo: sender.replyTo,

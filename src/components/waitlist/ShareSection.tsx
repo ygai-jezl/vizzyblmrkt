@@ -6,6 +6,12 @@ import {
   getSharePlatform,
   type SharePlatformId,
 } from "@/lib/waitlist/socialPlatforms";
+import {
+  translate,
+  pluralTemplate,
+  formatNumber,
+  type MessageCatalog,
+} from "@/lib/i18n/messages";
 import { SocialIcon } from "./socialIcons";
 
 /**
@@ -28,6 +34,9 @@ export interface ShareSectionProps {
   hideCounts: boolean;
   /** Brand colour for the copy button. */
   buttonColor: string;
+  /** Resolved message catalog + locale for the visitor's language. */
+  messages: MessageCatalog;
+  locale: string;
 }
 
 export function ShareSection({
@@ -38,31 +47,41 @@ export function ShareSection({
   amountReferred,
   hideCounts,
   buttonColor,
+  messages,
+  locale,
 }: ShareSectionProps) {
   const [copied, setCopied] = useState(false);
+  const t = (key: string, vars?: Record<string, string | number>) =>
+    translate(messages, key, vars);
+  // The referral count line wraps the number in <strong>, so we split the
+  // localized template on {count} and inject the styled, locale-formatted number.
+  // Translations of widget.share.referred.* MUST keep the {count} placeholder; if
+  // one omits it the number simply renders after the text (graceful, not broken).
+  const referredTemplate = pluralTemplate(messages, locale, amountReferred, "widget.share.referred");
+  const [referredBefore, referredAfter = ""] = referredTemplate.split("{count}");
 
   return (
     <div className="space-y-4">
       {rank != null && !hideCounts ? (
         <div className="space-y-0.5">
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            Your position
+            {t("widget.share.position")}
           </p>
-          <p className="text-4xl font-bold tabular-nums">#{rank.toLocaleString()}</p>
+          <p className="text-4xl font-bold tabular-nums">#{formatNumber(locale, rank)}</p>
         </div>
       ) : null}
 
       <p className="text-sm text-neutral-500">
         {amountReferred > 0 ? (
           <>
-            You have referred{" "}
+            {referredBefore}
             <span className="font-semibold text-neutral-900 dark:text-neutral-100">
-              {amountReferred.toLocaleString()}
-            </span>{" "}
-            friend{amountReferred === 1 ? "" : "s"}.
+              {formatNumber(locale, amountReferred)}
+            </span>
+            {referredAfter}
           </>
         ) : (
-          "Refer friends to move up the list."
+          t("widget.share.referPrompt")
         )}
       </p>
 
@@ -76,8 +95,8 @@ export function ShareSection({
                 href={buildShareUrl(id, { url: referralLink, message: shareMessage })}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`Share on ${platform.label}`}
-                aria-label={`Share on ${platform.label}`}
+                title={t("widget.share.shareOn", { platform: platform.label })}
+                aria-label={t("widget.share.shareOn", { platform: platform.label })}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
               >
                 <SocialIcon id={id} size={18} />
@@ -108,7 +127,7 @@ export function ShareSection({
             }
           }}
         >
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("widget.share.copied") : t("widget.share.copy")}
         </button>
       </div>
     </div>

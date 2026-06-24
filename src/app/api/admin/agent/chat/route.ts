@@ -14,6 +14,8 @@ import {
   parseUpstreamRecords,
 } from "@/lib/agents/agentRuntime";
 import { mintCanvasContextOrNull } from "@/lib/canvas/auth";
+import { getTenantById } from "@/lib/tenant/registry";
+import { normalizeLocale } from "@/lib/i18n/locale";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,8 +70,12 @@ export async function POST(req: Request) {
   // call back to save a journey draft scoped to THIS verified tenant. Null when
   // the signing key isn't configured — chat still works, agent authoring is off.
   const ctxToken = mintCanvasContextOrNull(ctx);
+  // Operator content language for Vizzy = the brand's default locale (global
+  // tenant registry read; decoupled from `region`). Null/"en" ⇒ no directive.
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const locale = normalizeLocale(tenant?.defaultLocale) ?? "en";
   const text =
-    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId }) + message;
+    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale }) + message;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

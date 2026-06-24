@@ -33,6 +33,8 @@ export const SignupInputSchema = z
       })
       .optional(),
     referrerUrl: z.string().trim().max(2000).optional(),
+    /** Visitor's resolved content language (BCP-47), re-validated server-side. */
+    locale: z.string().trim().max(35).optional(),
   })
   .strict();
 

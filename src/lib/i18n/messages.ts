@@ -1,0 +1,129 @@
+/**
+ * Framework-agnostic message catalog — the single copy source for deterministic,
+ * non-LLM strings (the Agent 3 fallback copy today; transactional email + widget
+ * chrome in Phase 5). Plain JSON + a tiny formatter so it works equally in React
+ * server components AND the non-React Mandrill string builders (next-intl's hooks
+ * don't run there), keeping ONE catalog source across both consumers.
+ *
+ * Keys are flat + dotted; per-locale files shallow-merge OVER the English base, so
+ * an untranslated key transparently falls back to English. Add a locale by
+ * dropping `messages/<locale>.json` and importing it into CATALOGS below.
+ *
+ * Two placeholder syntaxes, by design:
+ *   - `{name}`          → interpolated NOW by formatMessage (our own values).
+ *   - `{{first_name}}`  → email MERGE TOKENS, left verbatim for the send pipeline
+ *                         to render per-recipient. formatMessage never touches them.
+ */
+import { normalizeLocale } from "./locale";
+import en from "./messages/en.json";
+
+export type MessageCatalog = Record<string, string>;
+export type MessageVars = Record<string, string | number>;
+
+const EN: MessageCatalog = en;
+
+// Per-locale overrides, merged over the English base. Add entries as translation
+// files land, e.g. `import fr from "./messages/fr.json"; ... fr`.
+const CATALOGS: Record<string, MessageCatalog> = { en: EN };
+
+/**
+ * Interpolate single-brace `{placeholders}` only. The negative look-behind/ahead
+ * skip `{{merge_tokens}}` so they pass through untouched. Unknown placeholders are
+ * left as-is.
+ */
+export function formatMessage(template: string, vars?: MessageVars): string {
+  if (!vars) return template;
+  return template.replace(
+    /(?<!\{)\{([a-zA-Z0-9_]+)\}(?!\})/g,
+    (match, key: string) => (key in vars ? String(vars[key]) : match),
+  );
+}
+
+/**
+ * Resolve one message for a locale: locale override → English base → the key
+ * itself (so a missing key is visible, never a crash). `vars` are interpolated.
+ */
+export function getMessage(
+  locale: string | null | undefined,
+  key: string,
+  vars?: MessageVars,
+): string {
+  const norm = normalizeLocale(locale) ?? "en";
+  const template = CATALOGS[norm]?.[key] ?? EN[key] ?? key;
+  return formatMessage(template, vars);
+}
+
+/**
+ * The full catalog for a locale (per-locale overrides merged over English), as a
+ * plain serializable object. The public widget's server pages call this once and
+ * pass the result down to client components as a `messages` prop (functions can't
+ * cross the server→client boundary, but this plain object can).
+ */
+export function getMessages(locale: string | null | undefined): MessageCatalog {
+  const norm = normalizeLocale(locale) ?? "en";
+  return { ...EN, ...(CATALOGS[norm] ?? {}) };
+}
+
+/**
+ * The `widget.*` subset only — what the public client components need. Server
+ * pages pass THIS (not the full catalog) into client props so transactional
+ * `email.*` copy is never serialized into the public widget bundle.
+ */
+export function getWidgetMessages(locale: string | null | undefined): MessageCatalog {
+  const full = getMessages(locale);
+  const out: MessageCatalog = {};
+  for (const key of Object.keys(full)) {
+    if (key.startsWith("widget.")) out[key] = full[key]!;
+  }
+  return out;
+}
+
+/**
+ * Look up + interpolate a key against an ALREADY-RESOLVED catalog (the `messages`
+ * prop). Client-safe twin of getMessage for components that received the catalog.
+ */
+export function translate(messages: MessageCatalog, key: string, vars?: MessageVars): string {
+  return formatMessage(messages[key] ?? key, vars);
+}
+
+/** The CLDR plural category for `count` in `locale` ("one"/"other"/…), safe-fallback "other". */
+export function pluralCategory(locale: string | null | undefined, count: number): string {
+  const norm = normalizeLocale(locale) ?? "en";
+  try {
+    return new Intl.PluralRules(norm).select(count);
+  } catch {
+    return "other";
+  }
+}
+
+/**
+ * Resolve a pluralized key (`<baseKey>.<category>`, falling back to `.other`) to
+ * its RAW template — `count` is provided in vars but NOT yet interpolated, so a
+ * caller can split on `{count}` to wrap the number in markup. Use `pluralText`
+ * when no markup is needed.
+ */
+export function pluralTemplate(
+  messages: MessageCatalog,
+  locale: string | null | undefined,
+  count: number,
+  baseKey: string,
+): string {
+  const category = pluralCategory(locale, count);
+  return messages[`${baseKey}.${category}`] ?? messages[`${baseKey}.other`] ?? baseKey;
+}
+
+/** Locale-aware number formatting (thousands separators per locale). */
+export function formatNumber(locale: string | null | undefined, n: number): string {
+  return n.toLocaleString(normalizeLocale(locale) ?? "en");
+}
+
+/** Fully-rendered pluralized string (`{count}` interpolated as text). */
+export function pluralText(
+  messages: MessageCatalog,
+  locale: string | null | undefined,
+  count: number,
+  baseKey: string,
+  vars?: MessageVars,
+): string {
+  return formatMessage(pluralTemplate(messages, locale, count, baseKey), { ...vars, count });
+}

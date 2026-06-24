@@ -16,6 +16,8 @@ import {
   parseEnabledPlatforms,
   renderSampleShareMessage,
 } from "@/lib/waitlist/socialPlatforms";
+import { resolveCampaignLocale } from "@/lib/i18n/locale";
+import { getMessage, getWidgetMessages, formatNumber, pluralText } from "@/lib/i18n/messages";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +52,12 @@ export default async function LaunchPreviewPage({
   const repo = forTenant(ctx);
   const campaign = await repo.campaigns.getById(campaignId);
   if (!campaign) notFound();
+
+  // The preview mirrors what a visitor sees, so render in the launch's default
+  // content language.
+  const locale = resolveCampaignLocale(campaign);
+  const messages = getWidgetMessages(locale);
+  const t = (key: string, vars?: Record<string, string | number>) => getMessage(locale, key, vars);
 
   const surface = parsePreviewSurface(get("surface"));
   const isHosted = surface === "hosted";
@@ -123,7 +131,7 @@ export default async function LaunchPreviewPage({
             </h1>
             {showCount && totalSignups > 0 ? (
               <p className={isHosted ? "text-sm text-neutral-500" : "text-xs text-neutral-500"}>
-                Join {totalSignups.toLocaleString()} others on the waitlist.
+                {t("widget.header.joinOthers", { count: formatNumber(locale, totalSignups) })}
               </p>
             ) : null}
           </header>
@@ -139,8 +147,15 @@ export default async function LaunchPreviewPage({
               buttonColor={buttonColor}
               successMessage={successMessage}
               joinButtonLabel={joinButtonLabel}
+              messages={messages}
+              locale={locale}
             />
-            <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} />
+            <StatusCheck
+              campaignId={campaign.id}
+              buttonColor={buttonColor}
+              messages={messages}
+              locale={locale}
+            />
           </>
         ) : previewSuccess ? (
           // The post-signup payoff a visitor sees after joining, with sample
@@ -158,9 +173,17 @@ export default async function LaunchPreviewPage({
             enabledPlatforms={enabledPlatforms}
             buttonColor={buttonColor}
             aiConversation={aiConversation}
+            messages={messages}
+            locale={locale}
           />
         ) : mode === "CHECK" ? (
-          <StatusCheck campaignId={campaign.id} buttonColor={buttonColor} defaultOpen />
+          <StatusCheck
+            campaignId={campaign.id}
+            buttonColor={buttonColor}
+            defaultOpen
+            messages={messages}
+            locale={locale}
+          />
         ) : (
           <SignupForm
             campaignId={campaign.id}
@@ -172,13 +195,15 @@ export default async function LaunchPreviewPage({
             joinButtonLabel={joinButtonLabel}
             variant={variant}
             embedded
+            messages={messages}
+            locale={locale}
           />
         )}
 
         {leaderboard.length > 0 ? (
           <section className="space-y-2">
             <h2 className="text-center text-xs font-semibold uppercase tracking-widest text-neutral-500">
-              Top referrers
+              {t("widget.leaderboard.title")}
             </h2>
             <ol className="space-y-1">
               {leaderboard.map((entry) => (
@@ -188,11 +213,10 @@ export default async function LaunchPreviewPage({
                 >
                   <span>
                     <span className="mr-2 tabular-nums text-neutral-400">#{entry.rank}</span>
-                    {entry.first_name ?? "Someone"} {entry.last_name ?? ""}
+                    {entry.first_name ?? t("widget.leaderboard.someone")} {entry.last_name ?? ""}
                   </span>
                   <span className="font-medium tabular-nums">
-                    {entry.amount_referred} referral
-                    {entry.amount_referred === 1 ? "" : "s"}
+                    {pluralText(messages, locale, entry.amount_referred, "widget.leaderboard.referrals")}
                   </span>
                 </li>
               ))}

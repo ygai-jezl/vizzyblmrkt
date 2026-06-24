@@ -4,6 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { ShareSection } from "./ShareSection";
 import type { SharePlatformId } from "@/lib/waitlist/socialPlatforms";
+import { translate, formatNumber, type MessageCatalog } from "@/lib/i18n/messages";
 
 // Lazy-loaded so the Gemini Live SDK (@google/genai) is only fetched when a user
 // actually opens the conversation — keeping the waitlist + embed bundles lean.
@@ -39,6 +40,9 @@ export interface SignupSuccessProps {
   buttonColor: string;
   /** When enabled (and we have a referralToken), shows the voice conversation CTA. */
   aiConversation?: { enabled: boolean; introLine?: string };
+  /** Resolved message catalog + locale for the visitor's language. */
+  messages: MessageCatalog;
+  locale: string;
 }
 
 export function SignupSuccess({
@@ -54,15 +58,19 @@ export function SignupSuccess({
   enabledPlatforms,
   buttonColor,
   aiConversation,
+  messages,
+  locale,
 }: SignupSuccessProps) {
   const [convoOpen, setConvoOpen] = useState(false);
+  const t = (key: string, vars?: Record<string, string | number>) =>
+    translate(messages, key, vars);
 
   return (
     <section className="space-y-4 rounded-xl border border-neutral-200 p-5 text-center dark:border-neutral-800">
       <h2 className="text-lg font-semibold">{heading}</h2>
       {!hideCounts && totalSignups != null && totalSignups > 0 ? (
         <p className="text-sm text-neutral-500">
-          {totalSignups.toLocaleString()} people have joined.
+          {t("widget.success.joinedCount", { count: formatNumber(locale, totalSignups) })}
         </p>
       ) : null}
 
@@ -74,12 +82,14 @@ export function SignupSuccess({
         amountReferred={amountReferred}
         hideCounts={hideCounts}
         buttonColor={buttonColor}
+        messages={messages}
+        locale={locale}
       />
 
       {aiConversation?.enabled && referralToken ? (
         // Dark callout so the gradient glow reads against the light success card.
         <div className="mt-2 space-y-3 rounded-xl bg-neutral-950 p-4">
-          <p className="text-sm font-medium text-white">Want to jump the queue?</p>
+          <p className="text-sm font-medium text-white">{t("widget.success.voiceTitle")}</p>
           <div className="relative">
             {/* Glow: a blurred premium gradient sitting behind the button. */}
             <div
@@ -91,7 +101,7 @@ export function SignupSuccess({
               onClick={() => setConvoOpen(true)}
               className="relative w-full rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 transition hover:ring-white/30"
             >
-              🎙️ Boost your spot — talk to us
+              {t("widget.success.voiceCta")}
             </button>
           </div>
         </div>
@@ -104,6 +114,7 @@ export function SignupSuccess({
           introLine={aiConversation?.introLine}
           buttonColor={buttonColor}
           onClose={() => setConvoOpen(false)}
+          messages={messages}
         />
       ) : null}
     </section>

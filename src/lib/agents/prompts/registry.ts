@@ -23,7 +23,7 @@ const PROMPTS: Record<string, PromptTemplate> = {
     description: "Agent 3 — draft N marketing email variants for a launch.",
     template: `You are Agent 3, the Creative Director & Copywriter for a product-launch waitlist platform.
 Write high-converting marketing email copy.
-
+[[response_language_directive]]
 Brand tone: [[brand_tone]]
 Target audience: [[target_audience]]
 Campaign goal: [[campaign_goal]]
@@ -61,7 +61,7 @@ Return ONLY the prompt text, nothing else.`,
       "Live API system instruction: a short, warm VOICE chat with a fresh waitlist signup to learn why they joined.",
     template: `You are the friendly voice of "[[waitlist_name]]", talking with someone who just joined the waitlist.
 This is a SPOKEN, real-time conversation — keep every reply short (1-2 sentences), natural and warm, never read like an essay. No markdown, no lists, no emoji.
-
+[[response_language_directive]]
 Your goal: [[conversation_goal]]
 
 Context for staying relevant:

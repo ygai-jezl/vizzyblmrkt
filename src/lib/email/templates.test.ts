@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   offboardingEmail,
+  verificationEmail,
   DEFAULT_OFFBOARDING_SUBJECT,
   DEFAULT_OFFBOARDING_BODY,
 } from "./templates";
@@ -29,6 +30,35 @@ describe("offboardingEmail template", () => {
     });
     expect(msg.html).toContain("&lt;script&gt;");
     expect(msg.html).not.toContain("<script>alert(1)</script>");
+  });
+});
+
+describe("verificationEmail template", () => {
+  const base = {
+    to: "a@b.com",
+    waitlistName: "Vizzybl Beta",
+    verifyUrl: "https://x.test/verify?token=abc",
+    firstName: "Maya",
+  };
+
+  it("renders the exact English copy (default locale) with the brand name + link", () => {
+    const msg = verificationEmail(base);
+    expect(msg.subject).toBe("Confirm your spot on the Vizzybl Beta waitlist");
+    expect(msg.text).toContain("Hi Maya,");
+    expect(msg.text).toContain(
+      "Confirm your email to lock in your place on the Vizzybl Beta waitlist:",
+    );
+    expect(msg.text).toContain("https://x.test/verify?token=abc");
+    expect(msg.html).toContain("<p>Hi Maya,</p>");
+    expect(msg.html).toContain("<strong>Vizzybl Beta</strong>");
+    expect(msg.html).toContain(">Confirm my spot</a>");
+    expect(msg.html).toContain('<html lang="en" dir="ltr">');
+  });
+
+  it("falls back to a plain greeting when no first name", () => {
+    const msg = verificationEmail({ ...base, firstName: null });
+    expect(msg.html).toContain("<p>Hi,</p>");
+    expect(msg.text?.startsWith("Hi,")).toBe(true);
   });
 });
 

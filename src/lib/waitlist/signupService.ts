@@ -26,6 +26,11 @@ export interface CreateSignupOptions {
   tenantId?: string;
   /** ISO timestamp; injectable for deterministic tests. */
   now?: string;
+  /**
+   * Visitor's resolved content language (BCP-47 base code), already clamped to the
+   * launch's supported set by the route. Stored so emails match the signup language.
+   */
+  locale?: string | null;
 }
 
 export interface SignupResult {
@@ -118,6 +123,7 @@ export async function createSignup(
     utm:
       input.utm && Object.values(input.utm).some(Boolean) ? input.utm : undefined,
     referrerUrl: input.referrerUrl || null,
+    locale: opts.locale ?? null,
     createdAt: now,
   };
 

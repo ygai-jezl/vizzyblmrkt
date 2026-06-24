@@ -25,6 +25,7 @@ import {
 } from "@/lib/waitlist/socialPlatforms";
 import { SocialIcon } from "@/components/waitlist/socialIcons";
 import { ShareSection } from "@/components/waitlist/ShareSection";
+import { getWidgetMessages } from "@/lib/i18n/messages";
 
 interface CampaignOption {
   id: string;
@@ -783,6 +784,8 @@ function SocialTab({
             amountReferred={3}
             hideCounts={false}
             buttonColor={buttonColor}
+            messages={getWidgetMessages("en")}
+            locale="en"
           />
         </div>
         <p className="text-xs text-neutral-500">

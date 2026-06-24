@@ -63,6 +63,32 @@ describe("buildLiveSystemInstruction", () => {
     expect(prompt).toContain("Why they signed up"); // default probe topics
     expect(prompt).not.toMatch(/\[\[[\w.]+\]\]/);
   });
+
+  it("injects a spoken-language directive from the launch's default locale", () => {
+    const prompt = buildLiveSystemInstruction(
+      campaign({
+        strategy: {
+          campaignGoal: "PRE_LAUNCH_WAITLIST",
+          targetCount: 100,
+          targetAudience: "GENERAL_CONSUMERS",
+          brandTone: "PRODUCT_LED_CASUAL",
+          defaultLocale: "fr",
+        } as never,
+      }),
+    );
+    expect(prompt).toContain("RESPOND ONLY IN French");
+    expect(prompt).not.toMatch(/\[\[[\w.]+\]\]/);
+  });
+
+  it("emits no language directive for an English (default) launch", () => {
+    const prompt = buildLiveSystemInstruction(campaign());
+    expect(prompt).not.toMatch(/RESPOND ONLY IN/);
+  });
+
+  it("honours an explicit per-session locale override", () => {
+    const prompt = buildLiveSystemInstruction(campaign(), "ja");
+    expect(prompt).toContain("RESPOND ONLY IN Japanese");
+  });
 });
 
 describe("buildLiveConnectConfig", () => {
@@ -73,6 +99,20 @@ describe("buildLiveConnectConfig", () => {
     expect(config.inputAudioTranscription).toBeDefined();
     expect(config.outputAudioTranscription).toBeDefined();
     expect(config.sessionResumption).toBeDefined();
+  });
+
+  it("hints transcription with the spoken language's BCP-47 code", () => {
+    const en = buildLiveConnectConfig(campaign());
+    expect(en.inputAudioTranscription).toEqual({ languageCodes: ["en-US"] });
+    const fr = buildLiveConnectConfig(campaign(), "fr");
+    expect(fr.inputAudioTranscription).toEqual({ languageCodes: ["fr-FR"] });
+    expect(fr.outputAudioTranscription).toEqual({ languageCodes: ["fr-FR"] });
+  });
+
+  it("does NOT set speech_config.language_code on the native-audio default model", () => {
+    // The default model is native-audio, which rejects language_code — steering
+    // is via the system instruction only.
+    expect(buildLiveConnectConfig(campaign(), "fr").speechConfig).toBeUndefined();
   });
 
   it("defaults the model to the Gemini 3.1 Flash Live preview id", () => {

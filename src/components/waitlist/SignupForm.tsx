@@ -7,6 +7,7 @@ import {
   parseEnabledPlatforms,
   type SharePlatformId,
 } from "@/lib/waitlist/socialPlatforms";
+import { translate, type MessageCatalog } from "@/lib/i18n/messages";
 import { SignupSuccess } from "./SignupSuccess";
 
 interface Question {
@@ -34,6 +35,9 @@ interface Props {
   embedded?: boolean;
   /** Post-signup AI voice conversation config (the CTA shown on success). */
   aiConversation?: { enabled: boolean; introLine?: string };
+  /** Resolved message catalog + locale for the visitor's language. */
+  messages: MessageCatalog;
+  locale: string;
 }
 
 interface SuccessState {
@@ -75,7 +79,11 @@ export function SignupForm({
   variant = "full",
   embedded = false,
   aiConversation,
+  messages,
+  locale,
 }: Props) {
+  const t = (key: string, vars?: Record<string, string | number>) =>
+    translate(messages, key, vars);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -120,6 +128,8 @@ export function SignupForm({
     if (typeof document !== "undefined" && document.referrer) {
       body.referrerUrl = document.referrer;
     }
+    // The language this visitor is viewing the widget in (server re-validates).
+    body.locale = locale;
 
     try {
       const recaptchaToken = await getRecaptchaToken("signup");
@@ -138,7 +148,7 @@ export function SignupForm({
         const issues = Array.isArray(data.issues)
           ? data.issues.map((i: unknown) => (typeof i === "string" ? i : (i as { message?: string }).message)).join(", ")
           : null;
-        setError(issues || data.error || "Something went wrong.");
+        setError(issues || data.error || t("widget.common.error"));
         setStatus("error");
         return;
       }
@@ -169,7 +179,7 @@ export function SignupForm({
         );
       }
     } catch {
-      setError("Network error — please try again.");
+      setError(t("widget.common.networkError"));
       setStatus("error");
     }
   }
@@ -177,11 +187,8 @@ export function SignupForm({
   if (status === "success" && success?.needsVerification) {
     return (
       <section className="space-y-2 rounded-xl border border-neutral-200 p-5 text-center dark:border-neutral-800">
-        <h2 className="text-lg font-semibold">Almost there — check your email 📧</h2>
-        <p className="text-sm text-neutral-500">
-          We sent a confirmation link to lock in your spot. Your place is not
-          counted until you confirm.
-        </p>
+        <h2 className="text-lg font-semibold">{t("widget.signup.verify.title")}</h2>
+        <p className="text-sm text-neutral-500">{t("widget.signup.verify.body")}</p>
       </section>
     );
   }
@@ -190,7 +197,7 @@ export function SignupForm({
     return (
       <SignupSuccess
         campaignId={campaignId}
-        heading={success.alreadyJoined ? "You're already on the list 🎉" : successMessage}
+        heading={success.alreadyJoined ? t("widget.success.alreadyOnList") : successMessage}
         totalSignups={success.totalSignups}
         hideCounts={success.hideCounts}
         rank={success.rank}
@@ -201,6 +208,8 @@ export function SignupForm({
         enabledPlatforms={success.enabledPlatforms}
         buttonColor={buttonColor}
         aiConversation={aiConversation}
+        messages={messages}
+        locale={locale}
       />
     );
   }
@@ -214,7 +223,7 @@ export function SignupForm({
             type="email"
             required
             value={email}
-            placeholder="you@example.com"
+            placeholder={t("widget.signup.emailPlaceholder")}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-full border border-neutral-300 py-2.5 pl-4 pr-28 text-sm dark:border-neutral-700 dark:bg-neutral-900"
           />
@@ -224,7 +233,7 @@ export function SignupForm({
             className="absolute right-1 top-1 bottom-1 rounded-full px-4 text-sm font-semibold text-white disabled:opacity-60"
             style={{ backgroundColor: buttonColor }}
           >
-            {status === "submitting" ? "…" : "Join"}
+            {status === "submitting" ? "…" : t("widget.signup.join")}
           </button>
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
@@ -241,7 +250,7 @@ export function SignupForm({
             type="email"
             required
             value={email}
-            placeholder="you@example.com"
+            placeholder={t("widget.signup.emailPlaceholder")}
             onChange={(e) => setEmail(e.target.value)}
             className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
           />
@@ -251,7 +260,7 @@ export function SignupForm({
             className="shrink-0 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
             style={{ backgroundColor: buttonColor }}
           >
-            {status === "submitting" ? "Joining…" : "Join"}
+            {status === "submitting" ? t("widget.signup.joining") : t("widget.signup.join")}
           </button>
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
@@ -263,25 +272,25 @@ export function SignupForm({
     <form onSubmit={onSubmit} className="space-y-4">
       {showName ? (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="First name" value={firstName} onChange={setFirstName} required />
-          <Field label="Last name" value={lastName} onChange={setLastName} required />
+          <Field label={t("widget.signup.firstName")} value={firstName} onChange={setFirstName} required />
+          <Field label={t("widget.signup.lastName")} value={lastName} onChange={setLastName} required />
         </div>
       ) : null}
 
       {showEmail ? (
         <Field
-          label="Email"
+          label={t("widget.signup.email")}
           type="email"
           value={email}
           onChange={setEmail}
           required={requiredContactDetail !== "EITHER"}
-          placeholder="you@example.com"
+          placeholder={t("widget.signup.emailPlaceholder")}
         />
       ) : null}
 
       {showPhone ? (
         <Field
-          label="Phone"
+          label={t("widget.signup.phone")}
           type="tel"
           value={phone}
           onChange={setPhone}
@@ -293,7 +302,9 @@ export function SignupForm({
         <div key={q.question_value} className="space-y-1">
           <label className="block text-sm font-medium">
             {q.question_value}
-            {q.optional ? <span className="text-neutral-400"> (optional)</span> : null}
+            {q.optional ? (
+              <span className="text-neutral-400"> {t("widget.signup.optional")}</span>
+            ) : null}
           </label>
           {q.answer_value ? (
             <select
@@ -302,7 +313,7 @@ export function SignupForm({
               onChange={(e) => setAnswers((a) => ({ ...a, [q.question_value]: e.target.value }))}
               className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
             >
-              <option value="">Select…</option>
+              <option value="">{t("widget.signup.selectPlaceholder")}</option>
               {q.answer_value.map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
               ))}
@@ -326,7 +337,7 @@ export function SignupForm({
         className="w-full rounded-md px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         style={{ backgroundColor: buttonColor }}
       >
-        {status === "submitting" ? "Joining…" : joinButtonLabel}
+        {status === "submitting" ? t("widget.signup.joining") : joinButtonLabel}
       </button>
     </form>
   );

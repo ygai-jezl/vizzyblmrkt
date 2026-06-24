@@ -89,6 +89,15 @@ export const StrategySchema = z.object({
   targetAudience: TargetAudienceType,
   brandTone: BrandToneType,
   customToneInstructions: z.string().optional(),
+  // Multilingual content config. `defaultLocale` is the base content language the
+  // agents author in when nothing else resolves; `supportedLocales` is the
+  // admin-defined set a visitor can be resolved into (Phase 5). BCP-47 base codes
+  // (e.g. "fr"). OPTIONAL + loose (any string) on the stored shape so legacy docs
+  // parse; the settings editor (src/lib/admin/campaignSettings.ts) validates them
+  // against SUPPORTED_LOCALES, and resolveCampaignLocale normalises at read time.
+  // CONTENT LANGUAGE ONLY — never coupled to the tenant's immutable `region`.
+  defaultLocale: z.string().optional(),
+  supportedLocales: z.array(z.string()).optional(),
 });
 export type Strategy = z.infer<typeof StrategySchema>;
 

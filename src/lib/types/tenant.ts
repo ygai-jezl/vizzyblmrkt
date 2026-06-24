@@ -177,6 +177,15 @@ export const TenantSchema = z.object({
   emailSenderConfig: EmailSenderConfigSchema.optional(),
   /** Unified CRM feature gates (enrichment / engagement / EU DPA). */
   crmConfig: CrmTenantConfigSchema.optional(),
+  /**
+   * Tenant-level multilingual defaults — the brand's fallback content language
+   * (`defaultLocale`) and allow-list (`supportedLocales`) used when a launch does
+   * not pin its own. Optional so existing tenant docs parse. CONTENT LANGUAGE
+   * ONLY: strictly DISTINCT from `region` (data residency) — a locale must never
+   * derive, mutate, or substitute `region`.
+   */
+  defaultLocale: z.string().optional(),
+  supportedLocales: z.array(z.string()).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

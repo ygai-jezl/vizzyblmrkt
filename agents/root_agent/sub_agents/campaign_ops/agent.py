@@ -17,7 +17,7 @@ import os
 
 from google.adk.agents import LlmAgent
 
-from .prompts.instruction import CAMPAIGN_OPS_INSTRUCTION
+from .instruction_builder import build_campaign_ops_instruction
 from .tools.build_journey import build_email_journey
 
 campaign_ops_agent = LlmAgent(
@@ -29,6 +29,7 @@ campaign_ops_agent = LlmAgent(
         "operator wants to build, set up, or design an email journey / sign-up "
         "sequence / welcome series / onboarding drip for a launch."
     ),
-    instruction=CAMPAIGN_OPS_INSTRUCTION,
+    # Callable instruction: prepends the operator language directive each turn.
+    instruction=build_campaign_ops_instruction,
     tools=[build_email_journey],
 )

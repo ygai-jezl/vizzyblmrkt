@@ -120,7 +120,14 @@ export async function processContactEnrichJob(
     lastEnrichAttemptAt: now,
   });
 
-  const result = await enrichCompany({ region: ctx.region, domain, sampleEmail });
+  const result = await enrichCompany({
+    region: ctx.region,
+    domain,
+    sampleEmail,
+    // Localize the enrichment prose to the brand's default content language
+    // (independent of `region`); unset ⇒ English.
+    language: tenant?.defaultLocale ?? null,
+  });
 
   if (result.source === "agent1" && result.profile) {
     const profile = result.profile;

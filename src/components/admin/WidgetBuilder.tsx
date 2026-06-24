@@ -62,6 +62,7 @@ interface BrandingDraft {
   widgetFontColor: string;
   statusDescription: string;
   joinButtonLabel: string;
+  joinButtonShape: "rounded" | "pill";
   removeWidgetHeaders: boolean;
   socialLinks: LinkRow[];
 }
@@ -74,6 +75,7 @@ function extractBranding(s: CampaignSettings | undefined): BrandingDraft {
     widgetFontColor: c?.widgetFontColor ?? "",
     statusDescription: c?.statusDescription ?? "",
     joinButtonLabel: c?.joinButtonLabel ?? "",
+    joinButtonShape: c?.joinButtonShape ?? "rounded",
     removeWidgetHeaders: s?.removeWidgetHeaders ?? false,
     socialLinks: Object.entries(c?.socialLinks ?? {}).map(([key, value]) => ({
       id: uid(),
@@ -172,6 +174,7 @@ export function WidgetBuilder({
           widgetFontColor: branding.widgetFontColor || undefined,
           statusDescription: branding.statusDescription || undefined,
           joinButtonLabel: branding.joinButtonLabel || undefined,
+          joinButtonShape: branding.joinButtonShape,
           removeWidgetHeaders: branding.removeWidgetHeaders,
         },
       }),
@@ -288,6 +291,7 @@ export function WidgetBuilder({
       widgetFontColor: trim(branding.widgetFontColor),
       statusDescription: trim(branding.statusDescription),
       joinButtonLabel: trim(branding.joinButtonLabel),
+      joinButtonShape: branding.joinButtonShape,
       socialLinks: Object.keys(links).length > 0 ? links : undefined,
     };
     const payload: CampaignSettings = {
@@ -518,6 +522,33 @@ function DesignTab({
             onChange={(v) => updateBranding({ joinButtonLabel: v })}
             placeholder="Join the waitlist"
           />
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">Join button shape</label>
+            <div className="inline-flex rounded-md border border-neutral-300 p-0.5 dark:border-neutral-700">
+              {(
+                [
+                  { id: "rounded", label: "Rounded" },
+                  { id: "pill", label: "Pill" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => updateBranding({ joinButtonShape: opt.id })}
+                  className={`rounded px-3 py-1 text-sm ${
+                    branding.joinButtonShape === opt.id
+                      ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                      : "text-neutral-600 dark:text-neutral-300"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-neutral-400">
+              The docked widget always uses a pill button.
+            </p>
+          </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium">Social links</label>
             {links.length === 0 ? (

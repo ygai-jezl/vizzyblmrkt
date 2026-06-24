@@ -74,6 +74,8 @@ export default async function LaunchPreviewPage({
   const background = theme.backgroundColor;
   const successMessage = get("success") ?? style.statusDescription ?? "You're on the list!";
   const joinButtonLabel = get("joinLabel") ?? style.joinButtonLabel ?? "Join the waitlist";
+  const joinButtonShape =
+    get("shape") === "pill" ? "pill" : style.joinButtonShape ?? "rounded";
   // header=0 → remove; header=1 → keep; absent → persisted value. The hosted
   // page always shows its header, so the toggle only applies to widget surfaces.
   const headerParam = get("header");
@@ -147,6 +149,7 @@ export default async function LaunchPreviewPage({
               buttonColor={buttonColor}
               successMessage={successMessage}
               joinButtonLabel={joinButtonLabel}
+              joinButtonShape={joinButtonShape}
               messages={messages}
               locale={locale}
             />
@@ -193,6 +196,7 @@ export default async function LaunchPreviewPage({
             buttonColor={buttonColor}
             successMessage={successMessage}
             joinButtonLabel={joinButtonLabel}
+            joinButtonShape={joinButtonShape}
             variant={variant}
             embedded
             messages={messages}

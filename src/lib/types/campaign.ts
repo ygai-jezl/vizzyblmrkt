@@ -66,6 +66,10 @@ export const ConfigurationStyleSchema = z.object({
   // Label for the primary "join" CTA on the hosted/embed full form; defaults to
   // "Join the waitlist" when unset. The compact mini/docked variants keep "Join".
   joinButtonLabel: z.string().optional(),
+  // Shape of the primary "join" CTA: "rounded" (default ~6px corners) or "pill"
+  // (fully rounded). Applies to the full + mini forms; the docked variant stays a
+  // pill regardless (it's docked inside a pill-shaped input).
+  joinButtonShape: z.enum(["rounded", "pill"]).optional(),
   socialLinks: z.record(z.string(), z.string()).optional(),
   // Post-signup viral sharing. `shareMessage` is a {{token}} template (same
   // vocabulary as the email merge vars); `enabledSharePlatforms` lists the

@@ -72,10 +72,21 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Every route EXCEPT the embed widget, the waitlist pages, and the admin
-        // preview frame (all handled above). The negative lookahead also skips
-        // /embed.js.
-        source: "/((?!embed|waitlist|admin-preview/[^/]+).*)",
+        // The marketing homepage dogfoods its own same-origin /embed widget.
+        // Permissions-Policy is hierarchical: microphone=() on this top-level doc
+        // would disable the mic for the framed widget too, breaking the post-signup
+        // voice conversation. microphone=(self) lets this origin delegate the mic to
+        // its same-origin embed iframe (which carries allow="microphone" + its own
+        // microphone=(self)). Still (self) — no third-party origin gains mic access.
+        source: "/",
+        headers: [...baseline, ...lockedFrame, micSelf],
+      },
+      {
+        // Every route EXCEPT the embed widget, the waitlist pages, the admin
+        // preview frame, and the homepage (all handled above). The negative
+        // lookahead also skips /embed.js; the trailing `.+` (not `.*`) excludes the
+        // bare homepage `/`, which has its own mic-enabled rule above.
+        source: "/((?!embed|waitlist|admin-preview/[^/]+).+)",
         headers: [...baseline, ...lockedFrame, noDevices],
       },
       {

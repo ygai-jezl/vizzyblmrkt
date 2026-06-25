@@ -70,6 +70,12 @@ export const ConfigurationStyleSchema = z.object({
   // (fully rounded). Applies to the full + mini forms; the docked variant stays a
   // pill regardless (it's docked inside a pill-shaped input).
   joinButtonShape: z.enum(["rounded", "pill"]).optional(),
+  // Founder-controlled header text sizing. `waitlistNameSize` scales the Waitlist
+  // Name (<h1>); `signupCountSize` scales the "Join N others" count line. Each
+  // maps to a per-surface Tailwind class (see lib/widget/textSize); unset ⇒ "md",
+  // which reproduces the original hardcoded sizes.
+  waitlistNameSize: z.enum(["sm", "md", "lg"]).optional(),
+  signupCountSize: z.enum(["sm", "md", "lg"]).optional(),
   socialLinks: z.record(z.string(), z.string()).optional(),
   // Post-signup viral sharing. `shareMessage` is a {{token}} template (same
   // vocabulary as the email merge vars); `enabledSharePlatforms` lists the

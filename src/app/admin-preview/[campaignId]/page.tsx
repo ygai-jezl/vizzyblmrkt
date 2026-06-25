@@ -12,6 +12,11 @@ import {
 } from "@/lib/widget/types";
 import { parsePreviewSurface } from "@/lib/widget/preview";
 import {
+  parseTextSize,
+  waitlistNameSizeClass,
+  signupCountSizeClass,
+} from "@/lib/widget/textSize";
+import {
   DEFAULT_SHARE_MESSAGE,
   parseEnabledPlatforms,
   renderSampleShareMessage,
@@ -76,6 +81,10 @@ export default async function LaunchPreviewPage({
   const joinButtonLabel = get("joinLabel") ?? style.joinButtonLabel ?? "Join the waitlist";
   const joinButtonShape =
     get("shape") === "pill" ? "pill" : style.joinButtonShape ?? "rounded";
+  // Draft size param (live builder edit) wins; absent ⇒ persisted; absent ⇒ "md".
+  const nameSize = parseTextSize(get("nameSize"), style.waitlistNameSize);
+  const countSize = parseTextSize(get("countSize"), style.signupCountSize);
+  const textSurface = isHosted ? "hosted" : "widget";
   // header=0 → remove; header=1 → keep; absent → persisted value. The hosted
   // page always shows its header, so the toggle only applies to widget surfaces.
   const headerParam = get("header");
@@ -123,16 +132,12 @@ export default async function LaunchPreviewPage({
         {showHeader ? (
           <header className={isHosted ? "space-y-2 text-center" : "space-y-1 text-center"}>
             <h1
-              className={
-                isHosted
-                  ? "text-3xl font-semibold tracking-tight"
-                  : "text-xl font-semibold tracking-tight"
-              }
+              className={`${waitlistNameSizeClass(textSurface, nameSize)} font-semibold tracking-tight`}
             >
               {campaign.waitlistName}
             </h1>
             {showCount && totalSignups > 0 ? (
-              <p className={isHosted ? "text-sm text-neutral-500" : "text-xs text-neutral-500"}>
+              <p className={`${signupCountSizeClass(textSurface, countSize)} text-neutral-500`}>
                 {t("widget.header.joinOthers", { count: formatNumber(locale, totalSignups) })}
               </p>
             ) : null}

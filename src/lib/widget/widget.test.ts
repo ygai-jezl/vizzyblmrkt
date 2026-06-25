@@ -8,6 +8,11 @@ import {
 } from "./types";
 import { buildEmbedUrl, buildEmbedSnippet } from "./snippet";
 import { buildPreviewUrl } from "./preview";
+import {
+  parseTextSize,
+  waitlistNameSizeClass,
+  signupCountSizeClass,
+} from "./textSize";
 
 describe("parseWidgetType", () => {
   it("accepts the three known types case-insensitively", () => {
@@ -164,5 +169,53 @@ describe("buildPreviewUrl", () => {
     const url = buildPreviewUrl({ ...base, mode: "SUCCESS" });
     expect(url).toContain("preview=success");
     expect(url).not.toContain("mode=");
+  });
+
+  it("carries the draft header text sizes only when set", () => {
+    const none = buildPreviewUrl(base);
+    expect(none).not.toContain("nameSize=");
+    expect(none).not.toContain("countSize=");
+    const sized = buildPreviewUrl({
+      ...base,
+      draft: { waitlistNameSize: "lg", signupCountSize: "sm" },
+    });
+    expect(sized).toContain("nameSize=lg");
+    expect(sized).toContain("countSize=sm");
+  });
+});
+
+describe("parseTextSize", () => {
+  it("accepts the three known sizes", () => {
+    expect(parseTextSize("sm")).toBe("sm");
+    expect(parseTextSize("md")).toBe("md");
+    expect(parseTextSize("lg")).toBe("lg");
+  });
+  it("falls back to md (or the given fallback) for anything else", () => {
+    expect(parseTextSize(undefined)).toBe("md");
+    expect(parseTextSize(null)).toBe("md");
+    expect(parseTextSize("huge")).toBe("md");
+    expect(parseTextSize(undefined, "lg")).toBe("lg");
+    // an undefined persisted value still resolves to md
+    expect(parseTextSize("nonsense", undefined)).toBe("md");
+  });
+});
+
+describe("header text-size classes", () => {
+  it("md reproduces the original hardcoded sizes per surface", () => {
+    expect(waitlistNameSizeClass("widget", "md")).toBe("text-xl");
+    expect(waitlistNameSizeClass("hosted", "md")).toBe("text-3xl");
+    expect(signupCountSizeClass("widget", "md")).toBe("text-xs");
+    expect(signupCountSizeClass("hosted", "md")).toBe("text-sm");
+  });
+  it("defaults to md when no size is passed (legacy campaigns)", () => {
+    expect(waitlistNameSizeClass("widget")).toBe("text-xl");
+    expect(waitlistNameSizeClass("hosted", undefined)).toBe("text-3xl");
+    expect(signupCountSizeClass("hosted")).toBe("text-sm");
+  });
+  it("scales the hosted page a step above the embed widget", () => {
+    expect(waitlistNameSizeClass("widget", "lg")).toBe("text-2xl");
+    expect(waitlistNameSizeClass("hosted", "lg")).toBe("text-4xl");
+    expect(signupCountSizeClass("widget", "sm")).toBe("text-[0.6875rem]");
+    expect(signupCountSizeClass("hosted", "sm")).toBe("text-xs");
   });
 });

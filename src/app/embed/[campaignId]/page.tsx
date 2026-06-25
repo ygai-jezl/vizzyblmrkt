@@ -16,6 +16,7 @@ import {
   widgetVariant,
   parseThemeOverrides,
 } from "@/lib/widget/types";
+import { waitlistNameSizeClass, signupCountSizeClass } from "@/lib/widget/textSize";
 import { EmbedAutoResize } from "./EmbedAutoResize";
 
 export const runtime = "nodejs";
@@ -120,11 +121,13 @@ export default async function EmbedPage({
           />
           {showHeader ? (
             <header className="space-y-1 text-center">
-              <h1 className="text-xl font-semibold tracking-tight">
+              <h1
+                className={`${waitlistNameSizeClass("widget", style.waitlistNameSize)} font-semibold tracking-tight`}
+              >
                 {campaign.waitlistName}
               </h1>
               {showCount && totalSignups > 0 ? (
-                <p className="text-xs text-neutral-500">
+                <p className={`${signupCountSizeClass("widget", style.signupCountSize)} text-neutral-500`}>
                   {t("widget.header.joinOthers", { count: formatNumber(locale, totalSignups) })}
                 </p>
               ) : null}

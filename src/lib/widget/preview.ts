@@ -1,4 +1,5 @@
 import { type WidgetMode, type WidgetType } from "./types";
+import { type TextSize } from "./textSize";
 
 /**
  * Live-preview vocabulary for the admin Embed & Design builder. The builder
@@ -39,6 +40,8 @@ export interface PreviewBrandingDraft {
   statusDescription?: string;
   joinButtonLabel?: string;
   joinButtonShape?: "rounded" | "pill";
+  waitlistNameSize?: TextSize;
+  signupCountSize?: TextSize;
   removeWidgetHeaders?: boolean;
 }
 
@@ -86,6 +89,8 @@ export function buildPreviewUrl({
   const joinLabel = draft?.joinButtonLabel?.trim();
   if (joinLabel) qs.set("joinLabel", joinLabel);
   if (draft?.joinButtonShape) qs.set("shape", draft.joinButtonShape);
+  if (draft?.waitlistNameSize) qs.set("nameSize", draft.waitlistNameSize);
+  if (draft?.signupCountSize) qs.set("countSize", draft.signupCountSize);
   qs.set("header", draft?.removeWidgetHeaders ? "0" : "1");
   return `${base}/admin-preview/${encodeURIComponent(campaignId)}?${qs.toString()}`;
 }

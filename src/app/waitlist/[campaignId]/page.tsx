@@ -12,6 +12,7 @@ import { LanguageSwitcher } from "@/components/waitlist/LanguageSwitcher";
 import { isClosed } from "@/lib/waitlist/closed";
 import { localeInfo, resolveVisitorLocale, supportedLocalesFor } from "@/lib/i18n/locale";
 import { getMessage, getWidgetMessages, formatNumber, pluralText } from "@/lib/i18n/messages";
+import { waitlistNameSizeClass, signupCountSizeClass } from "@/lib/widget/textSize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,11 +106,13 @@ export default async function HostedWaitlistPage({
       ) : null}
 
       <header className="space-y-2 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1
+          className={`${waitlistNameSizeClass("hosted", style.waitlistNameSize)} font-semibold tracking-tight`}
+        >
           {campaign.waitlistName}
         </h1>
         {!campaign.hideCounts && totalSignups > 0 ? (
-          <p className="text-sm text-neutral-500">
+          <p className={`${signupCountSizeClass("hosted", style.signupCountSize)} text-neutral-500`}>
             {t("widget.header.joinOthers", { count: formatNumber(locale, totalSignups) })}
           </p>
         ) : null}

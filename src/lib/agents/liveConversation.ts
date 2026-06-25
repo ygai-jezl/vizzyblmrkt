@@ -84,8 +84,9 @@ export function buildLiveConnectConfig(campaign: Campaign, locale?: string): Liv
 
   // Half-cascade models steer better with an explicit language code; native-audio
   // models reject it (we steer those via the system instruction instead).
-  // SpeechConfig.languageCode is ISO 639-1 (the base `lang`, e.g. "fr"); the
-  // region-tagged `liveCode` (fr-FR) is for the transcription hint only.
+  // SpeechConfig.languageCode is ISO 639-1 (the base `lang`, e.g. "fr"); `liveCode`
+  // is only a "does this locale have a Live voice?" gate here (text-only locales
+  // have none, so we skip speechConfig and fall back to system-instruction steering).
   if (liveCode && isCascadedLiveModel(LIVE_MODEL)) {
     config.speechConfig = { languageCode: lang };
   }

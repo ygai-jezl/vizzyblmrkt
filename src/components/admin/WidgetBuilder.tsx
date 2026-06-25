@@ -16,6 +16,7 @@ import {
 } from "@/lib/widget/preview";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
 import type { ConfigurationStyle } from "@/lib/types/campaign";
+import type { TextSize } from "@/lib/widget/textSize";
 import {
   DEFAULT_SHARE_MESSAGE,
   SHARE_PLATFORMS,
@@ -49,6 +50,13 @@ const SURFACES: { id: PreviewSurface; label: string }[] = [
   { id: "WIDGET_3", label: "Docked" },
 ];
 
+/** Small/Medium/Large presets shared by the header text-size toggles. */
+const SIZE_OPTIONS = [
+  { id: "sm", label: "Small" },
+  { id: "md", label: "Medium" },
+  { id: "lg", label: "Large" },
+] as const satisfies readonly { id: TextSize; label: string }[];
+
 interface LinkRow {
   id: string;
   key: string;
@@ -63,6 +71,8 @@ interface BrandingDraft {
   statusDescription: string;
   joinButtonLabel: string;
   joinButtonShape: "rounded" | "pill";
+  waitlistNameSize: TextSize;
+  signupCountSize: TextSize;
   removeWidgetHeaders: boolean;
   socialLinks: LinkRow[];
 }
@@ -76,6 +86,8 @@ function extractBranding(s: CampaignSettings | undefined): BrandingDraft {
     statusDescription: c?.statusDescription ?? "",
     joinButtonLabel: c?.joinButtonLabel ?? "",
     joinButtonShape: c?.joinButtonShape ?? "rounded",
+    waitlistNameSize: c?.waitlistNameSize ?? "md",
+    signupCountSize: c?.signupCountSize ?? "md",
     removeWidgetHeaders: s?.removeWidgetHeaders ?? false,
     socialLinks: Object.entries(c?.socialLinks ?? {}).map(([key, value]) => ({
       id: uid(),
@@ -175,6 +187,8 @@ export function WidgetBuilder({
           statusDescription: branding.statusDescription || undefined,
           joinButtonLabel: branding.joinButtonLabel || undefined,
           joinButtonShape: branding.joinButtonShape,
+          waitlistNameSize: branding.waitlistNameSize,
+          signupCountSize: branding.signupCountSize,
           removeWidgetHeaders: branding.removeWidgetHeaders,
         },
       }),
@@ -292,6 +306,8 @@ export function WidgetBuilder({
       statusDescription: trim(branding.statusDescription),
       joinButtonLabel: trim(branding.joinButtonLabel),
       joinButtonShape: branding.joinButtonShape,
+      waitlistNameSize: branding.waitlistNameSize,
+      signupCountSize: branding.signupCountSize,
       socialLinks: Object.keys(links).length > 0 ? links : undefined,
     };
     const payload: CampaignSettings = {
@@ -522,33 +538,29 @@ function DesignTab({
             onChange={(v) => updateBranding({ joinButtonLabel: v })}
             placeholder="Join the waitlist"
           />
-          <div className="space-y-1">
-            <label className="block text-sm font-medium">Join button shape</label>
-            <div className="inline-flex rounded-md border border-neutral-300 p-0.5 dark:border-neutral-700">
-              {(
-                [
-                  { id: "rounded", label: "Rounded" },
-                  { id: "pill", label: "Pill" },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => updateBranding({ joinButtonShape: opt.id })}
-                  className={`rounded px-3 py-1 text-sm ${
-                    branding.joinButtonShape === opt.id
-                      ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                      : "text-neutral-600 dark:text-neutral-300"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-neutral-400">
-              The docked widget always uses a pill button.
-            </p>
-          </div>
+          <SegmentedToggle
+            label="Join button shape"
+            options={[
+              { id: "rounded", label: "Rounded" },
+              { id: "pill", label: "Pill" },
+            ]}
+            value={branding.joinButtonShape}
+            onChange={(joinButtonShape) => updateBranding({ joinButtonShape })}
+            hint="The docked widget always uses a pill button."
+          />
+          <SegmentedToggle
+            label="Waitlist name size"
+            options={SIZE_OPTIONS}
+            value={branding.waitlistNameSize}
+            onChange={(waitlistNameSize) => updateBranding({ waitlistNameSize })}
+          />
+          <SegmentedToggle
+            label="People count size"
+            options={SIZE_OPTIONS}
+            value={branding.signupCountSize}
+            onChange={(signupCountSize) => updateBranding({ signupCountSize })}
+            hint="The line that shows how many people have joined."
+          />
           <div className="space-y-2">
             <label className="block text-sm font-medium">Social links</label>
             {links.length === 0 ? (
@@ -855,6 +867,44 @@ function ColorField({
           className="w-32 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         />
       </div>
+    </div>
+  );
+}
+
+/** A compact segmented control for a small set of string-literal options. */
+function SegmentedToggle<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  options: readonly { id: T; label: string }[];
+  value: T;
+  onChange: (id: T) => void;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-sm font-medium">{label}</label>
+      <div className="inline-flex rounded-md border border-neutral-300 p-0.5 dark:border-neutral-700">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            className={`rounded px-3 py-1 text-sm ${
+              value === opt.id
+                ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                : "text-neutral-600 dark:text-neutral-300"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {hint ? <p className="text-xs text-neutral-400">{hint}</p> : null}
     </div>
   );
 }

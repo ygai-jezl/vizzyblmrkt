@@ -101,12 +101,15 @@ describe("buildLiveConnectConfig", () => {
     expect(config.sessionResumption).toBeDefined();
   });
 
-  it("hints transcription with the spoken language's BCP-47 code", () => {
-    const en = buildLiveConnectConfig(campaign());
-    expect(en.inputAudioTranscription).toEqual({ languageCodes: ["en-US"] });
-    const fr = buildLiveConnectConfig(campaign(), "fr");
-    expect(fr.inputAudioTranscription).toEqual({ languageCodes: ["fr-FR"] });
-    expect(fr.outputAudioTranscription).toEqual({ languageCodes: ["fr-FR"] });
+  it("uses an empty transcription config — `languageCodes` errors the Developer-API token mint", () => {
+    // `languageCodes` is Vertex/Enterprise-only and is rejected by the Developer-API
+    // ephemeral-token mint, so transcription must be an empty `{}` marker regardless of
+    // locale. The spoken language is steered by the system instruction instead.
+    for (const loc of [undefined, "fr"]) {
+      const cfg = buildLiveConnectConfig(campaign(), loc);
+      expect(cfg.inputAudioTranscription).toEqual({});
+      expect(cfg.outputAudioTranscription).toEqual({});
+    }
   });
 
   it("does NOT set speech_config.language_code on the native-audio default model", () => {

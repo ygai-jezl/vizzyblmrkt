@@ -67,15 +67,18 @@ export function buildLiveSystemInstruction(campaign: Campaign, locale?: string):
 export function buildLiveConnectConfig(campaign: Campaign, locale?: string): LiveConnectConfig {
   const lang = locale ?? resolveCampaignLocale(campaign);
   const liveCode = liveCodeFor(lang);
-  // BCP-47 hint biases the transcription toward the spoken language (better
-  // golden-data accuracy); absent ⇒ the server auto-detects, as before.
-  const transcription = liveCode ? { languageCodes: [liveCode] } : {};
 
+  // Transcription stays enabled (golden data) but with NO `languageCodes` hint: that
+  // field is Vertex/Enterprise-only and ERRORS the Developer-API ephemeral-token mint
+  // ("languageCodes ... only supported in Gemini Enterprise Agent Platform mode, not in
+  // Gemini Developer API mode"). The server auto-detects the transcript language; the
+  // spoken language is steered by the system instruction (the only lever the native-audio
+  // model accepts).
   const config: LiveConnectConfig = {
     responseModalities: [Modality.AUDIO],
     systemInstruction: buildLiveSystemInstruction(campaign, lang),
-    inputAudioTranscription: transcription,
-    outputAudioTranscription: transcription,
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
     sessionResumption: {},
   };
 

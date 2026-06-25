@@ -37,8 +37,8 @@ describe("getMessage", () => {
     expect(line).toContain("Beta"); // the single-brace {name} was interpolated
   });
   it("falls back to English for a locale with no catalog file yet", () => {
-    // No fr.json shipped yet ⇒ English base is returned (documented translation gap).
-    expect(getMessage("fr", "email.fallback.subject.default")).toBe(
+    // "pt" has no catalog shipped ⇒ English base is returned (documented gap).
+    expect(getMessage("pt", "email.fallback.subject.default")).toBe(
       getMessage("en", "email.fallback.subject.default"),
     );
   });
@@ -57,10 +57,35 @@ describe("getMessages + translate", () => {
     expect(translate(messages, "missing.key")).toBe("missing.key");
   });
   it("falls back to the English base for an untranslated locale", () => {
-    expect(getMessages("fr")["email.fallback.subject.default"]).toBe(
+    expect(getMessages("pt")["email.fallback.subject.default"]).toBe(
       getMessages("en")["email.fallback.subject.default"],
     );
   });
+});
+
+describe("shipped locale catalogs", () => {
+  const en = getMessages("en");
+  const tokens = (s: string) =>
+    [
+      ...(s.match(/\{\{[\w.]+\}\}/g) ?? []),
+      ...(s.match(/(?<!\{)\{[a-zA-Z0-9_]+\}(?!\})/g) ?? []),
+    ]
+      .sort()
+      .join(",");
+
+  for (const loc of ["fr", "es", "de", "ja", "ar"]) {
+    it(`${loc}: every translated value preserves its {{tokens}} + {placeholders}`, () => {
+      const cat = getMessages(loc);
+      for (const key of Object.keys(en)) {
+        if (cat[key] !== undefined && cat[key] !== en[key]) {
+          expect(tokens(cat[key]!), `${loc} · ${key}`).toBe(tokens(en[key]!));
+        }
+      }
+    });
+    it(`${loc}: is actually wired in (differs from English)`, () => {
+      expect(getMessages(loc)["widget.signup.join"]).not.toBe(en["widget.signup.join"]);
+    });
+  }
 });
 
 describe("getWidgetMessages", () => {

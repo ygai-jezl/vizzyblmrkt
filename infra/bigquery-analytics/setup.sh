@@ -17,7 +17,7 @@
 #   ./setup.sh extensions <project>   # write 6 extension .env files at repo root + register firebase.json
 #   #                                 #   THEN: firebase deploy --only extensions --project=<project>
 #   ./setup.sh schema     <project>   # widget_views tables + signups_latest/email_events_latest views
-#   ./setup.sh serviceaccounts <project> # dedicated per-region export SAs (Eventarc invoker + function runtime; replaces the default compute SA). RE-RUN after every extension deploy.
+#   ./setup.sh serviceaccounts <project> # wire each export function's OWN dedicated SA as its Eventarc invoker (off the default compute SA). RE-RUN after every extension deploy.
 #   ./setup.sh iam        <project>   # grant the App Hosting runtime SA least-privilege BQ roles
 #   ./setup.sh backfill   <project>   # import existing rows for both collections x 3 regions
 #   ./setup.sh validate   <project>   # print BQ row counts to compare against Firestore
@@ -229,17 +229,6 @@ grant_dataset_viewer() { # <dataset> — dataset IAM via the access-entry method
   rm -f "${tmp}" "${tmp}.new"
 }
 
-grant_dataset_editor() { # <dataset> <sa-email> — dataset IAM via the access-entry method
-  local dataset="$1" sa="$2" tmp
-  tmp="$(mktemp)"
-  bq --project_id="${PROJECT}" show --format=prettyjson "${PROJECT}:${dataset}" >"${tmp}"
-  jq --arg sa "${sa}" \
-    '.access = ((.access // []) + [{"role":"roles/bigquery.dataEditor","userByEmail":$sa}] | unique)' \
-    "${tmp}" >"${tmp}.new"
-  bq update --source "${tmp}.new" "${PROJECT}:${dataset}" >/dev/null
-  rm -f "${tmp}" "${tmp}.new"
-}
-
 iam() {
   echo "==> Granting least-privilege BigQuery roles to ${RUNTIME_SA}"
   gcloud projects add-iam-policy-binding "${PROJECT}" \
@@ -266,78 +255,63 @@ EOF
 }
 
 serviceaccounts() {
-  # Dedicated, least-privilege SA per region for the firestore-bigquery-export functions.
-  # Each region SA is BOTH the Eventarc trigger/invoker identity AND the function runtime,
-  # replacing the broad default compute SA. The Eventarc push runs AS this SA, so it needs
-  # run.invoker on the function's Cloud Run service — the missing grant that 403'd every push
-  # and stalled the whole stream. Roles are resource-scoped where possible (residency: a region
-  # SA writes ONLY its own dataset + invokes ONLY its own services).
-  # IDEMPOTENT — and RE-RUN after any `firebase deploy --only extensions`, which can reset the
-  # trigger/runtime SA back to the compute SA (the extension exposes no service-account param).
+  # Least-privilege Eventarc invoker. Each firestore-bigquery-export function ALREADY runs as its
+  # own dedicated per-instance SA (ext-fsbq-<instance>@, created + managed by Firebase, already
+  # holding its dataset-scoped BigQuery roles). The ONLY gap is the invoker: the Eventarc trigger /
+  # Pub-Sub push runs as the broad default compute SA, which also lacked run.invoker on the
+  # function's Cloud Run service -> every push 403'd and nothing reached BigQuery. Fix: reuse each
+  # function's OWN dedicated SA as its invoker (grant it run.invoker on its own service +
+  # eventarc.eventReceiver, let Pub-Sub mint OIDC tokens as it, then repoint the trigger off the
+  # compute SA). We deliberately do NOT touch the runtime SA — Firebase manages it, so it can't drift.
+  # IDEMPOTENT — RE-RUN after any `firebase deploy --only extensions` (it can reset the trigger SA
+  # back to the compute SA).
   local pn pubsub_agent
   pn="$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)')"
   pubsub_agent="service-${pn}@gcp-sa-pubsub.iam.gserviceaccount.com"
 
   for spec in "${REGION_SPECS[@]}"; do
     read -r region db dataset loc fnloc fsloc <<<"$spec"
-    local sa="fsbq-export-${region}@${PROJECT}.iam.gserviceaccount.com"
-    echo "==> ${region}: dedicated export SA ${sa}"
-
-    # 1. Create the SA (idempotent).
-    if gcloud iam service-accounts describe "${sa}" --project="${PROJECT}" >/dev/null 2>&1; then
-      echo "    ${sa} already exists"
-    else
-      gcloud iam service-accounts create "fsbq-export-${region}" --project="${PROJECT}" \
-        --display-name="Firestore->BigQuery export: ${region}" >/dev/null
-      echo "    created ${sa}"
-    fi
-
-    # 2. Project roles that can't be resource-scoped: receive Eventarc events + run BQ load jobs.
-    for role in roles/eventarc.eventReceiver roles/bigquery.jobUser; do
-      gcloud projects add-iam-policy-binding "${PROJECT}" \
-        --member="serviceAccount:${sa}" --role="${role}" --condition=None >/dev/null
-      echo "    + ${role} (project)"
-    done
-
-    # 3. Data plane: write ONLY this region's dataset (residency-isolated).
-    grant_dataset_editor "${dataset}" "${sa}"
-    echo "    + roles/bigquery.dataEditor on ${dataset} (dataset access entry)"
-
-    # 4. Let Pub/Sub mint OIDC tokens AS this SA (Eventarc normally adds this when the trigger
-    #    SA changes; grant explicitly so a fresh SA never silently fails to be impersonated).
-    gcloud iam service-accounts add-iam-policy-binding "${sa}" --project="${PROJECT}" \
-      --member="serviceAccount:${pubsub_agent}" \
-      --role="roles/iam.serviceAccountTokenCreator" >/dev/null
-    echo "    + tokenCreator for ${pubsub_agent} on ${sa}"
-
-    # 5. Per export instance in this region: invoke grant -> runtime SA -> trigger SA.
     for col in "${COLLECTIONS[@]}"; do
-      local inst svc svcloc trig
+      local inst svc svcloc sa trig
       inst="$(instance_id "${col}" "${region}")"
       svc="ext-${inst}-fsexportbigquery"
       svcloc="$(gcloud run services list --project="${PROJECT}" \
         --filter="metadata.name=${svc}" \
         --format="value(metadata.labels['cloud.googleapis.com/location'])" | head -1)"
       if [ -z "${svcloc}" ]; then
-        echo "    ⚠️  ${svc} not found — deploy extensions first (skipping ${col})"
+        echo "    ⚠️  ${svc} not found — deploy extensions first (skipping ${inst})"
         continue
       fi
 
-      # 5a. invoke path: this SA may invoke the function's Cloud Run service (fixes the 403).
+      # Reuse the function's OWN dedicated runtime SA as the invoker. Refuse if it is the shared
+      # compute SA (we must NOT make that the invoker — investigate the install first).
+      sa="$(gcloud run services describe "${svc}" --project="${PROJECT}" --region="${svcloc}" \
+        --format='value(spec.template.spec.serviceAccountName)')"
+      if [ -z "${sa}" ] || [[ "${sa}" == *-compute@developer.gserviceaccount.com ]]; then
+        echo "    ⚠️  ${svc} runtime SA is '${sa:-unset}', not a dedicated ext-* SA — skipping."
+        echo "        (Won't repoint the invoker onto the shared compute SA; investigate the install.)"
+        continue
+      fi
+      echo "==> ${inst}: invoker = ${sa}"
+
+      # 1. invoke path: this SA may invoke its own Cloud Run service (the missing grant -> 403).
       gcloud run services add-iam-policy-binding "${svc}" \
         --project="${PROJECT}" --region="${svcloc}" \
         --member="serviceAccount:${sa}" --role="roles/run.invoker" >/dev/null
       echo "    + run.invoker on ${svc} (${svcloc})"
 
-      # 5b. data plane: run the function AS this SA (off the default compute SA). The SA already
-      #     holds dataEditor+jobUser (steps 2-3) before the new revision serves traffic.
-      gcloud run services update "${svc}" --project="${PROJECT}" --region="${svcloc}" \
-        --service-account="${sa}" >/dev/null
-      echo "    + runtime SA -> ${sa} on ${svc}"
+      # 2. trigger-SA prerequisites: receive Eventarc events + let Pub-Sub mint OIDC tokens as it.
+      gcloud projects add-iam-policy-binding "${PROJECT}" \
+        --member="serviceAccount:${sa}" --role="roles/eventarc.eventReceiver" --condition=None >/dev/null
+      echo "    + roles/eventarc.eventReceiver (project)"
+      gcloud iam service-accounts add-iam-policy-binding "${sa}" --project="${PROJECT}" \
+        --member="serviceAccount:${pubsub_agent}" \
+        --role="roles/iam.serviceAccountTokenCreator" >/dev/null
+      echo "    + tokenCreator for ${pubsub_agent} on ${sa}"
 
-      # 5c. invoker identity: point the Firestore Eventarc trigger at this SA. The trigger lives
-      #     in the source DB's location (= ${fsloc}); its name carries a random suffix. Eventarc
-      #     re-points the Pub/Sub push OIDC SA to match.
+      # 3. repoint the Firestore Eventarc trigger off the compute SA onto this SA. The trigger
+      #    lives in the source DB's location (= ${fsloc}) and carries a random-suffix name;
+      #    Eventarc re-points the Pub-Sub push OIDC SA to match.
       trig="$(gcloud eventarc triggers list --project="${PROJECT}" --location="${fsloc}" \
         --filter="name~${svc}" --format="value(name)" | head -1)"
       if [ -z "${trig}" ]; then
@@ -349,9 +323,7 @@ serviceaccounts() {
       echo "    + trigger ${trig} (${fsloc}) -> ${sa}"
     done
   done
-  echo "    Done. If a function logs Firestore-read permission errors, grant DB-scoped"
-  echo "    roles/datastore.viewer to fsbq-export-<region>. Verify: no new 403s on ext-fsbq-*"
-  echo "    Cloud Run logs, then ./setup.sh validate ${PROJECT}."
+  echo "    Done. Verify: no new 403s on ext-fsbq-* Cloud Run logs; ./setup.sh validate ${PROJECT}."
 }
 
 backfill() {

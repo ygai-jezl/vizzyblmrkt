@@ -256,15 +256,19 @@ EOF
 
 serviceaccounts() {
   # Least-privilege Eventarc invoker. Each firestore-bigquery-export function ALREADY runs as its
-  # own dedicated per-instance SA (ext-fsbq-<instance>@, created + managed by Firebase, already
-  # holding its dataset-scoped BigQuery roles). The ONLY gap is the invoker: the Eventarc trigger /
-  # Pub-Sub push runs as the broad default compute SA, which also lacked run.invoker on the
-  # function's Cloud Run service -> every push 403'd and nothing reached BigQuery. Fix: reuse each
-  # function's OWN dedicated SA as its invoker (grant it run.invoker on its own service +
-  # eventarc.eventReceiver, let Pub-Sub mint OIDC tokens as it, then repoint the trigger off the
-  # compute SA). We deliberately do NOT touch the runtime SA — Firebase manages it, so it can't drift.
-  # IDEMPOTENT — RE-RUN after any `firebase deploy --only extensions` (it can reset the trigger SA
-  # back to the compute SA).
+  # own dedicated per-instance SA (ext-fsbq-<instance>@, Firebase-managed, already holding its
+  # dataset-scoped BigQuery roles). The ONLY gap is the invoker: the trigger's Pub-Sub PUSH
+  # authenticates as the broad default compute SA, which also lacked run.invoker on the function's
+  # Cloud Run service -> every push 403'd and nothing reached BigQuery. Fix: reuse each function's
+  # OWN dedicated SA as the push identity — grant it run.invoker on its own service, let Pub-Sub
+  # mint OIDC tokens as it, and override the push subscription's auth SA off the compute SA.
+  #
+  # The trigger destination is a gen2 Cloud Function, so `gcloud eventarc triggers update
+  # --service-account` is REJECTED ("destination is neither cloud_function nor cloud_run_service").
+  # We therefore set the identity on the trigger's Pub-Sub PUSH SUBSCRIPTION directly, and do NOT
+  # touch the function runtime SA (Firebase manages it).
+  # IDEMPOTENT — RE-RUN after any `firebase deploy --only extensions` (it recreates the trigger +
+  # subscription, resetting the push auth SA back to the compute SA).
   local pn pubsub_agent
   pn="$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)')"
   pubsub_agent="service-${pn}@gcp-sa-pubsub.iam.gserviceaccount.com"
@@ -272,7 +276,7 @@ serviceaccounts() {
   for spec in "${REGION_SPECS[@]}"; do
     read -r region db dataset loc fnloc fsloc <<<"$spec"
     for col in "${COLLECTIONS[@]}"; do
-      local inst svc svcloc sa trig
+      local inst svc svcloc sa trig sub subid pe aud
       inst="$(instance_id "${col}" "${region}")"
       svc="ext-${inst}-fsexportbigquery"
       svcloc="$(gcloud run services list --project="${PROJECT}" \
@@ -300,27 +304,34 @@ serviceaccounts() {
         --member="serviceAccount:${sa}" --role="roles/run.invoker" >/dev/null
       echo "    + run.invoker on ${svc} (${svcloc})"
 
-      # 2. trigger-SA prerequisites: receive Eventarc events + let Pub-Sub mint OIDC tokens as it.
-      gcloud projects add-iam-policy-binding "${PROJECT}" \
-        --member="serviceAccount:${sa}" --role="roles/eventarc.eventReceiver" --condition=None >/dev/null
-      echo "    + roles/eventarc.eventReceiver (project)"
+      # 2. let Pub-Sub mint OIDC tokens AS this SA (so the push can present its identity).
       gcloud iam service-accounts add-iam-policy-binding "${sa}" --project="${PROJECT}" \
         --member="serviceAccount:${pubsub_agent}" \
         --role="roles/iam.serviceAccountTokenCreator" >/dev/null
       echo "    + tokenCreator for ${pubsub_agent} on ${sa}"
 
-      # 3. repoint the Firestore Eventarc trigger off the compute SA onto this SA. The trigger
-      #    lives in the source DB's location (= ${fsloc}) and carries a random-suffix name;
-      #    Eventarc re-points the Pub-Sub push OIDC SA to match.
+      # 3. override the push identity. Resolve the trigger (random suffix, in the DB location
+      #    ${fsloc}) -> its Pub-Sub push subscription, then set the auth SA off the compute SA
+      #    onto this SA (push endpoint + audience preserved).
       trig="$(gcloud eventarc triggers list --project="${PROJECT}" --location="${fsloc}" \
         --filter="name~${svc}" --format="value(name)" | head -1)"
       if [ -z "${trig}" ]; then
-        echo "    ⚠️  no Eventarc trigger matching ${svc} in ${fsloc} (skipping trigger repoint)"
+        echo "    ⚠️  no Eventarc trigger matching ${svc} in ${fsloc} (skipping invoker repoint)"
         continue
       fi
-      gcloud eventarc triggers update "${trig}" --project="${PROJECT}" --location="${fsloc}" \
-        --service-account="${sa}" >/dev/null
-      echo "    + trigger ${trig} (${fsloc}) -> ${sa}"
+      sub="$(gcloud eventarc triggers describe "${trig}" --project="${PROJECT}" --location="${fsloc}" \
+        --format='value(transport.pubsub.subscription)')"
+      subid="${sub##*/}"
+      pe="$(gcloud pubsub subscriptions describe "${subid}" --project="${PROJECT}" --format='value(pushConfig.pushEndpoint)')"
+      aud="$(gcloud pubsub subscriptions describe "${subid}" --project="${PROJECT}" --format='value(pushConfig.oidcToken.audience)')"
+      if [ -z "${pe}" ] || [ -z "${subid}" ]; then
+        echo "    ⚠️  no push subscription/endpoint for ${trig} (skipping invoker repoint)"
+        continue
+      fi
+      gcloud pubsub subscriptions update "${subid}" --project="${PROJECT}" \
+        --push-endpoint="${pe}" --push-auth-service-account="${sa}" \
+        --push-auth-token-audience="${aud}" >/dev/null
+      echo "    + push-auth SA -> ${sa} on ${subid}"
     done
   done
   echo "    Done. Verify: no new 403s on ext-fsbq-* Cloud Run logs; ./setup.sh validate ${PROJECT}."

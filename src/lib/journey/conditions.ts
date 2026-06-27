@@ -4,6 +4,7 @@ import type {
   JourneyCondition,
   JourneyBranch,
   ConditionOperator,
+  ConditionFieldKey,
 } from "@/lib/types/journey";
 
 /**
@@ -24,7 +25,7 @@ export interface ConditionContext {
 }
 
 export interface ConditionField {
-  key: string;
+  key: ConditionFieldKey;
   label: string;
   valueType: ConditionValueType;
   operators: ConditionOperator[];
@@ -152,7 +153,11 @@ export function describeCondition(cond: JourneyCondition | undefined): string {
 
 /** The label to show on a branch (its custom label, else its rule summary). */
 export function branchLabel(branch: JourneyBranch): string {
-  return branch.label?.trim() || describeCondition(branch.condition);
+  if (branch.label?.trim()) return branch.label.trim();
+  const rules = branch.conditions ?? (branch.condition ? [branch.condition] : []);
+  if (rules.length === 0) return "any";
+  const joiner = branch.match === "any" ? " OR " : " AND ";
+  return rules.map(describeCondition).join(joiner);
 }
 
 /**
@@ -205,8 +210,30 @@ function looseEq(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Evaluate a whole branch against the context. Prefers the multi-rule
+ * `conditions` (combined by `match`: "all" = AND, "any" = OR); falls back to the
+ * legacy single `condition`; a branch with neither never matches (the implicit
+ * "default" branch is the catch-all instead). `match` defaults to "all" when a
+ * doc read bypasses Zod (the repository casts on read), so an un-parsed branch
+ * still ANDs correctly.
+ */
+export function evaluateBranch(
+  branch: JourneyBranch,
+  ctx: ConditionContext,
+): boolean {
+  if (branch.conditions && branch.conditions.length > 0) {
+    const results = branch.conditions.map((c) => evaluateCondition(c, ctx));
+    return branch.match === "any"
+      ? results.some(Boolean)
+      : results.every(Boolean);
+  }
+  if (branch.condition) return evaluateCondition(branch.condition, ctx);
+  return false;
+}
+
+/**
  * Switch evaluation: walk branches in order, return the handle of the first one
- * whose rule matches; fall back to the "default" branch if none match. The
+ * whose rule(s) match; fall back to the "default" branch if none match. The
  * returned string is the edge `sourceHandle` to follow.
  */
 export function selectBranch(
@@ -214,7 +241,7 @@ export function selectBranch(
   ctx: ConditionContext,
 ): string {
   for (const b of branches ?? []) {
-    if (evaluateCondition(b.condition, ctx)) return b.id;
+    if (evaluateBranch(b, ctx)) return b.id;
   }
   return DEFAULT_BRANCH;
 }

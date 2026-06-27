@@ -222,6 +222,76 @@ describe("validateJourneyGraph (pre-activation guard)", () => {
     const g: JourneyGraph = { nodes: [emailNode("e1")], edges: [] };
     expect(validateJourneyGraph(g)).toEqual({ ok: true });
   });
+
+  // --- condition-node guardrails (the dead-end bug) ---
+  const edgeH = (source: string, target: string, handle: string) => ({
+    id: `e-${source}-${target}-${handle}`,
+    source,
+    target,
+    sourceHandle: handle,
+  });
+
+  it("rejects a condition branch with an unknown field key", () => {
+    const g: JourneyGraph = {
+      nodes: [
+        plain("t", "trigger"),
+        emailNode("e1"),
+        plain("c1", "condition", {
+          branches: [{ id: "b1", conditions: [{ field: "voice_chat", operator: "eq", value: true }] }],
+        }),
+      ],
+      edges: [edge("t", "e1"), edge("e1", "c1"), edgeH("c1", "e1", "default")],
+    };
+    expect(validateJourneyGraph(g)).toEqual({
+      ok: false,
+      reason: "condition_unknown_field:c1:voice_chat",
+    });
+  });
+
+  it("rejects a condition node with no default edge and unwired branches", () => {
+    const g: JourneyGraph = {
+      nodes: [
+        plain("t", "trigger"),
+        emailNode("e1"),
+        plain("c1", "condition", {
+          branches: [{ id: "b1", conditions: [{ field: "usedVoiceChat", operator: "is_true" }] }],
+        }),
+      ],
+      edges: [edge("t", "e1"), edge("e1", "c1")],
+    };
+    expect(validateJourneyGraph(g)).toEqual({
+      ok: false,
+      reason: "condition_missing_default_edge:c1",
+    });
+  });
+
+  it("accepts a condition node with a wired default edge", () => {
+    const g: JourneyGraph = {
+      nodes: [
+        plain("t", "trigger"),
+        emailNode("e1"),
+        plain("c1", "condition", {
+          branches: [{ id: "b1", conditions: [{ field: "usedVoiceChat", operator: "is_true" }] }],
+        }),
+      ],
+      edges: [edge("t", "e1"), edge("e1", "c1"), edgeH("c1", "e1", "default")],
+    };
+    expect(validateJourneyGraph(g)).toEqual({ ok: true });
+  });
+
+  it("accepts a condition node with every branch wired (no default needed)", () => {
+    const g: JourneyGraph = {
+      nodes: [
+        plain("t", "trigger"),
+        emailNode("e1"),
+        plain("c1", "condition", {
+          branches: [{ id: "b1", conditions: [{ field: "usedVoiceChat", operator: "is_true" }] }],
+        }),
+      ],
+      edges: [edge("t", "e1"), edge("e1", "c1"), edgeH("c1", "e1", "b1")],
+    };
+    expect(validateJourneyGraph(g)).toEqual({ ok: true });
+  });
 });
 
 describe("enrollSignupInActiveJourney", () => {

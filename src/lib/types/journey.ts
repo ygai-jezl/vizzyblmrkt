@@ -32,23 +32,58 @@ export const ConditionOperator = z.enum([
 export type ConditionOperator = z.infer<typeof ConditionOperator>;
 
 /**
+ * The condition field catalog keys — the single source of truth for which
+ * recipient attributes a journey condition may read. `conditions.ts` builds its
+ * CONDITION_FIELDS catalog against these (its `key` is typed `ConditionFieldKey`),
+ * so the schema and the evaluator can never drift. Defined HERE rather than
+ * imported from conditions.ts to avoid a circular import.
+ */
+export const CONDITION_FIELD_KEYS = [
+  "madeReferral",
+  "referralCount",
+  "usedVoiceChat",
+  "rank",
+  "engagementBonus",
+  "surveyAnswer",
+  "utmSource",
+  "utmMedium",
+  "utmCampaign",
+  "verified",
+] as const;
+export type ConditionFieldKey = (typeof CONDITION_FIELD_KEYS)[number];
+
+/**
  * One rule: read a catalog `field` off the recipient and compare it with
  * `operator`/`value`. See lib/journey/conditions.ts for the field catalog and
- * the evaluator (shared by the worker and the inspector UI).
+ * the evaluator (shared by the worker and the inspector UI). `field` is
+ * constrained to the catalog so a journey can never be saved/activated with an
+ * unknown key that would silently evaluate false (the dead-end bug guardrail).
  */
 export const JourneyConditionSchema = z.object({
-  field: z.string(), // catalog key, e.g. "referralCount"
+  field: z.enum(
+    CONDITION_FIELD_KEYS as unknown as [ConditionFieldKey, ...ConditionFieldKey[]],
+  ),
   operator: ConditionOperator,
   value: z.union([z.number(), z.string(), z.boolean()]).optional(),
   questionValue: z.string().optional(), // survey-answer field only
 });
 export type JourneyCondition = z.infer<typeof JourneyConditionSchema>;
 
-/** One branch of a switch: a stable handle `id` + the rule that selects it. */
+/**
+ * One branch of a switch: a stable handle `id` + the rule(s) that select it.
+ *
+ * `conditions` (preferred) holds 1+ rules combined by `match` ("all" = AND,
+ * "any" = OR), so a branch can express multi-factor intent (e.g. "used voice
+ * chat AND has 1–2 referrals"). `condition` is the LEGACY single-rule shape,
+ * still read for un-migrated docs; the evaluator prefers `conditions` when
+ * present (see lib/journey/conditions.ts `evaluateBranch`).
+ */
 export const JourneyBranchSchema = z.object({
   id: z.string(), // edge sourceHandle, e.g. "br_<uuid>"
   label: z.string().optional(),
-  condition: JourneyConditionSchema,
+  match: z.enum(["all", "any"]).optional(), // undefined ⇒ "all" (see evaluateBranch)
+  conditions: z.array(JourneyConditionSchema).min(1).max(10).optional(),
+  condition: JourneyConditionSchema.optional(), // legacy single rule
 });
 export type JourneyBranch = z.infer<typeof JourneyBranchSchema>;
 

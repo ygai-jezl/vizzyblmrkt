@@ -39,6 +39,21 @@ async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
   const drain = args.includes("--drain");
+
+  // GUARD: draining runs the worker in THIS process. Locally there is no email
+  // provider configured, so sendEmail falls back to the "log" provider — it
+  // marks jobs done + stamps emailSentAt WITHOUT actually sending, silently
+  // advancing the chain. Never drain unless a real provider is present; instead
+  // just --apply (enqueue) and let the deployed Cloud Scheduler cron — which has
+  // the Mandrill secret — drain and send. (Learned the hard way.)
+  if (drain && !(process.env.MANDRILL_API_KEY || process.env.RESEND_API_KEY)) {
+    console.error(
+      "Refusing --drain: no MANDRILL_API_KEY/RESEND_API_KEY in this env, so the\n" +
+        "worker would use the log provider and NOT actually send. Run with --apply\n" +
+        "only and let the prod cron (every 2 min) drain + send for real.",
+    );
+    process.exit(1);
+  }
   const only = args.find((a) => !a.startsWith("--"));
   const targets = only ? TARGETS.filter((t) => t.campaignId === only) : TARGETS;
   if (targets.length === 0) {

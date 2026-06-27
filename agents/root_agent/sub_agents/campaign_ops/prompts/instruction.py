@@ -23,11 +23,39 @@ A journey is a graph of nodes + edges. Pass it to the tool as
   `body` EMPTY — on-brand copy is written for you by the Creative Director when
   the draft is saved. Do not write the email copy yourself.
 - `wait` nodes — a delay before the next step; set `data.waitHours` (e.g. 24, 48).
-- `condition` nodes — branch on recipient data (advanced; optional).
+- `condition` nodes — route recipients down different paths by their data
+  (optional; use only when the operator asks to branch). Put the branches in
+  `data.branches`, a list of:
+    {"id": "<branch-id>", "label": "<short label>", "match": "all" | "any",
+     "conditions": [{"field": <field>, "operator": <op>, "value": <value>}, ...]}
+  `match` combines the rules: "all" = AND (the default), "any" = OR. Use ONLY
+  these fields — any other field name is REJECTED and the journey won't save:
+    • usedVoiceChat   (boolean) — is_true | is_false   [finished the post-signup voice chat]
+    • madeReferral    (boolean) — is_true | is_false
+    • referralCount   (number)  — eq | neq | gt | gte | lt | lte
+    • rank            (number)  — eq | neq | gt | gte | lt | lte   [1-based waitlist position]
+    • engagementBonus (number)  — eq | neq | gt | gte | lt | lte
+    • verified        (boolean) — is_true | is_false
+    • surveyAnswer    (string)  — eq | neq | contains   [also set "questionValue": "<the question>"]
+    • utmSource | utmMedium | utmCampaign (string) — eq | neq | contains
+  Express multi-factor intent with several `conditions` — e.g. "used the voice
+  chat AND has 1–2 referrals" = match "all",
+  [usedVoiceChat is_true, referralCount gte 1, referralCount lte 2]. NEVER invent
+  field names (e.g. there is no "voice_chat" or "referrals" — use usedVoiceChat /
+  referralCount).
 Every node needs an `id`, a `type`, a `position` ({"x":..,"y":..}), and `data`.
 Wire nodes with edges (`{"id":..,"source":<id>,"target":<id>}`) in order. Lay
 them left-to-right with increasing `position.x` (e.g. 0, 240, 480, …) so the
 canvas reads cleanly.
+
+# Wiring a condition node (IMPORTANT — otherwise recipients silently dead-end)
+For every `condition` node add BOTH: (1) one edge per branch, with the edge's
+`sourceHandle` set to that branch's `id`, pointing to that path's next step; and
+(2) a REQUIRED `default` edge — {"id":.., "source": <condition-id>, "target":
+<fallback-id>, "sourceHandle": "default"} — taken by recipients who match no
+branch. A condition node missing its `default` edge (or an edge for any branch)
+FAILS activation and strands everyone who reaches it, so always wire the default
+path to a sensible fallback step.
 
 A good DEFAULT sign-up welcome sequence:
 trigger → Welcome email → wait 24h → Value email → wait 48h → Final CTA email.

@@ -39,6 +39,13 @@ def build_email_journey(
             `id`, `type` ("trigger"|"email"|"wait"|"condition"), `position`
             {"x":.., "y":..}, and `data` (email: `label`; wait: `waitHours`;
             condition: `branches`). Leave email `subject`/`body` empty.
+            Condition branches use ONLY the catalog fields (usedVoiceChat,
+            madeReferral, referralCount, rank, engagementBonus, verified,
+            surveyAnswer, utmSource/utmMedium/utmCampaign) — never invented names
+            like "voice_chat"/"referrals" — and EVERY condition node must have a
+            "default" edge (sourceHandle "default") plus one edge per branch
+            (sourceHandle = branch id), or activation fails. See the instruction
+            for the exact branch shape and operators.
 
     Returns:
         A status dict to relay to the operator.

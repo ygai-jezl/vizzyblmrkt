@@ -299,30 +299,68 @@ function ConditionEditor({
   questions: Question[];
   onChange: (branches: JourneyBranch[]) => void;
 }) {
-  function updateRule(idx: number, patch: Partial<JourneyCondition>) {
+  // A branch's rule list: the new multi-rule `conditions`, else the legacy
+  // single `condition` lifted into a 1-element list.
+  const rulesOf = (b: JourneyBranch): JourneyCondition[] =>
+    b.conditions ?? (b.condition ? [b.condition] : []);
+
+  // Any edit migrates the branch to the multi-rule shape (drops legacy `condition`).
+  function writeBranch(
+    idx: number,
+    conditions: JourneyCondition[],
+    match?: "all" | "any",
+  ) {
     onChange(
-      branches.map((b, i) =>
-        i === idx ? { ...b, condition: { ...b.condition, ...patch } } : b,
-      ),
+      branches.map((b, i) => {
+        if (i !== idx) return b;
+        const m = match ?? b.match;
+        return {
+          id: b.id,
+          ...(b.label !== undefined ? { label: b.label } : {}),
+          ...(m ? { match: m } : {}),
+          conditions,
+        };
+      }),
     );
   }
-  function changeField(idx: number, fieldKey: string) {
-    const field = CONDITION_FIELD_BY_KEY.get(fieldKey);
+  function updateRule(bIdx: number, rIdx: number, patch: Partial<JourneyCondition>) {
+    writeBranch(
+      bIdx,
+      rulesOf(branches[bIdx]!).map((r, i) => (i === rIdx ? { ...r, ...patch } : r)),
+    );
+  }
+  function changeField(bIdx: number, rIdx: number, fieldKey: string) {
+    const key = fieldKey as JourneyCondition["field"];
+    const field = CONDITION_FIELD_BY_KEY.get(key);
     if (!field) return;
     const operator: ConditionOperator = field.operators[0] ?? "eq";
-    // Replace the whole rule so stale value/questionValue don't linger.
-    onChange(
-      branches.map((b, i) =>
-        i === idx ? { ...b, condition: { field: fieldKey, operator } } : b,
-      ),
+    // Replace the whole rule so a stale value/questionValue can't linger.
+    writeBranch(
+      bIdx,
+      rulesOf(branches[bIdx]!).map((r, i) => (i === rIdx ? { field: key, operator } : r)),
     );
+  }
+  function addRule(bIdx: number) {
+    writeBranch(bIdx, [
+      ...rulesOf(branches[bIdx]!),
+      { field: "madeReferral", operator: "is_false" },
+    ]);
+  }
+  function removeRule(bIdx: number, rIdx: number) {
+    const rules = rulesOf(branches[bIdx]!).filter((_, i) => i !== rIdx);
+    // Keep at least one rule so the branch always means something.
+    writeBranch(bIdx, rules.length ? rules : [{ field: "madeReferral", operator: "is_false" }]);
+  }
+  function setMatch(bIdx: number, match: "all" | "any") {
+    writeBranch(bIdx, rulesOf(branches[bIdx]!), match);
   }
   function addBranch() {
     onChange([
       ...branches,
       {
         id: `br_${crypto.randomUUID()}`,
-        condition: { field: "madeReferral", operator: "is_false" },
+        match: "all",
+        conditions: [{ field: "madeReferral", operator: "is_false" }],
       },
     ]);
   }
@@ -340,13 +378,14 @@ function ConditionEditor({
   return (
     <div className="space-y-3">
       <p className="text-sm text-neutral-500">
-        Branches are checked top to bottom; the first match wins. Recipients
-        matching none take the <span className="font-medium">Default</span>{" "}
-        branch. Wire each branch&apos;s handle to the next step.
+        Branches are checked top to bottom; the first match wins. A branch can
+        combine several rules. Recipients matching none take the{" "}
+        <span className="font-medium">Default</span> branch — wire its handle so
+        they always have a path.
       </p>
 
       {branches.map((b, idx) => {
-        const field = CONDITION_FIELD_BY_KEY.get(b.condition.field);
+        const rules = rulesOf(b);
         return (
           <div
             key={b.id}
@@ -386,42 +425,82 @@ function ConditionEditor({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={b.condition.field}
-                onChange={(e) => changeField(idx, e.target.value)}
-                className={SELECT_CLASS}
-              >
-                {CONDITION_FIELDS.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
+            {rules.length > 1 ? (
+              <div className="mb-2 flex items-center gap-2 text-xs text-neutral-500">
+                Match
+                <select
+                  value={b.match ?? "all"}
+                  onChange={(e) => setMatch(idx, e.target.value as "all" | "any")}
+                  className={SELECT_CLASS}
+                >
+                  <option value="all">ALL rules (AND)</option>
+                  <option value="any">ANY rule (OR)</option>
+                </select>
+              </div>
+            ) : null}
 
-              <select
-                value={b.condition.operator}
-                onChange={(e) =>
-                  updateRule(idx, {
-                    operator: e.target.value as ConditionOperator,
-                  })
-                }
-                className={SELECT_CLASS}
-              >
-                {(field?.operators ?? []).map((op) => (
-                  <option key={op} value={op}>
-                    {OPERATOR_LABELS[op]}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-2">
+              {rules.map((rule, rIdx) => {
+                const field = CONDITION_FIELD_BY_KEY.get(rule.field);
+                return (
+                  <div key={rIdx} className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={rule.field}
+                      onChange={(e) => changeField(idx, rIdx, e.target.value)}
+                      className={SELECT_CLASS}
+                    >
+                      {CONDITION_FIELDS.map((f) => (
+                        <option key={f.key} value={f.key}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
 
-              <ValueInput
-                field={field}
-                condition={b.condition}
-                questions={questions}
-                onChange={(patch) => updateRule(idx, patch)}
-              />
+                    <select
+                      value={rule.operator}
+                      onChange={(e) =>
+                        updateRule(idx, rIdx, {
+                          operator: e.target.value as ConditionOperator,
+                        })
+                      }
+                      className={SELECT_CLASS}
+                    >
+                      {(field?.operators ?? []).map((op) => (
+                        <option key={op} value={op}>
+                          {OPERATOR_LABELS[op]}
+                        </option>
+                      ))}
+                    </select>
+
+                    <ValueInput
+                      field={field}
+                      condition={rule}
+                      questions={questions}
+                      onChange={(patch) => updateRule(idx, rIdx, patch)}
+                    />
+
+                    {rules.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeRule(idx, rIdx)}
+                        className="rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-100 hover:text-red-600 dark:hover:bg-neutral-800"
+                        aria-label="Remove rule"
+                      >
+                        ✕
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
+
+            <button
+              type="button"
+              onClick={() => addRule(idx)}
+              className="mt-2 text-xs text-neutral-500 underline-offset-2 hover:underline"
+            >
+              + Add rule
+            </button>
           </div>
         );
       })}
@@ -436,8 +515,8 @@ function ConditionEditor({
 
       <div className="rounded-md border border-dashed border-neutral-300 p-3 text-xs text-neutral-500 dark:border-neutral-700">
         <span className="font-medium">Default</span> — everyone matching none of
-        the branches above. Wire its handle to give them a path (or leave it
-        unconnected to end their journey here).
+        the branches above. Wire its handle to give them a path (leaving it
+        unconnected will block activation, so no one silently dead-ends).
       </div>
     </div>
   );

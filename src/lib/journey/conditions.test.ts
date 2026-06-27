@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type { Signup } from "@/lib/types/signup";
 import type { Campaign } from "@/lib/types/campaign";
+import { JourneyConditionSchema } from "@/lib/types/journey";
 import type { JourneyBranch, JourneyCondition } from "@/lib/types/journey";
 import {
   evaluateCondition,
+  evaluateBranch,
   selectBranch,
   type ConditionContext,
 } from "./conditions";
@@ -112,7 +114,81 @@ describe("evaluateCondition", () => {
   });
 
   it("unknown field ⇒ false", () => {
-    expect(evalC({ field: "nope", operator: "is_true" }, mkSignup())).toBe(false);
+    expect(
+      evalC({ field: "nope" as JourneyCondition["field"], operator: "is_true" }, mkSignup()),
+    ).toBe(false);
+  });
+});
+
+describe("evaluateBranch (multi-factor)", () => {
+  const vcAiConversation = {
+    completed: true,
+    transcript: [],
+    capturedAt: "2026-01-02T00:00:00.000Z",
+    bonusApplied: true,
+  };
+  const vcAndTwoRef = mkSignup({ amountReferred: 2, aiConversation: vcAiConversation });
+
+  it("match:all is AND — true only when every rule holds", () => {
+    const b: JourneyBranch = {
+      id: "x",
+      match: "all",
+      conditions: [
+        { field: "usedVoiceChat", operator: "is_true" },
+        { field: "referralCount", operator: "gte", value: 1 },
+        { field: "referralCount", operator: "lte", value: 2 },
+      ],
+    };
+    expect(evaluateBranch(b, ctx(vcAndTwoRef))).toBe(true);
+    // 5 referrals fails the lte 2 rule.
+    const vcAndFive = mkSignup({ amountReferred: 5, aiConversation: vcAiConversation });
+    expect(evaluateBranch(b, ctx(vcAndFive))).toBe(false);
+  });
+
+  it("match:any is OR — true when at least one rule holds", () => {
+    const b: JourneyBranch = {
+      id: "x",
+      match: "any",
+      conditions: [
+        { field: "usedVoiceChat", operator: "is_true" },
+        { field: "referralCount", operator: "gte", value: 99 },
+      ],
+    };
+    expect(evaluateBranch(b, ctx(vcAndTwoRef))).toBe(true);
+  });
+
+  it("undefined match defaults to AND (un-parsed/cast doc safe)", () => {
+    const b: JourneyBranch = {
+      id: "x",
+      conditions: [
+        { field: "usedVoiceChat", operator: "is_true" },
+        { field: "referralCount", operator: "eq", value: 0 },
+      ],
+    };
+    expect(evaluateBranch(b, ctx(vcAndTwoRef))).toBe(false); // 2 referrals ≠ 0
+    const vcNoRef = mkSignup({ amountReferred: 0, aiConversation: vcAiConversation });
+    expect(evaluateBranch(b, ctx(vcNoRef))).toBe(true);
+  });
+
+  it("falls back to the legacy single `condition`", () => {
+    const b: JourneyBranch = { id: "x", condition: { field: "madeReferral", operator: "is_true" } };
+    expect(evaluateBranch(b, ctx(vcAndTwoRef))).toBe(true);
+    expect(evaluateBranch(b, ctx(mkSignup()))).toBe(false);
+  });
+
+  it("a branch with neither conditions nor condition ⇒ false (default catches it)", () => {
+    expect(evaluateBranch({ id: "x" }, ctx(vcAndTwoRef))).toBe(false);
+  });
+});
+
+describe("JourneyConditionSchema field enum (dead-end guardrail)", () => {
+  it("rejects the invalid keys that caused the incident", () => {
+    expect(JourneyConditionSchema.safeParse({ field: "voice_chat", operator: "eq", value: true }).success).toBe(false);
+    expect(JourneyConditionSchema.safeParse({ field: "referrals", operator: "eq", value: 1 }).success).toBe(false);
+  });
+  it("accepts catalog keys", () => {
+    expect(JourneyConditionSchema.safeParse({ field: "usedVoiceChat", operator: "is_true" }).success).toBe(true);
+    expect(JourneyConditionSchema.safeParse({ field: "referralCount", operator: "gte", value: 3 }).success).toBe(true);
   });
 });
 

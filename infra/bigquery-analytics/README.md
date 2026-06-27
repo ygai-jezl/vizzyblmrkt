@@ -22,6 +22,14 @@ See `docs/SETUP.md §11` for the design and `setup.sh` (top comment) for details
   `ingest_day`, clustered by `tenant_id,campaign_id`) — written by the beacon.
 - **IAM** on the App Hosting runtime SA: `bigquery.jobUser` (project) +
   dataset-scoped `dataViewer` + `dataEditor` on each `widget_views` table.
+- **Least-privilege Eventarc invoker** (`serviceaccounts` step) — each
+  `firestore-bigquery-export` function already runs as its own dedicated per-instance
+  SA (`ext-fsbq-<instance>@`, Firebase-managed, dataset-scoped). This step **reuses that
+  same SA as the function's invoker** — grants it `run.invoker` on only its own service +
+  Pub-Sub `tokenCreator`, then overrides the auth SA on the trigger's Pub-Sub **push
+  subscription** off the broad default compute SA. (The trigger destination is a gen2
+  Cloud Function, so `eventarc triggers update --service-account` is rejected; the push
+  subscription is the writable lever.) The runtime SA is left untouched.
 
 ## Run order (DEV first → validate → PROD)
 
@@ -38,6 +46,7 @@ cd infra/bigquery-analytics
 # APIs + accept the extension IAM, and provisions 6 Cloud Functions (~minutes):
 ( cd ../.. && firebase deploy --only extensions --project=vizzybl-marketing-dev )
 ./setup.sh schema     vizzybl-marketing-dev
+./setup.sh serviceaccounts vizzybl-marketing-dev
 ./setup.sh iam        vizzybl-marketing-dev
 ./setup.sh backfill   vizzybl-marketing-dev
 ./setup.sh validate   vizzybl-marketing-dev
@@ -65,6 +74,15 @@ whole sequence with `vizzybl-marketing-prod` once dev is validated.
   or Eventarc delivery silently fails.
 - `schema` depends on the extensions having created `<col>_raw_latest` — run it
   **after** the extension deploy (the view exists at install, before any data).
+- **Eventarc push 403 → no data reaches BigQuery.** The extension's trigger runs as
+  the default compute SA, which Firebase does **not** reliably grant `run.invoker` on
+  the function's Cloud Run service, so every push silently 403s. `serviceaccounts`
+  fixes this by reusing each function's own dedicated SA as its invoker (with
+  `run.invoker` on its service) and overriding the auth SA on the trigger's Pub-Sub push
+  subscription off the compute SA. **Re-run `./setup.sh serviceaccounts <project>` after
+  any `firebase deploy --only extensions`** — the deploy recreates the trigger +
+  subscription, resetting the push auth SA back to the compute SA. Symptom of regression:
+  403s in the `ext-fsbq-*` Cloud Run request logs + BigQuery tables stop growing.
 - **Audit logs** (BigQuery DATA_READ/DATA_WRITE) are left as a deliberate manual
   step — see `iam`'s note.
 - **PII erasure**: a Firestore signup delete does not erase the BQ changelog

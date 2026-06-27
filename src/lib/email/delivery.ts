@@ -17,7 +17,11 @@ import {
 } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
-import { selectBranch } from "@/lib/journey/conditions";
+import {
+  selectBranch,
+  CONDITION_FIELD_BY_KEY,
+  DEFAULT_BRANCH,
+} from "@/lib/journey/conditions";
 import { allocateVariant, resolveArmContent } from "@/lib/journey/allocation";
 import { syncBroadcastStats } from "@/lib/mailchimp/reports";
 import { enqueueEmailJob } from "./jobs";
@@ -706,6 +710,39 @@ export function validateJourneyGraph(graph: JourneyGraph): JourneyValidation {
     (n) => (n.data.subject ?? "").trim() && (n.data.body ?? "").trim(),
   );
   if (!hasContent) return { ok: false, reason: "email_missing_content" };
+
+  // Every condition node must route ALL recipients somewhere, and reference only
+  // real catalog fields. Otherwise a recipient who matches no branch — or whose
+  // rule names an unknown field that always evaluates false — falls to the
+  // implicit "default" handle; with no "default" edge wired, resolveNextStep
+  // returns null and the journey SILENTLY dead-ends. This is the guardrail for
+  // that bug: block activation of a bad-field or half-wired condition graph.
+  for (const node of graph.nodes) {
+    if (node.type !== "condition") continue;
+    const branches = node.data.branches ?? [];
+    for (const b of branches) {
+      const rules = b.conditions ?? (b.condition ? [b.condition] : []);
+      for (const r of rules) {
+        if (!CONDITION_FIELD_BY_KEY.has(r.field)) {
+          return {
+            ok: false,
+            reason: `condition_unknown_field:${node.id}:${r.field}`,
+          };
+        }
+      }
+    }
+    // Coverage: either a wired "default" else-edge, or an edge for every branch.
+    const handles = new Set(
+      graph.edges
+        .filter((e) => e.source === node.id)
+        .map((e) => e.sourceHandle ?? null),
+    );
+    const allBranchesWired = branches.every((b) => handles.has(b.id));
+    if (!handles.has(DEFAULT_BRANCH) && !allBranchesWired) {
+      return { ok: false, reason: `condition_missing_default_edge:${node.id}` };
+    }
+  }
+
   return { ok: true };
 }
 

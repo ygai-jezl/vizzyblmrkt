@@ -17,6 +17,7 @@
 #   ./setup.sh extensions <project>   # write 6 extension .env files at repo root + register firebase.json
 #   #                                 #   THEN: firebase deploy --only extensions --project=<project>
 #   ./setup.sh schema     <project>   # widget_views tables + signups_latest/email_events_latest views
+#   ./setup.sh serviceaccounts <project> # wire each export function's OWN dedicated SA as its Eventarc invoker (off the default compute SA). RE-RUN after every extension deploy.
 #   ./setup.sh iam        <project>   # grant the App Hosting runtime SA least-privilege BQ roles
 #   ./setup.sh backfill   <project>   # import existing rows for both collections x 3 regions
 #   ./setup.sh validate   <project>   # print BQ row counts to compare against Firestore
@@ -25,7 +26,7 @@
 #   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
 #
 # End-to-end order: datasets -> extensions -> (firebase deploy --only extensions)
-#   -> schema -> iam -> backfill -> validate -> flip ANALYTICS_BQ_ENABLED +
+#   -> schema -> serviceaccounts -> iam -> backfill -> validate -> flip ANALYTICS_BQ_ENABLED +
 #   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED to "true" in apphosting.<env>.yaml + deploy.
 #
 # Requires: gcloud, bq, firebase CLI, npx, jq. Blaze billing (already on).
@@ -253,6 +254,89 @@ iam() {
 EOF
 }
 
+serviceaccounts() {
+  # Least-privilege Eventarc invoker. Each firestore-bigquery-export function ALREADY runs as its
+  # own dedicated per-instance SA (ext-fsbq-<instance>@, Firebase-managed, already holding its
+  # dataset-scoped BigQuery roles). The ONLY gap is the invoker: the trigger's Pub-Sub PUSH
+  # authenticates as the broad default compute SA, which also lacked run.invoker on the function's
+  # Cloud Run service -> every push 403'd and nothing reached BigQuery. Fix: reuse each function's
+  # OWN dedicated SA as the push identity — grant it run.invoker on its own service, let Pub-Sub
+  # mint OIDC tokens as it, and override the push subscription's auth SA off the compute SA.
+  #
+  # The trigger destination is a gen2 Cloud Function, so `gcloud eventarc triggers update
+  # --service-account` is REJECTED ("destination is neither cloud_function nor cloud_run_service").
+  # We therefore set the identity on the trigger's Pub-Sub PUSH SUBSCRIPTION directly, and do NOT
+  # touch the function runtime SA (Firebase manages it).
+  # IDEMPOTENT — RE-RUN after any `firebase deploy --only extensions` (it recreates the trigger +
+  # subscription, resetting the push auth SA back to the compute SA).
+  local pn pubsub_agent
+  pn="$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)')"
+  pubsub_agent="service-${pn}@gcp-sa-pubsub.iam.gserviceaccount.com"
+
+  for spec in "${REGION_SPECS[@]}"; do
+    read -r region db dataset loc fnloc fsloc <<<"$spec"
+    for col in "${COLLECTIONS[@]}"; do
+      local inst svc svcloc sa trig sub subid pe aud
+      inst="$(instance_id "${col}" "${region}")"
+      svc="ext-${inst}-fsexportbigquery"
+      svcloc="$(gcloud run services list --project="${PROJECT}" \
+        --filter="metadata.name=${svc}" \
+        --format="value(metadata.labels['cloud.googleapis.com/location'])" | head -1)"
+      if [ -z "${svcloc}" ]; then
+        echo "    ⚠️  ${svc} not found — deploy extensions first (skipping ${inst})"
+        continue
+      fi
+
+      # Reuse the function's OWN dedicated runtime SA as the invoker. Refuse if it is the shared
+      # compute SA (we must NOT make that the invoker — investigate the install first).
+      sa="$(gcloud run services describe "${svc}" --project="${PROJECT}" --region="${svcloc}" \
+        --format='value(spec.template.spec.serviceAccountName)')"
+      if [ -z "${sa}" ] || [[ "${sa}" == *-compute@developer.gserviceaccount.com ]]; then
+        echo "    ⚠️  ${svc} runtime SA is '${sa:-unset}', not a dedicated ext-* SA — skipping."
+        echo "        (Won't repoint the invoker onto the shared compute SA; investigate the install.)"
+        continue
+      fi
+      echo "==> ${inst}: invoker = ${sa}"
+
+      # 1. invoke path: this SA may invoke its own Cloud Run service (the missing grant -> 403).
+      gcloud run services add-iam-policy-binding "${svc}" \
+        --project="${PROJECT}" --region="${svcloc}" \
+        --member="serviceAccount:${sa}" --role="roles/run.invoker" >/dev/null
+      echo "    + run.invoker on ${svc} (${svcloc})"
+
+      # 2. let Pub-Sub mint OIDC tokens AS this SA (so the push can present its identity).
+      gcloud iam service-accounts add-iam-policy-binding "${sa}" --project="${PROJECT}" \
+        --member="serviceAccount:${pubsub_agent}" \
+        --role="roles/iam.serviceAccountTokenCreator" >/dev/null
+      echo "    + tokenCreator for ${pubsub_agent} on ${sa}"
+
+      # 3. override the push identity. Resolve the trigger (random suffix, in the DB location
+      #    ${fsloc}) -> its Pub-Sub push subscription, then set the auth SA off the compute SA
+      #    onto this SA (push endpoint + audience preserved).
+      trig="$(gcloud eventarc triggers list --project="${PROJECT}" --location="${fsloc}" \
+        --filter="name~${svc}" --format="value(name)" | head -1)"
+      if [ -z "${trig}" ]; then
+        echo "    ⚠️  no Eventarc trigger matching ${svc} in ${fsloc} (skipping invoker repoint)"
+        continue
+      fi
+      sub="$(gcloud eventarc triggers describe "${trig}" --project="${PROJECT}" --location="${fsloc}" \
+        --format='value(transport.pubsub.subscription)')"
+      subid="${sub##*/}"
+      pe="$(gcloud pubsub subscriptions describe "${subid}" --project="${PROJECT}" --format='value(pushConfig.pushEndpoint)')"
+      aud="$(gcloud pubsub subscriptions describe "${subid}" --project="${PROJECT}" --format='value(pushConfig.oidcToken.audience)')"
+      if [ -z "${pe}" ] || [ -z "${subid}" ]; then
+        echo "    ⚠️  no push subscription/endpoint for ${trig} (skipping invoker repoint)"
+        continue
+      fi
+      gcloud pubsub subscriptions update "${subid}" --project="${PROJECT}" \
+        --push-endpoint="${pe}" --push-auth-service-account="${sa}" \
+        --push-auth-token-audience="${aud}" >/dev/null
+      echo "    + push-auth SA -> ${sa} on ${subid}"
+    done
+  done
+  echo "    Done. Verify: no new 403s on ext-fsbq-* Cloud Run logs; ./setup.sh validate ${PROJECT}."
+}
+
 backfill() {
   echo "==> Backfilling existing rows (both collections x 3 regions) in ${PROJECT}"
   for spec in "${REGION_SPECS[@]}"; do
@@ -328,6 +412,7 @@ case "${CMD}" in
   datasets)   datasets ;;
   extensions) extensions ;;
   schema)     schema ;;
+  serviceaccounts) serviceaccounts ;;
   iam)        iam ;;
   backfill)   backfill ;;
   validate)   validate ;;

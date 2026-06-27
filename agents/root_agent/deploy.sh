@@ -58,7 +58,9 @@ elif [ -n "${ROOT_AGENT_RESOURCE_ID:-}" ]; then
   RESOURCE_ID="$ROOT_AGENT_RESOURCE_ID"
 else
   case "$PROJECT" in
-    vizzybl-marketing-prod) RESOURCE_ID="5390059436788154368" ;;
+    # MUST match ROOT_AGENT_RESOURCE_ID in apphosting{,.prod}.yaml (the engine the
+    # app actually calls). prod's old 5390059436788154368 engine is ORPHANED.
+    vizzybl-marketing-prod) RESOURCE_ID="4483147061826420736" ;;
     vizzybl-marketing-dev)  RESOURCE_ID="2597757299074269184" ;;
     *) RESOURCE_ID="" ;;
   esac

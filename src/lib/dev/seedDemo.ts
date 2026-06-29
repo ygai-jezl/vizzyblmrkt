@@ -72,6 +72,7 @@ export async function seedDemoData(): Promise<SeedResult> {
   try {
     await forTenant(ctx).campaigns.create(SEED_CAMPAIGN_ID, {
       waitlistName: "Vizzybl Beta",
+      productName: "Vizzybl",
       waitlistUrlLocation: null,
       spotsToMoveUponReferral: 10,
       usesFirstnameLastname: false,
@@ -115,6 +116,7 @@ export async function seedDemoData(): Promise<SeedResult> {
   try {
     await forTenant(ctx).campaigns.create(SEED_VERIFY_CAMPAIGN_ID, {
       waitlistName: "Vizzybl Beta (verified)",
+      productName: "Vizzybl",
       waitlistUrlLocation: null,
       spotsToMoveUponReferral: 10,
       usesFirstnameLastname: false,

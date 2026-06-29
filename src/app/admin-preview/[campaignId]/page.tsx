@@ -22,6 +22,7 @@ import {
   renderSampleShareMessage,
 } from "@/lib/waitlist/socialPlatforms";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
+import { resolveProductName } from "@/lib/types/campaign";
 import { getMessage, getWidgetMessages, formatNumber, pluralText } from "@/lib/i18n/messages";
 
 export const runtime = "nodejs";
@@ -102,7 +103,8 @@ export default async function LaunchPreviewPage({
   const sampleShareMessage = previewSuccess
     ? renderSampleShareMessage(
         style.shareMessage || DEFAULT_SHARE_MESSAGE,
-        campaign.waitlistName,
+        // Match the runtime share message (postSignup → resolveProductName).
+        resolveProductName(campaign),
       )
     : "";
   const aiConversation = campaign.aiConversation?.enabled

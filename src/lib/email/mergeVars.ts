@@ -1,5 +1,5 @@
 import type { Signup } from "@/lib/types/signup";
-import type { Campaign } from "@/lib/types/campaign";
+import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 
 /**
  * Email merge variables. Authors write {{token}} in the composer; they are
@@ -61,7 +61,9 @@ function lookup(key: string, ctx: MergeContext): unknown {
     case "current_rank":
       return ctx.rank ?? "";
     case "waitlist_name":
-      return ctx.campaign.waitlistName ?? "";
+      // Resolves to the founder-set product name (falls back to the headline) so
+      // body copy reads naturally — see resolveProductName in types/campaign.ts.
+      return resolveProductName(ctx.campaign);
     default:
       return "";
   }
@@ -84,7 +86,7 @@ const MAILCHIMP_TAGS: Record<MergeVar, string> = {
 /** Translate our {{tokens}} into MailChimp merge tags for a broadcast body. */
 export function toMailchimpMergeTags(template: string, campaign: Campaign): string {
   return template.replace(TOKEN_RE, (_m, key: string) => {
-    if (key === "waitlist_name") return campaign.waitlistName ?? "";
+    if (key === "waitlist_name") return resolveProductName(campaign);
     if (key.startsWith("metadata.")) return ""; // not available as a list field
     return MAILCHIMP_TAGS[key as MergeVar] ?? "";
   });

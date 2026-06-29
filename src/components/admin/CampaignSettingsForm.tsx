@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
+import { buildSettingsPayload, type UiQuestion } from "@/lib/admin/campaignSettingsPayload";
 import type { EmailSenderConfig } from "@/lib/types/tenant";
 import { LOCALES, isLiveSupportedLocale, languageName } from "@/lib/i18n/locale";
 
@@ -52,15 +53,6 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /** Stable per-row id so React keys survive add/remove (no focus loss). */
 const uid = () => crypto.randomUUID();
-
-/** UI representation of a survey question (options edited as one-per-line text). */
-interface UiQuestion {
-  id: string;
-  question_value: string;
-  optional: boolean;
-  isChoice: boolean;
-  optionsText: string;
-}
 
 function toUiQuestions(settings: CampaignSettings): UiQuestion[] {
   return settings.questions.map((q) => ({
@@ -188,48 +180,7 @@ export function CampaignSettingsForm({
 
   /** Build the wire payload. The server schema re-validates and normalises. */
   function buildPayload(): CampaignSettings {
-    return {
-      ...form,
-      waitlistName: form.waitlistName.trim(),
-      waitlistUrlLocation: form.waitlistUrlLocation?.trim() ? form.waitlistUrlLocation.trim() : null,
-      // Send an explicit "" (never undefined) so clearing the message actually
-      // overwrites the stored value — Firestore update() is a merge and would
-      // otherwise keep the old copy.
-      twitterMessage: form.twitterMessage?.trim() ?? "",
-      // Branding (colours, copy, social links) now lives in the Embed & Design
-      // tab. Pass configurationStyleJson straight through so this form never
-      // clobbers values that tab owns.
-      configurationStyleJson: form.configurationStyleJson,
-      // Send an explicit "" (never undefined) so clearing the instructions
-      // overwrites the stored value (Firestore update() merges otherwise).
-      strategy: {
-        ...form.strategy,
-        customToneInstructions: form.strategy.customToneInstructions?.trim() ?? "",
-      },
-      // Same merge gotcha: send explicit ""/[] for cleared conversation fields.
-      aiConversation: {
-        ...form.aiConversation,
-        introLine: form.aiConversation.introLine?.trim() ?? "",
-        conversationGoal: form.aiConversation.conversationGoal?.trim() ?? "",
-        probeTopics: probeTopicsText
-          .split("\n")
-          .map((t) => t.trim())
-          .filter(Boolean),
-      },
-      // Send explicit "" for cleared subject/body so the merge update overwrites.
-      offboardingEmail: {
-        ...form.offboardingEmail,
-        subject: form.offboardingEmail.subject?.trim() ?? "",
-        body: form.offboardingEmail.body?.trim() ?? "",
-      },
-      questions: questions.map((q) => ({
-        question_value: q.question_value.trim(),
-        optional: q.optional,
-        answer_value: q.isChoice
-          ? q.optionsText.split("\n").map((o) => o.trim()).filter(Boolean)
-          : null,
-      })),
-    };
+    return buildSettingsPayload(form, questions, probeTopicsText);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -289,7 +240,15 @@ export function CampaignSettingsForm({
           label="Waitlist name"
           value={form.waitlistName}
           onChange={(v) => set("waitlistName", v)}
+          hint="Shown as the headline on your waitlist page."
           required
+        />
+        <TextField
+          label="Product name"
+          value={form.productName ?? ""}
+          onChange={(v) => set("productName", v)}
+          placeholder={form.waitlistName || "Your product"}
+          hint="The plain name used inside email copy, share messages and the voice intro (e.g. “Thanks for joining Acme Pro”). Leave blank to use the waitlist name above — set it when your waitlist name is a headline like “Be the first to get access.”"
         />
         <ReadOnlyField
           label="Page slug (locked)"

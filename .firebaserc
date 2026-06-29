@@ -8,12 +8,12 @@
   "etags": {
     "vizzybl-marketing-dev": {
       "extensionInstances": {
-        "fsbq-email-events-asia": "ab626de9dfad25460f879558392e4a5aee51cbd1c06ca68d0c53a6b8b601b23d",
-        "fsbq-email-events-eu": "fc06b836c47ed87640354010f0dbd3983a39449e6bc599e32e0ffa8e235a4118",
-        "fsbq-email-events-us": "7d1120d6b1df0bc237364232ed2d76df643e3f2a05c7712e57a1c7ac0dfa59a0",
-        "fsbq-signups-asia": "771c47f3639d70c05cc78d80f868150e60f898ea63ea66c8b9a897db850b1ca3",
-        "fsbq-signups-eu": "f81e26e0e685dc923d82781cc7b8c2c036ca6996b35fd6268b00db3935e82efd",
-        "fsbq-signups-us": "a08b4726acad8b8a215464983904070d16fb3ff873a3bd48c06517f5a50b81ab"
+        "fsbq-email-events-asia": "ce0c3d0478a1ece9b9db2d6e5159a58072c780aa1dd057964b8c326f4f82e8ff",
+        "fsbq-email-events-eu": "5cc432edab87b2ddc7b97dd048066af718e767d4862e9232c4b45feaa1a20ca0",
+        "fsbq-email-events-us": "849b9b552b4ceb4140406c260fca4d6ce72c44f880e89d89a5d25cc45b919b71",
+        "fsbq-signups-asia": "601e8e347559fa36bbd2c65a302f94e8dd38bc82d77f0bf7ffb5e2e0d1fff8d7",
+        "fsbq-signups-eu": "802a6aa8b48c8f44c2d796460df813544eb12edf5aa153fc0bfe71bedc2fb1dd",
+        "fsbq-signups-us": "fa3ba9c8506c66ccb6bf861c8e14fa86f3f87538568be41d1d443bee0420be64"
       }
     },
     "vizzybl-marketing-prod": {

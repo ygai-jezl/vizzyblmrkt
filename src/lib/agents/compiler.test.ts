@@ -81,3 +81,27 @@ describe("compileBroadcast (audience-wide, MailChimp tags)", () => {
     expect(out.warnings).toContain("subject_excess_exclamation");
   });
 });
+
+describe("emoji + charset robustness", () => {
+  it("preserves emoji in a journey email's subject + body and declares utf-8", () => {
+    const signup = { firstName: "Maya", amountReferred: 0 } as unknown as Signup;
+    const out = compileJourneyEmail(
+      { subject: "You're in 🎉", body: "<p>Welcome 💡 {{first_name}}</p>" },
+      { signup, campaign },
+    );
+    expect(out.subject).toBe("You're in 🎉"); // subject is plain text, emoji untouched
+    expect(out.html).toContain("Welcome 💡");
+    expect(out.text).toContain("Welcome 💡"); // emoji survive the html→text step
+    expect(out.html).toContain('meta charset="utf-8"');
+  });
+
+  it("preserves emoji in a broadcast and declares utf-8", () => {
+    const out = compileBroadcast(
+      { subject: "Big news 🎉", body: "<p>Check this out 💡</p>" },
+      campaign,
+    );
+    expect(out.subject).toContain("🎉");
+    expect(out.html).toContain("💡");
+    expect(out.html).toContain('meta charset="utf-8"');
+  });
+});

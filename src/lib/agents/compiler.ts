@@ -101,7 +101,7 @@ function wrap(inner: string, heroImageUrl: string | null): string {
   const hero = heroImageUrl
     ? `<img src="${heroImageUrl}" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>`
     : "";
-  return `<!doctype html><html><body style="margin:0;background:#f6f6f6">
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
     ${hero}
     ${inner}

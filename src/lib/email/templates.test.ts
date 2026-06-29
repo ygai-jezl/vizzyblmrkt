@@ -31,6 +31,17 @@ describe("offboardingEmail template", () => {
     expect(msg.html).toContain("&lt;script&gt;");
     expect(msg.html).not.toContain("<script>alert(1)</script>");
   });
+
+  it("declares a utf-8 charset and preserves emoji in subject + body", () => {
+    const msg = offboardingEmail({
+      to: "a@b.com",
+      subject: "You're off the waitlist 🎉",
+      body: "Hi Jo,\nThanks for waiting 💡",
+    });
+    expect(msg.subject).toContain("🎉");
+    expect(msg.html).toContain('meta charset="utf-8"');
+    expect(msg.html).toContain("💡");
+  });
 });
 
 describe("verificationEmail template", () => {
@@ -59,6 +70,11 @@ describe("verificationEmail template", () => {
     const msg = verificationEmail({ ...base, firstName: null });
     expect(msg.html).toContain("<p>Hi,</p>");
     expect(msg.text?.startsWith("Hi,")).toBe(true);
+  });
+
+  it("declares a utf-8 charset in the HTML head", () => {
+    const msg = verificationEmail(base);
+    expect(msg.html).toContain('meta charset="utf-8"');
   });
 });
 

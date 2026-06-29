@@ -51,7 +51,11 @@ DEPLOY_ARGS=(
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}"
 )
 [[ -n "${JOB_SA:-}" ]] && DEPLOY_ARGS+=(--service-account="${JOB_SA}")
-DEPLOY_ARGS+=("${SECRET_FLAGS[@]}")
+# Guard the array expansion: under macOS bash 3.2 + `set -u`, "${EMPTY[@]}"
+# throws "unbound variable" and would abort before the job is ever created.
+if [ ${#SECRET_FLAGS[@]} -gt 0 ]; then
+  DEPLOY_ARGS+=("${SECRET_FLAGS[@]}")
+fi
 
 echo "==> Deploying Cloud Run Job ${JOB_NAME}"
 if gcloud run jobs describe "${JOB_NAME}" --project="${PROJECT}" --region="${REGION}" >/dev/null 2>&1; then

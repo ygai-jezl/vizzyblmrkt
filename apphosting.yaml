@@ -98,15 +98,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # The scraper Cloud Run Job that /api/admin/knowledge/ingest dispatches to. Leave
-  # KNOWLEDGE_JOB_NAME UNSET until the Job is deployed (workers/knowledge-scraper/
-  # deploy.sh) — while unset, the dispatch route records the ticket but does not
-  # trigger a worker (so dev never 502s on a missing Job). Triggering needs the
-  # runtime SA to hold run.jobs.runWithOverrides on the Job.
-  # - variable: KNOWLEDGE_JOB_NAME
-  #   value: knowledge-scraper
-  #   availability:
-  #     - RUNTIME
+  # The scraper Cloud Run Job that /api/admin/knowledge/ingest dispatches to
+  # (deployed via workers/knowledge-scraper/deploy.sh). Triggering needs the App
+  # Hosting runtime SA to hold run.jobs.runWithOverrides on this Job. While unset,
+  # the dispatch route records the ticket but does not trigger a worker.
+  - variable: KNOWLEDGE_JOB_NAME
+    value: knowledge-scraper
+    availability:
+      - RUNTIME
   - variable: KNOWLEDGE_JOB_LOCATION
     value: us-central1
     availability:

@@ -5,7 +5,7 @@ import {
   resolveCampaignLocale,
 } from "@/lib/i18n/locale";
 import { renderPrompt } from "./prompts/registry";
-import type { Campaign } from "@/lib/types/campaign";
+import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 
 /**
  * Post-signup Gemini Live voice conversation: the per-launch system instruction
@@ -43,7 +43,7 @@ export function buildLiveSystemInstruction(campaign: Campaign, locale?: string):
   const topics = (c?.probeTopics ?? []).map((t) => `- ${t}`).join("\n");
   const lang = locale ?? resolveCampaignLocale(campaign);
   return renderPrompt("conversation.golden_data", {
-    waitlist_name: campaign.waitlistName,
+    waitlist_name: resolveProductName(campaign),
     response_language_directive: languageDirective(lang),
     conversation_goal:
       c?.conversationGoal?.trim() ||

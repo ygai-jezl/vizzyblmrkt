@@ -104,6 +104,18 @@ describe("CampaignSettingsSchema", () => {
     if (parsed.success) expect(parsed.data.twitterMessage).toBe("");
   });
 
+  it("round-trips an optional productName, and accepts it absent or cleared", () => {
+    const set = CampaignSettingsSchema.safeParse({ ...(VALID as object), productName: "Acme Beta" });
+    expect(set.success).toBe(true);
+    if (set.success) expect(set.data.productName).toBe("Acme Beta");
+
+    // Absent (VALID omits it) and cleared ("") are both valid.
+    expect(CampaignSettingsSchema.safeParse(VALID).success).toBe(true);
+    expect(
+      CampaignSettingsSchema.safeParse({ ...(VALID as object), productName: "" }).success,
+    ).toBe(true);
+  });
+
   it("rejects a non-hex widget colour", () => {
     for (const bad of ["red", "#fff", "4937E7", "#GGGGGG"]) {
       const parsed = CampaignSettingsSchema.safeParse({

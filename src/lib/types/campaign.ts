@@ -159,6 +159,14 @@ export const CampaignSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   waitlistName: z.string(),
+
+  // Plain product/waitlist name used in COPY (email bodies, share message, voice
+  // intro) via the {{waitlist_name}} token — see resolveProductName below.
+  // Distinct from `waitlistName`, which is the widget's <h1> headline (often a
+  // call-to-action like "Be the first to get access"). Blank/absent → fall back
+  // to `waitlistName`. OPTIONAL so legacy campaigns read cleanly.
+  productName: z.string().optional(),
+
   waitlistUrlLocation: z.string().nullable().optional(),
 
   // Gamification physics. `spotsToMoveUponReferral` is the founder's
@@ -222,3 +230,16 @@ export const CampaignSchema = z.object({
 });
 
 export type Campaign = z.infer<typeof CampaignSchema>;
+
+/**
+ * The name to use in COPY (email bodies, the {{waitlist_name}} merge token, the
+ * post-signup share message, the voice intro): the founder-set `productName` if
+ * present, otherwise the `waitlistName` headline. Single source of truth for the
+ * fallback so every consumer resolves it identically. The visual <h1> headline
+ * intentionally does NOT use this — it renders `waitlistName` directly.
+ */
+export function resolveProductName(
+  c: Pick<Campaign, "productName" | "waitlistName">,
+): string {
+  return c.productName?.trim() || c.waitlistName || "";
+}

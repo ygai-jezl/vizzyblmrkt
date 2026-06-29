@@ -1,4 +1,4 @@
-import type { Campaign } from "@/lib/types/campaign";
+import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 import { MERGE_VARS } from "@/lib/email/mergeVars";
 import { platformOrigin } from "@/lib/platform/origin";
 import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
@@ -140,7 +140,9 @@ function parseVariants(raw: string): CopyVariant[] | null {
  * and `{{merge_tokens}}` survive untouched for the send pipeline.
  */
 function fallbackVariants(input: DraftCopyInput, count: number, locale: string): CopyVariant[] {
-  const name = input.campaign.waitlistName;
+  // Name the product in copy, not the (possibly CTA-style) <h1> headline. The
+  // model path uses the {{waitlist_name}} token, which already resolves the same.
+  const name = resolveProductName(input.campaign);
   const briefHtml = escapeHtml(
     input.brief.trim() || getMessage(locale, "email.fallback.body.newsFrom", { name }),
   );

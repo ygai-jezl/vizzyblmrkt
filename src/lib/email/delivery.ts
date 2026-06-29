@@ -27,6 +27,7 @@ import { syncBroadcastStats } from "@/lib/mailchimp/reports";
 import { enqueueEmailJob } from "./jobs";
 import { recordEmailEvent } from "./events";
 import { renderMergeVars } from "./mergeVars";
+import { resolveProductName } from "@/lib/types/campaign";
 import {
   offboardingEmail,
   defaultOffboardingSubject,
@@ -288,8 +289,10 @@ async function processBroadcastJob(
     const sender = resolveSender(tenant, campaign);
     const created = await createCampaign(cfg.config, {
       subject: compiled.subject,
+      // `title` is the internal MailChimp dashboard label → keep the headline.
       title: `${campaign.waitlistName} — ${b.name}`,
-      fromName: sender.fromName ?? campaign.waitlistName,
+      // `fromName` is the recipient-visible inbox sender → use the product name.
+      fromName: sender.fromName ?? resolveProductName(campaign),
       replyTo: sender.replyTo ?? replyToAddress(),
       segmentId,
     });

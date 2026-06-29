@@ -23,6 +23,7 @@ import { syncSignupToAudience } from "@/lib/mailchimp";
 import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
 import { recordSignupContact } from "@/lib/crm/contactService";
 import { resolveVisitorLocale } from "@/lib/i18n/locale";
+import { resolveProductName } from "@/lib/types/campaign";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -135,7 +136,8 @@ export async function POST(
       const r = await sendEmail({
         ...verificationEmail({
           to: result.signup.email,
-          waitlistName: campaign.waitlistName,
+          // Name the product in copy, not the (possibly CTA-style) <h1> headline.
+          waitlistName: resolveProductName(campaign),
           firstName: result.signup.firstName,
           verifyUrl,
           locale: visitorLocale,

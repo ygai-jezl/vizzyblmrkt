@@ -15,7 +15,7 @@ import {
   type PreviewSurface,
 } from "@/lib/widget/preview";
 import type { CampaignSettings } from "@/lib/admin/campaignSettings";
-import type { ConfigurationStyle } from "@/lib/types/campaign";
+import { resolveProductName, type ConfigurationStyle } from "@/lib/types/campaign";
 import type { TextSize } from "@/lib/widget/textSize";
 import {
   DEFAULT_SHARE_MESSAGE,
@@ -381,9 +381,16 @@ export function WidgetBuilder({
         />
       ) : (
         <SocialTab
-          waitlistName={
-            campaigns.find((c) => c.id === campaignId)?.waitlistName ?? "your waitlist"
-          }
+          waitlistName={(() => {
+            // Match the runtime share message — name the product, not the headline.
+            const c = campaigns.find((c) => c.id === campaignId);
+            return c
+              ? resolveProductName({
+                  productName: c.settings.productName,
+                  waitlistName: c.waitlistName,
+                })
+              : "your waitlist";
+          })()}
           shareMessage={shareMessage}
           setShareMessage={(v) => {
             setShareMessage(v);

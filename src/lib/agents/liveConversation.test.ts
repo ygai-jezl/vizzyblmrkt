@@ -64,6 +64,14 @@ describe("buildLiveSystemInstruction", () => {
     expect(prompt).not.toMatch(/\[\[[\w.]+\]\]/);
   });
 
+  it("names the product by `productName` when set, not the headline", () => {
+    const prompt = buildLiveSystemInstruction(
+      campaign({ waitlistName: "Be the first to get access", productName: "Acme Pro" }),
+    );
+    expect(prompt).toContain("Acme Pro");
+    expect(prompt).not.toContain("Be the first to get access");
+  });
+
   it("injects a spoken-language directive from the launch's default locale", () => {
     const prompt = buildLiveSystemInstruction(
       campaign({

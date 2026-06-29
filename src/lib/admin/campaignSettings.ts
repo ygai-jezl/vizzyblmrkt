@@ -153,6 +153,10 @@ const OffboardingEmailSettingsSchema = z.object({
 export const CampaignSettingsSchema = z
   .object({
     waitlistName: z.string().trim().min(1, "name is required").max(120),
+    // Plain product/waitlist name used in COPY (emails, share message, voice)
+    // via {{waitlist_name}}. Blank/omitted → fall back to `waitlistName`. Optional
+    // here so existing payloads that omit it still validate.
+    productName: z.string().trim().max(120).optional(),
     // The public URL where this waitlist lives. Blank → the default hosted page
     // (`{origin}/waitlist/<slug>`). When set (e.g. a brand who embedded the widget
     // on their own site), it is used VERBATIM as the referral/share-link base, so
@@ -318,6 +322,7 @@ export const CampaignIdSchema = z
 export function toCampaignSettings(campaign: Campaign): CampaignSettings {
   return {
     waitlistName: campaign.waitlistName,
+    productName: campaign.productName,
     waitlistUrlLocation: campaign.waitlistUrlLocation ?? null,
     spotsToMoveUponReferral: campaign.spotsToMoveUponReferral,
     usesFirstnameLastname: campaign.usesFirstnameLastname,

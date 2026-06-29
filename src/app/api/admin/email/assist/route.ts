@@ -4,6 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { draftCopy } from "@/lib/agents";
+import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import type { Broadcast } from "@/lib/types/broadcast";
 
 export const runtime = "nodejs";
@@ -38,11 +39,26 @@ export async function POST(req: Request) {
   });
   const performance = summarizePerformance(prior);
 
+  // Best-effort RAG grounding: retrieve knowledge relevant to the brief. Never
+  // blocks copy generation — any failure (flag off, no chunks, error) → no context.
+  let knowledgeContext: string | undefined;
+  try {
+    const knowledge = await retrieveSemanticKnowledgeContext({
+      ctx,
+      campaignId: campaign.id,
+      queryText: parsed.data.brief,
+    });
+    knowledgeContext = knowledge?.formatted || undefined;
+  } catch {
+    knowledgeContext = undefined;
+  }
+
   const result = await draftCopy({
     campaign,
     brief: parsed.data.brief,
     variantCount: parsed.data.variantCount,
     performance,
+    knowledgeContext,
   });
   return NextResponse.json(result);
 }

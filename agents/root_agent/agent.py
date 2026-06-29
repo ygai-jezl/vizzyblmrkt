@@ -27,6 +27,7 @@ from .callbacks.chat_mode import apply_chat_mode
 from .callbacks.context_envelope import apply_context_envelope
 from .context.brand_context import build_dynamic_instruction
 from .sub_agents.campaign_ops.agent import campaign_ops_agent
+from .tools.retrieve_knowledge import retrieve_knowledge
 
 # Flash for speed/cost; thinking is selected per-request via the [mode:] prefix.
 DEFAULT_MODEL = os.environ.get("ROOT_AGENT_MODEL", "gemini-3.5-flash")
@@ -41,7 +42,9 @@ root_agent = LlmAgent(
     instruction=build_dynamic_instruction,
     # Order matters: strip the [ctx:] envelope first, then the [mode:] directive.
     before_model_callback=[apply_context_envelope, apply_chat_mode],
-    tools=[],  # Phase 3 adds marketing FunctionTools.
+    # retrieve_knowledge grounds answers on the launch's ingested docs/site/repos
+    # (RAG). More marketing FunctionTools land alongside it.
+    tools=[retrieve_knowledge],
     # campaign_ops authors email journeys on the canvas (saves drafts). More
     # specialists (creative, analytics) land alongside it.
     sub_agents=[campaign_ops_agent],

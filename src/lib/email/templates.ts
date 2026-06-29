@@ -29,7 +29,7 @@ export function verificationEmail(opts: {
     to: opts.to,
     subject: getMessage(locale, "email.verify.subject", { name: opts.waitlistName }),
     text: `${greetingText}\n\n${getMessage(locale, "email.verify.bodyText", { name: opts.waitlistName })}\n${opts.verifyUrl}\n\n${getMessage(locale, "email.verify.footer")}`,
-    html: `<!doctype html><html lang="${info.code}" dir="${info.dir}"><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
+    html: `<!doctype html><html lang="${info.code}" dir="${info.dir}"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
   <p>${greetingHtml}</p>
   <p>${getMessage(locale, "email.verify.bodyHtml", { name: `<strong>${name}</strong>` })}</p>
   <p style="margin:28px 0">
@@ -77,7 +77,7 @@ export function offboardingEmail(opts: {
     to: opts.to,
     subject: opts.subject,
     text: opts.body,
-    html: `<!doctype html><html lang="${info.code}" dir="${info.dir}"><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
+    html: `<!doctype html><html lang="${info.code}" dir="${info.dir}"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
   <div>${safeBody}</div>
 </body></html>`,
   };

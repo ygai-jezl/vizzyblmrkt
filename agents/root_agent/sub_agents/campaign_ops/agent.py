@@ -19,6 +19,7 @@ from google.adk.agents import LlmAgent
 
 from .instruction_builder import build_campaign_ops_instruction
 from .tools.build_journey import build_email_journey
+from ...tools.retrieve_knowledge import retrieve_knowledge
 
 campaign_ops_agent = LlmAgent(
     name="campaign_ops_agent",
@@ -31,5 +32,7 @@ campaign_ops_agent = LlmAgent(
     ),
     # Callable instruction: prepends the operator language directive each turn.
     instruction=build_campaign_ops_instruction,
-    tools=[build_email_journey],
+    # retrieve_knowledge grounds copy on the launch's ingested docs/site/repos
+    # before authoring; build_email_journey persists the draft.
+    tools=[build_email_journey, retrieve_knowledge],
 )

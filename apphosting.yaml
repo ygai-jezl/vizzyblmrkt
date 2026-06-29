@@ -84,6 +84,34 @@ env:
     availability:
       - RUNTIME
 
+  # ── Knowledge ingestion & RAG (docs/site/repo → vectors → grounded copy) ──────
+  # Master switch for retrieval injection (Agent 3 + the ADK agents). OFF by
+  # default; flip to "true" per-env once the knowledge_bases vector index is built
+  # AND the scraper Cloud Run Job is deployed. When off, agents run ungrounded —
+  # exactly as before this feature. Embeddings use a REGIONAL Vertex endpoint
+  # (text-embedding-005 has no `global` endpoint), defaulted per residency region
+  # in src/lib/agents/embeddings.ts (us→us-central1, eu→europe-west4,
+  # asia→asia-southeast1). The runtime SA needs roles/aiplatform.user. Ingestion
+  # ALSO reuses CANVAS_CONTEXT_SIGNING_KEY (above) for the ADK retrieval route
+  # /api/agent/knowledge — no new signing secret.
+  - variable: KNOWLEDGE_RAG_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The scraper Cloud Run Job that /api/admin/knowledge/ingest dispatches to. Leave
+  # KNOWLEDGE_JOB_NAME UNSET until the Job is deployed (workers/knowledge-scraper/
+  # deploy.sh) — while unset, the dispatch route records the ticket but does not
+  # trigger a worker (so dev never 502s on a missing Job). Triggering needs the
+  # runtime SA to hold run.jobs.runWithOverrides on the Job.
+  # - variable: KNOWLEDGE_JOB_NAME
+  #   value: knowledge-scraper
+  #   availability:
+  #     - RUNTIME
+  - variable: KNOWLEDGE_JOB_LOCATION
+    value: us-central1
+    availability:
+      - RUNTIME
+
   # Secrets live in Secret Manager, never in this file. Wire them like so once
   # created (`firebase apphosting:secrets:set <name>`):
   #

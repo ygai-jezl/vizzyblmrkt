@@ -91,3 +91,30 @@ export interface CollectionLike extends QueryLike {
 export interface FirestoreLike {
   collection(name: string): CollectionLike;
 }
+
+// ── Vector search (knowledge_bases subcollection) ────────────────────────────
+// A minimal STRUCTURAL view of Firestore's native vector-search surface. The
+// real CollectionReference.findNearest(...) satisfies it; tests inject a fake
+// that returns a controlled snapshot. Kept separate from FirestoreLike because
+// vector search only applies to the knowledge_bases subcollection and the fake
+// used by the isolation suite does not model it.
+export type VectorDistanceMeasure = "COSINE" | "EUCLIDEAN" | "DOT_PRODUCT";
+export interface VectorQueryOptionsLike {
+  /** Document field holding the FieldValue.vector() embedding. */
+  vectorField: string;
+  /** The query embedding to find neighbours of. */
+  queryVector: number[];
+  limit: number;
+  distanceMeasure: VectorDistanceMeasure;
+  /** Optional output field the computed distance is written into on each result. */
+  distanceResultField?: string;
+  /** Optional max distance — neighbours beyond it are dropped. */
+  distanceThreshold?: number;
+}
+export interface VectorQueryLike {
+  get(): Promise<QuerySnapLike>;
+}
+/** A collection reference that supports a K-nearest-neighbour vector query. */
+export interface KnowledgeCollectionLike {
+  findNearest(opts: VectorQueryOptionsLike): VectorQueryLike;
+}

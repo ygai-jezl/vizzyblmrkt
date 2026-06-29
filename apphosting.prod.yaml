@@ -87,6 +87,24 @@ env:
     availability:
       - RUNTIME
 
+  # Knowledge ingestion & RAG (see apphosting.yaml for the full notes). Keep the
+  # flag "false" in prod until the prod vector index is built + the prod scraper
+  # Job is deployed; flip last, after a prod smoke ingest. Embeddings use a
+  # regional Vertex endpoint per residency region (no `global`); the ADK retrieval
+  # route reuses CANVAS_CONTEXT_SIGNING_KEY (already set below).
+  - variable: KNOWLEDGE_RAG_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # - variable: KNOWLEDGE_JOB_NAME      # set once workers/knowledge-scraper is deployed
+  #   value: knowledge-scraper
+  #   availability:
+  #     - RUNTIME
+  - variable: KNOWLEDGE_JOB_LOCATION
+    value: us-central1
+    availability:
+      - RUNTIME
+
   # Email hub — Agent 3 (Creative Director) via Vertex AI on the runtime SA (ADC).
   - variable: GOOGLE_GENAI_USE_VERTEXAI
     value: "true"

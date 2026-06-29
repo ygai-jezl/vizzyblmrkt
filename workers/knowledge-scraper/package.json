@@ -1,0 +1,25 @@
+{
+  "name": "knowledge-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloud Run Job: ingest docs/site/repo sources → semantic chunks → Vertex embeddings → Firestore vectors.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "google-auth-library": "^9.15.0",
+    "node-html-parser": "^6.1.13",
+    "turndown": "^7.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/turndown": "^5.0.5",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -114,7 +114,14 @@ export interface VectorQueryOptionsLike {
 export interface VectorQueryLike {
   get(): Promise<QuerySnapLike>;
 }
-/** A collection reference that supports a K-nearest-neighbour vector query. */
+/**
+ * A collection ref (or pre-filtered query) that supports a K-nearest-neighbour
+ * vector query. `where()` returns the same shape so a retrieval can pre-filter
+ * before findNearest (e.g. `.where("topic","==",t).findNearest(...)`) — requires
+ * a matching composite vector index. The real Firestore CollectionReference/Query
+ * satisfies this structurally; the test fake implements it.
+ */
 export interface KnowledgeCollectionLike {
+  where(field: string, op: WhereOp, value: unknown): KnowledgeCollectionLike;
   findNearest(opts: VectorQueryOptionsLike): VectorQueryLike;
 }

@@ -4,10 +4,12 @@ import { readEnv, embeddingLocation, databaseIdForRegion } from "./config";
 const base: Record<string, string> = {
   TICKET_ID: "t",
   TENANT_ID: "ten",
-  CAMPAIGN_ID: "c",
+  OWNER_KIND: "workspace",
+  OWNER_ID: "ws1",
   REGION: "us",
   INGEST_SOURCE: "github",
   SOURCE_URI: "https://github.com/o/r",
+  TOPIC: "systems",
   GOOGLE_CLOUD_PROJECT: "proj",
 };
 
@@ -25,13 +27,26 @@ describe("region maps", () => {
 });
 
 describe("readEnv", () => {
-  it("parses required fields + JSON INCLUDE_GLOBS", () => {
-    const env = readEnv({ ...base, INCLUDE_GLOBS: JSON.stringify(["src/**"]) });
+  it("parses required fields + owner/topic/tags + JSON arrays", () => {
+    const env = readEnv({
+      ...base,
+      INCLUDE_GLOBS: JSON.stringify(["src/**"]),
+      TAGS: JSON.stringify(["pricing", "geo"]),
+    });
     expect(env.tenantId).toBe("ten");
     expect(env.region).toBe("us");
+    expect(env.ownerKind).toBe("workspace");
+    expect(env.ownerId).toBe("ws1");
+    expect(env.topic).toBe("systems");
+    expect(env.tags).toEqual(["pricing", "geo"]);
     expect(env.includeGlobs).toEqual(["src/**"]);
     expect(env.ref).toBeNull();
     expect(env.maxPages).toBe(20);
+  });
+
+  it("defaults tags to [] and tolerates malformed TAGS", () => {
+    expect(readEnv(base).tags).toEqual([]);
+    expect(readEnv({ ...base, TAGS: "not json" }).tags).toEqual([]);
   });
 
   it("tolerates missing / malformed / empty INCLUDE_GLOBS (→ null)", () => {
@@ -45,6 +60,8 @@ describe("readEnv", () => {
     expect(() => readEnv({ ...base, TICKET_ID: "" })).toThrow();
     expect(() => readEnv({ ...base, REGION: "mars" })).toThrow();
     expect(() => readEnv({ ...base, INGEST_SOURCE: "ftp" })).toThrow();
+    expect(() => readEnv({ ...base, OWNER_KIND: "galaxy" })).toThrow();
+    expect(() => readEnv({ ...base, TOPIC: "" })).toThrow();
   });
 
   it("caps maxPages and defaults it", () => {

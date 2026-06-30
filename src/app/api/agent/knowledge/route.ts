@@ -44,7 +44,8 @@ export async function POST(req: Request) {
 
   const result = await retrieveSemanticKnowledgeContext({
     ctx,
-    campaignId,
+    ownerKind: "campaign",
+    ownerId: campaignId,
     queryText: query,
     limit,
     code,

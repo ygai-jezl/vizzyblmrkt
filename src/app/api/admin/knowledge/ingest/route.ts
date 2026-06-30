@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { forTenant } from "@/lib/tenant";
-import { KnowledgeChunkSource } from "@/lib/types/knowledgeBase";
+import { forTenant, verifyOwner } from "@/lib/tenant";
+import { KnowledgeChunkSource, KnowledgeOwnerKind } from "@/lib/types/knowledgeBase";
+import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
+import { normalizeTags } from "@/lib/knowledge/tags";
 import { enqueueIngestionTicket } from "@/lib/knowledge/tickets";
 import { triggerIngestionJob, isIngestionJobConfigured } from "@/lib/knowledge/runJob";
 import { validateIngestUrl } from "@/lib/knowledge/url";
@@ -12,23 +14,27 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const IngestSchema = z.object({
-  campaignId: z.string().min(1),
+  ownerKind: KnowledgeOwnerKind,
+  ownerId: z.string().min(1),
   source: KnowledgeChunkSource,
   sourceUri: z.string().url().max(2048),
-  // A git branch / tag / commit SHA. Constrain the charset (and forbid a leading
-  // '-') so an operator value can never be mis-parsed as a `git clone` option.
+  // git branch / tag / commit SHA — constrained charset, no leading '-'.
   ref: z
     .string()
     .max(255)
     .regex(/^(?!-)[A-Za-z0-9._/-]+$/, "invalid ref")
     .optional(),
   includeGlobs: z.array(z.string().max(255)).max(50).optional(),
+  /** Content Matrix topic id (required). */
+  topic: z.string().min(1),
+  /** Free-form custom tags (aligned to the normalizer's caps: 20 × ≤40 chars). */
+  tags: z.array(z.string().max(40)).max(20).optional(),
 });
 
 /**
- * Dispatch a knowledge-ingestion run: validate input, verify campaign ownership,
- * create an idempotent ticket, and trigger the containerised scraper Cloud Run
- * Job. The heavy work (clone/scrape/chunk/embed) happens off-request in the Job.
+ * Dispatch a knowledge-ingestion run for a polymorphic owner (campaign|workspace).
+ * Validates input + topic + ownership, creates an idempotent ticket, and triggers
+ * the scraper Cloud Run Job.
  */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
@@ -40,38 +46,41 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
-  const { campaignId, source, sourceUri, ref, includeGlobs } = parsed.data;
+  const { ownerKind, ownerId, source, sourceUri, ref, includeGlobs, topic } = parsed.data;
 
-  // SSRF front door + per-source host pinning (worker re-checks at fetch time).
+  if (!isContentMatrixTopic(topic)) {
+    return NextResponse.json({ error: "invalid_topic" }, { status: 400 });
+  }
+  const tags = normalizeTags(parsed.data.tags);
+
   const url = validateIngestUrl(sourceUri, source);
   if (!url.ok) {
     return NextResponse.json({ error: "invalid_source_url", reason: url.reason }, { status: 400 });
   }
 
-  // Authorize: the campaign must belong to this tenant (this gate also authorizes
-  // the worker's later writes into campaigns/{id}/knowledge_bases).
-  const campaign = await forTenant(ctx).campaigns.getById(campaignId);
-  if (!campaign) {
-    return NextResponse.json({ error: "campaign_not_found" }, { status: 404 });
+  // Authorize: the owner must belong to this tenant (also authorizes the worker's
+  // later writes into {owner}/{id}/knowledge_bases).
+  if (!(await verifyOwner(ctx, ownerKind, ownerId))) {
+    return NextResponse.json({ error: "owner_not_found" }, { status: 404 });
   }
 
   const enq = await enqueueIngestionTicket(ctx, {
-    campaignId,
+    ownerKind,
+    ownerId,
     source,
     sourceUri: url.url,
     ref: ref ?? null,
     includeGlobs: includeGlobs ?? null,
+    topic,
+    tags,
   });
   if (enq.status === "rate_limited") {
     return NextResponse.json({ error: "too_many_active_ingestions" }, { status: 429 });
   }
   if (enq.status === "duplicate") {
-    // Already queued/running — return the existing ticket, don't double-trigger.
     return NextResponse.json({ ticketId: enq.ticketId, status: "duplicate" }, { status: 200 });
   }
 
-  // Trigger the worker. If the Job isn't provisioned in this env (e.g. local dev),
-  // leave the ticket pending rather than failing the request.
   if (!isIngestionJobConfigured()) {
     return NextResponse.json(
       { ticketId: enq.ticketId, status: "pending", jobTriggered: false },
@@ -82,15 +91,17 @@ export async function POST(req: Request) {
     await triggerIngestionJob({
       ticketId: enq.ticketId,
       tenantId: ctx.tenantId,
-      campaignId,
+      ownerKind,
+      ownerId,
       region: ctx.region,
       source,
       sourceUri: url.url,
       ref: ref ?? null,
       includeGlobs: includeGlobs ?? null,
+      topic,
+      tags,
     });
   } catch (err) {
-    // Couldn't start the worker — fail the ticket so it isn't orphaned pending.
     await forTenant(ctx)
       .ingestionTickets.update(enq.ticketId, {
         status: "failed",

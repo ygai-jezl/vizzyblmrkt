@@ -1,5 +1,5 @@
 import type { CollectionReference, Firestore } from "firebase-admin/firestore";
-import { readEnv, databaseIdForRegion, type JobEnv } from "./config";
+import { readEnv, databaseIdForRegion, ownerCollection, type JobEnv } from "./config";
 import { getDb, FieldValue } from "./firestore";
 import { embedDocuments, EMBEDDING_DIM, EMBEDDING_MODEL } from "./embed";
 import { chunkSource, type Chunk } from "./chunk";
@@ -115,7 +115,10 @@ export async function run(env: JobEnv = readEnv()): Promise<void> {
 
     await patch({ status: "embedding", pagesProcessed });
 
-    const kbRef = db.collection("campaigns").doc(env.campaignId).collection("knowledge_bases");
+    const kbRef = db
+      .collection(ownerCollection(env.ownerKind))
+      .doc(env.ownerId)
+      .collection("knowledge_bases");
 
     for (let i = 0; i < chunks.length; i += EMBED_WRITE_BATCH) {
       const slice = chunks.slice(i, i + EMBED_WRITE_BATCH);
@@ -131,7 +134,8 @@ export async function run(env: JobEnv = readEnv()): Promise<void> {
         wb.set(kbRef.doc(chunkId), {
           id: chunkId,
           tenantId: env.tenantId,
-          campaignId: env.campaignId,
+          ownerKind: env.ownerKind,
+          ownerId: env.ownerId,
           ticketId: env.ticketId,
           source: env.source,
           sourceUri: c.sourceUri,
@@ -141,6 +145,8 @@ export async function run(env: JobEnv = readEnv()): Promise<void> {
           content: c.content,
           tokenCount: c.tokenCount,
           chunkIndex,
+          topic: env.topic,
+          tags: env.tags,
           embeddingModel: EMBEDDING_MODEL,
           embeddingDim: EMBEDDING_DIM,
           embedding: FieldValue.vector(vectors[j]),

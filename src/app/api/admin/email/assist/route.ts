@@ -45,7 +45,8 @@ export async function POST(req: Request) {
   try {
     const knowledge = await retrieveSemanticKnowledgeContext({
       ctx,
-      campaignId: campaign.id,
+      ownerKind: "campaign",
+      ownerId: campaign.id,
       queryText: parsed.data.brief,
     });
     knowledgeContext = knowledge?.formatted || undefined;

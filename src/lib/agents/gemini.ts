@@ -94,8 +94,35 @@ export async function generateText(prompt: string): Promise<string | null> {
   }
 }
 
+/**
+ * Generate text from a prompt PLUS one inline image (multimodal) — used to analyse
+ * an Idea Board screenshot. `imageBase64` is the raw base64 (no data: prefix),
+ * `mimeType` e.g. "image/png". Total request must stay under 20MB (callers cap the
+ * screenshot at 8MB). Returns null on missing config / error.
+ */
+export async function generateTextWithImage(
+  prompt: string,
+  imageBase64: string,
+  mimeType: string,
+): Promise<string | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  try {
+    const res = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: [
+        { role: "user", parts: [{ text: prompt }, { inlineData: { data: imageBase64, mimeType } }] },
+      ],
+    });
+    return res.text ?? null;
+  } catch (err) {
+    console.warn("[gemini] generateTextWithImage failed:", err);
+    return null;
+  }
+}
+
 /** Extract the first JSON object from model text (tolerates ```json fences/prose). */
-function parseFirstJson(text: string): unknown | null {
+export function parseFirstJson(text: string): unknown | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return null;

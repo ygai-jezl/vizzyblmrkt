@@ -87,9 +87,19 @@ const eslintConfig = [
   },
   {
     // infra/** holds standalone Cloud Functions (CommonJS, own runtime); agents/**
-    // is the Python ADK agent + its .venv (bundled JS) — neither is part of the
-    // Next app's lint scope.
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "infra/**", "agents/**"],
+    // is the Python ADK agent + its .venv (bundled JS); workers/** is the isolated
+    // knowledge-scraper Cloud Run Job package (own build + node_modules, and the
+    // ONE place outside the app that legitimately uses firebase-admin directly —
+    // it has no TenantContext, so it stamps tenantId on every write itself). None
+    // is part of the Next app's lint scope.
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "next-env.d.ts",
+      "infra/**",
+      "agents/**",
+      "workers/**",
+    ],
   },
 ];
 

@@ -31,6 +31,12 @@ export interface DraftCopyInput {
    * explicit value lets a caller override per request (e.g. a per-recipient send).
    */
   locale?: string;
+  /**
+   * RAG grounding block (retrieved knowledge-base chunks) injected verbatim into
+   * the prompt. Optional and best-effort: absent ⇒ the prompt's [[knowledge_context]]
+   * renders empty and Agent 3 writes ungrounded, exactly as before.
+   */
+  knowledgeContext?: string;
 }
 
 export interface DraftCopyResult {
@@ -55,6 +61,9 @@ export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult>
     ...strategyVars(input.campaign),
     response_language_directive: languageDirective(locale),
     performance: input.performance ?? "No prior sends yet.",
+    knowledge_context: input.knowledgeContext?.trim()
+      ? input.knowledgeContext
+      : "None available — write from the brief and brand tone only.",
     merge_vars: MERGE_VARS.map((v) => `{{${v}}}`).join(", "),
     brief: input.brief,
     variant_count: count,

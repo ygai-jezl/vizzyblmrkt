@@ -29,6 +29,14 @@ export {
 } from "./region";
 export type { RegionConfig } from "./region";
 export {
+  knowledgeChunksRef,
+  verifyOwner,
+  listKnowledgeChunks,
+  deleteOwnerKnowledge,
+  KNOWLEDGE_SUBCOLLECTION,
+} from "./knowledge";
+export type { KnowledgeChunkView } from "./knowledge";
+export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,
@@ -37,6 +45,8 @@ export {
   addAllowedOrigin,
   removeAllowedOrigin,
   logDomainGrant,
+  setTenantGitConnection,
+  deleteTenantGitConnection,
 } from "./control";
 export type { DomainGrantAudit } from "./control";
 export {

@@ -17,6 +17,8 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { EmailEvent } from "@/lib/types/emailEvent";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
+import type { IngestionTicket } from "@/lib/types/ingestionTicket";
+import type { Workspace } from "@/lib/types/workspace";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -217,6 +219,12 @@ export interface TenantRepositories {
    *  from `emailEvents` (the Mandrill-webhook engagement stream), keyed by signupId. */
   contacts: TenantCollection<Contact>;
   companies: TenantCollection<Company>;
+  /** Knowledge ingestion: durable per-run status tickets. The chunks they
+   *  produce live in the {campaigns|workspaces}/{id}/knowledge_bases subcollection
+   *  (see src/lib/tenant/knowledge.ts) — not a TenantCollection. */
+  ingestionTickets: TenantCollection<IngestionTicket>;
+  /** Content OS: top-level workspaces (each owns a knowledge base). */
+  workspaces: TenantCollection<Workspace>;
 }
 
 /**
@@ -258,5 +266,13 @@ export function forTenant(
     // Unified CRM PII → regional DB, like signups.
     contacts: new TenantCollection<Contact>(regionalDb, "contacts", t),
     companies: new TenantCollection<Company>(regionalDb, "companies", t),
+    // Knowledge ingestion status tickets → regional DB (chunks live alongside,
+    // in the campaigns/{id}/knowledge_bases subcollection).
+    ingestionTickets: new TenantCollection<IngestionTicket>(
+      regionalDb,
+      "ingestion_tickets",
+      t,
+    ),
+    workspaces: new TenantCollection<Workspace>(regionalDb, "workspaces", t),
   };
 }

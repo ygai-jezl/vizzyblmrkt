@@ -14,7 +14,14 @@ export const EMBEDDING_DIM = 768;
 // input tokens per request, max 250 instances, 2,048 tokens per instance.
 // autoTruncate only caps each INSTANCE to 2,048 — it does NOT exempt the 20k total,
 // so we must pack each request by a token budget, not a fixed instance count.
-const EMBED_TOKEN_BUDGET = 18000; // headroom under the 20k hard cap
+//
+// Our estimate is chars/4, which is accurate for prose but UNDER-counts dense
+// content like source code (it tokenizes to more tokens per char) — a batch we
+// estimate at 18k can really be ~25k and the API rejects it (seen in prod on a
+// GitHub repo). So: (1) keep a conservative budget with headroom for ~1.6× under-
+// estimation, and (2) embedBatch splits + retries on any size rejection — the real
+// safety net, since a single instance is always accepted (autoTruncate caps it).
+const EMBED_TOKEN_BUDGET = 12000; // ~1.6× headroom under the 20k hard cap
 const EMBED_MAX_INSTANCES = 250;
 const PER_INSTANCE_CAP = 2048; // autoTruncate truncates each instance to this
 
@@ -68,6 +75,76 @@ function predictUrl(project: string, region: Region): string {
   );
 }
 
+/** A 400 that means the request's total input tokens exceeded the per-request cap. */
+function isTokenLimitError(status: number, detail: string): boolean {
+  return status === 400 && /token count|input token|too many tokens|exceeds the maximum/i.test(detail);
+}
+
+// Transient-error backoff: rate limits (429) + server errors (500/503) are retried
+// with exponential backoff + jitter so a busy/large ingest doesn't fail the ticket.
+const MAX_TRANSIENT_RETRIES = 5;
+const BASE_BACKOFF_MS = 600;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Embed ONE planned batch. Two independent recoveries:
+ *  - token-limit 400 on a multi-instance batch → split in half + retry each (recurses
+ *    to single instances, always accepted via autoTruncate) — self-heals an under-
+ *    estimated batch.
+ *  - 429 / 5xx → exponential backoff + jitter (transient rate-limit / server blips).
+ * Only a non-retryable error (or a single instance that still can't embed) fails the
+ * ticket.
+ */
+async function embedBatch(
+  batch: EmbedItem[],
+  token: string,
+  url: string,
+  attempt = 0,
+): Promise<number[][]> {
+  const body = {
+    instances: batch.map((it) => ({
+      task_type: "RETRIEVAL_DOCUMENT",
+      ...(it.title ? { title: it.title } : {}),
+      content: it.content,
+    })),
+    parameters: { outputDimensionality: EMBEDDING_DIM, autoTruncate: true },
+  };
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_TRANSIENT_RETRIES) {
+      const delay = BASE_BACKOFF_MS * 2 ** attempt + Math.floor(Math.random() * 250);
+      await sleep(delay);
+      return embedBatch(batch, token, url, attempt + 1);
+    }
+    if (isTokenLimitError(res.status, detail) && batch.length > 1) {
+      const mid = Math.ceil(batch.length / 2);
+      const left = await embedBatch(batch.slice(0, mid), token, url);
+      const right = await embedBatch(batch.slice(mid), token, url);
+      return [...left, ...right];
+    }
+    throw new Error(`embeddings_${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { predictions?: Array<{ embeddings?: { values?: number[] } }> };
+  const preds = json.predictions ?? [];
+  if (preds.length !== batch.length) {
+    throw new Error(`embeddings_count_mismatch: got ${preds.length} for ${batch.length}`);
+  }
+  const out: number[][] = [];
+  for (const p of preds) {
+    const values = p.embeddings?.values;
+    if (!Array.isArray(values) || values.length !== EMBEDDING_DIM) {
+      throw new Error(`embeddings_bad_dim: expected ${EMBEDDING_DIM}`);
+    }
+    out.push(values);
+  }
+  return out;
+}
+
 /** Embed document chunks. Throws on any failure (so the pipeline fails the ticket). */
 export async function embedDocuments(
   items: EmbedItem[],
@@ -81,35 +158,7 @@ export async function embedDocuments(
 
   const out: number[][] = [];
   for (const batch of planEmbedBatches(items)) {
-    const body = {
-      instances: batch.map((it) => ({
-        task_type: "RETRIEVAL_DOCUMENT",
-        ...(it.title ? { title: it.title } : {}),
-        content: it.content,
-      })),
-      parameters: { outputDimensionality: EMBEDDING_DIM, autoTruncate: true },
-    };
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`embeddings_${res.status}: ${detail.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as { predictions?: Array<{ embeddings?: { values?: number[] } }> };
-    const preds = json.predictions ?? [];
-    if (preds.length !== batch.length) {
-      throw new Error(`embeddings_count_mismatch: got ${preds.length} for ${batch.length}`);
-    }
-    for (const p of preds) {
-      const values = p.embeddings?.values;
-      if (!Array.isArray(values) || values.length !== EMBEDDING_DIM) {
-        throw new Error(`embeddings_bad_dim: expected ${EMBEDDING_DIM}`);
-      }
-      out.push(values);
-    }
+    out.push(...(await embedBatch(batch, token, url)));
   }
   return out;
 }

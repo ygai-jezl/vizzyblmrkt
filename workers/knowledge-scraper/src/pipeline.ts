@@ -104,7 +104,19 @@ export async function run(env: JobEnv = readEnv()): Promise<void> {
     const { chunks, pagesProcessed } = await collectChunks(env);
 
     if (chunks.length === 0) {
-      await patch({ status: "done", chunksWritten: 0, pagesProcessed, finishedAt: nowIso() });
+      // Surface WHY nothing was indexed instead of a bare "done" (0 chunks). The most
+      // common web cause is a JavaScript-rendered (SPA) site with no server HTML text.
+      const isWeb = env.source !== "github" && env.source !== "gitlab";
+      const reason = isWeb
+        ? "No indexable text found. This page returned no server-rendered content — it may be JavaScript-rendered (SPA). Try a server-rendered page (e.g. a docs or blog URL), a GitHub/GitLab repo, or paste the text directly."
+        : "No indexable text found in the source (after include filters).";
+      await patch({
+        status: "done",
+        chunksWritten: 0,
+        pagesProcessed,
+        finishedAt: nowIso(),
+        lastError: reason,
+      });
       return;
     }
 

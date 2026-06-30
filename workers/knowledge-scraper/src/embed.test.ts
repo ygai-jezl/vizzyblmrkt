@@ -13,12 +13,13 @@ describe("planEmbedBatches", () => {
     expect(planEmbedBatches(items)).toHaveLength(1);
   });
 
-  it("splits by the ~18k token budget (4000 chars ≈ 1000 tokens each)", () => {
-    // 25 × 1000 tokens = 25,000 > 18,000 → 18 fit, then the rest.
+  it("splits by the ~12k token budget (4000 chars ≈ 1000 tokens each)", () => {
+    // 25 × 1000 tokens = 25,000 → 12 fit per request, then 12, then 1.
     const batches = planEmbedBatches(Array.from({ length: 25 }, () => item(4000)));
-    expect(batches).toHaveLength(2);
-    expect(batches[0]).toHaveLength(18);
-    expect(batches[1]).toHaveLength(7);
+    expect(batches).toHaveLength(3);
+    expect(batches[0]).toHaveLength(12);
+    expect(batches[1]).toHaveLength(12);
+    expect(batches[2]).toHaveLength(1);
   });
 
   it("caps at 250 instances per request", () => {

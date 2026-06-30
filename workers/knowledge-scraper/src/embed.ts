@@ -9,7 +9,14 @@ import { embeddingLocation, type Region } from "./config";
 
 export const EMBEDDING_MODEL = "text-embedding-005";
 export const EMBEDDING_DIM = 768;
-const MAX_BATCH = 200;
+
+// text-embedding-005 request limits (confirmed via Vertex docs): max 20,000 TOTAL
+// input tokens per request, max 250 instances, 2,048 tokens per instance.
+// autoTruncate only caps each INSTANCE to 2,048 — it does NOT exempt the 20k total,
+// so we must pack each request by a token budget, not a fixed instance count.
+const EMBED_TOKEN_BUDGET = 18000; // headroom under the 20k hard cap
+const EMBED_MAX_INSTANCES = 250;
+const PER_INSTANCE_CAP = 2048; // autoTruncate truncates each instance to this
 
 const auth = new GoogleAuth({
   scopes: ["https://www.googleapis.com/auth/cloud-platform"],
@@ -18,6 +25,39 @@ const auth = new GoogleAuth({
 export interface EmbedItem {
   title?: string;
   content: string;
+}
+
+function estTokens(s: string): number {
+  return Math.ceil(s.length / 4);
+}
+
+/** Effective tokens an instance contributes to the request total (server truncates
+ *  to PER_INSTANCE_CAP, so a huge single chunk never blows the budget on its own). */
+function itemTokens(it: EmbedItem): number {
+  return Math.min(estTokens(it.content) + (it.title ? estTokens(it.title) : 0), PER_INSTANCE_CAP);
+}
+
+/**
+ * Pack items into request batches that each stay under the per-request token budget
+ * and instance cap. A single item is always placed (even if alone it would exceed
+ * the budget — autoTruncate caps it server-side). Pure, so it is unit-tested.
+ */
+export function planEmbedBatches(items: EmbedItem[]): EmbedItem[][] {
+  const batches: EmbedItem[][] = [];
+  let cur: EmbedItem[] = [];
+  let tok = 0;
+  for (const it of items) {
+    const t = itemTokens(it);
+    if (cur.length > 0 && (tok + t > EMBED_TOKEN_BUDGET || cur.length >= EMBED_MAX_INSTANCES)) {
+      batches.push(cur);
+      cur = [];
+      tok = 0;
+    }
+    cur.push(it);
+    tok += t;
+  }
+  if (cur.length) batches.push(cur);
+  return batches;
 }
 
 function predictUrl(project: string, region: Region): string {
@@ -40,8 +80,7 @@ export async function embedDocuments(
   const url = predictUrl(project, region);
 
   const out: number[][] = [];
-  for (let i = 0; i < items.length; i += MAX_BATCH) {
-    const batch = items.slice(i, i + MAX_BATCH);
+  for (const batch of planEmbedBatches(items)) {
     const body = {
       instances: batch.map((it) => ({
         task_type: "RETRIEVAL_DOCUMENT",

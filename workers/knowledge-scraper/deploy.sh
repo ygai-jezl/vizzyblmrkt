@@ -31,8 +31,13 @@ echo "==> Building + pushing image ${IMAGE}"
 gcloud builds submit "${HERE}" --project="${PROJECT}" --tag="${IMAGE}"
 
 # Secrets for private repo clones (optional). Wire them only if they exist.
+# GIT_TOKEN_ENC_KEY decrypts per-tenant OAuth tokens stored on the tenant doc
+# (preferred path); GIT_TOKEN_GITHUB/GITLAB are the legacy static fallback.
 SECRET_FLAGS=()
-for pair in "GIT_TOKEN_GITHUB=git-token-github" "GIT_TOKEN_GITLAB=git-token-gitlab"; do
+for pair in \
+  "GIT_TOKEN_ENC_KEY=git-token-enc-key" \
+  "GIT_TOKEN_GITHUB=git-token-github" \
+  "GIT_TOKEN_GITLAB=git-token-gitlab"; do
   env_name="${pair%%=*}"; secret_name="${pair##*=}"
   if gcloud secrets describe "${secret_name}" --project="${PROJECT}" >/dev/null 2>&1; then
     SECRET_FLAGS+=("--set-secrets=${env_name}=${secret_name}:latest")

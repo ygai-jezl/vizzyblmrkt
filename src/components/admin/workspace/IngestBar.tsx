@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CONTENT_MATRIX_TOPICS } from "@/lib/content/contentMatrix";
+import { GitConnectHint } from "./GitConnectHint";
 
 const SOURCE_TYPES = [
   { id: "docs_url", label: "Docs / page" },
@@ -117,6 +118,12 @@ export function IngestBar({
           />
         ) : null}
       </div>
+
+      {isRepo ? (
+        <div className="flex items-center">
+          <GitConnectHint provider={source as "github" | "gitlab"} />
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <select

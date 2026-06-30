@@ -5,6 +5,7 @@ import { embedDocuments, EMBEDDING_DIM, EMBEDDING_MODEL } from "./embed";
 import { chunkSource, type Chunk } from "./chunk";
 import { cloneAndCollect } from "./sources/git";
 import { crawlAndCollect } from "./sources/web";
+import { fetchGitToken } from "./gitToken";
 import { updateTicket } from "./ticket";
 
 const EMBED_WRITE_BATCH = 100;
@@ -15,12 +16,6 @@ interface PreparedChunk extends Chunk {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function gitToken(source: JobEnv["source"]): string | undefined {
-  if (source === "github") return process.env.GIT_TOKEN_GITHUB || undefined;
-  if (source === "gitlab") return process.env.GIT_TOKEN_GITLAB || undefined;
-  return undefined;
 }
 
 /** Build a citable per-file blob URL for a repo file. */
@@ -37,7 +32,7 @@ async function collectChunks(env: JobEnv): Promise<{ chunks: PreparedChunk[]; pa
       sourceUri: env.sourceUri,
       ref: env.ref,
       includeGlobs: env.includeGlobs,
-      token: gitToken(env.source),
+      token: await fetchGitToken(env.tenantId, env.source),
     });
     for (const f of files) {
       const uri = blobUrl(env.sourceUri, env.ref, f.path);

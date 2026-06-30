@@ -151,6 +151,25 @@ export const EmailSenderConfigSchema = z.object({
 });
 export type EmailSenderConfig = z.infer<typeof EmailSenderConfigSchema>;
 
+/**
+ * A per-tenant OAuth connection to a git host (GitHub/GitLab), used to clone
+ * PRIVATE repos during knowledge ingestion. The access token is stored ENCRYPTED
+ * (AES-256-GCM; see src/lib/integrations/crypto.ts) — never plaintext. The worker
+ * decrypts it at clone time.
+ */
+export const GitConnectionSchema = z.object({
+  provider: z.enum(["github", "gitlab"]),
+  /** Encrypted access token (ciphertext / iv / GCM tag), all base64. */
+  enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }),
+  /** The connected account handle (for display). */
+  accountLogin: z.string().optional(),
+  scope: z.string().optional(),
+  /** Firebase UID of the admin who connected. */
+  connectedBy: z.string().optional(),
+  connectedAt: z.string(),
+});
+export type GitConnection = z.infer<typeof GitConnectionSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -177,6 +196,8 @@ export const TenantSchema = z.object({
   emailSenderConfig: EmailSenderConfigSchema.optional(),
   /** Unified CRM feature gates (enrichment / engagement / EU DPA). */
   crmConfig: CrmTenantConfigSchema.optional(),
+  /** Per-provider OAuth git connections (encrypted tokens) for private-repo ingest. */
+  gitConnections: z.record(z.enum(["github", "gitlab"]), GitConnectionSchema).optional(),
   /**
    * Tenant-level multilingual defaults — the brand's fallback content language
    * (`defaultLocale`) and allow-list (`supportedLocales`) used when a launch does

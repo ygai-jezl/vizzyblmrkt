@@ -45,6 +45,13 @@ env:
       - BUILD
       - RUNTIME
 
+  # Git OAuth redirect_uri origin (prod). MUST match the callback host registered
+  # on the PROD GitHub/GitLab OAuth apps. See apphosting.yaml for rationale.
+  - variable: GIT_OAUTH_ORIGIN
+    value: https://yougrow.ai
+    availability:
+      - RUNTIME
+
   # reCAPTCHA Enterprise (score-based) — public site key + server assessment.
   - variable: RECAPTCHA_ENABLED
     value: "true"

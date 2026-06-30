@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { FieldValue } from "firebase-admin/firestore";
 import { getDb, isAlreadyExists } from "./firestore";
 import type { FirestoreLike } from "./types";
 import { TenantIsolationError } from "./errors";
@@ -8,6 +9,7 @@ import {
   EmailSenderConfigSchema,
   type Tenant,
   type EmailSenderConfig,
+  type GitConnection,
 } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
@@ -62,6 +64,35 @@ export async function updateTenantConfig(
     .collection("tenants")
     .doc(id)
     .update({ ...rest, updatedAt: new Date().toISOString() });
+}
+
+/** Store/replace a tenant's encrypted git OAuth connection (control-plane). */
+export async function setTenantGitConnection(
+  id: string,
+  provider: "github" | "gitlab",
+  conn: GitConnection,
+): Promise<void> {
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`gitConnections.${provider}`]: conn,
+      updatedAt: new Date().toISOString(),
+    });
+}
+
+/** Remove a tenant's git OAuth connection for a provider. */
+export async function deleteTenantGitConnection(
+  id: string,
+  provider: "github" | "gitlab",
+): Promise<void> {
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`gitConnections.${provider}`]: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
 }
 
 /**

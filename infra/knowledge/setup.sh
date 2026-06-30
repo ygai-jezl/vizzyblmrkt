@@ -121,7 +121,9 @@ job() {
 
 secrets() {
   echo "==> git-token-* secretAccessor for the runtime SA (private repos only)"
-  for s in git-token-github git-token-gitlab; do
+  # git-token-enc-key: decrypts per-tenant OAuth tokens at clone time (preferred).
+  # git-token-github/gitlab: legacy static fallback tokens.
+  for s in git-token-enc-key git-token-github git-token-gitlab; do
     if gcloud secrets describe "${s}" --project="${PROJECT}" >/dev/null 2>&1; then
       gcloud secrets add-iam-policy-binding "${s}" --project="${PROJECT}" \
         --member="serviceAccount:${JOB_SA}" \

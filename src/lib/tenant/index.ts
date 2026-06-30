@@ -45,6 +45,8 @@ export {
   addAllowedOrigin,
   removeAllowedOrigin,
   logDomainGrant,
+  setTenantGitConnection,
+  deleteTenantGitConnection,
 } from "./control";
 export type { DomainGrantAudit } from "./control";
 export {

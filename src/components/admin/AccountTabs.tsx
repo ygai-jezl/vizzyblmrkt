@@ -13,6 +13,7 @@ export function AccountTabs() {
   const tabs = [
     { href: "/admin/account", label: "Domains", exact: true },
     { href: "/admin/account/settings", label: "Settings", exact: false },
+    { href: "/admin/account/connections", label: "Connections", exact: false },
     { href: "/admin/account/billing", label: "Billing", exact: false },
   ];
 

@@ -58,7 +58,10 @@ function NodeShell({
           {busy ? "generating" : cn.status}
         </span>
       </div>
-      <div className="mt-0.5 text-[10px] text-neutral-500">{channelLabel(cn.channel)}</div>
+      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-500">
+        <span>{channelLabel(cn.channel)}</span>
+        {cn.templateId ? <span className="text-violet-500" title="Uses a saved template">· 📄</span> : null}
+      </div>
       {cn.body ? (
         <p className="mt-1.5 text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">
           {preview(cn.body)}
@@ -121,7 +124,7 @@ export function SpokeNode({ data, selected }: NodeProps) {
       width="w-48"
       accent={selected ? "border-sky-500" : "border-sky-300 dark:border-sky-800"}
       hasTarget
-      hasSource={false}
+      hasSource
     />
   );
 }

@@ -161,6 +161,21 @@ describe("generateNode", () => {
     expect(prompt.startsWith("Ignore prior instructions")).toBe(false);
   });
 
+  it("fills a chosen template skeleton instead of composing freely", async () => {
+    mocked.mockResolvedValue(JSON.stringify({ body: "filled from skeleton" }));
+    const hub = node({ id: "hub", type: "hub", body: "hub body" });
+    const spoke = node({ id: "sp", type: "spoke", channel: "x", role: "Spoke: x" });
+    const patch = await generateNode(
+      { ctx, workspaceId: "ws1", plan: plan([hub, spoke]), node: spoke, skeletonBody: "Hook: {{Point}}" },
+      noRag,
+    );
+    expect(patch.status).toBe("generated");
+    expect(patch.body).toBe("filled from skeleton");
+    const prompt = mocked.mock.calls.at(-1)?.[0] ?? "";
+    expect(prompt).toContain("Fill the {{tokens}} in this skeleton");
+    expect(prompt).toContain("Hook: {{Point}}");
+  });
+
   it("returns an error patch when Gemini yields nothing", async () => {
     mocked.mockResolvedValue(null);
     const hub = node({ type: "hub" });

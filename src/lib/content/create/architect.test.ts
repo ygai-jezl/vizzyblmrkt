@@ -82,6 +82,27 @@ describe("architectPlan", () => {
     expect(pre.channel).toBe("linkedin"); // DEFAULT_PROMO_CHANNEL
   });
 
+  it("auto-selects a matching workspace template per node (channel + tier)", async () => {
+    mocked.mockResolvedValue(null);
+    const { nodes } = await architectPlan({
+      ...baseInput,
+      templates: [
+        { id: "t-hub", channel: "newsletter", tier: "hub", blockType: "full-post" },
+        { id: "t-li", channel: "linkedin", tier: "spoke", blockType: "takeaway-list" },
+      ],
+    });
+    expect(nodes.find((n) => n.type === "hub")!.templateId).toBe("t-hub");
+    expect(nodes.find((n) => n.type === "spoke" && n.channel === "linkedin")!.templateId).toBe("t-li");
+    // No template for X → composes freely.
+    expect(nodes.find((n) => n.type === "spoke" && n.channel === "x")!.templateId).toBeNull();
+  });
+
+  it("leaves templateId null when no templates are provided", async () => {
+    mocked.mockResolvedValue(null);
+    const { nodes } = await architectPlan(baseInput);
+    expect(nodes.every((n) => n.templateId === null)).toBe(true);
+  });
+
   it("ignores a model blockType that isn't a real block id", async () => {
     mocked.mockResolvedValue(
       JSON.stringify({ nodes: [{ type: "hub", channel: "newsletter", blockType: "bogus", brief: "x" }] }),

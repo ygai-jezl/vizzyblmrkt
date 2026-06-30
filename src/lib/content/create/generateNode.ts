@@ -39,6 +39,8 @@ export interface GenerateNodeInput {
   node: ContentNode;
   brandVoice?: string | null;
   audience?: string | null;
+  /** A chosen workspace template's body to fill (node.templateId resolved by the route). */
+  skeletonBody?: string | null;
 }
 
 export interface GeneratedNodePatch {
@@ -158,8 +160,11 @@ export async function generateNode(
   const knowledgeContext = rag?.formatted ?? "";
   const proofBlock = fenceProof(plan.knowledge.proofAssets ?? []);
 
+  const skeleton = input.skeletonBody?.trim() ? input.skeletonBody.trim().slice(0, 8000) : "";
+  const useSkeleton = Boolean(skeleton);
+
   let prompt: string;
-  if (node.type === "hub") {
+  if (node.type === "hub" && !useSkeleton) {
     const task = renderPrompt("content.hub_draft", {
       channel: node.channel,
       channel_blueprint: channelBlueprint(node.channel),
@@ -190,8 +195,10 @@ export async function generateNode(
       brief: node.brief || "(none)",
       spark: plan.scope.spark || "(none)",
       hub_excerpt: hubExcerpt,
-      skeleton_directive: "No skeleton — compose fresh channel-native copy following the brief.",
-      skeleton: "(none)",
+      skeleton_directive: useSkeleton
+        ? "Fill the {{tokens}} in this skeleton with real content, preserving its structure and line/list shape exactly:"
+        : "No skeleton — compose fresh channel-native copy following the brief.",
+      skeleton: useSkeleton ? skeleton : "(none)",
       knowledge_context: knowledgeContext,
       proof_assets: proofBlock,
     });

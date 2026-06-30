@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import {
   getContentPlan,
+  getTemplate,
   updateContentPlan,
   updateContentPlanNode,
 } from "@/lib/tenant/workspaceContent";
@@ -35,6 +36,15 @@ export async function POST(req: Request, { params }: RouteParams) {
   const node = plan.graph.nodes.find((n) => n.id === nodeId);
   if (!node) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
 
+  // If the operator chose a template for this node, fill ITS skeleton (else compose).
+  // Only honor a template native to this node's channel — a stale/mismatched pick (e.g.
+  // a LinkedIn template left on a node after switching it to X) falls back to composing.
+  let skeletonBody: string | null = null;
+  if (node.templateId) {
+    const tpl = await getTemplate(ctx, workspaceId, node.templateId);
+    skeletonBody = tpl && tpl.channel === node.channel ? tpl.body : null;
+  }
+
   const patch = await generateNode({
     ctx,
     workspaceId,
@@ -42,6 +52,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     node,
     brandVoice: ws.brandVoice ?? null,
     audience: ws.audience ?? null,
+    skeletonBody,
   });
 
   const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {

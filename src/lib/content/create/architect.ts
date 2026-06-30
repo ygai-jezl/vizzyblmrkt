@@ -29,6 +29,14 @@ const COL_X = 240;
 const ROW_Y = 160;
 const SPOKE_GAP_X = 240;
 
+/** Minimal template shape the architect matches against (from listTemplates). */
+export interface TemplateRef {
+  id: string;
+  channel?: string | null;
+  blockType?: string | null;
+  tier?: string | null;
+}
+
 export interface ArchitectInput {
   objective: ContentObjective;
   spark: string;
@@ -39,6 +47,8 @@ export interface ArchitectInput {
   knowledgeContext: string;
   brandVoice?: string | null;
   audience?: string | null;
+  /** Workspace templates to auto-select skeletons from (operator can override later). */
+  templates?: TemplateRef[];
 }
 
 export interface ArchitectGraph {
@@ -74,6 +84,7 @@ function emptyNode(
   blockType: string,
   brief: string,
   position: { x: number; y: number },
+  templateId: string | null,
 ): ContentNode {
   return {
     id: `${type}_${randomUUID()}`,
@@ -83,7 +94,7 @@ function emptyNode(
     blockType,
     role,
     position,
-    templateId: null,
+    templateId,
     brief: brief.slice(0, 2000),
     body: "",
     placeholderValues: {},
@@ -91,6 +102,29 @@ function emptyNode(
     scheduledAt: null,
     warnings: [],
   };
+}
+
+/**
+ * Auto-select a saved workspace template as the node's skeleton (best match by
+ * channel + tier/role). Returns its id, or null to compose freely. The operator can
+ * always override this in the inspector.
+ */
+function pickTemplate(
+  templates: TemplateRef[],
+  type: ContentNodeType,
+  channel: string,
+  blockType: string,
+): string | null {
+  if (!templates.length) return null;
+  const onChannel = templates.filter((t) => t.channel === channel);
+  if (type === "hub") {
+    return (onChannel.find((t) => t.tier === "hub") ?? onChannel[0])?.id ?? null;
+  }
+  if (type === "spoke") {
+    return (onChannel.find((t) => t.tier === "spoke") ?? onChannel[0])?.id ?? null;
+  }
+  // promo: prefer a block matching the promo role (hook/cta).
+  return (onChannel.find((t) => t.blockType === blockType) ?? onChannel[0])?.id ?? null;
 }
 
 async function callArchitect(input: ArchitectInput): Promise<ModelNode[]> {
@@ -138,6 +172,7 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
   const spokeChannels = [...new Set(input.spokeChannels.filter(isChannel))].slice(0, 8);
   const promoChannel = spokeChannels[0] ?? DEFAULT_PROMO_CHANNEL;
   const sparkHint = input.spark ? ` on "${input.spark.slice(0, 120)}"` : "";
+  const templates = input.templates ?? [];
 
   const nodes: ContentNode[] = [];
 
@@ -152,6 +187,7 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
         blockType,
         brief || `Tease the upcoming hub${sparkHint}; build anticipation and point readers to {{hub_url}}.`,
         { x: COL_X, y: 0 },
+        pickTemplate(templates, "promo_pre", promoChannel, blockType),
       ),
     );
   }
@@ -164,6 +200,7 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
     hubBlock.blockType || "full-post",
     hubBlock.brief || `Write the comprehensive ${input.hubChannel} centerpiece${sparkHint}, grounded in the workspace knowledge.`,
     { x: COL_X, y: ROW_Y },
+    pickTemplate(templates, "hub", input.hubChannel, hubBlock.blockType || "full-post"),
   );
   nodes.push(hubNode);
   // 3. Post-hub promo.
@@ -177,6 +214,7 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
         blockType,
         brief || `Recap the hub's payoff${sparkHint} and drive clicks to {{hub_url}}.`,
         { x: COL_X, y: ROW_Y * 2 },
+        pickTemplate(templates, "promo_post", promoChannel, blockType),
       ),
     );
   }
@@ -193,6 +231,7 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
         blockType,
         brief || `Atomize one idea from the hub into a native ${channel} post${sparkHint}.`,
         { x: startX + i * SPOKE_GAP_X, y: ROW_Y * 3 },
+        pickTemplate(templates, "spoke", channel, blockType),
       ),
     );
   });

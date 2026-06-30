@@ -1,16 +1,22 @@
 "use client";
 
-import { channelLabel, formatLabel } from "@/lib/content/channels";
+import { CHANNELS, channelLabel, formatLabel } from "@/lib/content/channels";
 import type { ContentNode } from "@/lib/types/contentPlan";
+import type { TemplateOption } from "./types";
 
 /**
- * Slide-out inspector for the selected Create node (like the Journey NodeInspector).
- * Shows the brief, the editable final copy, the dynamic token values, warnings, and
- * Regenerate / Approve actions. Edits flow back to the canvas via onUpdate; the graph
- * is persisted from the toolbar Save.
+ * Slide-out inspector for the selected Create node. Exposes the node's CONFIG
+ * (channel + which saved template skeleton it fills — the Architect auto-selects
+ * one, shown here and overridable), the brief, the editable final copy, the dynamic
+ * token values, warnings, and Regenerate / Approve. Edits flow to the canvas via
+ * onUpdate; the graph is persisted from the toolbar Save.
  */
+const SELECT =
+  "rounded-md border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900";
+
 export function ContentNodeInspector({
   node,
+  templates,
   busy,
   onUpdate,
   onGenerate,
@@ -19,6 +25,7 @@ export function ContentNodeInspector({
   onClose,
 }: {
   node: ContentNode;
+  templates: TemplateOption[];
   busy: boolean;
   onUpdate: (patch: Partial<ContentNode>) => void;
   onGenerate: () => void;
@@ -27,6 +34,9 @@ export function ContentNodeInspector({
   onClose: () => void;
 }) {
   const tokenEntries = Object.entries(node.placeholderValues ?? {});
+  // Templates for this channel first (the relevant ones), then the rest.
+  const onChannel = templates.filter((t) => t.channel === node.channel);
+  const others = templates.filter((t) => t.channel !== node.channel);
 
   return (
     <div className="fixed inset-y-0 right-0 z-40 w-full max-w-[640px] overflow-y-auto border-l border-neutral-200 bg-white p-5 shadow-2xl dark:border-neutral-800 dark:bg-neutral-950">
@@ -55,6 +65,52 @@ export function ContentNodeInspector({
             ✕
           </button>
         </div>
+      </div>
+
+      {/* Config: channel + template skeleton */}
+      <div className="mb-4 grid grid-cols-2 gap-3">
+        <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Channel
+          <select
+            value={node.channel}
+            onChange={(e) => onUpdate({ channel: e.target.value, format: null, templateId: null })}
+            className={`mt-1 w-full ${SELECT}`}
+          >
+            {CHANNELS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Template skeleton
+          <select
+            value={node.templateId ?? ""}
+            onChange={(e) => onUpdate({ templateId: e.target.value || null })}
+            className={`mt-1 w-full ${SELECT}`}
+          >
+            <option value="">AI-composed (no template)</option>
+            {onChannel.length ? (
+              <optgroup label={`${channelLabel(node.channel)} templates`}>
+                {onChannel.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {others.length ? (
+              <optgroup label="Other templates">
+                {others.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title} ({t.channel ?? "—"})
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </select>
+        </label>
       </div>
 
       {node.brief ? (

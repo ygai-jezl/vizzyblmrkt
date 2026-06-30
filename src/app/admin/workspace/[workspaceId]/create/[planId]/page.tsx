@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
-import { getContentPlan } from "@/lib/tenant/workspaceContent";
+import { getContentPlan, listTemplates } from "@/lib/tenant/workspaceContent";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +17,19 @@ export default async function ContentPlanPage({
   const { workspaceId, planId } = await params;
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
-  const plan = await getContentPlan(ctx, workspaceId, planId);
+  const [plan, templates] = await Promise.all([
+    getContentPlan(ctx, workspaceId, planId),
+    listTemplates(ctx, workspaceId),
+  ]);
   if (!plan) notFound();
+
+  const templateOptions = templates.map((t) => ({
+    id: t.id,
+    title: t.title,
+    channel: t.channel ?? null,
+    blockType: t.blockType ?? null,
+    tier: t.tier ?? null,
+  }));
 
   return (
     <div className="space-y-3">
@@ -28,7 +39,7 @@ export default async function ContentPlanPage({
       >
         ← All workflows
       </Link>
-      <ContentCanvas workspaceId={workspaceId} initial={plan} />
+      <ContentCanvas workspaceId={workspaceId} initial={plan} templates={templateOptions} />
     </div>
   );
 }

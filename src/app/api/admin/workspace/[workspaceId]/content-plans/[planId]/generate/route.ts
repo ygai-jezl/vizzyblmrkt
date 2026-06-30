@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import { getContentPlan, updateContentPlan } from "@/lib/tenant/workspaceContent";
+import { getContentPlan, listTemplates, updateContentPlan } from "@/lib/tenant/workspaceContent";
 import { architectPlan } from "@/lib/content/create/architect";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
@@ -45,6 +45,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   }).catch(() => null);
 
+  const templates = await listTemplates(ctx, workspaceId);
   const graph = await architectPlan({
     objective: plan.strategy.objective,
     spark: plan.scope.spark,
@@ -54,6 +55,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     knowledgeContext: rag?.formatted ?? "",
     brandVoice: ws.brandVoice ?? null,
     audience: ws.audience ?? null,
+    templates: templates.map((t) => ({
+      id: t.id,
+      channel: t.channel,
+      blockType: t.blockType,
+      tier: t.tier,
+    })),
   });
 
   await updateContentPlan(ctx, workspaceId, planId, { graph, status: "generating" });

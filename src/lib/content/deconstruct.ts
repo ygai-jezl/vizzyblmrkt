@@ -1,5 +1,5 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { composePrompt } from "@/lib/agents/prompts/compose";
+import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
 import { BLOCK_TYPES, isBlockType, getBlockType } from "@/lib/content/blocks";
 import { channelBlueprint } from "@/lib/content/channels";
@@ -80,9 +80,9 @@ async function transformOne(
     source: block.excerpt,
   });
   const prompt = composePrompt({
-    identity: input.brandVoice ? `Brand voice: ${input.brandVoice}` : "",
+    identity: brandVoiceSection(input.brandVoice),
     communication: WRITING_RULES,
-    userProfile: input.audience ? `Audience / reader: ${input.audience}` : "",
+    userProfile: audienceSection(input.audience),
     task,
   });
   const raw = await generateText(prompt);

@@ -6,11 +6,18 @@ import { forTenant } from "./repository";
 import type { FirestoreLike, TenantContext } from "./types";
 import { IdeaItemSchema, type IdeaItem } from "@/lib/types/ideaItem";
 import { TemplateSchema, type Template } from "@/lib/types/template";
+import {
+  ContentPlanSchema,
+  ContentNodeSchema,
+  type ContentPlan,
+  type ContentNode,
+} from "@/lib/types/contentPlan";
 
 /**
  * Tenant-layer access for a workspace's Content OS subcollections:
- *   workspaces/{workspaceId}/idea_items/{id}   (Idea Board captures)
- *   workspaces/{workspaceId}/templates/{id}    (templatized skeletons)
+ *   workspaces/{workspaceId}/idea_items/{id}      (Idea Board captures)
+ *   workspaces/{workspaceId}/templates/{id}       (templatized skeletons)
+ *   workspaces/{workspaceId}/content_plans/{id}   (Create-pillar workflows)
  * in the tenant's REGIONAL database.
  *
  * SECURITY: like src/lib/tenant/knowledge.ts, the parent workspace doc is the
@@ -20,6 +27,7 @@ import { TemplateSchema, type Template } from "@/lib/types/template";
  */
 const IDEA_ITEMS = "idea_items" as const;
 const TEMPLATES = "templates" as const;
+const CONTENT_PLANS = "content_plans" as const;
 
 function workspaceDoc(ctx: TenantContext, workspaceId: string) {
   return getDb(databaseIdForRegion(ctx.region)).collection("workspaces").doc(workspaceId);
@@ -86,7 +94,9 @@ export async function getIdeaItem(
   const doc = await workspaceDoc(ctx, workspaceId).collection(IDEA_ITEMS).doc(ideaId).get();
   if (!doc.exists) return null;
   const parsed = IdeaItemSchema.safeParse(doc.data());
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  if (parsed.data.tenantId !== ctx.tenantId || parsed.data.workspaceId !== workspaceId) return null;
+  return parsed.data;
 }
 
 export async function updateIdeaItem(
@@ -162,7 +172,9 @@ export async function getTemplate(
   const doc = await workspaceDoc(ctx, workspaceId).collection(TEMPLATES).doc(templateId).get();
   if (!doc.exists) return null;
   const parsed = TemplateSchema.safeParse(doc.data());
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  if (parsed.data.tenantId !== ctx.tenantId || parsed.data.workspaceId !== workspaceId) return null;
+  return parsed.data;
 }
 
 export async function updateTemplate(
@@ -234,4 +246,134 @@ export async function addTemplateGroup(
     templateGroups: FieldValue.arrayUnion(g),
     updatedAt: new Date().toISOString(),
   });
+}
+
+// ── Content plans (Create pillar) ──────────────────────────────────────────────
+
+export type CreateContentPlanInput = Omit<
+  ContentPlan,
+  "id" | "tenantId" | "workspaceId" | "createdAt" | "updatedAt"
+>;
+
+export async function createContentPlan(
+  ctx: TenantContext,
+  workspaceId: string,
+  input: CreateContentPlanInput,
+): Promise<ContentPlan> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const plan = ContentPlanSchema.parse({
+    ...input,
+    id,
+    tenantId: ctx.tenantId,
+    workspaceId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(id).set(plan);
+  return plan;
+}
+
+export async function listContentPlans(
+  ctx: TenantContext,
+  workspaceId: string,
+  limit = 200,
+): Promise<ContentPlan[]> {
+  const snap = await workspaceDoc(ctx, workspaceId)
+    .collection(CONTENT_PLANS)
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .get();
+  const rows: ContentPlan[] = [];
+  for (const d of snap.docs) {
+    const parsed = ContentPlanSchema.safeParse(d.data());
+    if (parsed.success) rows.push(parsed.data);
+    else console.warn(`[workspaceContent] dropped invalid content_plan ${d.id}:`, parsed.error.message);
+  }
+  rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return rows;
+}
+
+export async function getContentPlan(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+): Promise<ContentPlan | null> {
+  const doc = await workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId).get();
+  if (!doc.exists) return null;
+  const parsed = ContentPlanSchema.safeParse(doc.data());
+  if (!parsed.success) return null;
+  // Defence in depth: never return a doc whose stamped owner doesn't match (matches
+  // the TenantCollection.getById / knowledgeRetrieval re-check pattern).
+  if (parsed.data.tenantId !== ctx.tenantId || parsed.data.workspaceId !== workspaceId) return null;
+  return parsed.data;
+}
+
+/** Patch a plan's name / status / graph (full-graph replace — canvas Save). */
+export async function updateContentPlan(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  patch: Partial<Pick<ContentPlan, "name" | "status" | "graph">>,
+): Promise<void> {
+  await workspaceDoc(ctx, workspaceId)
+    .collection(CONTENT_PLANS)
+    .doc(planId)
+    .update({ ...patch, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * Persist a SINGLE node's fields (body/placeholders/status/etc.) atomically. Run
+ * inside a transaction so concurrent per-node generates (the client fills empty
+ * nodes in parallel) don't clobber each other's writes to the shared graph array.
+ * Returns the updated node, or null if the plan/node is gone.
+ */
+export async function updateContentPlanNode(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  nodeId: string,
+  patch: Partial<
+    Pick<
+      ContentNode,
+      | "body"
+      | "placeholderValues"
+      | "status"
+      | "scheduledAt"
+      | "warnings"
+      | "brief"
+      | "templateId"
+      | "format"
+    >
+  >,
+): Promise<ContentNode | null> {
+  const db = getDb(databaseIdForRegion(ctx.region));
+  const ref = workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const parsed = ContentPlanSchema.safeParse(snap.data());
+    if (!parsed.success) return null;
+    const plan = parsed.data;
+    // Defence in depth inside the transaction: reject a plan whose stamped owner
+    // doesn't match before mutating it.
+    if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
+    const idx = plan.graph.nodes.findIndex((n) => n.id === nodeId);
+    if (idx < 0) return null;
+    const next = ContentNodeSchema.parse({ ...plan.graph.nodes[idx], ...patch });
+    const nodes = [...plan.graph.nodes];
+    nodes[idx] = next;
+    tx.update(ref, {
+      "graph.nodes": nodes,
+      updatedAt: new Date().toISOString(),
+    });
+    return next;
+  });
+}
+
+export async function deleteContentPlan(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+): Promise<void> {
+  await workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId).delete();
 }

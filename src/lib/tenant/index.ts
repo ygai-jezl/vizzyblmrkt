@@ -28,7 +28,14 @@ export {
   databaseIdForRegion,
 } from "./region";
 export type { RegionConfig } from "./region";
-export { knowledgeChunksRef, KNOWLEDGE_SUBCOLLECTION } from "./knowledge";
+export {
+  knowledgeChunksRef,
+  verifyOwner,
+  listKnowledgeChunks,
+  deleteOwnerKnowledge,
+  KNOWLEDGE_SUBCOLLECTION,
+} from "./knowledge";
+export type { KnowledgeChunkView } from "./knowledge";
 export {
   createTenant,
   backfillTenantFavicon,

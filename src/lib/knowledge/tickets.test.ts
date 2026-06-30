@@ -5,10 +5,13 @@ import type { TenantContext } from "@/lib/tenant/types";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 const input = {
-  campaignId: "camp1",
+  ownerKind: "workspace" as const,
+  ownerId: "ws1",
   source: "github" as const,
   sourceUri: "https://github.com/org/repo",
   ref: null,
+  topic: "systems",
+  tags: [],
 };
 
 afterEach(() => vi.unstubAllEnvs());

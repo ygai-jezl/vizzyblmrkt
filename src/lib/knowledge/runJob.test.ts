@@ -10,11 +10,14 @@ import {
 const vars: IngestionJobVars = {
   ticketId: "tkt_1",
   tenantId: "ten_A",
-  campaignId: "camp1",
+  ownerKind: "workspace",
+  ownerId: "ws1",
   region: "eu",
   source: "github",
   sourceUri: "https://github.com/org/repo",
   ref: "main",
+  topic: "systems",
+  tags: [],
 };
 
 afterEach(() => vi.unstubAllEnvs());
@@ -47,11 +50,13 @@ describe("buildRunJobRequest", () => {
     const get = (n: string) => env.find((e) => e.name === n)?.value;
     expect(get("TICKET_ID")).toBe("tkt_1");
     expect(get("TENANT_ID")).toBe("ten_A");
-    expect(get("CAMPAIGN_ID")).toBe("camp1");
+    expect(get("OWNER_KIND")).toBe("workspace");
+    expect(get("OWNER_ID")).toBe("ws1");
     expect(get("REGION")).toBe("eu");
     expect(get("INGEST_SOURCE")).toBe("github");
     expect(get("SOURCE_URI")).toBe("https://github.com/org/repo");
     expect(get("INGEST_REF")).toBe("main");
+    expect(get("TOPIC")).toBe("systems");
   });
 
   it("omits INGEST_REF when no ref is given", () => {
@@ -71,6 +76,12 @@ describe("buildRunJobRequest", () => {
 
     const none = buildRunJobRequest({ ...vars, includeGlobs: null });
     expect(none.overrides.containerOverrides[0]!.env.some((e) => e.name === "INCLUDE_GLOBS")).toBe(false);
+
+    const withTags = buildRunJobRequest({ ...vars, tags: ["a", "b"] });
+    const tg = withTags.overrides.containerOverrides[0]!.env.find((e) => e.name === "TAGS");
+    expect(JSON.parse(tg!.value)).toEqual(["a", "b"]);
+    // vars.tags is [] → TAGS omitted.
+    expect(none.overrides.containerOverrides[0]!.env.some((e) => e.name === "TAGS")).toBe(false);
   });
 });
 

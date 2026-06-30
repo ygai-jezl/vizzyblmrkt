@@ -1,13 +1,15 @@
 import { JobsClient } from "@google-cloud/run";
 import type { Region } from "@/lib/types/tenant";
-import type { KnowledgeChunkSource } from "@/lib/types/knowledgeBase";
+import type {
+  KnowledgeChunkSource,
+  KnowledgeOwnerKind,
+} from "@/lib/types/knowledgeBase";
 
 /**
  * Trigger the containerised knowledge-scraper Cloud Run Job, passing the ticket
- * coordinates as a per-execution override (so one job image serves every
- * ingestion). Uses ADC — the App Hosting runtime SA needs the IAM permission
- * `run.jobs.runWithOverrides` on the job. Region in the resource name is where
- * the JOB is deployed (KNOWLEDGE_JOB_LOCATION), not the tenant's data region.
+ * coordinates as a per-execution override. Uses ADC — the App Hosting runtime SA
+ * needs `run.jobs.runWithOverrides` on the job. Region in the resource name is
+ * where the JOB is deployed (KNOWLEDGE_JOB_LOCATION), not the data region.
  */
 
 let _client: JobsClient | null = null;
@@ -19,20 +21,21 @@ function client(): JobsClient {
 export interface IngestionJobVars {
   ticketId: string;
   tenantId: string;
-  campaignId: string;
+  ownerKind: KnowledgeOwnerKind;
+  ownerId: string;
   region: Region;
   source: KnowledgeChunkSource;
   sourceUri: string;
   ref?: string | null;
-  /** Optional path globs to scope a repo ingest (repos only). */
   includeGlobs?: string[] | null;
+  topic: string;
+  tags: string[];
 }
 
 export function isIngestionJobConfigured(): boolean {
   return Boolean(process.env.GOOGLE_CLOUD_PROJECT && process.env.KNOWLEDGE_JOB_NAME);
 }
 
-/** Fully-qualified Cloud Run Job resource name. Throws if unconfigured. */
 export function ingestionJobResourceName(): string {
   const project = process.env.GOOGLE_CLOUD_PROJECT;
   const job = process.env.KNOWLEDGE_JOB_NAME;
@@ -51,14 +54,19 @@ export function buildRunJobRequest(vars: IngestionJobVars): {
   const env = [
     { name: "TICKET_ID", value: vars.ticketId },
     { name: "TENANT_ID", value: vars.tenantId },
-    { name: "CAMPAIGN_ID", value: vars.campaignId },
+    { name: "OWNER_KIND", value: vars.ownerKind },
+    { name: "OWNER_ID", value: vars.ownerId },
     { name: "REGION", value: vars.region },
     { name: "INGEST_SOURCE", value: vars.source },
     { name: "SOURCE_URI", value: vars.sourceUri },
+    { name: "TOPIC", value: vars.topic },
   ];
   if (vars.ref) env.push({ name: "INGEST_REF", value: vars.ref });
   if (vars.includeGlobs && vars.includeGlobs.length > 0) {
     env.push({ name: "INCLUDE_GLOBS", value: JSON.stringify(vars.includeGlobs) });
+  }
+  if (vars.tags && vars.tags.length > 0) {
+    env.push({ name: "TAGS", value: JSON.stringify(vars.tags) });
   }
   return {
     name: ingestionJobResourceName(),
@@ -66,12 +74,10 @@ export function buildRunJobRequest(vars: IngestionJobVars): {
   };
 }
 
-/** Minimal seam so tests can inject a fake runner without the GCP client. */
 export interface JobRunner {
   runJob(request: ReturnType<typeof buildRunJobRequest>): Promise<unknown>;
 }
 
-/** Kick off one ingestion execution. Throws on misconfiguration / API error. */
 export async function triggerIngestionJob(
   vars: IngestionJobVars,
   runner?: JobRunner,

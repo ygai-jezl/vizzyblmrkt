@@ -13,6 +13,7 @@ import {
   Radar,
   LineChart,
   GitBranch,
+  FolderKanban,
   Settings,
   Archive,
   ChevronLeft,
@@ -58,6 +59,17 @@ const STATIC_GROUPS: NavGroup[] = [
         icon: CheckSquare,
         matchPattern: "/admin/approvals",
         badge: 3,
+      },
+    ],
+  },
+  {
+    title: "Content OS",
+    items: [
+      {
+        href: "/admin/workspace",
+        label: "Workspace",
+        icon: FolderKanban,
+        matchPattern: "/admin/workspace",
       },
     ],
   },

@@ -16,6 +16,8 @@ const UpdateSchema = z.object({
   archived: z.boolean().optional(),
   topics: z.array(z.string()).max(26).optional(),
   defaultTags: z.array(z.string().max(40)).max(20).optional(),
+  brandVoice: z.string().max(2000).nullable().optional(),
+  audience: z.string().max(2000).nullable().optional(),
 });
 
 export async function GET(
@@ -64,6 +66,12 @@ export async function PUT(
   }
   if (parsed.data.defaultTags !== undefined) {
     patch.defaultTags = normalizeTags(parsed.data.defaultTags);
+  }
+  if (parsed.data.brandVoice !== undefined) {
+    patch.brandVoice = parsed.data.brandVoice?.trim() || null;
+  }
+  if (parsed.data.audience !== undefined) {
+    patch.audience = parsed.data.audience?.trim() || null;
   }
   await forTenant(ctx).workspaces.update(workspaceId, patch);
   const workspace = await forTenant(ctx).workspaces.getById(workspaceId);

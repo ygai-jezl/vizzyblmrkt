@@ -3,7 +3,21 @@
 import { useEffect, useState } from "react";
 import type { Template } from "@/lib/types/template";
 import { GroupCombobox } from "./GroupCombobox";
+import { PlaceholderList } from "./PlaceholderList";
+import { ReframeControl } from "./ReframeControl";
+import { DeconstructControl } from "./DeconstructControl";
 import { TEMPLATE_CATEGORIES } from "@/lib/content/templateCategories";
+import { frameworkLabel } from "@/lib/content/frameworks";
+import { blockLabel, moduleSizeLabel } from "@/lib/content/blocks";
+import { channelLabel } from "@/lib/content/channels";
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+      {children}
+    </span>
+  );
+}
 
 export function TemplateCard({
   workspaceId,
@@ -11,12 +25,14 @@ export function TemplateCard({
   groups,
   onUpdate,
   onDelete,
+  onDeconstructed,
 }: {
   workspaceId: string;
   template: Template;
   groups: string[];
   onUpdate: (t: Template) => void;
   onDelete: (id: string) => void;
+  onDeconstructed?: (spokes: Template[]) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(template.title);
@@ -103,6 +119,28 @@ export function TemplateCard({
         />
       </div>
 
+      <div className="flex flex-wrap items-center gap-1">
+        {template.framework ? <Badge>{frameworkLabel(template.framework)}</Badge> : null}
+        {template.blockType ? <Badge>{blockLabel(template.blockType)}</Badge> : null}
+        {template.moduleSize ? <Badge>{moduleSizeLabel(template.moduleSize).replace(/ \(.*\)/, "")}</Badge> : null}
+        {template.channel && template.channel !== "standalone" ? (
+          <Badge>{channelLabel(template.channel)}</Badge>
+        ) : null}
+        {template.tier && template.tier !== "standalone" ? (
+          <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] text-violet-700 dark:bg-violet-900/60 dark:text-violet-200">
+            {template.tier}
+          </span>
+        ) : null}
+        {typeof template.confidence === "number" && template.confidence < 0.6 ? (
+          <span
+            title={(template.warnings ?? []).join(", ")}
+            className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+          >
+            ⚠ check structure
+          </span>
+        ) : null}
+      </div>
+
       {editing ? (
         <textarea
           value={body}
@@ -115,6 +153,22 @@ export function TemplateCard({
           {template.body}
         </pre>
       )}
+
+      {!editing ? (
+        <PlaceholderList body={template.body} placeholders={template.placeholders ?? []} />
+      ) : null}
+
+      {!editing ? (
+        <ReframeControl workspaceId={workspaceId} template={template} onReframed={onUpdate} />
+      ) : null}
+
+      {!editing && template.tier !== "spoke" && onDeconstructed ? (
+        <DeconstructControl
+          workspaceId={workspaceId}
+          template={template}
+          onDeconstructed={onDeconstructed}
+        />
+      ) : null}
 
       <div className="flex items-center gap-3">
         {editing ? (

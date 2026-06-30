@@ -61,7 +61,12 @@ describe("readEnv", () => {
     expect(() => readEnv({ ...base, REGION: "mars" })).toThrow();
     expect(() => readEnv({ ...base, INGEST_SOURCE: "ftp" })).toThrow();
     expect(() => readEnv({ ...base, OWNER_KIND: "galaxy" })).toThrow();
-    expect(() => readEnv({ ...base, TOPIC: "" })).toThrow();
+  });
+
+  it("treats empty / missing TOPIC as null (topic is optional)", () => {
+    expect(readEnv({ ...base, TOPIC: "" }).topic).toBeNull();
+    const { TOPIC: _omit, ...noTopic } = base;
+    expect(readEnv(noTopic).topic).toBeNull();
   });
 
   it("caps maxPages and defaults it", () => {

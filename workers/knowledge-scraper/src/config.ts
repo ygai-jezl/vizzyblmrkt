@@ -57,7 +57,7 @@ export interface JobEnv {
   sourceUri: string;
   ref: string | null;
   includeGlobs: string[] | null;
-  topic: string;
+  topic: string | null;
   tags: string[];
   project: string;
   maxPages: number;
@@ -103,7 +103,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): JobEnv {
     sourceUri: require_("SOURCE_URI"),
     ref: env.INGEST_REF || null,
     includeGlobs: parseStringArray(env.INCLUDE_GLOBS),
-    topic: require_("TOPIC"),
+    topic: env.TOPIC || null,
     tags: parseStringArray(env.TAGS) ?? [],
     project: require_("GOOGLE_CLOUD_PROJECT"),
     maxPages: Number.isFinite(maxPages) && maxPages > 0 ? Math.min(maxPages, 100) : 20,

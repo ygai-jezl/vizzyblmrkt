@@ -48,7 +48,6 @@ export function IngestBar({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return setNote("Add a source URL.");
-    if (!topic) return setNote("Assign a Content Matrix topic.");
     setBusy(true);
     setNote(null);
     try {
@@ -57,9 +56,9 @@ export function IngestBar({
         ownerId: workspaceId,
         source,
         sourceUri: url.trim(),
-        topic,
         tags,
       };
+      if (topic) body.topic = topic;
       if (isRepo && gitRef.trim()) body.ref = gitRef.trim();
       const res = await fetch("/api/admin/knowledge/ingest", {
         method: "POST",
@@ -129,10 +128,9 @@ export function IngestBar({
         <select
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          required
           className="rounded-md border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         >
-          <option value="">Topic (required)…</option>
+          <option value="">Topic (optional)…</option>
           {CONTENT_MATRIX_TOPICS.map((t) => (
             <option key={t.id} value={t.id}>
               {t.label}

@@ -32,8 +32,8 @@ export const IngestionTicketSchema = z.object({
   sourceUri: z.string(),
   ref: z.string().nullable().optional(),
   includeGlobs: z.array(z.string()).nullable().optional(),
-  /** Content Matrix topic id (required). */
-  topic: z.string(),
+  /** Content Matrix topic id (OPTIONAL). */
+  topic: z.string().nullable().default(null),
   /** Free-form custom tags (normalized). */
   tags: z.array(z.string()),
   status: IngestionStatus,

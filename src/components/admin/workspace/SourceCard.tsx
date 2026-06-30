@@ -108,9 +108,11 @@ export function SourceCard({
       </div>
 
       <div className="flex flex-wrap gap-1">
-        <span className="rounded bg-violet-50 px-2 py-0.5 text-xs text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
-          {contentMatrixLabel(source.topic)}
-        </span>
+        {source.topic ? (
+          <span className="rounded bg-violet-50 px-2 py-0.5 text-xs text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+            {contentMatrixLabel(source.topic)}
+          </span>
+        ) : null}
         {(source.tags ?? []).map((t) => (
           <span
             key={t}

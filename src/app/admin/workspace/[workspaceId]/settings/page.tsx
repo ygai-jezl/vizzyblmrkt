@@ -1,12 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
-import { listTemplates } from "@/lib/tenant/workspaceContent";
-import { TemplatizePanel } from "@/components/admin/workspace/TemplatizePanel";
+import { WorkspaceSettings } from "@/components/admin/workspace/WorkspaceSettings";
 
 export const dynamic = "force-dynamic";
 
-export default async function TemplatizePage({
+export default async function WorkspaceSettingsPage({
   params,
 }: {
   params: Promise<{ workspaceId: string }>;
@@ -16,12 +15,10 @@ export default async function TemplatizePage({
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
 
-  const templates = await listTemplates(ctx, workspaceId);
   return (
-    <TemplatizePanel
+    <WorkspaceSettings
       workspaceId={workspaceId}
-      initialTemplates={templates}
-      initialGroups={ws.templateGroups ?? []}
+      initial={{ topics: ws.topics ?? [], defaultTags: ws.defaultTags ?? [] }}
     />
   );
 }

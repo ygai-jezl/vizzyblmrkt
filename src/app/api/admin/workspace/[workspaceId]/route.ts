@@ -4,6 +4,8 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { deleteWorkspace } from "@/lib/admin/workspaces";
+import { normalizeTags } from "@/lib/knowledge/tags";
+import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +14,8 @@ const UpdateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).nullable().optional(),
   archived: z.boolean().optional(),
+  topics: z.array(z.string()).max(26).optional(),
+  defaultTags: z.array(z.string().max(40)).max(20).optional(),
 });
 
 export async function GET(
@@ -53,6 +57,13 @@ export async function PUT(
   }
   if (parsed.data.archived !== undefined) {
     patch.archivedAt = parsed.data.archived ? new Date().toISOString() : null;
+  }
+  if (parsed.data.topics !== undefined) {
+    // Authority topics: only valid Content Matrix ids, deduped.
+    patch.topics = [...new Set(parsed.data.topics.filter(isContentMatrixTopic))];
+  }
+  if (parsed.data.defaultTags !== undefined) {
+    patch.defaultTags = normalizeTags(parsed.data.defaultTags);
   }
   await forTenant(ctx).workspaces.update(workspaceId, patch);
   const workspace = await forTenant(ctx).workspaces.getById(workspaceId);

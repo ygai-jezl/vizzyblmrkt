@@ -29,6 +29,9 @@ export async function createWorkspace(
   await forTenant(ctx).workspaces.create(id, {
     name: input.name.trim(),
     description: input.description?.trim() || null,
+    topics: [],
+    defaultTags: [],
+    templateGroups: [],
     createdAt: now,
     updatedAt: now,
     archivedAt: null,

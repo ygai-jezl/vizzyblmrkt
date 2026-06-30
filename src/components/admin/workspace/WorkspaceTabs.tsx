@@ -12,6 +12,7 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }) {
     { href: `${base}/templatize`, label: "Templatize" },
     { href: `${base}/create`, label: "Create" },
     { href: `${base}/distribute`, label: "Distribute" },
+    { href: `${base}/settings`, label: "Settings" },
   ];
 
   return (

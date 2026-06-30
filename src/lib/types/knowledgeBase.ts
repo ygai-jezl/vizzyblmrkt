@@ -45,8 +45,8 @@ export const KnowledgeChunkSchema = z.object({
   content: z.string(),
   tokenCount: z.number().int().nonnegative(),
   chunkIndex: z.number().int().nonnegative(),
-  /** Content Matrix topic id (required) — queryable pre-filter. */
-  topic: z.string(),
+  /** Content Matrix topic id (OPTIONAL) — queryable pre-filter when set. */
+  topic: z.string().nullable().default(null),
   /** Free-form custom tags (normalized) — queryable pre-filter (array-contains). */
   tags: z.array(z.string()),
   embeddingModel: z.literal(EMBEDDING_MODEL),

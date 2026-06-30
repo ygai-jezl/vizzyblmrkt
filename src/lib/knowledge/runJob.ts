@@ -28,7 +28,7 @@ export interface IngestionJobVars {
   sourceUri: string;
   ref?: string | null;
   includeGlobs?: string[] | null;
-  topic: string;
+  topic: string | null;
   tags: string[];
 }
 
@@ -59,7 +59,7 @@ export function buildRunJobRequest(vars: IngestionJobVars): {
     { name: "REGION", value: vars.region },
     { name: "INGEST_SOURCE", value: vars.source },
     { name: "SOURCE_URI", value: vars.sourceUri },
-    { name: "TOPIC", value: vars.topic },
+    { name: "TOPIC", value: vars.topic ?? "" },
   ];
   if (vars.ref) env.push({ name: "INGEST_REF", value: vars.ref });
   if (vars.includeGlobs && vars.includeGlobs.length > 0) {

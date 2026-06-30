@@ -16,6 +16,12 @@ export const WorkspaceSchema = z.object({
   tenantId: z.string(),
   name: z.string().min(1).max(120),
   description: z.string().max(2000).nullable().optional(),
+  /** Authority Content Matrix topics this workspace wants to own (Settings tab). */
+  topics: z.array(z.string()).default([]),
+  /** Default free-form tags suggested for new grounding sources. */
+  defaultTags: z.array(z.string()).default([]),
+  /** Custom structural group names accumulated from templatizing (combobox options). */
+  templateGroups: z.array(z.string()).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
   /** Set when the workspace is archived (hidden from the active list). */

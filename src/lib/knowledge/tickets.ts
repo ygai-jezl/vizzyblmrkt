@@ -30,8 +30,8 @@ export interface EnqueueIngestionInput {
   sourceUri: string;
   ref?: string | null;
   includeGlobs?: string[] | null;
-  /** Content Matrix topic id (required). */
-  topic: string;
+  /** Content Matrix topic id (optional). */
+  topic: string | null;
   /** Normalized custom tags. */
   tags: string[];
 }

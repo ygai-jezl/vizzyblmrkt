@@ -25,8 +25,8 @@ const IngestSchema = z.object({
     .regex(/^(?!-)[A-Za-z0-9._/-]+$/, "invalid ref")
     .optional(),
   includeGlobs: z.array(z.string().max(255)).max(50).optional(),
-  /** Content Matrix topic id (required). */
-  topic: z.string().min(1),
+  /** Content Matrix topic id (optional). */
+  topic: z.string().min(1).optional(),
   /** Free-form custom tags (aligned to the normalizer's caps: 20 × ≤40 chars). */
   tags: z.array(z.string().max(40)).max(20).optional(),
 });
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   }
   const { ownerKind, ownerId, source, sourceUri, ref, includeGlobs, topic } = parsed.data;
 
-  if (!isContentMatrixTopic(topic)) {
+  if (topic && !isContentMatrixTopic(topic)) {
     return NextResponse.json({ error: "invalid_topic" }, { status: 400 });
   }
   const tags = normalizeTags(parsed.data.tags);
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     sourceUri: url.url,
     ref: ref ?? null,
     includeGlobs: includeGlobs ?? null,
-    topic,
+    topic: topic ?? null,
     tags,
   });
   if (enq.status === "rate_limited") {
@@ -98,7 +98,7 @@ export async function POST(req: Request) {
       sourceUri: url.url,
       ref: ref ?? null,
       includeGlobs: includeGlobs ?? null,
-      topic,
+      topic: topic ?? null,
       tags,
     });
   } catch (err) {

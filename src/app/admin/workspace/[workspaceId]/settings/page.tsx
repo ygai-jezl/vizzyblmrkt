@@ -18,7 +18,12 @@ export default async function WorkspaceSettingsPage({
   return (
     <WorkspaceSettings
       workspaceId={workspaceId}
-      initial={{ topics: ws.topics ?? [], defaultTags: ws.defaultTags ?? [] }}
+      initial={{
+        topics: ws.topics ?? [],
+        defaultTags: ws.defaultTags ?? [],
+        brandVoice: ws.brandVoice ?? "",
+        audience: ws.audience ?? "",
+      }}
     />
   );
 }

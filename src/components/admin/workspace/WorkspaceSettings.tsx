@@ -6,19 +6,23 @@ import { CONTENT_MATRIX_TOPICS } from "@/lib/content/contentMatrix";
 interface Workspace {
   topics?: string[];
   defaultTags?: string[];
+  brandVoice?: string | null;
+  audience?: string | null;
 }
 
-/** Workspace Settings — authority topics (multi-select) + default grounding tags. */
+/** Workspace Settings — authority topics, default tags, brand voice + audience. */
 export function WorkspaceSettings({
   workspaceId,
   initial,
 }: {
   workspaceId: string;
-  initial: { topics: string[]; defaultTags: string[] };
+  initial: { topics: string[]; defaultTags: string[]; brandVoice: string; audience: string };
 }) {
   const [topics, setTopics] = useState<string[]>(initial.topics);
   const [tags, setTags] = useState<string[]>(initial.defaultTags);
   const [tagDraft, setTagDraft] = useState("");
+  const [brandVoice, setBrandVoice] = useState(initial.brandVoice);
+  const [audience, setAudience] = useState(initial.audience);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   function toggleTopic(id: string) {
@@ -38,12 +42,14 @@ export function WorkspaceSettings({
       const res = await fetch(`/api/admin/workspace/${workspaceId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topics, defaultTags: tags }),
+        body: JSON.stringify({ topics, defaultTags: tags, brandVoice, audience }),
       });
       if (!res.ok) throw new Error("save_failed");
       const d = (await res.json().catch(() => ({}))) as { workspace?: Workspace };
       setTopics(d.workspace?.topics ?? []);
       setTags(d.workspace?.defaultTags ?? []);
+      setBrandVoice(d.workspace?.brandVoice ?? "");
+      setAudience(d.workspace?.audience ?? "");
       setStatus("saved");
     } catch {
       setStatus("error");
@@ -115,6 +121,38 @@ export function WorkspaceSettings({
             className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm outline-none"
           />
         </div>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-sm font-medium">Brand voice</h3>
+        <p className="text-xs text-neutral-500">
+          How your content should sound — informs templatize + deconstruct.
+        </p>
+        <textarea
+          value={brandVoice}
+          onChange={(e) => {
+            setBrandVoice(e.target.value);
+            setStatus("idle");
+          }}
+          rows={2}
+          placeholder="e.g. Direct, practical, no hype. Short sentences."
+          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-sm font-medium">Audience</h3>
+        <p className="text-xs text-neutral-500">Who you&apos;re writing for (reader persona).</p>
+        <textarea
+          value={audience}
+          onChange={(e) => {
+            setAudience(e.target.value);
+            setStatus("idle");
+          }}
+          rows={2}
+          placeholder="e.g. Early-stage B2B SaaS founders."
+          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        />
       </section>
 
       <div className="flex items-center gap-3">

@@ -169,7 +169,27 @@ export async function updateTemplate(
   ctx: TenantContext,
   workspaceId: string,
   templateId: string,
-  patch: Partial<Pick<Template, "title" | "body" | "category" | "group" | "topic" | "tags">>,
+  patch: Partial<
+    Pick<
+      Template,
+      | "title"
+      | "body"
+      | "category"
+      | "group"
+      | "topic"
+      | "tags"
+      | "framework"
+      | "blockType"
+      | "moduleSize"
+      | "channel"
+      | "format"
+      | "tier"
+      | "placeholders"
+      | "confidence"
+      | "warnings"
+      | "sourceSnapshot"
+    >
+  >,
 ): Promise<void> {
   await workspaceDoc(ctx, workspaceId)
     .collection(TEMPLATES)
@@ -182,7 +202,16 @@ export async function deleteTemplate(
   workspaceId: string,
   templateId: string,
 ): Promise<void> {
-  await workspaceDoc(ctx, workspaceId).collection(TEMPLATES).doc(templateId).delete();
+  const col = workspaceDoc(ctx, workspaceId).collection(TEMPLATES);
+  // Cascade: delete any spoke children first so they can't be orphaned.
+  const children = await col.where("parentTemplateId", "==", templateId).get();
+  const docs = children.docs;
+  for (let i = 0; i < docs.length; i += 400) {
+    const batch = col.firestore.batch();
+    for (const d of docs.slice(i, i + 400)) batch.delete(d.ref);
+    await batch.commit();
+  }
+  await col.doc(templateId).delete();
 }
 
 /**

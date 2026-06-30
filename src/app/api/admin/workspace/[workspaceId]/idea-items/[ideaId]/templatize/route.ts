@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
@@ -10,12 +11,19 @@ import {
 } from "@/lib/tenant/workspaceContent";
 import { readWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { templatizeIdea } from "@/lib/content/templatize";
-import type { TemplateCategoryId } from "@/lib/types/template";
+import type { TemplateCategoryId, ModuleSizeId, TemplateTier } from "@/lib/types/template";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Templatize an idea (inline Gemini) → create a template + mark the idea. */
+const BodySchema = z.object({
+  framework: z.string().max(40).optional(),
+  blockType: z.string().max(40).optional(),
+  channel: z.string().max(40).optional(),
+  granularity: z.enum(["coarse", "normal", "fine"]).optional(),
+});
+
+/** Templatize an idea (inline modular Gemini pipeline) → create a template + mark the idea. */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ workspaceId: string; ideaId: string }> },
@@ -31,7 +39,9 @@ export async function POST(
   const idea = await getIdeaItem(ctx, workspaceId, ideaId);
   if (!idea) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  // Load the screenshot (if any) for multimodal analysis.
+  const opts = BodySchema.safeParse(await req.json().catch(() => ({})));
+  const overrides = opts.success ? opts.data : {};
+
   let screenshot: { base64: string; mimeType: string } | null = null;
   if (idea.screenshotPath) {
     const asset = await readWorkspaceAsset(ctx.tenantId, workspaceId, idea.screenshotPath);
@@ -44,17 +54,39 @@ export async function POST(
     fetchable: idea.fetchable,
     screenshot,
     knownGroups: ws.templateGroups ?? [],
+    framework: overrides.framework ?? null,
+    blockType: overrides.blockType ?? null,
+    channel: overrides.channel ?? null,
+    granularity: overrides.granularity ?? null,
+    brandVoice: ws.brandVoice ?? null,
+    audience: ws.audience ?? null,
   });
 
-  const template = await createTemplate(ctx, workspaceId, {
-    title: result.title,
-    body: result.body,
-    category: result.category as TemplateCategoryId,
-    group: result.group,
-    sourceIdeaId: idea.id,
-    topic: null,
-    tags: [],
-  });
+  let template;
+  try {
+    template = await createTemplate(ctx, workspaceId, {
+      title: result.title,
+      body: result.body,
+      category: result.category as TemplateCategoryId,
+      group: result.group,
+      sourceIdeaId: idea.id,
+      topic: null,
+      tags: [],
+      framework: result.framework,
+      blockType: result.blockType,
+      moduleSize: result.moduleSize as ModuleSizeId,
+      channel: result.channel,
+      format: result.format,
+      tier: result.tier as TemplateTier,
+      parentTemplateId: null,
+      placeholders: result.placeholders,
+      confidence: result.confidence,
+      warnings: result.warnings,
+      sourceSnapshot: result.sourceSnapshot,
+    });
+  } catch {
+    return NextResponse.json({ error: "templatize_failed" }, { status: 502 });
+  }
 
   await updateIdeaItem(ctx, workspaceId, ideaId, {
     status: "templatized",

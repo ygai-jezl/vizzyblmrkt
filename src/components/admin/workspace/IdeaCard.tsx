@@ -6,6 +6,8 @@ import type { IdeaItem } from "@/lib/types/ideaItem";
 import type { Template } from "@/lib/types/template";
 import { GroupCombobox } from "./GroupCombobox";
 import { templateCategoryLabel } from "@/lib/content/templateCategories";
+import { frameworkLabel } from "@/lib/content/frameworks";
+import { blockLabel } from "@/lib/content/blocks";
 
 export function IdeaCard({
   workspaceId,
@@ -116,6 +118,19 @@ export function IdeaCard({
             <span className="text-neutral-400">·</span>
             <GroupCombobox value={template.group} options={groups} onChange={changeGroup} />
             <span className="text-[11px] text-green-600 dark:text-green-400">✨ AI suggested</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1 text-[11px] text-neutral-500">
+            {template.framework ? (
+              <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
+                {frameworkLabel(template.framework)}
+              </span>
+            ) : null}
+            {template.blockType ? (
+              <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
+                {blockLabel(template.blockType)}
+              </span>
+            ) : null}
+            <span>{template.placeholders?.length ?? 0} variables</span>
           </div>
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-xs dark:bg-neutral-900">
             {template.body}

@@ -22,6 +22,10 @@ export const WorkspaceSchema = z.object({
   defaultTags: z.array(z.string()).default([]),
   /** Custom structural group names accumulated from templatizing (combobox options). */
   templateGroups: z.array(z.string()).default([]),
+  /** Brand voice description (Identity section of generation prompts). */
+  brandVoice: z.string().max(2000).nullable().optional(),
+  /** Target audience / reader persona (UserProfile section of generation prompts). */
+  audience: z.string().max(2000).nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   /** Set when the workspace is archived (hidden from the active list). */

@@ -196,8 +196,10 @@ export const TenantSchema = z.object({
   emailSenderConfig: EmailSenderConfigSchema.optional(),
   /** Unified CRM feature gates (enrichment / engagement / EU DPA). */
   crmConfig: CrmTenantConfigSchema.optional(),
-  /** Per-provider OAuth git connections (encrypted tokens) for private-repo ingest. */
-  gitConnections: z.record(z.enum(["github", "gitlab"]), GitConnectionSchema).optional(),
+  /** Per-provider OAuth git connections (encrypted tokens) for private-repo ingest.
+   *  String-keyed (not an enum record) so a tenant with only ONE provider connected
+   *  still parses — an enum-keyed z.record is exhaustive and would require both. */
+  gitConnections: z.record(z.string(), GitConnectionSchema).optional(),
   /**
    * Tenant-level multilingual defaults — the brand's fallback content language
    * (`defaultLocale`) and allow-list (`supportedLocales`) used when a launch does

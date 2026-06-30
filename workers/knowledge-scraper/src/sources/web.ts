@@ -1,17 +1,19 @@
 import { parse, type HTMLElement } from "node-html-parser";
 import TurndownService from "turndown";
 import { safeFetch, assertPublicUrl } from "../ssrf";
+import { renderPage, closeBrowser } from "../render";
 
 /**
  * Same-origin shallow web crawler. Fetches HTML (SSRF-safe, manual redirects),
  * strips chrome (nav/header/footer/script/style/aside), and converts the main
- * content to markdown. NOTE (documented limitation): this does NOT execute
- * JavaScript, so SPA/JS-only sites that render content client-side will yield
- * little — those need a headless-rendering backend (a follow-up). Server-rendered
- * docs sites (the common case) convert well.
+ * content to markdown. Server-rendered pages convert directly; for JavaScript-
+ * rendered (SPA) pages whose static HTML is thin, it FALLS BACK to a headless
+ * browser (render.ts) that executes JS, then re-extracts — so SPA sites index too.
  */
 
 const UA = "VizzyblKnowledgeBot/1.0 (+https://yougrow.ai)";
+// Below this many chars of extracted markdown, retry the page via headless render.
+const MIN_STATIC_CHARS = 200;
 const STRIP = ["script", "style", "noscript", "nav", "header", "footer", "aside", "form", "svg", "iframe"];
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
@@ -70,27 +72,39 @@ export async function crawlAndCollect(opts: {
   const queue: string[] = [start.toString()];
   const pages: CrawledPage[] = [];
 
-  while (queue.length > 0 && pages.length < opts.maxPages) {
-    const next = queue.shift()!;
-    if (seen.has(next)) continue;
-    seen.add(next);
-    try {
-      const res = await safeFetch(next, { headers: { "User-Agent": UA } });
-      if (!res.ok) continue;
-      const ct = res.headers.get("content-type") ?? "";
-      if (!ct.includes("text/html")) continue;
-      const html = await res.text();
-      const { title, markdown, links } = extract(html, next, origin);
-      if (markdown) pages.push({ url: next, title, markdown });
-      for (const link of links) {
-        if (!seen.has(link) && queue.length + pages.length < opts.maxPages * 4) {
-          queue.push(link);
+  try {
+    while (queue.length > 0 && pages.length < opts.maxPages) {
+      const next = queue.shift()!;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      try {
+        const res = await safeFetch(next, { headers: { "User-Agent": UA } });
+        if (!res.ok) continue;
+        const ct = res.headers.get("content-type") ?? "";
+        if (!ct.includes("text/html")) continue;
+        const html = await res.text();
+        let { title, markdown, links } = extract(html, next, origin);
+        // SPA fallback: static HTML was thin → render with JS and re-extract.
+        if (markdown.length < MIN_STATIC_CHARS) {
+          const rendered = await renderPage(next).catch(() => null);
+          if (rendered) {
+            const r = extract(rendered, next, origin);
+            if (r.markdown.length > markdown.length) ({ title, markdown, links } = r);
+          }
         }
+        if (markdown) pages.push({ url: next, title, markdown });
+        for (const link of links) {
+          if (!seen.has(link) && queue.length + pages.length < opts.maxPages * 4) {
+            queue.push(link);
+          }
+        }
+      } catch {
+        // skip a page that fails SSRF/fetch/parse/render; keep crawling the rest
+        continue;
       }
-    } catch {
-      // skip a page that fails SSRF/fetch/parse; keep crawling the rest
-      continue;
     }
+  } finally {
+    await closeBrowser(); // tear down the shared browser if the fallback launched it
   }
   return { pages, pagesProcessed: pages.length };
 }

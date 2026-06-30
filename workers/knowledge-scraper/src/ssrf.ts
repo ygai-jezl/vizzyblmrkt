@@ -24,6 +24,22 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
+/**
+ * Boolean host screen reused by the headless renderer's request interceptor: a host
+ * is public iff it isn't a literal private name and EVERY resolved address is public.
+ * Fails closed (false) on any resolution error.
+ */
+export async function isHostPublic(host: string): Promise<boolean> {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!h || h === "localhost" || h.endsWith(".internal") || h.endsWith(".local")) return false;
+  try {
+    const addrs = await lookup(h, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !isPrivateIp(a.address));
+  } catch {
+    return false;
+  }
+}
+
 export async function assertPublicUrl(raw: string): Promise<URL> {
   let url: URL;
   try {

@@ -51,8 +51,8 @@ DEPLOY_ARGS=(
   --image="${IMAGE}"
   --task-timeout=3600s
   --max-retries=1
-  --cpu=1
-  --memory=2Gi
+  --cpu=2
+  --memory=4Gi
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}"
 )
 [[ -n "${JOB_SA:-}" ]] && DEPLOY_ARGS+=(--service-account="${JOB_SA}")

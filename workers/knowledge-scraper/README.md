@@ -62,7 +62,7 @@ creates/updates the `knowledge-scraper` Cloud Run Job (timeout 900s, 1 vCPU, 2Gi
 IAM (grant separately):
 - **Job runtime SA** (`JOB_SA`, else default compute SA): `roles/datastore.user`,
   `roles/aiplatform.user`, and secret access for `git-token-github` / `git-token-gitlab`.
-- **App Hosting runtime SA**: `run.jobs.runWithOverrides` on this job (so the app can
+- **App Hosting runtime SA**: `run.jobs.run` + `run.jobs.runWithOverrides` on this job (so the app can
   trigger it).
 
 Secrets (optional, for private repos), with the viewer + secretAccessor + service-agent

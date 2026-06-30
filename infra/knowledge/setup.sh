@@ -12,7 +12,7 @@
 #       roles/datastore.user + knowledgeScraperPredict (aiplatform.endpoints.predict)
 #       + roles/logging.logWriter
 #   firebase-app-hosting-compute@<project> -> the TRIGGER (the Next.js ingest route)
-#       knowledgeJobInvoker (run.jobs.runWithOverrides + get) bound ON THE JOB
+#       knowledgeJobInvoker (run.jobs.run + runWithOverrides + get) bound ON THE JOB
 #
 # Usage (run in ORDER; DEV first, validate, THEN prod):
 #   ./setup.sh sa      <project>   # create the dedicated runtime SA (idempotent)
@@ -83,7 +83,10 @@ ensure_role() { # <id> <title> <permissions>
 
 roles() {
   echo "==> Custom roles in ${PROJECT}"
-  ensure_role "${INVOKER_ROLE}" "Knowledge Job Invoker" "run.jobs.runWithOverrides,run.jobs.get"
+  # NOTE: the RunJob RPC checks the BASE run.jobs.run permission too (not only
+  # runWithOverrides) — a runWithOverrides-only role yields PERMISSION_DENIED on
+  # 'run.jobs.run'. Include all three.
+  ensure_role "${INVOKER_ROLE}" "Knowledge Job Invoker" "run.jobs.run,run.jobs.runWithOverrides,run.jobs.get"
   ensure_role "${PREDICT_ROLE}" "Knowledge Scraper Predict" "aiplatform.endpoints.predict"
 }
 

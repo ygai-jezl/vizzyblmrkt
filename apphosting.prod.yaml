@@ -100,13 +100,14 @@ env:
   # regional Vertex endpoint per residency region (no `global`); the ADK retrieval
   # route reuses CANVAS_CONTEXT_SIGNING_KEY (already set below).
   - variable: KNOWLEDGE_RAG_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
-  # - variable: KNOWLEDGE_JOB_NAME      # set once workers/knowledge-scraper is deployed
-  #   value: knowledge-scraper
-  #   availability:
-  #     - RUNTIME
+  # The prod knowledge-scraper Cloud Run Job is deployed (infra/knowledge/setup.sh).
+  - variable: KNOWLEDGE_JOB_NAME
+    value: knowledge-scraper
+    availability:
+      - RUNTIME
   - variable: KNOWLEDGE_JOB_LOCATION
     value: us-central1
     availability:
@@ -221,5 +222,32 @@ env:
   #   firebase apphosting:secrets:set gemini-live-api-key --project vizzybl-marketing-prod
   - variable: GEMINI_LIVE_API_KEY
     secret: gemini-live-api-key
+    availability:
+      - RUNTIME
+
+  # Git integrations (private-repo knowledge ingestion). The Next.js app runs the
+  # OAuth flow + encrypts the per-tenant token (keyed by GIT_TOKEN_ENC_KEY); the
+  # knowledge-scraper Job decrypts it at clone time (GIT_TOKEN_ENC_KEY is ALSO wired
+  # onto the Job — see deploy.sh / setup.sh). All five secrets exist in the prod
+  # project with the grant-access triple. The OAuth apps' callback URLs are
+  # <GIT_OAUTH_ORIGIN>/api/admin/integrations/{github,gitlab}/callback.
+  - variable: GIT_TOKEN_ENC_KEY
+    secret: git-token-enc-key
+    availability:
+      - RUNTIME
+  - variable: GITHUB_OAUTH_CLIENT_ID
+    secret: github-oauth-client-id
+    availability:
+      - RUNTIME
+  - variable: GITHUB_OAUTH_CLIENT_SECRET
+    secret: github-oauth-client-secret
+    availability:
+      - RUNTIME
+  - variable: GITLAB_OAUTH_CLIENT_ID
+    secret: gitlab-oauth-client-id
+    availability:
+      - RUNTIME
+  - variable: GITLAB_OAUTH_CLIENT_SECRET
+    secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME

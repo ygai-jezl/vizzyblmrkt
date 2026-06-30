@@ -25,6 +25,10 @@ const EMBED_TOKEN_BUDGET = 12000; // ~1.6× headroom under the 20k hard cap
 const EMBED_MAX_INSTANCES = 250;
 const PER_INSTANCE_CAP = 2048; // autoTruncate truncates each instance to this
 
+// Embed planned batches with bounded concurrency (Vertex allows healthy QPS; the
+// 429/5xx backoff below absorbs the occasional rate-limit). Tunable per env.
+const EMBED_CONCURRENCY = Math.max(1, Math.min(16, Number(process.env.KNOWLEDGE_EMBED_CONCURRENCY) || 6));
+
 const auth = new GoogleAuth({
   scopes: ["https://www.googleapis.com/auth/cloud-platform"],
 });
@@ -145,6 +149,30 @@ async function embedBatch(
   return out;
 }
 
+/**
+ * Run an async fn over items with a bounded number of in-flight calls, preserving
+ * input order in the results. A pool of `limit` workers each pull the next index
+ * until exhausted. If any call throws, the rejection propagates (the ticket fails).
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+  const n = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
+
 /** Embed document chunks. Throws on any failure (so the pipeline fails the ticket). */
 export async function embedDocuments(
   items: EmbedItem[],
@@ -156,9 +184,9 @@ export async function embedDocuments(
   if (!token) throw new Error("embeddings_no_access_token");
   const url = predictUrl(project, region);
 
-  const out: number[][] = [];
-  for (const batch of planEmbedBatches(items)) {
-    out.push(...(await embedBatch(batch, token, url)));
-  }
-  return out;
+  // Embed the planned request-batches concurrently (bounded), preserving order.
+  const batched = await mapWithConcurrency(planEmbedBatches(items), EMBED_CONCURRENCY, (batch) =>
+    embedBatch(batch, token, url),
+  );
+  return batched.flat();
 }

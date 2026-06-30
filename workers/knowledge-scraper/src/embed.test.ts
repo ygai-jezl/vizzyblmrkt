@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planEmbedBatches, type EmbedItem } from "./embed";
+import { planEmbedBatches, mapWithConcurrency, type EmbedItem } from "./embed";
 
 const item = (chars: number): EmbedItem => ({ content: "x".repeat(chars) });
 
@@ -39,5 +39,32 @@ describe("planEmbedBatches", () => {
     const items = Array.from({ length: 60 }, (_, i) => item(4000 + i));
     const flat = planEmbedBatches(items).flat();
     expect(flat).toEqual(items);
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("preserves input order regardless of completion timing", async () => {
+    const items = [40, 10, 30, 20, 5];
+    const out = await mapWithConcurrency(items, 3, async (ms, i) => {
+      await new Promise((r) => setTimeout(r, ms));
+      return i; // return the index to verify ordering
+    });
+    expect(out).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("never exceeds the concurrency limit", async () => {
+    let active = 0;
+    let peak = 0;
+    await mapWithConcurrency(Array.from({ length: 20 }), 4, async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+    });
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it("handles empty input", async () => {
+    expect(await mapWithConcurrency([], 4, async () => 1)).toEqual([]);
   });
 });

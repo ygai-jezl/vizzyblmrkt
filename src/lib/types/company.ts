@@ -58,7 +58,7 @@ export const CompanySchema = z.object({
   enrichmentStatus: CompanyEnrichmentStatus,
   profile: CompanyProfileSchema.nullable().optional(),
   source: z.enum(["agent1", "manual", "import"]).nullable().optional(),
-  model: z.string().nullable().optional(), // e.g. "gemini-3.5-flash"
+  model: z.string().nullable().optional(), // the Gemini model id used for enrichment
   /** Whether Google Search grounding actually ran for this profile. */
   groundingUsed: z.boolean().optional(),
   /** Denormalised count of contacts associated to this company. */

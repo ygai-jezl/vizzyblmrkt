@@ -18,19 +18,15 @@ by the composite `user_id` the proxy sends (see context/memory_config.py).
 
 from __future__ import annotations
 
-import os
-
 from . import _project_fix  # noqa: F401  MUST precede google-auth — see _project_fix.py
 from google.adk.agents import LlmAgent
 
 from .callbacks.chat_mode import apply_chat_mode
 from .callbacks.context_envelope import apply_context_envelope
 from .context.brand_context import build_dynamic_instruction
+from .model_config import DEFAULT_MODEL
 from .sub_agents.campaign_ops.agent import campaign_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
-
-# Flash for speed/cost; thinking is selected per-request via the [mode:] prefix.
-DEFAULT_MODEL = os.environ.get("ROOT_AGENT_MODEL", "gemini-3.5-flash")
 
 root_agent = LlmAgent(
     name="vizzybl_marketing_root",

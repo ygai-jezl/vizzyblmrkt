@@ -130,6 +130,25 @@ env:
     availability:
       - RUNTIME
 
+  # Optional generative-model overrides. Defaults are the single source of truth in
+  # CODE — src/lib/agents/modelConfig.ts (TS app) and agents/root_agent/model_config.py
+  # (ADK agents). Leaving these commented means prod uses those code defaults;
+  # uncomment to pin a model in prod without a code change. The embedding model is
+  # NOT here — it is pinned in src/lib/types/knowledgeBase.ts (coupled to the vector
+  # index dimension; changing it is a re-embed migration, not a config flip).
+  # - variable: GEMINI_TEXT_MODEL
+  #   value: gemini-3.5-flash
+  #   availability:
+  #     - RUNTIME
+  # - variable: GEMINI_IMAGE_MODEL
+  #   value: imagen-4.0-generate-001
+  #   availability:
+  #     - RUNTIME
+  # - variable: GEMINI_LIVE_MODEL
+  #   value: gemini-3.1-flash-live-preview
+  #   availability:
+  #     - RUNTIME
+
   # WORM audit trail: a GCS bucket with a LOCKED retention policy where launch
   # deletions are recorded immutably. The runtime SA holds objectCreator only
   # (append, never read/overwrite/delete). Provision via infra/audit-log/setup.sh

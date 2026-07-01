@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import { LOCALES } from "../src/lib/i18n/locale";
+import { DEFAULT_TEXT_MODEL } from "../src/lib/agents/modelConfig";
 
 try {
   process.loadEnvFile(join(process.cwd(), ".env.local"));
@@ -27,7 +28,11 @@ try {
 }
 
 const MESSAGES_DIR = join(process.cwd(), "src/lib/i18n/messages");
-const MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-3.5-flash";
+// Resolved HERE (after loadEnvFile above), not imported from modelConfig, so a
+// GEMINI_TEXT_MODEL set only in .env.local is honored — a module-level import
+// would resolve process.env before loadEnvFile runs. The literal default is still
+// centralized (imported), so the model id is never duplicated.
+const MODEL = process.env.GEMINI_TEXT_MODEL ?? DEFAULT_TEXT_MODEL;
 
 type Catalog = Record<string, string>;
 

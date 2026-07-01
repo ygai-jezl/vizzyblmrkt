@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { TEXT_MODEL, IMAGE_MODEL } from "./modelConfig";
 
 /**
  * Thin Gemini client. Three auth modes (first match wins):
@@ -10,9 +11,6 @@ import { GoogleGenAI } from "@google/genai";
  * Returns null when unconfigured so callers degrade gracefully (templated copy /
  * no image) instead of throwing.
  */
-const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-3.5-flash";
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "imagen-4.0-generate-001";
-
 let cached: GoogleGenAI | null | undefined;
 
 function getClient(): GoogleGenAI | null {

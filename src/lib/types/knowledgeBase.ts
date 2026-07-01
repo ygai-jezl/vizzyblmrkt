@@ -25,6 +25,17 @@ export type KnowledgeChunkSource = z.infer<typeof KnowledgeChunkSource>;
 export const KnowledgeOwnerKind = z.enum(["campaign", "workspace"]);
 export type KnowledgeOwnerKind = z.infer<typeof KnowledgeOwnerKind>;
 
+/**
+ * PINNED source of truth for the embedding model + its vector dimension. NOT
+ * env-overridable by design: the model id is coupled to the Firestore vector index
+ * dimension (768), stamped via `z.literal` onto every stored KnowledgeChunk
+ * (below), and baked into every already-embedded document across the regional DBs.
+ * Changing it is a deliberate re-embedding migration (new model + re-embed the
+ * corpus + rebuild the vector indexes), never a config flip. The isolated worker
+ * keeps a mirrored copy (workers/knowledge-scraper/src/embed.ts) guarded by
+ * src/lib/types/embeddingModelSync.test.ts. Generative (env-overridable) model ids
+ * live in src/lib/agents/modelConfig.ts instead.
+ */
 export const EMBEDDING_MODEL = "text-embedding-005" as const;
 export const EMBEDDING_DIM = 768 as const;
 

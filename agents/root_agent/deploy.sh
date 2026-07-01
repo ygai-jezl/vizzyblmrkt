@@ -90,6 +90,10 @@ if [ -n "$CANVAS_CALLBACK_URL" ]; then
   CANVAS_ENTRY=",
     \"CANVAS_CALLBACK_URL\": \"${CANVAS_CALLBACK_URL}\""
 fi
+# ROOT_AGENT_MODEL below is the deploy-time env override for the ADK agents; it
+# wins at runtime on the deployed engine. Keep it in sync with the code default in
+# agents/root_agent/model_config.py (DEFAULT_MODEL) unless intentionally pinning a
+# different model for the deployed engine.
 cat > "$SCRIPT_DIR/.agent_engine_config.json" <<EOF
 {
   "identity_type": "SERVICE_ACCOUNT",

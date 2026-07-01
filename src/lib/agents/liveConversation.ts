@@ -4,6 +4,7 @@ import {
   liveCodeFor,
   resolveCampaignLocale,
 } from "@/lib/i18n/locale";
+import { LIVE_MODEL } from "./modelConfig";
 import { renderPrompt } from "./prompts/registry";
 import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 
@@ -13,9 +14,9 @@ import { resolveProductName, type Campaign } from "@/lib/types/campaign";
  * ephemeral token via `liveConnectConstraints` and never reaches the browser.
  */
 
-/** The Gemini Live model for the conversation. Overridable per environment. */
-export const LIVE_MODEL =
-  process.env.GEMINI_LIVE_MODEL ?? "gemini-3.1-flash-live-preview";
+/** The Gemini Live model for the conversation. Single source of truth in
+ *  modelConfig; re-exported here so existing importers keep their path. */
+export { LIVE_MODEL };
 
 /**
  * Native-audio Live models (our default) switch language naturally and REJECT

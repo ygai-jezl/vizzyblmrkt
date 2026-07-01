@@ -29,6 +29,7 @@ export default async function ContentPlanPage({
     channel: t.channel ?? null,
     blockType: t.blockType ?? null,
     tier: t.tier ?? null,
+    framework: t.framework ?? null,
   }));
 
   return (

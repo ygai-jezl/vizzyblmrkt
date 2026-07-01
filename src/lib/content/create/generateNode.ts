@@ -3,6 +3,7 @@ import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
+import { getFramework } from "@/lib/content/frameworks";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { bodyTokens } from "@/lib/content/placeholders";
 import { fillTemplate, withDynamicTokens, unfilledTokens } from "./fillTemplate";
@@ -188,9 +189,18 @@ export async function generateNode(
       node.type === "spoke"
         ? `${channelBlueprint(node.channel)} ${transformFor(hubBlockType, node.channel).hint}`
         : channelBlueprint(node.channel);
+    // A spoke carries a content ANGLE (framework) — inject its shape ALONGSIDE the
+    // channel blueprint so the same angle reads natively differently per channel.
+    const fwId = node.type === "spoke" ? node.framework ?? null : null;
+    const fw = fwId ? getFramework(fwId) : undefined;
+    const angleGuidance = fw
+      ? `Content ANGLE — ${fw.label}: ${fw.description} Shape it this way: ${fw.structureHint} ` +
+        `Keep this angle's shape, but render it NATIVELY for the channel above (e.g. X → a numbered thread ≤280 chars per part; LinkedIn → a scannable one-idea-per-line list).`
+      : "";
     const task = renderPrompt("content.fill", {
       channel: node.channel,
       channel_blueprint: blueprint,
+      angle_guidance: angleGuidance,
       role: node.role,
       brief: node.brief || "(none)",
       spark: plan.scope.spark || "(none)",

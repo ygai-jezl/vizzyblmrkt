@@ -1,6 +1,7 @@
 "use client";
 
 import { CHANNELS, channelLabel, formatLabel } from "@/lib/content/channels";
+import { CORE_ANGLES, frameworkLabel } from "@/lib/content/frameworks";
 import type { ContentNode } from "@/lib/types/contentPlan";
 import type { TemplateOption } from "./types";
 
@@ -112,6 +113,26 @@ export function ContentNodeInspector({
           </select>
         </label>
       </div>
+
+      {/* Content ANGLE — only spokes carry one. Changing it + Regenerate re-drafts in the
+          new angle (saveThenGenerate persists it before the server reads the node). */}
+      {node.type === "spoke" ? (
+        <label className="mb-4 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Angle
+          <select
+            value={node.framework ?? ""}
+            onChange={(e) => onUpdate({ framework: e.target.value || null })}
+            className={`mt-1 w-full ${SELECT}`}
+          >
+            <option value="">No angle (channel-only)</option>
+            {CORE_ANGLES.map((id) => (
+              <option key={id} value={id}>
+                {frameworkLabel(id)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
 
       {/* Brief is the AI's generation instruction — editable so the user can refine it
           before (or between) Generate runs; the canvas persists it before generating. */}

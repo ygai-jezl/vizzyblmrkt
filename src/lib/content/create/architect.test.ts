@@ -16,6 +16,7 @@ vi.mock("@/lib/agents/gemini", () => ({
 
 import { architectPlan, type ArchitectInput } from "./architect";
 import { generateText } from "@/lib/agents/gemini";
+import { CORE_ANGLES } from "@/lib/content/frameworks";
 
 const mocked = vi.mocked(generateText);
 
@@ -33,42 +34,78 @@ const baseInput: ArchitectInput = {
 describe("architectPlan", () => {
   beforeEach(() => mocked.mockReset());
 
-  it("builds the canonical hub-and-spoke skeleton (pre/hub/post + 1 spoke/channel)", async () => {
+  it("builds hub + promos + an (angle × channel) spoke matrix from the proposed angles", async () => {
     mocked.mockResolvedValue(
       JSON.stringify({
         nodes: [
           { type: "promo_pre", channel: "linkedin", blockType: "hook", brief: "tease it" },
           { type: "hub", channel: "newsletter", blockType: "full-post", brief: "the pillar" },
           { type: "promo_post", channel: "linkedin", blockType: "cta", brief: "drive clicks" },
-          { type: "spoke", channel: "linkedin", blockType: "takeaway-list", brief: "li angle" },
-          { type: "spoke", channel: "x", blockType: "data-point", brief: "x angle" },
+        ],
+        angles: [
+          { id: "listicle", brief: "li brief" },
+          { id: "observation", brief: "obs brief" },
         ],
       }),
     );
     const { nodes, edges } = await architectPlan(baseInput);
-    expect(nodes.map((n) => n.type)).toEqual(["promo_pre", "hub", "promo_post", "spoke", "spoke"]);
-    expect(nodes.every((n) => n.status === "empty" && n.body === "")).toBe(true);
-    const hub = nodes.find((n) => n.type === "hub")!;
-    expect(hub.brief).toBe("the pillar");
-    expect(nodes.find((n) => n.channel === "x")!.brief).toBe("x angle");
-    // pre→hub, hub→post, hub→each spoke = 4 edges
-    expect(edges).toHaveLength(4);
-    expect(edges.filter((e) => e.source === hub.id)).toHaveLength(3); // post + 2 spokes
-  });
-
-  it("falls back to a deterministic skeleton when Gemini returns nothing", async () => {
-    mocked.mockResolvedValue(null);
-    const { nodes } = await architectPlan(baseInput);
-    expect(nodes).toHaveLength(5); // pre + hub + post + 2 spokes (linkedin, x)
+    // 2 proposed angles × 2 channels = 4 spokes, plus pre/hub/post.
     expect(nodes.map((n) => n.type)).toEqual([
       "promo_pre",
       "hub",
       "promo_post",
       "spoke",
       "spoke",
+      "spoke",
+      "spoke",
     ]);
-    // briefs are populated by the fallback
+    expect(nodes.every((n) => n.status === "empty" && n.body === "")).toBe(true);
+    const hub = nodes.find((n) => n.type === "hub")!;
+    expect(hub.brief).toBe("the pillar");
+    expect(hub.framework ?? null).toBeNull(); // hub carries no angle
+    // Every proposed angle rendered for every selected channel.
+    const spokes = nodes.filter((n) => n.type === "spoke");
+    expect(spokes.map((s) => `${s.framework}:${s.channel}`).sort()).toEqual(
+      ["listicle:linkedin", "listicle:x", "observation:linkedin", "observation:x"].sort(),
+    );
+    // pre→hub, hub→post, hub→each spoke = 6 edges; hub has 5 outgoing.
+    expect(edges).toHaveLength(6);
+    expect(edges.filter((e) => e.source === hub.id)).toHaveLength(5);
+  });
+
+  it("falls back to the full core-angle matrix when Gemini returns nothing", async () => {
+    mocked.mockResolvedValue(null);
+    const { nodes } = await architectPlan(baseInput);
+    // 5 core angles × 2 channels = 10 spokes, + pre/hub/post = 13.
+    expect(nodes).toHaveLength(13);
+    expect(nodes.filter((n) => n.type === "spoke")).toHaveLength(10);
+    expect(nodes.map((n) => n.type).slice(0, 3)).toEqual(["promo_pre", "hub", "promo_post"]);
+    // Every fallback spoke carries a CORE angle; every node has a populated brief.
+    expect(
+      nodes
+        .filter((n) => n.type === "spoke")
+        .every((n) => (CORE_ANGLES as readonly string[]).includes(n.framework ?? "")),
+    ).toBe(true);
     expect(nodes.every((n) => (n.brief ?? "").length > 0)).toBe(true);
+  });
+
+  it("dedupes proposed angles and drops ids outside the core library", async () => {
+    mocked.mockResolvedValue(
+      JSON.stringify({
+        nodes: [{ type: "hub", channel: "newsletter", blockType: "full-post", brief: "h" }],
+        angles: [
+          { id: "listicle", brief: "a" },
+          { id: "listicle", brief: "dup" }, // duplicate
+          { id: "how-to", brief: "not a core angle" }, // valid framework, not core
+          { id: "bogus", brief: "invalid" }, // not a framework at all
+        ],
+      }),
+    );
+    const { nodes } = await architectPlan(baseInput);
+    const spokes = nodes.filter((n) => n.type === "spoke");
+    // Only "listicle" survives → 1 angle × 2 channels = 2 spokes.
+    expect(spokes).toHaveLength(2);
+    expect([...new Set(spokes.map((s) => s.framework))]).toEqual(["listicle"]);
   });
 
   it("filters invalid channels and defaults the promo channel when no spokes", async () => {

@@ -148,10 +148,43 @@ export const CONTENT_FRAMEWORKS: ContentFramework[] = [
       },
     ],
   },
+  {
+    id: "past-vs-present",
+    label: "Past vs. Present",
+    description: "The old/then way vs the new/now way — a temporal contrast.",
+    structureHint:
+      "Set up how it used to be, mark the shift, then show how it is now and why it's better.",
+    examples: [
+      {
+        input:
+          "Five years ago, launching meant a big-bang release and hoping.\nThen we started shipping weekly.\nNow we learn from real users before we've bet the quarter.",
+        template: "{{TimeAgo}}, {{OldWay}}.\nThen {{Shift}}.\nNow {{NewWay}}.",
+      },
+    ],
+  },
 ];
 
 const FRAMEWORK_IDS = new Set(CONTENT_FRAMEWORKS.map((f) => f.id));
 export const DEFAULT_FRAMEWORK = "observation";
+
+/**
+ * The CORE content ANGLES the Create Architect atomizes a hub into — a fixed subset
+ * of the frameworks above. A subset is AI-proposed per hub; each chosen angle is then
+ * rendered once per selected channel (the channel decides the native format, so a
+ * Listicle on X becomes a numbered thread, on LinkedIn a scannable list).
+ */
+export const CORE_ANGLES = [
+  "story-pas",
+  "observation",
+  "listicle",
+  "contrarian",
+  "past-vs-present",
+] as const;
+export type CoreAngle = (typeof CORE_ANGLES)[number];
+
+export function isCoreAngle(id: string): boolean {
+  return (CORE_ANGLES as readonly string[]).includes(id);
+}
 
 export function isFramework(id: string): boolean {
   return FRAMEWORK_IDS.has(id);

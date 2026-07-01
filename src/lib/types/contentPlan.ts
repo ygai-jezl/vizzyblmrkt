@@ -49,9 +49,9 @@ export const ContentNodeStatus = z.enum([
 export type ContentNodeStatus = z.infer<typeof ContentNodeStatus>;
 
 // Caps keep a saved graph bounded (anti-poisoning): a plan can't carry a runaway
-// node count or megabyte bodies. Generous vs the real topology (hub + 2 promos +
-// up to ~6 spokes ≈ 9 nodes) but a hard ceiling.
-const MAX_NODES = 40;
+// node count or megabyte bodies. The spider-web can reach 5 core angles × up to 8
+// channels = 40 spokes + hub + 2 promos = 43; 60 leaves room for a few manual adds.
+const MAX_NODES = 60;
 const MAX_EDGES = 80;
 const MAX_BODY_CHARS = 20000;
 
@@ -69,6 +69,10 @@ export const ContentNodeSchema = z.object({
   position: z.object({ x: z.number(), y: z.number() }),
   /** A workspace Template skeleton this node draws from (if one was matched). */
   templateId: z.string().max(64).nullable().optional(),
+  /** Content ANGLE for a spoke (framework id, src/lib/content/frameworks.ts); null for
+   *  hub/promo. Angles live on the node — the graph is the source of truth. Optional so
+   *  pre-existing saved plans (no angle) still parse and generate as before. */
+  framework: z.string().max(40).nullable().optional(),
   /** Per-node generation instruction the Architect wrote. */
   brief: z.string().max(2000).nullable().optional(),
   /** FINAL filled copy — "" until generated. This IS the Distribute payload body. */

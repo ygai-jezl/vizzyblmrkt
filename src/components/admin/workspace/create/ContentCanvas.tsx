@@ -16,6 +16,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
+import { frameworkLabel } from "@/lib/content/frameworks";
 import { HubNode, PromoNode, SpokeNode, type ContentNodeData } from "./contentNodes";
 import { ContentNodeInspector } from "./ContentNodeInspector";
 import { AddNodePalette } from "./AddNodePalette";
@@ -191,17 +192,23 @@ export function ContentCanvas({
     generateRef.current = saveThenGenerate;
   });
 
-  function addNode(type: ContentNodeType, channel: string) {
+  function addNode(
+    type: ContentNodeType,
+    channel: string,
+    opts?: { framework?: string | null; templateId?: string | null },
+  ) {
     const id = `${type}_${crypto.randomUUID()}`;
+    const framework = type === "spoke" ? opts?.framework ?? null : null;
     const cn: ContentNode = {
       id,
       type,
       channel,
       format: null,
       blockType: blockFor(type),
-      role: roleFor(type, channel),
+      role: framework ? `${frameworkLabel(framework)} → ${channel}` : roleFor(type, channel),
       position: { x: 24, y: 24 + nodes.length * 6 },
-      templateId: null,
+      templateId: opts?.templateId ?? null,
+      framework,
       brief: null,
       body: "",
       placeholderValues: {},
@@ -364,7 +371,7 @@ export function ContentCanvas({
           <Background />
           <Controls />
           <Panel position="top-left">
-            <AddNodePalette onAdd={addNode} />
+            <AddNodePalette onAdd={addNode} templates={templates} />
           </Panel>
         </ReactFlow>
       </div>

@@ -113,11 +113,19 @@ export function ContentNodeInspector({
         </label>
       </div>
 
-      {node.brief ? (
-        <div className="mb-4 rounded-md bg-neutral-50 p-3 text-xs text-neutral-600 dark:bg-neutral-900/40 dark:text-neutral-400">
-          <span className="font-medium text-neutral-500">Brief:</span> {node.brief}
-        </div>
-      ) : null}
+      {/* Brief is the AI's generation instruction — editable so the user can refine it
+          before (or between) Generate runs; the canvas persists it before generating. */}
+      <label className="mb-4 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+        Brief
+        <textarea
+          value={node.brief ?? ""}
+          onChange={(e) => onUpdate({ brief: e.target.value })}
+          rows={4}
+          maxLength={2000}
+          placeholder="The AI's generation instruction for this node — refine it before generating."
+          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      </label>
 
       {node.warnings.length ? (
         <div className="mb-4 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">

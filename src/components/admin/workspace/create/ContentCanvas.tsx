@@ -155,9 +155,41 @@ export function ContentCanvas({
     },
     [workspaceId, planId, patchNode, setNodes],
   );
+  // Persist the graph (fresh brief/channel/template) BEFORE the server reads the node,
+  // then generate. Every SINGLE-node generate entry point funnels through here so an
+  // edited-but-unsaved brief isn't silently ignored (the generate route reads the
+  // PERSISTED node from Firestore, not the request body).
+  async function saveThenGenerate(id: string): Promise<void> {
+    // Claim the busy flag synchronously so a second click is disabled during the save
+    // window (generateOne only sets busy AFTER the save). Short-circuit if already busy.
+    let alreadyBusy = false;
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        const d = n.data as ContentNodeData;
+        if (d.busy || d.cn.status === "generating") {
+          alreadyBusy = true;
+          return n;
+        }
+        return { ...n, data: { ...n.data, busy: true } };
+      }),
+    );
+    if (alreadyBusy) return;
+    const ok = await save();
+    if (!ok) {
+      // Don't generate against a stale brief — clear busy, keep status as-is, tell the user.
+      patchNode(id, { busy: false });
+      setMsg("Save failed — not generated. Check your connection and retry.");
+      return;
+    }
+    await generateOne(id); // re-sets busy:true then clears it — harmless
+  }
+
+  // Keep the node-card Generate button (which fires through the stable generateRef) on
+  // the latest saveThenGenerate, so it persists before generating like the other paths.
   useEffect(() => {
-    generateRef.current = generateOne;
-  }, [generateOne]);
+    generateRef.current = saveThenGenerate;
+  });
 
   function addNode(type: ContentNodeType, channel: string) {
     const id = `${type}_${crypto.randomUUID()}`;
@@ -200,6 +232,13 @@ export function ContentCanvas({
     if (!hubCn) return;
     setBusy(true);
     setMsg(null);
+    // Persist first so the generate route reads the current (possibly edited) hub brief.
+    const ok = await save();
+    if (!ok) {
+      setBusy(false);
+      setMsg("Save failed — hub not generated.");
+      return;
+    }
     await generateOne(hubCn.id);
     setBusy(false);
     setMsg("Hub drafted — review it, then approve to build the spokes.");
@@ -211,6 +250,14 @@ export function ContentCanvas({
     if (!hubApproved) return;
     setBusy(true);
     setMsg(null);
+    // Persist ONCE up front so each generate reads the current briefs. Saving inside the
+    // loop would clobber freshly-generated bodies with the stale render-snapshot nodes.
+    const ok = await save();
+    if (!ok) {
+      setBusy(false);
+      setMsg("Save failed — nothing generated.");
+      return;
+    }
     // Promos + spokes that aren't approved yet, hub excluded; promos before spokes.
     const targets = nodes
       .map(cnOf)
@@ -328,7 +375,7 @@ export function ContentCanvas({
           templates={templates}
           busy={selectedBusy || selectedCn.status === "generating"}
           onUpdate={(patch) => updateCn(selectedCn.id, patch)}
-          onGenerate={() => generateOne(selectedCn.id)}
+          onGenerate={() => saveThenGenerate(selectedCn.id)}
           onApprove={() => updateCn(selectedCn.id, { status: "approved" })}
           onDelete={() => deleteNode(selectedCn.id)}
           onClose={() => setSelectedId(null)}

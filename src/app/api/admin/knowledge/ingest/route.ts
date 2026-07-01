@@ -17,7 +17,10 @@ const IngestSchema = z.object({
   ownerKind: KnowledgeOwnerKind,
   ownerId: z.string().min(1),
   source: KnowledgeChunkSource,
-  sourceUri: z.string().url().max(2048),
+  // A raw string (validated by validateIngestUrl below, which requires https + a
+  // resolvable host). NOT z.string().url() — that rejects a scheme-less "github.com/
+  // foo" that we happily default to https; the front door should be forgiving.
+  sourceUri: z.string().min(1).max(2048),
   // git branch / tag / commit SHA — constrained charset, no leading '-'.
   ref: z
     .string()
@@ -25,11 +28,18 @@ const IngestSchema = z.object({
     .regex(/^(?!-)[A-Za-z0-9._/-]+$/, "invalid ref")
     .optional(),
   includeGlobs: z.array(z.string().max(255)).max(50).optional(),
-  /** Content Matrix topic id (optional). */
-  topic: z.string().min(1).optional(),
+  // Content Matrix topic id (optional). nullish so a re-ingest that echoes a stored
+  // `topic: null` (a topic-less source) is accepted, not rejected as invalid_input.
+  topic: z.string().min(1).nullish(),
   /** Free-form custom tags (aligned to the normalizer's caps: 20 × ≤40 chars). */
   tags: z.array(z.string().max(40)).max(20).optional(),
 });
+
+/** Default a scheme-less URL to https (users paste "github.com/foo"). */
+function normalizeScheme(raw: string): string {
+  const t = raw.trim();
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`;
+}
 
 /**
  * Dispatch a knowledge-ingestion run for a polymorphic owner (campaign|workspace).
@@ -46,7 +56,8 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
-  const { ownerKind, ownerId, source, sourceUri, ref, includeGlobs, topic } = parsed.data;
+  const { ownerKind, ownerId, source, ref, includeGlobs, topic } = parsed.data;
+  const sourceUri = normalizeScheme(parsed.data.sourceUri);
 
   if (topic && !isContentMatrixTopic(topic)) {
     return NextResponse.json({ error: "invalid_topic" }, { status: 400 });

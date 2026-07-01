@@ -13,17 +13,16 @@ activate capability is where ADK `require_confirmation` would belong).
 
 from __future__ import annotations
 
-import os
-
 from google.adk.agents import LlmAgent
 
 from .instruction_builder import build_campaign_ops_instruction
 from .tools.build_journey import build_email_journey
+from ...model_config import DEFAULT_MODEL
 from ...tools.retrieve_knowledge import retrieve_knowledge
 
 campaign_ops_agent = LlmAgent(
     name="campaign_ops_agent",
-    model=os.environ.get("ROOT_AGENT_MODEL", "gemini-3.5-flash"),
+    model=DEFAULT_MODEL,
     description=(
         "Campaign Ops Agent: authors multi-step email journeys on the Journey "
         "Canvas and saves them as drafts for human review. Delegate here when the "

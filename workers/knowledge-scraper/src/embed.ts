@@ -7,6 +7,14 @@ import { embeddingLocation, type Region } from "./config";
  * an isolated package). REGIONAL endpoint — text-embedding-005 has no `global`.
  */
 
+// PINNED, and a MIRROR of the app's source of truth in
+// src/lib/types/knowledgeBase.ts (EMBEDDING_MODEL + EMBEDDING_DIM). These two
+// literals MUST stay identical to that file — an app-side test
+// (src/lib/types/embeddingModelSync.test.ts) reads this file and fails the build
+// on drift. The model is deliberately NOT env-overridable: it is coupled to the
+// Firestore vector-index dimension (768) and to every already-embedded chunk, so
+// changing it is a re-embed migration (new model + rebuilt indexes), never a
+// config flip. The worker can't import @/lib, hence the duplicated literal here.
 export const EMBEDDING_MODEL = "text-embedding-005";
 export const EMBEDDING_DIM = 768;
 

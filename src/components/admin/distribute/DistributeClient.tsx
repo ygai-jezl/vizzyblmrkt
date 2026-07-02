@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import { listSchedulableNodes, friendlyScheduleError } from "@/lib/distribute/uiModel";
+import { scorePPS } from "@/lib/distribute/pps";
 import { channelLabel } from "@/lib/content/channels";
+import { PpsGauge } from "./PpsGauge";
 import { ListView } from "./ListView";
 import { CalendarView } from "./CalendarView";
 import { SchedulePicker } from "./SchedulePicker";
@@ -112,6 +114,11 @@ export function DistributeClient({
     () => listSchedulableNodes(initialPlans, initialPosts),
     [initialPlans, initialPosts],
   );
+  // Score each row once (not on every unrelated re-render, e.g. busy/view toggles).
+  const scoredSchedulable = useMemo(
+    () => schedulable.map((s) => ({ ...s, pps: scorePPS(s.node.body, s.node.channel) })),
+    [schedulable],
+  );
 
   return (
     <div className="space-y-4">
@@ -157,20 +164,23 @@ export function DistributeClient({
       {/* Schedule approved nodes */}
       <div className="rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
         <h3 className="text-sm font-medium">Ready to schedule</h3>
-        {schedulable.length === 0 ? (
+        {scoredSchedulable.length === 0 ? (
           <p className="mt-1 text-xs text-neutral-500">
             No approved, un-scheduled items. Generate + approve nodes in Create first.
           </p>
         ) : (
           <ul className="mt-2 divide-y divide-neutral-200 dark:divide-neutral-800">
-            {schedulable.map((s) => (
+            {scoredSchedulable.map((s) => (
               <li
                 key={`${s.planId}:${s.node.id}`}
                 className="flex flex-wrap items-center justify-between gap-2 py-2"
               >
                 <div className="min-w-0">
-                  <div className="text-xs text-neutral-500">
-                    {s.planName} · {channelLabel(s.node.channel)}
+                  <div className="flex items-center gap-2 text-xs text-neutral-500">
+                    <span>
+                      {s.planName} · {channelLabel(s.node.channel)}
+                    </span>
+                    <PpsGauge pps={s.pps} />
                   </div>
                   <div className="truncate text-sm text-neutral-700 dark:text-neutral-300">
                     {s.node.body.slice(0, 120)}

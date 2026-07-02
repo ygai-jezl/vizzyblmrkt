@@ -72,6 +72,26 @@ describe("schedulePost", () => {
     expect(db.dump(COLLECTION)).toHaveLength(1);
   });
 
+  it("persists the pps score passed in", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    const { post } = await schedulePost(
+      ctx,
+      {
+        workspaceId: WS,
+        contentPlanId: PLAN,
+        nodeId: "n1",
+        channel: "x",
+        body: "hi",
+        pps: { score: 42, breakdown: { hook: 40, brevity: 50, formatting: 50, keyword: 30 } },
+        scheduledAt: FUTURE,
+      },
+      db,
+    );
+    expect(post.pps).toMatchObject({ score: 42 });
+    expect(db.raw(COLLECTION, `post:${WS}:${PLAN}:n1`)!.pps).toMatchObject({ score: 42 });
+  });
+
   it("re-arms an existing pending post to the new time (no duplicate)", async () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();

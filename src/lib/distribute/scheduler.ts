@@ -7,6 +7,7 @@ import {
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
+import type { PpsResult } from "./pps";
 
 /**
  * Distribute delivery worker — drains the `campaign_scheduled_posts` queue and
@@ -231,6 +232,8 @@ export interface SchedulePostInput {
   body: string;
   /** Optional `{a|b|c}` template; one variant is rendered at publish (validated by the route). */
   spintaxSource?: string | null;
+  /** Predictive Performance Score computed at enqueue (re-checked from the body). */
+  pps?: PpsResult | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
 }
@@ -269,6 +272,7 @@ export async function schedulePost(
       body: input.body,
       spintaxSource: input.spintaxSource ?? null,
       renderedVariant: null,
+      pps: input.pps ?? null,
       publishedRef: null,
       lastError: null,
       createdAt: now,
@@ -303,6 +307,7 @@ export async function schedulePost(
         body: input.body,
         spintaxSource: input.spintaxSource ?? null,
         renderedVariant: null, // stale render from a prior arm; re-picked at publish
+        pps: input.pps ?? null,
         channel: input.channel,
         format: input.format ?? null,
       };

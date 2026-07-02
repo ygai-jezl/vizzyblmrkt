@@ -16,6 +16,7 @@ import {
 } from "@/lib/distribute/scheduler";
 import { ScheduledPostChannel } from "@/lib/types/scheduledPost";
 import { validateSpintax, SPINTAX_MAX_SOURCE_CHARS } from "@/lib/distribute/spintax";
+import { scorePPS } from "@/lib/distribute/pps";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,6 +119,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: node.format ?? null,
       body: node.body,
       spintaxSource,
+      // Re-check the score from the copy at enqueue (matches the live preview gauge).
+      pps: scorePPS(node.body, channel.data),
       scheduledAt,
     });
     // Reflect the schedule back onto the source node so the canvas shows it.

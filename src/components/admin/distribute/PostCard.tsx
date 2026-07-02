@@ -3,6 +3,8 @@
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import { channelLabel } from "@/lib/content/channels";
 import { formatUtc } from "@/lib/distribute/uiModel";
+import { scorePPS } from "@/lib/distribute/pps";
+import { PpsGauge } from "./PpsGauge";
 import { SchedulePicker } from "./SchedulePicker";
 import { PreviewToggle } from "./preview/PreviewToggle";
 import { SpintaxToggle } from "./SpintaxToggle";
@@ -38,6 +40,8 @@ export function PostCard({
   busy: boolean;
 }) {
   const isCarouselChannel = post.channel === "linkedin" || post.channel === "instagram";
+  // Prefer the score persisted at schedule; fall back to a live re-score (older posts).
+  const pps = post.pps ?? scorePPS(post.body, post.channel);
   // Only an un-published post can be re-timed or cancelled.
   const editable =
     (post.status === "pending" || post.status === "failed") && !post.publishedRef;
@@ -48,13 +52,16 @@ export function PostCard({
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800">
           {channelLabel(post.channel)}
         </span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-            STATUS_STYLE[post.status] ?? STATUS_STYLE.pending
-          }`}
-        >
-          {post.status}
-        </span>
+        <div className="flex items-start gap-2">
+          <PpsGauge pps={pps} />
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              STATUS_STYLE[post.status] ?? STATUS_STYLE.pending
+            }`}
+          >
+            {post.status}
+          </span>
+        </div>
       </div>
 
       <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">

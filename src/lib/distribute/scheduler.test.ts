@@ -3,6 +3,7 @@ import {
   processScheduledPosts,
   processScheduledPostsForAllTenants,
   schedulePost,
+  setPostSpintax,
   cancelScheduledPost,
   listScheduledPosts,
   SchedulePostConflictError,
@@ -206,6 +207,20 @@ describe("processScheduledPosts", () => {
     expect((raw.publishedRef as { remoteId: string }).remoteId).toBe("123");
   });
 
+  it("renders a spintax variant at publish (recycling)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    await schedulePost(
+      ctx,
+      { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "base", spintaxSource: "{Hi|Hello}", scheduledAt: PAST },
+      db,
+    );
+    await processScheduledPosts(ctx, 25, db);
+    const raw = db.raw(COLLECTION, `post:${WS}:${PLAN}:n1`)!;
+    expect(raw.status).toBe("done");
+    expect(["Hi", "Hello"]).toContain(raw.renderedVariant);
+  });
+
   it("never processes another tenant's post (isolation)", async () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();
@@ -265,6 +280,73 @@ describe("listScheduledPosts", () => {
     seedPost(db, "other", { tenantId: "ten_other", scheduledAt: "2999-02-01T00:00:00.000Z" });
     const posts = await listScheduledPosts(ctx, WS, db);
     expect(posts.map((p) => p.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("setPostSpintax", () => {
+  it("updates the template + clears the render WITHOUT touching time/status", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    // Overdue-but-pending (scheduledAt in the past) — must stay editable.
+    seedPost(db, `post:${WS}:${PLAN}:n1`, {
+      nodeId: "n1",
+      status: "pending",
+      scheduledAt: PAST,
+      renderedVariant: "old",
+    });
+    const { post } = await setPostSpintax(ctx, WS, PLAN, "n1", "{a|b}", db);
+    expect(post.spintaxSource).toBe("{a|b}");
+    const raw = db.raw(COLLECTION, `post:${WS}:${PLAN}:n1`)!;
+    expect(raw.spintaxSource).toBe("{a|b}");
+    expect(raw.renderedVariant).toBeNull();
+    expect(raw.status).toBe("pending"); // unchanged
+    expect(raw.scheduledAt).toBe(PAST); // time untouched (no must_be_future path)
+  });
+
+  it("edits a FAILED post's template without un-failing / re-queuing it", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, `post:${WS}:${PLAN}:n1`, {
+      nodeId: "n1",
+      status: "failed",
+      attempts: 3,
+      lastError: "boom",
+    });
+    await setPostSpintax(ctx, WS, PLAN, "n1", "{a|b}", db);
+    const raw = db.raw(COLLECTION, `post:${WS}:${PLAN}:n1`)!;
+    expect(raw.status).toBe("failed"); // NOT resurrected to pending
+    expect(raw.attempts).toBe(3);
+    expect(raw.lastError).toBe("boom");
+    expect(raw.spintaxSource).toBe("{a|b}");
+  });
+
+  it("clears the template with null", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, `post:${WS}:${PLAN}:n1`, { nodeId: "n1", spintaxSource: "{a|b}" });
+    await setPostSpintax(ctx, WS, PLAN, "n1", null, db);
+    expect(db.raw(COLLECTION, `post:${WS}:${PLAN}:n1`)!.spintaxSource).toBeNull();
+  });
+
+  it("rejects editing a published/done post", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, `post:${WS}:${PLAN}:n1`, {
+      nodeId: "n1",
+      status: "done",
+      publishedRef: { platform: "manual", publishedAt: PAST },
+    });
+    await expect(setPostSpintax(ctx, WS, PLAN, "n1", "{a|b}", db)).rejects.toMatchObject({
+      reason: "already_publishing",
+    });
+  });
+
+  it("rejects a missing post", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    await expect(setPostSpintax(ctx, WS, PLAN, "ghost", "{a|b}", db)).rejects.toMatchObject({
+      reason: "post_not_found",
+    });
   });
 });
 

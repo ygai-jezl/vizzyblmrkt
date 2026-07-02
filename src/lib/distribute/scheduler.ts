@@ -6,6 +6,7 @@ import {
   type ScheduledPost,
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
+import { expandSpintax } from "./spintax";
 
 /**
  * Distribute delivery worker — drains the `campaign_scheduled_posts` queue and
@@ -142,6 +143,14 @@ async function publishPost(
     });
     return;
   }
+  // Spintax: render ONE fresh variant per publish (recycling anti-duplicate). The
+  // rendered copy is what a real Phase-4 adapter would post; stored so the operator
+  // sees exactly which variant went out. Falls back to the source verbatim if the
+  // template is invalid (expandSpintax never throws).
+  const renderedVariant = post.spintaxSource
+    ? expandSpintax(post.spintaxSource)
+    : undefined;
+
   // PHASE 1: release the post for MANUAL publishing (operator posts from the
   // preview's copy action). Replaced in Phase 4 by a per-channel live adapter.
   //
@@ -153,6 +162,7 @@ async function publishPost(
   // Firestore transaction, since the 60s cron can invoke overlapping runs.
   await repo.update(post.id, {
     status: "done",
+    ...(renderedVariant !== undefined ? { renderedVariant } : {}),
     publishedRef: { platform: "manual", publishedAt: new Date().toISOString() },
     processedAt: new Date().toISOString(),
     lastError: null,
@@ -219,6 +229,8 @@ export interface SchedulePostInput {
   channel: ScheduledPostChannel;
   format?: string | null;
   body: string;
+  /** Optional `{a|b|c}` template; one variant is rendered at publish (validated by the route). */
+  spintaxSource?: string | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
 }
@@ -255,6 +267,8 @@ export async function schedulePost(
       attempts: 0,
       claimedAt: null,
       body: input.body,
+      spintaxSource: input.spintaxSource ?? null,
+      renderedVariant: null,
       publishedRef: null,
       lastError: null,
       createdAt: now,
@@ -285,8 +299,10 @@ export async function schedulePost(
         claimedAt: null,
         lastError: null,
         processedAt: null,
-        // Refresh the payload in case the node was edited since first scheduling.
+        // Refresh the payload in case the node/template was edited since scheduling.
         body: input.body,
+        spintaxSource: input.spintaxSource ?? null,
+        renderedVariant: null, // stale render from a prior arm; re-picked at publish
         channel: input.channel,
         format: input.format ?? null,
       };
@@ -306,6 +322,36 @@ export class SchedulePostConflictError extends Error {
     super(reason);
     this.name = "SchedulePostConflictError";
   }
+}
+
+/**
+ * Update ONLY a post's spintax template (and drop any stale render). Unlike
+ * schedulePost this does NOT touch scheduledAt/status/attempts — so editing the
+ * template on an overdue-but-pending post can't hit the route's must_be_future
+ * guard, and editing a FAILED post doesn't silently un-fail + re-queue it.
+ * Rejects a post that's already publishing/done (`already_publishing`) or absent.
+ */
+export async function setPostSpintax(
+  ctx: TenantContext,
+  workspaceId: string,
+  contentPlanId: string,
+  nodeId: string,
+  spintaxSource: string | null,
+  db?: FirestoreLike,
+): Promise<{ post: ScheduledPost }> {
+  const dedupeKey = scheduledPostDedupeKey(workspaceId, contentPlanId, nodeId);
+  const repo = forTenant(ctx, db).scheduledPosts;
+  const existing = await repo.getById(dedupeKey);
+  if (!existing) throw new SchedulePostConflictError("post_not_found");
+  if (
+    existing.publishedRef ||
+    (existing.status !== "pending" && existing.status !== "failed")
+  ) {
+    throw new SchedulePostConflictError("already_publishing");
+  }
+  const patch = { spintaxSource: spintaxSource ?? null, renderedVariant: null };
+  await repo.update(dedupeKey, patch);
+  return { post: { ...existing, ...patch } };
 }
 
 /**

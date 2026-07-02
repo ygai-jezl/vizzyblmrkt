@@ -42,7 +42,7 @@ export function DistributeClient({
   const base = `/api/admin/workspace/${workspaceId}/distribute/schedule`;
 
   const mutate = useCallback(
-    async (method: "POST" | "DELETE", body: Record<string, string>) => {
+    async (method: "POST" | "DELETE" | "PATCH", body: Record<string, string>) => {
       if (inFlight.current) return;
       inFlight.current = true;
       setBusy(true);
@@ -81,6 +81,18 @@ export function DistributeClient({
   const cancel = useCallback(
     (post: ScheduledPost) =>
       mutate("DELETE", { contentPlanId: post.contentPlanId, nodeId: post.nodeId }),
+    [mutate],
+  );
+  // Set/clear the recycling template on a scheduled post. PATCH (not the schedule
+  // re-arm) so it never touches the post's time (no must_be_future on an overdue
+  // post) or its retry/failed state.
+  const setSpintax = useCallback(
+    (post: ScheduledPost, source: string) =>
+      mutate("PATCH", {
+        contentPlanId: post.contentPlanId,
+        nodeId: post.nodeId,
+        spintaxSource: source,
+      }),
     [mutate],
   );
 
@@ -168,9 +180,21 @@ export function DistributeClient({
       </div>
 
       {view === "list" ? (
-        <ListView posts={initialPosts} onReschedule={reschedule} onCancel={cancel} busy={busy} />
+        <ListView
+          posts={initialPosts}
+          onReschedule={reschedule}
+          onCancel={cancel}
+          onSetSpintax={setSpintax}
+          busy={busy}
+        />
       ) : (
-        <CalendarView posts={initialPosts} onReschedule={reschedule} onCancel={cancel} busy={busy} />
+        <CalendarView
+          posts={initialPosts}
+          onReschedule={reschedule}
+          onCancel={cancel}
+          onSetSpintax={setSpintax}
+          busy={busy}
+        />
       )}
     </div>
   );

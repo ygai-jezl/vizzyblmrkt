@@ -9,11 +9,13 @@ import {
 } from "@/lib/tenant/workspaceContent";
 import {
   schedulePost,
+  setPostSpintax,
   cancelScheduledPost,
   listScheduledPosts,
   SchedulePostConflictError,
 } from "@/lib/distribute/scheduler";
 import { ScheduledPostChannel } from "@/lib/types/scheduledPost";
+import { validateSpintax, SPINTAX_MAX_SOURCE_CHARS } from "@/lib/distribute/spintax";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,11 +33,19 @@ const ScheduleSchema = z.object({
     .string()
     .refine((s) => !Number.isNaN(Date.parse(s)), "invalid datetime")
     .refine((s) => /([zZ]|[+-]\d{2}:?\d{2})$/.test(s.trim()), "missing timezone"),
+  /** Optional recycling template; one variant is rendered at publish. */
+  spintaxSource: z.string().max(SPINTAX_MAX_SOURCE_CHARS).nullable().optional(),
 });
 
 const CancelSchema = z.object({
   contentPlanId: z.string().min(1).max(64),
   nodeId: z.string().min(1).max(64),
+});
+
+const SpintaxPatchSchema = z.object({
+  contentPlanId: z.string().min(1).max(64),
+  nodeId: z.string().min(1).max(64),
+  spintaxSource: z.string().max(SPINTAX_MAX_SOURCE_CHARS).nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
@@ -90,6 +100,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "channel_not_publishable" }, { status: 409 });
   }
 
+  // Optional recycling template — reject a malformed one up front (blank → none).
+  const spintaxSource = parsed.data.spintaxSource?.trim() ? parsed.data.spintaxSource : null;
+  if (spintaxSource) {
+    const v = validateSpintax(spintaxSource);
+    if (!v.ok) {
+      return NextResponse.json({ error: "invalid_spintax", reason: v.error }, { status: 400 });
+    }
+  }
+
   try {
     const { post } = await schedulePost(ctx, {
       workspaceId,
@@ -98,6 +117,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       channel: channel.data,
       format: node.format ?? null,
       body: node.body,
+      spintaxSource,
       scheduledAt,
     });
     // Reflect the schedule back onto the source node so the canvas shows it.
@@ -168,4 +188,45 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     );
   });
   return NextResponse.json({ ok: true, status: "cancelled" });
+}
+
+/**
+ * Update only a post's spintax template — no reschedule, so it can't hit the
+ * must_be_future guard on an overdue-but-pending post, and it never resets a
+ * failed post's status/retry state (unlike the schedule re-arm path).
+ */
+export async function PATCH(req: Request, { params }: RouteParams) {
+  const blocked = sameOriginGuard(req);
+  if (blocked) return blocked;
+  const ctx = await getAdminContext();
+  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const { workspaceId } = await params;
+  if (!(await verifyWorkspace(ctx, workspaceId))) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  const parsed = SpintaxPatchSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  }
+  const { contentPlanId, nodeId } = parsed.data;
+  const spintaxSource = parsed.data.spintaxSource?.trim() ? parsed.data.spintaxSource : null;
+  if (spintaxSource) {
+    const v = validateSpintax(spintaxSource);
+    if (!v.ok) {
+      return NextResponse.json({ error: "invalid_spintax", reason: v.error }, { status: 400 });
+    }
+  }
+  try {
+    const { post } = await setPostSpintax(ctx, workspaceId, contentPlanId, nodeId, spintaxSource);
+    return NextResponse.json({ ok: true, post });
+  } catch (err) {
+    if (err instanceof SchedulePostConflictError) {
+      return NextResponse.json(
+        { error: err.reason },
+        { status: err.reason === "post_not_found" ? 404 : 409 },
+      );
+    }
+    throw err;
+  }
 }

@@ -5,6 +5,7 @@ import { channelLabel } from "@/lib/content/channels";
 import { formatUtc } from "@/lib/distribute/uiModel";
 import { SchedulePicker } from "./SchedulePicker";
 import { PreviewToggle } from "./preview/PreviewToggle";
+import { SpintaxToggle } from "./SpintaxToggle";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
@@ -24,11 +25,13 @@ export function PostCard({
   post,
   onReschedule,
   onCancel,
+  onSetSpintax,
   busy,
 }: {
   post: ScheduledPost;
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
+  onSetSpintax: (post: ScheduledPost, source: string) => void;
   busy: boolean;
 }) {
   // Only an un-published post can be re-timed or cancelled.
@@ -57,6 +60,11 @@ export function PostCard({
       <div className="mt-2 text-xs text-neutral-500">
         {formatUtc(post.scheduledAt)}
         {post.publishedRef ? ` · published (${post.publishedRef.platform})` : ""}
+        {post.renderedVariant
+          ? ` · variant: "${[...post.renderedVariant].slice(0, 40).join("")}${
+              [...post.renderedVariant].length > 40 ? "…" : ""
+            }"`
+          : ""}
         {post.status === "failed" && post.lastError ? ` · ${post.lastError}` : ""}
       </div>
 
@@ -83,6 +91,11 @@ export function PostCard({
           >
             Cancel
           </button>
+          <SpintaxToggle
+            initial={post.spintaxSource ?? ""}
+            busy={busy}
+            onSave={(s) => onSetSpintax(post, s)}
+          />
         </div>
       ) : null}
     </div>

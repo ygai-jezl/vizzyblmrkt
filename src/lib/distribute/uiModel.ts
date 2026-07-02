@@ -105,6 +105,8 @@ const SCHEDULE_ERROR_MESSAGES: Record<string, string> = {
   node_empty: "That item has no content yet.",
   channel_not_publishable: "That item's channel can't be scheduled.",
   already_publishing: "That item is already publishing and can't be changed.",
+  invalid_spintax: "That spintax template isn't valid — check the { } | braces.",
+  post_not_found: "That scheduled item no longer exists.",
   plan_not_found: "The content plan no longer exists.",
   node_not_found: "That item no longer exists.",
   not_found: "Workspace not found.",

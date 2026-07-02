@@ -1,7 +1,9 @@
 import { channelLabel } from "@/lib/content/channels";
-import { splitIntoTweets, tweetLength, X_MAX_CHARS } from "@/lib/distribute/preview/x";
+import { tweetLength, X_MAX_CHARS } from "@/lib/distribute/preview/x";
+import { deconstructToThread } from "@/lib/distribute/threadDeconstructor";
 import { truncateSeeMore } from "@/lib/distribute/preview/linkedin";
 import { truncateCaption } from "@/lib/distribute/preview/instagram";
+import { CopyButton } from "./CopyButton";
 
 /**
  * Platform-native WYSIWYG previews — approximate how a post renders on each
@@ -17,7 +19,8 @@ function EmptyPreview() {
 }
 
 export function XPreview({ body }: { body: string }) {
-  const parts = splitIntoTweets(body);
+  // Header-aware thread: long-form hub copy splits at sub-headers into a sequence.
+  const parts = deconstructToThread(body);
   if (!parts.length) return <EmptyPreview />;
   return (
     <div className="space-y-2">
@@ -31,9 +34,12 @@ export function XPreview({ body }: { body: string }) {
             </div>
           </div>
           <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-900 dark:text-neutral-100">{p}</p>
-          <div className="mt-2 text-[11px] text-neutral-400">
-            {parts.length > 1 ? `${i + 1}/${parts.length} · ` : ""}
-            {tweetLength(p)}/{X_MAX_CHARS}
+          <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-400">
+            <span>
+              {parts.length > 1 ? `${i + 1}/${parts.length} · ` : ""}
+              {tweetLength(p)}/{X_MAX_CHARS}
+            </span>
+            <CopyButton text={p} />
           </div>
         </div>
       ))}

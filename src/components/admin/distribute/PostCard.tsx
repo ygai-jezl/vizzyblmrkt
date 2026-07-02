@@ -4,6 +4,7 @@ import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import { channelLabel } from "@/lib/content/channels";
 import { formatUtc } from "@/lib/distribute/uiModel";
 import { SchedulePicker } from "./SchedulePicker";
+import { PreviewToggle } from "./preview/PreviewToggle";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
@@ -57,6 +58,10 @@ export function PostCard({
         {formatUtc(post.scheduledAt)}
         {post.publishedRef ? ` · published (${post.publishedRef.platform})` : ""}
         {post.status === "failed" && post.lastError ? ` · ${post.lastError}` : ""}
+      </div>
+
+      <div className="mt-2">
+        <PreviewToggle channel={post.channel} body={post.body} />
       </div>
 
       {editable ? (

@@ -9,6 +9,7 @@ import { channelLabel } from "@/lib/content/channels";
 import { ListView } from "./ListView";
 import { CalendarView } from "./CalendarView";
 import { SchedulePicker } from "./SchedulePicker";
+import { PreviewToggle } from "./preview/PreviewToggle";
 
 type View = "list" | "calendar";
 
@@ -150,6 +151,9 @@ export function DistributeClient({
                   <div className="truncate text-sm text-neutral-700 dark:text-neutral-300">
                     {s.node.body.slice(0, 120)}
                     {s.node.body.length > 120 ? "…" : ""}
+                  </div>
+                  <div className="mt-1">
+                    <PreviewToggle channel={s.node.channel} body={s.node.body} />
                   </div>
                 </div>
                 <SchedulePicker

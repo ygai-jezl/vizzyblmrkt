@@ -17,12 +17,14 @@ export function CalendarView({
   onReschedule,
   onCancel,
   onSetSpintax,
+  onBuildCarousel,
   busy,
 }: {
   posts: ScheduledPost[];
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
   onSetSpintax: (post: ScheduledPost, source: string) => void;
+  onBuildCarousel: (post: ScheduledPost) => void;
   busy: boolean;
 }) {
   const [weekStart, setWeekStart] = useState(() => mondayUTC(Date.now()));
@@ -70,6 +72,7 @@ export function CalendarView({
                     onReschedule={onReschedule}
                     onCancel={onCancel}
                     onSetSpintax={onSetSpintax}
+                    onBuildCarousel={onBuildCarousel}
                     busy={busy}
                   />
                 ))}

@@ -9,12 +9,14 @@ export function ListView({
   onReschedule,
   onCancel,
   onSetSpintax,
+  onBuildCarousel,
   busy,
 }: {
   posts: ScheduledPost[];
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
   onSetSpintax: (post: ScheduledPost, source: string) => void;
+  onBuildCarousel: (post: ScheduledPost) => void;
   busy: boolean;
 }) {
   if (!posts.length) {
@@ -34,6 +36,7 @@ export function ListView({
           onReschedule={onReschedule}
           onCancel={onCancel}
           onSetSpintax={onSetSpintax}
+          onBuildCarousel={onBuildCarousel}
           busy={busy}
         />
       ))}

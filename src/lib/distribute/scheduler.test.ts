@@ -4,6 +4,7 @@ import {
   processScheduledPostsForAllTenants,
   schedulePost,
   setPostSpintax,
+  setPostCarousel,
   cancelScheduledPost,
   listScheduledPosts,
   SchedulePostConflictError,
@@ -345,6 +346,45 @@ describe("setPostSpintax", () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();
     await expect(setPostSpintax(ctx, WS, PLAN, "ghost", "{a|b}", db)).rejects.toMatchObject({
+      reason: "post_not_found",
+    });
+  });
+});
+
+describe("setPostCarousel", () => {
+  it("attaches slide refs to an editable post without touching time/status", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, `post:${WS}:${PLAN}:n1`, { nodeId: "n1", status: "pending", scheduledAt: PAST });
+    const { post } = await setPostCarousel(ctx, WS, PLAN, "n1", ["a.png", "b.png"], db);
+    expect(post.carouselAssetRefs).toEqual(["a.png", "b.png"]);
+    const raw = db.raw(COLLECTION, `post:${WS}:${PLAN}:n1`)!;
+    expect(raw.carouselAssetRefs).toEqual(["a.png", "b.png"]);
+    expect(raw.status).toBe("pending");
+    expect(raw.scheduledAt).toBe(PAST);
+  });
+
+  it("rejects a published post and a missing post", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, `post:${WS}:${PLAN}:n1`, {
+      nodeId: "n1",
+      status: "done",
+      publishedRef: { platform: "manual", publishedAt: PAST },
+    });
+    await expect(setPostCarousel(ctx, WS, PLAN, "n1", ["a.png"], db)).rejects.toMatchObject({
+      reason: "already_publishing",
+    });
+    await expect(setPostCarousel(ctx, WS, PLAN, "ghost", ["a.png"], db)).rejects.toMatchObject({
+      reason: "post_not_found",
+    });
+  });
+
+  it("never edits another tenant's post (isolation)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, `post:${WS}:${PLAN}:n1`, { nodeId: "n1", tenantId: "ten_other" });
+    await expect(setPostCarousel(ctx, WS, PLAN, "n1", ["a.png"], db)).rejects.toMatchObject({
       reason: "post_not_found",
     });
   });

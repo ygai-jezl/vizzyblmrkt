@@ -341,6 +341,17 @@ export async function setPostSpintax(
 ): Promise<{ post: ScheduledPost }> {
   const dedupeKey = scheduledPostDedupeKey(workspaceId, contentPlanId, nodeId);
   const repo = forTenant(ctx, db).scheduledPosts;
+  const existing = await loadEditablePost(repo, dedupeKey);
+  const patch = { spintaxSource: spintaxSource ?? null, renderedVariant: null };
+  await repo.update(dedupeKey, patch);
+  return { post: { ...existing, ...patch } };
+}
+
+/** getById + assert the post exists and is still editable (pending/failed, unpublished). */
+async function loadEditablePost(
+  repo: { getById: (id: string) => Promise<ScheduledPost | null> },
+  dedupeKey: string,
+): Promise<ScheduledPost> {
   const existing = await repo.getById(dedupeKey);
   if (!existing) throw new SchedulePostConflictError("post_not_found");
   if (
@@ -349,9 +360,43 @@ export async function setPostSpintax(
   ) {
     throw new SchedulePostConflictError("already_publishing");
   }
-  const patch = { spintaxSource: spintaxSource ?? null, renderedVariant: null };
+  return existing;
+}
+
+/**
+ * Attach carousel slide asset refs (filenames served by the workspace asset proxy)
+ * to an editable post. Same guards as setPostSpintax.
+ */
+export async function setPostCarousel(
+  ctx: TenantContext,
+  workspaceId: string,
+  contentPlanId: string,
+  nodeId: string,
+  carouselAssetRefs: string[],
+  db?: FirestoreLike,
+): Promise<{ post: ScheduledPost }> {
+  const dedupeKey = scheduledPostDedupeKey(workspaceId, contentPlanId, nodeId);
+  const repo = forTenant(ctx, db).scheduledPosts;
+  const existing = await loadEditablePost(repo, dedupeKey);
+  const patch = { carouselAssetRefs };
   await repo.update(dedupeKey, patch);
   return { post: { ...existing, ...patch } };
+}
+
+/**
+ * Fail-fast editability check — throws SchedulePostConflictError (post_not_found /
+ * already_publishing) if the post can't be edited. Used to gate an EXPENSIVE
+ * carousel build before spending image-gen calls on a post that can't be attached.
+ */
+export async function getEditablePost(
+  ctx: TenantContext,
+  workspaceId: string,
+  contentPlanId: string,
+  nodeId: string,
+  db?: FirestoreLike,
+): Promise<ScheduledPost> {
+  const dedupeKey = scheduledPostDedupeKey(workspaceId, contentPlanId, nodeId);
+  return loadEditablePost(forTenant(ctx, db).scheduledPosts, dedupeKey);
 }
 
 /**

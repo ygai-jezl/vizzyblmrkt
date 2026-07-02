@@ -6,6 +6,7 @@ import { formatUtc } from "@/lib/distribute/uiModel";
 import { SchedulePicker } from "./SchedulePicker";
 import { PreviewToggle } from "./preview/PreviewToggle";
 import { SpintaxToggle } from "./SpintaxToggle";
+import { CarouselToggle } from "./CarouselToggle";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
@@ -26,14 +27,17 @@ export function PostCard({
   onReschedule,
   onCancel,
   onSetSpintax,
+  onBuildCarousel,
   busy,
 }: {
   post: ScheduledPost;
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
   onSetSpintax: (post: ScheduledPost, source: string) => void;
+  onBuildCarousel: (post: ScheduledPost) => void;
   busy: boolean;
 }) {
+  const isCarouselChannel = post.channel === "linkedin" || post.channel === "instagram";
   // Only an un-published post can be re-timed or cancelled.
   const editable =
     (post.status === "pending" || post.status === "failed") && !post.publishedRef;
@@ -95,6 +99,18 @@ export function PostCard({
             initial={post.spintaxSource ?? ""}
             busy={busy}
             onSave={(s) => onSetSpintax(post, s)}
+          />
+        </div>
+      ) : null}
+
+      {/* Carousel: buildable while editable, and slides stay VIEWABLE after publish. */}
+      {isCarouselChannel && (editable || (post.carouselAssetRefs?.length ?? 0) > 0) ? (
+        <div className="mt-2">
+          <CarouselToggle
+            post={post}
+            busy={busy}
+            canBuild={editable}
+            onBuild={onBuildCarousel}
           />
         </div>
       ) : null}

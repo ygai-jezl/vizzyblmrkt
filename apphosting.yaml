@@ -167,6 +167,14 @@ env:
   #   availability:
   #     - RUNTIME
   #
+  # Distribute carousel builder (Gemini slide images → private asset bucket). Flag
+  # OFF by default; flip to "true" only AFTER provisioning the carousel image model
+  # (GEMINI_CAROUSEL_IMAGE_MODEL / GOOGLE_CLOUD_LOCATION=global) + EMAIL_ASSET_BUCKET.
+  # - variable: DISTRIBUTE_CAROUSEL_ENABLED
+  #   value: "true"
+  #   availability:
+  #     - RUNTIME
+  #
   # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). The KEY
   # is the per-webhook signing key from the Mandrill dashboard; the URL must be
   # the exact registered public URL (it is part of the HMAC signature). The

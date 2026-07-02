@@ -42,13 +42,17 @@ export function DistributeClient({
   const base = `/api/admin/workspace/${workspaceId}/distribute/schedule`;
 
   const mutate = useCallback(
-    async (method: "POST" | "DELETE" | "PATCH", body: Record<string, string>) => {
+    async (
+      method: "POST" | "DELETE" | "PATCH",
+      body: Record<string, string>,
+      url: string = base,
+    ) => {
       if (inFlight.current) return;
       inFlight.current = true;
       setBusy(true);
       setError(null);
       try {
-        const res = await fetch(base, {
+        const res = await fetch(url, {
           method,
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
@@ -94,6 +98,14 @@ export function DistributeClient({
         spintaxSource: source,
       }),
     [mutate],
+  );
+  // Build a carousel (Gemini slide images) for a LinkedIn/Instagram post. Hits the
+  // separate carousel endpoint (flag-gated 503 when unprovisioned → friendly error).
+  const carouselUrl = `/api/admin/workspace/${workspaceId}/distribute/carousel`;
+  const buildCarousel = useCallback(
+    (post: ScheduledPost) =>
+      mutate("POST", { contentPlanId: post.contentPlanId, nodeId: post.nodeId }, carouselUrl),
+    [mutate, carouselUrl],
   );
 
   const schedulable = useMemo(
@@ -185,6 +197,7 @@ export function DistributeClient({
           onReschedule={reschedule}
           onCancel={cancel}
           onSetSpintax={setSpintax}
+          onBuildCarousel={buildCarousel}
           busy={busy}
         />
       ) : (
@@ -193,6 +206,7 @@ export function DistributeClient({
           onReschedule={reschedule}
           onCancel={cancel}
           onSetSpintax={setSpintax}
+          onBuildCarousel={buildCarousel}
           busy={busy}
         />
       )}

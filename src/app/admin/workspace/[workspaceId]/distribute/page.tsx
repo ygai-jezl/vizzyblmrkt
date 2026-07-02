@@ -1,12 +1,29 @@
-import { StubPage } from "@/components/admin/StubPage";
+import { notFound } from "next/navigation";
+import { requireAdminContext } from "@/lib/auth/session";
+import { forTenant } from "@/lib/tenant";
+import { listContentPlans } from "@/lib/tenant/workspaceContent";
+import { listScheduledPosts } from "@/lib/distribute/scheduler";
+import { DistributeClient } from "@/components/admin/distribute/DistributeClient";
 
 export const dynamic = "force-dynamic";
 
-export default function DistributePage() {
+/** Distribute pillar: schedule approved Create nodes onto the queue + calendar. */
+export default async function DistributePage({
+  params,
+}: {
+  params: Promise<{ workspaceId: string }>;
+}) {
+  const ctx = await requireAdminContext();
+  const { workspaceId } = await params;
+  const ws = await forTenant(ctx).workspaces.getById(workspaceId);
+  if (!ws) notFound();
+
+  const [plans, posts] = await Promise.all([
+    listContentPlans(ctx, workspaceId),
+    listScheduledPosts(ctx, workspaceId),
+  ]);
+
   return (
-    <StubPage
-      title="Distribute"
-      description="Map Content Matrix topics to weekly slots and route finished items into a slot-based queue calendar — so formats drop on schedule without manual scheduling fatigue."
-    />
+    <DistributeClient workspaceId={workspaceId} initialPlans={plans} initialPosts={posts} />
   );
 }

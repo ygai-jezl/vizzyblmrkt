@@ -19,6 +19,7 @@ import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { Workspace } from "@/lib/types/workspace";
+import type { ScheduledPost } from "@/lib/types/scheduledPost";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -225,6 +226,9 @@ export interface TenantRepositories {
   ingestionTickets: TenantCollection<IngestionTicket>;
   /** Content OS: top-level workspaces (each owns a knowledge base). */
   workspaces: TenantCollection<Workspace>;
+  /** Distribute: the scheduled-post queue (mirrors emailJobs; drained by the
+   *  distribute worker/cron). Each doc is both content payload + queue job. */
+  scheduledPosts: TenantCollection<ScheduledPost>;
 }
 
 /**
@@ -274,5 +278,12 @@ export function forTenant(
       t,
     ),
     workspaces: new TenantCollection<Workspace>(regionalDb, "workspaces", t),
+    // Distribute queue: marketing content + scheduling metadata → regional DB,
+    // like broadcasts/emailJobs.
+    scheduledPosts: new TenantCollection<ScheduledPost>(
+      regionalDb,
+      "campaign_scheduled_posts",
+      t,
+    ),
   };
 }

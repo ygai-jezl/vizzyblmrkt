@@ -161,6 +161,12 @@ env:
   #   availability:
   #     - RUNTIME
   #
+  # Distribute worker secret (Cloud Scheduler → /api/admin/distribute/posts/process).
+  # - variable: DISTRIBUTE_WORKER_SECRET
+  #   secret: distribute-worker-secret
+  #   availability:
+  #     - RUNTIME
+  #
   # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). The KEY
   # is the per-webhook signing key from the Mandrill dashboard; the URL must be
   # the exact registered public URL (it is part of the HMAC signature). The

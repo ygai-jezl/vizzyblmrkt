@@ -15,7 +15,7 @@ import {
   type XTokenResponse,
 } from "@/lib/social/x/oauth";
 import { verifyState, encryptToken } from "@/lib/social/crypto";
-import { setTenantSocialConnection } from "@/lib/tenant";
+import { setTenantSocialConnection, setSocialSubscription } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,29 +91,49 @@ export async function GET(req: Request) {
       return back(origin, { status: "error", reason: "token_exchange_failed", provider: "x" });
     }
 
-    // Handle is best-effort (GET /2/users/me).
+    // Handle + numeric id are best-effort (GET /2/users/me). The id is the
+    // attribution key for inbound engagement webhooks (see social_subscriptions).
     let handle: string | undefined;
+    let userId: string | undefined;
     try {
       const meRes = await fetch(X_ME_URL, {
         headers: { Authorization: `Bearer ${tok.access_token}`, Accept: "application/json" },
         signal: AbortSignal.timeout(8_000),
       });
-      const me = (await meRes.json().catch(() => ({}))) as { data?: { username?: string } };
+      const me = (await meRes.json().catch(() => ({}))) as { data?: { username?: string; id?: string } };
       if (typeof me.data?.username === "string") handle = me.data.username;
+      if (typeof me.data?.id === "string") userId = me.data.id;
     } catch {
       /* best-effort */
     }
 
+    const connectedAt = new Date().toISOString();
     await setTenantSocialConnection(ctx.tenantId, "x", {
       platform: "x",
       enc: encryptToken(tok.access_token),
       refreshEnc: tok.refresh_token ? encryptToken(tok.refresh_token) : null,
       handle,
+      userId,
       scope: tok.scope ?? X_SCOPES,
       expiresAt: tok.expires_in ? new Date(Date.now() + tok.expires_in * 1000).toISOString() : null,
       connectedBy: ctx.userId,
-      connectedAt: new Date().toISOString(),
+      connectedAt,
     });
+    // Attribution map for inbound webhooks (needs the numeric id; best-effort).
+    if (userId) {
+      const claim = await setSocialSubscription({
+        tenantId: ctx.tenantId,
+        region: ctx.region,
+        platform: "x",
+        userId,
+        handle,
+        connectedAt,
+      }).catch(() => null);
+      if (claim === "held_by_other") {
+        // Publishing still works; only the inbound-webhook attribution is not claimed.
+        console.warn(`[x-oauth] account ${userId} is mapped to another tenant; not reclaiming for ${ctx.tenantId}`);
+      }
+    }
     return back(origin, { status: "ok", provider: "x" });
   } catch {
     return back(origin, { status: "error", reason: "exception", provider: "x" });

@@ -186,6 +186,9 @@ export const SocialConnectionSchema = z.object({
     .optional(),
   /** Connected account handle/username (for display). */
   handle: z.string().optional(),
+  /** The account's stable platform user id (X numeric id). Attribution key for
+   *  inbound engagement webhooks — see social_subscriptions in tenant/control.ts. */
+  userId: z.string().optional(),
   scope: z.string().optional(),
   /** ISO expiry of the access token (refresh before this). */
   expiresAt: z.string().nullable().optional(),

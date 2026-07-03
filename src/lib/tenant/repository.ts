@@ -20,6 +20,7 @@ import type { Company } from "@/lib/types/company";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { Workspace } from "@/lib/types/workspace";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
+import type { SocialEvent } from "@/lib/types/socialEvent";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -267,6 +268,9 @@ export interface TenantRepositories {
   /** Distribute: the scheduled-post queue (mirrors emailJobs; drained by the
    *  distribute worker/cron). Each doc is both content payload + queue job. */
   scheduledPosts: TenantCollection<ScheduledPost>;
+  /** Distribute: inbound social engagement (replies/mentions/likes/DMs) ingested
+   *  from the platform webhooks (mirrors emailEvents). Marketing PII → regional DB. */
+  socialEvents: TenantCollection<SocialEvent>;
 }
 
 /**
@@ -323,5 +327,7 @@ export function forTenant(
       "campaign_scheduled_posts",
       t,
     ),
+    // Inbound social engagement PII → regional DB, like email_events.
+    socialEvents: new TenantCollection<SocialEvent>(regionalDb, "social_events", t),
   };
 }

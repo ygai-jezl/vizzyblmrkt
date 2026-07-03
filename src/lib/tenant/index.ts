@@ -49,8 +49,11 @@ export {
   deleteTenantGitConnection,
   setTenantSocialConnection,
   deleteTenantSocialConnection,
+  setSocialSubscription,
+  getSocialSubscription,
+  deleteSocialSubscription,
 } from "./control";
-export type { DomainGrantAudit } from "./control";
+export type { DomainGrantAudit, SocialSubscription } from "./control";
 export {
   recordLaunchDeletion,
   writeAuditObject,

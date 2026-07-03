@@ -37,6 +37,11 @@ export {
 } from "./knowledge";
 export type { KnowledgeChunkView } from "./knowledge";
 export {
+  performanceExemplarsRef,
+  writePerformanceExemplar,
+  PERFORMANCE_EXEMPLARS,
+} from "./exemplars";
+export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,

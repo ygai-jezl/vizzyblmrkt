@@ -54,7 +54,8 @@ RUNTIME_SA="firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com"
 if [[ "${PROJECT}" == "vizzybl-marketing-prod" ]]; then
   TARGET_HOST="https://yougrow.ai"
 else
-  TARGET_HOST="https://yougrow-dev.web.app"   # placeholder; set to the dev backend URL
+  # Dev App Hosting backend default domain (<backend>--<project>.<region>.hosted.app).
+  TARGET_HOST="https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app"
 fi
 URI="${TARGET_HOST}/api/admin/distribute/posts/process"
 

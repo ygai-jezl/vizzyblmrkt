@@ -162,10 +162,10 @@ env:
   #     - RUNTIME
   #
   # Distribute worker secret (Cloud Scheduler → /api/admin/distribute/posts/process).
-  # - variable: DISTRIBUTE_WORKER_SECRET
-  #   secret: distribute-worker-secret
-  #   availability:
-  #     - RUNTIME
+  - variable: DISTRIBUTE_WORKER_SECRET
+    secret: distribute-worker-secret
+    availability:
+      - RUNTIME
   #
   # Distribute carousel builder (Gemini slide images → private asset bucket). Flag
   # OFF by default; flip to "true" only AFTER provisioning the carousel image model

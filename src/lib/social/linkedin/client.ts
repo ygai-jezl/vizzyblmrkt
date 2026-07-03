@@ -11,8 +11,10 @@
  */
 
 const LINKEDIN_POSTS_ENDPOINT = "https://api.linkedin.com/rest/posts";
-/** Posts API is versioned by a YYYYMM header; env-overridable as LinkedIn rolls versions. */
-const DEFAULT_LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION ?? "202401";
+/** Posts API is versioned by a YYYYMM header; LinkedIn sunsets versions after ~12
+ *  months. Env-overridable (LINKEDIN_API_VERSION) so a future roll is a config flip,
+ *  not a redeploy. Keep this at a currently-ACTIVE version. */
+const DEFAULT_LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION ?? "202606";
 /** Wall-time budget for the whole publish — MUST stay under the worker lease (5min). */
 const PUBLISH_BUDGET_MS = 60_000;
 

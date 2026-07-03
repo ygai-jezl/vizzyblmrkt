@@ -189,6 +189,13 @@ env:
     secret: social-token-enc-key
     availability:
       - RUNTIME
+  # Enables REAL X publishing in the Distribute worker (else channel:'x' posts get a
+  # manual stamp). Safe on dev where the cron is PARKED (single manual drain). Do NOT
+  # enable in prod under a running cron until the claim is transactional (Phase-4 4d).
+  - variable: DISTRIBUTE_SOCIAL_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   #
   # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). The KEY
   # is the per-webhook signing key from the Mandrill dashboard; the URL must be

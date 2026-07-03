@@ -2,8 +2,9 @@ import { forTenant, getTenantById, listAllTenants, TenantIsolationError } from "
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
 import { getDecryptedSocialTokens } from "@/lib/social/connections";
-import { publishToX } from "@/lib/social/x/client";
+import { publishToX, fetchXPublicMetrics } from "@/lib/social/x/client";
 import { isSocialPublishEnabled, buildXThread, classifyXResult } from "./publishX";
+import { AUTO_PLUG_DELAY_MS, thresholdCrossed } from "./autoPlug";
 import {
   scheduledPostDedupeKey,
   type ScheduledPost,
@@ -136,6 +137,7 @@ async function dispatchScheduledPost(
     case "publish":
       return await publishPost(ctx, post, db);
     case "auto_plug_comment":
+      return await runAutoPlugComment(ctx, post, db);
     case "auto_engage_draft":
     case "auto_dm":
     case "performance_fetch":
@@ -206,6 +208,11 @@ async function publishPost(
         processedAt: now,
         lastError: null,
       });
+      // Attach an auto-plug follow-up (poll metrics at +24h → maybe comment). Enqueued
+      // AFTER the parent is stamped done (above): publish-first is deliberate so a crash
+      // here can only LOSE the follow-up (silent miss), never re-publish the parent
+      // (double-tweet). The enqueue can't be atomic with the X post (no idempotency key).
+      if (post.autoPlug) await enqueueAutoPlug(repo, post, outcome.remoteId, now);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -240,6 +247,135 @@ async function publishPost(
     lastError: null,
   });
   return "done";
+}
+
+/**
+ * Enqueue the Auto-Plug follow-up for a just-published post carrying an autoPlug
+ * rule. A separate `auto_plug_comment` job (deterministic id → idempotent) polls the
+ * post's metrics at +AUTO_PLUG_DELAY_MS and posts the promo comment if the threshold
+ * is crossed. Only for a REAL X publish (needs the tweet's remoteId).
+ */
+async function enqueueAutoPlug(
+  repo: ReturnType<typeof forTenant>["scheduledPosts"],
+  parent: ScheduledPost,
+  remoteId: string,
+  now: string,
+): Promise<void> {
+  if (!parent.autoPlug) return;
+  const id = `autoplug:${parent.dedupeKey}`;
+  const scheduledAt = new Date(Date.parse(now) + AUTO_PLUG_DELAY_MS).toISOString();
+  // Re-arm the rule to THIS publish: fresh (firedAt cleared) and targeting the new
+  // tweet. UPSERT (not create) so a re-armed + republished parent re-points its
+  // singleton auto-plug job at the new remoteId instead of colliding and leaving a
+  // stale-target job pointing at the old (possibly deleted) tweet.
+  const fields = {
+    workspaceId: parent.workspaceId,
+    contentPlanId: parent.contentPlanId,
+    nodeId: parent.nodeId,
+    channel: parent.channel,
+    format: null,
+    jobKind: "auto_plug_comment" as const,
+    status: "pending" as const,
+    dedupeKey: id,
+    scheduledAt,
+    attempts: 0,
+    claimedAt: null,
+    body: parent.autoPlug.commentBody,
+    autoPlug: { ...parent.autoPlug, firedAt: null },
+    sourceRemoteId: remoteId,
+    publishedRef: null,
+    lastError: null,
+    processedAt: null,
+  };
+  const existing = await repo.getById(id);
+  if (existing) {
+    await repo.update(id, fields as never); // re-target + re-arm for the new publish
+  } else {
+    await repo.create(id, { ...fields, createdAt: now } as never);
+  }
+}
+
+/**
+ * Auto-Plug worker: poll the source post's public metrics ONCE; if it crossed the
+ * threshold, post the promo comment as a reply under it. Reuses the publish
+ * idempotency + classification. One-shot: if the threshold isn't met at poll time it
+ * completes without firing (never re-posts — the firedAt/publishedRef guard).
+ */
+async function runAutoPlugComment(
+  ctx: TenantContext,
+  post: ScheduledPost,
+  db?: FirestoreLike,
+): Promise<"done" | "parked"> {
+  const repo = forTenant(ctx, db).scheduledPosts;
+  const now = new Date().toISOString();
+  // Idempotency: already fired (comment posted) → done, never re-post.
+  if (post.autoPlug?.firedAt || post.publishedRef) {
+    await repo.update(post.id, { status: "done", processedAt: now, lastError: null });
+    return "done";
+  }
+  if (!isSocialPublishEnabled()) {
+    // No live channel → can't poll/post. Park (not "done") so drain telemetry counts
+    // it as failed — a silent done++ would hide that the plug never ran. Re-arm after
+    // enabling the flag. (Consistent with the x_not_connected posture below.)
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "social_disabled" });
+    return "parked";
+  }
+  if (!post.sourceRemoteId || !post.autoPlug) {
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "autoplug_misconfigured" });
+    return "parked";
+  }
+  const tenant = await getTenantById(ctx.tenantId, db);
+  const tokens = getDecryptedSocialTokens(tenant, "x");
+  if (!tokens) {
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "x_not_connected" });
+    return "parked";
+  }
+
+  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, tokens.accessToken);
+  if (!metrics.ok) {
+    // Transient read failure → retry; permanent (auth/tier/deleted tweet) → park.
+    const cls = classifyXResult({ ok: false, reason: metrics.reason });
+    if (cls.kind === "retry") throw new Error(`autoplug_metrics:${metrics.reason}`);
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: `autoplug_metrics:${metrics.reason}` });
+    return "parked";
+  }
+  if (!thresholdCrossed(metrics.metrics, post.autoPlug)) {
+    // ONE-SHOT (known limitation): a single poll at +AUTO_PLUG_DELAY_MS. If the post
+    // hasn't crossed the threshold by then it completes WITHOUT firing and never
+    // re-polls — a late-blooming post won't auto-plug. `lastError` distinguishes this
+    // from a real fire (which sets publishedRef). A multi-poll window is a follow-up.
+    await repo.update(post.id, { status: "done", processedAt: now, lastError: "threshold_not_met" });
+    return "done";
+  }
+
+  // Fire: post the comment as a reply under the source tweet.
+  const outcome = classifyXResult(
+    await publishToX({
+      parts: [post.autoPlug.commentBody],
+      accessToken: tokens.accessToken,
+      replyToId: post.sourceRemoteId,
+    }),
+  );
+  if (outcome.kind === "published") {
+    await repo.update(post.id, {
+      status: "done",
+      autoPlug: { ...post.autoPlug, firedAt: now },
+      publishedRef: { platform: "x", remoteId: outcome.remoteId, url: outcome.url, publishedAt: now },
+      processedAt: now,
+      lastError: null,
+    });
+    return "done";
+  }
+  if (outcome.kind === "park") {
+    await repo.update(post.id, {
+      status: "failed",
+      ...(outcome.posted ? { publishedRef: { platform: "x_unconfirmed", publishedAt: now } } : {}),
+      lastError: `autoplug_publish:${outcome.reason}`,
+      processedAt: now,
+    });
+    return "parked";
+  }
+  throw new Error(`autoplug_publish:${outcome.reason}`); // clean failure → worker retries
 }
 
 export interface DistributeDrainResult {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { publishToX } from "./client";
+import { publishToX, fetchXPublicMetrics } from "./client";
 
 /** A fake fetch that returns queued responses and records the requests it saw. */
 function fakeFetch(
@@ -8,7 +8,7 @@ function fakeFetch(
   const calls: Array<{ url: string; init: RequestInit; body: unknown }> = [];
   let i = 0;
   const fn = (async (url: string, init: RequestInit) => {
-    calls.push({ url, init, body: JSON.parse(String(init.body)) });
+    calls.push({ url, init, body: init.body ? JSON.parse(String(init.body)) : undefined });
     const r = responses[i++];
     if (r instanceof Error) throw r;
     return {
@@ -40,6 +40,13 @@ describe("publishToX", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.init.headers).toMatchObject({ authorization: "Bearer tok" });
     expect(calls[0]!.body).toEqual({ text: "Just one tweet." });
+  });
+
+  it("replyToId makes the FIRST tweet a reply to that id (Auto-Plug comment)", async () => {
+    const { fn, calls } = fakeFetch([{ ok: true, body: { data: { id: "77" } } }]);
+    const r = await publishToX({ parts: ["nice, grab it here"], accessToken: "tok", replyToId: "P1" }, { fetch: fn });
+    expect(r).toMatchObject({ ok: true, remoteId: "77" });
+    expect(calls[0]!.body).toEqual({ text: "nice, grab it here", reply: { in_reply_to_tweet_id: "P1" } });
   });
 
   it("chains a thread via reply.in_reply_to_tweet_id and returns the first id", async () => {
@@ -164,5 +171,36 @@ describe("publishToX", () => {
       expect(serialized).not.toContain(token);
       expect(serialized).not.toContain("secret");
     }
+  });
+});
+
+describe("fetchXPublicMetrics", () => {
+  it("parses public_metrics into a normalized shape", async () => {
+    const { fn, calls } = fakeFetch([
+      {
+        ok: true,
+        body: {
+          data: [
+            { public_metrics: { like_count: 50, reply_count: 12, retweet_count: 7, quote_count: 3, impression_count: 900 } },
+          ],
+        },
+      },
+    ]);
+    const r = await fetchXPublicMetrics("P1", "tok", { fetch: fn });
+    expect(r).toEqual({ ok: true, metrics: { likes: 50, replies: 12, reposts: 7, quotes: 3, impressions: 900 } });
+    expect(calls[0]!.url).toContain("ids=P1");
+    expect(calls[0]!.url).toContain("tweet.fields=public_metrics");
+  });
+
+  it("refuses without a token or tweet id", async () => {
+    expect(await fetchXPublicMetrics("P1", "")).toEqual({ ok: false, reason: "not_connected" });
+    expect(await fetchXPublicMetrics("", "tok")).toEqual({ ok: false, reason: "no_tweet" });
+  });
+
+  it("reports no_metrics on an empty/absent metrics payload and x_api_ on an error", async () => {
+    const empty = fakeFetch([{ ok: true, body: { data: [{}] } }]);
+    expect(await fetchXPublicMetrics("P1", "t", { fetch: empty.fn })).toEqual({ ok: false, reason: "no_metrics" });
+    const err = fakeFetch([{ ok: false, status: 404, body: { title: "Not Found" } }]);
+    expect(await fetchXPublicMetrics("P1", "t", { fetch: err.fn })).toEqual({ ok: false, reason: "x_api_404:Not Found" });
   });
 });

@@ -344,6 +344,75 @@ describe("transactional claim (exactly-once)", () => {
   });
 });
 
+describe("auto_plug_comment worker", () => {
+  const RULE = { thresholdMetric: "likes" as const, thresholdValue: 40, commentBody: "grab it here" };
+
+  it("enqueues a follow-up auto_plug_comment when a publish carries an autoPlug rule (manual stamp path)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    // Flag OFF → manual stamp; manual publish has no real remoteId, so NO enqueue.
+    seedPost(db, "p1", { scheduledAt: PAST, autoPlug: RULE });
+    await processScheduledPosts(ctx, 25, db);
+    expect(db.dump(COLLECTION)).toHaveLength(1); // only the parent (manual publish doesn't enqueue)
+  });
+
+  it("parks (failed) when social publishing is disabled — not a silent done", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "ap1", { jobKind: "auto_plug_comment", scheduledAt: PAST, autoPlug: RULE, sourceRemoteId: "P1" });
+    const r = await processScheduledPosts(ctx, 25, db);
+    expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+    expect(db.raw(COLLECTION, "ap1")!.status).toBe("failed");
+    expect(db.raw(COLLECTION, "ap1")!.lastError).toBe("social_disabled");
+  });
+
+  it("is idempotent once fired (firedAt set) — never re-posts", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "ap1", {
+      jobKind: "auto_plug_comment",
+      scheduledAt: PAST,
+      autoPlug: { ...RULE, firedAt: "2026-06-30T00:00:00Z" },
+      sourceRemoteId: "P1",
+    });
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      await processScheduledPosts(ctx, 25, db);
+      expect(db.raw(COLLECTION, "ap1")!.status).toBe("done");
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
+  it("parks (failed) when misconfigured (no sourceRemoteId) with the flag on", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "ap1", { jobKind: "auto_plug_comment", scheduledAt: PAST, autoPlug: RULE });
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      expect(db.raw(COLLECTION, "ap1")!.lastError).toBe("autoplug_misconfigured");
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
+  it("parks 'x_not_connected' when the tenant has no X token (flag on)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "ap1", { jobKind: "auto_plug_comment", scheduledAt: PAST, autoPlug: RULE, sourceRemoteId: "P1" });
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      expect(db.raw(COLLECTION, "ap1")!.lastError).toBe("x_not_connected");
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+});
+
 describe("cancelScheduledPost", () => {
   it("deletes a pending post", async () => {
     const db = new FakeFirestore();

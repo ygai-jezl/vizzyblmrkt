@@ -29,6 +29,9 @@ export interface XPublishInput {
   parts: string[];
   /** User-context OAuth 2.0 access token (tweet.write). */
   accessToken: string;
+  /** If set, the FIRST part replies to this tweet id (used by Auto-Plug to comment
+   *  under our own published post). */
+  replyToId?: string;
 }
 
 export type XPublishResult =
@@ -61,7 +64,8 @@ export async function publishToX(
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? PUBLISH_BUDGET_MS);
 
   let firstId: string | null = null;
-  let prevId: string | null = null;
+  // Seed the reply chain: an explicit replyToId makes the FIRST part a reply.
+  let prevId: string | null = input.replyToId ?? null;
 
   try {
     for (const text of parts) {
@@ -119,6 +123,76 @@ export async function publishToX(
  * this is safe to persist; still whitespace-collapsed + length-capped defensively.
  * Returns "" when the body carries no useful message (e.g. `{}`).
  */
+const X_METRICS_ENDPOINT = "https://api.x.com/2/tweets";
+
+export interface XPublicMetrics {
+  likes: number;
+  replies: number;
+  reposts: number;
+  quotes: number;
+  impressions: number;
+}
+export type XMetricsResult =
+  | { ok: true; metrics: XPublicMetrics }
+  | { ok: false; reason: string };
+
+export interface XMetricsDeps {
+  fetch?: typeof fetch;
+  endpoint?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Read a tweet's public engagement metrics (GET /2/tweets?tweet.fields=public_metrics).
+ * Used by Auto-Plug to poll whether a published post crossed its threshold. Pure over
+ * an injectable fetch; bounded by a short timeout.
+ */
+export async function fetchXPublicMetrics(
+  tweetId: string,
+  accessToken: string,
+  deps: XMetricsDeps = {},
+): Promise<XMetricsResult> {
+  if (!accessToken) return { ok: false, reason: "not_connected" };
+  if (!tweetId) return { ok: false, reason: "no_tweet" };
+  const doFetch = deps.fetch ?? fetch;
+  const base = deps.endpoint ?? X_METRICS_ENDPOINT;
+  const url = `${base}?ids=${encodeURIComponent(tweetId)}&tweet.fields=public_metrics`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? 15_000);
+  try {
+    let res: Response;
+    try {
+      res = await doFetch(url, {
+        headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+        signal: controller.signal,
+      });
+    } catch {
+      return { ok: false, reason: controller.signal.aborted ? "timeout" : "network_error" };
+    }
+    if (!res.ok) {
+      const detail = await readErrorDetail(res);
+      return { ok: false, reason: `x_api_${res.status}${detail ? `:${detail}` : ""}` };
+    }
+    const data = (await res.json().catch(() => null)) as {
+      data?: Array<{ public_metrics?: Record<string, number> }>;
+    } | null;
+    const pm = data?.data?.[0]?.public_metrics;
+    if (!pm) return { ok: false, reason: "no_metrics" };
+    return {
+      ok: true,
+      metrics: {
+        likes: pm.like_count ?? 0,
+        replies: pm.reply_count ?? 0,
+        reposts: pm.retweet_count ?? 0,
+        quotes: pm.quote_count ?? 0,
+        impressions: pm.impression_count ?? 0,
+      },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function readErrorDetail(res: Response): Promise<string> {
   const raw = await res.text().catch(() => "");
   if (!raw) return "";

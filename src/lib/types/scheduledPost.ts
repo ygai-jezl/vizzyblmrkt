@@ -112,6 +112,9 @@ export const ScheduledPostSchema = z.object({
     .optional(),
   /** Phase 2/4: auto-plug rule attached to this post. */
   autoPlug: AutoPlugSchema.nullable().optional(),
+  /** Phase 4: for an `auto_plug_comment` job — the parent tweet's remote id whose
+   *  metrics are polled and under which the promo comment is posted. */
+  sourceRemoteId: z.string().max(200).nullable().optional(),
   /** Set once at publish; the retry guard (mirrors EmailJob.emailSentAt). */
   publishedRef: PublishedRefSchema.nullable().optional(),
   lastError: z.string().nullable().optional(),

@@ -1,5 +1,5 @@
 import { requireAdminContext } from "@/lib/auth/session";
-import { listCompanies, listContacts } from "@/lib/admin/crm";
+import { listCompanies, listContacts, listEngagedContacts } from "@/lib/admin/crm";
 import { CrmClient } from "@/components/admin/crm/CrmClient";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function CrmPage() {
   const ctx = await requireAdminContext();
-  const [companies, contacts] = await Promise.all([
+  const [companies, contacts, engaged] = await Promise.all([
     listCompanies(ctx, {}),
     listContacts(ctx, {}),
+    listEngagedContacts(ctx, {}),
   ]);
 
   return (
@@ -30,6 +31,8 @@ export default async function CrmPage() {
         contactsCursor={contacts.nextCursor}
         initialCompanies={companies.items}
         companiesCursor={companies.nextCursor}
+        initialEngaged={engaged.items}
+        engagedCursor={engaged.nextCursor}
       />
     </div>
   );

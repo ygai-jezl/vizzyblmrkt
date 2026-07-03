@@ -3,6 +3,7 @@ import { getSocialSubscription } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { xCrcResponse, verifyXWebhookSignature, parseXActivity } from "@/lib/social/x/webhook";
 import { recordSocialEvent } from "@/lib/social/socialEvents";
+import { upsertEngagedContact } from "@/lib/social/engagedContacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,11 @@ export async function POST(req: Request) {
   }
 
   const ctx: TenantContext = { tenantId: sub.tenantId, region: sub.region, source: "system" };
+  // HIGH-INTENT engagers → the CRM Engaged tab. A bare like/follow is low-signal and
+  // bot-prone, so it is recorded as a social_event but does NOT mint an engaged
+  // record; only a reply/mention/quote/DM (genuine outreach) does.
+  const HIGH_INTENT = new Set(["reply", "mention", "quote", "dm"]);
+  const engagers = new Map<string, { handle?: string; name?: string; ts: string }>();
   let recorded = 0;
   let skipped = 0;
   for (const ev of events) {
@@ -84,6 +90,23 @@ export async function POST(req: Request) {
       // One bad event must never fail the batch (that triggers a full re-send).
       console.error("[x-webhook] failed to record event", err);
       skipped += 1;
+    }
+    if (HIGH_INTENT.has(ev.type)) {
+      engagers.set(ev.actorId, { handle: ev.actorHandle, name: ev.actorName, ts: ev.ts });
+    }
+  }
+  for (const [userId, who] of engagers) {
+    try {
+      await upsertEngagedContact(ctx, {
+        platform: "x",
+        userId,
+        handle: who.handle ?? null,
+        name: who.name ?? null,
+        engagedAt: who.ts,
+      });
+    } catch (err) {
+      // Contact upsert failure must not fail the (already-recorded) event batch.
+      console.error("[x-webhook] failed to upsert engaged contact", err);
     }
   }
   return NextResponse.json({ ok: true, recorded, skipped });

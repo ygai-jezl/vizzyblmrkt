@@ -21,6 +21,7 @@ import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { Workspace } from "@/lib/types/workspace";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { SocialEvent } from "@/lib/types/socialEvent";
+import type { EngagedContact } from "@/lib/types/engagedContact";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -271,6 +272,9 @@ export interface TenantRepositories {
   /** Distribute: inbound social engagement (replies/mentions/likes/DMs) ingested
    *  from the platform webhooks (mirrors emailEvents). Marketing PII → regional DB. */
   socialEvents: TenantCollection<SocialEvent>;
+  /** CRM "Engaged" tab: distinct social profiles who engaged. Separate from
+   *  `contacts` so scraped social identities never pollute the email CRM. */
+  socialEngaged: TenantCollection<EngagedContact>;
 }
 
 /**
@@ -329,5 +333,6 @@ export function forTenant(
     ),
     // Inbound social engagement PII → regional DB, like email_events.
     socialEvents: new TenantCollection<SocialEvent>(regionalDb, "social_events", t),
+    socialEngaged: new TenantCollection<EngagedContact>(regionalDb, "social_engaged", t),
   };
 }

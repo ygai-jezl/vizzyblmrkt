@@ -3,6 +3,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { WhereClause } from "@/lib/tenant/repository";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
+import type { EngagedContact } from "@/lib/types/engagedContact";
 import { queryToken } from "@/lib/crm/searchTokens";
 
 export const CRM_PAGE_SIZE = 50;
@@ -68,6 +69,29 @@ export async function listCompanies(
 
   const rows = await forTenant(ctx).companies.find({
     where,
+    orderBy: [["updatedAt", "desc"]],
+    startAfter: params.cursor ? [params.cursor] : undefined,
+    limit: limit + 1,
+  });
+  return paginate(rows, limit, (c) => c.updatedAt);
+}
+
+export interface ListEngagedParams {
+  cursor?: string; // updatedAt of the last row
+  limit?: number;
+}
+
+/**
+ * List engaged social profiles for the CRM "Engaged" tab (people who replied/
+ * mentioned/quoted/DM'd a connected account). Reads the dedicated `social_engaged`
+ * collection, newest activity first. Backed by a (tenantId, updatedAt) index.
+ */
+export async function listEngagedContacts(
+  ctx: TenantContext,
+  params: ListEngagedParams = {},
+): Promise<ListResult<EngagedContact>> {
+  const limit = Math.min(params.limit ?? CRM_PAGE_SIZE, 200);
+  const rows = await forTenant(ctx).socialEngaged.find({
     orderBy: [["updatedAt", "desc"]],
     startAfter: params.cursor ? [params.cursor] : undefined,
     limit: limit + 1,

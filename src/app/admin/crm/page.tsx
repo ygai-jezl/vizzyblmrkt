@@ -1,8 +1,23 @@
 import { requireAdminContext } from "@/lib/auth/session";
 import { listCompanies, listContacts, listEngagedContacts } from "@/lib/admin/crm";
+import type { ListResult } from "@/lib/admin/crm";
 import { CrmClient } from "@/components/admin/crm/CrmClient";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Load one tab's first page, degrading to empty (never a full-page 500) if its
+ * query fails — e.g. a composite index that is missing or still building. One tab's
+ * data problem must not take down the whole CRM; the error is logged, not swallowed.
+ */
+async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListResult<T>> {
+  try {
+    return await p;
+  } catch (err) {
+    console.error(`[crm] ${label} failed to load`, err);
+    return { items: [], nextCursor: null };
+  }
+}
 
 /**
  * Unified CRM — tenant-wide view of every contact across all launches, with
@@ -12,9 +27,9 @@ export const dynamic = "force-dynamic";
 export default async function CrmPage() {
   const ctx = await requireAdminContext();
   const [companies, contacts, engaged] = await Promise.all([
-    listCompanies(ctx, {}),
-    listContacts(ctx, {}),
-    listEngagedContacts(ctx, {}),
+    tab("companies", listCompanies(ctx, {})),
+    tab("contacts", listContacts(ctx, {})),
+    tab("engaged", listEngagedContacts(ctx, {})),
   ]);
 
   return (

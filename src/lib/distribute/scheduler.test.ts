@@ -155,6 +155,26 @@ describe("processScheduledPosts", () => {
     expect(raw.processedAt).not.toBeNull();
   });
 
+  it("parks a due x post as failed 'x_not_connected' when the tenant has no X token (publish flag on)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "p1", { scheduledAt: PAST }); // channel defaults to "x"; no tenant seeded → no token
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      // Parked (not thrown) → counted as failed, not done.
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      const raw = db.raw(COLLECTION, "p1")!;
+      expect(raw.status).toBe("failed");
+      expect(raw.lastError).toBe("x_not_connected");
+      // Nothing was published → publishedRef stays null so the operator can connect
+      // X and re-arm the post safely (no phantom "unconfirmed" ref blocking re-arm).
+      expect(raw.publishedRef).toBeNull();
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
   it("does not pick up a post scheduled in the future", async () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();

@@ -1,6 +1,9 @@
-import { forTenant, listAllTenants, TenantIsolationError } from "@/lib/tenant";
+import { forTenant, getTenantById, listAllTenants, TenantIsolationError } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
+import { getDecryptedSocialTokens } from "@/lib/social/connections";
+import { publishToX } from "@/lib/social/x/client";
+import { isSocialPublishEnabled, buildXThread, classifyXResult } from "./publishX";
 import {
   scheduledPostDedupeKey,
   type ScheduledPost,
@@ -79,8 +82,12 @@ export async function processScheduledPosts(
       claimedAt: new Date().toISOString(),
     });
     try {
-      await dispatchScheduledPost(ctx, post, db);
-      done += 1;
+      // A "parked" post is terminally failed WITHOUT a throw (a throw means retry).
+      // Count it as failed so drain telemetry doesn't over-report success (e.g. an
+      // operator draining after connecting X sees an accurate done/failed split).
+      const outcome = await dispatchScheduledPost(ctx, post, db);
+      if (outcome === "parked") failed += 1;
+      else done += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       const exhausted = attempts >= MAX_ATTEMPTS;
@@ -103,13 +110,12 @@ async function dispatchScheduledPost(
   ctx: TenantContext,
   post: ScheduledPost,
   db?: FirestoreLike,
-): Promise<void> {
+): Promise<"done" | "parked"> {
   // Exhaustive dispatch: a new jobKind must be handled here or the `never` check
   // below fails to compile. Phase 1 only implements "publish".
   switch (post.jobKind) {
     case "publish":
-      await publishPost(ctx, post, db);
-      return;
+      return await publishPost(ctx, post, db);
     case "auto_plug_comment":
     case "auto_engage_draft":
     case "auto_dm":
@@ -133,7 +139,7 @@ async function publishPost(
   ctx: TenantContext,
   post: ScheduledPost,
   db?: FirestoreLike,
-): Promise<void> {
+): Promise<"done" | "parked"> {
   const repo = forTenant(ctx, db).scheduledPosts;
   // A retry after a successful-but-unacked publish must never re-post.
   if (post.publishedRef) {
@@ -142,7 +148,7 @@ async function publishPost(
       processedAt: new Date().toISOString(),
       lastError: null,
     });
-    return;
+    return "done";
   }
   // Spintax: render ONE fresh variant per publish (recycling anti-duplicate). The
   // rendered copy is what a real Phase-4 adapter would post; stored so the operator
@@ -151,23 +157,73 @@ async function publishPost(
   const renderedVariant = post.spintaxSource
     ? expandSpintax(post.spintaxSource)
     : undefined;
+  const now = new Date().toISOString();
+  const renderPatch = renderedVariant !== undefined ? { renderedVariant } : {};
 
-  // PHASE 1: release the post for MANUAL publishing (operator posts from the
-  // preview's copy action). Replaced in Phase 4 by a per-channel live adapter.
+  // Real X publishing (flag-gated). Requires a connected X token; without one the
+  // post can't publish → park it (failed) so the operator connects X.
+  if (post.channel === "x" && isSocialPublishEnabled()) {
+    // NB: no .catch here — a TRANSIENT registry read error must propagate so the
+    // worker RETRIES a genuinely-connected tenant, rather than mis-parking it as
+    // "not connected". A tenant that simply has no X token yields null (not a throw).
+    const tenant = await getTenantById(ctx.tenantId, db);
+    const tokens = getDecryptedSocialTokens(tenant, "x");
+    if (!tokens) {
+      await repo.update(post.id, {
+        status: "failed",
+        ...renderPatch,
+        lastError: "x_not_connected",
+        processedAt: now,
+      });
+      return "parked";
+    }
+    const parts = buildXThread(post.threadParts, renderedVariant ?? post.body);
+    const outcome = classifyXResult(await publishToX({ parts, accessToken: tokens.accessToken }));
+    if (outcome.kind === "published") {
+      await repo.update(post.id, {
+        status: "done",
+        ...renderPatch,
+        publishedRef: { platform: "x", remoteId: outcome.remoteId, url: outcome.url, publishedAt: now },
+        processedAt: now,
+        lastError: null,
+      });
+      return "done";
+    }
+    if (outcome.kind === "park") {
+      // NOT retryable (a retry re-posts the thread); park as "failed" for the operator.
+      // If a tweet MAY already be live (posted=true: partial thread / ambiguous 2xx),
+      // stamp an `x_unconfirmed` publishedRef so schedulePost's re-arm gate (which keys
+      // off `!publishedRef`) can't re-publish it — X has no idempotency key. A permanent
+      // nothing-posted park (posted=false: empty copy) leaves publishedRef unset so the
+      // operator can fix + re-arm safely.
+      await repo.update(post.id, {
+        status: "failed",
+        ...renderPatch,
+        ...(outcome.posted
+          ? { publishedRef: { platform: "x_unconfirmed", publishedAt: now } }
+          : {}),
+        lastError: `x_publish:${outcome.reason}`,
+        processedAt: now,
+      });
+      return "parked";
+    }
+    throw new Error(`x_publish:${outcome.reason}`); // clean failure → worker retries
+  }
+
+  // DEFAULT: manual stamp (no live adapter for this channel, or the flag is off).
   //
-  // PHASE 4 CONTRACT: a real adapter MUST persist publishedRef atomically with (or
-  // before) the external side-effect is committed — and use the channel's own
-  // idempotency key — so a crash between "posted to channel" and "publishedRef
-  // saved" can't let the stale-reclaim path re-post (the guard above only fires
-  // once publishedRef is persisted). It must also upgrade the claim above to a
-  // Firestore transaction, since the 60s cron can invoke overlapping runs.
+  // PHASE 4 CONTRACT (still OPEN): before enabling DISTRIBUTE_SOCIAL_ENABLED in PROD
+  // with a RUNNING cron, the claim above MUST become a Firestore transaction (the 60s
+  // cron can invoke overlapping runs and X has no idempotency key). Safe today only
+  // because the cron is parked (single manual drain per invocation).
   await repo.update(post.id, {
     status: "done",
-    ...(renderedVariant !== undefined ? { renderedVariant } : {}),
-    publishedRef: { platform: "manual", publishedAt: new Date().toISOString() },
-    processedAt: new Date().toISOString(),
+    ...renderPatch,
+    publishedRef: { platform: "manual", publishedAt: now },
+    processedAt: now,
     lastError: null,
   });
+  return "done";
 }
 
 export interface DistributeDrainResult {
@@ -307,6 +363,7 @@ export async function schedulePost(
         body: input.body,
         spintaxSource: input.spintaxSource ?? null,
         renderedVariant: null, // stale render from a prior arm; re-picked at publish
+        threadParts: null, // a prior deconstruction is stale once body is refreshed
         pps: input.pps ?? null,
         channel: input.channel,
         format: input.format ?? null,

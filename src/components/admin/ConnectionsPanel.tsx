@@ -11,7 +11,7 @@ interface ProviderStatus {
   connectedAt: string | null;
 }
 
-const PROVIDER_IDS = ["github", "gitlab", "x"] as const;
+const PROVIDER_IDS = ["github", "gitlab", "x", "linkedin"] as const;
 
 /** Manage per-tenant GitHub/GitLab OAuth connections (for ingesting private repos). */
 export function ConnectionsPanel() {

@@ -3,7 +3,9 @@ import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
 import { getDecryptedSocialTokens } from "@/lib/social/connections";
 import { publishToX, fetchXPublicMetrics } from "@/lib/social/x/client";
-import { isSocialPublishEnabled, buildXThread, classifyXResult } from "./publishX";
+import { postToLinkedIn } from "@/lib/social/linkedin/client";
+import { personUrn } from "@/lib/social/linkedin/oauth";
+import { isSocialPublishEnabled, buildXThread, classifyPublishResult } from "./publishX";
 import { AUTO_PLUG_DELAY_MS, thresholdCrossed } from "./autoPlug";
 import { isClosedLoopEnabled } from "./feedback/retrieveExemplars";
 import { recordExemplar } from "./feedback/recordExemplar";
@@ -203,7 +205,7 @@ async function publishPost(
       return "parked";
     }
     const parts = buildXThread(post.threadParts, renderedVariant ?? post.body);
-    const outcome = classifyXResult(await publishToX({ parts, accessToken: tokens.accessToken }));
+    const outcome = classifyPublishResult(await publishToX({ parts, accessToken: tokens.accessToken }));
     if (outcome.kind === "published") {
       await repo.update(post.id, {
         status: "done",
@@ -242,6 +244,55 @@ async function publishPost(
       return "parked";
     }
     throw new Error(`x_publish:${outcome.reason}`); // clean failure → worker retries
+  }
+
+  // Real LinkedIn publishing (flag-gated, shares DISTRIBUTE_SOCIAL_ENABLED). A single
+  // organic post to the member's feed (no threads). Mirrors the X path's classify /
+  // park / retry semantics; no follow-up jobs (LinkedIn metrics/closed-loop is a later
+  // phase — the auto_plug/performance_fetch enqueues are X-only).
+  if (post.channel === "linkedin" && isSocialPublishEnabled()) {
+    const tenant = await getTenantById(ctx.tenantId, db);
+    const tokens = getDecryptedSocialTokens(tenant, "linkedin");
+    const memberId = tenant?.socialConnections?.linkedin?.userId;
+    if (!tokens || !memberId) {
+      await repo.update(post.id, {
+        status: "failed",
+        ...renderPatch,
+        lastError: "linkedin_not_connected",
+        processedAt: now,
+      });
+      return "parked";
+    }
+    const outcome = classifyPublishResult(
+      await postToLinkedIn({
+        authorUrn: personUrn(memberId),
+        text: renderedVariant ?? post.body,
+        accessToken: tokens.accessToken,
+      }),
+    );
+    if (outcome.kind === "published") {
+      await repo.update(post.id, {
+        status: "done",
+        ...renderPatch,
+        publishedRef: { platform: "linkedin", remoteId: outcome.remoteId, url: outcome.url, publishedAt: now },
+        processedAt: now,
+        lastError: null,
+      });
+      return "done";
+    }
+    if (outcome.kind === "park") {
+      await repo.update(post.id, {
+        status: "failed",
+        ...renderPatch,
+        ...(outcome.posted
+          ? { publishedRef: { platform: "linkedin_unconfirmed", publishedAt: now } }
+          : {}),
+        lastError: `li_publish:${outcome.reason}`,
+        processedAt: now,
+      });
+      return "parked";
+    }
+    throw new Error(`li_publish:${outcome.reason}`); // clean failure → worker retries
   }
 
   // DEFAULT: manual stamp (no live adapter for this channel, or the flag is off).
@@ -342,7 +393,7 @@ async function runAutoPlugComment(
   const metrics = await fetchXPublicMetrics(post.sourceRemoteId, tokens.accessToken);
   if (!metrics.ok) {
     // Transient read failure → retry; permanent (auth/tier/deleted tweet) → park.
-    const cls = classifyXResult({ ok: false, reason: metrics.reason });
+    const cls = classifyPublishResult({ ok: false, reason: metrics.reason });
     if (cls.kind === "retry") throw new Error(`autoplug_metrics:${metrics.reason}`);
     await repo.update(post.id, { status: "failed", processedAt: now, lastError: `autoplug_metrics:${metrics.reason}` });
     return "parked";
@@ -357,7 +408,7 @@ async function runAutoPlugComment(
   }
 
   // Fire: post the comment as a reply under the source tweet.
-  const outcome = classifyXResult(
+  const outcome = classifyPublishResult(
     await publishToX({
       parts: [post.autoPlug.commentBody],
       accessToken: tokens.accessToken,
@@ -459,7 +510,7 @@ async function runPerformanceFetch(
 
   const metrics = await fetchXPublicMetrics(post.sourceRemoteId, tokens.accessToken);
   if (!metrics.ok) {
-    const cls = classifyXResult({ ok: false, reason: metrics.reason });
+    const cls = classifyPublishResult({ ok: false, reason: metrics.reason });
     if (cls.kind === "retry") throw new Error(`perf_metrics:${metrics.reason}`);
     // Permanent (deleted tweet / auth) → best-effort give up, no harvest.
     await repo.update(post.id, { status: "done", processedAt: now, lastError: `perf_metrics:${metrics.reason}` });

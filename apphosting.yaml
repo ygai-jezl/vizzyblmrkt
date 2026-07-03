@@ -189,6 +189,17 @@ env:
     secret: social-token-enc-key
     availability:
       - RUNTIME
+  # LinkedIn OAuth 2.0 for the Distribute "Connect LinkedIn" flow + organic posting.
+  # Needs LinkedIn app products approved ("Sign In with LinkedIn using OpenID Connect"
+  # + "Share on LinkedIn"). Uncomment + provision the secrets once approved.
+  # - variable: LINKEDIN_OAUTH_CLIENT_ID
+  #   secret: linkedin-oauth-client-id
+  #   availability:
+  #     - RUNTIME
+  # - variable: LINKEDIN_OAUTH_CLIENT_SECRET
+  #   secret: linkedin-oauth-client-secret
+  #   availability:
+  #     - RUNTIME
   # Enables REAL X publishing in the Distribute worker (else channel:'x' posts get a
   # manual stamp). Safe on dev where the cron is PARKED (single manual drain). Do NOT
   # enable in prod under a running cron until the claim is transactional (Phase-4 4d).

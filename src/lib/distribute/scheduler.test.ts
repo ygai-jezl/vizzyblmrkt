@@ -176,6 +176,23 @@ describe("processScheduledPosts", () => {
     }
   });
 
+  it("parks a due LinkedIn post as 'linkedin_not_connected' when the tenant has no LinkedIn token", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "p1", { scheduledAt: PAST, channel: "linkedin" });
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      const raw = db.raw(COLLECTION, "p1")!;
+      expect(raw.status).toBe("failed");
+      expect(raw.lastError).toBe("linkedin_not_connected");
+      expect(raw.publishedRef).toBeNull();
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
   it("does not pick up a post scheduled in the future", async () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();

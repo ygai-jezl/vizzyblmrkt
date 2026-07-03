@@ -175,6 +175,21 @@ env:
   #   availability:
   #     - RUNTIME
   #
+  # X (Twitter) OAuth 2.0 for the Distribute "Connect X" flow + publishing.
+  # Provision with: infra/x-oauth/setup.sh secret <project>
+  # - variable: X_OAUTH_CLIENT_ID
+  #   secret: x-oauth-client-id
+  #   availability:
+  #     - RUNTIME
+  # - variable: X_OAUTH_CLIENT_SECRET
+  #   secret: x-oauth-client-secret
+  #   availability:
+  #     - RUNTIME
+  # - variable: SOCIAL_TOKEN_ENC_KEY
+  #   secret: social-token-enc-key
+  #   availability:
+  #     - RUNTIME
+  #
   # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). The KEY
   # is the per-webhook signing key from the Mandrill dashboard; the URL must be
   # the exact registered public URL (it is part of the HMAC signature). The

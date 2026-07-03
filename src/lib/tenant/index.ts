@@ -47,6 +47,8 @@ export {
   logDomainGrant,
   setTenantGitConnection,
   deleteTenantGitConnection,
+  setTenantSocialConnection,
+  deleteTenantSocialConnection,
 } from "./control";
 export type { DomainGrantAudit } from "./control";
 export {

@@ -10,6 +10,7 @@ import {
   type Tenant,
   type EmailSenderConfig,
   type GitConnection,
+  type SocialConnection,
 } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
@@ -91,6 +92,35 @@ export async function deleteTenantGitConnection(
     .doc(id)
     .update({
       [`gitConnections.${provider}`]: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
+}
+
+/** Store (or replace) a tenant's social OAuth connection for a platform. */
+export async function setTenantSocialConnection(
+  id: string,
+  platform: "x" | "instagram" | "linkedin",
+  conn: SocialConnection,
+): Promise<void> {
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`socialConnections.${platform}`]: conn,
+      updatedAt: new Date().toISOString(),
+    });
+}
+
+/** Remove a tenant's social OAuth connection for a platform. */
+export async function deleteTenantSocialConnection(
+  id: string,
+  platform: "x" | "instagram" | "linkedin",
+): Promise<void> {
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`socialConnections.${platform}`]: FieldValue.delete(),
       updatedAt: new Date().toISOString(),
     });
 }

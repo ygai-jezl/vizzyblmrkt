@@ -11,7 +11,7 @@ interface ProviderStatus {
   connectedAt: string | null;
 }
 
-const PROVIDER_IDS = ["github", "gitlab"] as const;
+const PROVIDER_IDS = ["github", "gitlab", "x"] as const;
 
 /** Manage per-tenant GitHub/GitLab OAuth connections (for ingesting private repos). */
 export function ConnectionsPanel() {
@@ -48,7 +48,8 @@ export function ConnectionsPanel() {
   }
 
   async function disconnect(p: string) {
-    if (!window.confirm(`Disconnect ${p}? Existing private-repo sources will stop refreshing.`)) return;
+    const label = providers?.[p]?.label ?? p;
+    if (!window.confirm(`Disconnect ${label}?`)) return;
     setBusy(p);
     try {
       await fetch(`/api/admin/integrations/${p}`, { method: "DELETE" });
@@ -59,9 +60,11 @@ export function ConnectionsPanel() {
   }
 
   const status = sp.get("status");
+  const bannerProvider = sp.get("provider") ?? "";
+  const bannerLabel = providers?.[bannerProvider]?.label ?? bannerProvider;
   const banner =
     status === "ok"
-      ? { tone: "ok", msg: `Connected ${sp.get("provider") ?? ""}.` }
+      ? { tone: "ok", msg: `Connected ${bannerLabel}.` }
       : status === "error"
         ? { tone: "err", msg: `Couldn't connect (${sp.get("reason") ?? "error"}).` }
         : null;
@@ -71,8 +74,9 @@ export function ConnectionsPanel() {
       <div>
         <h2 className="text-sm font-semibold">Connections</h2>
         <p className="text-sm text-neutral-500">
-          Connect GitHub or GitLab so knowledge ingestion can clone your private repositories. The
-          token is stored encrypted and shared across this workspace&apos;s ingests.
+          Connect GitHub or GitLab so knowledge ingestion can clone your private repositories, and
+          connect X so Distribute can publish scheduled posts on your behalf. Tokens are stored
+          encrypted, never in plaintext.
         </p>
       </div>
 

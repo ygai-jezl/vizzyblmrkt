@@ -4,6 +4,8 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
+import { isXConfigured } from "@/lib/social/x/oauth";
+import { isSocialCryptoConfigured } from "@/lib/social/crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,5 +34,14 @@ export async function GET(req: Request) {
       connectedAt: c?.connectedAt ?? null,
     };
   });
+  // Social (Distribute publishing) connections — X now; IG/LinkedIn later.
+  const x = tenant?.socialConnections?.x;
+  providers.x = {
+    label: "X (Twitter)",
+    configured: isXConfigured() && isSocialCryptoConfigured(),
+    connected: Boolean(x),
+    accountLogin: x?.handle ?? null,
+    connectedAt: x?.connectedAt ?? null,
+  };
   return NextResponse.json({ providers });
 }

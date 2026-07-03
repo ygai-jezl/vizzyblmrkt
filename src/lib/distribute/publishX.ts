@@ -47,7 +47,9 @@ const PERMANENT_CODES = new Set(["empty", "not_connected", "x_api_401", "x_api_4
 export function classifyXResult(result: XPublishResult): XOutcome {
   if (result.ok) return { kind: "published", remoteId: result.remoteId, url: result.url };
   const code = result.reason.split(":")[0] ?? result.reason;
-  if (code.endsWith("_partial") || code.startsWith("created_unconfirmed")) {
+  // Ambiguous — a tweet MAY already be live: a partial thread, a 2xx with no id, or a
+  // wall-time timeout (the request may have reached X). Park posted=true; never retry.
+  if (code.endsWith("_partial") || code.startsWith("created_unconfirmed") || code === "timeout") {
     return { kind: "park", reason: result.reason, posted: true };
   }
   if (PERMANENT_CODES.has(code)) {

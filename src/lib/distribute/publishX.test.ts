@@ -39,6 +39,8 @@ describe("classifyXResult", () => {
       "network_error_partial",
       "created_unconfirmed",
       "created_unconfirmed_partial",
+      "timeout", // wall-time abort — the request may have reached X
+      "timeout_partial",
     ]) {
       expect(classifyXResult({ ok: false, reason })).toEqual({ kind: "park", reason, posted: true });
     }

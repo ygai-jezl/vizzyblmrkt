@@ -19,16 +19,20 @@ import type { PpsResult } from "./pps";
  * to MAX_ATTEMPTS then parks as "failed", and a stale ("processing") claim is
  * reclaimable after the lease.
  *
- * PHASE 1: `publishPost` is a MANUAL stamp (no live channel adapter yet) — the
- * post flips to "done" with publishedRef.platform === "manual" and the operator
- * posts from the preview. Phase 4+ replaces it with a per-channel client (X MCP /
- * Graph API) that returns a real publishedRef.
+ * `publishPost` is a MANUAL stamp for channels without a live adapter (flips to
+ * "done" with publishedRef.platform === "manual"); channel:'x' publishes for real
+ * via publishToX when DISTRIBUTE_SOCIAL_ENABLED is on.
  *
- * NOTE (D2): before real publishing lands, the claim below must be upgraded to a
- * Firestore transaction — the 60s cron can invoke overlapping runs, and only a
- * transactional claim (plus the publishedRef guard) guarantees two workers can't
- * both publish the same post. The publishedRef guard is already in place so a
- * double-claim is safe today (the manual stamp is idempotent).
+ * EXACTLY-ONCE (D2/D6): the claim below is a Firestore TRANSACTION (repo.claim) —
+ * the 60s cron can invoke overlapping runs, and the transactional pending→processing
+ * transition (plus publishPost's publishedRef guard) guarantees two workers can't both
+ * publish the same post to a channel with no idempotency key (X). This rests on the
+ * invariant "a publish finishes within its claim lease": publishToX enforces a
+ * wall-time budget (PUBLISH_BUDGET_MS) well under LEASE_MS, so a slow/hung send is
+ * aborted rather than outliving its claim and being reclaimed + re-posted. Residual:
+ * a hard crash between X accepting a post and Firestore recording publishedRef can
+ * still re-post on stale-reclaim — inherent to X's lack of an idempotency key;
+ * publishX parks partial/ambiguous/timeout sends to shrink that window.
  */
 
 const MAX_ATTEMPTS = 3;
@@ -72,30 +76,45 @@ export async function processScheduledPosts(
     return true;
   });
 
+  let processed = 0;
   let done = 0;
   let failed = 0;
-  for (const post of posts) {
-    const attempts = post.attempts + 1;
-    await repo.update(post.id, {
-      status: "processing",
-      attempts,
-      claimedAt: new Date().toISOString(),
+  for (const candidate of posts) {
+    // EXACTLY-ONCE CLAIM (D2/D6): the query above only finds CANDIDATES — the claim
+    // is authoritative. Inside a transaction we re-read the post FRESH and transition
+    // pending / stale-processing → processing atomically. Overlapping cron runs both
+    // see the candidate, but only one commits the claim; every loser re-reads a
+    // "processing" (fresh lease) or terminal ("done"/"failed") status and declines.
+    // That is what stops a channel with NO idempotency key (X) from double-posting.
+    // A stale post that already carries a publishedRef is still claimed here — but
+    // publishPost's top guard reconciles it to "done" WITHOUT re-posting.
+    const claimed = await repo.claim(candidate.id, (cur) => {
+      const isDue = cur.status === "pending" && cur.scheduledAt <= now;
+      const isStale =
+        cur.status === "processing" &&
+        typeof cur.claimedAt === "string" &&
+        cur.claimedAt <= staleBefore;
+      if (!isDue && !isStale) return null; // fresh lease / finished / not yet due
+      return { status: "processing" as const, attempts: cur.attempts + 1, claimedAt: now };
     });
+    if (!claimed) continue; // lost the race, or no longer eligible
+    processed += 1;
+
     try {
       // A "parked" post is terminally failed WITHOUT a throw (a throw means retry).
       // Count it as failed so drain telemetry doesn't over-report success (e.g. an
       // operator draining after connecting X sees an accurate done/failed split).
-      const outcome = await dispatchScheduledPost(ctx, post, db);
+      const outcome = await dispatchScheduledPost(ctx, claimed, db);
       if (outcome === "parked") failed += 1;
       else done += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
-      const exhausted = attempts >= MAX_ATTEMPTS;
+      const exhausted = claimed.attempts >= MAX_ATTEMPTS;
       // Mirror the email worker (delivery.ts): flip back to "pending" and LEAVE
       // claimedAt stamped. A pending row is re-eligible via the due-query
       // regardless of claimedAt, and not nulling it avoids ever producing a
       // (processing, null-claim) row the stale-reclaim query could never match.
-      await repo.update(post.id, {
+      await repo.update(claimed.id, {
         status: exhausted ? "failed" : "pending",
         lastError: msg,
         processedAt: exhausted ? new Date().toISOString() : null,
@@ -103,7 +122,7 @@ export async function processScheduledPosts(
       failed += 1;
     }
   }
-  return { processed: posts.length, done, failed };
+  return { processed, done, failed };
 }
 
 async function dispatchScheduledPost(
@@ -211,11 +230,8 @@ async function publishPost(
   }
 
   // DEFAULT: manual stamp (no live adapter for this channel, or the flag is off).
-  //
-  // PHASE 4 CONTRACT (still OPEN): before enabling DISTRIBUTE_SOCIAL_ENABLED in PROD
-  // with a RUNNING cron, the claim above MUST become a Firestore transaction (the 60s
-  // cron can invoke overlapping runs and X has no idempotency key). Safe today only
-  // because the cron is parked (single manual drain per invocation).
+  // Idempotent by design (the publishedRef guard above) and now protected upstream by
+  // the transactional claim, so it is safe under the running 60s cron.
   await repo.update(post.id, {
     status: "done",
     ...renderPatch,

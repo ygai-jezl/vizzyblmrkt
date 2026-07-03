@@ -10,6 +10,7 @@ import {
   SchedulePostConflictError,
 } from "./scheduler";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { Tenant } from "@/lib/types/tenant";
@@ -270,6 +271,76 @@ describe("processScheduledPosts", () => {
     const r = await processScheduledPosts(ctx, 25, db);
     expect(r.processed).toBe(1);
     expect(db.raw(COLLECTION, "theirs")!.status).toBe("pending"); // untouched
+  });
+});
+
+describe("transactional claim (exactly-once)", () => {
+  it("publishes a contended post EXACTLY once under two overlapping drains", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "p1", { scheduledAt: PAST });
+    // Worker A begins its claim transaction; after it reads p1 (pending) but before it
+    // commits, Worker B runs a FULL drain and claims + publishes p1 first. A's commit
+    // then conflicts (p1's version changed), A retries, re-reads p1 as done, and
+    // declines — so p1 publishes exactly once.
+    let bResult: Awaited<ReturnType<typeof processScheduledPosts>> | null = null;
+    db.onBeforeCommit = async () => {
+      bResult = await processScheduledPosts(ctx, 25, db); // Worker B
+    };
+    const aResult = await processScheduledPosts(ctx, 25, db); // Worker A
+
+    const raw = db.raw(COLLECTION, "p1")!;
+    expect(raw.status).toBe("done");
+    expect((raw.publishedRef as { platform: string }).platform).toBe("manual");
+    // B won the claim and published; A found nothing left to publish.
+    expect(bResult!).toMatchObject({ processed: 1, done: 1 });
+    expect(aResult.processed).toBe(0);
+    // Written EXACTLY twice — only B (claim → done). The losing worker A applied no
+    // write at all (had it, this would be 3+), proving "publishes once", not just
+    // "declines the claim".
+    expect(db.writeCountFor(COLLECTION, "p1")).toBe(2);
+  });
+
+  it("claim() declines a post already held under a FRESH lease (no double-claim)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    const repo = forTenant(ctx, db).scheduledPosts;
+    const staleBefore = new Date(Date.now() - 10 * 60_000).toISOString();
+    // The plan encodes the worker's claimability rule; a fresh lease is not stale.
+    const plan = (cur: ScheduledPost) => {
+      const isStale =
+        cur.status === "processing" &&
+        typeof cur.claimedAt === "string" &&
+        cur.claimedAt <= staleBefore;
+      if (cur.status !== "pending" && !isStale) return null;
+      return { status: "processing" as const, attempts: cur.attempts + 1 };
+    };
+    seedPost(db, "p1", { status: "processing", claimedAt: new Date().toISOString() });
+    expect(await repo.claim("p1", plan)).toBeNull();
+    expect(db.raw(COLLECTION, "p1")!.attempts).toBe(0); // untouched
+  });
+
+  it("claim() re-reads fresh state: declines once already published, allows a stale reclaim", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    const repo = forTenant(ctx, db).scheduledPosts;
+    const plan = (cur: ScheduledPost) => {
+      if (cur.publishedRef) return null;
+      const isStale =
+        cur.status === "processing" &&
+        typeof cur.claimedAt === "string" &&
+        cur.claimedAt <= new Date(Date.now() - 10 * 60_000).toISOString();
+      if (cur.status !== "pending" && !isStale) return null;
+      return { status: "processing" as const, attempts: cur.attempts + 1 };
+    };
+    // Already published → never re-claim.
+    seedPost(db, "pub", { status: "done", publishedRef: { platform: "x", publishedAt: PAST } });
+    expect(await repo.claim("pub", plan)).toBeNull();
+    // Stale processing lease (claimedAt far in the past) → reclaimable.
+    seedPost(db, "stale", { status: "processing", claimedAt: PAST });
+    const reclaimed = await repo.claim("stale", plan);
+    expect(reclaimed).toMatchObject({ status: "processing", attempts: 1 });
+    expect(db.raw(COLLECTION, "stale")!.status).toBe("processing");
   });
 });
 

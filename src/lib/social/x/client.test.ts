@@ -82,6 +82,22 @@ describe("publishToX", () => {
     });
   });
 
+  it("aborts on the wall-time budget and returns an ambiguous 'timeout' reason", async () => {
+    // A fetch that only settles when the abort signal fires (a hung request).
+    const hangingFetch = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const signal = init.signal as AbortSignal;
+        signal.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      })) as unknown as typeof fetch;
+    const r = await publishToX(
+      { parts: ["x"], accessToken: "tok" },
+      { fetch: hangingFetch, timeoutMs: 5 },
+    );
+    expect(r).toEqual({ ok: false, reason: "timeout" });
+  });
+
   it("flags a PARTIAL failure mid-thread (so the caller won't blindly re-post)", async () => {
     const { fn } = fakeFetch([
       { ok: true, body: { data: { id: "1" } } },

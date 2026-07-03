@@ -160,6 +160,44 @@ export class TenantCollection<T extends TenantScoped> {
     await this.db.collection(this.name).doc(id).update(rest);
   }
 
+  /**
+   * Atomically claim a document for exclusive processing. Inside a Firestore
+   * transaction, reads the FRESHEST state and runs `plan(current)`: a returned patch
+   * is applied and the updated doc returned; `null` declines the claim (returns null).
+   *
+   * This is the exactly-once primitive for the delivery/scheduler workers: under
+   * overlapping cron runs only ONE transaction commits the pending→processing
+   * transition; every racing worker re-reads `processing` inside its own transaction
+   * and declines — so no external side-effect (e.g. a tweet with no idempotency key)
+   * fires twice. Tenant ownership is re-verified inside the transaction, and the
+   * identity/immutable fields (tenantId/id/createdAt) are stripped from the patch,
+   * exactly as `update()` does.
+   */
+  async claim(
+    id: string,
+    plan: (current: T) => Partial<CreateInput<T>> | null,
+  ): Promise<T | null> {
+    const ref = this.db.collection(this.name).doc(id);
+    return this.db.runTransaction(async (txn) => {
+      const snap = await txn.get(ref);
+      if (!snap.exists) return null;
+      const data = snap.data() ?? {};
+      // Defence in depth: a guessed foreign-tenant id is invisible, never claimable.
+      if (data[TENANT_FIELD] !== this.tenantId) return null;
+      const current = { id: snap.id, ...data } as T;
+      const patch = plan(current);
+      if (!patch) return null;
+      const {
+        tenantId: _t,
+        id: _i,
+        createdAt: _c,
+        ...rest
+      } = patch as Record<string, unknown>;
+      txn.update(ref, rest);
+      return { ...current, ...rest } as T;
+    });
+  }
+
   async delete(id: string): Promise<void> {
     const existing = await this.getById(id); // verifies tenant ownership
     if (!existing) {

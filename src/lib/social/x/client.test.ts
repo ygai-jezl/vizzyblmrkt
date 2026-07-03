@@ -55,11 +55,30 @@ describe("publishToX", () => {
     expect(calls[2]!.body).toEqual({ text: "c", reply: { in_reply_to_tweet_id: "2" } });
   });
 
-  it("reports an X API error", async () => {
+  it("reports an X API error with the status code", async () => {
     const { fn } = fakeFetch([{ ok: false, status: 403, body: { title: "Forbidden" } }]);
     expect(await publishToX({ parts: ["x"], accessToken: "tok" }, { fetch: fn })).toEqual({
       ok: false,
-      reason: "x_api_403",
+      reason: "x_api_403:Forbidden",
+    });
+  });
+
+  it("captures X's error detail (e.g. a 402 access-tier refusal) into the reason", async () => {
+    const { fn } = fakeFetch([
+      { ok: false, status: 402, body: { detail: "When authenticating requests you must use a paid access level." } },
+    ]);
+    const r = await publishToX({ parts: ["x"], accessToken: "tok" }, { fetch: fn });
+    expect(r).toEqual({
+      ok: false,
+      reason: "x_api_402:When authenticating requests you must use a paid access level.",
+    });
+  });
+
+  it("omits the detail suffix when the error body carries no message", async () => {
+    const { fn } = fakeFetch([{ ok: false, status: 500, body: {} }]);
+    expect(await publishToX({ parts: ["x"], accessToken: "tok" }, { fetch: fn })).toEqual({
+      ok: false,
+      reason: "x_api_500",
     });
   });
 

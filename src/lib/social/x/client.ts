@@ -66,7 +66,8 @@ export async function publishToX(
       return { ok: false, reason: `network_error${partial}` };
     }
     if (!res.ok) {
-      return { ok: false, reason: `x_api_${res.status}${partial}` };
+      const detail = await readErrorDetail(res);
+      return { ok: false, reason: `x_api_${res.status}${partial}${detail ? `:${detail}` : ""}` };
     }
     const data = (await res.json().catch(() => null)) as { data?: { id?: string } } | null;
     const id = data?.data?.id;
@@ -84,4 +85,25 @@ export async function publishToX(
     remoteId: firstId!,
     url: `https://x.com/i/web/status/${firstId}`,
   };
+}
+
+/**
+ * Extract a short, single-line reason from an X error body so the stored
+ * `lastError` explains WHY X refused (e.g. "requires a different access level")
+ * instead of only a status code. X error bodies never echo the auth header, so
+ * this is safe to persist; still whitespace-collapsed + length-capped defensively.
+ * Returns "" when the body carries no useful message (e.g. `{}`).
+ */
+async function readErrorDetail(res: Response): Promise<string> {
+  const raw = await res.text().catch(() => "");
+  if (!raw) return "";
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    const errs = j.errors as Array<{ message?: string }> | undefined;
+    const msg = j.detail ?? j.title ?? errs?.[0]?.message;
+    return msg ? String(msg).replace(/\s+/g, " ").trim().slice(0, 140) : "";
+  } catch {
+    // Non-JSON body (e.g. an HTML error page) → a trimmed snippet still helps.
+    return raw.replace(/\s+/g, " ").trim().slice(0, 140);
+  }
 }

@@ -5,6 +5,9 @@ import { getDecryptedSocialTokens } from "@/lib/social/connections";
 import { publishToX, fetchXPublicMetrics } from "@/lib/social/x/client";
 import { isSocialPublishEnabled, buildXThread, classifyXResult } from "./publishX";
 import { AUTO_PLUG_DELAY_MS, thresholdCrossed } from "./autoPlug";
+import { isClosedLoopEnabled } from "./feedback/retrieveExemplars";
+import { recordExemplar } from "./feedback/recordExemplar";
+import { PERFORMANCE_FETCH_DELAY_MS, exemplarQualifies, exemplarTags } from "./feedback/harvest";
 import {
   scheduledPostDedupeKey,
   type ScheduledPost,
@@ -138,9 +141,10 @@ async function dispatchScheduledPost(
       return await publishPost(ctx, post, db);
     case "auto_plug_comment":
       return await runAutoPlugComment(ctx, post, db);
+    case "performance_fetch":
+      return await runPerformanceFetch(ctx, post, db);
     case "auto_engage_draft":
     case "auto_dm":
-    case "performance_fetch":
     case "li_connection_request":
     case "li_dm_held":
     case "li_dm_release":
@@ -208,11 +212,15 @@ async function publishPost(
         processedAt: now,
         lastError: null,
       });
-      // Attach an auto-plug follow-up (poll metrics at +24h → maybe comment). Enqueued
-      // AFTER the parent is stamped done (above): publish-first is deliberate so a crash
-      // here can only LOSE the follow-up (silent miss), never re-publish the parent
-      // (double-tweet). The enqueue can't be atomic with the X post (no idempotency key).
+      // Attach follow-ups (poll metrics later). Enqueued AFTER the parent is stamped
+      // done (above): publish-first is deliberate so a crash here can only LOSE a
+      // follow-up (silent miss), never re-publish the parent (double-tweet). The
+      // enqueue can't be atomic with the X post (no idempotency key).
       if (post.autoPlug) await enqueueAutoPlug(repo, post, outcome.remoteId, now);
+      // Closed loop: only enqueue a harvest job while the loop is enabled (else junk).
+      if (isClosedLoopEnabled()) {
+        await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now);
+      }
       return "done";
     }
     if (outcome.kind === "park") {
@@ -376,6 +384,111 @@ async function runAutoPlugComment(
     return "parked";
   }
   throw new Error(`autoplug_publish:${outcome.reason}`); // clean failure → worker retries
+}
+
+/**
+ * Enqueue the closed-loop harvest follow-up for a just-published post: a singleton
+ * `performance_fetch` job that, at +PERFORMANCE_FETCH_DELAY_MS, polls the post's real
+ * engagement and — if it crossed the high-performer bar — records it as an exemplar.
+ * UPSERT (re-targets on re-publish), carrying the ACTUAL published copy.
+ */
+async function enqueuePerformanceFetch(
+  repo: ReturnType<typeof forTenant>["scheduledPosts"],
+  parent: ScheduledPost,
+  remoteId: string,
+  publishedCopy: string,
+  now: string,
+): Promise<void> {
+  const id = `perf:${parent.dedupeKey}`;
+  const scheduledAt = new Date(Date.parse(now) + PERFORMANCE_FETCH_DELAY_MS).toISOString();
+  const fields = {
+    workspaceId: parent.workspaceId,
+    contentPlanId: parent.contentPlanId,
+    nodeId: parent.nodeId,
+    channel: parent.channel,
+    format: parent.format ?? null,
+    jobKind: "performance_fetch" as const,
+    status: "pending" as const,
+    dedupeKey: id,
+    scheduledAt,
+    attempts: 0,
+    claimedAt: null,
+    body: publishedCopy, // the exact copy that published — the exemplar candidate
+    sourceRemoteId: remoteId,
+    publishedRef: null,
+    lastError: null,
+    processedAt: null,
+  };
+  const existing = await repo.getById(id);
+  if (existing) await repo.update(id, fields as never);
+  else await repo.create(id, { ...fields, createdAt: now } as never);
+}
+
+/**
+ * Closed-loop harvest worker: poll a published post's real engagement ONCE; if it
+ * crossed the high-performer bar, capture it as a performance exemplar to weight
+ * future Create generations. Best-effort: a permanent metrics failure or a below-bar
+ * post simply completes without harvesting; a transient failure retries.
+ */
+async function runPerformanceFetch(
+  ctx: TenantContext,
+  post: ScheduledPost,
+  db?: FirestoreLike,
+): Promise<"done" | "parked"> {
+  const repo = forTenant(ctx, db).scheduledPosts;
+  const now = new Date().toISOString();
+  if (!isClosedLoopEnabled()) {
+    await repo.update(post.id, { status: "done", processedAt: now, lastError: "closed_loop_disabled" });
+    return "done";
+  }
+  if (!isSocialPublishEnabled()) {
+    // Can't poll X → park (failed++) so telemetry is honest; re-arm after enabling.
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "social_disabled" });
+    return "parked";
+  }
+  if (!post.sourceRemoteId) {
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "perf_misconfigured" });
+    return "parked";
+  }
+  const tenant = await getTenantById(ctx.tenantId, db);
+  const tokens = getDecryptedSocialTokens(tenant, "x");
+  if (!tokens) {
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "x_not_connected" });
+    return "parked";
+  }
+
+  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, tokens.accessToken);
+  if (!metrics.ok) {
+    const cls = classifyXResult({ ok: false, reason: metrics.reason });
+    if (cls.kind === "retry") throw new Error(`perf_metrics:${metrics.reason}`);
+    // Permanent (deleted tweet / auth) → best-effort give up, no harvest.
+    await repo.update(post.id, { status: "done", processedAt: now, lastError: `perf_metrics:${metrics.reason}` });
+    return "done";
+  }
+
+  if (!exemplarQualifies(metrics.metrics)) {
+    await repo.update(post.id, { status: "done", processedAt: now, lastError: "below_bar" });
+    return "done";
+  }
+
+  // Qualified → harvest. sourcePostId is the PARENT post (strip the perf: prefix) so
+  // there is one exemplar per source post. recordExemplar is fail-soft (never throws).
+  const parentId = post.dedupeKey.replace(/^perf:/, "");
+  const text = post.body; // the published copy carried on the job
+  const outcome = await recordExemplar(ctx, {
+    channel: post.channel,
+    text,
+    tags: exemplarTags(text, post.channel, post.format),
+    metric: { name: "likes", value: metrics.metrics.likes },
+    sourcePostId: parentId,
+    sourceRemoteId: post.sourceRemoteId,
+  });
+  await repo.update(post.id, {
+    status: "done",
+    processedAt: now,
+    lastError: outcome === "recorded" ? null : "exemplar_skipped",
+  });
+  return "done";
 }
 
 export interface DistributeDrainResult {

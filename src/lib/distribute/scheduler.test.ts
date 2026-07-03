@@ -413,6 +413,72 @@ describe("auto_plug_comment worker", () => {
   });
 });
 
+describe("performance_fetch worker (closed-loop harvest)", () => {
+  const seedPerf = (db: FakeFirestore, over = {}) =>
+    seedPost(db, "pf1", {
+      jobKind: "performance_fetch",
+      scheduledAt: PAST,
+      sourceRemoteId: "P1",
+      body: "a proven post",
+      ...over,
+    });
+
+  it("completes as a no-op when the closed loop is disabled", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPerf(db);
+    const r = await processScheduledPosts(ctx, 25, db);
+    expect(r).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    expect(db.raw(COLLECTION, "pf1")!.lastError).toBe("closed_loop_disabled");
+  });
+
+  it("parks 'social_disabled' when the loop is on but publishing is off", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPerf(db);
+    process.env.DISTRIBUTE_CLOSED_LOOP_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      expect(db.raw(COLLECTION, "pf1")!.lastError).toBe("social_disabled");
+    } finally {
+      delete process.env.DISTRIBUTE_CLOSED_LOOP_ENABLED;
+    }
+  });
+
+  it("parks 'x_not_connected' when loop+publish on but the tenant has no token", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPerf(db);
+    process.env.DISTRIBUTE_CLOSED_LOOP_ENABLED = "true";
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      expect(db.raw(COLLECTION, "pf1")!.lastError).toBe("x_not_connected");
+    } finally {
+      delete process.env.DISTRIBUTE_CLOSED_LOOP_ENABLED;
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
+  it("parks 'perf_misconfigured' when the job has no sourceRemoteId", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPerf(db, { sourceRemoteId: null });
+    process.env.DISTRIBUTE_CLOSED_LOOP_ENABLED = "true";
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(db.raw(COLLECTION, "pf1")!.lastError).toBe("perf_misconfigured");
+      expect(r.failed).toBe(1);
+    } finally {
+      delete process.env.DISTRIBUTE_CLOSED_LOOP_ENABLED;
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+});
+
 describe("cancelScheduledPost", () => {
   it("deletes a pending post", async () => {
     const db = new FakeFirestore();

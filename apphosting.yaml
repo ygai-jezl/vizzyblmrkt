@@ -201,14 +201,14 @@ env:
       - RUNTIME
   # LinkedIn Community Management app (App 2) — Company Page posting. SEPARATE app
   # (CM must be the only product on its app). Provision: infra/linkedin-cm/setup.sh.
-  # - variable: LINKEDIN_CM_CLIENT_ID
-  #   secret: linkedin-cm-client-id
-  #   availability:
-  #     - RUNTIME
-  # - variable: LINKEDIN_CM_CLIENT_SECRET
-  #   secret: linkedin-cm-client-secret
-  #   availability:
-  #     - RUNTIME
+  - variable: LINKEDIN_CM_CLIENT_ID
+    secret: linkedin-cm-client-id
+    availability:
+      - RUNTIME
+  - variable: LINKEDIN_CM_CLIENT_SECRET
+    secret: linkedin-cm-client-secret
+    availability:
+      - RUNTIME
   # Enables REAL X publishing in the Distribute worker (else channel:'x' posts get a
   # manual stamp). Safe on dev where the cron is PARKED (single manual drain). Do NOT
   # enable in prod under a running cron until the claim is transactional (Phase-4 4d).

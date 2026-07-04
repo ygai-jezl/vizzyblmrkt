@@ -6,8 +6,18 @@ import type { XPublicMetrics } from "@/lib/social/x/client";
  * (scheduler.ts runPerformanceFetch).
  */
 
-/** How long after publish to poll real engagement and (maybe) harvest an exemplar. */
+/** How long after publish to FIRST poll real engagement and (maybe) harvest. */
 export const PERFORMANCE_FETCH_DELAY_MS = 48 * 60 * 60 * 1000; // 48h
+
+/**
+ * MULTI-POLL window: a post that accrues its likes over DAYS still gets captured as an
+ * exemplar. A below-bar poll re-arms every PERFORMANCE_POLL_INTERVAL_MS until
+ * PERFORMANCE_WINDOW_MS elapses (from the parent publish = the job's createdAt), then
+ * completes without harvesting. With 48h first poll + 24h cadence + 7d window: polls at
+ * ~48/72/96/120/144/168h.
+ */
+export const PERFORMANCE_POLL_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+export const PERFORMANCE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
  * Minimum likes to qualify as a high performer. A flat, env-overridable bar for the

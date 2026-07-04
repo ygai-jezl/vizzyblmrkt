@@ -4,9 +4,19 @@ import { generateText, parseFirstJson } from "@/lib/agents/gemini";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
 import { getFramework } from "@/lib/content/frameworks";
+import { getEmailFramework, DEFAULT_EMAIL_FRAMEWORK } from "@/lib/content/emailFrameworks";
+import { getSequenceBlueprint } from "@/lib/content/create/sequenceBlueprints";
+import { contentMatrixLabel } from "@/lib/content/contentMatrix";
+import {
+  spamScan,
+  fleschKincaidGrade,
+  READABILITY_MAX_GRADE,
+  collapseBangs,
+} from "@/lib/content/create/emailCritics";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { bodyTokens } from "@/lib/content/placeholders";
-import { fillTemplate, withDynamicTokens, unfilledTokens } from "./fillTemplate";
+import { MERGE_VARS } from "@/lib/email/mergeVars";
+import { fillTemplate, fillKnownTokens, withDynamicTokens, unfilledTokens } from "./fillTemplate";
 import {
   retrieveSemanticKnowledgeContext,
   type ContextRetrievalRequest,
@@ -51,7 +61,19 @@ export interface GeneratedNodePatch {
   status: ContentNode["status"];
   warnings: string[];
   format: string;
+  /** Email nodes only — set undefined for hub/promo/spoke so the route leaves them be. */
+  subject?: string;
+  previewText?: string;
+  subjectVariants?: string[];
 }
+
+/**
+ * TRUE send-time recipient merge vars — those with a real resolver in mergeVars.ts. A
+ * leftover among these is expected (resolved per-recipient at send), so it's NOT flagged.
+ * Deliberately EXCLUDES bake-tokens ({{hub_url}}/{{topic}}/{{subscriber_count}}): those
+ * have no send-time resolver, so an unbaked one must surface as `unfilled_tokens`.
+ */
+const RECIPIENT_TOKENS = new Set<string>([...MERGE_VARS, "voice_chat_link"]);
 
 type RetrieveFn = typeof retrieveSemanticKnowledgeContext;
 type RetrieveExemplarsFn = typeof retrieveExemplars;
@@ -61,6 +83,34 @@ function coerceBody(raw: string | null): string {
   if (!j || typeof j !== "object") return "";
   const body = (j as Record<string, unknown>).body;
   return typeof body === "string" ? body.trim().slice(0, MAX_BODY_CHARS) : "";
+}
+
+interface DraftedEmail {
+  subject: string;
+  previewText: string;
+  subjectVariants: string[];
+  body: string;
+}
+
+/** Parse the richer email JSON (subject + preview + A/B variants + body); tolerant. */
+function coerceEmail(raw: string | null): DraftedEmail {
+  const empty: DraftedEmail = { subject: "", previewText: "", subjectVariants: [], body: "" };
+  const j = raw ? parseFirstJson(raw) : null;
+  if (!j || typeof j !== "object") return empty;
+  const o = j as Record<string, unknown>;
+  const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const variants = Array.isArray(o.subjectVariants)
+    ? (o.subjectVariants as unknown[])
+        .map((v) => str(v, 200))
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  return {
+    subject: str(o.subject, 200),
+    previewText: str(o.previewText, 200),
+    subjectVariants: variants,
+    body: str(o.body, MAX_BODY_CHARS),
+  };
 }
 
 function formatForNode(node: ContentNode, hubBlockType: string): string {
@@ -137,6 +187,18 @@ export async function generateNode(
     subscriberCount: plan.strategy.subscriberCount ?? null,
   };
 
+  // Structural sequence nodes (trigger/wait/condition) hold no copy — nothing to
+  // generate. Guarded here in case a client ever fires generate on one.
+  if (node.type === "trigger" || node.type === "wait" || node.type === "condition") {
+    return {
+      body: node.body,
+      placeholderValues: node.placeholderValues ?? {},
+      status: "generated",
+      warnings: [],
+      format,
+    };
+  }
+
   // Spokes need the hub written first (they atomize it).
   if (node.type === "spoke" && (!hubNode || !hubNode.body)) {
     return {
@@ -172,6 +234,88 @@ export async function generateNode(
     queryText: req.queryText,
   }).catch(() => null);
   const exemplarsBlock = exemplarCtx?.formatted ?? "";
+
+  // Email-sequence node — scenario-aware copy + subject A/B variants + critics.
+  if (node.type === "email") {
+    const bp = plan.strategy.sequenceType
+      ? getSequenceBlueprint(plan.strategy.sequenceType)
+      : undefined;
+    const fw =
+      getEmailFramework(node.framework ?? DEFAULT_EMAIL_FRAMEWORK) ??
+      getEmailFramework(DEFAULT_EMAIL_FRAMEWORK)!;
+    const emailNodes = plan.graph.nodes.filter((n) => n.type === "email");
+    const pos = emailNodes.findIndex((n) => n.id === node.id);
+    const sequencePosition =
+      pos >= 0 ? `Email ${pos + 1} of ${emailNodes.length}` : "one email in the sequence";
+
+    const task = renderPrompt("content.email_fill", {
+      sequence_label: bp?.label ?? "email sequence",
+      sequence_position: sequencePosition,
+      scenario_brief: bp?.scenarioBrief ?? "",
+      framework_label: fw.label,
+      framework_hint: fw.structureHint,
+      role: node.role,
+      brief: node.brief || "(none)",
+      spark: plan.scope.spark || "(none)",
+      knowledge_context: knowledgeContext,
+      proof_assets: proofBlock,
+      exemplars: exemplarsBlock,
+    });
+    const emailPrompt = composePrompt({
+      identity: brandVoiceSection(input.brandVoice),
+      communication: WRITING_RULES,
+      userProfile: audienceSection(input.audience),
+      task,
+    });
+    const raw = await generateText(emailPrompt);
+    const drafted = coerceEmail(raw);
+    if (!drafted.body) {
+      return {
+        body: "",
+        placeholderValues: {},
+        status: "error",
+        warnings: ["generation_failed"],
+        format,
+        subject: "",
+        previewText: "",
+        subjectVariants: [],
+      };
+    }
+
+    // Bake the authoritative tokens ({{hub_url}}, {{subscriber_count}}, {{topic}}) but
+    // PRESERVE recipient merge vars like {{first_name}} for send-time.
+    const topicLabel = plan.scope.topics[0] ? contentMatrixLabel(plan.scope.topics[0]) : "";
+    const values = { ...withDynamicTokens({}, dynamic) };
+    if (topicLabel) {
+      values.topic = topicLabel;
+      values.Topic = topicLabel;
+    }
+    const applied: Record<string, string> = {};
+    const bake = (s: string) => fillKnownTokens(s, values, applied);
+
+    // Critics run on the MODEL PROSE first (spam scan + the safe bang auto-fix), THEN we
+    // bake tokens — so a baked value containing "!!" (legal in a URL) is never mangled.
+    const spam = spamScan(drafted.subject, drafted.body);
+    const finalSubject = bake(spam.cleanedSubject);
+    const finalBody = bake(spam.cleanedBody);
+    const warnings = [...spam.warnings];
+    const leftover = unfilledTokens(finalBody, applied).filter((t) => !RECIPIENT_TOKENS.has(t));
+    if (leftover.length) warnings.push("unfilled_tokens");
+    if (fleschKincaidGrade(finalBody) > READABILITY_MAX_GRADE) {
+      warnings.push("readability_complex");
+    }
+
+    return {
+      body: finalBody,
+      placeholderValues: applied,
+      status: "generated",
+      warnings,
+      format,
+      subject: finalSubject,
+      previewText: bake(collapseBangs(drafted.previewText)),
+      subjectVariants: drafted.subjectVariants.map((v) => bake(collapseBangs(v))),
+    };
+  }
 
   const skeleton = input.skeletonBody?.trim() ? input.skeletonBody.trim().slice(0, 8000) : "";
   const useSkeleton = Boolean(skeleton);

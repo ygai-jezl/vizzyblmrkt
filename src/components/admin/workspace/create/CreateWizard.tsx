@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
+import { SEQUENCE_BLUEPRINTS } from "@/lib/content/create/sequenceBlueprints";
 import { IngestBar } from "@/components/admin/workspace/IngestBar";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
-import type { ContentObjective, ContentPlan } from "@/lib/types/contentPlan";
+import type { ContentObjective, ContentPlan, SequenceType } from "@/lib/types/contentPlan";
 
 /**
  * Create intake wizard — 4 short steps (Strategy / Scope / Knowledge / Topology) +
@@ -17,6 +18,7 @@ const OBJECTIVES: { id: ContentObjective; label: string; hint: string }[] = [
   { id: "newsletter_signups", label: "Newsletter signups", hint: "Grow the list" },
   { id: "product_launch", label: "Product launch", hint: "Drive a launch moment" },
   { id: "brand_visibility", label: "Brand visibility", hint: "Top-of-funnel reach" },
+  { id: "email_sequence", label: "Email Sequence", hint: "Automated drip / nurture" },
 ];
 
 // Spokes are social channels (the hub is newsletter/blog; "standalone" isn't a destination).
@@ -40,6 +42,7 @@ export function CreateWizard({
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [objective, setObjective] = useState<ContentObjective>("newsletter_signups");
+  const [sequenceType, setSequenceType] = useState<SequenceType>("welcome");
   const [hubUrl, setHubUrl] = useState("");
   const [subscriberCount, setSubscriberCount] = useState("");
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
@@ -53,6 +56,7 @@ export function CreateWizard({
   const [err, setErr] = useState<string | null>(null);
 
   const doneSources = sources.filter((s) => s.status === "done");
+  const isSequence = objective === "email_sequence";
 
   async function refreshSources() {
     try {
@@ -98,15 +102,20 @@ export function CreateWizard({
             name: name.trim(),
             strategy: {
               objective,
-              hubUrl: hubUrl.trim() || null,
-              subscriberCount: subCount,
+              // Sequences don't use a hub link / subscriber count.
+              hubUrl: isSequence ? null : hubUrl.trim() || null,
+              subscriberCount: isSequence ? null : subCount,
+              sequenceType: isSequence ? sequenceType : null,
             },
             scope: { topics: selectedTopics, spark: spark.trim() },
             knowledge: {
               groundingScope: selectedTopics.length ? groundingScope : "global",
               proofAssets: proof.trim() ? [proof.trim()] : [],
             },
-            topology: { hubChannel, spokeChannels },
+            // Topology is meaningless for a sequence; send defaults so intake validates.
+            topology: isSequence
+              ? { hubChannel: "newsletter", spokeChannels: [] }
+              : { hubChannel, spokeChannels },
           }),
         },
       );
@@ -166,7 +175,7 @@ export function CreateWizard({
               />
             </Field>
             <Field label="Objective">
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {OBJECTIVES.map((o) => (
                   <button
                     key={o.id}
@@ -184,26 +193,51 @@ export function CreateWizard({
                 ))}
               </div>
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Hub URL (optional)" hint="Substituted into promos as the live link.">
-                <input
-                  value={hubUrl}
-                  onChange={(e) => setHubUrl(e.target.value)}
-                  placeholder="https://…"
-                  className={INPUT}
-                />
+            {isSequence ? (
+              <Field
+                label="Sequence type"
+                hint="The Architect builds the canvas for this archetype (emails, delays & branches)."
+              >
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {SEQUENCE_BLUEPRINTS.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSequenceType(s.id)}
+                      className={`rounded-md border p-3 text-left text-sm ${
+                        sequenceType === s.id
+                          ? "border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900"
+                          : "border-neutral-300 dark:border-neutral-700"
+                      }`}
+                    >
+                      <div className="font-medium">{s.label}</div>
+                      <div className="text-xs text-neutral-500">{s.hint}</div>
+                    </button>
+                  ))}
+                </div>
               </Field>
-              <Field label="Subscriber count (optional)" hint="Used in CTAs (“join 1,280 readers”).">
-                <input
-                  type="number"
-                  min={0}
-                  value={subscriberCount}
-                  onChange={(e) => setSubscriberCount(e.target.value)}
-                  placeholder="1280"
-                  className={INPUT}
-                />
-              </Field>
-            </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Hub URL (optional)" hint="Substituted into promos as the live link.">
+                  <input
+                    value={hubUrl}
+                    onChange={(e) => setHubUrl(e.target.value)}
+                    placeholder="https://…"
+                    className={INPUT}
+                  />
+                </Field>
+                <Field label="Subscriber count (optional)" hint="Used in CTAs (“join 1,280 readers”).">
+                  <input
+                    type="number"
+                    min={0}
+                    value={subscriberCount}
+                    onChange={(e) => setSubscriberCount(e.target.value)}
+                    placeholder="1280"
+                    className={INPUT}
+                  />
+                </Field>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -302,37 +336,51 @@ export function CreateWizard({
 
         {/* Step 3 — Topology */}
         {step === 3 ? (
-          <div className="space-y-4">
-            <Field label="Hub channel" hint="The comprehensive centerpiece.">
-              <div className="flex gap-2">
-                <Radio checked={hubChannel === "newsletter"} onChange={() => setHubChannel("newsletter")} label="Newsletter" />
-                <Radio checked={hubChannel === "blog"} onChange={() => setHubChannel("blog")} label="Blog (SEO/GEO)" />
-              </div>
-            </Field>
-            <Field label="Spoke channels" hint="Atomize the hub into these native formats.">
-              <div className="flex flex-wrap gap-2">
-                {SPOKE_OPTIONS.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setSpokeChannels((cur) => toggle(cur, c.id))}
-                    className={`rounded-md border px-3 py-1.5 text-sm ${
-                      spokeChannels.includes(c.id)
-                        ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                        : "border-neutral-300 dark:border-neutral-700"
-                    }`}
-                  >
-                    {channelLabel(c.id)}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-500 dark:bg-neutral-900/40">
-              The Architect will build a canvas: a pre-hub teaser, the {hubChannel} hub,
-              a post-hub promo, and one spoke per channel above — then fill each node from your
-              knowledge base.
-            </p>
-          </div>
+          isSequence ? (
+            <div className="space-y-4">
+              <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-500 dark:bg-neutral-900/40">
+                The Architect will build an email-sequence canvas for your{" "}
+                <span className="font-medium">
+                  {SEQUENCE_BLUEPRINTS.find((s) => s.id === sequenceType)?.label}
+                </span>{" "}
+                — a trigger, the emails, the delays between them, and any branch splits —
+                then write each email from your knowledge base. Click{" "}
+                <span className="font-medium">Build workflow</span> to generate it.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Field label="Hub channel" hint="The comprehensive centerpiece.">
+                <div className="flex gap-2">
+                  <Radio checked={hubChannel === "newsletter"} onChange={() => setHubChannel("newsletter")} label="Newsletter" />
+                  <Radio checked={hubChannel === "blog"} onChange={() => setHubChannel("blog")} label="Blog (SEO/GEO)" />
+                </div>
+              </Field>
+              <Field label="Spoke channels" hint="Atomize the hub into these native formats.">
+                <div className="flex flex-wrap gap-2">
+                  {SPOKE_OPTIONS.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setSpokeChannels((cur) => toggle(cur, c.id))}
+                      className={`rounded-md border px-3 py-1.5 text-sm ${
+                        spokeChannels.includes(c.id)
+                          ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+                          : "border-neutral-300 dark:border-neutral-700"
+                      }`}
+                    >
+                      {channelLabel(c.id)}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-500 dark:bg-neutral-900/40">
+                The Architect will build a canvas: a pre-hub teaser, the {hubChannel} hub,
+                a post-hub promo, and one spoke per channel above — then fill each node from your
+                knowledge base.
+              </p>
+            </div>
+          )
         ) : null}
 
         {err ? <p className="text-xs text-red-600 dark:text-red-400">{err}</p> : null}

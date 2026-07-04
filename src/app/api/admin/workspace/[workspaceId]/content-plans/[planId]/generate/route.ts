@@ -3,7 +3,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { getContentPlan, listTemplates, updateContentPlan } from "@/lib/tenant/workspaceContent";
-import { architectPlan } from "@/lib/content/create/architect";
+import { architectPlan, architectSequence } from "@/lib/content/create/architect";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
 
@@ -45,23 +45,34 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   }).catch(() => null);
 
-  const templates = await listTemplates(ctx, workspaceId);
-  const graph = await architectPlan({
-    objective: plan.strategy.objective,
-    spark: plan.scope.spark,
-    topicLabels: plan.scope.topics.map(contentMatrixLabel),
-    hubChannel: plan.topology.hubChannel,
-    spokeChannels: plan.topology.spokeChannels,
-    knowledgeContext: rag?.formatted ?? "",
-    brandVoice: ws.brandVoice ?? null,
-    audience: ws.audience ?? null,
-    templates: templates.map((t) => ({
-      id: t.id,
-      channel: t.channel,
-      blockType: t.blockType,
-      tier: t.tier,
-    })),
-  });
+  // Email sequences build a linear drip (trigger → email → wait, with branches); every
+  // other objective builds the hub-and-spoke content graph.
+  const graph =
+    plan.strategy.objective === "email_sequence" && plan.strategy.sequenceType
+      ? await architectSequence({
+          sequenceType: plan.strategy.sequenceType,
+          spark: plan.scope.spark,
+          topicLabels: plan.scope.topics.map(contentMatrixLabel),
+          knowledgeContext: rag?.formatted ?? "",
+          brandVoice: ws.brandVoice ?? null,
+          audience: ws.audience ?? null,
+        })
+      : await architectPlan({
+          objective: plan.strategy.objective,
+          spark: plan.scope.spark,
+          topicLabels: plan.scope.topics.map(contentMatrixLabel),
+          hubChannel: plan.topology.hubChannel,
+          spokeChannels: plan.topology.spokeChannels,
+          knowledgeContext: rag?.formatted ?? "",
+          brandVoice: ws.brandVoice ?? null,
+          audience: ws.audience ?? null,
+          templates: (await listTemplates(ctx, workspaceId)).map((t) => ({
+            id: t.id,
+            channel: t.channel,
+            blockType: t.blockType,
+            tier: t.tier,
+          })),
+        });
 
   await updateContentPlan(ctx, workspaceId, planId, { graph, status: "generating" });
   const updated = await getContentPlan(ctx, workspaceId, planId);

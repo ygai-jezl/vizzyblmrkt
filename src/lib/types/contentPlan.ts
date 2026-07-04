@@ -31,11 +31,41 @@ export const ContentObjective = z.enum([
   "newsletter_signups",
   "product_launch",
   "brand_visibility",
+  "email_sequence",
 ]);
 export type ContentObjective = z.infer<typeof ContentObjective>;
 
-/** A node's role in the hub-and-spoke topology. */
-export const ContentNodeType = z.enum(["promo_pre", "hub", "promo_post", "spoke"]);
+/**
+ * The 7 email-sequence archetypes (only meaningful when objective === "email_sequence").
+ * Each maps to a canvas blueprint + a copy framework — see src/lib/content/create/
+ * sequenceBlueprints.ts. `welcome` is the Context-Mapping-Matrix "new_signup" scenario.
+ */
+export const SequenceType = z.enum([
+  "welcome",
+  "lead_nurture",
+  "cold_outbound",
+  "abandoned_cart",
+  "post_purchase",
+  "upsell",
+  "win_back",
+]);
+export type SequenceType = z.infer<typeof SequenceType>;
+
+/**
+ * A node's role. The hub-and-spoke objectives use promo_pre/hub/promo_post/spoke; the
+ * email_sequence objective uses trigger/email/wait/condition (a linear drip with
+ * branch splits). All additive so pre-existing saved plans still parse.
+ */
+export const ContentNodeType = z.enum([
+  "promo_pre",
+  "hub",
+  "promo_post",
+  "spoke",
+  "trigger",
+  "email",
+  "wait",
+  "condition",
+]);
 export type ContentNodeType = z.infer<typeof ContentNodeType>;
 
 /** Per-node generation lifecycle (drives the canvas status chip). */
@@ -83,6 +113,31 @@ export const ContentNodeSchema = z.object({
   /** Distribute fills this (ISO); null until scheduled. */
   scheduledAt: z.string().nullable().optional(),
   warnings: z.array(z.string()).default([]),
+  // ── Email-sequence fields (only on `email`/`wait`/`condition` nodes; null/[]
+  //    elsewhere so hub-and-spoke plans are unaffected). ──
+  /** Email node — the subject line (email nodes only). */
+  subject: z.string().max(200).nullable().optional(),
+  /** Email node — inbox preview / preheader text. */
+  previewText: z.string().max(200).nullable().optional(),
+  /** Email node — 2-3 alternative subject lines for A/B testing. */
+  subjectVariants: z.array(z.string().max(200)).max(4).default([]),
+  /** Wait node — the delay before the next step. */
+  waitConfig: z
+    .object({
+      amount: z.number().int().positive().max(365),
+      unit: z.enum(["hours", "days"]),
+    })
+    .nullable()
+    .optional(),
+  /** Condition node — a branch split (visual only; not executed). */
+  conditionConfig: z
+    .object({
+      label: z.string().max(120),
+      yesLabel: z.string().max(60).default("Yes"),
+      noLabel: z.string().max(60).default("No"),
+    })
+    .nullable()
+    .optional(),
 });
 export type ContentNode = z.infer<typeof ContentNodeSchema>;
 
@@ -90,6 +145,8 @@ export const ContentEdgeSchema = z.object({
   id: z.string().min(1).max(96),
   source: z.string().min(1).max(64),
   target: z.string().min(1).max(64),
+  /** Branch label ("Yes"/"No") for a condition node's outgoing edges. */
+  label: z.string().max(40).nullable().optional(),
 });
 export type ContentEdge = z.infer<typeof ContentEdgeSchema>;
 
@@ -105,6 +162,8 @@ export const ContentStrategySchema = z.object({
   hubUrl: z.string().max(2000).nullable().optional(),
   /** Manual subscriber count, substituted as {{subscriber_count}}. */
   subscriberCount: z.number().int().nonnegative().nullable().optional(),
+  /** The chosen sequence archetype (only when objective === "email_sequence"). */
+  sequenceType: SequenceType.nullable().optional(),
 });
 export type ContentStrategy = z.infer<typeof ContentStrategySchema>;
 

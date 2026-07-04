@@ -343,6 +343,9 @@ export async function updateContentPlanNode(
       | "brief"
       | "templateId"
       | "format"
+      | "subject"
+      | "previewText"
+      | "subjectVariants"
     >
   >,
 ): Promise<ContentNode | null> {

@@ -4,7 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { createContentPlan, listContentPlans } from "@/lib/tenant/workspaceContent";
-import { ContentObjective } from "@/lib/types/contentPlan";
+import { ContentObjective, SequenceType } from "@/lib/types/contentPlan";
 import { isChannel } from "@/lib/content/channels";
 import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
 
@@ -25,6 +25,7 @@ const IntakeSchema = z.object({
     objective: ContentObjective,
     hubUrl: HubUrl,
     subscriberCount: z.number().int().nonnegative().max(1_000_000_000).nullable().optional(),
+    sequenceType: SequenceType.nullable().optional(),
   }),
   scope: z.object({
     topics: z.array(z.string().max(60)).max(26).default([]),
@@ -75,6 +76,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
       objective: input.strategy.objective,
       hubUrl: input.strategy.hubUrl ?? null,
       subscriberCount: input.strategy.subscriberCount ?? null,
+      sequenceType:
+        input.strategy.objective === "email_sequence"
+          ? input.strategy.sequenceType ?? "welcome"
+          : null,
     },
     scope: { topics, spark: input.scope.spark },
     knowledge: {

@@ -61,6 +61,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     status: patch.status,
     warnings: patch.warnings,
     format: patch.format,
+    // Email nodes carry subject/preview/variants; other node types omit them so we
+    // don't overwrite with undefined.
+    ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
+    ...(patch.previewText !== undefined ? { previewText: patch.previewText } : {}),
+    ...(patch.subjectVariants !== undefined ? { subjectVariants: patch.subjectVariants } : {}),
   });
   if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
 

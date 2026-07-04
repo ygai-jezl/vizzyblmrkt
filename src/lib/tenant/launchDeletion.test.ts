@@ -241,6 +241,7 @@ function dbThatFailsDeletingFrom(
   target: string,
 ): FirestoreLike {
   return {
+    runTransaction: (fn) => real.runTransaction(fn),
     collection(name: string): CollectionLike {
       const col = real.collection(name);
       if (name !== target) return col;

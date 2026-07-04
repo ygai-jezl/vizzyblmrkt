@@ -142,6 +142,32 @@ async function predict(
 }
 
 /**
+ * Embed a single DOCUMENT for storage in a vector index (RETRIEVAL_DOCUMENT side of
+ * the asymmetric pair — pair with embedQuery at read time). Returns null on missing
+ * config / any error so the caller can skip persisting rather than fail. Used by the
+ * Distribute performance-exemplar store (which, unlike knowledge_bases, embeds
+ * in-app rather than via the scraper worker).
+ */
+export async function embedDocument(
+  text: string,
+  region: Region,
+  opts: { title?: string } = {},
+): Promise<number[] | null> {
+  const trimmed = text?.trim();
+  if (!trimmed || !isEmbeddingsConfigured()) return null;
+  try {
+    const [vec] = await predict(region, [{ content: trimmed, title: opts.title }], "RETRIEVAL_DOCUMENT");
+    return vec ?? null;
+  } catch (err) {
+    console.warn(
+      "[embeddings] embedDocument failed:",
+      err instanceof Error ? err.message.slice(0, 200) : "error",
+    );
+    return null;
+  }
+}
+
+/**
  * Embed a single query for nearest-neighbour retrieval. Uses RETRIEVAL_QUERY, or
  * CODE_RETRIEVAL_QUERY when the query targets code (its corpus side is still
  * RETRIEVAL_DOCUMENT). Returns null on missing config / any error so the caller

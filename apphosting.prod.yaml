@@ -226,6 +226,22 @@ env:
     secret: email-worker-secret
     availability:
       - RUNTIME
+  # Shared secret the scheduled Distribute worker (Cloud Scheduler) presents as
+  # `X-Worker-Secret` to POST /api/admin/distribute/posts/process; the cron then
+  # drains every tenant's scheduled-post queue across all regions. Provision BEFORE
+  # deploying this file:  infra/distribute-worker/setup.sh secret vizzybl-marketing-prod
+  - variable: DISTRIBUTE_WORKER_SECRET
+    secret: distribute-worker-secret
+    availability:
+      - RUNTIME
+  # Real social publishing (X/LinkedIn). Overrides the base "true" → OFF in prod: the
+  # code ships promoted but the worker only manual-stamps until this is deliberately
+  # flipped to "true" (after connecting prod accounts + clearing the X tier / LinkedIn
+  # prod-app approvals). Prevents a promotion from posting anything unexpectedly.
+  - variable: DISTRIBUTE_SOCIAL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Signs the short-lived capability token the admin-chat proxy mints so the
   # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
   # journey DRAFT, scoped to the verified tenant. Keep COMMENTED until the secret

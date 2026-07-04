@@ -1,5 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
-import { TEXT_MODEL, IMAGE_MODEL } from "./modelConfig";
+import { GoogleGenAI, Modality } from "@google/genai";
+import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL } from "./modelConfig";
 
 /**
  * Thin Gemini client. Three auth modes (first match wins):
@@ -196,6 +196,42 @@ export async function generateImage(
     };
   } catch (err) {
     console.warn("[gemini] generateImage failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Generate ONE carousel slide via the Gemini image model ("Nano Banana":
+ * generateContent with an IMAGE response modality — better than Imagen at rendering
+ * legible on-slide text). Null on missing config / error / no image part.
+ *
+ * NOTE: this path needs live validation once the Vertex carousel image model is
+ * provisioned (GEMINI_CAROUSEL_IMAGE_MODEL / GOOGLE_CLOUD_LOCATION=global); until
+ * then the carousel feature is flag-gated OFF.
+ */
+export async function generateSlideImage(
+  prompt: string,
+): Promise<GeneratedImage | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  try {
+    const res = await ai.models.generateContent({
+      model: CAROUSEL_IMAGE_MODEL,
+      contents: prompt,
+      config: { responseModalities: [Modality.TEXT, Modality.IMAGE] },
+    });
+    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
+      const data = part.inlineData?.data;
+      if (data) {
+        return {
+          bytes: Buffer.from(data, "base64"),
+          mimeType: part.inlineData?.mimeType ?? "image/png",
+        };
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn("[gemini] generateSlideImage failed:", err);
     return null;
   }
 }

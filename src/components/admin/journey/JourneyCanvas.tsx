@@ -294,6 +294,8 @@ export function JourneyCanvas({
           nodeTypes={nodeTypes}
           onNodeClick={(_, n) => setSelectedId(n.id)}
           onPaneClick={() => setSelectedId(null)}
+          colorMode="system"
+          proOptions={{ hideAttribution: true }}
           fitView
         >
           <Background />

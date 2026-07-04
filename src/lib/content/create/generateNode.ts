@@ -11,6 +11,7 @@ import {
   retrieveSemanticKnowledgeContext,
   type ContextRetrievalRequest,
 } from "@/lib/agents/knowledgeRetrieval";
+import { retrieveExemplars } from "@/lib/distribute/feedback/retrieveExemplars";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 
@@ -53,6 +54,7 @@ export interface GeneratedNodePatch {
 }
 
 type RetrieveFn = typeof retrieveSemanticKnowledgeContext;
+type RetrieveExemplarsFn = typeof retrieveExemplars;
 
 function coerceBody(raw: string | null): string {
   const j = raw ? parseFirstJson(raw) : null;
@@ -124,6 +126,7 @@ function nodeWarnings(node: ContentNode, body: string, applied: Record<string, s
 export async function generateNode(
   input: GenerateNodeInput,
   retrieve: RetrieveFn = retrieveSemanticKnowledgeContext,
+  retrieveExemplarsFn: RetrieveExemplarsFn = retrieveExemplars,
 ): Promise<GeneratedNodePatch> {
   const { ctx, workspaceId, plan, node } = input;
   const hubNode = plan.graph.nodes.find((n) => n.type === "hub");
@@ -161,6 +164,15 @@ export async function generateNode(
   const knowledgeContext = rag?.formatted ?? "";
   const proofBlock = fenceProof(plan.knowledge.proofAssets ?? []);
 
+  // Closed loop: weight generation toward this channel's PROVEN performers (gated by
+  // DISTRIBUTE_CLOSED_LOOP_ENABLED inside retrieveExemplars; empty when off/none).
+  const exemplarCtx = await retrieveExemplarsFn({
+    ctx,
+    channel: node.channel,
+    queryText: req.queryText,
+  }).catch(() => null);
+  const exemplarsBlock = exemplarCtx?.formatted ?? "";
+
   const skeleton = input.skeletonBody?.trim() ? input.skeletonBody.trim().slice(0, 8000) : "";
   const useSkeleton = Boolean(skeleton);
 
@@ -173,6 +185,7 @@ export async function generateNode(
       brief: node.brief || "(none)",
       knowledge_context: knowledgeContext,
       proof_assets: proofBlock,
+      exemplars: exemplarsBlock,
     });
     prompt = composePrompt({
       identity: brandVoiceSection(input.brandVoice),
@@ -211,6 +224,7 @@ export async function generateNode(
       skeleton: useSkeleton ? skeleton : "(none)",
       knowledge_context: knowledgeContext,
       proof_assets: proofBlock,
+      exemplars: exemplarsBlock,
     });
     prompt = composePrompt({
       identity: brandVoiceSection(input.brandVoice),

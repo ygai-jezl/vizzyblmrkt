@@ -24,6 +24,12 @@ export const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? DEFAULT_TEXT_MODEL;
 export const DEFAULT_IMAGE_MODEL = "imagen-4.0-generate-001";
 export const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? DEFAULT_IMAGE_MODEL;
 
+/** Carousel slide images (Gemini "Nano Banana" image model — text-rich slides via
+ *  generateContent + IMAGE modality; distinct from Imagen hero images above). */
+export const DEFAULT_CAROUSEL_IMAGE_MODEL = "gemini-2.5-flash-image";
+export const CAROUSEL_IMAGE_MODEL =
+  process.env.GEMINI_CAROUSEL_IMAGE_MODEL ?? DEFAULT_CAROUSEL_IMAGE_MODEL;
+
 /** Gemini Live voice conversation (post-signup waitlist voice chat). Native-audio
  *  model — see liveConversation.ts for the cascaded-model language-code caveat. */
 export const DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview";

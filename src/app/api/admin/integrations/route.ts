@@ -4,6 +4,9 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
+import { isXConfigured } from "@/lib/social/x/oauth";
+import { isLinkedInConfigured, isLinkedInCMConfigured } from "@/lib/social/linkedin/oauth";
+import { isSocialCryptoConfigured } from "@/lib/social/crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,5 +35,30 @@ export async function GET(req: Request) {
       connectedAt: c?.connectedAt ?? null,
     };
   });
+  // Social (Distribute publishing) connections — X + LinkedIn; IG later.
+  const x = tenant?.socialConnections?.x;
+  providers.x = {
+    label: "X (Twitter)",
+    configured: isXConfigured() && isSocialCryptoConfigured(),
+    connected: Boolean(x),
+    accountLogin: x?.handle ?? null,
+    connectedAt: x?.connectedAt ?? null,
+  };
+  const li = tenant?.socialConnections?.linkedin;
+  providers.linkedin = {
+    label: "LinkedIn",
+    configured: isLinkedInConfigured() && isSocialCryptoConfigured(),
+    connected: Boolean(li),
+    accountLogin: li?.handle ?? null,
+    connectedAt: li?.connectedAt ?? null,
+  };
+  const liOrg = tenant?.socialConnections?.linkedin_org;
+  providers.linkedin_org = {
+    label: "LinkedIn Pages",
+    configured: isLinkedInCMConfigured() && isSocialCryptoConfigured(),
+    connected: Boolean(liOrg),
+    accountLogin: liOrg?.orgs?.length ? `${liOrg.orgs.length} page(s)` : null,
+    connectedAt: liOrg?.connectedAt ?? null,
+  };
   return NextResponse.json({ providers });
 }

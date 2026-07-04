@@ -10,6 +10,8 @@ import {
   type Tenant,
   type EmailSenderConfig,
   type GitConnection,
+  type SocialConnection,
+  type Region,
 } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
@@ -93,6 +95,98 @@ export async function deleteTenantGitConnection(
       [`gitConnections.${provider}`]: FieldValue.delete(),
       updatedAt: new Date().toISOString(),
     });
+}
+
+/** Store (or replace) a tenant's social OAuth connection for a platform. */
+export async function setTenantSocialConnection(
+  id: string,
+  platform: "x" | "instagram" | "linkedin" | "linkedin_org",
+  conn: SocialConnection,
+): Promise<void> {
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`socialConnections.${platform}`]: conn,
+      updatedAt: new Date().toISOString(),
+    });
+}
+
+/** Remove a tenant's social OAuth connection for a platform (+ its webhook map). */
+export async function deleteTenantSocialConnection(
+  id: string,
+  platform: "x" | "instagram" | "linkedin" | "linkedin_org",
+): Promise<void> {
+  const ref = getDb().collection("tenants").doc(id);
+  // Read the connection's userId first so we can also drop the attribution map entry.
+  const snap = await ref.get();
+  const conns = (snap.data()?.socialConnections ?? {}) as Record<string, { userId?: string }>;
+  const userId = conns[platform]?.userId;
+  // Remove the attribution map FIRST (not swallowed): if this fails the disconnect
+  // aborts and is retryable, rather than orphaning a subscription that would keep
+  // routing inbound engagement to a now-disconnected tenant.
+  if (typeof userId === "string" && userId) {
+    await deleteSocialSubscription(platform, userId);
+  }
+  await ref.update({
+    [`socialConnections.${platform}`]: FieldValue.delete(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Reverse index `platform:userId → tenant`, in the control-plane DB. Inbound
+ * engagement webhooks (X Account Activity) identify only the connected ACCOUNT
+ * (for_user_id), so this O(1) lookup attributes an event to a tenant + region with
+ * no scan. Written when an account connects, removed on disconnect.
+ */
+export interface SocialSubscription {
+  tenantId: string;
+  region: Region;
+  platform: "x" | "instagram" | "linkedin";
+  userId: string;
+  handle?: string;
+  connectedAt: string;
+}
+const SOCIAL_SUBSCRIPTIONS = "social_subscriptions";
+const socialSubId = (platform: string, userId: string) => `${platform}:${userId}`;
+
+/**
+ * Claim the attribution map for an account, transactionally. First-active-connector-
+ * wins: if the account is already mapped to a DIFFERENT tenant, we do NOT silently
+ * reroute its inbound engagement (both parties proved OAuth ownership; the current
+ * holder keeps attribution until it disconnects, which frees the map). Returns
+ * "held_by_other" in that case so the caller can surface it.
+ */
+export async function setSocialSubscription(
+  sub: SocialSubscription,
+): Promise<"set" | "held_by_other"> {
+  const db = getDb();
+  const ref = db.collection(SOCIAL_SUBSCRIPTIONS).doc(socialSubId(sub.platform, sub.userId));
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const existing = snap.exists ? (snap.data() as SocialSubscription) : null;
+    if (existing && existing.tenantId !== sub.tenantId) {
+      return "held_by_other";
+    }
+    tx.set(ref, { ...sub, updatedAt: new Date().toISOString() });
+    return "set";
+  });
+}
+
+export async function getSocialSubscription(
+  platform: string,
+  userId: string,
+): Promise<SocialSubscription | null> {
+  const snap = await getDb()
+    .collection(SOCIAL_SUBSCRIPTIONS)
+    .doc(socialSubId(platform, userId))
+    .get();
+  return snap.exists ? (snap.data() as SocialSubscription) : null;
+}
+
+export async function deleteSocialSubscription(platform: string, userId: string): Promise<void> {
+  await getDb().collection(SOCIAL_SUBSCRIPTIONS).doc(socialSubId(platform, userId)).delete();
 }
 
 /**

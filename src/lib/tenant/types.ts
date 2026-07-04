@@ -88,8 +88,22 @@ export interface DocRefLike {
 export interface CollectionLike extends QueryLike {
   doc(id?: string): DocRefLike;
 }
+/**
+ * The subset of a Firestore transaction the repository uses. Mirrors firebase-admin:
+ * ALL reads must precede writes; writes are buffered and applied atomically on commit,
+ * and the whole function re-runs on a contention conflict. Read the FRESHEST doc state
+ * inside the transaction — that is what makes a claim/mutate race-safe.
+ */
+export interface TransactionLike {
+  get(ref: DocRefLike): Promise<DocSnapLike>;
+  create(ref: DocRefLike, data: Record<string, unknown>): void;
+  set(ref: DocRefLike, data: Record<string, unknown>): void;
+  update(ref: DocRefLike, data: Record<string, unknown>): void;
+  delete(ref: DocRefLike): void;
+}
 export interface FirestoreLike {
   collection(name: string): CollectionLike;
+  runTransaction<T>(updateFn: (txn: TransactionLike) => Promise<T>): Promise<T>;
 }
 
 // ── Vector search (knowledge_bases subcollection) ────────────────────────────

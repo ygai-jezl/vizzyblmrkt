@@ -7,8 +7,12 @@ import type {
   OrderDir,
   QueryLike,
   QuerySnapLike,
+  TransactionLike,
   WhereOp,
 } from "../types";
+
+/** A fake doc ref carries a stable version key so runTransaction can detect writes. */
+type VersionedDocRef = DocRefLike & { readonly _vkey: string };
 
 /**
  * In-memory Firestore that implements exactly the structural surface the tenant
@@ -157,11 +161,23 @@ class FakeQuery implements QueryLike {
 let autoIdSeq = 0;
 
 class FakeCollection extends FakeQuery implements CollectionLike {
+  constructor(
+    store: Map<string, Doc>,
+    private readonly colName: string,
+    private readonly owner: FakeFirestore,
+  ) {
+    super(store);
+  }
+
   doc(id?: string): DocRefLike {
     const store = this.store;
+    const owner = this.owner;
     const docId = id ?? `auto_${(autoIdSeq += 1)}`; // never reused, even after deletes
-    return {
+    const vkey = `${this.colName}::${docId}`;
+    const bump = () => owner._bumpVersion(vkey);
+    const ref: VersionedDocRef = {
       id: docId,
+      _vkey: vkey,
       async get(): Promise<DocSnapLike> {
         const data = store.get(docId);
         return { id: docId, exists: store.has(docId), data: () => data };
@@ -171,27 +187,100 @@ class FakeCollection extends FakeQuery implements CollectionLike {
           throw Object.assign(new Error(`ALREADY_EXISTS: ${docId}`), { code: 6 });
         }
         store.set(docId, stripUndefined(data));
+        bump();
       },
       async set(data: Doc) {
         store.set(docId, stripUndefined(data));
+        bump();
       },
       async update(data: Doc) {
         const cur = store.get(docId);
         if (!cur) throw new Error(`update() on missing doc ${docId}`);
         store.set(docId, stripUndefined({ ...cur, ...data }));
+        bump();
       },
       async delete() {
         store.delete(docId);
+        bump();
       },
     };
+    return ref;
   }
 }
 
 export class FakeFirestore implements FirestoreLike {
   readonly cols = new Map<string, Map<string, Doc>>();
+  /** Per-document write counter, keyed `${collection}::${id}` — powers optimistic
+   *  concurrency in runTransaction (a read records the version; commit aborts if it
+   *  changed). Bumped by every write, transactional or not. */
+  private readonly versions = new Map<string, number>();
+  /**
+   * TEST HOOK: a one-shot callback fired inside the NEXT runTransaction, after its
+   * reads but before commit. Use it to inject a concurrent writer and exercise the
+   * abort/retry path (proves exactly-once). Cleared after it fires once.
+   */
+  onBeforeCommit?: () => Promise<void> | void;
 
   collection(name: string): CollectionLike {
-    return new FakeCollection(this.mapFor(name));
+    return new FakeCollection(this.mapFor(name), name, this);
+  }
+
+  /** @internal — bump a document's version (called by fake doc refs on write). */
+  _bumpVersion(key: string): void {
+    this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
+  }
+
+  private versionOf(key: string): number {
+    return this.versions.get(key) ?? 0;
+  }
+
+  /**
+   * Approximates firebase-admin runTransaction: buffers writes, applies them
+   * atomically on commit, and re-runs the function (up to a cap) when any document
+   * it READ was written by someone else in the meantime (optimistic concurrency).
+   * Single-threaded, so genuine interleaving is simulated via `onBeforeCommit`.
+   */
+  async runTransaction<R>(fn: (txn: TransactionLike) => Promise<R>): Promise<R> {
+    const MAX_ATTEMPTS = 8;
+    let lastConflict: unknown;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const reads = new Map<string, number>();
+      const writes: Array<() => Promise<void>> = [];
+      const txn: TransactionLike = {
+        get: async (ref) => {
+          const key = (ref as Partial<VersionedDocRef>)._vkey;
+          if (typeof key !== "string") {
+            // A re-wrapped/decorated ref that dropped _vkey would collapse every doc
+            // into one version bucket → nonsense conflict detection. Fail loudly
+            // instead of silently reporting a green-but-meaningless transaction test.
+            throw new Error(
+              "FakeFirestore.runTransaction: txn.get() needs a ref from this fake's collection().doc() (missing _vkey — a wrapper must preserve it)",
+            );
+          }
+          reads.set(key, this.versionOf(key));
+          return ref.get();
+        },
+        create: (ref, data) => void writes.push(() => ref.create(data).then(() => {})),
+        set: (ref, data) => void writes.push(() => ref.set(data).then(() => {})),
+        update: (ref, data) => void writes.push(() => ref.update(data).then(() => {})),
+        delete: (ref) => void writes.push(() => ref.delete().then(() => {})),
+      };
+      const result = await fn(txn);
+      // Simulate a concurrent writer landing between our reads and our commit.
+      const hook = this.onBeforeCommit;
+      if (hook) {
+        this.onBeforeCommit = undefined;
+        await hook();
+      }
+      const conflicted = [...reads].some(([key, v]) => this.versionOf(key) !== v);
+      if (conflicted) {
+        lastConflict = Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
+        continue; // re-run the function against fresh state
+      }
+      for (const apply of writes) await apply();
+      return result;
+    }
+    throw lastConflict ?? Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
   }
 
   private mapFor(name: string): Map<string, Doc> {
@@ -216,5 +305,11 @@ export class FakeFirestore implements FirestoreLike {
   /** All documents in a collection (to assert appends, e.g. audit rows). */
   dump(collection: string): Doc[] {
     return Array.from(this.cols.get(collection)?.values() ?? []);
+  }
+
+  /** How many times a document was written (create/set/update/delete). Lets a test
+   *  assert a contended doc was mutated EXACTLY once, i.e. no losing writer applied. */
+  writeCountFor(collection: string, id: string): number {
+    return this.versions.get(`${collection}::${id}`) ?? 0;
   }
 }

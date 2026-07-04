@@ -1,5 +1,6 @@
 import type { Signup } from "@/lib/types/signup";
 import { resolveProductName, type Campaign } from "@/lib/types/campaign";
+import { buildVoiceChatLink } from "@/lib/waitlist/voiceChatLink";
 
 /**
  * Email merge variables. Authors write {{token}} in the composer; they are
@@ -13,6 +14,7 @@ export const MERGE_VARS = [
   "referral_count",
   "current_rank",
   "waitlist_name",
+  "voice_chat_link",
 ] as const;
 export type MergeVar = (typeof MERGE_VARS)[number];
 
@@ -64,6 +66,10 @@ function lookup(key: string, ctx: MergeContext): unknown {
       // Resolves to the founder-set product name (falls back to the headline) so
       // body copy reads naturally — see resolveProductName in types/campaign.ts.
       return resolveProductName(ctx.campaign);
+    case "voice_chat_link":
+      // Per-recipient deep link that opens the waitlist page and auto-launches
+      // the post-signup voice chat. Blank when the launch has voice disabled.
+      return buildVoiceChatLink(ctx.signup, ctx.campaign);
     default:
       return "";
   }
@@ -80,6 +86,8 @@ const MAILCHIMP_TAGS: Record<MergeVar, string> = {
   referral_link: "*|REFLINK|*",
   referral_count: "*|REFCOUNT|*",
   current_rank: "",
+  // Not synced to the audience yet (journeys-first); renders blank in broadcasts.
+  voice_chat_link: "",
   waitlist_name: "",
 };
 

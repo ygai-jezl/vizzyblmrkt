@@ -1,15 +1,26 @@
 import { forTenant, getTenantById, listAllTenants, TenantIsolationError } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
-import { getDecryptedSocialTokens } from "@/lib/social/connections";
+import { ensureFreshAccessToken } from "@/lib/social/tokenRefresh";
 import { publishToX, fetchXPublicMetrics } from "@/lib/social/x/client";
 import { postToLinkedIn } from "@/lib/social/linkedin/client";
 import { personUrn } from "@/lib/social/linkedin/oauth";
 import { isSocialPublishEnabled, buildXThread, classifyPublishResult } from "./publishX";
-import { AUTO_PLUG_DELAY_MS, thresholdCrossed } from "./autoPlug";
+import {
+  AUTO_PLUG_DELAY_MS,
+  AUTO_PLUG_POLL_INTERVAL_MS,
+  AUTO_PLUG_WINDOW_MS,
+  thresholdCrossed,
+} from "./autoPlug";
 import { isClosedLoopEnabled } from "./feedback/retrieveExemplars";
 import { recordExemplar } from "./feedback/recordExemplar";
-import { PERFORMANCE_FETCH_DELAY_MS, exemplarQualifies, exemplarTags } from "./feedback/harvest";
+import {
+  PERFORMANCE_FETCH_DELAY_MS,
+  PERFORMANCE_POLL_INTERVAL_MS,
+  PERFORMANCE_WINDOW_MS,
+  exemplarQualifies,
+  exemplarTags,
+} from "./feedback/harvest";
 import {
   scheduledPostDedupeKey,
   type ScheduledPost,
@@ -112,6 +123,10 @@ export async function processScheduledPosts(
       // operator draining after connecting X sees an accurate done/failed split).
       const outcome = await dispatchScheduledPost(ctx, claimed, db);
       if (outcome === "parked") failed += 1;
+      // "rescheduled" = a poll job (auto-plug / perf-fetch) that hasn't hit its trigger
+      // re-armed itself for a later poll within its window. It is neither done nor
+      // failed — count it only as processed so telemetry stays honest.
+      else if (outcome === "rescheduled") { /* re-armed for a later poll */ }
       else done += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
@@ -135,7 +150,7 @@ async function dispatchScheduledPost(
   ctx: TenantContext,
   post: ScheduledPost,
   db?: FirestoreLike,
-): Promise<"done" | "parked"> {
+): Promise<"done" | "parked" | "rescheduled"> {
   // Exhaustive dispatch: a new jobKind must be handled here or the `never` check
   // below fails to compile. Phase 1 only implements "publish".
   switch (post.jobKind) {
@@ -194,8 +209,10 @@ async function publishPost(
     // worker RETRIES a genuinely-connected tenant, rather than mis-parking it as
     // "not connected". A tenant that simply has no X token yields null (not a throw).
     const tenant = await getTenantById(ctx.tenantId, db);
-    const tokens = getDecryptedSocialTokens(tenant, "x");
-    if (!tokens) {
+    // Refresh the access token if it's near expiry (see tokenRefresh.ts) — a post
+    // scheduled hours ahead outlives X's ~2h token. null → genuinely not connected.
+    const accessToken = await ensureFreshAccessToken(ctx, "x", tenant);
+    if (!accessToken) {
       await repo.update(post.id, {
         status: "failed",
         ...renderPatch,
@@ -205,7 +222,7 @@ async function publishPost(
       return "parked";
     }
     const parts = buildXThread(post.threadParts, renderedVariant ?? post.body);
-    const outcome = classifyPublishResult(await publishToX({ parts, accessToken: tokens.accessToken }));
+    const outcome = classifyPublishResult(await publishToX({ parts, accessToken }));
     if (outcome.kind === "published") {
       await repo.update(post.id, {
         status: "done",
@@ -259,19 +276,24 @@ async function publishPost(
     let authorUrn: string | undefined;
     let accessToken: string | undefined;
     if (wantsOrg) {
+      // Only post as a Page the tenant actually administers; refresh the CM token first.
       const cm = tenant?.socialConnections?.linkedin_org;
       const admins = cm?.orgs?.some((o) => o.urn === post.linkedInAuthorUrn) ?? false;
-      const cmTokens = getDecryptedSocialTokens(tenant, "linkedin_org");
-      if (cmTokens && admins) {
-        authorUrn = post.linkedInAuthorUrn ?? undefined;
-        accessToken = cmTokens.accessToken;
+      if (admins) {
+        const token = await ensureFreshAccessToken(ctx, "linkedin_org", tenant);
+        if (token) {
+          authorUrn = post.linkedInAuthorUrn ?? undefined;
+          accessToken = token;
+        }
       }
     } else {
       const memberId = tenant?.socialConnections?.linkedin?.userId;
-      const tokens = getDecryptedSocialTokens(tenant, "linkedin");
-      if (tokens && memberId) {
-        authorUrn = personUrn(memberId);
-        accessToken = tokens.accessToken;
+      if (memberId) {
+        const token = await ensureFreshAccessToken(ctx, "linkedin", tenant);
+        if (token) {
+          authorUrn = personUrn(memberId);
+          accessToken = token;
+        }
       }
     }
     if (!authorUrn || !accessToken) {
@@ -371,18 +393,78 @@ async function enqueueAutoPlug(
 }
 
 /**
- * Auto-Plug worker: poll the source post's public metrics ONCE; if it crossed the
- * threshold, post the promo comment as a reply under it. Reuses the publish
- * idempotency + classification. One-shot: if the threshold isn't met at poll time it
- * completes without firing (never re-posts — the firedAt/publishedRef guard).
+ * Multi-poll re-arm: a poll job (auto_plug_comment / performance_fetch) that hasn't hit
+ * its trigger yet re-schedules itself for another poll `intervalMs` later — UNLESS the
+ * poll window has elapsed (measured from the job's `createdAt`, i.e. the parent publish),
+ * in which case it terminalizes as "done" with `giveUpError`. Returns "rescheduled" | "done".
+ *
+ * The deadline is anchored to the IMMUTABLE `createdAt`, so the poll count is bounded
+ * (`windowMs / intervalMs` polls). An UNPARSEABLE `createdAt` can't anchor a window — we
+ * give up immediately rather than anchoring to a moving `now`, which would re-arm forever
+ * (interval < window ⇒ `now + interval` always beats `now + window`).
+ *
+ * `attempts` is RESET to 0 on each re-poll, giving it a "CONSECUTIVE failed reads"
+ * meaning: the generic claim increments it every cycle, but a successful (below-trigger)
+ * read is not a failure. A persistently-failing endpoint still exhausts (MAX_ATTEMPTS
+ * consecutive throws never hit a reset → parks in the worker's catch); an intermittently-
+ * flaky endpoint that returns data on some polls keeps polling within the bounded window
+ * rather than parking a working endpoint. Without the reset, a run of benign polls would
+ * inflate attempts and mis-park the next transient error.
+ */
+async function reschedulePollOrGiveUp(
+  repo: ReturnType<typeof forTenant>["scheduledPosts"],
+  post: ScheduledPost,
+  nowMs: number,
+  intervalMs: number,
+  windowMs: number,
+  giveUpError: string,
+): Promise<"rescheduled" | "done"> {
+  const startMs = Date.parse(post.createdAt);
+  if (!Number.isFinite(startMs)) {
+    // Corrupt/legacy createdAt → can't resolve the window. Terminalize (never re-arm).
+    await repo.update(post.id, {
+      status: "done",
+      processedAt: new Date(nowMs).toISOString(),
+      lastError: "poll_window_unresolved",
+    });
+    return "done";
+  }
+  const deadlineMs = startMs + windowMs;
+  const nextMs = nowMs + intervalMs;
+  if (nextMs <= deadlineMs) {
+    await repo.update(post.id, {
+      status: "pending",
+      scheduledAt: new Date(nextMs).toISOString(),
+      claimedAt: null,
+      attempts: 0, // a re-poll is not a retry — see doc comment
+      lastError: "repoll",
+      processedAt: null,
+    });
+    return "rescheduled";
+  }
+  await repo.update(post.id, {
+    status: "done",
+    processedAt: new Date(nowMs).toISOString(),
+    lastError: giveUpError,
+  });
+  return "done";
+}
+
+/**
+ * Auto-Plug worker: poll the source post's public metrics; if it crossed the threshold,
+ * post the promo comment as a reply under it. Reuses the publish idempotency +
+ * classification. MULTI-POLL: a below-threshold poll re-arms for another poll within
+ * AUTO_PLUG_WINDOW_MS (see reschedulePollOrGiveUp) so a late-blooming post still fires;
+ * it never re-posts once fired (the firedAt/publishedRef guard).
  */
 async function runAutoPlugComment(
   ctx: TenantContext,
   post: ScheduledPost,
   db?: FirestoreLike,
-): Promise<"done" | "parked"> {
+): Promise<"done" | "parked" | "rescheduled"> {
   const repo = forTenant(ctx, db).scheduledPosts;
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
   // Idempotency: already fired (comment posted) → done, never re-post.
   if (post.autoPlug?.firedAt || post.publishedRef) {
     await repo.update(post.id, { status: "done", processedAt: now, lastError: null });
@@ -400,13 +482,14 @@ async function runAutoPlugComment(
     return "parked";
   }
   const tenant = await getTenantById(ctx.tenantId, db);
-  const tokens = getDecryptedSocialTokens(tenant, "x");
-  if (!tokens) {
+  // Refresh the token — this job runs +24h after publish, well past X's ~2h token.
+  const accessToken = await ensureFreshAccessToken(ctx, "x", tenant);
+  if (!accessToken) {
     await repo.update(post.id, { status: "failed", processedAt: now, lastError: "x_not_connected" });
     return "parked";
   }
 
-  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, tokens.accessToken);
+  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, accessToken);
   if (!metrics.ok) {
     // Transient read failure → retry; permanent (auth/tier/deleted tweet) → park.
     const cls = classifyPublishResult({ ok: false, reason: metrics.reason });
@@ -415,19 +498,24 @@ async function runAutoPlugComment(
     return "parked";
   }
   if (!thresholdCrossed(metrics.metrics, post.autoPlug)) {
-    // ONE-SHOT (known limitation): a single poll at +AUTO_PLUG_DELAY_MS. If the post
-    // hasn't crossed the threshold by then it completes WITHOUT firing and never
-    // re-polls — a late-blooming post won't auto-plug. `lastError` distinguishes this
-    // from a real fire (which sets publishedRef). A multi-poll window is a follow-up.
-    await repo.update(post.id, { status: "done", processedAt: now, lastError: "threshold_not_met" });
-    return "done";
+    // MULTI-POLL: not crossed yet → re-arm for another poll within the window; a
+    // late-blooming post still fires. Once the window elapses it completes without
+    // firing ("threshold_not_met"). (Previously one-shot: a single poll at +delay.)
+    return reschedulePollOrGiveUp(
+      repo,
+      post,
+      nowMs,
+      AUTO_PLUG_POLL_INTERVAL_MS,
+      AUTO_PLUG_WINDOW_MS,
+      "threshold_not_met",
+    );
   }
 
   // Fire: post the comment as a reply under the source tweet.
   const outcome = classifyPublishResult(
     await publishToX({
       parts: [post.autoPlug.commentBody],
-      accessToken: tokens.accessToken,
+      accessToken,
       replyToId: post.sourceRemoteId,
     }),
   );
@@ -492,18 +580,20 @@ async function enqueuePerformanceFetch(
 }
 
 /**
- * Closed-loop harvest worker: poll a published post's real engagement ONCE; if it
- * crossed the high-performer bar, capture it as a performance exemplar to weight
- * future Create generations. Best-effort: a permanent metrics failure or a below-bar
- * post simply completes without harvesting; a transient failure retries.
+ * Closed-loop harvest worker: poll a published post's real engagement; if it crossed
+ * the high-performer bar, capture it as a performance exemplar to weight future Create
+ * generations. MULTI-POLL: a below-bar poll re-arms within PERFORMANCE_WINDOW_MS (see
+ * reschedulePollOrGiveUp) so a slow-burn post still gets harvested. Best-effort: a
+ * permanent metrics failure gives up without harvesting; a transient failure retries.
  */
 async function runPerformanceFetch(
   ctx: TenantContext,
   post: ScheduledPost,
   db?: FirestoreLike,
-): Promise<"done" | "parked"> {
+): Promise<"done" | "parked" | "rescheduled"> {
   const repo = forTenant(ctx, db).scheduledPosts;
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
   if (!isClosedLoopEnabled()) {
     await repo.update(post.id, { status: "done", processedAt: now, lastError: "closed_loop_disabled" });
     return "done";
@@ -518,13 +608,14 @@ async function runPerformanceFetch(
     return "parked";
   }
   const tenant = await getTenantById(ctx.tenantId, db);
-  const tokens = getDecryptedSocialTokens(tenant, "x");
-  if (!tokens) {
+  // Refresh the token — this job runs +48h after publish, well past X's ~2h token.
+  const accessToken = await ensureFreshAccessToken(ctx, "x", tenant);
+  if (!accessToken) {
     await repo.update(post.id, { status: "failed", processedAt: now, lastError: "x_not_connected" });
     return "parked";
   }
 
-  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, tokens.accessToken);
+  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, accessToken);
   if (!metrics.ok) {
     const cls = classifyPublishResult({ ok: false, reason: metrics.reason });
     if (cls.kind === "retry") throw new Error(`perf_metrics:${metrics.reason}`);
@@ -534,8 +625,17 @@ async function runPerformanceFetch(
   }
 
   if (!exemplarQualifies(metrics.metrics)) {
-    await repo.update(post.id, { status: "done", processedAt: now, lastError: "below_bar" });
-    return "done";
+    // MULTI-POLL: below the high-performer bar → re-arm for another poll within the
+    // harvest window (a post that accrues likes over days still gets captured). Once
+    // the window elapses it completes without harvesting ("below_bar").
+    return reschedulePollOrGiveUp(
+      repo,
+      post,
+      nowMs,
+      PERFORMANCE_POLL_INTERVAL_MS,
+      PERFORMANCE_WINDOW_MS,
+      "below_bar",
+    );
   }
 
   // Qualified → harvest. sourcePostId is the PARENT post (strip the perf: prefix) so

@@ -28,8 +28,11 @@ export default async function HostedWaitlistPage({
   const sp = await searchParams;
   const referredBySignupToken = typeof sp.ref === "string" ? sp.ref : undefined;
   const justVerified = sp.verified === "1";
-  // Set by the double-opt-in confirm redirect: the just-verified signup's
-  // (public) referral token, used to render its full post-signup payoff.
+  // Set by an email voice-chat link ({{voice_chat_link}}): resolve the signup and
+  // auto-open the post-signup voice chat modal on the payoff card.
+  const autoOpenVoice = sp.voice === "1";
+  // Set by the double-opt-in confirm redirect (verified=1) and voice links: the
+  // signup's (public) referral token, used to render its full post-signup payoff.
   const verifiedReferralToken = typeof sp.rt === "string" ? sp.rt : undefined;
   const tenantId = typeof sp.t === "string" ? sp.t : undefined;
 
@@ -66,14 +69,18 @@ export default async function HostedWaitlistPage({
   const aiConversation = campaign.aiConversation?.enabled
     ? { enabled: true, introLine: campaign.aiConversation.introLine }
     : undefined;
+  const closed = isClosed(campaign);
 
-  // Just confirmed via the email link? Resolve that signup (equality-only query)
-  // and render the same success payoff the signup form shows — referral link,
-  // share buttons, position, and the voice CTA — instead of a bare banner.
+  // Arrived via the double-opt-in confirm link (verified=1) or an email voice-chat
+  // link (voice=1)? Resolve that signup (equality-only query) and render the same
+  // success payoff the signup form shows — referral link, share buttons, position,
+  // and the voice CTA — instead of a bare banner or the join form.
   let verified: Awaited<ReturnType<typeof buildSharePayload>> & {
     referralToken: string;
+    /** Already used their one-shot voice chat — don't auto-open into a dead end. */
+    voiceCompleted: boolean;
   } | null = null;
-  if (justVerified && verifiedReferralToken) {
+  if (verifiedReferralToken && (justVerified || autoOpenVoice)) {
     const [signup] = await repo.signups.find({
       where: [
         ["campaignId", "==", campaignId],
@@ -83,9 +90,18 @@ export default async function HostedWaitlistPage({
     });
     if (signup && signup.status === "verified_active") {
       const share = await buildSharePayload(ctx, campaign, signup);
-      verified = { ...share, referralToken: signup.referralToken };
+      verified = {
+        ...share,
+        referralToken: signup.referralToken,
+        voiceCompleted: signup.aiConversation?.completed === true,
+      };
     }
   }
+  // Only auto-open the voice modal when it can actually succeed: not on a closed
+  // launch (mint 409s) and not for a signup that already used its one-shot chat
+  // (mint 409s after the mic prompt). The CTA still renders; it just isn't forced.
+  const autoOpenVoiceOk =
+    autoOpenVoice && !closed && verified?.voiceCompleted !== true;
 
   return (
     <main
@@ -133,6 +149,7 @@ export default async function HostedWaitlistPage({
           enabledPlatforms={verified.enabledSharePlatforms}
           buttonColor={buttonColor}
           aiConversation={aiConversation}
+          autoOpenVoice={autoOpenVoiceOk}
           messages={messages}
           locale={locale}
         />
@@ -140,7 +157,7 @@ export default async function HostedWaitlistPage({
         <>
           {/* Archived launches close the join form but keep the (read-only)
               status check, so existing signups can still look up their spot. */}
-          {isClosed(campaign) ? (
+          {closed ? (
             <WaitlistClosed message={t("widget.closed.message")} />
           ) : (
             <SignupForm

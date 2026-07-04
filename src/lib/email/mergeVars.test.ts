@@ -7,11 +7,23 @@ const signup = {
   firstName: "Ada",
   lastName: "Lovelace",
   referralLink: "https://x.test/r/abc",
+  referralToken: "ABC123",
   amountReferred: 3,
   metadata: { company: "Analytical Engines" },
 } as unknown as Signup;
 
 const campaign = { waitlistName: "Beta" } as unknown as Campaign;
+
+// A launch with a proper shared-host referral link + the voice feature enabled,
+// so {{voice_chat_link}} resolves to a real deep link.
+const voiceSignup = {
+  referralLink: "https://yougrow.ai/waitlist/camp1?ref=ABC123&t=ten_x",
+  referralToken: "ABC123",
+} as unknown as Signup;
+const voiceCampaign = {
+  waitlistName: "Beta",
+  aiConversation: { enabled: true },
+} as unknown as Campaign;
 
 // A launch whose headline is a call-to-action; the founder set a clean product
 // name for copy. {{waitlist_name}} must resolve to the product name, not the H1.
@@ -62,6 +74,37 @@ describe("renderMergeVars (journey / per-recipient)", () => {
     expect(renderMergeVars("#{{current_rank}}", { signup, campaign })).toBe("#");
   });
 
+  it("resolves voice_chat_link to a deep link for an enabled launch", () => {
+    expect(
+      renderMergeVars("Chat: {{voice_chat_link}}", {
+        signup: voiceSignup,
+        campaign: voiceCampaign,
+      }),
+    ).toBe(
+      "Chat: https://yougrow.ai/waitlist/camp1?t=ten_x&rt=ABC123&voice=1",
+    );
+  });
+
+  it("blanks voice_chat_link when the launch has voice disabled", () => {
+    expect(
+      renderMergeVars("Chat: {{voice_chat_link}}", { signup, campaign }),
+    ).toBe("Chat: ");
+  });
+
+  it("HTML-escapes the voice_chat_link (& → &amp;) on the HTML path", () => {
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    expect(
+      renderMergeVars(
+        '<a href="{{voice_chat_link}}">chat</a>',
+        { signup: voiceSignup, campaign: voiceCampaign },
+        esc,
+      ),
+    ).toBe(
+      '<a href="https://yougrow.ai/waitlist/camp1?t=ten_x&amp;rt=ABC123&amp;voice=1">chat</a>',
+    );
+  });
+
   it("escapes only the substituted value when an escape fn is given", () => {
     const evil = { firstName: "<b>x</b>", amountReferred: 0 } as unknown as Signup;
     const esc = (s: string) => s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -99,5 +142,11 @@ describe("toMailchimpMergeTags (broadcast)", () => {
     expect(
       toMailchimpMergeTags("#{{current_rank}} {{metadata.company}}", campaign),
     ).toBe("# ");
+  });
+
+  it("blanks voice_chat_link (not synced to the audience yet)", () => {
+    expect(
+      toMailchimpMergeTags("Chat: {{voice_chat_link}}", campaign),
+    ).toBe("Chat: ");
   });
 });

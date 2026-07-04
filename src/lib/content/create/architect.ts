@@ -6,11 +6,14 @@ import { isChannel, channelBlueprint } from "@/lib/content/channels";
 import { isBlockType } from "@/lib/content/blocks";
 import { CORE_ANGLES, isCoreAngle, getFramework, frameworkLabel } from "@/lib/content/frameworks";
 import { WRITING_RULES } from "@/lib/content/writingRules";
+import { getSequenceBlueprint, type SequenceBlueprint } from "@/lib/content/create/sequenceBlueprints";
+import { emailFrameworkLabel } from "@/lib/content/emailFrameworks";
 import type {
   ContentNode,
   ContentEdge,
   ContentNodeType,
   ContentObjective,
+  SequenceType,
 } from "@/lib/types/contentPlan";
 
 /**
@@ -118,6 +121,7 @@ function emptyNode(
   position: { x: number; y: number },
   templateId: string | null,
   framework: string | null,
+  overrides: Partial<ContentNode> = {},
 ): ContentNode {
   return {
     id: `${type}_${randomUUID()}`,
@@ -135,6 +139,12 @@ function emptyNode(
     status: "empty",
     scheduledAt: null,
     warnings: [],
+    subject: null,
+    previewText: null,
+    subjectVariants: [],
+    waitConfig: null,
+    conditionConfig: null,
+    ...overrides,
   };
 }
 
@@ -312,6 +322,176 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
   if (post) edges.push({ id: `e_${randomUUID()}`, source: hubNode.id, target: post.id });
   for (const s of nodes.filter((n) => n.type === "spoke")) {
     edges.push({ id: `e_${randomUUID()}`, source: hubNode.id, target: s.id });
+  }
+
+  return { nodes, edges };
+}
+
+// ── Email-sequence architect ────────────────────────────────────────────────
+// Vertical drip layout: the trigger → email → wait chain runs straight down the
+// main lane; a condition splits into a "no" continuation (straight down) and a
+// "yes" branch offset to the right. Structure is deterministic; Gemini only writes
+// the per-email briefs.
+const SEQ_MAIN_X = 400;
+const SEQ_YES_X = 780;
+const SEQ_TOP_Y = 60;
+const SEQ_STEP_Y = 170;
+
+export interface SequenceArchitectInput {
+  sequenceType: SequenceType;
+  spark: string;
+  topicLabels: string[];
+  /** Pre-formatted RAG block (may be ""). */
+  knowledgeContext: string;
+  brandVoice?: string | null;
+  audience?: string | null;
+}
+
+/** One Gemini call → a map of {email index (1-based) → enriched brief}. */
+async function callSequenceArchitect(
+  bp: SequenceBlueprint,
+  input: SequenceArchitectInput,
+): Promise<Map<number, string>> {
+  const emailSteps = bp.steps.filter((s) => s.kind === "email");
+  const outline = emailSteps
+    .map((s, i) => {
+      const fw = emailFrameworkLabel(s.framework ?? bp.defaultFramework);
+      return `${i + 1}. ${s.label} [framework: ${fw}] — ${s.theme ?? ""}`.trim();
+    })
+    .join("\n");
+  const task = renderPrompt("content.architect_sequence", {
+    sequence_label: bp.label,
+    scenario_brief: bp.scenarioBrief,
+    spark: input.spark || "(none provided)",
+    topics: input.topicLabels.length ? input.topicLabels.join(", ") : "(none)",
+    knowledge_context: input.knowledgeContext || "",
+    email_outline: outline,
+  });
+  const prompt = composePrompt({
+    identity: brandVoiceSection(input.brandVoice),
+    communication: WRITING_RULES,
+    userProfile: audienceSection(input.audience),
+    task,
+  });
+  const raw = await generateText(prompt);
+  const j = raw ? parseFirstJson(raw) : null;
+  const map = new Map<number, string>();
+  if (j && typeof j === "object") {
+    const arr = Array.isArray((j as Record<string, unknown>).emails)
+      ? ((j as Record<string, unknown>).emails as unknown[])
+      : [];
+    for (const e of arr) {
+      const cand = e as { index?: unknown; brief?: unknown };
+      const idx = typeof cand?.index === "number" ? cand.index : NaN;
+      const brief = typeof cand?.brief === "string" ? cand.brief.trim() : "";
+      if (Number.isFinite(idx) && brief) map.set(idx, brief);
+    }
+  }
+  return map;
+}
+
+/**
+ * Build the email-sequence graph from a blueprint. Trigger/wait/condition nodes are
+ * seeded status:"generated" (structural — nothing to LLM-fill, so the plan can reach
+ * "ready"); email nodes are status:"empty" and carry the enriched brief + framework.
+ * Falls back to the seeded theme briefs if Gemini is off/errors so the canvas always
+ * builds.
+ */
+export async function architectSequence(input: SequenceArchitectInput): Promise<ArchitectGraph> {
+  const bp = getSequenceBlueprint(input.sequenceType);
+  if (!bp) return { nodes: [], edges: [] };
+
+  const briefs = await callSequenceArchitect(bp, input).catch(
+    () => new Map<number, string>(),
+  );
+
+  const nodes: ContentNode[] = [];
+  const edges: ContentEdge[] = [];
+
+  let mainTail: string | null = null; // last node on the pre-condition / main lane
+  let conditionId: string | null = null; // the split node, once seen
+  let condLabels: { yes: string; no: string } = { yes: "Yes", no: "No" };
+  const branchTail: { yes: string | null; no: string | null } = { yes: null, no: null };
+  let mainY = SEQ_TOP_Y; // y for the main / no lane
+  let yesY = SEQ_TOP_Y; // y for the yes branch (reset when a condition appears)
+  let emailIndex = 0; // 1-based email counter (matches the brief map)
+
+  for (const step of bp.steps) {
+    const branch = step.branch ?? "main";
+    let x = SEQ_MAIN_X;
+    let y: number;
+    let pred: string | null;
+    let label: string | null = null;
+
+    if (branch === "yes") {
+      x = SEQ_YES_X;
+      y = yesY;
+      yesY += SEQ_STEP_Y;
+      pred = branchTail.yes ?? conditionId;
+      if (pred === conditionId) label = condLabels.yes;
+    } else if (branch === "no") {
+      y = mainY;
+      mainY += SEQ_STEP_Y;
+      pred = branchTail.no ?? conditionId;
+      if (pred === conditionId) label = condLabels.no;
+    } else {
+      y = mainY;
+      mainY += SEQ_STEP_Y;
+      pred = mainTail;
+    }
+
+    let node: ContentNode;
+    if (step.kind === "trigger") {
+      node = emptyNode("trigger", "standalone", step.label, "", "", { x, y }, null, null, {
+        status: "generated",
+        body: step.label,
+      });
+    } else if (step.kind === "wait") {
+      node = emptyNode("wait", "standalone", step.label, "", "", { x, y }, null, null, {
+        status: "generated",
+        body: step.label,
+        waitConfig: step.wait ?? null,
+      });
+    } else if (step.kind === "condition") {
+      node = emptyNode("condition", "standalone", step.label, "", "", { x, y }, null, null, {
+        status: "generated",
+        body: step.label,
+        conditionConfig: step.condition ?? null,
+      });
+    } else {
+      emailIndex += 1;
+      const fwId = step.framework ?? bp.defaultFramework;
+      const seededBrief = `${step.theme ?? ""} ${bp.scenarioBrief}`.trim();
+      node = emptyNode(
+        "email",
+        "newsletter",
+        step.label,
+        "full-post",
+        briefs.get(emailIndex) || seededBrief,
+        { x, y },
+        null,
+        fwId,
+      );
+    }
+    nodes.push(node);
+
+    if (pred) edges.push({ id: `e_${randomUUID()}`, source: pred, target: node.id, label });
+
+    if (step.kind === "condition") {
+      conditionId = node.id;
+      condLabels = {
+        yes: step.condition?.yesLabel ?? "Yes",
+        no: step.condition?.noLabel ?? "No",
+      };
+      mainTail = null;
+      yesY = y + SEQ_STEP_Y; // yes branch starts one row below the split
+    } else if (branch === "yes") {
+      branchTail.yes = node.id;
+    } else if (branch === "no") {
+      branchTail.no = node.id;
+    } else {
+      mainTail = node.id;
+    }
   }
 
   return { nodes, edges };

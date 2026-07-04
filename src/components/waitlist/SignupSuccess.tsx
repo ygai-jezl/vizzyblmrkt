@@ -40,6 +40,8 @@ export interface SignupSuccessProps {
   buttonColor: string;
   /** When enabled (and we have a referralToken), shows the voice conversation CTA. */
   aiConversation?: { enabled: boolean; introLine?: string };
+  /** Arrived via an email voice-chat link — auto-open the conversation modal. */
+  autoOpenVoice?: boolean;
   /** Resolved message catalog + locale for the visitor's language. */
   messages: MessageCatalog;
   locale: string;
@@ -58,10 +60,15 @@ export function SignupSuccess({
   enabledPlatforms,
   buttonColor,
   aiConversation,
+  autoOpenVoice,
   messages,
   locale,
 }: SignupSuccessProps) {
-  const [convoOpen, setConvoOpen] = useState(false);
+  // An email voice-chat link lands here with the modal already open (on its idle
+  // "Start" state — the browser still needs a tap to grant the mic + mint a token).
+  const [convoOpen, setConvoOpen] = useState(
+    Boolean(autoOpenVoice && aiConversation?.enabled && referralToken),
+  );
   const t = (key: string, vars?: Record<string, string | number>) =>
     translate(messages, key, vars);
 

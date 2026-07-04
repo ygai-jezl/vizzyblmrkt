@@ -17,7 +17,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
-import { HubNode, PromoNode, SpokeNode, type ContentNodeData } from "./contentNodes";
+import {
+  HubNode,
+  PromoNode,
+  SpokeNode,
+  TriggerNode,
+  EmailNode,
+  WaitNode,
+  ConditionNode,
+  type ContentNodeData,
+} from "./contentNodes";
 import { ContentNodeInspector } from "./ContentNodeInspector";
 import { AddNodePalette } from "./AddNodePalette";
 import type { TemplateOption } from "./types";
@@ -29,11 +38,15 @@ import type { TemplateOption } from "./types";
  * draggable, freely connectable, and addable from the left palette; each node's
  * template is shown + editable in the inspector. Saved graph is Distribute-shaped.
  */
-const RF_TYPE: Record<ContentNodeType, "hub" | "promo" | "spoke"> = {
+const RF_TYPE: Record<ContentNodeType, string> = {
   hub: "hub",
   promo_pre: "promo",
   promo_post: "promo",
   spoke: "spoke",
+  trigger: "trigger",
+  email: "email",
+  wait: "wait",
+  condition: "condition",
 };
 
 const GEN_ORDER: Record<ContentNodeType, number> = {
@@ -41,6 +54,10 @@ const GEN_ORDER: Record<ContentNodeType, number> = {
   promo_pre: 1,
   promo_post: 2,
   spoke: 3,
+  email: 4,
+  trigger: 5,
+  wait: 6,
+  condition: 7,
 };
 
 function roleFor(type: ContentNodeType, channel: string): string {
@@ -81,7 +98,13 @@ export function ContentCanvas({
         position: cn.position,
         data: { cn, onGenerate } as ContentNodeData,
       })),
-      edges: initial.graph.edges.map<Edge>((e) => ({ id: e.id, source: e.source, target: e.target })),
+      edges: initial.graph.edges.map<Edge>((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        // Condition-branch labels (Yes/No) render on the wire.
+        label: e.label ?? undefined,
+      })),
     }),
     [initial, onGenerate],
   );
@@ -92,7 +115,19 @@ export function ContentCanvas({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const nodeTypes = useMemo(() => ({ hub: HubNode, promo: PromoNode, spoke: SpokeNode }), []);
+  const nodeTypes = useMemo(
+    () => ({
+      hub: HubNode,
+      promo: PromoNode,
+      spoke: SpokeNode,
+      trigger: TriggerNode,
+      email: EmailNode,
+      wait: WaitNode,
+      condition: ConditionNode,
+    }),
+    [],
+  );
+  const isSequence = initial.strategy.objective === "email_sequence";
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((eds) => addEdge(c, eds)),
@@ -112,9 +147,16 @@ export function ContentCanvas({
           if (n.id !== id) return n;
           const cur = (n.data as ContentNodeData).cn;
           const next = { ...cur, ...patch };
-          // Editing the copy of an approved node un-approves it (forces re-review;
-          // a hub edit can change what the spokes should atomize).
-          if (patch.body !== undefined && patch.status === undefined && cur.status === "approved") {
+          // Editing the reviewable copy of an approved node un-approves it (forces
+          // re-review; a hub edit can change what the spokes should atomize). For email
+          // nodes the subject / preview / framework are part of what was approved too.
+          const contentEdited =
+            patch.body !== undefined ||
+            (cur.type === "email" &&
+              (patch.subject !== undefined ||
+                patch.previewText !== undefined ||
+                patch.framework !== undefined));
+          if (contentEdited && patch.status === undefined && cur.status === "approved") {
             next.status = "generated";
           }
           return { ...n, data: { ...n.data, cn: next } };
@@ -215,6 +257,11 @@ export function ContentCanvas({
       status: "empty",
       scheduledAt: null,
       warnings: [],
+      subject: null,
+      previewText: null,
+      subjectVariants: [],
+      waitConfig: null,
+      conditionConfig: null,
     };
     setNodes((nds) => [
       ...nds,
@@ -276,10 +323,33 @@ export function ContentCanvas({
     router.refresh();
   }
 
+  // Sequence mode: no hub / approval gate — fill every email node in order.
+  async function genAllEmails() {
+    setBusy(true);
+    setMsg(null);
+    const ok = await save();
+    if (!ok) {
+      setBusy(false);
+      setMsg("Save failed — nothing generated.");
+      return;
+    }
+    const targets = nodes.map(cnOf).filter((cn) => cn.type === "email" && cn.status !== "approved");
+    for (const cn of targets) await generateOne(cn.id);
+    setBusy(false);
+    setMsg(targets.length ? "Emails generated." : "Nothing left to generate.");
+    router.refresh();
+  }
+
   async function save(): Promise<boolean> {
     const graph = {
       nodes: nodes.map((n) => ({ ...cnOf(n), position: n.position })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        // Preserve the branch label so the first save doesn't strip it from Firestore.
+        label: typeof e.label === "string" ? e.label : null,
+      })),
     };
     const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}`, {
       method: "PUT",
@@ -314,7 +384,16 @@ export function ContentCanvas({
           onChange={(e) => setName(e.target.value)}
           className="min-w-[14rem] flex-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium dark:border-neutral-700 dark:bg-neutral-900"
         />
-        {!hubHasBody ? (
+        {isSequence ? (
+          <button
+            type="button"
+            onClick={genAllEmails}
+            disabled={busy}
+            className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900"
+          >
+            {busy ? "Generating…" : "✨ Generate all emails"}
+          </button>
+        ) : !hubHasBody ? (
           <button
             type="button"
             onClick={genHub}
@@ -345,7 +424,7 @@ export function ContentCanvas({
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
           {generated}/{total} generated
         </span>
-        {hubHasBody && !hubApproved ? (
+        {!isSequence && hubHasBody && !hubApproved ? (
           <span className="text-xs text-amber-600 dark:text-amber-400">
             Review &amp; approve the hub to generate the rest.
           </span>

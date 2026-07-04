@@ -28,6 +28,26 @@ export function fillTemplate(
   });
 }
 
+/**
+ * Substitute ONLY the tokens present in `values`, leaving every other {{token}} intact
+ * (unlike fillTemplate, which blanks unknowns). Used by the email copywriter so
+ * recipient merge vars like {{first_name}} survive verbatim for send-time while the
+ * authoritative facts ({{hub_url}}, {{topic}}, …) are baked in. Records what it applied.
+ */
+export function fillKnownTokens(
+  body: string,
+  values: Record<string, string>,
+  applied?: Record<string, string>,
+): string {
+  if (!body) return "";
+  return body.replace(TOKEN_RE, (m, token: string) => {
+    if (!Object.prototype.hasOwnProperty.call(values, token)) return m;
+    const v = values[token] == null ? "" : String(values[token]);
+    if (applied) applied[token] = v;
+    return v;
+  });
+}
+
 /** Tokens still unfilled (no value, or blank value) after a fill — drives warnings. */
 export function unfilledTokens(body: string, values: Record<string, string>): string[] {
   const out: string[] = [];

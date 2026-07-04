@@ -34,12 +34,18 @@ function node(partial: Partial<ContentNode>): ContentNode {
     role: partial.role ?? "Hub",
     position: { x: 0, y: 0 },
     templateId: null,
+    framework: partial.framework ?? null,
     brief: partial.brief ?? "write it",
     body: partial.body ?? "",
     placeholderValues: {},
     status: "empty",
     scheduledAt: null,
     warnings: [],
+    subject: partial.subject ?? null,
+    previewText: partial.previewText ?? null,
+    subjectVariants: partial.subjectVariants ?? [],
+    waitConfig: partial.waitConfig ?? null,
+    conditionConfig: partial.conditionConfig ?? null,
   };
 }
 
@@ -51,9 +57,10 @@ function plan(nodes: ContentNode[], strategy?: Partial<ContentPlan["strategy"]>)
     name: "Plan",
     status: "generating",
     strategy: {
-      objective: "newsletter_signups",
+      objective: strategy?.objective ?? "newsletter_signups",
       hubUrl: strategy?.hubUrl ?? null,
       subscriberCount: strategy?.subscriberCount ?? null,
+      sequenceType: strategy?.sequenceType ?? null,
     },
     scope: { topics: [], spark: "weekly writing" },
     knowledge: { groundingScope: "global", proofAssets: [] },
@@ -203,5 +210,108 @@ describe("generateNode", () => {
     const patch = await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub]), node: hub }, noRag);
     expect(patch.status).toBe("error");
     expect(patch.warnings).toContain("generation_failed");
+  });
+
+  describe("email-sequence nodes", () => {
+    const seq = { objective: "email_sequence" as const, sequenceType: "welcome" as const };
+
+    it("fills an email with subject, preview and A/B variants; preserves {{first_name}}", async () => {
+      mocked.mockResolvedValue(
+        JSON.stringify({
+          subject: "Welcome aboard",
+          previewText: "Glad you're here",
+          subjectVariants: ["Hey there", "You're in"],
+          body: "<p>Hi {{first_name}}, thanks for joining. Here is your guide → {{hub_url}}</p>",
+        }),
+      );
+      const email = node({ id: "e1", type: "email", channel: "newsletter", role: "Email 1", framework: "aida" });
+      const patch = await generateNode(
+        {
+          ctx,
+          workspaceId: "ws1",
+          plan: plan([email], { ...seq, hubUrl: "https://hub.example" }),
+          node: email,
+        },
+        noRag,
+      );
+      expect(patch.status).toBe("generated");
+      expect(patch.subject).toBe("Welcome aboard");
+      expect(patch.previewText).toBe("Glad you're here");
+      expect(patch.subjectVariants).toEqual(["Hey there", "You're in"]);
+      // Recipient merge var stays literal; authoritative token is baked.
+      expect(patch.body).toContain("{{first_name}}");
+      expect(patch.body).toContain("https://hub.example");
+      expect(patch.warnings).not.toContain("unfilled_tokens");
+      // The prompt carried the scenario + framework context.
+      const prompt = mocked.mock.calls.at(-1)?.[0] ?? "";
+      expect(prompt).toContain("Welcome Sequence");
+      expect(prompt).toContain("AIDA");
+    });
+
+    it("flags spammy copy and collapses exclamation runs", async () => {
+      mocked.mockResolvedValue(
+        JSON.stringify({
+          subject: "BUY NOW!!!",
+          previewText: "",
+          subjectVariants: [],
+          body: "<p>Act now and CLICK HERE to claim your CASH.</p>",
+        }),
+      );
+      const email = node({ id: "e2", type: "email", channel: "newsletter", role: "Email 1", framework: "urgency" });
+      const patch = await generateNode(
+        { ctx, workspaceId: "ws1", plan: plan([email], { ...seq, sequenceType: "abandoned_cart" }), node: email },
+        noRag,
+      );
+      expect(patch.warnings).toContain("spam_subject");
+      expect(patch.warnings).toContain("spam_body");
+      expect(patch.subject).toBe("BUY NOW!"); // !!! → !
+    });
+
+    it("flags overly complex copy via the readability critic", async () => {
+      mocked.mockResolvedValue(
+        JSON.stringify({
+          subject: "Update",
+          previewText: "",
+          subjectVariants: [],
+          body: "<p>Notwithstanding the aforementioned considerations, our comprehensive organizational infrastructure facilitates unprecedented optimization across numerous multifaceted operational dimensions.</p>",
+        }),
+      );
+      const email = node({ id: "e3", type: "email", channel: "newsletter", role: "Email 1", framework: "pas" });
+      const patch = await generateNode(
+        { ctx, workspaceId: "ws1", plan: plan([email], { ...seq, sequenceType: "lead_nurture" }), node: email },
+        noRag,
+      );
+      expect(patch.warnings).toContain("readability_complex");
+    });
+
+    it("warns when a bake-token like {{hub_url}} is left unresolved (no send-time resolver)", async () => {
+      mocked.mockResolvedValue(
+        JSON.stringify({ subject: "Hi", previewText: "", subjectVariants: [], body: "<p>Grab it → {{hub_url}}</p>" }),
+      );
+      const email = node({ id: "e4", type: "email", channel: "newsletter", role: "Email 1", framework: "aida" });
+      const patch = await generateNode(
+        { ctx, workspaceId: "ws1", plan: plan([email], seq), node: email }, // no hubUrl
+        noRag,
+      );
+      expect(patch.warnings).toContain("unfilled_tokens");
+      expect(patch.body).toContain("{{hub_url}}"); // left literal (nothing resolves it)
+    });
+
+    it("skips generation for structural (wait) nodes", async () => {
+      const wait = node({
+        id: "w1",
+        type: "wait",
+        channel: "standalone",
+        role: "Wait 1 day",
+        body: "Wait 1 day",
+        waitConfig: { amount: 1, unit: "days" },
+      });
+      const patch = await generateNode(
+        { ctx, workspaceId: "ws1", plan: plan([wait], seq), node: wait },
+        noRag,
+      );
+      expect(patch.status).toBe("generated");
+      expect(mocked).not.toHaveBeenCalled();
+    });
   });
 });

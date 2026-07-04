@@ -36,6 +36,14 @@ const ScheduleSchema = z.object({
     .refine((s) => /([zZ]|[+-]\d{2}:?\d{2})$/.test(s.trim()), "missing timezone"),
   /** Optional recycling template; one variant is rendered at publish. */
   spintaxSource: z.string().max(SPINTAX_MAX_SOURCE_CHARS).nullable().optional(),
+  /** LinkedIn only: post as a Company Page URN (urn:li:organization:{id}); the worker
+   *  verifies the tenant administers it. Absent → post as the connected member. */
+  linkedInAuthorUrn: z
+    .string()
+    .max(200)
+    .regex(/^urn:li:organization:\d+$/, "invalid org urn")
+    .nullable()
+    .optional(),
 });
 
 const CancelSchema = z.object({
@@ -121,6 +129,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       spintaxSource,
       // Re-check the score from the copy at enqueue (matches the live preview gauge).
       pps: scorePPS(node.body, channel.data),
+      // "Post as Page" only applies to LinkedIn; the worker verifies the tenant admins it.
+      linkedInAuthorUrn: channel.data === "linkedin" ? (parsed.data.linkedInAuthorUrn ?? null) : null,
       scheduledAt,
     });
     // Reflect the schedule back onto the source node so the canvas shows it.

@@ -100,7 +100,7 @@ export async function deleteTenantGitConnection(
 /** Store (or replace) a tenant's social OAuth connection for a platform. */
 export async function setTenantSocialConnection(
   id: string,
-  platform: "x" | "instagram" | "linkedin",
+  platform: "x" | "instagram" | "linkedin" | "linkedin_org",
   conn: SocialConnection,
 ): Promise<void> {
   await getDb()
@@ -115,7 +115,7 @@ export async function setTenantSocialConnection(
 /** Remove a tenant's social OAuth connection for a platform (+ its webhook map). */
 export async function deleteTenantSocialConnection(
   id: string,
-  platform: "x" | "instagram" | "linkedin",
+  platform: "x" | "instagram" | "linkedin" | "linkedin_org",
 ): Promise<void> {
   const ref = getDb().collection("tenants").doc(id);
   // Read the connection's userId first so we can also drop the attribution map entry.

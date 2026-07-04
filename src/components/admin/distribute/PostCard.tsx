@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import { channelLabel } from "@/lib/content/channels";
 import { formatUtc } from "@/lib/distribute/uiModel";
@@ -9,6 +10,7 @@ import { SchedulePicker } from "./SchedulePicker";
 import { PreviewToggle } from "./preview/PreviewToggle";
 import { SpintaxToggle } from "./SpintaxToggle";
 import { CarouselToggle } from "./CarouselToggle";
+import { LinkedInAuthorSelect } from "./LinkedInAuthorSelect";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
@@ -33,13 +35,15 @@ export function PostCard({
   busy,
 }: {
   post: ScheduledPost;
-  onReschedule: (post: ScheduledPost, iso: string) => void;
+  onReschedule: (post: ScheduledPost, iso: string, linkedInAuthorUrn?: string | null) => void;
   onCancel: (post: ScheduledPost) => void;
   onSetSpintax: (post: ScheduledPost, source: string) => void;
   onBuildCarousel: (post: ScheduledPost) => void;
   busy: boolean;
 }) {
   const isCarouselChannel = post.channel === "linkedin" || post.channel === "instagram";
+  // "Post as" (LinkedIn): the org URN to publish as, or null = the connected member.
+  const [author, setAuthor] = useState<string | null>(post.linkedInAuthorUrn ?? null);
   // Prefer the score persisted at schedule; fall back to a live re-score (older posts).
   const pps = post.pps ?? scorePPS(post.body, post.channel);
   // Only an un-published post can be re-timed or cancelled.
@@ -92,8 +96,11 @@ export function PostCard({
             label="Reschedule"
             initial={toLocalInput(post.scheduledAt)}
             disabled={busy}
-            onSubmit={(iso) => onReschedule(post, iso)}
+            onSubmit={(iso) => onReschedule(post, iso, post.channel === "linkedin" ? author : null)}
           />
+          {post.channel === "linkedin" ? (
+            <LinkedInAuthorSelect value={author} onChange={setAuthor} disabled={busy} />
+          ) : null}
           <button
             type="button"
             disabled={busy}

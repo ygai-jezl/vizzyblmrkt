@@ -5,7 +5,7 @@ import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
 import { isXConfigured } from "@/lib/social/x/oauth";
-import { isLinkedInConfigured } from "@/lib/social/linkedin/oauth";
+import { isLinkedInConfigured, isLinkedInCMConfigured } from "@/lib/social/linkedin/oauth";
 import { isSocialCryptoConfigured } from "@/lib/social/crypto";
 
 export const runtime = "nodejs";
@@ -51,6 +51,14 @@ export async function GET(req: Request) {
     connected: Boolean(li),
     accountLogin: li?.handle ?? null,
     connectedAt: li?.connectedAt ?? null,
+  };
+  const liOrg = tenant?.socialConnections?.linkedin_org;
+  providers.linkedin_org = {
+    label: "LinkedIn Pages",
+    configured: isLinkedInCMConfigured() && isSocialCryptoConfigured(),
+    connected: Boolean(liOrg),
+    accountLogin: liOrg?.orgs?.length ? `${liOrg.orgs.length} page(s)` : null,
+    connectedAt: liOrg?.connectedAt ?? null,
   };
   return NextResponse.json({ providers });
 }

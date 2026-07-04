@@ -175,8 +175,18 @@ export type GitConnection = z.infer<typeof GitConnectionSchema>;
  * later), used to publish on the account owner's behalf. Access + refresh tokens are
  * stored ENCRYPTED (AES-256-GCM; src/lib/social/crypto.ts) — never plaintext.
  */
+/** A LinkedIn Company Page the connected member administers (organization posting). */
+export const LinkedInOrgSchema = z.object({
+  /** `urn:li:organization:{id}` — the author URN for a page post. */
+  urn: z.string(),
+  name: z.string().nullable().optional(),
+});
+export type LinkedInOrg = z.infer<typeof LinkedInOrgSchema>;
+
 export const SocialConnectionSchema = z.object({
-  platform: z.enum(["x", "instagram", "linkedin"]),
+  // "linkedin" = personal member posting (App 1); "linkedin_org" = Company Page posting
+  // via the Community Management API (App 2, separate credentials).
+  platform: z.enum(["x", "instagram", "linkedin", "linkedin_org"]),
   /** Encrypted access token (ciphertext / iv / GCM tag, all base64). */
   enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }),
   /** Encrypted refresh token (offline.access), when the platform issues one. */
@@ -189,6 +199,9 @@ export const SocialConnectionSchema = z.object({
   /** The account's stable platform user id (X numeric id). Attribution key for
    *  inbound engagement webhooks — see social_subscriptions in tenant/control.ts. */
   userId: z.string().optional(),
+  /** For a linkedin_org connection: the Company Pages the member administers (the
+   *  selectable authors for a page post). Discovered from organizationAcls at connect. */
+  orgs: z.array(LinkedInOrgSchema).optional(),
   scope: z.string().optional(),
   /** ISO expiry of the access token (refresh before this). */
   expiresAt: z.string().nullable().optional(),

@@ -193,6 +193,21 @@ describe("processScheduledPosts", () => {
     }
   });
 
+  it("parks 'linkedin_page_not_connected' for a Page post when the tenant doesn't admin that org", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    // Post-as-Page (org URN) but no linkedin_org connection / not an admin'd org.
+    seedPost(db, "p1", { scheduledAt: PAST, channel: "linkedin", linkedInAuthorUrn: "urn:li:organization:5" });
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      expect(db.raw(COLLECTION, "p1")!.lastError).toBe("linkedin_page_not_connected");
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
   it("does not pick up a post scheduled in the future", async () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();

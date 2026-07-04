@@ -33,6 +33,32 @@ export function isLinkedInConfigured(): boolean {
   return Boolean(linkedinClientId() && linkedinClientSecret());
 }
 
+// ── Community Management API (App 2) — Company Page / organization posting ────────
+// A SEPARATE LinkedIn app (CM must be the only product on its app) → its own
+// credentials + scopes. Same authorize/token endpoints (the app is keyed by client_id).
+export const LINKEDIN_ORG_OAUTH_PATH = "/api/admin/integrations/linkedin_org/callback";
+export const LINKEDIN_ORG_STATE_COOKIE = "li_org_state";
+/** r_organization_admin → list the Pages the member admins (organizationAcls);
+ *  w_organization_social → post as the Page. No OpenID (CM-only app). */
+export const LINKEDIN_ORG_SCOPES = "r_organization_admin w_organization_social";
+export const LINKEDIN_ORG_ACLS_URL =
+  "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED";
+
+export function linkedinCmClientId(): string | undefined {
+  return process.env.LINKEDIN_CM_CLIENT_ID;
+}
+export function linkedinCmClientSecret(): string | undefined {
+  return process.env.LINKEDIN_CM_CLIENT_SECRET;
+}
+export function isLinkedInCMConfigured(): boolean {
+  return Boolean(linkedinCmClientId() && linkedinCmClientSecret());
+}
+
+/** The author URN for an organization (Company Page) post. */
+export function organizationUrn(id: string): string {
+  return `urn:li:organization:${id}`;
+}
+
 /** Build the LinkedIn authorize URL for the redirect. */
 export function buildLinkedInAuthorizeUrl(input: {
   clientId: string;

@@ -115,6 +115,10 @@ export const ScheduledPostSchema = z.object({
   /** Phase 4: for an `auto_plug_comment` job — the parent tweet's remote id whose
    *  metrics are polled and under which the promo comment is posted. */
   sourceRemoteId: z.string().max(200).nullable().optional(),
+  /** Phase 6a: for a LinkedIn post — the author to publish as. Absent/null = the
+   *  connected member (personal); `urn:li:organization:{id}` = a Company Page the
+   *  member administers (org posting via the CM connection). */
+  linkedInAuthorUrn: z.string().max(200).nullable().optional(),
   /** Set once at publish; the retry guard (mirrors EmailJob.emailSentAt). */
   publishedRef: PublishedRefSchema.nullable().optional(),
   lastError: z.string().nullable().optional(),

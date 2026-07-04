@@ -76,12 +76,18 @@ export function DistributeClient({
   );
 
   const schedule = useCallback(
-    (contentPlanId: string, nodeId: string, scheduledAt: string) =>
-      mutate("POST", { contentPlanId, nodeId, scheduledAt }),
+    (contentPlanId: string, nodeId: string, scheduledAt: string, linkedInAuthorUrn?: string | null) =>
+      mutate("POST", {
+        contentPlanId,
+        nodeId,
+        scheduledAt,
+        ...(linkedInAuthorUrn ? { linkedInAuthorUrn } : {}),
+      }),
     [mutate],
   );
   const reschedule = useCallback(
-    (post: ScheduledPost, iso: string) => schedule(post.contentPlanId, post.nodeId, iso),
+    (post: ScheduledPost, iso: string, linkedInAuthorUrn?: string | null) =>
+      schedule(post.contentPlanId, post.nodeId, iso, linkedInAuthorUrn),
     [schedule],
   );
   const cancel = useCallback(

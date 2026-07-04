@@ -252,23 +252,39 @@ async function publishPost(
   // phase — the auto_plug/performance_fetch enqueues are X-only).
   if (post.channel === "linkedin" && isSocialPublishEnabled()) {
     const tenant = await getTenantById(ctx.tenantId, db);
-    const tokens = getDecryptedSocialTokens(tenant, "linkedin");
-    const memberId = tenant?.socialConnections?.linkedin?.userId;
-    if (!tokens || !memberId) {
+    // Resolve the author: a linkedin_org URN → post as that Company Page (CM/App-2
+    // token, and only if the tenant actually administers it); otherwise → the
+    // connected member (personal/App-1 token).
+    const wantsOrg = post.linkedInAuthorUrn?.startsWith("urn:li:organization:") ?? false;
+    let authorUrn: string | undefined;
+    let accessToken: string | undefined;
+    if (wantsOrg) {
+      const cm = tenant?.socialConnections?.linkedin_org;
+      const admins = cm?.orgs?.some((o) => o.urn === post.linkedInAuthorUrn) ?? false;
+      const cmTokens = getDecryptedSocialTokens(tenant, "linkedin_org");
+      if (cmTokens && admins) {
+        authorUrn = post.linkedInAuthorUrn ?? undefined;
+        accessToken = cmTokens.accessToken;
+      }
+    } else {
+      const memberId = tenant?.socialConnections?.linkedin?.userId;
+      const tokens = getDecryptedSocialTokens(tenant, "linkedin");
+      if (tokens && memberId) {
+        authorUrn = personUrn(memberId);
+        accessToken = tokens.accessToken;
+      }
+    }
+    if (!authorUrn || !accessToken) {
       await repo.update(post.id, {
         status: "failed",
         ...renderPatch,
-        lastError: "linkedin_not_connected",
+        lastError: wantsOrg ? "linkedin_page_not_connected" : "linkedin_not_connected",
         processedAt: now,
       });
       return "parked";
     }
     const outcome = classifyPublishResult(
-      await postToLinkedIn({
-        authorUrn: personUrn(memberId),
-        text: renderedVariant ?? post.body,
-        accessToken: tokens.accessToken,
-      }),
+      await postToLinkedIn({ authorUrn, text: renderedVariant ?? post.body, accessToken }),
     );
     if (outcome.kind === "published") {
       await repo.update(post.id, {
@@ -606,6 +622,8 @@ export interface SchedulePostInput {
   spintaxSource?: string | null;
   /** Predictive Performance Score computed at enqueue (re-checked from the body). */
   pps?: PpsResult | null;
+  /** LinkedIn author URN (org URN → post as that Page; absent → personal). */
+  linkedInAuthorUrn?: string | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
 }
@@ -645,6 +663,7 @@ export async function schedulePost(
       spintaxSource: input.spintaxSource ?? null,
       renderedVariant: null,
       pps: input.pps ?? null,
+      linkedInAuthorUrn: input.linkedInAuthorUrn ?? null,
       publishedRef: null,
       lastError: null,
       createdAt: now,
@@ -681,6 +700,7 @@ export async function schedulePost(
         renderedVariant: null, // stale render from a prior arm; re-picked at publish
         threadParts: null, // a prior deconstruction is stale once body is refreshed
         pps: input.pps ?? null,
+        linkedInAuthorUrn: input.linkedInAuthorUrn ?? null,
         channel: input.channel,
         format: input.format ?? null,
       };

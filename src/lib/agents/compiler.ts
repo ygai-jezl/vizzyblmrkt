@@ -5,6 +5,14 @@ import {
   toMailchimpMergeTags,
   type MergeContext,
 } from "@/lib/email/mergeVars";
+import {
+  wrap,
+  looksHtml,
+  paragraphize,
+  bodyToHtml,
+  htmlToText,
+  escapeHtml,
+} from "@/lib/email/emailRender";
 
 /**
  * Agent 4 — deterministic compiler / QA gate. Turns authored EmailContent into a
@@ -78,51 +86,6 @@ function qaWarnings(content: EmailContent, campaign: Campaign): string[] {
   return w;
 }
 
-// ---- HTML assembly --------------------------------------------------------
-
-function looksHtml(body: string): boolean {
-  return /<\w+[\s/>]/.test(body);
-}
-
-/** Wrap already-escaped plain text into paragraphs (does NOT escape). */
-function paragraphize(escaped: string): string {
-  return escaped
-    .split(/\n{2,}/)
-    .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
-    .join("\n");
-}
-
-function bodyToHtml(body: string): string {
-  // Broadcast path: MailChimp merge TAGS, no subscriber-controlled values here.
-  return looksHtml(body) ? body : paragraphize(escapeHtml(body));
-}
-
-function wrap(inner: string, heroImageUrl: string | null): string {
-  const hero = heroImageUrl
-    ? `<img src="${heroImageUrl}" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>`
-    : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
-  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
-    ${hero}
-    ${inner}
-  </div>
-</body></html>`;
-}
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<\/(p|div|h\d|li)>/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// ---- HTML assembly ---------------------------------------------------------
+// wrap/looksHtml/paragraphize/bodyToHtml/htmlToText/escapeHtml now live in
+// src/lib/email/emailRender.ts (shared with the visual layout editor's preview).

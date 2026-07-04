@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EmailLayoutSchema, MAX_EMAIL_BLOCKS } from "@/lib/types/emailLayout";
 
 /**
  * A ContentPlan — the "Create" pillar's saved, recallable workflow. An operator
@@ -138,6 +139,9 @@ export const ContentNodeSchema = z.object({
     })
     .nullable()
     .optional(),
+  /** Email node — optional visual LAYOUT. When present, `body` is DERIVED via
+   *  renderEmailLayout(layout) and the AI copy lives in the role:"copy" block. */
+  layout: EmailLayoutSchema.nullable().optional(),
 });
 export type ContentNode = z.infer<typeof ContentNodeSchema>;
 
@@ -210,4 +214,5 @@ export const CONTENT_PLAN_LIMITS = {
   MAX_NODES,
   MAX_EDGES,
   MAX_BODY_CHARS,
+  MAX_EMAIL_BLOCKS,
 } as const;

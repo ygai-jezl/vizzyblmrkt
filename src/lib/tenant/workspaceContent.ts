@@ -6,6 +6,7 @@ import { forTenant } from "./repository";
 import type { FirestoreLike, TenantContext } from "./types";
 import { IdeaItemSchema, type IdeaItem } from "@/lib/types/ideaItem";
 import { TemplateSchema, type Template } from "@/lib/types/template";
+import { EmailTemplateSchema, type EmailTemplate } from "@/lib/types/emailTemplate";
 import {
   ContentPlanSchema,
   ContentNodeSchema,
@@ -27,6 +28,7 @@ import {
  */
 const IDEA_ITEMS = "idea_items" as const;
 const TEMPLATES = "templates" as const;
+const EMAIL_TEMPLATES = "email_templates" as const;
 const CONTENT_PLANS = "content_plans" as const;
 
 function workspaceDoc(ctx: TenantContext, workspaceId: string) {
@@ -226,6 +228,72 @@ export async function deleteTemplate(
   await col.doc(templateId).delete();
 }
 
+// ── Email templates (saved visual layouts) ───────────────────────────────────
+
+export type CreateEmailTemplateInput = Omit<
+  EmailTemplate,
+  "id" | "tenantId" | "workspaceId" | "createdAt" | "updatedAt"
+>;
+
+export async function createEmailTemplate(
+  ctx: TenantContext,
+  workspaceId: string,
+  input: CreateEmailTemplateInput,
+): Promise<EmailTemplate> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const tpl = EmailTemplateSchema.parse({
+    ...input,
+    id,
+    tenantId: ctx.tenantId,
+    workspaceId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await workspaceDoc(ctx, workspaceId).collection(EMAIL_TEMPLATES).doc(id).set(tpl);
+  return tpl;
+}
+
+export async function listEmailTemplates(
+  ctx: TenantContext,
+  workspaceId: string,
+  limit = 300,
+): Promise<EmailTemplate[]> {
+  const snap = await workspaceDoc(ctx, workspaceId)
+    .collection(EMAIL_TEMPLATES)
+    .limit(Math.min(Math.max(limit, 1), 1000))
+    .get();
+  const rows: EmailTemplate[] = [];
+  for (const d of snap.docs) {
+    const parsed = EmailTemplateSchema.safeParse(d.data());
+    if (parsed.success) rows.push(parsed.data);
+    else console.warn(`[workspaceContent] dropped invalid email template ${d.id}:`, parsed.error.message);
+  }
+  rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return rows;
+}
+
+export async function getEmailTemplate(
+  ctx: TenantContext,
+  workspaceId: string,
+  templateId: string,
+): Promise<EmailTemplate | null> {
+  const doc = await workspaceDoc(ctx, workspaceId).collection(EMAIL_TEMPLATES).doc(templateId).get();
+  if (!doc.exists) return null;
+  const parsed = EmailTemplateSchema.safeParse(doc.data());
+  if (!parsed.success) return null;
+  if (parsed.data.tenantId !== ctx.tenantId || parsed.data.workspaceId !== workspaceId) return null;
+  return parsed.data;
+}
+
+export async function deleteEmailTemplate(
+  ctx: TenantContext,
+  workspaceId: string,
+  templateId: string,
+): Promise<void> {
+  await workspaceDoc(ctx, workspaceId).collection(EMAIL_TEMPLATES).doc(templateId).delete();
+}
+
 /**
  * Append a new structural group to the workspace's `templateGroups` (combobox
  * options). Uses arrayUnion so concurrent templatize calls don't clobber each
@@ -346,6 +414,7 @@ export async function updateContentPlanNode(
       | "subject"
       | "previewText"
       | "subjectVariants"
+      | "layout"
     >
   >,
 ): Promise<ContentNode | null> {

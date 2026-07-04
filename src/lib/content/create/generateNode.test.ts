@@ -46,6 +46,7 @@ function node(partial: Partial<ContentNode>): ContentNode {
     subjectVariants: partial.subjectVariants ?? [],
     waitConfig: partial.waitConfig ?? null,
     conditionConfig: partial.conditionConfig ?? null,
+    layout: partial.layout ?? null,
   };
 }
 
@@ -295,6 +296,45 @@ describe("generateNode", () => {
       );
       expect(patch.warnings).toContain("unfilled_tokens");
       expect(patch.body).toContain("{{hub_url}}"); // left literal (nothing resolves it)
+    });
+
+    it("with a layout: refills the copy block + derives body, preserving other blocks", async () => {
+      mocked.mockResolvedValue(
+        JSON.stringify({ subject: "S", previewText: "", subjectVariants: [], body: "<p>Fresh AI copy</p>" }),
+      );
+      const layout = {
+        blocks: [
+          { id: "h", kind: "heading" as const, html: "Welcome", level: 2 as const, align: "left" as const },
+          { id: "c", kind: "text" as const, role: "copy" as const, html: "<p>OLD copy</p>" },
+          { id: "b", kind: "button" as const, label: "Go", href: "https://x.com", align: "center" as const, bg: "#111111", color: "#ffffff", radius: 8 },
+        ],
+      };
+      const email = node({ id: "e1", type: "email", channel: "newsletter", role: "Email 1", framework: "aida", layout });
+      const patch = await generateNode(
+        { ctx, workspaceId: "ws1", plan: plan([email], seq), node: email },
+        noRag,
+      );
+      expect(patch.layout).toBeTruthy();
+      const serialized = JSON.stringify(patch.layout);
+      expect(serialized).toContain("Fresh AI copy"); // copy block refilled
+      expect(serialized).not.toContain("OLD copy");
+      expect(serialized).toContain("Go"); // button preserved
+      // body is the RENDERED layout (tables), not the raw AI copy.
+      expect(patch.body).toContain("<table");
+      expect(patch.body).toContain("Fresh AI copy");
+    });
+
+    it("without a layout: legacy body, no layout in the patch", async () => {
+      mocked.mockResolvedValue(
+        JSON.stringify({ subject: "S", previewText: "", subjectVariants: [], body: "<p>Plain copy</p>" }),
+      );
+      const email = node({ id: "e9", type: "email", channel: "newsletter", role: "Email 1", framework: "aida" });
+      const patch = await generateNode(
+        { ctx, workspaceId: "ws1", plan: plan([email], seq), node: email },
+        noRag,
+      );
+      expect(patch.layout).toBeUndefined();
+      expect(patch.body).toBe("<p>Plain copy</p>");
     });
 
     it("skips generation for structural (wait) nodes", async () => {

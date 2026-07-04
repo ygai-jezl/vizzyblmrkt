@@ -55,18 +55,26 @@ export async function POST(req: Request, { params }: RouteParams) {
     skeletonBody,
   });
 
-  const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
-    body: patch.body,
-    placeholderValues: patch.placeholderValues,
-    status: patch.status,
-    warnings: patch.warnings,
-    format: patch.format,
-    // Email nodes carry subject/preview/variants; other node types omit them so we
-    // don't overwrite with undefined.
-    ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
-    ...(patch.previewText !== undefined ? { previewText: patch.previewText } : {}),
-    ...(patch.subjectVariants !== undefined ? { subjectVariants: patch.subjectVariants } : {}),
-  });
+  // The persist re-validates the merged node via ContentNodeSchema.parse (throwing).
+  // Guard it so a schema-invalid patch returns 422, not an uncaught 500.
+  let updated;
+  try {
+    updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+      body: patch.body,
+      placeholderValues: patch.placeholderValues,
+      status: patch.status,
+      warnings: patch.warnings,
+      format: patch.format,
+      // Email nodes carry subject/preview/variants (+ a reconciled layout); other node
+      // types omit them so we don't overwrite with undefined.
+      ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
+      ...(patch.previewText !== undefined ? { previewText: patch.previewText } : {}),
+      ...(patch.subjectVariants !== undefined ? { subjectVariants: patch.subjectVariants } : {}),
+      ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
+    });
+  } catch {
+    return NextResponse.json({ error: "invalid_node" }, { status: 422 });
+  }
   if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
 
   // Flip to "ready" once nothing is left empty/generating. Read FRESH state after the

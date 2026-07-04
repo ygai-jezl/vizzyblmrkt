@@ -13,7 +13,12 @@ const UpdateBroadcastSchema = z
     name: z.string().min(1).max(140),
     subject: z.string().max(300),
     body: z.string().max(50_000),
-    heroImageUrl: z.string().url().nullable(),
+    // z.string().url() accepts javascript:/data: — require an explicit http(s) scheme.
+    heroImageUrl: z
+      .string()
+      .max(2000)
+      .refine((u) => /^https?:\/\//i.test(u), "must be an http(s) URL")
+      .nullable(),
     agentMeta: AgentMetaSchema,
   })
   .partial();

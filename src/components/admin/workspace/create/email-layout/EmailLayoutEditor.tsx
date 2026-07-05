@@ -440,7 +440,9 @@ function BlockCard({
           </button>
         </div>
       </div>
-      <div onClick={(e) => e.stopPropagation()}>
+      {/* Only the inline TEXT editor swallows clicks (so typing doesn't re-select);
+          every other block body bubbles to onSelect so a click anywhere selects it. */}
+      <div onClick={block.kind === "text" ? (e) => e.stopPropagation() : undefined}>
         {block.kind === "text" ? (
           <TextBlockEditor html={block.html} onChange={(html) => onChange({ html })} />
         ) : block.kind === "heading" ? (

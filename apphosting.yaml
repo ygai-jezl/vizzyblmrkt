@@ -52,6 +52,16 @@ env:
       - BUILD
       - RUNTIME
 
+  # Admin access allowlist (AUTHORIZATION; not secret). Server-side only.
+  # Same value as the code default in src/lib/auth/allowlist.ts — made explicit
+  # here so the gate never depends on a silent fallback. AUTHENTICATION (verified
+  # Google sign-in) is enforced separately in code (ensureAdminAccess). Add
+  # ADMIN_ALLOWED_EMAILS here for individual external accounts if needed.
+  - variable: ADMIN_ALLOWED_DOMAINS
+    value: yougrow.ai
+    availability:
+      - RUNTIME
+
   # Firestore→BigQuery analytics pipeline (Phase 2, docs/SETUP.md §11). Dataset
   # ids are NOT secrets. One same-region dataset per residency region; the
   # firestore-bigquery-export extension mirrors `signups` + `email_events` into

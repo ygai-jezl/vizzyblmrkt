@@ -21,6 +21,20 @@ Context: building the admin portal (All Signups dashboard). Founder decisions:
   verified claims, never from request input. The session/isolation layer is
   identical regardless of sign-in method.
 
+Update (2026-07-05, OWASP audit A07 fix): "Google-only" is now ENFORCED in server
+code, not just the login UI + console. `ensureAdminAccess` (src/lib/auth/session.ts)
+requires a verified Google identity (`isVerifiedGoogleIdentity`: `email_verified ===
+true` AND `firebase.sign_in_provider === "google.com"`) before the allowlist/bootstrap
+run — closing a bypass where, if a non-Google provider were ever enabled on the
+Identity Platform project, a self-asserted `anyone@yougrow.ai` token could pass the
+domain allowlist. The check is bypassed only against the local Auth emulator (the
+email/password smoke test). This also separates AUTHENTICATION (verified Google —
+universal) from AUTHORIZATION (which tenant/role — the `isAllowedAdmin` allowlist +
+claims bootstrap), so a **future self-service model** where verified non-`@yougrow.ai`
+Google users create their OWN tenants slots in at the labelled seam in
+`ensureAdminAccess` without weakening the auth gate. Reminder: keep Email/Password (and
+anonymous) sign-in DISABLED on the prod Identity Platform project as defense-in-depth.
+
 Adversarial review (post-build) findings, all addressed:
 - **P0 fixed:** the public web config (`NEXT_PUBLIC_FIREBASE_API_KEY` /
   `_AUTH_DOMAIN`) was never wired into App Hosting, so the deployed client shipped

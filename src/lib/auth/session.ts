@@ -4,7 +4,7 @@ import {
   applicationDefault,
   type App,
 } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
+import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
@@ -52,10 +52,34 @@ function adminApp(): App {
 
 export type AdminAccess = "ready" | "needs_refresh" | "forbidden";
 
+/** The admin login accepts ONLY genuine Google sign-ins (ADR-0003, Google-only). */
+const REQUIRED_SIGN_IN_PROVIDER = "google.com";
+
+/**
+ * AUTHENTICATION invariant for every session mint: a real, VERIFIED Google
+ * identity — the token was minted by Google sign-in AND Google verified the
+ * email. This holds identically for today's @yougrow.ai operators and any
+ * future self-service tenant owner (both sign in with Google), and it is what
+ * makes the email-domain match in isAllowedAdmin trustworthy: the domain is
+ * Google-verified, never self-asserted. Without it, a project that has
+ * email/password (or anonymous) sign-in enabled would let an attacker mint a
+ * token for an unowned address (e.g. anyone@yougrow.ai) and pass the allowlist.
+ *
+ * Kept separate from AUTHORIZATION (which tenant/role — isAllowedAdmin + the
+ * claims bootstrap below) so the future onboarding path can reuse this exact
+ * gate before it provisions a new tenant.
+ */
+export function isVerifiedGoogleIdentity(decoded: DecodedIdToken): boolean {
+  return (
+    decoded.email_verified === true &&
+    decoded.firebase?.sign_in_provider === REQUIRED_SIGN_IN_PROVIDER
+  );
+}
+
 /**
  * Verify a Google ID token, gate by Workspace domain, and BOOTSTRAP the
  * tenant/role claims on first sign-in. Returns:
- *  - "forbidden"     → not an allowed account (no session)
+ *  - "forbidden"     → not a verified Google identity, or not an allowed account
  *  - "needs_refresh" → just minted claims; the client must refresh its ID token
  *                      and call again so the new token carries the claims
  *  - "ready"         → the token already has tenant_id+region; create the session
@@ -63,7 +87,22 @@ export type AdminAccess = "ready" | "needs_refresh" | "forbidden";
 export async function ensureAdminAccess(idToken: string): Promise<AdminAccess> {
   const auth = getAuth(adminApp());
   const decoded = await auth.verifyIdToken(idToken);
+  // AUTHENTICATION: only a verified Google identity may ever mint a session.
+  // The local Auth emulator (smoke test) signs in with email/password, so the
+  // strict provider check is bypassed there — never reachable in a real deploy.
+  const isEmulator = !!(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST
+  );
+  if (!isEmulator && !isVerifiedGoogleIdentity(decoded)) {
+    return "forbidden";
+  }
+  // AUTHORIZATION: which tenant/role this verified identity gets.
   if (!isAllowedAdmin(decoded.email, decoded.hd as string | undefined)) {
+    // FUTURE(self-service): a verified Google identity that is NOT on the
+    // internal operator allowlist should be routed to a tenant-creation
+    // onboarding flow (provisioning their OWN tenant) rather than forbidden.
+    // Until that lands we fail closed, so widening the allowlist can never
+    // silently drop a stranger into the bootstrap tenant (ten_vzb) as admin.
     return "forbidden";
   }
   if (!decoded.tenant_id || !decoded.region) {

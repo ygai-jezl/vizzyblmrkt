@@ -67,6 +67,17 @@ env:
       - BUILD
       - RUNTIME
 
+  # Admin access allowlist (AUTHORIZATION; not secret). Server-side only.
+  # Same value as the code default in src/lib/auth/allowlist.ts — made explicit
+  # so the gate never depends on a silent fallback. AUTHENTICATION (verified
+  # Google sign-in) is enforced separately in code (ensureAdminAccess). Keep
+  # Email/Password + anonymous sign-in DISABLED on the prod Identity Platform
+  # project as defense-in-depth (see docs/DECISIONS.md ADR-0003, 2026-07-05).
+  - variable: ADMIN_ALLOWED_DOMAINS
+    value: yougrow.ai
+    availability:
+      - RUNTIME
+
   # Firestore→BigQuery analytics (Phase 2, docs/SETUP.md §11). Dataset ids are
   # not secrets; the same-named datasets live in the PROD project. Enabled
   # 2026-06-22 after the prod extensions deployed + backfill verified (4 US + 2 EU

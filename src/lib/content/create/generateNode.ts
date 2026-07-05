@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
@@ -16,6 +17,14 @@ import {
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { bodyTokens } from "@/lib/content/placeholders";
 import { MERGE_VARS } from "@/lib/email/mergeVars";
+import {
+  renderEmailLayout,
+  sanitizeEmailHtml,
+  looksHtml,
+  paragraphize,
+  escapeHtml,
+} from "@/lib/email/emailRender";
+import { findCopyBlockIndex, type EmailLayout } from "@/lib/types/emailLayout";
 import { fillTemplate, fillKnownTokens, withDynamicTokens, unfilledTokens } from "./fillTemplate";
 import {
   retrieveSemanticKnowledgeContext,
@@ -65,6 +74,8 @@ export interface GeneratedNodePatch {
   subject?: string;
   previewText?: string;
   subjectVariants?: string[];
+  /** Email nodes WITH a visual layout — the reconciled layout (copy block refilled). */
+  layout?: EmailLayout;
 }
 
 /**
@@ -305,16 +316,44 @@ export async function generateNode(
       warnings.push("readability_complex");
     }
 
-    return {
-      body: finalBody,
+    const emailPatch = {
       placeholderValues: applied,
-      status: "generated",
-      warnings,
+      status: "generated" as const,
       format,
       subject: finalSubject,
       previewText: bake(collapseBangs(drafted.previewText)),
       subjectVariants: drafted.subjectVariants.map((v) => bake(collapseBangs(v))),
     };
+
+    // With a visual layout, the AI copy fills the role:"copy" block and `body` is
+    // DERIVED from the layout (so the layout structure survives Regenerate). Without a
+    // layout, `body` IS the AI copy (legacy path).
+    if (node.layout) {
+      const layout = structuredClone(node.layout) as EmailLayout;
+      const idx = findCopyBlockIndex(layout);
+      const layoutWarnings = [...warnings];
+      const copyHtml = looksHtml(finalBody) ? sanitizeEmailHtml(finalBody) : paragraphize(escapeHtml(finalBody));
+      const copy = idx >= 0 ? layout.blocks[idx] : undefined;
+      if (copy && copy.kind === "text") {
+        layout.blocks[idx] = { ...copy, html: copyHtml };
+      } else {
+        // No usable copy block — DON'T drop the fresh copy: add one so it isn't lost.
+        layout.blocks.push({ id: `text_${randomUUID()}`, kind: "text", role: "copy", html: copyHtml });
+        layoutWarnings.push("layout_added_copy_block");
+      }
+      const rendered = renderEmailLayout(layout);
+      // Slicing HTML mid-tag would corrupt it — flag oversize so the operator can trim
+      // (the editor also blocks a save above the cap).
+      if (rendered.length > MAX_BODY_CHARS) layoutWarnings.push("layout_too_large");
+      return {
+        ...emailPatch,
+        body: rendered.slice(0, MAX_BODY_CHARS),
+        layout,
+        warnings: layoutWarnings,
+      };
+    }
+
+    return { ...emailPatch, body: finalBody, warnings };
   }
 
   const skeleton = input.skeletonBody?.trim() ? input.skeletonBody.trim().slice(0, 8000) : "";

@@ -25,6 +25,7 @@ export function ContentNodeInspector({
   onApprove,
   onDelete,
   onClose,
+  onOpenLayout,
 }: {
   node: ContentNode;
   templates: TemplateOption[];
@@ -34,6 +35,8 @@ export function ContentNodeInspector({
   onApprove: () => void;
   onDelete: () => void;
   onClose: () => void;
+  /** Email nodes — open the visual layout editor (mounted at the canvas level). */
+  onOpenLayout?: () => void;
 }) {
   const tokenEntries = Object.entries(node.placeholderValues ?? {});
   // Templates for this channel first (the relevant ones), then the rest.
@@ -325,14 +328,29 @@ export function ContentNodeInspector({
         </div>
       ) : null}
 
+      {/* Email nodes: open the visual layout editor. When a layout exists it is the
+          source of truth, so the raw "Final copy" below is read-only (edit via the editor). */}
+      {isEmail ? (
+        <button
+          type="button"
+          onClick={onOpenLayout}
+          className="mb-4 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        >
+          🎨 Email Layout{node.layout ? "" : " — build a visual email"}
+        </button>
+      ) : null}
+
       <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        Final copy
+        Final copy{isEmail && node.layout ? " (rendered from layout — read-only)" : ""}
         <textarea
           value={node.body}
           onChange={(e) => onUpdate({ body: e.target.value })}
+          readOnly={Boolean(isEmail && node.layout)}
           rows={16}
           placeholder={busy ? "Generating…" : "Generate to draft this node, or write it here."}
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900"
+          className={`mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900 ${
+            isEmail && node.layout ? "opacity-60" : ""
+          }`}
         />
       </label>
 

@@ -13,7 +13,13 @@ const CreateBroadcastSchema = z.object({
   name: z.string().min(1).max(140),
   subject: z.string().max(300).default(""),
   body: z.string().max(50_000).default(""),
-  heroImageUrl: z.string().url().nullable().optional(),
+  // z.string().url() accepts javascript:/data: — require an explicit http(s) scheme.
+  heroImageUrl: z
+    .string()
+    .max(2000)
+    .refine((u) => /^https?:\/\//i.test(u), "must be an http(s) URL")
+    .nullable()
+    .optional(),
   agentMeta: AgentMetaSchema.optional(),
 });
 

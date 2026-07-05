@@ -211,6 +211,36 @@ export const SocialConnectionSchema = z.object({
 });
 export type SocialConnection = z.infer<typeof SocialConnectionSchema>;
 
+/**
+ * Brand Kit — a structured brand identity AI-extracted from an uploaded brand-
+ * guidelines PDF (Account → Brand). EVERY field is nullable so a sparse guideline
+ * still stores partially; it feeds on-brand AI generation (email layouts + images).
+ */
+export const BrandKitSchema = z.object({
+  /** Private-bucket ref of the source PDF (filename) + its display name. */
+  pdfPath: z.string().max(300).nullable().optional(),
+  pdfName: z.string().max(300).nullable().optional(),
+  /** Freeform brand overview the model wrote. */
+  summary: z.string().max(4000).nullable().optional(),
+  /** Extracted colours. */
+  palette: z
+    .array(z.object({ hex: z.string().max(9), name: z.string().max(60).nullable().optional() }))
+    .max(24)
+    .nullable()
+    .optional(),
+  fonts: z.array(z.string().max(80)).max(12).nullable().optional(),
+  tone: z.string().max(1000).nullable().optional(),
+  voice: z.string().max(1000).nullable().optional(),
+  /** Imagery/photography direction, e.g. "warm photographic, lots of whitespace". */
+  imageryStyle: z.string().max(1000).nullable().optional(),
+  logoUsage: z.string().max(1000).nullable().optional(),
+  dos: z.array(z.string().max(300)).max(30).nullable().optional(),
+  donts: z.array(z.string().max(300)).max(30).nullable().optional(),
+  /** ISO of the last successful AI extraction. */
+  extractedAt: z.string().max(40).nullable().optional(),
+});
+export type BrandKit = z.infer<typeof BrandKitSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -253,6 +283,8 @@ export const TenantSchema = z.object({
    */
   defaultLocale: z.string().optional(),
   supportedLocales: z.array(z.string()).optional(),
+  /** AI-extracted brand kit (from an uploaded guidelines PDF); powers on-brand generation. */
+  brandKit: BrandKitSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

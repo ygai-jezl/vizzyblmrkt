@@ -29,6 +29,8 @@ import {
 } from "./contentNodes";
 import { ContentNodeInspector } from "./ContentNodeInspector";
 import { AddNodePalette } from "./AddNodePalette";
+import { EmailLayoutEditor } from "./email-layout/EmailLayoutEditor";
+import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { TemplateOption } from "./types";
 
 /**
@@ -112,6 +114,7 @@ export function ContentCanvas({
   const [edges, setEdges, onEdgesChange] = useEdgesState(seeded.edges);
   const [name, setName] = useState(initial.name);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [layoutEditorFor, setLayoutEditorFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -340,9 +343,12 @@ export function ContentCanvas({
     router.refresh();
   }
 
-  async function save(): Promise<boolean> {
+  // `nodesOverride` lets a caller persist a just-computed node list synchronously
+  // (setState is async, so the closure's `nodes` would otherwise be stale).
+  async function save(nodesOverride?: Node[]): Promise<boolean> {
+    const src = nodesOverride ?? nodes;
     const graph = {
-      nodes: nodes.map((n) => ({ ...cnOf(n), position: n.position })),
+      nodes: src.map((n) => ({ ...cnOf(n), position: n.position })),
       edges: edges.map((e) => ({
         id: e.id,
         source: e.source,
@@ -465,8 +471,45 @@ export function ContentCanvas({
           onApprove={() => updateCn(selectedCn.id, { status: "approved" })}
           onDelete={() => deleteNode(selectedCn.id)}
           onClose={() => setSelectedId(null)}
+          onOpenLayout={
+            selectedCn.type === "email" ? () => setLayoutEditorFor(selectedCn.id) : undefined
+          }
         />
       ) : null}
+
+      {(() => {
+        if (!layoutEditorFor) return null;
+        const editNode = nodes.map(cnOf).find((cn) => cn.id === layoutEditorFor);
+        if (!editNode) return null;
+        return (
+          <EmailLayoutEditor
+            node={editNode}
+            workspaceId={workspaceId}
+            planId={planId}
+            onSave={async (layout: EmailLayout, body: string) => {
+              // Layout is the source of truth; body is its rendered HTML. Build the next
+              // node list explicitly (setState is async → stale closure) and PERSIST it
+              // first; only commit to canvas state + close on success so the UI never
+              // shows an un-saved layout and the operator's edits survive a failed save.
+              const nextNodes = nodes.map((n) => {
+                if (n.id !== layoutEditorFor) return n;
+                const cur = (n.data as ContentNodeData).cn;
+                const status = cur.status === "approved" ? "generated" : cur.status;
+                return { ...n, data: { ...n.data, cn: { ...cur, layout, body, status } } };
+              });
+              const ok = await save(nextNodes);
+              if (ok) {
+                setNodes(nextNodes);
+                setLayoutEditorFor(null);
+                setMsg("Layout saved.");
+              } else {
+                setMsg("Save failed — retry.");
+              }
+            }}
+            onClose={() => setLayoutEditorFor(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

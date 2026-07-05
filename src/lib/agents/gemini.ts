@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL } from "./modelConfig";
+import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL, BLOCK_IMAGE_MODEL } from "./modelConfig";
 
 /**
  * Thin Gemini client. Three auth modes (first match wins):
@@ -119,6 +119,33 @@ export async function generateTextWithImage(
   }
 }
 
+/**
+ * Generate text from a prompt PLUS one inline FILE (multimodal) — e.g. a brand-
+ * guidelines PDF (`mimeType: "application/pdf"`). `base64` is the raw base64 (no
+ * data: prefix). The total request must stay under ~20MB (callers cap the file).
+ * Returns null on missing config / error.
+ */
+export async function generateTextWithFile(
+  prompt: string,
+  base64: string,
+  mimeType: string,
+): Promise<string | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  try {
+    const res = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: [
+        { role: "user", parts: [{ text: prompt }, { inlineData: { data: base64, mimeType } }] },
+      ],
+    });
+    return res.text ?? null;
+  } catch (err) {
+    console.warn("[gemini] generateTextWithFile failed:", err);
+    return null;
+  }
+}
+
 /** Extract the first JSON object from model text (tolerates ```json fences/prose). */
 export function parseFirstJson(text: string): unknown | null {
   const start = text.indexOf("{");
@@ -232,6 +259,33 @@ export async function generateSlideImage(
     return null;
   } catch (err) {
     console.warn("[gemini] generateSlideImage failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Generate an email-layout block image via the Gemini "Nano Banana" image model
+ * (generateContent + IMAGE modality; env-overridable BLOCK_IMAGE_MODEL). Null on
+ * missing config / error / no image part.
+ */
+export async function generateBlockImage(prompt: string): Promise<GeneratedImage | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  try {
+    const res = await ai.models.generateContent({
+      model: BLOCK_IMAGE_MODEL,
+      contents: prompt,
+      config: { responseModalities: [Modality.TEXT, Modality.IMAGE] },
+    });
+    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
+      const data = part.inlineData?.data;
+      if (data) {
+        return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn("[gemini] generateBlockImage failed:", err);
     return null;
   }
 }

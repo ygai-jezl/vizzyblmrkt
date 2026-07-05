@@ -1,4 +1,5 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
+import { socialIconDataUri } from "./socialIcons";
 
 /**
  * Email HTML assembly — the SINGLE source of email-safe markup, shared by the send
@@ -167,15 +168,26 @@ function socialLabel(platform: string): string {
   return platform === "x" ? "X" : platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
-function renderBlock(block: EmailBlock): string {
+/** Only emit a colour we can trust into an inline style (defence in depth vs. Zod). */
+function safeHex(c: string | null | undefined, fallback: string): string {
+  return c && /^#[0-9a-fA-F]{6}$/.test(c) ? c : fallback;
+}
+
+/** Wrap a block in its per-section BACKGROUND band when set (margins show the bg). */
+function withSection(inner: string, sectionBg: string | null | undefined): string {
+  const bg = safeHex(sectionBg, "");
+  return bg ? `<div style="background:${bg};padding:16px 16px 1px">${inner}</div>` : inner;
+}
+
+function renderInner(block: EmailBlock): string {
   switch (block.kind) {
     case "text":
-      return `<div style="font-family:${FONT};font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px">${sanitizeEmailHtml(
+      return `<div style="font-family:${FONT};font-size:16px;line-height:1.6;color:${safeHex(block.color, "#111111")};margin:0 0 16px">${sanitizeEmailHtml(
         block.html,
       )}</div>`;
     case "heading": {
       const size = HEADING_SIZE[block.level];
-      return `<h${block.level} style="margin:0 0 12px;font-family:${FONT};font-size:${size}px;line-height:1.3;font-weight:700;color:#111111;text-align:${block.align}">${escapeHtml(
+      return `<h${block.level} style="margin:0 0 12px;font-family:${FONT};font-size:${size}px;line-height:1.3;font-weight:700;color:${safeHex(block.color, "#111111")};text-align:${block.align}">${escapeHtml(
         block.html,
       )}</h${block.level}>`;
     }
@@ -191,14 +203,21 @@ function renderBlock(block: EmailBlock): string {
     }
     case "button": {
       const href = isSafeHref(block.href) ? block.href : "#";
-      return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:${block.bg};border-radius:${block.radius}px"><a href="${escapeAttr(
+      return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:${safeHex(
+        block.bg,
+        "#111111",
+      )};border-radius:${block.radius}px"><a href="${escapeAttr(
         href,
-      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:600;color:${block.color};text-decoration:none">${escapeHtml(
-        block.label,
-      )}</a></td></tr></table></div>`;
+      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:600;color:${safeHex(
+        block.color,
+        "#ffffff",
+      )};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
     }
     case "divider":
-      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:${block.thickness}px solid ${block.color};font-size:0;line-height:0">&nbsp;</td></tr></table>`;
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:${block.thickness}px solid ${safeHex(
+        block.color,
+        "#e5e5e5",
+      )};font-size:0;line-height:0">&nbsp;</td></tr></table>`;
     case "spacer":
       return `<div style="height:${block.height}px;line-height:${block.height}px;font-size:0">&nbsp;</div>`;
     case "social": {
@@ -206,14 +225,24 @@ function renderBlock(block: EmailBlock): string {
       const items = block.links
         .map((l) => {
           const href = isSafeHref(l.url) ? l.url : "#";
-          return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:0 8px;font-family:${FONT};font-size:13px;color:#555555;text-decoration:underline">${escapeHtml(
-            socialLabel(l.platform),
-          )}</a>`;
+          return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:0 6px"><img src="${escapeAttr(
+            socialIconDataUri(l.platform),
+          )}" alt="${escapeAttr(socialLabel(l.platform))}" width="24" height="24" style="display:inline-block;border:0" /></a>`;
         })
         .join("");
       return `<div style="text-align:${block.align};margin:8px 0 16px">${items}</div>`;
     }
+    case "footer": {
+      const note = block.text ? `${escapeHtml(block.text)}<br />` : "";
+      return `<div style="text-align:center;margin:24px 0 0;font-family:${FONT};font-size:12px;line-height:1.7;color:#999999">${note}<a href="{{unsubscribe_url}}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:6px;padding:6px 14px;border:1px solid #cccccc;border-radius:6px;color:#999999;text-decoration:none;font-size:11px">Unsubscribe</a></div>`;
+    }
   }
+}
+
+function renderBlock(block: EmailBlock): string {
+  const inner = renderInner(block);
+  if (!inner) return ""; // e.g. an image with no src, or empty social — no section band
+  return withSection(inner, block.sectionBg);
 }
 
 /**

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { EmailBlock } from "@/lib/types/emailLayout";
 import { SOCIAL_PLATFORMS } from "@/lib/types/emailLayout";
 
@@ -10,6 +11,42 @@ import { SOCIAL_PLATFORMS } from "@/lib/types/emailLayout";
  */
 const FIELD = "w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900";
 const LABEL = "block text-xs font-medium text-neutral-600 dark:text-neutral-300";
+
+/** A colour that can be cleared back to null (default / transparent). */
+function NullableColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onChange: (v: string | null) => void;
+}) {
+  return (
+    <div>
+      <div className={LABEL}>{label}</div>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          type="color"
+          value={value ?? "#ffffff"}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-12 rounded border border-neutral-300 dark:border-neutral-700"
+        />
+        {value ? (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-700"
+          >
+            Clear
+          </button>
+        ) : (
+          <span className="text-xs text-neutral-400">default / none</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function AlignPicker({ value, onChange }: { value: string; onChange: (v: "left" | "center" | "right") => void }) {
   return (
@@ -32,12 +69,58 @@ function AlignPicker({ value, onChange }: { value: string; onChange: (v: "left" 
   );
 }
 
+/** Brief input + "✨ Generate image" for an image block (keyed per block by the parent). */
+function ImageGenControls({
+  onGenerate,
+  onApply,
+}: {
+  onGenerate: (brief: string) => Promise<string | null>;
+  onApply: (url: string) => void;
+}) {
+  const [brief, setBrief] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="space-y-1 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+      <div className={LABEL}>Generate with AI</div>
+      <textarea
+        value={brief}
+        onChange={(e) => setBrief(e.target.value)}
+        rows={2}
+        placeholder="Describe the image (on-brand, no text)…"
+        className={`${FIELD} text-xs`}
+      />
+      <button
+        type="button"
+        disabled={busy || !brief.trim()}
+        onClick={async () => {
+          setBusy(true);
+          setErr(null);
+          try {
+            const url = await onGenerate(brief.trim());
+            if (url) onApply(url);
+            else setErr("Couldn't generate — try again.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className="w-full rounded-md bg-neutral-900 px-2 py-1.5 text-xs font-medium text-white disabled:opacity-60 dark:bg-white dark:text-neutral-900"
+      >
+        {busy ? "Generating…" : "✨ Generate image"}
+      </button>
+      {err ? <p className="text-xs text-red-600">{err}</p> : null}
+    </div>
+  );
+}
+
 export function BlockSettings({
   block,
   onChange,
+  onGenerateImage,
 }: {
   block: EmailBlock | null;
   onChange: (patch: Partial<EmailBlock>) => void;
+  onGenerateImage?: (brief: string) => Promise<string | null>;
 }) {
   if (!block) {
     return <p className="p-3 text-xs text-neutral-500">Select a block to edit its settings.</p>;
@@ -47,8 +130,34 @@ export function BlockSettings({
     <div className="space-y-3 p-3">
       <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{block.kind}</div>
 
+      {/* Per-section colours (every block). */}
+      <NullableColorField
+        label="Section background"
+        value={block.sectionBg}
+        onChange={(v) => onChange({ sectionBg: v })}
+      />
+      {block.kind === "text" || block.kind === "heading" ? (
+        <NullableColorField label="Text colour" value={block.color} onChange={(v) => onChange({ color: v })} />
+      ) : null}
+
       {block.kind === "text" ? (
         <p className="text-xs text-neutral-500">Edit the text directly in the block above.</p>
+      ) : null}
+
+      {block.kind === "footer" ? (
+        <>
+          <label className={LABEL}>
+            Footer note
+            <textarea
+              value={block.text}
+              onChange={(e) => onChange({ text: e.target.value })}
+              rows={3}
+              maxLength={500}
+              className={`mt-1 ${FIELD}`}
+            />
+          </label>
+          <p className="text-xs text-neutral-500">An Unsubscribe button renders below (mock).</p>
+        </>
       ) : null}
 
       {block.kind === "heading" ? (
@@ -76,6 +185,9 @@ export function BlockSettings({
 
       {block.kind === "image" ? (
         <>
+          {onGenerateImage ? (
+            <ImageGenControls key={block.id} onGenerate={onGenerateImage} onApply={(url) => onChange({ src: url })} />
+          ) : null}
           <label className={LABEL}>
             Image URL
             <input value={block.src} onChange={(e) => onChange({ src: e.target.value })} placeholder="https://…" className={`mt-1 ${FIELD}`} />

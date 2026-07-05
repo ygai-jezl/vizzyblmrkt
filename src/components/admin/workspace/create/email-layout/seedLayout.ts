@@ -25,6 +25,8 @@ export function defaultBlock(kind: EmailBlockKind): EmailBlock {
       return { id, kind: "spacer", height: 24 };
     case "social":
       return { id, kind: "social", align: "center", links: [] };
+    case "footer":
+      return { id, kind: "footer", text: "You received this email because you signed up." };
   }
 }
 

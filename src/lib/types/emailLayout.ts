@@ -34,12 +34,19 @@ export const SOCIAL_PLATFORMS = [
 ] as const;
 const socialPlatform = z.enum(SOCIAL_PLATFORMS);
 
+/** Per-section container BACKGROUND colour (behind the block); null = transparent. */
+const sectionBg = hexColor.nullable().optional();
+/** Per-section TEXT colour (text/heading blocks); null = the default ink. */
+const textColor = hexColor.nullable().optional();
+
 const TextBlock = z.object({
   id: blockId,
   kind: z.literal("text"),
   role,
   /** Tiptap-authored, sanitized HTML. May contain {{merge_tokens}} as plain text. */
   html: z.string().max(MAX_TEXT_HTML).default(""),
+  color: textColor,
+  sectionBg,
 });
 const HeadingBlock = z.object({
   id: blockId,
@@ -48,6 +55,8 @@ const HeadingBlock = z.object({
   html: z.string().max(MAX_HEADING_HTML).default(""),
   level: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
   align: align.default("left"),
+  color: textColor,
+  sectionBg,
 });
 const ImageBlock = z.object({
   id: blockId,
@@ -58,6 +67,7 @@ const ImageBlock = z.object({
   href: z.string().max(MAX_URL).nullable().optional(),
   width: z.number().int().min(50).max(600).default(560),
   align: align.default("center"),
+  sectionBg,
 });
 const ButtonBlock = z.object({
   id: blockId,
@@ -69,6 +79,7 @@ const ButtonBlock = z.object({
   bg: hexColor.default("#111111"),
   color: hexColor.default("#ffffff"),
   radius: z.number().int().min(0).max(40).default(8),
+  sectionBg,
 });
 const DividerBlock = z.object({
   id: blockId,
@@ -76,12 +87,14 @@ const DividerBlock = z.object({
   role,
   color: hexColor.default("#e5e5e5"),
   thickness: z.number().int().min(1).max(8).default(1),
+  sectionBg,
 });
 const SpacerBlock = z.object({
   id: blockId,
   kind: z.literal("spacer"),
   role,
   height: z.number().int().min(4).max(120).default(24),
+  sectionBg,
 });
 const SocialBlock = z.object({
   id: blockId,
@@ -92,6 +105,15 @@ const SocialBlock = z.object({
     .array(z.object({ platform: socialPlatform, url: z.string().max(MAX_URL) }))
     .max(MAX_SOCIAL_LINKS)
     .default([]),
+  sectionBg,
+});
+const FooterBlock = z.object({
+  id: blockId,
+  kind: z.literal("footer"),
+  role,
+  /** Footer note above the (mock) Unsubscribe button. */
+  text: z.string().max(500).default("You received this email because you signed up."),
+  sectionBg,
 });
 
 export const EmailBlockSchema = z.discriminatedUnion("kind", [
@@ -102,6 +124,7 @@ export const EmailBlockSchema = z.discriminatedUnion("kind", [
   DividerBlock,
   SpacerBlock,
   SocialBlock,
+  FooterBlock,
 ]);
 export type EmailBlock = z.infer<typeof EmailBlockSchema>;
 export type EmailBlockKind = EmailBlock["kind"];
@@ -127,6 +150,7 @@ export const EMAIL_BLOCK_KINDS: EmailBlockKind[] = [
   "divider",
   "spacer",
   "social",
+  "footer",
 ];
 
 export function blockKindLabel(kind: EmailBlockKind): string {
@@ -145,6 +169,8 @@ export function blockKindLabel(kind: EmailBlockKind): string {
       return "Spacer";
     case "social":
       return "Social";
+    case "footer":
+      return "Footer";
   }
 }
 

@@ -4,7 +4,7 @@ import { platformOrigin } from "@/lib/platform/origin";
 import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
 import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
-import { generateText, generateImage } from "./gemini";
+import { generateText, generateImage, generateBlockImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
 
 /**
@@ -118,6 +118,50 @@ export async function generateHeroImage(
   if (!stored.ok) {
     return { imageUrl: null, source: "unavailable", reason: stored.reason };
   }
+  const base = (input.baseUrl || platformOrigin()).replace(/\/+$/, "");
+  return { imageUrl: `${base}/api/email-asset/${stored.path}`, source: "agent3" };
+}
+
+export interface GenerateBlockImageInput {
+  tenantId: string;
+  /** The storage path segment (workspaceId) — served publicly via /api/email-asset. */
+  ownerId: string;
+  brief: string;
+  subject?: string;
+  copyExcerpt?: string;
+  /** Pre-assembled on-brand context (see brandContext.ts). */
+  brandContext: string;
+  knowledgeContext?: string;
+  baseUrl?: string;
+}
+
+export interface GenerateBlockImageResult {
+  imageUrl: string | null;
+  source: "agent3" | "unavailable";
+  reason?: HeroImageFailure;
+}
+
+/**
+ * On-brand image for an email LAYOUT block (Nano Banana). Two-stage: compose a brand-
+ * grounded image prompt, then render + store it under the workspace's private path and
+ * return the public proxy URL. Workspace-scoped (no Campaign) — the brand context is
+ * assembled by the caller from the workspace + tenant Brand Kit + the layout palette.
+ */
+export async function generateEmailBlockImage(
+  input: GenerateBlockImageInput,
+): Promise<GenerateBlockImageResult> {
+  const expandPrompt = renderPrompt("content.email_image_brief", {
+    brief: input.brief,
+    subject: input.subject || "(none)",
+    copy_excerpt: input.copyExcerpt?.slice(0, 800) || "(none)",
+    brand_context: input.brandContext,
+    knowledge_context: input.knowledgeContext ?? "",
+  });
+  const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
+  const img = await generateBlockImage(imagePrompt);
+  if (!img) return { imageUrl: null, source: "unavailable", reason: "image_model_unavailable" };
+  const stored = await storeEmailImage(input.tenantId, input.ownerId, img);
+  if (!stored.ok) return { imageUrl: null, source: "unavailable", reason: stored.reason };
   const base = (input.baseUrl || platformOrigin()).replace(/\/+$/, "");
   return { imageUrl: `${base}/api/email-asset/${stored.path}`, source: "agent3" };
 }

@@ -71,6 +71,33 @@ describe("renderEmailLayout", () => {
     expect(html.trim()).toBe("");
   });
 
+  it("applies per-section background + text colour (hex-guarded)", () => {
+    const html = renderEmailLayout({
+      blocks: [
+        { id: "t", kind: "text", role: "copy", html: "<p>hi</p>", color: "#123456", sectionBg: "#eeeeee" },
+        // A bad colour must NOT be interpolated (falls back).
+        { id: "h", kind: "heading", html: "Bad", level: 2, align: "left", color: "red</style>" },
+      ],
+    });
+    expect(html).toContain("background:#eeeeee");
+    expect(html).toContain("color:#123456");
+    expect(html).not.toContain("red</style>");
+    expect(html).toContain("color:#111111"); // heading fell back to the default ink
+  });
+
+  it("renders a footer with a mock Unsubscribe button and social icon images", () => {
+    const html = renderEmailLayout({
+      blocks: [
+        { id: "s", kind: "social", align: "center", links: [{ platform: "linkedin", url: "https://x.com" }] },
+        { id: "f", kind: "footer", text: "You signed up." },
+      ],
+    });
+    expect(html).toContain("Unsubscribe");
+    expect(html).toContain("{{unsubscribe_url}}");
+    expect(html).toContain("You signed up.");
+    expect(html).toContain("data:image/svg+xml"); // greyscale favicon
+  });
+
   it("neutralizes an unsafe button href to '#'", () => {
     const html = renderEmailLayout({
       blocks: [{ id: "b", kind: "button", label: "x", href: "javascript:alert(1)", align: "center", bg: "#111111", color: "#ffffff", radius: 8 }],

@@ -485,6 +485,7 @@ export function ContentCanvas({
           <EmailLayoutEditor
             node={editNode}
             workspaceId={workspaceId}
+            planId={planId}
             onSave={async (layout: EmailLayout, body: string) => {
               // Layout is the source of truth; body is its rendered HTML. Build the next
               // node list explicitly (setState is async → stale closure) and PERSIST it

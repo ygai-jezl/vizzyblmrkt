@@ -44,11 +44,13 @@ function adoptLayout(layout: EmailLayout): EmailLayout {
 export function EmailLayoutEditor({
   node,
   workspaceId,
+  planId,
   onSave,
   onClose,
 }: {
   node: ContentNode;
   workspaceId: string;
+  planId: string;
   onSave: (layout: EmailLayout, body: string) => void;
   onClose: () => void;
 }) {
@@ -59,8 +61,50 @@ export function EmailLayoutEditor({
   const [templateModal, setTemplateModal] = useState<null | "save" | "load">(null);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [templateName, setTemplateName] = useState("");
+  const [nlBrief, setNlBrief] = useState("");
+  const [nlBusy, setNlBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  async function generateImageUrl(brief: string): Promise<string | null> {
+    const res = await fetch(
+      `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/image`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief }),
+      },
+    );
+    const data = (await res.json().catch(() => ({}))) as { imageUrl?: string };
+    return res.ok && data.imageUrl ? data.imageUrl : null;
+  }
+
+  async function generateFromNL() {
+    if (!nlBrief.trim()) return;
+    setNlBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(
+        `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/layout`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brief: nlBrief.trim() }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as { layout?: EmailLayout };
+      if (res.ok && data.layout) {
+        setLayout(data.layout);
+        setSelectedId(data.layout.blocks[0]?.id ?? null);
+        setMsg("Layout generated — review and save.");
+        setNlBrief("");
+      } else {
+        setMsg("Couldn't generate a layout — try rephrasing.");
+      }
+    } finally {
+      setNlBusy(false);
+    }
+  }
 
   const previewHtml = useMemo(() => wrap(renderEmailLayout(layout), null), [layout]);
   const selected = layout.blocks.find((b) => b.id === selectedId) ?? null;
@@ -266,8 +310,34 @@ export function EmailLayoutEditor({
 
         {/* Settings */}
         <div className="w-72 shrink-0 overflow-y-auto border-l border-neutral-200 dark:border-neutral-800">
-          <BlockSettings block={selected} onChange={(patch) => selected && updateBlock(selected.id, patch)} />
+          <BlockSettings
+            block={selected}
+            onChange={(patch) => selected && updateBlock(selected.id, patch)}
+            onGenerateImage={generateImageUrl}
+          />
         </div>
+      </div>
+
+      {/* Docked AI prompt bar — describe the email, generate a full layout. */}
+      <div className="flex items-center gap-2 border-t border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <span className="text-sm">✨</span>
+        <input
+          value={nlBrief}
+          onChange={(e) => setNlBrief(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !nlBusy) generateFromNL();
+          }}
+          placeholder="Describe the email you want — e.g. a bold welcome with a hero image and a Get Started button"
+          className="flex-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        />
+        <button
+          type="button"
+          onClick={generateFromNL}
+          disabled={nlBusy || !nlBrief.trim()}
+          className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60 dark:bg-white dark:text-neutral-900"
+        >
+          {nlBusy ? "Generating…" : "Generate"}
+        </button>
       </div>
 
       {/* Modals are portalled to <body> so their z-50 escapes this z-30 overlay's
@@ -412,6 +482,12 @@ function BlockMiniPreview({ block }: { block: EmailBlock }) {
       return <div className="text-center text-[10px] text-neutral-400">Spacer · {block.height}px</div>;
     case "social":
       return <div className="text-xs text-neutral-500">Social · {block.links.length} link(s)</div>;
+    case "footer":
+      return (
+        <div className="text-center text-[10px] text-neutral-400">
+          {block.text || "Footer"} · Unsubscribe
+        </div>
+      );
     default:
       return null;
   }

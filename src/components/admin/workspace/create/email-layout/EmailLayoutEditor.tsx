@@ -15,6 +15,7 @@ import type { EmailTemplate } from "@/lib/types/emailTemplate";
 import { wrap, renderEmailLayout } from "@/lib/email/emailRender";
 import { Modal } from "@/components/admin/email/Modal";
 import { seedLayoutFromNode, defaultBlock, newBlockId } from "./seedLayout";
+import { PRESET_EMAIL_TEMPLATES } from "./presetTemplates";
 import { TextBlockEditor } from "./TextBlockEditor";
 import { BlockSettings } from "./BlockSettings";
 
@@ -26,13 +27,18 @@ import { BlockSettings } from "./BlockSettings";
  * its rendered body; layouts can be saved/loaded as reusable Email Templates.
  */
 
-/** Re-key a loaded template's blocks + guarantee exactly one copy block (synthesize a
- *  text block if the template has none, so Regenerate always has somewhere to write). */
+/** Re-key a loaded template/preset's blocks + guarantee exactly one copy block. Honour
+ *  the template's DESIGNATED copy block (a text block flagged role:"copy") so its author's
+ *  intent survives; else the first text block; else synthesize one — so Regenerate always
+ *  has somewhere to write. */
 function adoptLayout(layout: EmailLayout): EmailLayout {
   const blocks: EmailBlock[] = layout.blocks.map(
     (b) => ({ ...b, id: newBlockId(b.kind), role: undefined }) as EmailBlock,
   );
-  let copyIdx = blocks.findIndex((b) => b.kind === "text");
+  // Indices align 1:1 with the source layout (map preserves order), so a copy index found
+  // in the original is valid here after roles were stripped.
+  let copyIdx = layout.blocks.findIndex((b) => b.role === "copy" && b.kind === "text");
+  if (copyIdx < 0) copyIdx = blocks.findIndex((b) => b.kind === "text");
   if (copyIdx < 0) {
     blocks.unshift({ ...defaultBlock("text"), role: "copy" } as EmailBlock);
     copyIdx = 0;
@@ -181,8 +187,9 @@ export function EmailLayoutEditor({
       setTemplateName("");
     }
   }
-  function loadTemplate(tpl: EmailTemplate) {
-    const adopted = adoptLayout(tpl.layout);
+  /** Adopt a layout (saved template OR built-in starter) into the editor. */
+  function applyLayout(source: EmailLayout) {
+    const adopted = adoptLayout(source);
     setLayout(adopted);
     setSelectedId(adopted.blocks[0]?.id ?? null);
     setTemplateModal(null);
@@ -364,26 +371,53 @@ export function EmailLayoutEditor({
         </div>
       </Modal>
 
-      {/* Load-template modal */}
+      {/* Load-template modal — built-in starters first, then this workspace's saved ones. */}
       <Modal open={templateModal === "load"} onClose={() => setTemplateModal(null)} title="Load an email template">
-        {templates.length === 0 ? (
-          <p className="text-sm text-neutral-500">No saved templates yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {templates.map((tpl) => (
-              <li key={tpl.id}>
-                <button
-                  type="button"
-                  onClick={() => loadTemplate(tpl)}
-                  className="w-full rounded-md border border-neutral-200 px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
-                >
-                  {tpl.title}
-                  <span className="ml-2 text-xs text-neutral-400">{tpl.layout.blocks.length} blocks</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="space-y-4">
+          <div>
+            <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              Starter templates
+            </div>
+            <ul className="space-y-1">
+              {PRESET_EMAIL_TEMPLATES.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => applyLayout(p.layout)}
+                    className="w-full rounded-md border border-neutral-200 px-3 py-2 text-left hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                  >
+                    <span className="text-sm font-medium">{p.title}</span>
+                    <span className="ml-2 text-xs text-neutral-400">{p.layout.blocks.length} blocks</span>
+                    <span className="mt-0.5 block text-xs text-neutral-500">{p.description}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              Your saved templates
+            </div>
+            {templates.length === 0 ? (
+              <p className="px-1 text-sm text-neutral-500">No saved templates yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {templates.map((tpl) => (
+                  <li key={tpl.id}>
+                    <button
+                      type="button"
+                      onClick={() => applyLayout(tpl.layout)}
+                      className="w-full rounded-md border border-neutral-200 px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                    >
+                      {tpl.title}
+                      <span className="ml-2 text-xs text-neutral-400">{tpl.layout.blocks.length} blocks</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </Modal>
         </>,
         document.body,

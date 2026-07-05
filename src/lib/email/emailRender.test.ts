@@ -71,6 +71,14 @@ describe("renderEmailLayout", () => {
     expect(html.trim()).toBe("");
   });
 
+  it("applies the image block width (scalable) capped to the column", () => {
+    const html = renderEmailLayout({
+      blocks: [{ id: "i", kind: "image", src: "https://x.com/a.png", alt: "", href: null, width: 200, align: "center" }],
+    });
+    expect(html).toContain("width:200px");
+    expect(html).toContain("max-width:100%");
+  });
+
   it("applies per-section background + text colour (hex-guarded)", () => {
     const html = renderEmailLayout({
       blocks: [

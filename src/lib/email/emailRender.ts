@@ -193,13 +193,14 @@ function renderInner(block: EmailBlock): string {
     }
     case "image": {
       if (!block.src) return "";
-      const img = `<img src="${escapeAttr(block.src)}" alt="${escapeAttr(block.alt)}" width="${block.width}" style="display:block;width:100%;max-width:${block.width}px;height:auto;border:0;border-radius:8px" />`;
+      // width:<w>px sets the actual size (the slider controls it); max-width:100% keeps
+      // it inside the content column; the wrapper's text-align handles alignment.
+      const img = `<img src="${escapeAttr(block.src)}" alt="${escapeAttr(block.alt)}" width="${block.width}" style="display:inline-block;width:${block.width}px;max-width:100%;height:auto;border:0;border-radius:8px" />`;
       const linked =
         block.href && isSafeHref(block.href)
           ? `<a href="${escapeAttr(block.href)}" target="_blank" rel="noopener noreferrer">${img}</a>`
           : img;
-      const margin = block.align === "center" ? "0 auto 16px" : "0 0 16px";
-      return `<div style="text-align:${block.align};margin:0 0 16px"><div style="display:inline-block;max-width:${block.width}px;margin:${margin}">${linked}</div></div>`;
+      return `<div style="text-align:${block.align};margin:0 0 16px">${linked}</div>`;
     }
     case "button": {
       const href = isSafeHref(block.href) ? block.href : "#";

@@ -265,17 +265,21 @@ export async function generateSlideImage(
 
 /**
  * Generate an email-layout block image via the Gemini "Nano Banana" image model
- * (generateContent + IMAGE modality; env-overridable BLOCK_IMAGE_MODEL). Null on
- * missing config / error / no image part.
+ * (generateContent + IMAGE modality; env-overridable BLOCK_IMAGE_MODEL). Defaults to a
+ * 1:1 aspect ratio (imageConfig.aspectRatio — one of "1:1","2:3","3:2","3:4","4:3",
+ * "9:16","16:9","21:9"). Null on missing config / error / no image part.
  */
-export async function generateBlockImage(prompt: string): Promise<GeneratedImage | null> {
+export async function generateBlockImage(
+  prompt: string,
+  aspectRatio = "1:1",
+): Promise<GeneratedImage | null> {
   const ai = getClient();
   if (!ai) return null;
   try {
     const res = await ai.models.generateContent({
       model: BLOCK_IMAGE_MODEL,
       contents: prompt,
-      config: { responseModalities: [Modality.TEXT, Modality.IMAGE] },
+      config: { responseModalities: [Modality.TEXT, Modality.IMAGE], imageConfig: { aspectRatio } },
     });
     for (const part of res.candidates?.[0]?.content?.parts ?? []) {
       const data = part.inlineData?.data;

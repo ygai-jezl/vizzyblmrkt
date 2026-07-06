@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CHANNELS, channelLabel, formatLabel } from "@/lib/content/channels";
 import { CORE_ANGLES, frameworkLabel } from "@/lib/content/frameworks";
 import { EMAIL_FRAMEWORKS } from "@/lib/content/emailFrameworks";
@@ -451,8 +451,9 @@ function SocialImageControls({
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
   const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<null | "generate" | "upload">(null);
   const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const hasImage = Boolean(node.imageAssetRef);
   const thumbUrl = node.imageAssetRef
@@ -461,7 +462,7 @@ function SocialImageControls({
 
   async function generate() {
     if (!brief.trim() || busy) return;
-    setBusy(true);
+    setBusy("generate");
     setErr(null);
     try {
       const res = await fetch(
@@ -489,7 +490,34 @@ function SocialImageControls({
     } catch {
       setErr("Couldn't generate — try again.");
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  }
+
+  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked after a failure
+    if (!file || busy) return;
+    setBusy("upload");
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(
+        `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/post-image/upload`,
+        { method: "POST", body: fd },
+      );
+      const data = (await res.json().catch(() => ({}))) as { imageAssetRef?: string; message?: string };
+      if (res.ok && data.imageAssetRef) {
+        // Uploaded image → no AI aspect/prompt metadata.
+        onUpdate({ imageAssetRef: data.imageAssetRef, imageAspect: null, imagePrompt: null });
+      } else {
+        setErr(data.message ?? "Couldn't upload — try again.");
+      }
+    } catch {
+      setErr("Couldn't upload — try again.");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -505,7 +533,7 @@ function SocialImageControls({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={thumbUrl}
-            alt="Generated post image"
+            alt="Post image"
             className="max-h-48 rounded border border-neutral-200 object-contain dark:border-neutral-800"
           />
         </div>
@@ -543,15 +571,30 @@ function SocialImageControls({
         </label>
         <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={generate}
-          disabled={busy || !brief.trim()}
+          disabled={busy !== null || !brief.trim()}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
-          {busy ? "Generating…" : hasImage ? "Regenerate" : "✨ Generate image"}
+          {busy === "generate" ? "Generating…" : hasImage ? "Regenerate" : "✨ Generate image"}
         </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy !== null}
+          className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        >
+          {busy === "upload" ? "Uploading…" : "⬆ Upload"}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={upload}
+          className="hidden"
+        />
         {hasImage ? (
           <button
             type="button"
@@ -564,7 +607,8 @@ function SocialImageControls({
         {err ? <span className="text-xs text-red-600">{err}</span> : null}
       </div>
       <p className="mt-1.5 text-[10px] text-neutral-400">
-        Grounded on your Brand Kit + this post&apos;s copy. Save the canvas to keep it.
+        Generate an on-brand image (Brand Kit + this post&apos;s copy) or upload your own
+        (PNG / JPG / WebP). Save the canvas to keep it.
       </p>
     </div>
   );

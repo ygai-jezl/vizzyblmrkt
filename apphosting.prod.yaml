@@ -253,6 +253,18 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Create-side social post image generation. Overrides the base "true" → OFF in prod so a
+  # promotion doesn't expose the control before it's validated on prod Vertex. Flip both to
+  # "true" here (server + NEXT_PUBLIC mirror) when ready to enable on prod.
+  - variable: CREATE_SOCIAL_IMAGE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SOCIAL_IMAGE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Signs the short-lived capability token the admin-chat proxy mints so the
   # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
   # journey DRAFT, scoped to the verified tenant. Keep COMMENTED until the secret

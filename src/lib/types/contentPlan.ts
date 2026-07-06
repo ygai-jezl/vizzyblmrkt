@@ -142,6 +142,16 @@ export const ContentNodeSchema = z.object({
   /** Email node — optional visual LAYOUT. When present, `body` is DERIVED via
    *  renderEmailLayout(layout) and the AI copy lives in the role:"copy" block. */
   layout: EmailLayoutSchema.nullable().optional(),
+  // ── Social post image (linkedin/x/instagram nodes; author-time on-brand image).
+  //    Additive + nullable so hub-and-spoke / email plans are unaffected and old
+  //    plans still parse. Persisted through the whole-graph PUT (ContentGraphSchema). ──
+  /** Workspace-asset FILENAME of the generated post image (served via the
+   *  authenticated /api/admin/workspace/{ws}/asset proxy); null = none. */
+  imageAssetRef: z.string().max(2000).nullable().optional(),
+  /** The operator-chosen social aspect ratio the image was rendered at. */
+  imageAspect: z.enum(["1:1", "4:5", "1.91:1"]).nullable().optional(),
+  /** The expanded image prompt (transparency / re-roll reference). */
+  imagePrompt: z.string().max(1000).nullable().optional(),
 });
 export type ContentNode = z.infer<typeof ContentNodeSchema>;
 

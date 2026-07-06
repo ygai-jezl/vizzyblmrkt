@@ -6,6 +6,8 @@ import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
 import { generateText, generateImage, generateBlockImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
+import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
+import { SOCIAL_ASPECT_TO_GEMINI, type SocialAspect, type SocialImageStyle } from "@/lib/content/create/socialImage";
 
 /**
  * Agent 3 — Creative Director & Copywriter. Drafts performance-informed copy
@@ -164,6 +166,60 @@ export async function generateEmailBlockImage(
   if (!stored.ok) return { imageUrl: null, source: "unavailable", reason: stored.reason };
   const base = (input.baseUrl || platformOrigin()).replace(/\/+$/, "");
   return { imageUrl: `${base}/api/email-asset/${stored.path}`, source: "agent3" };
+}
+
+export interface GenerateSocialImageInput {
+  tenantId: string;
+  workspaceId: string;
+  /** Destination channel (linkedin/x/instagram) — shapes composition + aspect. */
+  channel: string;
+  brief: string;
+  /** The post copy (plain text) so the image supports the message. */
+  copyExcerpt?: string;
+  aspect: SocialAspect;
+  style: SocialImageStyle;
+  /** Pre-assembled on-brand context (see brandContext.ts). */
+  brandContext: string;
+  knowledgeContext?: string;
+}
+
+export interface GenerateSocialImageResult {
+  /** Workspace-asset FILENAME (served via the authenticated workspace-asset proxy). */
+  imageAssetRef: string | null;
+  /** The expanded prompt actually rendered (capped for the node schema). */
+  imagePrompt: string | null;
+  source: "agent3" | "unavailable";
+  reason?: HeroImageFailure | "bad_type" | "too_large";
+}
+
+/**
+ * On-brand image for a SOCIAL POST node (Nano Banana). Two-stage: compose a brand-
+ * grounded image prompt, then render it at the channel's aspect ratio and store it under
+ * the workspace's PRIVATE asset path (served by the authenticated workspace-asset proxy —
+ * the image isn't published yet). Degrades to a null ref (never throws) exactly like the
+ * email/carousel paths.
+ */
+export async function generateSocialPostImage(
+  input: GenerateSocialImageInput,
+): Promise<GenerateSocialImageResult> {
+  const expandPrompt = renderPrompt("content.social_image_brief", {
+    brief: input.brief,
+    channel: input.channel,
+    aspect: input.aspect,
+    style: input.style,
+    copy_excerpt: input.copyExcerpt?.slice(0, 800) || "(none)",
+    brand_context: input.brandContext,
+    knowledge_context: input.knowledgeContext ?? "",
+  });
+  const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
+  const img = await generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect]);
+  if (!img) {
+    return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
+  }
+  const stored = await storeWorkspaceImage(input.tenantId, input.workspaceId, img.bytes, img.mimeType);
+  if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };
+  // Cap the stored prompt to the ContentNode.imagePrompt schema limit (1000).
+  return { imageAssetRef: stored.filename, imagePrompt: imagePrompt.slice(0, 1000), source: "agent3" };
 }
 
 // ---- internals ------------------------------------------------------------

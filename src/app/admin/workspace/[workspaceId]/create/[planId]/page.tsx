@@ -40,7 +40,12 @@ export default async function ContentPlanPage({
       >
         ← All workflows
       </Link>
-      <ContentCanvas workspaceId={workspaceId} initial={plan} templates={templateOptions} />
+      <ContentCanvas
+        workspaceId={workspaceId}
+        initial={plan}
+        templates={templateOptions}
+        brandName={ws.name}
+      />
     </div>
   );
 }

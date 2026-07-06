@@ -30,6 +30,7 @@ import {
 import { ContentNodeInspector } from "./ContentNodeInspector";
 import { AddNodePalette } from "./AddNodePalette";
 import { EmailLayoutEditor } from "./email-layout/EmailLayoutEditor";
+import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { TemplateOption } from "./types";
 
@@ -79,10 +80,13 @@ export function ContentCanvas({
   workspaceId,
   initial,
   templates,
+  brandName,
 }: {
   workspaceId: string;
   initial: ContentPlan;
   templates: TemplateOption[];
+  /** Workspace name — the display identity in channel previews. */
+  brandName?: string;
 }) {
   const router = useRouter();
   const planId = initial.id;
@@ -115,6 +119,7 @@ export function ContentCanvas({
   const [name, setName] = useState(initial.name);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutEditorFor, setLayoutEditorFor] = useState<string | null>(null);
+  const [previewFor, setPreviewFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -464,6 +469,8 @@ export function ContentCanvas({
       {selectedCn ? (
         <ContentNodeInspector
           node={selectedCn}
+          workspaceId={workspaceId}
+          planId={planId}
           templates={templates}
           busy={selectedBusy || selectedCn.status === "generating"}
           onUpdate={(patch) => updateCn(selectedCn.id, patch)}
@@ -474,8 +481,29 @@ export function ContentCanvas({
           onOpenLayout={
             selectedCn.type === "email" ? () => setLayoutEditorFor(selectedCn.id) : undefined
           }
+          onOpenPreview={
+            selectedCn.type === "trigger" ||
+            selectedCn.type === "wait" ||
+            selectedCn.type === "condition"
+              ? undefined
+              : () => setPreviewFor(selectedCn.id)
+          }
         />
       ) : null}
+
+      {(() => {
+        if (!previewFor) return null;
+        const previewNode = nodes.map(cnOf).find((cn) => cn.id === previewFor);
+        if (!previewNode) return null;
+        return (
+          <ContentPreviewModal
+            node={previewNode}
+            brandName={brandName}
+            workspaceId={workspaceId}
+            onClose={() => setPreviewFor(null)}
+          />
+        );
+      })()}
 
       {(() => {
         if (!layoutEditorFor) return null;

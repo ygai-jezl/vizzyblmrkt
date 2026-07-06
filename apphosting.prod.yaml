@@ -254,7 +254,7 @@ env:
     availability:
       - RUNTIME
   # Create-side social post image generation — ENABLED on prod (server route + NEXT_PUBLIC
-  # control mirror). Requires Vertex image access for gemini-3.1-flash-image on the prod
+  # control mirror). Requires Vertex image access for gemini-3.1-flash-lite-image on the prod
   # compute SA (same grant as email images); degrades to a graceful 502 if not provisioned.
   - variable: CREATE_SOCIAL_IMAGE_ENABLED
     value: "true"

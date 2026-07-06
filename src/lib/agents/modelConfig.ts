@@ -30,9 +30,10 @@ export const DEFAULT_CAROUSEL_IMAGE_MODEL = "gemini-2.5-flash-image";
 export const CAROUSEL_IMAGE_MODEL =
   process.env.GEMINI_CAROUSEL_IMAGE_MODEL ?? DEFAULT_CAROUSEL_IMAGE_MODEL;
 
-/** Email-layout block images — Gemini "Nano Banana 2" image model (gemini-3.1-flash-image)
- *  via generateContent + IMAGE modality. Env-overridable per the model-hardcoding policy. */
-export const DEFAULT_BLOCK_IMAGE_MODEL = "gemini-3.1-flash-image";
+/** Email-layout block images + social post images — Gemini "Nano Banana 2" lite image
+ *  model (gemini-3.1-flash-lite-image) via generateContent + IMAGE modality. Env-
+ *  overridable per the model-hardcoding policy. */
+export const DEFAULT_BLOCK_IMAGE_MODEL = "gemini-3.1-flash-lite-image";
 export const BLOCK_IMAGE_MODEL =
   process.env.GEMINI_BLOCK_IMAGE_MODEL ?? DEFAULT_BLOCK_IMAGE_MODEL;
 

@@ -7,7 +7,7 @@ import { renderPrompt } from "./prompts/registry";
 import { generateText, generateImage, generateBlockImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
-import { SOCIAL_ASPECT_TO_GEMINI, type SocialAspect, type SocialImageStyle } from "@/lib/content/create/socialImage";
+import { SOCIAL_ASPECT_TO_GEMINI, socialImageStyle, type SocialAspect, type SocialImageStyle } from "@/lib/content/create/socialImage";
 
 /**
  * Agent 3 — Creative Director & Copywriter. Drafts performance-informed copy
@@ -202,11 +202,13 @@ export interface GenerateSocialImageResult {
 export async function generateSocialPostImage(
   input: GenerateSocialImageInput,
 ): Promise<GenerateSocialImageResult> {
+  const style = socialImageStyle(input.style);
   const expandPrompt = renderPrompt("content.social_image_brief", {
     brief: input.brief,
     channel: input.channel,
     aspect: input.aspect,
-    style: input.style,
+    style_label: style.label,
+    style_keywords: style.keywords,
     copy_excerpt: input.copyExcerpt?.slice(0, 800) || "(none)",
     brand_context: input.brandContext,
     knowledge_context: input.knowledgeContext ?? "",

@@ -6,7 +6,11 @@ import { forTenant, getTenantById } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { generateSocialPostImage } from "@/lib/agents/creative";
 import { assembleBrandContext } from "@/lib/content/create/brandContext";
-import { isSocialImageEnabled, isSocialImageChannel } from "@/lib/content/create/socialImage";
+import {
+  isSocialImageEnabled,
+  isSocialImageChannel,
+  SOCIAL_IMAGE_STYLE_IDS,
+} from "@/lib/content/create/socialImage";
 import { htmlToText } from "@/lib/email/emailRender";
 
 export const runtime = "nodejs";
@@ -17,7 +21,7 @@ type RouteParams = { params: Promise<{ workspaceId: string; planId: string; node
 const BodySchema = z.object({
   brief: z.string().min(1).max(1000),
   aspect: z.enum(["1:1", "4:5", "1.91:1"]),
-  style: z.enum(["photographic", "illustration", "abstract"]),
+  style: z.enum(SOCIAL_IMAGE_STYLE_IDS),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {

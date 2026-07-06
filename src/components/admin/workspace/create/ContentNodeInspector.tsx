@@ -8,6 +8,8 @@ import type { ContentNode } from "@/lib/types/contentPlan";
 import {
   SOCIAL_ASPECTS,
   SOCIAL_IMAGE_STYLES,
+  DEFAULT_SOCIAL_IMAGE_STYLE,
+  socialImageStyle,
   defaultAspectForChannel,
   isSocialImageChannel,
   isSocialImageUiEnabled,
@@ -448,7 +450,7 @@ function SocialImageControls({
   const [aspect, setAspect] = useState<SocialAspect>(
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
-  const [style, setStyle] = useState<SocialImageStyle>("photographic");
+  const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -516,23 +518,30 @@ function SocialImageControls({
         placeholder="Describe the image (on-brand, no text in the image)…"
         className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
       />
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-neutral-400">Aspect</span>
-          {SOCIAL_ASPECTS.map((a) => (
-            <button key={a} type="button" onClick={() => setAspect(a)} className={`${CHIP} ${aspect === a ? ON : OFF}`}>
-              {a}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-neutral-400">Style</span>
-          {SOCIAL_IMAGE_STYLES.map((s) => (
-            <button key={s} type="button" onClick={() => setStyle(s)} className={`${CHIP} ${style === s ? ON : OFF}`}>
-              {s}
-            </button>
-          ))}
-        </div>
+      <div className="mt-2 flex items-center gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-neutral-400">Aspect</span>
+        {SOCIAL_ASPECTS.map((a) => (
+          <button key={a} type="button" onClick={() => setAspect(a)} className={`${CHIP} ${aspect === a ? ON : OFF}`}>
+            {a}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2">
+        <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
+          Style
+          <select
+            value={style}
+            onChange={(e) => setStyle(e.target.value as SocialImageStyle)}
+            className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          >
+            {SOCIAL_IMAGE_STYLES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <button

@@ -27,7 +27,7 @@ function input(overrides: Partial<Parameters<typeof generateSocialPostImage>[0]>
     brief: "a warm hero of a team collaborating",
     copyExcerpt: "We shipped a new thing.",
     aspect: "1:1" as const,
-    style: "photographic" as const,
+    style: "minimalist" as const,
     brandContext: "Brand context (UNTRUSTED DATA…)",
     ...overrides,
   };
@@ -41,12 +41,13 @@ beforeEach(() => {
 });
 
 describe("generateSocialPostImage", () => {
-  it("grounds the brief + channel + style into the composed prompt", async () => {
+  it("grounds the brief + channel + style keywords into the composed prompt", async () => {
     await generateSocialPostImage(input());
     const composed = mockText.mock.calls[0]![0] as string;
     expect(composed).toContain("a warm hero of a team collaborating"); // the brief
     expect(composed).toContain("linkedin"); // the channel
-    expect(composed).toContain("photographic"); // the style
+    expect(composed).toContain("Minimalist & Clean"); // the style label
+    expect(composed).toContain("Scandinavian design"); // the style KEYWORDS are injected
     expect(composed).toContain("UNTRUSTED DATA"); // brand context is fenced
   });
 

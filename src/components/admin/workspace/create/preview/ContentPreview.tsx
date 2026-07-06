@@ -13,9 +13,11 @@ import {
   splitBlogTitle,
   domainFrom,
   firstLine,
+  formatCount,
   handleFrom,
   initial,
   metaSnippet,
+  mockEngagement,
   type PreviewKind,
   type PreviewView,
 } from "./contentPreviewHelpers";
@@ -212,6 +214,8 @@ function LinkedInFrame({ node, view, brandName, workspaceId }: FrameProps) {
   const name = brandName || "Your Page";
   const { visible, truncated } = truncateSeeMore(node.body);
   const shown = view === "opened" ? node.body : visible;
+  const eng = mockEngagement(node);
+  const hasContent = node.body.trim().length > 0 || Boolean(node.imageAssetRef);
   return (
     <article className="overflow-hidden rounded-lg border border-black/10 bg-white text-[14px] text-neutral-900 shadow-sm dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100">
       <header className="flex items-start gap-2 p-3">
@@ -234,6 +238,17 @@ function LinkedInFrame({ node, view, brandName, workspaceId }: FrameProps) {
         )}
       </div>
       <PostImage node={node} workspaceId={workspaceId} />
+      {hasContent ? (
+        <div className="mx-3 flex items-center justify-between pb-1 pt-2 text-xs text-neutral-500">
+          <span className="flex items-center gap-1">
+            <span className="text-[13px] leading-none">👍❤️</span>
+            {formatCount(eng.likes)}
+          </span>
+          <span>
+            {formatCount(eng.comments)} comments · {formatCount(eng.reposts)} reposts
+          </span>
+        </div>
+      ) : null}
       <div className="mx-3 flex items-center justify-between border-t border-black/10 py-1 dark:border-white/10">
         <ActionBar
           className="w-full justify-around"
@@ -263,6 +278,7 @@ function XFrame({ node, view, brandName, workspaceId }: FrameProps) {
   const handle = `@${handleFrom(brandName)}`;
   const parts = deconstructToThread(node.body);
   const shown = view === "feed" ? parts.slice(0, 1) : parts;
+  const eng = mockEngagement(node);
   return (
     <article className="rounded-2xl border border-black/10 bg-white text-[15px] text-neutral-900 dark:border-white/10 dark:bg-black dark:text-neutral-100">
       {shown.length ? (
@@ -289,15 +305,24 @@ function XFrame({ node, view, brandName, workspaceId }: FrameProps) {
                   className="mt-2 max-h-80 w-full rounded-2xl border border-black/10 bg-neutral-100 object-contain dark:border-white/10 dark:bg-neutral-900"
                 />
               ) : null}
-              <ActionBar
-                className="mt-2 max-w-[340px] justify-between"
-                items={[
-                  { label: "", icon: <IconComment /> },
-                  { label: "", icon: <IconRepost /> },
-                  { label: "", icon: <IconHeart /> },
-                  { label: "", icon: <IconShare /> },
-                ]}
-              />
+              <div className="mt-2 flex max-w-[380px] items-center justify-between text-neutral-500">
+                {/* Engagement rides the lead tweet; reply tweets show bare icons. */}
+                <span className="flex items-center gap-1.5 text-xs">
+                  <IconComment />
+                  {i === 0 ? formatCount(eng.comments) : ""}
+                </span>
+                <span className="flex items-center gap-1.5 text-xs">
+                  <IconRepost />
+                  {i === 0 ? formatCount(eng.reposts) : ""}
+                </span>
+                <span className="flex items-center gap-1.5 text-xs">
+                  <IconHeart />
+                  {i === 0 ? formatCount(eng.likes) : ""}
+                </span>
+                <span className="flex items-center gap-1.5 text-xs">
+                  <IconShare />
+                </span>
+              </div>
             </div>
           </div>
         ))
@@ -326,6 +351,8 @@ function InstagramFrame({ node, view, brandName, workspaceId }: FrameProps) {
   const handle = handleFrom(brandName);
   const { visible, truncated } = truncateCaption(node.body);
   const caption = view === "opened" ? node.body : visible;
+  const eng = mockEngagement(node);
+  const hasContent = node.body.trim().length > 0 || Boolean(node.imageAssetRef);
   return (
     <article className="overflow-hidden rounded-md border border-black/10 bg-white text-[14px] text-neutral-900 dark:border-white/10 dark:bg-black dark:text-neutral-100">
       <header className="flex items-center gap-2 p-3">
@@ -350,7 +377,9 @@ function InstagramFrame({ node, view, brandName, workspaceId }: FrameProps) {
           <IconBookmark />
         </span>
       </div>
-      <div className="px-3 pt-2 text-[13px] font-semibold">1,024 likes</div>
+      {hasContent ? (
+        <div className="px-3 pt-2 text-[13px] font-semibold">{formatCount(eng.likes)} likes</div>
+      ) : null}
       <div className="px-3 pb-3 pt-1 text-[14px]">
         {node.body.trim() ? (
           <p className="whitespace-pre-wrap leading-snug">
@@ -360,8 +389,10 @@ function InstagramFrame({ node, view, brandName, workspaceId }: FrameProps) {
         ) : (
           <EmptyCopy />
         )}
-        {view === "opened" ? (
-          <div className="mt-2 text-[13px] text-neutral-400">View all 128 comments</div>
+        {view === "opened" && hasContent ? (
+          <div className="mt-2 text-[13px] text-neutral-400">
+            View all {formatCount(eng.comments)} comments
+          </div>
         ) : null}
       </div>
     </article>

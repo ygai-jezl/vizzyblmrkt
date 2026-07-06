@@ -185,6 +185,21 @@ env:
   #   availability:
   #     - RUNTIME
   #
+  # Create-side on-brand SOCIAL POST image generation (linkedin/x/instagram node
+  # inspector → Gemini image → private workspace asset). Reuses the SAME model / bucket /
+  # Vertex path as email images. Server flag gates the generate route; the NEXT_PUBLIC
+  # mirror shows the inspector control (must be available at BUILD so Next inlines it).
+  # ENABLED on dev for live smoke; keep OFF in prod until validated (override in prod yaml).
+  - variable: CREATE_SOCIAL_IMAGE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SOCIAL_IMAGE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
   # X (Twitter) OAuth 2.0 for the Distribute "Connect X" flow + publishing.
   # Provision with: infra/x-oauth/setup.sh secret <project>
   - variable: X_OAUTH_CLIENT_ID

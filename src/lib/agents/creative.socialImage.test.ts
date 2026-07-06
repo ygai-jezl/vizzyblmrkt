@@ -1,0 +1,82 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock the model layer + the workspace asset store so the two-stage flow is deterministic
+// and never touches Vertex or GCS.
+vi.mock("./gemini", () => ({
+  generateText: vi.fn(),
+  generateImage: vi.fn(),
+  generateBlockImage: vi.fn(),
+}));
+vi.mock("@/lib/workspace/assetStore", () => ({
+  storeWorkspaceImage: vi.fn(),
+}));
+
+import { generateSocialPostImage } from "./creative";
+import { generateText, generateBlockImage } from "./gemini";
+import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
+
+const mockText = vi.mocked(generateText);
+const mockImage = vi.mocked(generateBlockImage);
+const mockStore = vi.mocked(storeWorkspaceImage);
+
+function input(overrides: Partial<Parameters<typeof generateSocialPostImage>[0]> = {}) {
+  return {
+    tenantId: "ten_x",
+    workspaceId: "ws1",
+    channel: "linkedin",
+    brief: "a warm hero of a team collaborating",
+    copyExcerpt: "We shipped a new thing.",
+    aspect: "1:1" as const,
+    style: "photographic" as const,
+    brandContext: "Brand context (UNTRUSTED DATA…)",
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockText.mockResolvedValue("an expanded, on-brand image prompt");
+  mockImage.mockResolvedValue({ bytes: Buffer.from("img-bytes"), mimeType: "image/png" });
+  mockStore.mockResolvedValue({ ok: true, filename: "abc123.png" });
+});
+
+describe("generateSocialPostImage", () => {
+  it("grounds the brief + channel + style into the composed prompt", async () => {
+    await generateSocialPostImage(input());
+    const composed = mockText.mock.calls[0]![0] as string;
+    expect(composed).toContain("a warm hero of a team collaborating"); // the brief
+    expect(composed).toContain("linkedin"); // the channel
+    expect(composed).toContain("photographic"); // the style
+    expect(composed).toContain("UNTRUSTED DATA"); // brand context is fenced
+  });
+
+  it("renders at the NEAREST Gemini ratio and returns the stored filename", async () => {
+    const res = await generateSocialPostImage(input({ aspect: "4:5" }));
+    expect(res.source).toBe("agent3");
+    expect(res.imageAssetRef).toBe("abc123.png");
+    // 4:5 has no Gemini equivalent → 3:4.
+    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "3:4");
+    expect(mockStore).toHaveBeenCalledWith("ten_x", "ws1", expect.any(Buffer), "image/png");
+  });
+
+  it("degrades to a null ref (no store) when the image model is unavailable", async () => {
+    mockImage.mockResolvedValue(null);
+    const res = await generateSocialPostImage(input());
+    expect(res.imageAssetRef).toBeNull();
+    expect(res.reason).toBe("image_model_unavailable");
+    expect(mockStore).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the store failure reason (e.g. no bucket)", async () => {
+    mockStore.mockResolvedValue({ ok: false, reason: "no_asset_bucket" });
+    const res = await generateSocialPostImage(input());
+    expect(res.imageAssetRef).toBeNull();
+    expect(res.reason).toBe("no_asset_bucket");
+  });
+
+  it("caps the stored imagePrompt to the node-schema limit (1000)", async () => {
+    mockText.mockResolvedValue("x".repeat(2000));
+    const res = await generateSocialPostImage(input());
+    expect(res.imagePrompt?.length).toBe(1000);
+  });
+});

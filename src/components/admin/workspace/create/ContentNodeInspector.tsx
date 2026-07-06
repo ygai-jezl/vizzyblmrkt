@@ -1,9 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { CHANNELS, channelLabel, formatLabel } from "@/lib/content/channels";
 import { CORE_ANGLES, frameworkLabel } from "@/lib/content/frameworks";
 import { EMAIL_FRAMEWORKS } from "@/lib/content/emailFrameworks";
 import type { ContentNode } from "@/lib/types/contentPlan";
+import {
+  SOCIAL_ASPECTS,
+  SOCIAL_IMAGE_STYLES,
+  defaultAspectForChannel,
+  isSocialImageChannel,
+  isSocialImageUiEnabled,
+  type SocialAspect,
+  type SocialImageStyle,
+} from "@/lib/content/create/socialImage";
 import type { TemplateOption } from "./types";
 
 /**
@@ -18,6 +28,8 @@ const SELECT =
 
 export function ContentNodeInspector({
   node,
+  workspaceId,
+  planId,
   templates,
   busy,
   onUpdate,
@@ -26,8 +38,11 @@ export function ContentNodeInspector({
   onDelete,
   onClose,
   onOpenLayout,
+  onOpenPreview,
 }: {
   node: ContentNode;
+  workspaceId: string;
+  planId: string;
   templates: TemplateOption[];
   busy: boolean;
   onUpdate: (patch: Partial<ContentNode>) => void;
@@ -37,6 +52,8 @@ export function ContentNodeInspector({
   onClose: () => void;
   /** Email nodes — open the visual layout editor (mounted at the canvas level). */
   onOpenLayout?: () => void;
+  /** Content nodes — open the channel-native WYSIWYG preview (feed / opened). */
+  onOpenPreview?: () => void;
 }) {
   const tokenEntries = Object.entries(node.placeholderValues ?? {});
   // Templates for this channel first (the relevant ones), then the rest.
@@ -322,6 +339,17 @@ export function ContentNodeInspector({
         />
       </label>
 
+      {/* Social post image — on-brand ✨ generation for linkedin/x/instagram nodes. */}
+      {!isEmail && isSocialImageChannel(node.channel) && isSocialImageUiEnabled() ? (
+        <SocialImageControls
+          key={node.id}
+          node={node}
+          workspaceId={workspaceId}
+          planId={planId}
+          onUpdate={onUpdate}
+        />
+      ) : null}
+
       {node.warnings.length ? (
         <div className="mb-4 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
           ⚠ {node.warnings.join(", ")}
@@ -369,6 +397,15 @@ export function ContentNodeInspector({
       ) : null}
 
       <div className="mt-5 flex items-center gap-2">
+        {onOpenPreview ? (
+          <button
+            type="button"
+            onClick={onOpenPreview}
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+          >
+            👁 Preview
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onGenerate}
@@ -386,6 +423,140 @@ export function ContentNodeInspector({
           {node.status === "approved" ? "Approved ✓" : "Approve"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * ✨ On-brand image generation for a social post node (linkedin/x/instagram). Local
+ * brief/aspect/style state; POSTs the flag-gated post-image route, then applies the
+ * returned workspace-asset filename via onUpdate (persisted by the canvas Save). Keyed
+ * by node id at the call site so state resets when a different node is selected.
+ */
+function SocialImageControls({
+  node,
+  workspaceId,
+  planId,
+  onUpdate,
+}: {
+  node: ContentNode;
+  workspaceId: string;
+  planId: string;
+  onUpdate: (patch: Partial<ContentNode>) => void;
+}) {
+  const [brief, setBrief] = useState("");
+  const [aspect, setAspect] = useState<SocialAspect>(
+    node.imageAspect ?? defaultAspectForChannel(node.channel),
+  );
+  const [style, setStyle] = useState<SocialImageStyle>("photographic");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const hasImage = Boolean(node.imageAssetRef);
+  const thumbUrl = node.imageAssetRef
+    ? `/api/admin/workspace/${workspaceId}/asset/${node.imageAssetRef}`
+    : null;
+
+  async function generate() {
+    if (!brief.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(
+        `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/post-image`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brief: brief.trim(), aspect, style }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        imageAssetRef?: string;
+        imagePrompt?: string | null;
+        message?: string;
+      };
+      if (res.ok && data.imageAssetRef) {
+        onUpdate({
+          imageAssetRef: data.imageAssetRef,
+          imageAspect: aspect,
+          imagePrompt: data.imagePrompt ?? null,
+        });
+      } else {
+        setErr(data.message ?? "Couldn't generate — try again.");
+      }
+    } catch {
+      setErr("Couldn't generate — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const CHIP = "cursor-pointer rounded border px-2 py-0.5 text-[11px] capitalize";
+  const ON = "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900";
+  const OFF = "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
+
+  return (
+    <div className="mb-4 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+      <div className="mb-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">✨ Post image</div>
+      {thumbUrl ? (
+        <div className="mb-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={thumbUrl}
+            alt="Generated post image"
+            className="max-h-48 rounded border border-neutral-200 object-contain dark:border-neutral-800"
+          />
+        </div>
+      ) : null}
+      <textarea
+        value={brief}
+        onChange={(e) => setBrief(e.target.value)}
+        rows={2}
+        maxLength={1000}
+        placeholder="Describe the image (on-brand, no text in the image)…"
+        className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] uppercase tracking-wide text-neutral-400">Aspect</span>
+          {SOCIAL_ASPECTS.map((a) => (
+            <button key={a} type="button" onClick={() => setAspect(a)} className={`${CHIP} ${aspect === a ? ON : OFF}`}>
+              {a}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] uppercase tracking-wide text-neutral-400">Style</span>
+          {SOCIAL_IMAGE_STYLES.map((s) => (
+            <button key={s} type="button" onClick={() => setStyle(s)} className={`${CHIP} ${style === s ? ON : OFF}`}>
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={generate}
+          disabled={busy || !brief.trim()}
+          className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+        >
+          {busy ? "Generating…" : hasImage ? "Regenerate" : "✨ Generate image"}
+        </button>
+        {hasImage ? (
+          <button
+            type="button"
+            onClick={() => onUpdate({ imageAssetRef: null, imageAspect: null, imagePrompt: null })}
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+          >
+            Remove
+          </button>
+        ) : null}
+        {err ? <span className="text-xs text-red-600">{err}</span> : null}
+      </div>
+      <p className="mt-1.5 text-[10px] text-neutral-400">
+        Grounded on your Brand Kit + this post&apos;s copy. Save the canvas to keep it.
+      </p>
     </div>
   );
 }

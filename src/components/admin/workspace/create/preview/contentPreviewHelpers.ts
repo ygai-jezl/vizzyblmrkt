@@ -136,3 +136,48 @@ export function domainFrom(name: string | undefined | null): string {
 export function initial(name: string | undefined | null): string {
   return (name ?? "").trim().charAt(0).toUpperCase() || "Y";
 }
+
+// ── Mock engagement ─────────────────────────────────────────────────────────────
+
+/** FNV-1a hash of a string → an unsigned 32-bit int. */
+function hash32(seed: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Fake but plausible engagement counts for a preview post. */
+export interface MockEngagement {
+  likes: number;
+  comments: number;
+  reposts: number;
+}
+
+export const MOCK_LIKES_MIN = 50;
+export const MOCK_LIKES_MAX = 280;
+export const MOCK_COMMENT_RATIO = 0.16;
+export const MOCK_REPOST_RATIO = 0.03;
+
+/**
+ * Plausible mock engagement for a preview: likes in [50, 280], comments = 16% of
+ * likes, reposts = 3% of likes. DETERMINISTIC per node (seeded from its id) so the
+ * numbers stay put across re-renders and feed↔opened toggles instead of jumping —
+ * each post gets its own stable "random" figure. Same shape works for LinkedIn and X.
+ */
+export function mockEngagement(node: Pick<ContentNode, "id" | "role" | "channel">): MockEngagement {
+  const unit = (hash32(node.id || node.role || node.channel || "post") % 100000) / 100000;
+  const likes = MOCK_LIKES_MIN + Math.round(unit * (MOCK_LIKES_MAX - MOCK_LIKES_MIN));
+  return {
+    likes,
+    comments: Math.round(likes * MOCK_COMMENT_RATIO),
+    reposts: Math.round(likes * MOCK_REPOST_RATIO),
+  };
+}
+
+/** Compact count for social chrome (e.g. 1,024 · 45). Fixed locale → deterministic. */
+export function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}

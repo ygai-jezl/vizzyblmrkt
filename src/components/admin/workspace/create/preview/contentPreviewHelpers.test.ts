@@ -11,6 +11,12 @@ import {
   handleFrom,
   domainFrom,
   initial,
+  mockEngagement,
+  formatCount,
+  MOCK_LIKES_MIN,
+  MOCK_LIKES_MAX,
+  MOCK_COMMENT_RATIO,
+  MOCK_REPOST_RATIO,
 } from "./contentPreviewHelpers";
 
 /** A minimal ContentNode for skin/derivation tests (only the read fields matter). */
@@ -152,6 +158,47 @@ describe("splitBlogTitle", () => {
     expect(title).toBe("The Ultimate Guide");
     // The SERP snippet (metaSnippet(body)) must not repeat the title.
     expect(metaSnippet(body)).not.toContain("The Ultimate Guide");
+  });
+});
+
+describe("mockEngagement", () => {
+  it("keeps likes within [50, 280] and holds the comment/repost ratios", () => {
+    // Sweep many distinct seeds to exercise the range + rounding.
+    for (let i = 0; i < 500; i += 1) {
+      const eng = mockEngagement(node({ id: `n-${i}` }));
+      expect(eng.likes).toBeGreaterThanOrEqual(MOCK_LIKES_MIN);
+      expect(eng.likes).toBeLessThanOrEqual(MOCK_LIKES_MAX);
+      expect(eng.comments).toBe(Math.round(eng.likes * MOCK_COMMENT_RATIO));
+      expect(eng.reposts).toBe(Math.round(eng.likes * MOCK_REPOST_RATIO));
+      // Sanity on the ratios themselves.
+      expect(MOCK_COMMENT_RATIO).toBe(0.16);
+      expect(MOCK_REPOST_RATIO).toBe(0.03);
+    }
+  });
+
+  it("is deterministic for a given node (stable across re-renders / view toggles)", () => {
+    const n = node({ id: "stable-node" });
+    expect(mockEngagement(n)).toEqual(mockEngagement(n));
+  });
+
+  it("varies across different nodes", () => {
+    const seen = new Set(
+      Array.from({ length: 40 }, (_, i) => mockEngagement(node({ id: `x-${i}` })).likes),
+    );
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("falls back to role/channel when a node has no id", () => {
+    const eng = mockEngagement(node({ id: "", role: "Spoke", channel: "x" }));
+    expect(eng.likes).toBeGreaterThanOrEqual(MOCK_LIKES_MIN);
+    expect(eng.likes).toBeLessThanOrEqual(MOCK_LIKES_MAX);
+  });
+});
+
+describe("formatCount", () => {
+  it("formats with thousands separators, fixed locale", () => {
+    expect(formatCount(45)).toBe("45");
+    expect(formatCount(1024)).toBe("1,024");
   });
 });
 

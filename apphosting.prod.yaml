@@ -253,15 +253,15 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Create-side social post image generation. Overrides the base "true" → OFF in prod so a
-  # promotion doesn't expose the control before it's validated on prod Vertex. Flip both to
-  # "true" here (server + NEXT_PUBLIC mirror) when ready to enable on prod.
+  # Create-side social post image generation — ENABLED on prod (server route + NEXT_PUBLIC
+  # control mirror). Requires Vertex image access for gemini-3.1-flash-image on the prod
+  # compute SA (same grant as email images); degrades to a graceful 502 if not provisioned.
   - variable: CREATE_SOCIAL_IMAGE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_SOCIAL_IMAGE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

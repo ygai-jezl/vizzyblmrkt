@@ -43,6 +43,11 @@ A journey is a graph of nodes + edges. Pass it to the tool as
   [usedVoiceChat is_true, referralCount gte 1, referralCount lte 2]. NEVER invent
   field names (e.g. there is no "voice_chat" or "referrals" — use usedVoiceChat /
   referralCount).
+- `exit` node — a terminal that ENDS the journey. End the graph with exactly ONE
+  `exit` node and converge every route into it: each leaf step (the last email or
+  wait on every path) and, for each condition, EVERY branch edge INCLUDING
+  `default` point to that single `exit`. Give it `data` `{}` (no copy). This makes
+  the end of the journey explicit instead of a silent dead-end.
 Every node needs an `id`, a `type`, a `position` ({"x":..,"y":..}), and `data`.
 Wire nodes with edges (`{"id":..,"source":<id>,"target":<id>}`) in order. Lay
 them left-to-right with increasing `position.x` (e.g. 0, 240, 480, …) so the
@@ -58,7 +63,7 @@ FAILS activation and strands everyone who reaches it, so always wire the default
 path to a sensible fallback step.
 
 A good DEFAULT sign-up welcome sequence:
-trigger → Welcome email → wait 24h → Value email → wait 48h → Final CTA email.
+trigger → Welcome email → wait 24h → Value email → wait 48h → Final CTA email → exit.
 
 # Rules
 - Prefer a sensible default structure over interrogating the operator. Only ask a

@@ -21,8 +21,9 @@ import type {
 } from "@/lib/types/journey";
 import type { Question } from "@/lib/types/campaign";
 import { branchLabel, DEFAULT_BRANCH } from "@/lib/journey/conditions";
-import { TriggerNode, EmailNode, WaitNode, ConditionNode } from "./nodes";
+import { TriggerNode, EmailNode, WaitNode, ConditionNode, ExitNode } from "./nodes";
 import { NodeInspector } from "./NodeInspector";
+import { AddExitControl, type ExitTarget } from "./AddExitControl";
 
 /**
  * Journey Canvas — the visual sequence builder (React Flow). Drag connections
@@ -99,6 +100,7 @@ export function JourneyCanvas({
       email: EmailNode,
       wait: WaitNode,
       condition: ConditionNode,
+      exit: ExitNode,
     }),
     [],
   );
@@ -125,26 +127,53 @@ export function JourneyCanvas({
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
 
-  function addNode(type: "email" | "wait" | "condition") {
+  function addNode(
+    type: "email" | "wait" | "condition" | "exit",
+    extraData?: Record<string, unknown>,
+  ) {
     const id = `${type}_${crypto.randomUUID()}`;
     const data: Record<string, unknown> =
       type === "email"
         ? { subject: "", body: "" }
         : type === "wait"
           ? { waitHours: 24 }
-          : {
-              branches: [
-                {
-                  id: `br_${crypto.randomUUID()}`,
-                  condition: { field: "madeReferral", operator: "is_false" },
-                },
-              ],
-            };
+          : type === "condition"
+            ? {
+                branches: [
+                  {
+                    id: `br_${crypto.randomUUID()}`,
+                    condition: { field: "madeReferral", operator: "is_false" },
+                  },
+                ],
+              }
+            : { ...(extraData ?? {}) }; // exit — optional handoff target, else a plain terminal
     setNodes((nds) => [
       ...nds,
       { id, type, position: { x: 180, y: 120 + nds.length * 90 }, data },
     ]);
     setSelectedId(id);
+  }
+
+  // "Add exit" handoff empty states: persist the journey FIRST, and only
+  // navigate if the save actually succeeded — otherwise the unsaved exit node
+  // (and any other edits) would be silently lost. `.catch` covers a rejected
+  // fetch (offline) so the button never dead-ends without feedback.
+  async function saveThenGo(href: string) {
+    setBusy(true);
+    setMsg(null);
+    const ok = await save().catch(() => false);
+    setBusy(false);
+    if (!ok) {
+      setMsg("Couldn't save the journey — staying here. Try again.");
+      return;
+    }
+    router.push(href);
+  }
+  function createSequenceRedirect(workspaceId: string) {
+    return saveThenGo(`/admin/workspace/${workspaceId}/create`);
+  }
+  function createWorkspaceRedirect() {
+    return saveThenGo("/admin/workspace");
   }
 
   function updateNodeData(id: string, patch: Record<string, unknown>) {
@@ -246,6 +275,11 @@ export function JourneyCanvas({
         >
           ⤳ Add condition
         </button>
+        <AddExitControl
+          onAddExit={(target?: ExitTarget) => addNode("exit", target)}
+          onCreateSequence={createSequenceRedirect}
+          onCreateWorkspace={createWorkspaceRedirect}
+        />
         <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
         <button
           type="button"
@@ -311,6 +345,8 @@ export function JourneyCanvas({
           onUpdate={updateNodeData}
           onDelete={deleteNode}
           onClose={() => setSelectedId(null)}
+          onCreateSequence={createSequenceRedirect}
+          onCreateWorkspace={createWorkspaceRedirect}
         />
       ) : null}
     </div>

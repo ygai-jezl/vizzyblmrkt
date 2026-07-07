@@ -12,9 +12,11 @@ export type JourneyStatus = z.infer<typeof JourneyStatus>;
 
 /**
  * trigger = entry; email = a drip send; wait = a delay before the next node;
- * condition = a switch that routes the recipient down the first matching branch.
+ * condition = a switch that routes the recipient down the first matching branch;
+ * exit = a terminal sink that ends the journey, optionally handing the recipient
+ * off into another email sequence (see JourneyNodeData exitTarget* fields).
  */
-export const JourneyNodeType = z.enum(["trigger", "email", "wait", "condition"]);
+export const JourneyNodeType = z.enum(["trigger", "email", "wait", "condition", "exit"]);
 export type JourneyNodeType = z.infer<typeof JourneyNodeType>;
 
 /** Comparison operators, grouped by the value type they apply to. */
@@ -131,6 +133,15 @@ export const JourneyNodeDataSchema = z.object({
   // condition node — ordered; first match wins. Recipients matching no branch
   // take the implicit "default" branch (edge sourceHandle === "default").
   branches: z.array(JourneyBranchSchema).max(10).optional(),
+  // exit node — a terminal. Optional handoff target: the Content-OS
+  // `email_sequence` ContentPlan a recipient is enrolled into on reaching this
+  // node (plans are subcollection-scoped, so the workspace id is needed too).
+  // Empty = a plain "end of journey" terminal. Additive/optional so existing
+  // docs still parse. Runtime enrollment on these fields is a fast-follow; for
+  // now they are the persisted authoring contract.
+  exitTargetPlanId: z.string().optional(),
+  exitTargetWorkspaceId: z.string().optional(),
+  exitTargetLabel: z.string().optional(),
 });
 export type JourneyNodeData = z.infer<typeof JourneyNodeDataSchema>;
 

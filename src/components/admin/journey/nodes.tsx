@@ -62,6 +62,22 @@ export function WaitNode({ data, selected }: NodeProps) {
   );
 }
 
+export function ExitNode({ data, selected }: NodeProps) {
+  const d = data as { exitTargetLabel?: string };
+  return (
+    <div className={box(selected, "border-rose-500")}>
+      <Handle type="target" position={Position.Top} />
+      <div className="text-xs font-semibold text-rose-700 dark:text-rose-400">
+        ⇥ Exit
+      </div>
+      <div className="truncate text-[11px] text-neutral-600 dark:text-neutral-400">
+        {d.exitTargetLabel ? `→ ${d.exitTargetLabel}` : "End of journey"}
+      </div>
+      {/* Terminal sink — no source handle. */}
+    </div>
+  );
+}
+
 /** Title block height (px) and per-branch row height (px) — drive handle offsets. */
 const COND_HEADER_H = 36;
 const COND_ROW_H = 24;

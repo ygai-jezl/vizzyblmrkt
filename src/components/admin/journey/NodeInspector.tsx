@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { Node } from "@xyflow/react";
 import { EmailComposer, type EmailComposerValue } from "@/components/admin/email/EmailComposer";
 import type {
@@ -29,6 +30,8 @@ export function NodeInspector({
   onUpdate,
   onDelete,
   onClose,
+  onCreateSequence,
+  onCreateWorkspace,
 }: {
   node: Node;
   campaignId: string;
@@ -36,6 +39,8 @@ export function NodeInspector({
   onUpdate: (id: string, data: Record<string, unknown>) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  onCreateSequence: (workspaceId: string) => void | Promise<void>;
+  onCreateWorkspace: () => void | Promise<void>;
 }) {
   const data = node.data as Record<string, unknown>;
 
@@ -120,6 +125,163 @@ export function NodeInspector({
           The journey starts here when a signup becomes verified. Connect this to
           the first email or wait step.
         </p>
+      ) : null}
+
+      {node.type === "exit" ? (
+        <ExitEditor
+          hasTarget={!!data.exitTargetPlanId}
+          label={String(data.exitTargetLabel ?? "")}
+          onSetTarget={(t) => onUpdate(node.id, t)}
+          onClear={() =>
+            onUpdate(node.id, {
+              exitTargetPlanId: undefined,
+              exitTargetWorkspaceId: undefined,
+              exitTargetLabel: undefined,
+            })
+          }
+          onCreateSequence={onCreateSequence}
+          onCreateWorkspace={onCreateWorkspace}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type ExitSeq = {
+  planId: string;
+  workspaceId: string;
+  workspaceName: string;
+  name: string;
+  sequenceType: string | null;
+  status: string;
+};
+type ExitData = { hasWorkspace: boolean; firstWorkspaceId: string | null; sequences: ExitSeq[] };
+
+/**
+ * Exit-node editor: pick the email sequence this exit hands off into, clear it
+ * back to a plain terminal, or — when none exist — deep-link to create one
+ * (the parent saves the journey before navigating). Reuses the same
+ * /api/admin/email-sequences picker data as the toolbar "Add exit" control.
+ */
+function ExitEditor({
+  hasTarget,
+  label,
+  onSetTarget,
+  onClear,
+  onCreateSequence,
+  onCreateWorkspace,
+}: {
+  hasTarget: boolean;
+  label: string;
+  onSetTarget: (t: {
+    exitTargetPlanId: string;
+    exitTargetWorkspaceId: string;
+    exitTargetLabel: string;
+  }) => void;
+  onClear: () => void;
+  onCreateSequence: (workspaceId: string) => void | Promise<void>;
+  onCreateWorkspace: () => void | Promise<void>;
+}) {
+  const [data, setData] = useState<ExitData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/email-sequences");
+        if (!res.ok) throw new Error("failed");
+        const d = (await res.json()) as ExitData;
+        if (alive) setData(d);
+      } catch {
+        if (alive) setError(true);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-neutral-500">
+        The journey ends here. Optionally hand the recipient off into another
+        email sequence when they reach this exit.
+      </p>
+
+      <div className="rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+        <div className="mb-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Hand off to
+        </div>
+        {hasTarget ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-medium">→ {label || "sequence"}</span>
+            <button
+              type="button"
+              onClick={onClear}
+              className="shrink-0 text-xs text-neutral-500 underline-offset-2 hover:underline"
+            >
+              Clear
+            </button>
+          </div>
+        ) : (
+          <div className="text-xs text-neutral-500">
+            No handoff — a plain end-of-journey.
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="text-xs text-neutral-500">Loading sequences…</div>
+      ) : error ? (
+        <div className="text-xs text-red-600 dark:text-red-400">
+          Couldn&apos;t load sequences.
+        </div>
+      ) : data && data.sequences.length > 0 ? (
+        <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Choose a sequence
+          <select
+            value=""
+            onChange={(e) => {
+              const s = data.sequences.find((x) => x.planId === e.target.value);
+              if (s)
+                onSetTarget({
+                  exitTargetPlanId: s.planId,
+                  exitTargetWorkspaceId: s.workspaceId,
+                  exitTargetLabel: s.name,
+                });
+            }}
+            className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          >
+            <option value="">Select an email sequence…</option>
+            {data.sequences.map((s) => (
+              <option key={s.planId} value={s.planId}>
+                {s.name} · {s.workspaceName}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : data && data.hasWorkspace && data.firstWorkspaceId ? (
+        <button
+          type="button"
+          onClick={() => void onCreateSequence(data.firstWorkspaceId!)}
+          className="text-left text-xs text-sky-700 underline dark:text-sky-400"
+        >
+          No sequences yet — click here to create a sequence (saves this journey
+          first).
+        </button>
+      ) : data ? (
+        <button
+          type="button"
+          onClick={() => void onCreateWorkspace()}
+          className="text-left text-xs text-sky-700 underline dark:text-sky-400"
+        >
+          Click here to create a workspace, then create an Email sequence (saves
+          this journey first).
+        </button>
       ) : null}
     </div>
   );

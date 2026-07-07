@@ -36,9 +36,12 @@ def build_email_journey(
             the active launch from the session is used.
         brief: A short natural-language description of the sequence to build.
         graph: The journey graph: {"nodes": [...], "edges": [...]}. Each node has
-            `id`, `type` ("trigger"|"email"|"wait"|"condition"), `position`
+            `id`, `type` ("trigger"|"email"|"wait"|"condition"|"exit"), `position`
             {"x":.., "y":..}, and `data` (email: `label`; wait: `waitHours`;
-            condition: `branches`). Leave email `subject`/`body` empty.
+            condition: `branches`; exit: `{}`). Leave email `subject`/`body` empty.
+            End with exactly ONE `exit` node that every leaf step and every
+            condition branch (including `default`) connects into, so the journey
+            ends explicitly instead of dead-ending.
             Condition branches use ONLY the catalog fields (usedVoiceChat,
             madeReferral, referralCount, rank, engagementBonus, verified,
             surveyAnswer, utmSource/utmMedium/utmCampaign) — never invented names

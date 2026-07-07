@@ -14,6 +14,8 @@ import type { ContentNode, ContentNodeStatus } from "@/lib/types/contentPlan";
 export interface ContentNodeData {
   cn: ContentNode;
   busy?: boolean;
+  /** Its brief is being auto-written from the nodes it's connected to. */
+  briefBusy?: boolean;
   onGenerate?: (id: string) => void;
   [key: string]: unknown;
 }
@@ -67,6 +69,10 @@ function NodeShell({
         <p className="mt-1.5 text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">
           {preview(cn.body)}
         </p>
+      ) : data.briefBusy ? (
+        <p className="mt-1.5 animate-pulse text-[11px] italic leading-snug text-sky-500">
+          ✨ writing brief…
+        </p>
       ) : cn.brief ? (
         <p className="mt-1.5 line-clamp-2 text-[11px] italic leading-snug text-neutral-400">
           {cn.brief}
@@ -81,7 +87,7 @@ function NodeShell({
           e.stopPropagation();
           data.onGenerate?.(cn.id);
         }}
-        disabled={busy}
+        disabled={busy || data.briefBusy}
         className="mt-2 w-full rounded border border-neutral-300 px-2 py-1 text-[11px] hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
       >
         {busy ? "…" : cn.body ? "Regenerate" : "Generate"}

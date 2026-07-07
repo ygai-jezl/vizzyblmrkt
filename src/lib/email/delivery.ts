@@ -764,7 +764,7 @@ export type NextStepType = "email" | "condition";
  * hours) until the next email OR condition node. When leaving a condition node,
  * pass its chosen `branchHandle` to take the matching branch edge; otherwise the
  * single outgoing edge is followed. Returns null at a dead end (incl. an
- * unconnected branch). Guards against cycles.
+ * unconnected branch) or on reaching an `exit` terminal. Guards against cycles.
  */
 export function resolveNextStep(
   graph: JourneyGraph,
@@ -791,6 +791,11 @@ export function resolveNextStep(
     seen.add(nextId);
     const node = byId.get(nextId);
     if (!node) return null;
+    // An `exit` node is an explicit terminal — the recipient's chain ends here
+    // (a clean end-of-journey, vs. the implicit dead-end of a missing edge).
+    // Enrolling into the exit's target sequence is a fast-follow; today the
+    // journey simply stops. This is intentionally BEFORE the wait/email checks.
+    if (node.type === "exit") return null;
     if (node.type === "email") return { nodeId: nextId, delayHours, type: "email" };
     if (node.type === "condition")
       return { nodeId: nextId, delayHours, type: "condition" };

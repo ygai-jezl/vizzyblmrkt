@@ -2,6 +2,7 @@ import type { Campaign } from "@/lib/types/campaign";
 import { draftCopy } from "@/lib/agents/creative";
 import { JourneyGraphSchema, type JourneyGraph } from "@/lib/types/journey";
 import { validateJourneyGraph } from "@/lib/email/delivery";
+import { appendConvergentExit } from "@/lib/journey/exit";
 import { upsertJourneyDraft } from "@/lib/journey/service";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
@@ -77,7 +78,26 @@ export const journeyCanvasKind: CanvasKind = {
       };
     }
 
-    const filled = await fillContentWithAgent3(campaign, parsed.data, brief);
+    // Guarantee the agent's graph ends in ONE terminal exit node that every
+    // route converges into (LLM output can dangle). The hand-built canvas wires
+    // exits by hand and never reaches this path.
+    const converged = appendConvergentExit(parsed.data);
+    const filled = await fillContentWithAgent3(campaign, converged, brief);
+
+    // Defense-in-depth: convergence adds a node + edges and upsertJourneyDraft
+    // does NOT re-validate, so re-check the SAME schema (incl. the node/edge
+    // caps) the human save path enforces — otherwise an over-cap draft would
+    // persist here yet 400 the next time the operator saves on the canvas.
+    const recheck = JourneyGraphSchema.safeParse(filled);
+    if (!recheck.success) {
+      return {
+        ok: false,
+        error: "invalid_graph",
+        issues: recheck.error.issues.map(
+          (i) => `${i.path.join(".") || "(root)"}: ${i.message}`,
+        ),
+      };
+    }
 
     // Validate after filling: an incomplete graph is a soft warning (the draft
     // still saves for the human to finish), NOT a hard failure. Activation

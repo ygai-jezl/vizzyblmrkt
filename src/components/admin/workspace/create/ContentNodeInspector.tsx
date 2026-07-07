@@ -34,8 +34,10 @@ export function ContentNodeInspector({
   planId,
   templates,
   busy,
+  briefBusy,
   onUpdate,
   onGenerate,
+  onSuggestBrief,
   onApprove,
   onDelete,
   onClose,
@@ -47,8 +49,12 @@ export function ContentNodeInspector({
   planId: string;
   templates: TemplateOption[];
   busy: boolean;
+  /** The brief is being auto-written from the node's connections. */
+  briefBusy?: boolean;
   onUpdate: (patch: Partial<ContentNode>) => void;
   onGenerate: () => void;
+  /** Spoke/promo nodes — (re)write the brief from what the node is connected to. */
+  onSuggestBrief?: () => void;
   onApprove: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -64,6 +70,10 @@ export function ContentNodeInspector({
   const isEmail = node.type === "email";
   const isStructural =
     node.type === "trigger" || node.type === "wait" || node.type === "condition";
+  // Only spokes/promos atomize upstream content — the hub is the root, so it can't be
+  // briefed from connections (matches the API guard).
+  const isBriefable =
+    node.type === "spoke" || node.type === "promo_pre" || node.type === "promo_post";
 
   // Structural sequence nodes (trigger / wait / condition) carry no copy — a compact
   // inspector that just edits their config.
@@ -327,19 +337,44 @@ export function ContentNodeInspector({
         </label>
       ) : null}
 
-      {/* Brief is the AI's generation instruction — editable so the user can refine it
-          before (or between) Generate runs; the canvas persists it before generating. */}
-      <label className="mb-4 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        Brief
+      {/* Brief is the AI's generation instruction — auto-written when the node is connected
+          (from its upstream context up to the hub), editable to refine, and re-suggestable
+          on demand. The canvas persists it before generating. */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between gap-2">
+          <label
+            htmlFor="node-brief"
+            className="block text-xs font-medium text-neutral-600 dark:text-neutral-300"
+          >
+            Brief
+          </label>
+          {isBriefable && onSuggestBrief ? (
+            <button
+              type="button"
+              onClick={onSuggestBrief}
+              disabled={briefBusy || busy}
+              title="Write a brief from the nodes this is connected to"
+              className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            >
+              {briefBusy ? "Writing…" : "✨ Suggest brief"}
+            </button>
+          ) : null}
+        </div>
         <textarea
+          id="node-brief"
           value={node.brief ?? ""}
           onChange={(e) => onUpdate({ brief: e.target.value })}
           rows={4}
           maxLength={2000}
-          placeholder="The AI's generation instruction for this node — refine it before generating."
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900"
+          disabled={briefBusy}
+          placeholder={
+            briefBusy
+              ? "Generating brief from connections…"
+              : "The AI's generation instruction for this node — connect it to another node to auto-write one, or refine it here."
+          }
+          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-xs leading-relaxed disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900"
         />
-      </label>
+      </div>
 
       {/* Social post image — on-brand ✨ generation for linkedin/x/instagram nodes. */}
       {!isEmail && isSocialImageChannel(node.channel) && isSocialImageUiEnabled() ? (
@@ -411,7 +446,7 @@ export function ContentNodeInspector({
         <button
           type="button"
           onClick={onGenerate}
-          disabled={busy}
+          disabled={busy || briefBusy}
           className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900"
         >
           {busy ? "Generating…" : node.body ? "Regenerate" : "Generate"}

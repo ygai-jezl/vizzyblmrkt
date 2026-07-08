@@ -85,6 +85,65 @@ export type ContentNodeStatus = z.infer<typeof ContentNodeStatus>;
 const MAX_NODES = 60;
 const MAX_EDGES = 80;
 const MAX_BODY_CHARS = 20000;
+// eBook hub caps. A whole book lives in ONE plan doc (chapters copied onto the hub
+// node at finalize), so bound it well under Firestore's 1MB doc limit: 16 chapters ×
+// 16k HTML chars ≈ 256KB of prose + a few dozen image REFS (filenames, not bytes).
+const MAX_CHAPTERS = 16;
+const MAX_IMAGES_PER_CHAPTER = 8;
+const MAX_CHAPTER_CHARS = 16000;
+
+/** Operator-facing eBook image aspect ratios (see src/lib/content/create/ebook.ts). */
+export const EbookAspect = z.enum(["1:1", "1:4"]);
+export type EbookAspect = z.infer<typeof EbookAspect>;
+
+/**
+ * An image SLOT inside an eBook chapter. Starts as a `placeholder` the model inserts
+ * where an illustration belongs (anchored in bodyHtml via `<div data-ebook-image="id">`);
+ * becomes `generated` once an on-brand image is rendered/uploaded. Only the workspace-
+ * asset FILENAME is stored (served via the authenticated /asset proxy) — never bytes.
+ */
+export const EbookImageSlotSchema = z.object({
+  id: z.string().min(1).max(64),
+  status: z.enum(["placeholder", "generated"]).default("placeholder"),
+  imageAssetRef: z.string().max(2000).nullable().optional(),
+  aspect: EbookAspect.default("1:1"),
+  /** Rendered width as a % of the reading column — the operator resize value. */
+  width: z.number().int().min(20).max(100).default(100),
+  /** One-line brief the model wrote for this illustration; seeds "Create image". */
+  contextPrompt: z.string().max(1000).default(""),
+  /** The expanded image prompt actually rendered (transparency / re-roll reference). */
+  imagePrompt: z.string().max(1000).nullable().optional(),
+});
+export type EbookImageSlot = z.infer<typeof EbookImageSlotSchema>;
+
+/** One eBook chapter. `bodyHtml` is sanitized rich text ("" until generated). */
+export const EbookChapterSchema = z.object({
+  id: z.string().min(1).max(64),
+  title: z.string().min(1).max(200),
+  /** ToC one-liner — what this chapter covers. */
+  summary: z.string().max(1000).default(""),
+  bodyHtml: z.string().max(MAX_CHAPTER_CHARS).default(""),
+  status: z.enum(["planned", "generating", "generated", "confirmed"]).default("planned"),
+  images: z.array(EbookImageSlotSchema).max(MAX_IMAGES_PER_CHAPTER).default([]),
+});
+export type EbookChapter = z.infer<typeof EbookChapterSchema>;
+
+/**
+ * The full eBook document. Lives on `ContentPlan.ebookDraft` while authoring in the
+ * studio, then is copied onto the hub `ContentNode.ebook` when the plan is finalized
+ * onto the canvas. Additive + nullable everywhere so non-eBook plans are unaffected.
+ */
+export const EbookDocSchema = z.object({
+  title: z.string().min(1).max(200),
+  subtitle: z.string().max(300).default(""),
+  /** The industry framing captured in the Scope step (grounds ToC + chapters). */
+  industryLens: z.string().max(500).default(""),
+  chapters: z.array(EbookChapterSchema).max(MAX_CHAPTERS).default([]),
+  /** True once the operator confirms the ToC and chapter generation may begin. */
+  tocConfirmed: z.boolean().default(false),
+  coverImage: EbookImageSlotSchema.nullable().optional(),
+});
+export type EbookDoc = z.infer<typeof EbookDocSchema>;
 
 export const ContentNodeSchema = z.object({
   id: z.string().min(1).max(64),
@@ -152,6 +211,10 @@ export const ContentNodeSchema = z.object({
   imageAspect: z.enum(["1:1", "4:5", "1.91:1"]).nullable().optional(),
   /** The expanded image prompt (transparency / re-roll reference). */
   imagePrompt: z.string().max(1000).nullable().optional(),
+  // ── eBook hub (only on the `hub` node of an "ebook" plan; null elsewhere). The
+  //    authored book is copied here from `ContentPlan.ebookDraft` at finalize so the
+  //    canvas hub node IS the eBook. Additive + nullable so old/other plans parse. ──
+  ebook: EbookDocSchema.nullable().optional(),
 });
 export type ContentNode = z.infer<typeof ContentNodeSchema>;
 
@@ -186,6 +249,8 @@ export const ContentScopeSchema = z.object({
   topics: z.array(z.string().max(60)).max(26).default([]),
   /** The angle / thesis the operator wants this workflow to make. */
   spark: z.string().max(4000).default(""),
+  /** eBook only — the industry framing/lens to write through (grounds ToC + chapters). */
+  industryLens: z.string().max(500).default(""),
 });
 export type ContentScope = z.infer<typeof ContentScopeSchema>;
 
@@ -198,7 +263,7 @@ export const ContentKnowledgeSchema = z.object({
 export type ContentKnowledge = z.infer<typeof ContentKnowledgeSchema>;
 
 export const ContentTopologySchema = z.object({
-  hubChannel: z.enum(["newsletter", "blog"]).default("newsletter"),
+  hubChannel: z.enum(["newsletter", "blog", "ebook"]).default("newsletter"),
   /** Social/channel ids to generate spokes for. */
   spokeChannels: z.array(z.string().max(40)).max(8).default([]),
 });
@@ -215,6 +280,9 @@ export const ContentPlanSchema = z.object({
   knowledge: ContentKnowledgeSchema,
   topology: ContentTopologySchema,
   graph: ContentGraphSchema.default({ nodes: [], edges: [] }),
+  /** eBook only — the book being authored in the studio BEFORE it's finalized onto the
+   *  canvas hub node. Null for newsletter/blog/sequence plans and until the ToC exists. */
+  ebookDraft: EbookDocSchema.nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -225,4 +293,7 @@ export const CONTENT_PLAN_LIMITS = {
   MAX_EDGES,
   MAX_BODY_CHARS,
   MAX_EMAIL_BLOCKS,
+  MAX_CHAPTERS,
+  MAX_IMAGES_PER_CHAPTER,
+  MAX_CHAPTER_CHARS,
 } as const;

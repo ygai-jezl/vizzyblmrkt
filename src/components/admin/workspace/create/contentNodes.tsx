@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { channelLabel } from "@/lib/content/channels";
 import { emailFrameworkLabel } from "@/lib/content/emailFrameworks";
@@ -97,10 +98,54 @@ function NodeShell({
   );
 }
 
+/** An eBook hub — its content IS the authored book; opens the studio instead of Generate. */
+function EbookHubNode({ data, selected }: { data: ContentNodeData; selected: boolean }) {
+  const cn = data.cn;
+  const ebook = cn.ebook ?? null;
+  const workspaceId = typeof data.workspaceId === "string" ? data.workspaceId : "";
+  const planId = typeof data.planId === "string" ? data.planId : "";
+  const chapters = ebook?.chapters.length ?? 0;
+  return (
+    <div
+      className={`w-56 rounded-md border bg-white p-2.5 shadow-sm dark:bg-neutral-900 ${
+        selected ? "border-violet-500" : "border-violet-300 dark:border-violet-800"
+      }`}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center justify-between gap-2">
+        <div className="truncate text-xs font-semibold">📖 {ebook?.title ?? cn.role}</div>
+        <span className="shrink-0 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+          eBook
+        </span>
+      </div>
+      <div className="mt-0.5 text-[10px] text-neutral-500">
+        {chapters} chapter{chapters === 1 ? "" : "s"}
+      </div>
+      {ebook?.subtitle ? (
+        <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">
+          {ebook.subtitle}
+        </p>
+      ) : null}
+      {workspaceId && planId ? (
+        <Link
+          href={`/admin/workspace/${workspaceId}/create/${planId}/ebook`}
+          onClick={(e) => e.stopPropagation()}
+          className="nodrag mt-2 block w-full rounded border border-neutral-300 px-2 py-1 text-center text-[11px] hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+        >
+          Open eBook
+        </Link>
+      ) : null}
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
 export function HubNode({ data, selected }: NodeProps) {
+  const d = data as ContentNodeData;
+  if (d.cn.channel === "ebook") return <EbookHubNode data={d} selected={!!selected} />;
   return (
     <NodeShell
-      data={data as ContentNodeData}
+      data={d}
       icon="◆"
       width="w-56"
       accent={selected ? "border-violet-500" : "border-violet-300 dark:border-violet-800"}

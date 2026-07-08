@@ -265,6 +265,18 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Create eBook studio — OFF in prod until gemini-3.1-flash-image + chapter streaming are
+  # validated on the prod Vertex path. Flip to "true" (both) after validation; the routes
+  # degrade to a graceful 503 while off. Overrides the dev-ON values in apphosting.yaml.
+  - variable: CREATE_EBOOK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EBOOK_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Signs the short-lived capability token the admin-chat proxy mints so the
   # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
   # journey DRAFT, scoped to the verified tenant. Keep COMMENTED until the secret

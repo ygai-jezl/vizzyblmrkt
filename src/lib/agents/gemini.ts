@@ -93,6 +93,30 @@ export async function generateText(prompt: string): Promise<string | null> {
 }
 
 /**
+ * Stream text token-by-token from a prompt. Yields incremental text chunks (the SDK's
+ * `generateContentStream`). The ONLY streaming generation in the app — used by the eBook
+ * studio to render a chapter as it's written. Yields nothing when Gemini is unconfigured
+ * or the stream errors (callers fall back to the non-streaming `generateText`). Never
+ * throws — the async generator just ends.
+ */
+export async function* generateTextStream(prompt: string): AsyncGenerator<string> {
+  const ai = getClient();
+  if (!ai) return;
+  try {
+    const stream = await ai.models.generateContentStream({
+      model: TEXT_MODEL,
+      contents: prompt,
+    });
+    for await (const chunk of stream) {
+      const t = chunk.text;
+      if (t) yield t;
+    }
+  } catch (err) {
+    console.warn("[gemini] generateTextStream failed:", err);
+  }
+}
+
+/**
  * Generate text from a prompt PLUS one inline image (multimodal) — used to analyse
  * an Idea Board screenshot. `imageBase64` is the raw base64 (no data: prefix),
  * `mimeType` e.g. "image/png". Total request must stay under 20MB (callers cap the

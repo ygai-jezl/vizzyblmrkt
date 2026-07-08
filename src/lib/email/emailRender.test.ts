@@ -41,6 +41,12 @@ describe("isSafeHref", () => {
     expect(isSafeHref("data:text/html,x")).toBe(false);
     expect(isSafeHref("")).toBe(false);
   });
+
+  it("allows a plain root-relative path but rejects protocol-relative / backslash redirects", () => {
+    expect(isSafeHref("/blog/post")).toBe(true);
+    expect(isSafeHref("//evil.com")).toBe(false); // protocol-relative
+    expect(isSafeHref("/\\evil.com")).toBe(false); // backslash → browser-normalized to //
+  });
 });
 
 describe("renderEmailLayout", () => {

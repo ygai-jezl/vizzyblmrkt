@@ -30,13 +30,14 @@ const IntakeSchema = z.object({
   scope: z.object({
     topics: z.array(z.string().max(60)).max(26).default([]),
     spark: z.string().max(4000).default(""),
+    industryLens: z.string().max(500).default(""),
   }),
   knowledge: z.object({
     groundingScope: z.enum(["global", "scoped"]).default("global"),
     proofAssets: z.array(z.string().max(4000)).max(10).default([]),
   }),
   topology: z.object({
-    hubChannel: z.enum(["newsletter", "blog"]).default("newsletter"),
+    hubChannel: z.enum(["newsletter", "blog", "ebook"]).default("newsletter"),
     spokeChannels: z.array(z.string().max(40)).max(8).default([]),
   }),
 });
@@ -81,7 +82,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
           ? input.strategy.sequenceType ?? "welcome"
           : null,
     },
-    scope: { topics, spark: input.scope.spark },
+    scope: { topics, spark: input.scope.spark, industryLens: input.scope.industryLens },
     knowledge: {
       groundingScope: input.knowledge.groundingScope,
       proofAssets: input.knowledge.proofAssets,

@@ -64,7 +64,7 @@ function plan(graph: ContentGraph): ContentPlan {
     name: "Plan",
     status: "generating",
     strategy: { objective: "newsletter_signups", hubUrl: null, subscriberCount: null, sequenceType: null },
-    scope: { topics: [], spark: "weekly writing" },
+    scope: { topics: [], spark: "weekly writing", industryLens: "" },
     knowledge: { groundingScope: "global", proofAssets: [] },
     topology: { hubChannel: "newsletter", spokeChannels: ["linkedin"] },
     graph,

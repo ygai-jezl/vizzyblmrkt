@@ -63,7 +63,7 @@ function plan(nodes: ContentNode[], strategy?: Partial<ContentPlan["strategy"]>)
       subscriberCount: strategy?.subscriberCount ?? null,
       sequenceType: strategy?.sequenceType ?? null,
     },
-    scope: { topics: [], spark: "weekly writing" },
+    scope: { topics: [], spark: "weekly writing", industryLens: "" },
     knowledge: { groundingScope: "global", proofAssets: [] },
     topology: { hubChannel: "newsletter", spokeChannels: ["x"] },
     graph: { nodes, edges: [] },

@@ -35,7 +35,7 @@ function plan(id: string, nodes: ContentNode[]): ContentPlan {
     name: `plan ${id}`,
     status: "ready",
     strategy: { objective: "brand_visibility" },
-    scope: { topics: [], spark: "" },
+    scope: { topics: [], spark: "", industryLens: "" },
     knowledge: { groundingScope: "global", proofAssets: [] },
     topology: { hubChannel: "newsletter", spokeChannels: [] },
     graph: { nodes, edges: [] },

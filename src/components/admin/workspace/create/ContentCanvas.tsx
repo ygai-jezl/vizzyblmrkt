@@ -600,6 +600,7 @@ export function ContentCanvas({
             node={previewNode}
             brandName={brandName}
             workspaceId={workspaceId}
+            fullEbook={previewNode.channel === "ebook" ? initial.ebookDraft ?? null : null}
             onClose={() => setPreviewFor(null)}
           />
         );

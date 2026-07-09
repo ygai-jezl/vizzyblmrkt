@@ -9,7 +9,7 @@ import { wrap, renderEmailLayout, bodyToHtml } from "@/lib/email/emailRender";
 import { MarkdownMessage } from "@/components/admin/chat/MarkdownMessage";
 import { splitChapterByImages } from "@/lib/content/create/ebookHtml";
 import { ebookAspectRatioCss } from "@/lib/content/create/ebook";
-import type { ContentNode } from "@/lib/types/contentPlan";
+import type { ContentNode, EbookDoc } from "@/lib/types/contentPlan";
 import {
   previewKind,
   splitBlogTitle,
@@ -40,6 +40,10 @@ interface FrameProps {
   brandName?: string;
   /** Workspace id — needed to serve the node's generated post image (authenticated proxy). */
   workspaceId?: string;
+  /** The FULL eBook (from ContentPlan.ebookDraft). The finalized hub node only carries a LIGHT
+   *  ToC skeleton (empty chapter bodies) to keep the plan doc small, so the eBook preview reads
+   *  the real prose + images from here instead. */
+  fullEbook?: EbookDoc | null;
 }
 
 /** The node's generated post image (if any), served by the authenticated workspace-asset
@@ -495,8 +499,10 @@ function EmailFrame({ node, view, brandName }: FrameProps) {
 }
 
 // ── eBook (hub) ──────────────────────────────────────────────────────────────
-function EbookFrame({ node, view, brandName, workspaceId }: FrameProps) {
-  const ebook = node.ebook ?? null;
+function EbookFrame({ node, view, brandName, workspaceId, fullEbook }: FrameProps) {
+  // Prefer the FULL book (ebookDraft) so the preview shows real chapter prose + images; the
+  // node's own `ebook` is only a light ToC skeleton (empty bodies) after finalize.
+  const ebook = fullEbook ?? node.ebook ?? null;
   const brand = brandName || "Your Brand";
   const chapters = ebook?.chapters ?? [];
   const coverRef = ebook?.coverImage?.imageAssetRef;
@@ -529,13 +535,16 @@ function EbookFrame({ node, view, brandName, workspaceId }: FrameProps) {
           <EmptyCopy />
         </div>
       ) : (
-        chapters.map((c) => <EbookChapterView key={c.id} chapter={c} />)
+        chapters.map((c) => <EbookChapterView key={c.id} chapter={c} workspaceId={workspaceId} />)
       )}
     </article>
   );
 }
 
-function EbookChapterView({ chapter }: { chapter: NonNullable<ContentNode["ebook"]>["chapters"][number] }) {
+type EbookChapterT = NonNullable<ContentNode["ebook"]>["chapters"][number];
+type EbookSlotT = EbookChapterT["images"][number];
+
+function EbookChapterView({ chapter, workspaceId }: { chapter: EbookChapterT; workspaceId?: string }) {
   const byId = new Map(chapter.images.map((s) => [s.id, s]));
   const segments = splitChapterByImages(chapter.bodyHtml);
   return (
@@ -546,7 +555,7 @@ function EbookChapterView({ chapter }: { chapter: NonNullable<ContentNode["ebook
             seg.type === "html" ? (
               <div key={i} dangerouslySetInnerHTML={{ __html: seg.html }} />
             ) : (
-              <EbookSlotView key={i} slot={byId.get(seg.slotId)} />
+              <EbookSlotView key={i} slot={byId.get(seg.slotId)} workspaceId={workspaceId} />
             ),
           )}
         </div>
@@ -560,8 +569,23 @@ function EbookChapterView({ chapter }: { chapter: NonNullable<ContentNode["ebook
   );
 }
 
-function EbookSlotView({ slot }: { slot: { aspect: "1:1" | "1:4"; width: number; contextPrompt: string } | undefined }) {
+function EbookSlotView({ slot, workspaceId }: { slot: EbookSlotT | undefined; workspaceId?: string }) {
   if (!slot) return null;
+  // Generated slot → the real image (authenticated asset proxy); else a placeholder card.
+  if (slot.imageAssetRef && workspaceId) {
+    return (
+      <div className="my-4 flex justify-center">
+        <div style={{ width: `${slot.width}%`, aspectRatio: ebookAspectRatioCss(slot.aspect) }} className="overflow-hidden rounded-md">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/admin/workspace/${workspaceId}/asset/${slot.imageAssetRef}`}
+            alt={slot.contextPrompt || "eBook illustration"}
+            className="h-full w-full object-cover"
+          />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="my-4 flex justify-center">
       <div
@@ -605,7 +629,7 @@ const FRAMES: Record<PreviewKind, (p: FrameProps) => React.ReactElement> = {
 };
 
 /** Render a node as its channel-native post, in the requested feed/opened state. */
-export function ContentPreview({ node, view, brandName, workspaceId }: FrameProps) {
+export function ContentPreview({ node, view, brandName, workspaceId, fullEbook }: FrameProps) {
   const Frame = FRAMES[previewKind(node)];
-  return <Frame node={node} view={view} brandName={brandName} workspaceId={workspaceId} />;
+  return <Frame node={node} view={view} brandName={brandName} workspaceId={workspaceId} fullEbook={fullEbook} />;
 }

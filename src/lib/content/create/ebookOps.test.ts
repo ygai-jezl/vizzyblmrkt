@@ -69,7 +69,7 @@ describe("applyEbookOps — structure", () => {
 describe("applyEbookOps — bodies + image slots", () => {
   it("replace_chapter_body reconciles slots against the new body", () => {
     const withImg = book({
-      chapters: [chapter("c1", { bodyHtml: `<p>a</p>${buildImageAnchor("img_1")}`, images: [{ id: "img_1", status: "placeholder", imageAssetRef: null, aspect: "1:1", width: 100, contextPrompt: "", imagePrompt: null }] })],
+      chapters: [chapter("c1", { bodyHtml: `<p>a</p>${buildImageAnchor("img_1")}`, images: [{ id: "img_1", status: "placeholder", imageAssetRef: null, aspect: "1:1", width: 100, align: "center" as const, wrap: false, contextPrompt: "", imagePrompt: null }] })],
     });
     // New body drops the anchor → slot pruned.
     const out = applyEbookOps(withImg, [{ op: "replace_chapter_body", chapterId: "c1", bodyHtml: "<p>rewritten</p>" }]);
@@ -84,7 +84,7 @@ describe("applyEbookOps — bodies + image slots", () => {
     expect(c1.images[0]).toMatchObject({ id: "ns1", contextPrompt: "a hero", aspect: "1:4", status: "placeholder" });
     expect(c1.bodyHtml).toContain(buildImageAnchor("ns1"));
 
-    const full = book({ chapters: [chapter("c1", { images: Array.from({ length: CONTENT_PLAN_LIMITS.MAX_IMAGES_PER_CHAPTER }, (_, i) => ({ id: `img_${i}`, status: "placeholder" as const, imageAssetRef: null, aspect: "1:1" as const, width: 100, contextPrompt: "", imagePrompt: null })) })] });
+    const full = book({ chapters: [chapter("c1", { images: Array.from({ length: CONTENT_PLAN_LIMITS.MAX_IMAGES_PER_CHAPTER }, (_, i) => ({ id: `img_${i}`, status: "placeholder" as const, imageAssetRef: null, aspect: "1:1" as const, width: 100, align: "center" as const, wrap: false, contextPrompt: "", imagePrompt: null })) })] });
     const capped = applyEbookOps(full, [{ op: "insert_image_slot", chapterId: "c1", contextPrompt: "x" }], ids());
     expect(capped.chapters[0]!.images).toHaveLength(CONTENT_PLAN_LIMITS.MAX_IMAGES_PER_CHAPTER);
   });
@@ -99,7 +99,7 @@ describe("applyEbookOps — bodies + image slots", () => {
 
   it("remove_image_slot drops the slot and strips its anchor", () => {
     const withImg = book({
-      chapters: [chapter("c1", { bodyHtml: `<p>a</p>${buildImageAnchor("img_1")}<p>b</p>`, images: [{ id: "img_1", status: "generated", imageAssetRef: "x.png", aspect: "1:1", width: 100, contextPrompt: "", imagePrompt: null }] })],
+      chapters: [chapter("c1", { bodyHtml: `<p>a</p>${buildImageAnchor("img_1")}<p>b</p>`, images: [{ id: "img_1", status: "generated", imageAssetRef: "x.png", aspect: "1:1", width: 100, align: "center" as const, wrap: false, contextPrompt: "", imagePrompt: null }] })],
     });
     const out = applyEbookOps(withImg, [{ op: "remove_image_slot", chapterId: "c1", slotId: "img_1" }]);
     expect(out.chapters[0]!.images).toHaveLength(0);
@@ -117,7 +117,7 @@ describe("applyGeneratedImage", () => {
 
   it("slot: updates an existing slot in place; unknown slot is a no-op", () => {
     const withSlot = book({
-      chapters: [chapter("c1", { images: [{ id: "img_1", status: "placeholder", imageAssetRef: null, aspect: "1:1", width: 100, contextPrompt: "seed", imagePrompt: null }] })],
+      chapters: [chapter("c1", { images: [{ id: "img_1", status: "placeholder", imageAssetRef: null, aspect: "1:1", width: 100, align: "center" as const, wrap: false, contextPrompt: "seed", imagePrompt: null }] })],
     });
     const out = applyGeneratedImage(withSlot, { kind: "slot", chapterId: "c1", slotId: "img_1" }, img);
     expect(out.chapters[0]!.images[0]).toMatchObject({ id: "img_1", status: "generated", imageAssetRef: "abc.png", aspect: "1:4" });
@@ -149,7 +149,7 @@ describe("draftHasImageRef", () => {
     expect(draftHasImageRef(newDoc, { kind: "new", chapterId: "c1" }, "ref.png")).toBe(true);
 
     // A "new" against a full chapter no-ops → ref absent.
-    const full = book({ chapters: [chapter("c1", { images: Array.from({ length: CONTENT_PLAN_LIMITS.MAX_IMAGES_PER_CHAPTER }, (_, i) => ({ id: `i${i}`, status: "generated" as const, imageAssetRef: `x${i}.png`, aspect: "1:1" as const, width: 100, contextPrompt: "", imagePrompt: null })) })] });
+    const full = book({ chapters: [chapter("c1", { images: Array.from({ length: CONTENT_PLAN_LIMITS.MAX_IMAGES_PER_CHAPTER }, (_, i) => ({ id: `i${i}`, status: "generated" as const, imageAssetRef: `x${i}.png`, aspect: "1:1" as const, width: 100, align: "center" as const, wrap: false, contextPrompt: "", imagePrompt: null })) })] });
     const noop = applyGeneratedImage(full, { kind: "new", chapterId: "c1" }, img, () => "n1");
     expect(draftHasImageRef(noop, { kind: "new", chapterId: "c1" }, "ref.png")).toBe(false);
   });

@@ -137,6 +137,8 @@ function applyOne(
           imageAssetRef: null,
           aspect: op.aspect ?? "1:1",
           width: 100,
+          align: "center",
+          wrap: false,
           contextPrompt: op.contextPrompt ?? "",
           imagePrompt: null,
         };
@@ -187,6 +189,8 @@ export function applyGeneratedImage(
         imagePrompt: image.imagePrompt ?? null,
         aspect: image.aspect,
         width: prev?.width ?? 100,
+        align: prev?.align ?? "center",
+        wrap: prev?.wrap ?? false,
         contextPrompt: image.contextPrompt ?? prev?.contextPrompt ?? "",
       },
     };
@@ -211,6 +215,8 @@ export function applyGeneratedImage(
       imagePrompt: image.imagePrompt ?? null,
       aspect: image.aspect,
       width: 100,
+      align: "center",
+      wrap: false,
       contextPrompt: image.contextPrompt ?? "",
     };
     const anchor = buildImageAnchor(slot.id);

@@ -512,7 +512,12 @@ THIS chapter:
 [[knowledge_context]]
 [[proof_assets]]
 
-Write the chapter body as clean, semantic HTML using ONLY these tags: <h2> (the chapter title, once, first), <h3> (section headings), <p>, <ul>/<ol>/<li>, <strong>, <em>, <blockquote>. No inline styles, no <script>, no <img>, no other tags.
+Write the chapter body as clean, semantic HTML using ONLY these tags: <h2> (the chapter title, once, first), <h3>/<h4> (section + sub-section headings), <p>, <ul>/<ol>/<li> (including nested lists), <table>/<thead>/<tbody>/<tr>/<th>/<td>, <strong>, <em>, <blockquote>, <hr>. No inline styles, no attributes, no <script>, no <img>, no other tags.
+
+Use the RIGHT structure for the content — do NOT write everything as flat <p> paragraphs:
+- when you list items, criteria, steps, or examples, use a real <ul> (or <ol> for ordered steps), one <li> per item — never separate <p> lines;
+- when you compare options or present structured data across dimensions, use a <table> with a <thead> header row;
+- use <h3>/<h4> to break the chapter into scannable sections.
 
 Where a diagram, photo, or illustration would genuinely strengthen a point, insert an image placeholder on its OWN line as EXACTLY:
 [[image: a one-line art-direction brief for that illustration]]

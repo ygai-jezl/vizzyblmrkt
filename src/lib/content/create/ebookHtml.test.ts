@@ -39,6 +39,23 @@ describe("sanitizeEbookHtml", () => {
     expect(out).not.toContain("<img");
     expect(out).toContain("<p>keep</p>");
   });
+
+  it("keeps tables, h4 and hr (structure), stripping cell attributes", () => {
+    const table = '<table><thead><tr><th colspan="2">H</th></tr></thead><tbody><tr><td>a</td><td>b</td></tr></tbody></table>';
+    const out = sanitizeEbookHtml(`<h4>Sub</h4>${table}<hr>`);
+    expect(out).toContain("<h4>Sub</h4>");
+    expect(out).toContain("<table>");
+    expect(out).toContain("<thead>");
+    expect(out).toContain("<tr>");
+    expect(out).toContain("<th>H</th>"); // colspan stripped
+    expect(out).toContain("<td>a</td>");
+    expect(out).toContain("<hr>");
+  });
+
+  it("keeps bullet + ordered lists verbatim", () => {
+    const list = "<ul><li>one</li><li>two</li></ul><ol><li>first</li></ol>";
+    expect(sanitizeEbookHtml(list)).toBe(list);
+  });
 });
 
 describe("sanitizeEbookHtmlCapped", () => {

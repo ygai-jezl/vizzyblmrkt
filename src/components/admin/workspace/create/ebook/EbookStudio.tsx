@@ -35,6 +35,11 @@ export function EbookStudio({
   const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
   const [ebook, setEbook] = useState<EbookDoc | null>(initialEbook);
+  // Live mirror of `ebook` so rapid read-modify-write handlers (image resize / align / wrap /
+  // remove) compose off the LATEST doc instead of a stale render closure (else two quick clicks
+  // on the same slot clobber each other). Kept in sync every render + on each optimistic mutate.
+  const ebookRef = useRef(ebook);
+  ebookRef.current = ebook;
   const [phase, setPhase] = useState<EbookPhase>(initialEbook ? (initialEbook.tocConfirmed ? "chapters" : "toc_review") : "toc_loading");
   const [streaming, setStreaming] = useState<{ chapterId: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -136,7 +141,20 @@ export function EbookStudio({
    *  first so a stale ToC-era doc can't later overwrite the snapshot. */
   function applyServerEbook(e: EbookDoc) {
     cancelPendingSave();
+    ebookRef.current = e;
     setEbook(e);
+  }
+
+  /** Optimistic read-modify-write off the LATEST doc (ebookRef) → update UI now + persist in
+   *  order. Used by the image resize/align/wrap/remove handlers so rapid clicks compose. */
+  function mutateEbook(fn: (cur: EbookDoc) => EbookDoc) {
+    const cur = ebookRef.current;
+    if (!cur) return;
+    const next = fn(cur);
+    ebookRef.current = next; // synchronous → a second rapid handler reads this, not a stale render
+    setEbook(next);
+    cancelPendingSave();
+    void enqueueSave(next, false);
   }
 
   /** Fire the pending auto-save now (debounce tick or on studio exit). */
@@ -292,19 +310,22 @@ export function EbookStudio({
     onGenerate: (chapterId, slot) => openComposer({ kind: "slot", chapterId, slotId: slot.id }, slot.contextPrompt, "create", slot.aspect),
     onEdit: (chapterId, slot) => openComposer({ kind: "slot", chapterId, slotId: slot.id }, "", "edit", slot.aspect),
     onUpload: (chapterId, slot, file) => void uploadImage({ kind: "slot", chapterId, slotId: slot.id }, file, slot.aspect),
-    onRemove: (chapterId, slotId) => {
-      if (!ebook) return;
-      void persist(applyEbookOps(ebook, [{ op: "remove_image_slot", chapterId, slotId }]));
-    },
-    onResize: (chapterId, slotId, width) => {
-      if (!ebook) return;
-      void persist({
-        ...ebook,
-        chapters: ebook.chapters.map((c) =>
+    onRemove: (chapterId, slotId) =>
+      mutateEbook((cur) => applyEbookOps(cur, [{ op: "remove_image_slot", chapterId, slotId }])),
+    onResize: (chapterId, slotId, width) =>
+      mutateEbook((cur) => ({
+        ...cur,
+        chapters: cur.chapters.map((c) =>
           c.id === chapterId ? { ...c, images: c.images.map((s) => (s.id === slotId ? { ...s, width } : s)) } : c,
         ),
-      });
-    },
+      })),
+    onSetLayout: (chapterId, slotId, patch) =>
+      mutateEbook((cur) => ({
+        ...cur,
+        chapters: cur.chapters.map((c) =>
+          c.id === chapterId ? { ...c, images: c.images.map((s) => (s.id === slotId ? { ...s, ...patch } : s)) } : c,
+        ),
+      })),
   };
   const composerHasImage = (() => {
     const t = composer?.target;

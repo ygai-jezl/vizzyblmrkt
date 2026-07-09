@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import typography from "@tailwindcss/typography";
 
 const config: Config = {
   content: [
@@ -12,7 +13,10 @@ const config: Config = {
   theme: {
     extend: {},
   },
-  plugins: [],
+  // Typography plugin styles the `prose` class (headings, lists, tables, blockquotes) — used by
+  // the eBook reading pane + preview and the Markdown/blog renderers. Without it, Preflight
+  // strips list bullets + heading sizes so rich chapter HTML renders as flat lines.
+  plugins: [typography],
 };
 
 export default config;

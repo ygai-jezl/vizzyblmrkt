@@ -72,6 +72,8 @@ export function parseChapterImagePlaceholders(
       imageAssetRef: null,
       aspect: "1:1",
       width: 100,
+      align: "center",
+      wrap: false,
       contextPrompt: String(brief ?? "").trim().slice(0, 1000),
       imagePrompt: null,
     });

@@ -1,5 +1,6 @@
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { ScheduledPostChannel, type ScheduledPost } from "@/lib/types/scheduledPost";
+import type { Broadcast } from "@/lib/types/broadcast";
 
 /**
  * Pure view-model helpers for the Distribute tab (schedulable-node selection +
@@ -42,6 +43,52 @@ export function listSchedulableNodes(
     }
   }
   return out;
+}
+
+// ---- Weekly-newsletter calendar items -------------------------------------
+// Weekly newsletters are Broadcasts (campaign-scoped, MailChimp) sourced from a
+// workspace hub — a different model than ScheduledPost. Normalize them to dated,
+// read-only calendar items so they render on the Distribute calendar/list
+// alongside social posts.
+
+export interface CalendarNewsletter {
+  id: string;
+  subject: string;
+  /** The send date: the scheduled instant if set (future sends), else sent time. */
+  dateIso: string;
+  status: string; // scheduled | queued | sending | sent
+}
+
+/**
+ * Normalize weekly-newsletter broadcasts to dated calendar items. Uses the
+ * scheduled time when set (future sends), else the sent time; drops any without
+ * a usable date (e.g. a draft that was never sent/scheduled).
+ */
+export function toCalendarNewsletters(broadcasts: Broadcast[]): CalendarNewsletter[] {
+  const out: CalendarNewsletter[] = [];
+  for (const b of broadcasts) {
+    const dateIso = b.scheduledAt ?? b.sentAt ?? null;
+    if (!dateIso) continue;
+    out.push({ id: b.id, subject: b.subject || b.name, dateIso, status: b.status });
+  }
+  return out;
+}
+
+/** Group newsletters by their UTC date key, each bucket sorted by time. */
+export function groupNewslettersByDate(
+  items: CalendarNewsletter[],
+): Map<string, CalendarNewsletter[]> {
+  const m = new Map<string, CalendarNewsletter[]>();
+  for (const n of items) {
+    const k = dateKeyOf(n.dateIso);
+    const arr = m.get(k);
+    if (arr) arr.push(n);
+    else m.set(k, [n]);
+  }
+  for (const arr of m.values()) {
+    arr.sort((a, b) => a.dateIso.localeCompare(b.dateIso));
+  }
+  return m;
 }
 
 // ---- Calendar week bucketing (UTC) ----------------------------------------

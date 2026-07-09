@@ -8,9 +8,12 @@ import {
   groupPostsByDate,
   formatUtc,
   friendlyScheduleError,
+  toCalendarNewsletters,
+  groupNewslettersByDate,
 } from "./uiModel";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
+import type { Broadcast } from "@/lib/types/broadcast";
 
 function node(over: Partial<ContentNode> = {}): ContentNode {
   return {
@@ -123,6 +126,62 @@ describe("calendar bucketing", () => {
     expect(g.get("2026-07-01")!.map((p) => p.id)).toEqual(["b", "a"]);
     expect(g.get("2026-07-02")!.map((p) => p.id)).toEqual(["c"]);
     expect(dateKeyOf("2026-07-02T09:00:00.000Z")).toBe("2026-07-02");
+  });
+});
+
+function broadcast(over: Partial<Broadcast> = {}): Broadcast {
+  return {
+    id: "b1",
+    tenantId: "t",
+    campaignId: "camp1",
+    name: "Weekly · Big News",
+    subject: "Big News",
+    body: "<p>hi</p>",
+    status: "scheduled",
+    audienceMode: "weekly",
+    scheduledAt: null,
+    sentAt: null,
+    createdAt: "2026-06-01T00:00:00.000Z",
+    ...over,
+  } as Broadcast;
+}
+
+describe("toCalendarNewsletters", () => {
+  it("dates a scheduled newsletter by scheduledAt", () => {
+    const items = toCalendarNewsletters([
+      broadcast({ id: "b1", status: "scheduled", scheduledAt: "2026-07-03T10:00:00.000Z" }),
+    ]);
+    expect(items).toEqual([
+      { id: "b1", subject: "Big News", dateIso: "2026-07-03T10:00:00.000Z", status: "scheduled" },
+    ]);
+  });
+
+  it("dates a sent newsletter by sentAt, and prefers scheduledAt when both set", () => {
+    expect(
+      toCalendarNewsletters([broadcast({ scheduledAt: null, sentAt: "2026-07-01T09:00:00.000Z", status: "sent" })])[0],
+    ).toMatchObject({ dateIso: "2026-07-01T09:00:00.000Z", status: "sent" });
+    expect(
+      toCalendarNewsletters([broadcast({ scheduledAt: "2026-07-05T00:00:00.000Z", sentAt: "2026-07-05T00:01:00.000Z" })])[0],
+    ).toMatchObject({ dateIso: "2026-07-05T00:00:00.000Z" });
+  });
+
+  it("drops a broadcast with no scheduled/sent date (e.g. a draft), and falls back to name for the subject", () => {
+    expect(toCalendarNewsletters([broadcast({ scheduledAt: null, sentAt: null })])).toEqual([]);
+    const noSubject = toCalendarNewsletters([
+      broadcast({ subject: "", name: "Weekly fallback", scheduledAt: "2026-07-03T10:00:00.000Z" }),
+    ]);
+    expect(noSubject[0]!.subject).toBe("Weekly fallback");
+  });
+
+  it("groupNewslettersByDate buckets by UTC day, sorted within a day", () => {
+    const items = toCalendarNewsletters([
+      broadcast({ id: "a", scheduledAt: "2026-07-01T18:00:00.000Z" }),
+      broadcast({ id: "b", scheduledAt: "2026-07-01T09:00:00.000Z" }),
+      broadcast({ id: "c", scheduledAt: "2026-07-02T09:00:00.000Z" }),
+    ]);
+    const g = groupNewslettersByDate(items);
+    expect(g.get("2026-07-01")!.map((n) => n.id)).toEqual(["b", "a"]);
+    expect(g.get("2026-07-02")!.map((n) => n.id)).toEqual(["c"]);
   });
 });
 

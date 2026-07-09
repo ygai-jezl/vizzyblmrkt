@@ -14,6 +14,8 @@ import {
   getCampaignStatus,
   findTagSegmentId,
   campaignTag,
+  weeklyTag,
+  syncSignupToWeekly,
 } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
@@ -232,6 +234,15 @@ export async function processEmailJobsForAllTenants(
 
 // ---- Broadcast (MailChimp Marketing campaign) -----------------------------
 
+/** The MailChimp tag/segment a broadcast targets: the launch's weekly-newsletter
+ *  segment for a "weekly" send, else its waitlist segment. */
+export function broadcastAudienceTag(
+  audienceMode: "launch" | "weekly" | null | undefined,
+  campaignId: string,
+): string {
+  return audienceMode === "weekly" ? weeklyTag(campaignId) : campaignTag(campaignId);
+}
+
 async function processBroadcastJob(
   ctx: TenantContext,
   job: EmailJob,
@@ -273,10 +284,14 @@ async function processBroadcastJob(
   // The id is persisted BEFORE dispatch, so any retry lands here with it set.
   let mcId = b.mailchimpCampaignId ?? null;
   if (!mcId) {
-    // Scope recipients to THIS launch's subscribers (its audience tag). Fail
-    // safe: if the tag-segment doesn't exist yet (no one synced), refuse rather
+    // Scope recipients to THIS launch's audience: the weekly-newsletter segment
+    // for a weekly send, else the whole-launch waitlist segment. Fail safe: if
+    // the tag-segment doesn't exist yet (no one synced/opted in), refuse rather
     // than fall back to the whole shared audience and over-send.
-    const segmentId = await findTagSegmentId(cfg.config, campaignTag(campaign.id));
+    const segmentId = await findTagSegmentId(
+      cfg.config,
+      broadcastAudienceTag(b.audienceMode, campaign.id),
+    );
     if (segmentId == null) throw new Error("no_audience_segment_for_launch");
     const compiled = compileBroadcast(
       { subject: b.subject, body: b.body, heroImageUrl: b.heroImageUrl ?? null },
@@ -404,7 +419,10 @@ async function processJourneyStepJob(
   if (journey.status !== "active") return "done"; // paused/draft → stop the chain
 
   const node = journey.graph.nodes.find((n) => n.id === nodeId);
-  if (!node || (node.type !== "email" && node.type !== "condition")) {
+  if (
+    !node ||
+    (node.type !== "email" && node.type !== "condition" && node.type !== "exit")
+  ) {
     throw new Error("journey_node_not_found");
   }
 
@@ -421,6 +439,17 @@ async function processJourneyStepJob(
   // the chain above via the status guard), but if a journey is somehow active on
   // an archived launch, halt the step here too.
   if (campaign.archivedAt) return "done";
+
+  // Exit node: a terminal. A "weekly" exit subscribes the recipient to the
+  // launch's weekly-newsletter audience (best-effort, idempotent); every other
+  // exit just ends the chain. No next step is ever enqueued from here. Placed
+  // after the archived guard so a closed launch accrues no weekly subscribers.
+  if (node.type === "exit") {
+    if (node.data.exitTargetKind === "weekly") {
+      await syncSignupToWeekly(ctx, campaign, signup);
+    }
+    return "done";
+  }
 
   // Rank is needed by email merge-vars AND rank-based conditions; cache per run.
   let ranks = rankCache.get(journey.campaignId);
@@ -757,14 +786,16 @@ function findEntryNode(graph: JourneyGraph): JourneyNode | null {
   return graph.nodes.find((n) => !hasIncoming.has(n.id)) ?? null;
 }
 
-export type NextStepType = "email" | "condition";
+export type NextStepType = "email" | "condition" | "exit";
 
 /**
  * From a node, follow outgoing edges through any wait nodes (summing their
  * hours) until the next email OR condition node. When leaving a condition node,
  * pass its chosen `branchHandle` to take the matching branch edge; otherwise the
  * single outgoing edge is followed. Returns null at a dead end (incl. an
- * unconnected branch) or on reaching an `exit` terminal. Guards against cycles.
+ * unconnected branch). A "weekly" `exit` is surfaced as a terminal step (so the
+ * worker lands on it and runs the opt-in side-effect); every other exit ends the
+ * chain by returning null. Guards against cycles.
  */
 export function resolveNextStep(
   graph: JourneyGraph,
@@ -791,11 +822,14 @@ export function resolveNextStep(
     seen.add(nextId);
     const node = byId.get(nextId);
     if (!node) return null;
-    // An `exit` node is an explicit terminal — the recipient's chain ends here
-    // (a clean end-of-journey, vs. the implicit dead-end of a missing edge).
-    // Enrolling into the exit's target sequence is a fast-follow; today the
-    // journey simply stops. This is intentionally BEFORE the wait/email checks.
-    if (node.type === "exit") return null;
+    // An `exit` node is an explicit terminal. A "weekly" exit is SURFACED as a
+    // step so the worker lands on it and runs the weekly opt-in side-effect;
+    // every other exit (a plain end-of-journey, or the authoring-only "sequence"
+    // handoff) ends the chain by returning null. BEFORE the wait/email checks.
+    if (node.type === "exit")
+      return node.data.exitTargetKind === "weekly"
+        ? { nodeId: nextId, delayHours, type: "exit" }
+        : null;
     if (node.type === "email") return { nodeId: nextId, delayHours, type: "email" };
     if (node.type === "condition")
       return { nodeId: nextId, delayHours, type: "condition" };

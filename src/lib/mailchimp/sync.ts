@@ -15,6 +15,16 @@ export function campaignTag(campaignId: string): string {
 }
 
 /**
+ * Stable per-launch WEEKLY-newsletter tag. Applied when a subscriber reaches a
+ * "weekly" Exit node; scopes the recurring weekly-newsletter Broadcast to the
+ * opt-in subset (vs. campaignTag, which is the whole launch). A MailChimp tag
+ * IS a static segment, so tagging the first member makes it findable.
+ */
+export function weeklyTag(campaignId: string): string {
+  return `weekly-${campaignId}`;
+}
+
+/**
  * Merge fields pushed to MailChimp. We deliberately do NOT push waitlist RANK
  * here — rank changes constantly and computing it per-signup is a full scan;
  * it's resolved at email-send time instead (see src/lib/email/mergeVars.ts).
@@ -53,6 +63,34 @@ export async function syncSignupToAudience(
     status: "subscribed",
     mergeFields: mergeFieldsFor(signup),
     tags: [campaignTag(campaign.id)],
+  });
+}
+
+/**
+ * Best-effort: subscribe a verified signup to the launch's WEEKLY-newsletter
+ * audience by adding the weekly tag. Additive — does NOT remove the waitlist
+ * tag. Idempotent (upsertMember is a PUT by subscriber hash; addTags sets
+ * status:"active"). Never throws, so a worker retry re-tags harmlessly.
+ */
+export async function syncSignupToWeekly(
+  ctx: TenantContext,
+  campaign: Campaign,
+  signup: Signup,
+): Promise<MailchimpResult> {
+  if (!signup.email) return { ok: false, reason: "no_email" };
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const resolved = resolveMailchimpConfig(tenant);
+  if (!resolved.ok) {
+    console.warn(
+      `[mailchimp] weekly sync skipped (${resolved.reason}) for ${campaign.id}`,
+    );
+    return { ok: false, reason: resolved.reason };
+  }
+  return upsertMember(resolved.config, {
+    email: signup.email,
+    status: "subscribed",
+    mergeFields: mergeFieldsFor(signup),
+    tags: [weeklyTag(campaign.id)],
   });
 }
 

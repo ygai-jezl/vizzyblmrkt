@@ -45,6 +45,15 @@ export const BroadcastSchema = z.object({
   /** ISO instant a scheduled send is set for (status === "scheduled"); null once
    *  sent or unscheduled. Mirrors the queued job's `scheduledAt` for display. */
   scheduledAt: z.string().nullable().optional(),
+  /** Which audience segment to target. Absent/"launch" ⇒ the launch's waitlist
+   *  segment (existing behaviour); "weekly" ⇒ the launch's weekly-newsletter
+   *  segment (the opt-in subset that reached a weekly Exit node). */
+  audienceMode: z.enum(["launch", "weekly"]).optional(),
+  /** Provenance when this broadcast was composed from a workspace hub node. The
+   *  content is SNAPSHOT into subject/body at create; these are metadata only. */
+  sourceWorkspaceId: z.string().nullable().optional(),
+  sourcePlanId: z.string().nullable().optional(),
+  sourceHubNodeId: z.string().nullable().optional(),
   createdAt: z.string(),
   sentAt: z.string().nullable().optional(),
 });

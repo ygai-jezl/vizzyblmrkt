@@ -20,8 +20,10 @@ export {
 export type { CreateCampaignInput, CampaignReport } from "./client";
 export {
   syncSignupToAudience,
+  syncSignupToWeekly,
   removeSignupFromAudience,
   campaignTag,
+  weeklyTag,
 } from "./sync";
 export type {
   MailchimpResult,

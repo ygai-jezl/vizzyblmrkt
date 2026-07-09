@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { EbookChapter, EbookImageSlot } from "@/lib/types/contentPlan";
 import {
   splitChapterByImages,
@@ -58,37 +58,83 @@ function SlotCard({
   ) : null;
 
   if (generated) {
-    return (
-      <div className="my-4 flex flex-col items-center">
-        <div style={{ width: `${w}%`, aspectRatio: ebookAspectRatioCss(slot.aspect) }} className="overflow-hidden rounded-md">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={api!.assetUrl(slot.imageAssetRef!)}
-            alt={slot.contextPrompt || "eBook illustration"}
-            className="h-full w-full object-cover"
+    // Wrap always floats (side = align, center → left) so the "Wrap text" checkbox is never a
+    // silent no-op on a centered image (the default).
+    const floated = slot.wrap;
+    const img = (
+      <div className="overflow-hidden rounded-md" style={{ aspectRatio: ebookAspectRatioCss(slot.aspect) }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={api!.assetUrl(slot.imageAssetRef!)}
+          alt={slot.contextPrompt || "eBook illustration"}
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+    const controls = api ? (
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        <input
+          type="range"
+          min={20}
+          max={100}
+          value={w}
+          onChange={(e) => setW(Number(e.target.value))}
+          onMouseUp={() => api.onResize(chapterId, slot.id, w)}
+          onTouchEnd={() => api.onResize(chapterId, slot.id, w)}
+          onKeyUp={() => api.onResize(chapterId, slot.id, w)}
+          className="w-20"
+          title={`Width ${w}%`}
+        />
+        <span className="inline-flex overflow-hidden rounded border border-neutral-300 dark:border-neutral-700">
+          {(["left", "center", "right"] as const).map((a) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() => api.onSetLayout(chapterId, slot.id, { align: a })}
+              title={`Align ${a}`}
+              className={`px-1.5 py-0.5 text-[11px] ${slot.align === a ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+            >
+              {a === "left" ? "⇤" : a === "center" ? "≡" : "⇥"}
+            </button>
+          ))}
+        </span>
+        <label className="flex items-center gap-1 text-[11px] text-neutral-500" title="Wrap chapter text around the image">
+          <input
+            type="checkbox"
+            checked={slot.wrap}
+            onChange={(e) => api.onSetLayout(chapterId, slot.id, { wrap: e.target.checked })}
           />
+          Wrap text
+        </label>
+        <button type="button" onClick={() => api.onEdit(chapterId, slot)} className={SLOT_CTRL}>Edit</button>
+        <button type="button" onClick={() => api.onGenerate(chapterId, slot)} className={SLOT_CTRL}>Regenerate</button>
+        <button type="button" onClick={() => fileRef.current?.click()} className={SLOT_CTRL}>Upload</button>
+        <button type="button" onClick={() => api.onRemove(chapterId, slot.id)} className={`${SLOT_CTRL} text-red-600`}>✕</button>
+        {uploadInput}
+      </div>
+    ) : null;
+
+    if (floated) {
+      const side = slot.align === "right" ? "right" : "left";
+      const floatStyle: CSSProperties = {
+        float: side,
+        width: `${w}%`,
+        marginBottom: 8,
+        ...(side === "left" ? { marginRight: 16 } : { marginLeft: 16 }),
+      };
+      return (
+        <div style={floatStyle}>
+          {img}
+          {controls}
         </div>
-        {api ? (
-          <div className="mt-1.5 flex items-center gap-2">
-            <input
-              type="range"
-              min={20}
-              max={100}
-              value={w}
-              onChange={(e) => setW(Number(e.target.value))}
-              onMouseUp={() => api.onResize(chapterId, slot.id, w)}
-              onTouchEnd={() => api.onResize(chapterId, slot.id, w)}
-              onKeyUp={() => api.onResize(chapterId, slot.id, w)}
-              className="w-24"
-              title={`Width ${w}%`}
-            />
-            <button type="button" onClick={() => api.onEdit(chapterId, slot)} className={SLOT_CTRL}>Edit</button>
-            <button type="button" onClick={() => api.onGenerate(chapterId, slot)} className={SLOT_CTRL}>Regenerate</button>
-            <button type="button" onClick={() => fileRef.current?.click()} className={SLOT_CTRL}>Upload</button>
-            <button type="button" onClick={() => api.onRemove(chapterId, slot.id)} className={`${SLOT_CTRL} text-red-600`}>✕</button>
-            {uploadInput}
-          </div>
-        ) : null}
+      );
+    }
+    return (
+      <div
+        className={`my-4 flex flex-col ${slot.align === "left" ? "items-start" : slot.align === "right" ? "items-end" : "items-center"}`}
+      >
+        <div style={{ width: `${w}%` }}>{img}</div>
+        {controls}
       </div>
     );
   }
@@ -129,6 +175,8 @@ function ChapterContent({ chapter, api }: { chapter: EbookChapter; api?: EbookIm
           <SlotCard key={seg.slotId} slot={byId.get(seg.slotId)} chapterId={chapter.id} api={api} />
         ),
       )}
+      {/* Contain floated (wrapped) images so they don't spill past the chapter. */}
+      <div style={{ clear: "both" }} />
     </div>
   );
 }

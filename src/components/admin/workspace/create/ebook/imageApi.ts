@@ -18,4 +18,6 @@ export interface EbookImageApi {
   onRemove: (chapterId: string, slotId: string) => void;
   /** Persist a new rendered width (% of column). */
   onResize: (chapterId: string, slotId: string, width: number) => void;
+  /** Persist alignment / text-wrap layout for the slot. */
+  onSetLayout: (chapterId: string, slotId: string, patch: { align?: EbookImageSlot["align"]; wrap?: boolean }) => void;
 }

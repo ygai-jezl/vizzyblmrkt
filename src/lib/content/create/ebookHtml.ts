@@ -20,6 +20,7 @@ const SLOT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const EBOOK_ALLOWED_TAGS = new Set([
   "p",
   "br",
+  "hr",
   "strong",
   "b",
   "em",
@@ -31,8 +32,17 @@ const EBOOK_ALLOWED_TAGS = new Set([
   "li",
   "h2",
   "h3",
+  "h4",
   "blockquote",
   "div",
+  // Tables (attributes are stripped by cleanEbookAttrs → no colspan/rowspan, but structure + prose
+  // table styling render fine).
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
 ]);
 
 /** The anchor a placeholder/generated image renders into, keyed by its slot id. */

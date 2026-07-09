@@ -109,6 +109,10 @@ export const EbookImageSlotSchema = z.object({
   aspect: EbookAspect.default("1:1"),
   /** Rendered width as a % of the reading column — the operator resize value. */
   width: z.number().int().min(20).max(100).default(100),
+  /** Horizontal placement of the image in the page. */
+  align: z.enum(["left", "center", "right"]).default("center"),
+  /** When true, chapter text wraps around the image (float); else it's a block on its own line. */
+  wrap: z.boolean().default(false),
   /** One-line brief the model wrote for this illustration; seeds "Create image". */
   contextPrompt: z.string().max(1000).default(""),
   /** The expanded image prompt actually rendered (transparency / re-roll reference). */

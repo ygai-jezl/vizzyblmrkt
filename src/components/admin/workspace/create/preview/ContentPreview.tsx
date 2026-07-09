@@ -558,6 +558,7 @@ function EbookChapterView({ chapter, workspaceId }: { chapter: EbookChapterT; wo
               <EbookSlotView key={i} slot={byId.get(seg.slotId)} workspaceId={workspaceId} />
             ),
           )}
+          <div style={{ clear: "both" }} />
         </div>
       ) : (
         <>
@@ -573,16 +574,34 @@ function EbookSlotView({ slot, workspaceId }: { slot: EbookSlotT | undefined; wo
   if (!slot) return null;
   // Generated slot → the real image (authenticated asset proxy); else a placeholder card.
   if (slot.imageAssetRef && workspaceId) {
-    return (
-      <div className="my-4 flex justify-center">
-        <div style={{ width: `${slot.width}%`, aspectRatio: ebookAspectRatioCss(slot.aspect) }} className="overflow-hidden rounded-md">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/api/admin/workspace/${workspaceId}/asset/${slot.imageAssetRef}`}
-            alt={slot.contextPrompt || "eBook illustration"}
-            className="h-full w-full object-cover"
-          />
+    const img = (
+      <div className="overflow-hidden rounded-md" style={{ aspectRatio: ebookAspectRatioCss(slot.aspect) }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`/api/admin/workspace/${workspaceId}/asset/${slot.imageAssetRef}`}
+          alt={slot.contextPrompt || "eBook illustration"}
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+    if (slot.wrap) {
+      const side = slot.align === "right" ? "right" : "left";
+      return (
+        <div
+          style={{
+            float: side,
+            width: `${slot.width}%`,
+            marginBottom: 8,
+            ...(side === "left" ? { marginRight: 16 } : { marginLeft: 16 }),
+          }}
+        >
+          {img}
         </div>
+      );
+    }
+    return (
+      <div className={`my-4 flex ${slot.align === "left" ? "justify-start" : slot.align === "right" ? "justify-end" : "justify-center"}`}>
+        <div style={{ width: `${slot.width}%` }}>{img}</div>
       </div>
     );
   }

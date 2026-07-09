@@ -3,14 +3,18 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableHeader from "@tiptap/extension-table-header";
+import TableCell from "@tiptap/extension-table-cell";
 import { sanitizeEbookHtml } from "@/lib/content/create/ebookHtml";
 import { EbookImage } from "./EbookImageNode";
 
 /**
  * Rich-text (WYSIWYG) editor for one eBook chapter. StarterKit is trimmed to exactly the
- * tags sanitizeEbookHtml keeps (headings h2/h3, bold, italic, lists, blockquote, link) so
- * nothing typed is silently stripped on save; the custom EbookImage node round-trips the
- * inline image anchors. Output is sanitized before it leaves the editor.
+ * tags sanitizeEbookHtml keeps (headings h2/h3/h4, bold, italic, lists, blockquote, hr, link,
+ * tables) so nothing typed is silently stripped on save; the custom EbookImage node round-trips
+ * the inline image anchors. Output is sanitized before it leaves the editor.
  */
 export function EbookChapterEditor({
   html,
@@ -23,13 +27,18 @@ export function EbookChapterEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
-        heading: { levels: [2, 3] },
+        heading: { levels: [2, 3, 4] },
         codeBlock: false,
-        horizontalRule: false,
         strike: false,
         code: false,
       }),
       Link.configure({ openOnClick: false, autolink: false }),
+      // Tables (attributes are stripped on save, so no merged cells / column widths — plain
+      // tabular structure that round-trips through the sanitizer + prose styling).
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       EbookImage,
     ],
     content: html,
@@ -63,6 +72,9 @@ export function EbookChapterEditor({
         <button type="button" onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} className={btn(editor.isActive("heading", { level: 3 }))}>
           H3
         </button>
+        <button type="button" onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} className={btn(editor.isActive("heading", { level: 4 }))}>
+          H4
+        </button>
         <button type="button" onClick={() => editor.chain().focus().toggleBold().run()} className={btn(editor.isActive("bold"))}>
           <b>B</b>
         </button>
@@ -81,6 +93,31 @@ export function EbookChapterEditor({
         <button type="button" onClick={setLink} className={btn(editor.isActive("link"))}>
           Link
         </button>
+        <button type="button" onClick={() => editor.chain().focus().setHorizontalRule().run()} className={btn(false)} title="Divider">
+          —
+        </button>
+        {editor.isActive("table") ? (
+          <>
+            <button type="button" onClick={() => editor.chain().focus().addRowAfter().run()} className={btn(false)} title="Add row">
+              +Row
+            </button>
+            <button type="button" onClick={() => editor.chain().focus().addColumnAfter().run()} className={btn(false)} title="Add column">
+              +Col
+            </button>
+            <button type="button" onClick={() => editor.chain().focus().deleteTable().run()} className={btn(false)} title="Delete table">
+              ⌫ Table
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+            className={btn(false)}
+            title="Insert table"
+          >
+            ⊞ Table
+          </button>
+        )}
       </div>
       <div className="px-4 py-3">
         <EditorContent editor={editor} />

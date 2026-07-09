@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CreateWizard } from "./CreateWizard";
+import { isEbookUiEnabled } from "@/lib/content/create/ebook";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 
@@ -83,18 +84,32 @@ export function CreatePanel({
             const done = p.graph.nodes.filter(
               (n) => n.status === "generated" || n.status === "approved",
             ).length;
+            // An eBook that hasn't been finalized (no graph yet) resumes in the STUDIO, not the
+            // empty canvas — otherwise there's no way back into the authoring surface. Guarded by
+            // the flag so a flag-off rollback falls back to the canvas (which degrades gracefully)
+            // instead of a studio-route 404.
+            const isEbookDraft = isEbookUiEnabled() && p.topology.hubChannel === "ebook" && nodes === 0;
+            const href = isEbookDraft
+              ? `/admin/workspace/${workspaceId}/create/${p.id}/ebook`
+              : `/admin/workspace/${workspaceId}/create/${p.id}`;
             return (
               <li key={p.id}>
                 <Link
-                  href={`/admin/workspace/${workspaceId}/create/${p.id}`}
+                  href={href}
                   className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{p.name}</div>
                     <div className="text-xs text-neutral-500">
-                      {p.topology.hubChannel} hub · {p.topology.spokeChannels.length} spoke
-                      {p.topology.spokeChannels.length === 1 ? "" : "s"}
-                      {nodes ? ` · ${done}/${nodes} generated` : " · not built yet"}
+                      {isEbookDraft ? (
+                        <>📖 eBook · {p.ebookDraft?.chapters.length ?? 0} chapters · resume in studio</>
+                      ) : (
+                        <>
+                          {p.topology.hubChannel} hub · {p.topology.spokeChannels.length} spoke
+                          {p.topology.spokeChannels.length === 1 ? "" : "s"}
+                          {nodes ? ` · ${done}/${nodes} generated` : " · not built yet"}
+                        </>
+                      )}
                     </div>
                   </div>
                   <span

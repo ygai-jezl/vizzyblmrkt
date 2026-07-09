@@ -7,6 +7,8 @@ import { truncateCaption } from "@/lib/distribute/preview/instagram";
 import { deconstructToThread } from "@/lib/distribute/threadDeconstructor";
 import { wrap, renderEmailLayout, bodyToHtml } from "@/lib/email/emailRender";
 import { MarkdownMessage } from "@/components/admin/chat/MarkdownMessage";
+import { splitChapterByImages } from "@/lib/content/create/ebookHtml";
+import { ebookAspectRatioCss } from "@/lib/content/create/ebook";
 import type { ContentNode } from "@/lib/types/contentPlan";
 import {
   previewKind,
@@ -492,6 +494,87 @@ function EmailFrame({ node, view, brandName }: FrameProps) {
   );
 }
 
+// ── eBook (hub) ──────────────────────────────────────────────────────────────
+function EbookFrame({ node, view, brandName, workspaceId }: FrameProps) {
+  const ebook = node.ebook ?? null;
+  const brand = brandName || "Your Brand";
+  const chapters = ebook?.chapters ?? [];
+  const coverRef = ebook?.coverImage?.imageAssetRef;
+  const coverUrl = coverRef && workspaceId ? `/api/admin/workspace/${workspaceId}/asset/${coverRef}` : null;
+  if (view === "feed" || !ebook) {
+    // The "cover" — cover art (if any), title, subtitle, chapter count.
+    return (
+      <div className="rounded-lg border border-black/10 bg-white px-6 py-8 text-center dark:border-white/10 dark:bg-neutral-950">
+        {coverUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverUrl} alt="eBook cover" className="mx-auto mb-3 max-h-40 rounded-md object-contain" />
+        ) : (
+          <div className="text-4xl">📖</div>
+        )}
+        <h3 className="mt-3 text-2xl font-bold leading-snug">{ebook?.title || node.role}</h3>
+        {ebook?.subtitle ? <p className="mt-2 text-sm text-neutral-500">{ebook.subtitle}</p> : null}
+        <div className="mt-4 text-xs uppercase tracking-wide text-neutral-400">
+          {brand} · {chapters.length} chapter{chapters.length === 1 ? "" : "s"}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <article className="rounded-lg border border-black/10 bg-white px-8 py-8 text-neutral-900 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100">
+      <h1 className="text-3xl font-bold leading-tight tracking-tight">{ebook.title}</h1>
+      {ebook.subtitle ? <p className="mt-2 text-lg text-neutral-500">{ebook.subtitle}</p> : null}
+      <div className="mt-1 text-sm text-neutral-400">{brand} · eBook</div>
+      {chapters.length === 0 ? (
+        <div className="mt-6">
+          <EmptyCopy />
+        </div>
+      ) : (
+        chapters.map((c) => <EbookChapterView key={c.id} chapter={c} />)
+      )}
+    </article>
+  );
+}
+
+function EbookChapterView({ chapter }: { chapter: NonNullable<ContentNode["ebook"]>["chapters"][number] }) {
+  const byId = new Map(chapter.images.map((s) => [s.id, s]));
+  const segments = splitChapterByImages(chapter.bodyHtml);
+  return (
+    <section className="mt-8 border-t border-black/10 pt-6 first:mt-6 dark:border-white/10">
+      {chapter.bodyHtml.trim() ? (
+        <div className="prose prose-sm max-w-none leading-relaxed dark:prose-invert">
+          {segments.map((seg, i) =>
+            seg.type === "html" ? (
+              <div key={i} dangerouslySetInnerHTML={{ __html: seg.html }} />
+            ) : (
+              <EbookSlotView key={i} slot={byId.get(seg.slotId)} />
+            ),
+          )}
+        </div>
+      ) : (
+        <>
+          <h2 className="text-xl font-semibold">{chapter.title}</h2>
+          <p className="mt-1 text-sm italic text-neutral-400">{chapter.summary || "Not written yet."}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function EbookSlotView({ slot }: { slot: { aspect: "1:1" | "1:4"; width: number; contextPrompt: string } | undefined }) {
+  if (!slot) return null;
+  return (
+    <div className="my-4 flex justify-center">
+      <div
+        className="flex flex-col items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 p-3 text-center text-[11px] text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900/40"
+        style={{ width: `${slot.width}%`, aspectRatio: ebookAspectRatioCss(slot.aspect) }}
+      >
+        <span aria-hidden>🖼</span>
+        <span className="mt-1 line-clamp-2">{slot.contextPrompt || "Image"}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Generic (standalone / unknown) ───────────────────────────────────────────
 function GenericFrame({ node, view }: FrameProps) {
   const clipped = view === "feed" && node.body.length > 280;
@@ -517,6 +600,7 @@ const FRAMES: Record<PreviewKind, (p: FrameProps) => React.ReactElement> = {
   instagram: InstagramFrame,
   blog: BlogFrame,
   email: EmailFrame,
+  ebook: EbookFrame,
   generic: GenericFrame,
 };
 

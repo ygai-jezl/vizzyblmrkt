@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
 import { SEQUENCE_BLUEPRINTS } from "@/lib/content/create/sequenceBlueprints";
+import { isEbookUiEnabled } from "@/lib/content/create/ebook";
 import { IngestBar } from "@/components/admin/workspace/IngestBar";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentObjective, ContentPlan, SequenceType } from "@/lib/types/contentPlan";
@@ -51,12 +52,18 @@ export function CreateWizard({
   const [proof, setProof] = useState("");
   const [hubChannel, setHubChannel] = useState<"newsletter" | "blog">("newsletter");
   const [spokeChannels, setSpokeChannels] = useState<string[]>(["linkedin", "x"]);
+  const [isEbook, setIsEbook] = useState(false);
+  const [industryLens, setIndustryLens] = useState("");
   const [sources, setSources] = useState<IngestionTicket[]>(initialSources);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const doneSources = sources.filter((s) => s.status === "done");
   const isSequence = objective === "email_sequence";
+  // eBook is a hub-and-spoke variant (not a sequence) and flag-gated. When the objective
+  // flips to a sequence the eBook toggle is hidden, so gate the whole eBook path on this.
+  const ebookUi = isEbookUiEnabled();
+  const useEbook = ebookUi && isEbook && !isSequence;
 
   async function refreshSources() {
     try {
@@ -107,15 +114,22 @@ export function CreateWizard({
               subscriberCount: isSequence ? null : subCount,
               sequenceType: isSequence ? sequenceType : null,
             },
-            scope: { topics: selectedTopics, spark: spark.trim() },
+            scope: {
+              topics: selectedTopics,
+              spark: spark.trim(),
+              industryLens: useEbook ? industryLens.trim() : "",
+            },
             knowledge: {
               groundingScope: selectedTopics.length ? groundingScope : "global",
               proofAssets: proof.trim() ? [proof.trim()] : [],
             },
             // Topology is meaningless for a sequence; send defaults so intake validates.
+            // eBook is a hub-and-spoke variant with a fixed "ebook" hub channel.
             topology: isSequence
               ? { hubChannel: "newsletter", spokeChannels: [] }
-              : { hubChannel, spokeChannels },
+              : useEbook
+                ? { hubChannel: "ebook", spokeChannels }
+                : { hubChannel, spokeChannels },
           }),
         },
       );
@@ -125,6 +139,12 @@ export function CreateWizard({
       };
       if (!createRes.ok || !created.plan) {
         setErr(created.error === "invalid_input" ? "Check the form fields." : "Couldn't create the workflow.");
+        return;
+      }
+      // eBook plans are authored in the studio BEFORE the Architect runs — skip the
+      // canvas-skeleton generate here; the parent routes to the eBook studio instead.
+      if (useEbook) {
+        onCreated(created.plan);
         return;
       }
       // Architect builds the canvas skeleton.
@@ -244,6 +264,14 @@ export function CreateWizard({
         {/* Step 1 — Scope */}
         {step === 1 ? (
           <div className="space-y-4">
+            {ebookUi && !isSequence ? (
+              <Field label="Hub content type" hint="A newsletter/blog hub, or a long-form eBook authored in a split-view studio.">
+                <div className="flex gap-2">
+                  <Radio checked={!isEbook} onChange={() => setIsEbook(false)} label="Newsletter / Blog" hint="Short-form hub + social spokes" />
+                  <Radio checked={isEbook} onChange={() => setIsEbook(true)} label="eBook" hint="Long-form chapters + images" />
+                </div>
+              </Field>
+            ) : null}
             <Field label="Authority topics" hint="From your workspace Settings — the angles to ground + organize around.">
               {topics.length === 0 ? (
                 <p className="text-xs text-neutral-500">
@@ -278,6 +306,16 @@ export function CreateWizard({
                 className={INPUT}
               />
             </Field>
+            {useEbook ? (
+              <Field label="Industry lens" hint="The industry framing to write the eBook through — grounds the table of contents + every chapter.">
+                <input
+                  value={industryLens}
+                  onChange={(e) => setIndustryLens(e.target.value)}
+                  placeholder="e.g. B2B SaaS for early-stage founders"
+                  className={INPUT}
+                />
+              </Field>
+            ) : null}
           </div>
         ) : null}
 
@@ -348,6 +386,32 @@ export function CreateWizard({
                 <span className="font-medium">Build workflow</span> to generate it.
               </p>
             </div>
+          ) : useEbook ? (
+            <div className="space-y-4">
+              <Field label="Spoke channels" hint="After the eBook is authored, it lands on a canvas with a spoke per channel to atomize it from.">
+                <div className="flex flex-wrap gap-2">
+                  {SPOKE_OPTIONS.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setSpokeChannels((cur) => toggle(cur, c.id))}
+                      className={`rounded-md border px-3 py-1.5 text-sm ${
+                        spokeChannels.includes(c.id)
+                          ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+                          : "border-neutral-300 dark:border-neutral-700"
+                      }`}
+                    >
+                      {channelLabel(c.id)}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-500 dark:bg-neutral-900/40">
+                Next you&apos;ll open the <span className="font-medium">eBook studio</span> — generate a
+                table of contents, confirm it, then write chapter by chapter with inline images.
+                When you finish, the eBook becomes the hub on a canvas with the spokes above.
+              </p>
+            </div>
           ) : (
             <div className="space-y-4">
               <Field label="Hub channel" hint="The comprehensive centerpiece.">
@@ -409,7 +473,13 @@ export function CreateWizard({
               disabled={busy}
               className="rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900"
             >
-              {busy ? "Building…" : "Build workflow"}
+              {busy
+                ? useEbook
+                  ? "Opening…"
+                  : "Building…"
+                : useEbook
+                  ? "Open eBook studio →"
+                  : "Build workflow"}
             </button>
           )}
         </div>

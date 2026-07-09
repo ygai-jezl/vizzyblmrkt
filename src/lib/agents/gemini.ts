@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL, BLOCK_IMAGE_MODEL } from "./modelConfig";
+import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL, BLOCK_IMAGE_MODEL, EBOOK_IMAGE_MODEL } from "./modelConfig";
 
 /**
  * Thin Gemini client. Three auth modes (first match wins):
@@ -89,6 +89,30 @@ export async function generateText(prompt: string): Promise<string | null> {
   } catch (err) {
     console.warn("[gemini] generateText failed:", err);
     return null;
+  }
+}
+
+/**
+ * Stream text token-by-token from a prompt. Yields incremental text chunks (the SDK's
+ * `generateContentStream`). The ONLY streaming generation in the app — used by the eBook
+ * studio to render a chapter as it's written. Yields nothing when Gemini is unconfigured
+ * or the stream errors (callers fall back to the non-streaming `generateText`). Never
+ * throws — the async generator just ends.
+ */
+export async function* generateTextStream(prompt: string): AsyncGenerator<string> {
+  const ai = getClient();
+  if (!ai) return;
+  try {
+    const stream = await ai.models.generateContentStream({
+      model: TEXT_MODEL,
+      contents: prompt,
+    });
+    for await (const chunk of stream) {
+      const t = chunk.text;
+      if (t) yield t;
+    }
+  } catch (err) {
+    console.warn("[gemini] generateTextStream failed:", err);
   }
 }
 
@@ -290,6 +314,48 @@ export async function generateBlockImage(
     return null;
   } catch (err) {
     console.warn("[gemini] generateBlockImage failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Generate OR iteratively edit an eBook image via the edit-capable EBOOK_IMAGE_MODEL
+ * (gemini-3.1-flash-image; env GEMINI_EBOOK_IMAGE_MODEL). With no `inputImages` it renders a
+ * fresh image from the prompt; with `inputImages` (the prior/uploaded image as inline base64)
+ * it edits them per the prompt — image-in → image-out. `aspectRatio` passes straight to
+ * imageConfig (the full model natively supports 1:4). Null on missing config / error / no image
+ * part. Callers MUST clamp inputImages to the model limits (≤14 images, ≤7 MB each) upstream.
+ */
+export async function generateEbookImage({
+  prompt,
+  aspectRatio = "1:1",
+  inputImages = [],
+}: {
+  prompt: string;
+  aspectRatio?: string;
+  inputImages?: { base64: string; mimeType: string }[];
+}): Promise<GeneratedImage | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  try {
+    const parts = [
+      { text: prompt },
+      ...inputImages.map((img) => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
+    ];
+    const res = await ai.models.generateContent({
+      model: EBOOK_IMAGE_MODEL,
+      contents: [{ role: "user", parts }],
+      config: { responseModalities: [Modality.TEXT, Modality.IMAGE], imageConfig: { aspectRatio } },
+    });
+    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
+      const data = part.inlineData?.data;
+      if (data) {
+        return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn("[gemini] generateEbookImage failed:", err);
     return null;
   }
 }

@@ -4,10 +4,16 @@ import { platformOrigin } from "@/lib/platform/origin";
 import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
 import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
-import { generateText, generateImage, generateBlockImage } from "./gemini";
+import { generateText, generateImage, generateBlockImage, generateEbookImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
-import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
+import { storeWorkspaceImage, readWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { SOCIAL_ASPECT_TO_GEMINI, socialImageStyle, type SocialAspect, type SocialImageStyle } from "@/lib/content/create/socialImage";
+import {
+  EBOOK_ASPECT_TO_GEMINI,
+  EBOOK_IMAGE_INLINE_MAX_BYTES,
+  ebookImageStyle,
+} from "@/lib/content/create/ebook";
+import type { EbookAspect } from "@/lib/types/contentPlan";
 
 /**
  * Agent 3 — Creative Director & Copywriter. Drafts performance-informed copy
@@ -222,6 +228,97 @@ export async function generateSocialPostImage(
   if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };
   // Cap the stored prompt to the ContentNode.imagePrompt schema limit (1000).
   return { imageAssetRef: stored.filename, imagePrompt: imagePrompt.slice(0, 1000), source: "agent3" };
+}
+
+export interface GenerateEbookImageInput {
+  tenantId: string;
+  workspaceId: string;
+  /** For CREATE: the art brief. For EDIT: the change instruction ("make the background navy"). */
+  brief: string;
+  aspect: EbookAspect;
+  /** Style preset id (see EBOOK_IMAGE_STYLES). */
+  style: string;
+  /** Pre-assembled on-brand context (see brandContext.ts). */
+  brandContext: string;
+  knowledgeContext?: string;
+  /** Chapter text so a fresh illustration supports the page. */
+  copyExcerpt?: string;
+  /** ITERATIVE EDIT: the existing image asset filename to feed back in (image-in→image-out). */
+  priorImageRef?: string | null;
+}
+
+export interface GenerateEbookImageResult {
+  imageAssetRef: string | null;
+  imagePrompt: string | null;
+  source: "gemini" | "unavailable";
+  reason?:
+    | "image_model_unavailable"
+    | "bad_type"
+    | "too_large"
+    | "no_asset_bucket"
+    | "store_failed"
+    | "prior_too_large"
+    | "prior_unreadable";
+}
+
+/**
+ * On-brand image for an eBook slot/cover using the edit-capable gemini-3.1-flash-image.
+ * CREATE (no priorImageRef): expand the brief into a brand-grounded art-director prompt, then
+ * render at the chosen aspect. EDIT (priorImageRef set): read the existing image (clamped to the
+ * 7 MB inline limit), feed it back with the change instruction (kept concise so the model edits
+ * rather than regenerates). Stores to the workspace's PRIVATE asset path; degrades to a null ref
+ * (never throws).
+ */
+export async function generateEbookSlotImage(
+  input: GenerateEbookImageInput,
+): Promise<GenerateEbookImageResult> {
+  const style = ebookImageStyle(input.style);
+
+  // Iterative edit: load the prior image (clamped) as the model input. If it can't be read,
+  // FAIL — never silently regenerate from the terse instruction (that would overwrite the
+  // operator's existing image with an unrelated one on a transient read blip).
+  let inputImages: { base64: string; mimeType: string }[] = [];
+  if (input.priorImageRef) {
+    const prior = await readWorkspaceAsset(input.tenantId, input.workspaceId, input.priorImageRef).catch(
+      () => null,
+    );
+    if (!prior) {
+      return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "prior_unreadable" };
+    }
+    if (prior.bytes.length > EBOOK_IMAGE_INLINE_MAX_BYTES) {
+      return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "prior_too_large" };
+    }
+    inputImages = [{ base64: prior.bytes.toString("base64"), mimeType: prior.contentType }];
+  }
+  const isEdit = inputImages.length > 0;
+
+  // EDIT: pass the concise instruction so the model edits the input. CREATE: expand a full
+  // brand-grounded art-director prompt.
+  const imagePrompt = isEdit
+    ? input.brief
+    : (await generateText(
+        renderPrompt("content.ebook_image_brief", {
+          brief: input.brief,
+          aspect: input.aspect,
+          style_label: style.label,
+          style_keywords: style.keywords,
+          copy_excerpt: input.copyExcerpt?.slice(0, 800) || "(none)",
+          brand_context: input.brandContext,
+          knowledge_context: input.knowledgeContext ?? "",
+        }),
+      )) ?? input.brief;
+
+  const img = await generateEbookImage({
+    prompt: imagePrompt,
+    aspectRatio: EBOOK_ASPECT_TO_GEMINI[input.aspect],
+    inputImages,
+  });
+  if (!img) {
+    return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
+  }
+  const stored = await storeWorkspaceImage(input.tenantId, input.workspaceId, img.bytes, img.mimeType);
+  if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };
+  return { imageAssetRef: stored.filename, imagePrompt: imagePrompt.slice(0, 1000), source: "gemini" };
 }
 
 // ---- internals ------------------------------------------------------------

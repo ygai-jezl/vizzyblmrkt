@@ -13,7 +13,7 @@ export type PreviewView = "feed" | "opened";
 
 /** The channel skin a node renders as. `email` covers both the newsletter hub and
  *  email-sequence nodes (both render as an inbox row → opened message). */
-export type PreviewKind = "linkedin" | "x" | "instagram" | "blog" | "email" | "generic";
+export type PreviewKind = "linkedin" | "x" | "instagram" | "blog" | "email" | "ebook" | "generic";
 
 /** Map a node to its preview skin. Email-sequence nodes (type "email") always render
  *  as email regardless of channel; otherwise the destination channel decides. */
@@ -30,6 +30,8 @@ export function previewKind(node: ContentNode): PreviewKind {
       return "blog";
     case "newsletter":
       return "email";
+    case "ebook":
+      return "ebook";
     default:
       return "generic";
   }
@@ -48,6 +50,8 @@ export function frameWidth(kind: PreviewKind, view: PreviewView): number {
       return 468;
     case "blog":
       return view === "opened" ? 720 : 600;
+    case "ebook":
+      return view === "opened" ? 720 : 520;
     case "email":
       return view === "opened" ? 600 : 640;
     default:

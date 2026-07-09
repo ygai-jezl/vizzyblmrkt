@@ -36,7 +36,13 @@ export function CreatePanel({
   const [showWizard, setShowWizard] = useState(initialPlans.length === 0);
 
   function onCreated(plan: ContentPlan) {
-    router.push(`/admin/workspace/${workspaceId}/create/${plan.id}`);
+    // eBook plans open the authoring studio first; everything else goes straight to the
+    // canvas (the wizard already ran the Architect for those).
+    const dest =
+      plan.topology.hubChannel === "ebook"
+        ? `/admin/workspace/${workspaceId}/create/${plan.id}/ebook`
+        : `/admin/workspace/${workspaceId}/create/${plan.id}`;
+    router.push(dest);
   }
 
   return (

@@ -200,6 +200,26 @@ env:
       - BUILD
       - RUNTIME
   #
+  # Create eBook studio (eBook hub content type: split-view ToC → chapter streaming →
+  # on-brand image gen/edit → canvas hub). Server flag gates every studio route; the
+  # NEXT_PUBLIC mirror shows the Scope toggle + studio (must be available at BUILD).
+  # Image gen/edit uses gemini-3.1-flash-image (GEMINI_EBOOK_IMAGE_MODEL) on the same
+  # Vertex path / EMAIL_ASSET_BUCKET as social images. ENABLED on dev for live smoke;
+  # keep OFF in prod until the model + streaming are validated (override in prod yaml).
+  - variable: CREATE_EBOOK_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EBOOK_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # - variable: GEMINI_EBOOK_IMAGE_MODEL   # optional — defaults to gemini-3.1-flash-image
+  #   value: "gemini-3.1-flash-image"
+  #   availability:
+  #     - RUNTIME
+  #
   # X (Twitter) OAuth 2.0 for the Distribute "Connect X" flow + publishing.
   # Provision with: infra/x-oauth/setup.sh secret <project>
   - variable: X_OAUTH_CLIENT_ID

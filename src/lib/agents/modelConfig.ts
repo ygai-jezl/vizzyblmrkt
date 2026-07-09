@@ -37,6 +37,14 @@ export const DEFAULT_BLOCK_IMAGE_MODEL = "gemini-3.1-flash-lite-image";
 export const BLOCK_IMAGE_MODEL =
   process.env.GEMINI_BLOCK_IMAGE_MODEL ?? DEFAULT_BLOCK_IMAGE_MODEL;
 
+/** eBook illustration images (Create eBook studio) — Gemini "Nano Banana 2" FULL image
+ *  model (gemini-3.1-flash-image, NOT the -lite variant): the full model is edit-capable
+ *  (image-in→image-out iteration) and supports the extreme 1:4 aspect ratio the eBook
+ *  page layout uses. Env-overridable per the model-hardcoding policy. */
+export const DEFAULT_EBOOK_IMAGE_MODEL = "gemini-3.1-flash-image";
+export const EBOOK_IMAGE_MODEL =
+  process.env.GEMINI_EBOOK_IMAGE_MODEL ?? DEFAULT_EBOOK_IMAGE_MODEL;
+
 /** Gemini Live voice conversation (post-signup waitlist voice chat). Native-audio
  *  model — see liveConversation.ts for the cascaded-model language-code caveat. */
 export const DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview";

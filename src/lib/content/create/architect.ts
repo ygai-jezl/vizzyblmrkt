@@ -13,6 +13,7 @@ import type {
   ContentEdge,
   ContentNodeType,
   ContentObjective,
+  EbookDoc,
   SequenceType,
 } from "@/lib/types/contentPlan";
 
@@ -310,6 +311,118 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
         radialPos(i, slots.length),
         pickTemplate(templates, "spoke", slot.channel, spokeBlock),
         slot.angle.id,
+      ),
+    );
+  });
+
+  // Canonical edges: pre → hub → post, and hub → each spoke.
+  const edges: ContentEdge[] = [];
+  const pre = nodes.find((n) => n.type === "promo_pre");
+  const post = nodes.find((n) => n.type === "promo_post");
+  if (pre) edges.push({ id: `e_${randomUUID()}`, source: pre.id, target: hubNode.id });
+  if (post) edges.push({ id: `e_${randomUUID()}`, source: hubNode.id, target: post.id });
+  for (const s of nodes.filter((n) => n.type === "spoke")) {
+    edges.push({ id: `e_${randomUUID()}`, source: hubNode.id, target: s.id });
+  }
+
+  return { nodes, edges };
+}
+
+// ── eBook architect ─────────────────────────────────────────────────────────
+// Finalize an authored eBook onto the canvas: the hub node IS the eBook (already written
+// in the studio, so status:"generated" — nothing to LLM-fill), surrounded by the same
+// pre/post promos + (angle × channel) spoke web as a normal hub-and-spoke plan so the
+// operator can atomize the book into channel-native content. Fully deterministic (no
+// Gemini call) — the book already exists; spokes carry briefs that reference it.
+
+export interface EbookArchitectInput {
+  spark: string;
+  spokeChannels: string[];
+  ebook: EbookDoc;
+  templates?: TemplateRef[];
+}
+
+export async function architectEbookPlan(input: EbookArchitectInput): Promise<ArchitectGraph> {
+  const spokeChannels = [...new Set(input.spokeChannels.filter(isChannel))].slice(0, 8);
+  const promoChannel = spokeChannels[0] ?? DEFAULT_PROMO_CHANNEL;
+  const sparkHint = input.spark ? ` on "${input.spark.slice(0, 120)}"` : "";
+  const templates = input.templates ?? [];
+  const title = input.ebook.title || "eBook";
+  const synopsis =
+    input.ebook.subtitle ||
+    input.ebook.chapters.map((c) => c.title).filter(Boolean).join(" · ") ||
+    title;
+
+  const nodes: ContentNode[] = [];
+
+  // The hub carries only a LIGHT eBook (ToC skeleton — titles/summaries, no chapter HTML or
+  // image slots): the heavy prose stays the single source of truth on ContentPlan.ebookDraft
+  // (which the studio re-opens), so the plan doc never stores the whole book twice (Firestore
+  // 1MB cap). The canvas hub + preview only need the cover + table of contents.
+  const hubEbook = {
+    ...input.ebook,
+    chapters: input.ebook.chapters.map((c) => ({ ...c, bodyHtml: "", images: [] })),
+  };
+
+  // Hub — the authored eBook, centered. status:"generated" (its content already exists).
+  const hubNode = emptyNode(
+    "hub",
+    "ebook",
+    `eBook: ${title}`.slice(0, 120),
+    "full-post",
+    `The eBook "${title}"${sparkHint}. Atomize its chapters into the spokes below.`,
+    { x: CENTER.x, y: CENTER.y },
+    null,
+    null,
+    { status: "generated", body: synopsis.slice(0, 2000), ebook: hubEbook },
+  );
+
+  // Pre-hub teaser — left of the hub.
+  nodes.push(
+    emptyNode(
+      "promo_pre",
+      promoChannel,
+      "Pre-eBook Teaser",
+      defaultBlockFor("promo_pre"),
+      `Tease the upcoming eBook "${title}"${sparkHint}; build anticipation and point readers to {{hub_url}}.`,
+      { x: CENTER.x - PROMO_OFFSET_X, y: CENTER.y },
+      pickTemplate(templates, "promo_pre", promoChannel, defaultBlockFor("promo_pre")),
+      null,
+    ),
+  );
+  nodes.push(hubNode);
+  // Post-hub promo — right of the hub.
+  nodes.push(
+    emptyNode(
+      "promo_post",
+      promoChannel,
+      "Post-eBook Promo",
+      defaultBlockFor("promo_post"),
+      `Recap the eBook "${title}"'s payoff${sparkHint} and drive downloads at {{hub_url}}.`,
+      { x: CENTER.x + PROMO_OFFSET_X, y: CENTER.y },
+      pickTemplate(templates, "promo_post", promoChannel, defaultBlockFor("promo_post")),
+      null,
+    ),
+  );
+
+  // Spoke MATRIX: every CORE angle × each selected channel (the book already supports the
+  // full range of angles, so — unlike architectPlan — we don't ask the model to prune).
+  const spokeBlock = defaultBlockFor("spoke");
+  const slots = CORE_ANGLES.flatMap((angleId) =>
+    spokeChannels.map((channel) => ({ angleId, channel })),
+  );
+  slots.forEach((slot, i) => {
+    const f = getFramework(slot.angleId);
+    nodes.push(
+      emptyNode(
+        "spoke",
+        slot.channel,
+        `${frameworkLabel(slot.angleId)} → ${slot.channel}`,
+        spokeBlock,
+        `Atomize the eBook "${title}" as a ${f?.label ?? slot.angleId} for ${slot.channel}${sparkHint}. ${f?.structureHint ?? ""}`.trim(),
+        radialPos(i, slots.length),
+        pickTemplate(templates, "spoke", slot.channel, spokeBlock),
+        slot.angleId,
       ),
     );
   });

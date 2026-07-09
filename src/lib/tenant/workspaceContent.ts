@@ -10,9 +10,15 @@ import { EmailTemplateSchema, type EmailTemplate } from "@/lib/types/emailTempla
 import {
   ContentPlanSchema,
   ContentNodeSchema,
+  EbookDocSchema,
+  EbookChapterSchema,
+  CONTENT_PLAN_LIMITS,
   type ContentPlan,
   type ContentNode,
+  type EbookDoc,
+  type EbookChapter,
 } from "@/lib/types/contentPlan";
+import { sanitizeEbookHtmlCapped, reconcileChapterImages } from "@/lib/content/create/ebookHtml";
 
 /**
  * Tenant-layer access for a workspace's Content OS subcollections:
@@ -376,12 +382,12 @@ export async function getContentPlan(
   return parsed.data;
 }
 
-/** Patch a plan's name / status / graph (full-graph replace — canvas Save). */
+/** Patch a plan's name / status / graph / eBook draft (full-field replace). */
 export async function updateContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   planId: string,
-  patch: Partial<Pick<ContentPlan, "name" | "status" | "graph">>,
+  patch: Partial<Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft">>,
 ): Promise<void> {
   await workspaceDoc(ctx, workspaceId)
     .collection(CONTENT_PLANS)
@@ -415,6 +421,7 @@ export async function updateContentPlanNode(
       | "previewText"
       | "subjectVariants"
       | "layout"
+      | "ebook"
     >
   >,
 ): Promise<ContentNode | null> {
@@ -438,6 +445,112 @@ export async function updateContentPlanNode(
       "graph.nodes": nodes,
       updatedAt: new Date().toISOString(),
     });
+    return next;
+  });
+}
+
+/**
+ * Persist the whole eBook draft atomically (the single mutation point for the studio —
+ * ToC edits, chapter writes, image slots, resize, reorder). Runs in a transaction so a
+ * chat-driven op and a streamed chapter write can't clobber each other. Re-validates the
+ * incoming doc via `EbookDocSchema.parse` and re-checks tenant ownership before writing.
+ * Returns the persisted eBook, or null if the plan is gone / not owned by the caller.
+ */
+export async function updateContentPlanEbook(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  ebook: EbookDoc,
+): Promise<EbookDoc | null> {
+  const db = getDb(databaseIdForRegion(ctx.region));
+  const ref = workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const parsed = ContentPlanSchema.safeParse(snap.data());
+    if (!parsed.success) return null;
+    const plan = parsed.data;
+    if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
+    const next = EbookDocSchema.parse(ebook);
+    tx.update(ref, { ebookDraft: next, updatedAt: new Date().toISOString() });
+    return next;
+  });
+}
+
+/**
+ * Persist a SINGLE eBook chapter atomically. Unlike updateContentPlanEbook (a whole-doc
+ * replace used by the client-authoritative studio PATCH), this re-reads the CURRENT
+ * ebookDraft inside the transaction and patches only the target chapter — so a streamed
+ * chapter write can't clobber a concurrent edit to a DIFFERENT chapter (the streaming
+ * route holds a request-start snapshot for many seconds). Returns the updated chapter, or
+ * null if the plan / draft / chapter is gone or not owned by the caller.
+ */
+export async function updateContentPlanChapter(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  chapterId: string,
+  patch: Partial<Pick<EbookChapter, "title" | "summary" | "bodyHtml" | "status" | "images">>,
+): Promise<EbookChapter | null> {
+  const db = getDb(databaseIdForRegion(ctx.region));
+  const ref = workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const parsed = ContentPlanSchema.safeParse(snap.data());
+    if (!parsed.success) return null;
+    const plan = parsed.data;
+    if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
+    const draft = plan.ebookDraft;
+    if (!draft) return null;
+    const idx = draft.chapters.findIndex((c) => c.id === chapterId);
+    if (idx < 0) return null;
+    const nextChapter = EbookChapterSchema.parse({ ...draft.chapters[idx], ...patch });
+    const chapters = [...draft.chapters];
+    chapters[idx] = nextChapter;
+    const nextDraft = EbookDocSchema.parse({ ...draft, chapters });
+    tx.update(ref, { ebookDraft: nextDraft, updatedAt: new Date().toISOString() });
+    return nextChapter;
+  });
+}
+
+/**
+ * Apply a pure read-modify-write to the eBook draft ATOMICALLY: reads the CURRENT
+ * `ebookDraft` inside the transaction, runs `mutate`, then server-authoritatively
+ * re-sanitizes + caps every chapter body (so no mutate fn — a chat op, an image insert —
+ * can ever persist unsafe or oversized markup), validates, and writes. This is the write
+ * path for chat ops (applyEbookOps) and image-slot updates: because it re-reads inside the
+ * tx, it never clobbers a concurrent write the way a client-supplied whole-doc replace can.
+ * Returns the persisted draft, or null if the plan/draft is gone or not owned by the caller.
+ */
+export async function mutateContentPlanEbookDraft(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  mutate: (draft: EbookDoc) => EbookDoc,
+): Promise<EbookDoc | null> {
+  const db = getDb(databaseIdForRegion(ctx.region));
+  const ref = workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const parsed = ContentPlanSchema.safeParse(snap.data());
+    if (!parsed.success) return null;
+    const plan = parsed.data;
+    if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
+    if (!plan.ebookDraft) return null;
+    const mutated = mutate(plan.ebookDraft);
+    const safe: EbookDoc = {
+      ...mutated,
+      chapters: mutated.chapters.map((c) => {
+        // Sanitize + cap the body, then reconcile image slots against it: if the cap truncated
+        // an anchor, its slot is dropped so bodyHtml and images[] can never disagree.
+        const bodyHtml = sanitizeEbookHtmlCapped(c.bodyHtml, CONTENT_PLAN_LIMITS.MAX_CHAPTER_CHARS);
+        return { ...c, bodyHtml, images: reconcileChapterImages(bodyHtml, c.images) };
+      }),
+    };
+    const next = EbookDocSchema.parse(safe);
+    tx.update(ref, { ebookDraft: next, updatedAt: new Date().toISOString() });
     return next;
   });
 }

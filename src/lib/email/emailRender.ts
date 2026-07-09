@@ -104,7 +104,9 @@ export function isSafeHref(href: string): boolean {
   if (!h) return false;
   if (/^\s*(javascript|data|vbscript):/i.test(h)) return false;
   if (/^(https?:|mailto:)/i.test(h)) return true;
-  if (/^\/[^/]/.test(h)) return true; // root-relative
+  // Root-relative ONLY. Reject a leading "/" followed by "/" OR "\" — browsers normalize
+  // "/\evil.com" (and "//evil.com") to a protocol-relative external URL (open redirect).
+  if (/^\/[^/\\]/.test(h)) return true;
   if (/^\{\{[\w.]+\}\}$/.test(h)) return true; // pure merge token
   return false;
 }

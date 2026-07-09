@@ -106,7 +106,7 @@ export function ContentCanvas({
         id: cn.id,
         type: RF_TYPE[cn.type],
         position: cn.position,
-        data: { cn, onGenerate } as ContentNodeData,
+        data: { cn, onGenerate, workspaceId, planId: initial.id } as ContentNodeData,
       })),
       edges: initial.graph.edges.map<Edge>((e) => ({
         id: e.id,
@@ -116,7 +116,7 @@ export function ContentCanvas({
         label: e.label ?? undefined,
       })),
     }),
-    [initial, onGenerate],
+    [initial, onGenerate, workspaceId],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(seeded.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(seeded.edges);

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { channelLabel } from "@/lib/content/channels";
-import type { ContentNode } from "@/lib/types/contentPlan";
+import type { ContentNode, EbookDoc } from "@/lib/types/contentPlan";
 import { ContentPreview } from "./ContentPreview";
 import { backdropClass, frameWidth, previewKind, type PreviewView } from "./contentPreviewHelpers";
 
@@ -22,11 +22,14 @@ export function ContentPreviewModal({
   node,
   brandName,
   workspaceId,
+  fullEbook,
   onClose,
 }: {
   node: ContentNode;
   brandName?: string;
   workspaceId?: string;
+  /** Full eBook (ebookDraft) so the hub preview shows real prose + images, not the light ToC. */
+  fullEbook?: EbookDoc | null;
   onClose: () => void;
 }) {
   const [view, setView] = useState<PreviewView>("feed");
@@ -118,7 +121,7 @@ export function ContentPreviewModal({
           style={{ maxWidth: width, width: "100%" }}
           onClick={(e) => e.stopPropagation()}
         >
-          <ContentPreview node={node} view={view} brandName={brandName} workspaceId={workspaceId} />
+          <ContentPreview node={node} view={view} brandName={brandName} workspaceId={workspaceId} fullEbook={fullEbook} />
           <p className="mt-3 text-center text-[11px] text-neutral-600 dark:text-neutral-400">
             Approximate {channelLabel(node.channel)} rendering · ~{width}px ·{" "}
             {view === "feed" ? "as seen in the feed" : "opened / full view"}

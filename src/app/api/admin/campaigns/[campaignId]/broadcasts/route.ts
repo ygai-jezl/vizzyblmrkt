@@ -21,6 +21,14 @@ const CreateBroadcastSchema = z.object({
     .nullable()
     .optional(),
   agentMeta: AgentMetaSchema.optional(),
+  // "weekly" targets the launch's weekly-newsletter opt-in segment (the Weekly
+  // tab); absent ⇒ "launch" (the whole-launch waitlist segment, existing UI).
+  audienceMode: z.enum(["launch", "weekly"]).optional(),
+  // Provenance when composed from a workspace hub (content is snapshotted into
+  // subject/body above; these are metadata only).
+  sourceWorkspaceId: z.string().max(64).nullable().optional(),
+  sourcePlanId: z.string().max(64).nullable().optional(),
+  sourceHubNodeId: z.string().max(64).nullable().optional(),
 });
 
 /** List the broadcasts for a launch (newest first). */
@@ -83,6 +91,10 @@ export async function POST(
     stats: null,
     agentMeta: parsed.data.agentMeta,
     lastError: null,
+    audienceMode: parsed.data.audienceMode ?? "launch",
+    sourceWorkspaceId: parsed.data.sourceWorkspaceId ?? null,
+    sourcePlanId: parsed.data.sourcePlanId ?? null,
+    sourceHubNodeId: parsed.data.sourceHubNodeId ?? null,
     createdAt: new Date().toISOString(),
     sentAt: null,
   });

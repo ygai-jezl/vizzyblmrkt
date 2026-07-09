@@ -21,11 +21,14 @@ type Seq = {
 };
 type Data = { hasWorkspace: boolean; firstWorkspaceId: string | null; sequences: Seq[] };
 
-export type ExitTarget = {
-  exitTargetPlanId: string;
-  exitTargetWorkspaceId: string;
-  exitTargetLabel: string;
-};
+export type ExitTarget =
+  | {
+      exitTargetKind: "sequence";
+      exitTargetPlanId: string;
+      exitTargetWorkspaceId: string;
+      exitTargetLabel: string;
+    }
+  | { exitTargetKind: "weekly"; exitTargetLabel: string };
 
 const BTN =
   "rounded-md border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
@@ -102,6 +105,16 @@ export function AddExitControl({
             >
               ⇥ End journey (no handoff)
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                onAddExit({ exitTargetKind: "weekly", exitTargetLabel: "Weekly newsletter" });
+                setOpen(false);
+              }}
+              className={ROW}
+            >
+              📰 Subscribe to the weekly newsletter
+            </button>
 
             <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
             <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-neutral-400">
@@ -122,6 +135,7 @@ export function AddExitControl({
                     type="button"
                     onClick={() => {
                       onAddExit({
+                        exitTargetKind: "sequence",
                         exitTargetPlanId: s.planId,
                         exitTargetWorkspaceId: s.workspaceId,
                         exitTargetLabel: s.name,

@@ -133,6 +133,12 @@ export const JourneyNodeDataSchema = z.object({
   // condition node — ordered; first match wins. Recipients matching no branch
   // take the implicit "default" branch (edge sourceHandle === "default").
   branches: z.array(JourneyBranchSchema).max(10).optional(),
+  // exit node — which handoff this exit performs. "weekly" = subscribe the
+  // recipient to the launch's weekly-newsletter audience (EXECUTED by the
+  // worker). "sequence" = the Content-OS email_sequence handoff (authoring-only
+  // today; enrollment is a deferred fast-follow). Absent ⇒ a plain
+  // "end of journey" terminal. Only "weekly" has runtime behaviour.
+  exitTargetKind: z.enum(["sequence", "weekly"]).optional(),
   // exit node — a terminal. Optional handoff target: the Content-OS
   // `email_sequence` ContentPlan a recipient is enrolled into on reaching this
   // node (plans are subcollection-scoped, so the workspace id is needed too).

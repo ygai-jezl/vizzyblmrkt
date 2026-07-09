@@ -129,11 +129,28 @@ export function NodeInspector({
 
       {node.type === "exit" ? (
         <ExitEditor
-          hasTarget={!!data.exitTargetPlanId}
+          kind={
+            data.exitTargetKind === "weekly"
+              ? "weekly"
+              : data.exitTargetPlanId
+                ? "sequence"
+                : "none"
+          }
           label={String(data.exitTargetLabel ?? "")}
-          onSetTarget={(t) => onUpdate(node.id, t)}
+          onSetSequence={(t) =>
+            onUpdate(node.id, { exitTargetKind: "sequence", ...t })
+          }
+          onSetWeekly={() =>
+            onUpdate(node.id, {
+              exitTargetKind: "weekly",
+              exitTargetLabel: "Weekly newsletter",
+              exitTargetPlanId: undefined,
+              exitTargetWorkspaceId: undefined,
+            })
+          }
           onClear={() =>
             onUpdate(node.id, {
+              exitTargetKind: undefined,
               exitTargetPlanId: undefined,
               exitTargetWorkspaceId: undefined,
               exitTargetLabel: undefined,
@@ -158,26 +175,29 @@ type ExitSeq = {
 type ExitData = { hasWorkspace: boolean; firstWorkspaceId: string | null; sequences: ExitSeq[] };
 
 /**
- * Exit-node editor: pick the email sequence this exit hands off into, clear it
- * back to a plain terminal, or — when none exist — deep-link to create one
- * (the parent saves the journey before navigating). Reuses the same
+ * Exit-node editor: subscribe the recipient to the weekly newsletter (the
+ * executed handoff), hand off into an email sequence (authoring-only for now),
+ * clear back to a plain terminal, or — when no sequences exist — deep-link to
+ * create one (the parent saves the journey before navigating). Reuses the same
  * /api/admin/email-sequences picker data as the toolbar "Add exit" control.
  */
 function ExitEditor({
-  hasTarget,
+  kind,
   label,
-  onSetTarget,
+  onSetSequence,
+  onSetWeekly,
   onClear,
   onCreateSequence,
   onCreateWorkspace,
 }: {
-  hasTarget: boolean;
+  kind: "none" | "sequence" | "weekly";
   label: string;
-  onSetTarget: (t: {
+  onSetSequence: (t: {
     exitTargetPlanId: string;
     exitTargetWorkspaceId: string;
     exitTargetLabel: string;
   }) => void;
+  onSetWeekly: () => void;
   onClear: () => void;
   onCreateSequence: (workspaceId: string) => void | Promise<void>;
   onCreateWorkspace: () => void | Promise<void>;
@@ -208,17 +228,19 @@ function ExitEditor({
   return (
     <div className="space-y-3">
       <p className="text-sm text-neutral-500">
-        The journey ends here. Optionally hand the recipient off into another
-        email sequence when they reach this exit.
+        The journey ends here. Optionally subscribe the recipient to the weekly
+        newsletter, or hand them off into another email sequence.
       </p>
 
       <div className="rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
         <div className="mb-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">
-          Hand off to
+          Handoff
         </div>
-        {hasTarget ? (
+        {kind !== "none" ? (
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-medium">→ {label || "sequence"}</span>
+            <span className="truncate font-medium">
+              → {kind === "weekly" ? "Weekly newsletter" : label || "sequence"}
+            </span>
             <button
               type="button"
               onClick={onClear}
@@ -234,6 +256,16 @@ function ExitEditor({
         )}
       </div>
 
+      {kind !== "weekly" ? (
+        <button
+          type="button"
+          onClick={onSetWeekly}
+          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        >
+          📰 Subscribe to the weekly newsletter
+        </button>
+      ) : null}
+
       {loading ? (
         <div className="text-xs text-neutral-500">Loading sequences…</div>
       ) : error ? (
@@ -242,13 +274,13 @@ function ExitEditor({
         </div>
       ) : data && data.sequences.length > 0 ? (
         <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-          Choose a sequence
+          Or hand off to a sequence
           <select
             value=""
             onChange={(e) => {
               const s = data.sequences.find((x) => x.planId === e.target.value);
               if (s)
-                onSetTarget({
+                onSetSequence({
                   exitTargetPlanId: s.planId,
                   exitTargetWorkspaceId: s.workspaceId,
                   exitTargetLabel: s.name,

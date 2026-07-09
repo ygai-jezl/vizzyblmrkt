@@ -40,6 +40,15 @@ export function EbookStudio({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const didInit = useRef(false);
+  // Debounced auto-save for ToC-review edits (title/subtitle/chapter title/summary/add/
+  // remove/reorder). Those go through onLocalChange (local state only) and were otherwise
+  // never persisted until "Confirm table of contents" — so leaving mid-edit lost them.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<EbookDoc | null>(null);
+  // All PATCH /ebook writes (auto-save + explicit persist) run through ONE serial chain so
+  // ordering is guaranteed — an already-fired auto-save can't land AFTER Confirm-ToC and
+  // revert tocConfirmed (the reason a plain fire-and-forget was racy).
+  const saveChainRef = useRef<Promise<unknown>>(Promise.resolve());
   // The image composer (Create-image), opened from a slot / cover / the chat "+" menu.
   const [composer, setComposer] = useState<{
     target: EbookImageTarget | null;
@@ -81,25 +90,76 @@ export function EbookStudio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function persist(next: EbookDoc): Promise<EbookDoc | null> {
-    try {
-      const res = await fetch(`${base}/ebook`, {
-        method: "PATCH",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ ebook: next }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ebook?: EbookDoc };
-      if (res.ok && data.ebook) {
-        setEbook(data.ebook);
-        return data.ebook;
-      }
-      setErr("Couldn't save your changes.");
-      return null;
-    } catch {
-      setErr("Couldn't save your changes.");
-      return null;
+  // Clear a not-yet-fired auto-save (an explicit save supersedes it). If the debounce has
+  // already FIRED, its PATCH is already in the serial chain BEFORE the explicit save, so the
+  // explicit save still commits last — no revert.
+  function cancelPendingSave() {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
     }
+    pendingSaveRef.current = null;
   }
+
+  /** One PATCH /ebook, run in submission order via the serial chain. */
+  function enqueueSave(doc: EbookDoc, echo: boolean): Promise<EbookDoc | null> {
+    const run = saveChainRef.current.then(async () => {
+      try {
+        const res = await fetch(`${base}/ebook`, {
+          method: "PATCH",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ ebook: doc }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { ebook?: EbookDoc };
+        if (res.ok && data.ebook) {
+          if (echo) setEbook(data.ebook); // don't echo an auto-save — avoids a cursor jump mid-typing
+          return data.ebook;
+        }
+        setErr("Couldn't save your changes.");
+        return null;
+      } catch {
+        setErr("Couldn't save your changes.");
+        return null;
+      }
+    });
+    saveChainRef.current = run.catch(() => {}); // keep the chain alive on error
+    return run;
+  }
+
+  /** Explicit save (ToC/chapter confirm, chapter edit, image resize/remove). */
+  function persist(next: EbookDoc): Promise<EbookDoc | null> {
+    cancelPendingSave();
+    return enqueueSave(next, true);
+  }
+
+  /** Apply an authoritative server snapshot (chat/image routes) — cancel any pending auto-save
+   *  first so a stale ToC-era doc can't later overwrite the snapshot. */
+  function applyServerEbook(e: EbookDoc) {
+    cancelPendingSave();
+    setEbook(e);
+  }
+
+  /** Fire the pending auto-save now (debounce tick or on studio exit). */
+  function flushSave() {
+    const doc = pendingSaveRef.current;
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    pendingSaveRef.current = null;
+    if (doc) void enqueueSave(doc, false);
+  }
+
+  /** Local ToC edits: update state immediately, then persist after a short debounce. */
+  function handleLocalChange(next: EbookDoc) {
+    setEbook(next);
+    pendingSaveRef.current = next;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushSave, 700);
+  }
+
+  // Flush a pending ToC auto-save when the studio unmounts (operator navigates away).
+  useEffect(() => () => flushSave(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function generateChapter(chapterId: string) {
     if (!ebook) return;
@@ -224,7 +284,7 @@ export function EbookStudio({
     form.append("aspect", aspect);
     const res = await fetch(`${base}/ebook/images/upload`, { method: "POST", body: form });
     const data = (await res.json().catch(() => ({}))) as { ebook?: EbookDoc; message?: string };
-    if (res.ok && data.ebook) setEbook(data.ebook);
+    if (res.ok && data.ebook) applyServerEbook(data.ebook);
     else setErr(data.message ?? "Upload failed.");
   }
   const imageApi: EbookImageApi = {
@@ -261,12 +321,17 @@ export function EbookStudio({
     <div className="fixed inset-0 z-40 flex flex-col bg-white dark:bg-neutral-950">
       {/* Top bar */}
       <div className="flex items-center gap-3 border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
-        <Link href={`/admin/workspace/${workspaceId}/create`} className="text-xs text-neutral-500 hover:underline">
-          ← Create
+        <Link
+          href={`/admin/workspace/${workspaceId}/create`}
+          onClick={flushSave}
+          className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        >
+          ← Save &amp; exit
         </Link>
         <span className="text-sm font-semibold">📖 eBook studio</span>
         <span className="truncate text-xs text-neutral-400">{planName}</span>
-        {err ? <span className="ml-auto text-xs text-red-600 dark:text-red-400">{err}</span> : null}
+        <span className="ml-auto text-xs text-neutral-400">Auto-saves · resume any time from Create</span>
+        {err ? <span className="text-xs text-red-600 dark:text-red-400">{err}</span> : null}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -276,7 +341,7 @@ export function EbookStudio({
             <EbookChatColumn
               workspaceId={workspaceId}
               planId={planId}
-              onEbook={setEbook}
+              onEbook={applyServerEbook}
               onCreateImage={() => openComposer(null, "", "create")}
               // Persist un-confirmed local edits (toc_review inline title/summary) before the
               // chat mutates the persisted draft, so the returned snapshot doesn't wipe them.
@@ -309,7 +374,7 @@ export function EbookStudio({
               streaming={streaming}
               currentIndex={currentIndex}
               busy={busy}
-              onLocalChange={setEbook}
+              onLocalChange={handleLocalChange}
               onConfirmToc={confirmToc}
               onGenerateChapter={generateChapter}
               onConfirmChapter={confirmChapter}
@@ -333,7 +398,7 @@ export function EbookStudio({
             seedAspect={composer.aspect}
             hasImage={composerHasImage}
             chapters={(ebook?.chapters ?? []).map((c) => ({ id: c.id, title: c.title }))}
-            onEbook={setEbook}
+            onEbook={applyServerEbook}
             onClose={() => setComposer(null)}
           />
         </Modal>

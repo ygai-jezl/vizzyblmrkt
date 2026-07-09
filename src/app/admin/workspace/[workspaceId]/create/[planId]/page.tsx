@@ -1,8 +1,9 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { getContentPlan, listTemplates } from "@/lib/tenant/workspaceContent";
+import { isEbookUiEnabled } from "@/lib/content/create/ebook";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,12 @@ export default async function ContentPlanPage({
     listTemplates(ctx, workspaceId),
   ]);
   if (!plan) notFound();
+
+  // An eBook that hasn't been finalized (no graph yet) has no canvas to show — send the
+  // operator back into the authoring studio to resume (also covers a stale/bookmarked URL).
+  if (isEbookUiEnabled() && plan.topology.hubChannel === "ebook" && plan.graph.nodes.length === 0) {
+    redirect(`/admin/workspace/${workspaceId}/create/${planId}/ebook`);
+  }
 
   const templateOptions = templates.map((t) => ({
     id: t.id,

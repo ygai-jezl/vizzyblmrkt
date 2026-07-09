@@ -4,7 +4,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
-import { listSchedulableNodes, friendlyScheduleError } from "@/lib/distribute/uiModel";
+import {
+  listSchedulableNodes,
+  friendlyScheduleError,
+  type CalendarNewsletter,
+} from "@/lib/distribute/uiModel";
 import { scorePPS } from "@/lib/distribute/pps";
 import { channelLabel } from "@/lib/content/channels";
 import { PpsGauge } from "./PpsGauge";
@@ -28,10 +32,12 @@ export function DistributeClient({
   workspaceId,
   initialPlans,
   initialPosts,
+  initialNewsletters = [],
 }: {
   workspaceId: string;
   initialPlans: ContentPlan[];
   initialPosts: ScheduledPost[];
+  initialNewsletters?: CalendarNewsletter[];
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>("list");
@@ -210,6 +216,7 @@ export function DistributeClient({
       {view === "list" ? (
         <ListView
           posts={initialPosts}
+          newsletters={initialNewsletters}
           onReschedule={reschedule}
           onCancel={cancel}
           onSetSpintax={setSpintax}
@@ -219,6 +226,7 @@ export function DistributeClient({
       ) : (
         <CalendarView
           posts={initialPosts}
+          newsletters={initialNewsletters}
           onReschedule={reschedule}
           onCancel={cancel}
           onSetSpintax={setSpintax}

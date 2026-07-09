@@ -2,8 +2,15 @@
 
 import { useState } from "react";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
-import { mondayUTC, weekDateKeys, groupPostsByDate } from "@/lib/distribute/uiModel";
+import {
+  mondayUTC,
+  weekDateKeys,
+  groupPostsByDate,
+  groupNewslettersByDate,
+  type CalendarNewsletter,
+} from "@/lib/distribute/uiModel";
 import { PostCard } from "./PostCard";
+import { NewsletterChip } from "./NewsletterChip";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -14,6 +21,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
  */
 export function CalendarView({
   posts,
+  newsletters,
   onReschedule,
   onCancel,
   onSetSpintax,
@@ -21,6 +29,7 @@ export function CalendarView({
   busy,
 }: {
   posts: ScheduledPost[];
+  newsletters: CalendarNewsletter[];
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
   onSetSpintax: (post: ScheduledPost, source: string) => void;
@@ -30,6 +39,7 @@ export function CalendarView({
   const [weekStart, setWeekStart] = useState(() => mondayUTC(Date.now()));
   const days = weekDateKeys(weekStart);
   const byDate = groupPostsByDate(posts);
+  const nlByDate = groupNewslettersByDate(newsletters);
 
   return (
     <div className="space-y-3">
@@ -56,6 +66,7 @@ export function CalendarView({
       <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
         {days.map((d, i) => {
           const dayPosts = byDate.get(d) ?? [];
+          const dayNewsletters = nlByDate.get(d) ?? [];
           return (
             <div
               key={d}
@@ -65,6 +76,9 @@ export function CalendarView({
                 {WEEKDAYS[i]} {d.slice(5)}
               </div>
               <div className="space-y-1">
+                {dayNewsletters.map((n) => (
+                  <NewsletterChip key={n.id} item={n} />
+                ))}
                 {dayPosts.map((p) => (
                   <PostCard
                     key={p.id}

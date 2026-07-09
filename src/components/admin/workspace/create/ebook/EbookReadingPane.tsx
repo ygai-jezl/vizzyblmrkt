@@ -72,10 +72,12 @@ export function EbookReadingPane({
   }
 
   function chapterState(i: number, chapter: EbookChapter): ChapterState {
-    if (i < currentIndex) return "confirmed";
-    if (i > currentIndex) return "locked";
+    // Status-driven (not purely positional) so a chat reorder that moves an unconfirmed
+    // chapter ahead of confirmed ones never renders a confirmed chapter as "locked".
     if (streaming?.chapterId === chapter.id) return "streaming";
-    return chapter.status === "generated" || chapter.status === "confirmed" ? "generated" : "planned";
+    if (chapter.status === "confirmed") return "confirmed";
+    if (i === currentIndex) return chapter.status === "generated" ? "generated" : "planned";
+    return "locked";
   }
 
   return (

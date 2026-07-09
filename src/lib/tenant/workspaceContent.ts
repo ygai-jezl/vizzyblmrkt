@@ -12,11 +12,13 @@ import {
   ContentNodeSchema,
   EbookDocSchema,
   EbookChapterSchema,
+  CONTENT_PLAN_LIMITS,
   type ContentPlan,
   type ContentNode,
   type EbookDoc,
   type EbookChapter,
 } from "@/lib/types/contentPlan";
+import { sanitizeEbookHtmlCapped, reconcileChapterImages } from "@/lib/content/create/ebookHtml";
 
 /**
  * Tenant-layer access for a workspace's Content OS subcollections:
@@ -509,6 +511,47 @@ export async function updateContentPlanChapter(
     const nextDraft = EbookDocSchema.parse({ ...draft, chapters });
     tx.update(ref, { ebookDraft: nextDraft, updatedAt: new Date().toISOString() });
     return nextChapter;
+  });
+}
+
+/**
+ * Apply a pure read-modify-write to the eBook draft ATOMICALLY: reads the CURRENT
+ * `ebookDraft` inside the transaction, runs `mutate`, then server-authoritatively
+ * re-sanitizes + caps every chapter body (so no mutate fn — a chat op, an image insert —
+ * can ever persist unsafe or oversized markup), validates, and writes. This is the write
+ * path for chat ops (applyEbookOps) and image-slot updates: because it re-reads inside the
+ * tx, it never clobbers a concurrent write the way a client-supplied whole-doc replace can.
+ * Returns the persisted draft, or null if the plan/draft is gone or not owned by the caller.
+ */
+export async function mutateContentPlanEbookDraft(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  mutate: (draft: EbookDoc) => EbookDoc,
+): Promise<EbookDoc | null> {
+  const db = getDb(databaseIdForRegion(ctx.region));
+  const ref = workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const parsed = ContentPlanSchema.safeParse(snap.data());
+    if (!parsed.success) return null;
+    const plan = parsed.data;
+    if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
+    if (!plan.ebookDraft) return null;
+    const mutated = mutate(plan.ebookDraft);
+    const safe: EbookDoc = {
+      ...mutated,
+      chapters: mutated.chapters.map((c) => {
+        // Sanitize + cap the body, then reconcile image slots against it: if the cap truncated
+        // an anchor, its slot is dropped so bodyHtml and images[] can never disagree.
+        const bodyHtml = sanitizeEbookHtmlCapped(c.bodyHtml, CONTENT_PLAN_LIMITS.MAX_CHAPTER_CHARS);
+        return { ...c, bodyHtml, images: reconcileChapterImages(bodyHtml, c.images) };
+      }),
+    };
+    const next = EbookDocSchema.parse(safe);
+    tx.update(ref, { ebookDraft: next, updatedAt: new Date().toISOString() });
+    return next;
   });
 }
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { EbookChapter, EbookDoc } from "@/lib/types/contentPlan";
 import { EbookReadingPane } from "./EbookReadingPane";
+import { EbookChatColumn } from "./EbookChatColumn";
 
 export type EbookPhase = "toc_loading" | "toc_review" | "chapters" | "finalizing" | "done" | "error";
 
@@ -209,18 +210,25 @@ export function EbookStudio({
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* LEFT — assistant / guidance column (chat proper lands in v2). */}
-        <aside className="hidden w-[360px] shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800 md:flex">
-          <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
-            <p className="font-medium">Studio guide</p>
-            <StepGuide phase={phase} />
-          </div>
-          <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
-            <div className="flex items-center gap-2 rounded-full border border-neutral-200 px-3 py-2 text-sm text-neutral-400 dark:border-neutral-800">
-              <span>＋</span>
-              <span className="flex-1">Chat editing &amp; image generation arrive next…</span>
+        {/* LEFT — the editing chat (once there's a draft to edit); a step guide otherwise. */}
+        <aside className="hidden w-[380px] shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800 md:flex">
+          {ebook && (phase === "toc_review" || phase === "chapters") ? (
+            <EbookChatColumn
+              workspaceId={workspaceId}
+              planId={planId}
+              onEbook={setEbook}
+              // Persist un-confirmed local edits (toc_review inline title/summary) before the
+              // chat mutates the persisted draft, so the returned snapshot doesn't wipe them.
+              onBeforeSend={async () => {
+                if (ebook) await persist(ebook);
+              }}
+            />
+          ) : (
+            <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+              <p className="font-medium">Studio guide</p>
+              <StepGuide phase={phase} />
             </div>
-          </div>
+          )}
         </aside>
 
         {/* RIGHT — the book. */}

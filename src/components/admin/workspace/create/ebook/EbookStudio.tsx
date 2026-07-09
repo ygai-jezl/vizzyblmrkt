@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { EbookChapter, EbookDoc } from "@/lib/types/contentPlan";
+import type { EbookChapter, EbookDoc, EbookImageSlot } from "@/lib/types/contentPlan";
+import { applyEbookOps, type EbookImageTarget } from "@/lib/content/create/ebookOps";
+import { Modal } from "@/components/admin/email/Modal";
 import { EbookReadingPane } from "./EbookReadingPane";
 import { EbookChatColumn } from "./EbookChatColumn";
+import { EbookImageComposer } from "./EbookImageComposer";
+import type { EbookImageApi } from "./imageApi";
 
 export type EbookPhase = "toc_loading" | "toc_review" | "chapters" | "finalizing" | "done" | "error";
 
@@ -36,6 +40,13 @@ export function EbookStudio({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const didInit = useRef(false);
+  // The image composer (Create-image), opened from a slot / cover / the chat "+" menu.
+  const [composer, setComposer] = useState<{
+    target: EbookImageTarget | null;
+    brief: string;
+    mode: "create" | "edit";
+    aspect: EbookImageSlot["aspect"];
+  } | null>(null);
 
   // First unconfirmed chapter — the "current" one in the confirm-by-confirm flow.
   const currentIndex = ebook
@@ -197,6 +208,55 @@ export function EbookStudio({
     setPhase("chapters");
   }
 
+  // ── Images (Slice 2b) ─────────────────────────────────────────────────────
+  function openComposer(
+    target: EbookImageTarget | null,
+    brief: string,
+    mode: "create" | "edit",
+    aspect: EbookImageSlot["aspect"] = "1:1",
+  ) {
+    setComposer({ target, brief, mode, aspect });
+  }
+  async function uploadImage(target: EbookImageTarget, file: File, aspect: EbookImageSlot["aspect"]) {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("target", JSON.stringify(target));
+    form.append("aspect", aspect);
+    const res = await fetch(`${base}/ebook/images/upload`, { method: "POST", body: form });
+    const data = (await res.json().catch(() => ({}))) as { ebook?: EbookDoc; message?: string };
+    if (res.ok && data.ebook) setEbook(data.ebook);
+    else setErr(data.message ?? "Upload failed.");
+  }
+  const imageApi: EbookImageApi = {
+    assetUrl: (ref) => `/api/admin/workspace/${workspaceId}/asset/${ref}`,
+    onGenerate: (chapterId, slot) => openComposer({ kind: "slot", chapterId, slotId: slot.id }, slot.contextPrompt, "create", slot.aspect),
+    onEdit: (chapterId, slot) => openComposer({ kind: "slot", chapterId, slotId: slot.id }, "", "edit", slot.aspect),
+    onUpload: (chapterId, slot, file) => void uploadImage({ kind: "slot", chapterId, slotId: slot.id }, file, slot.aspect),
+    onRemove: (chapterId, slotId) => {
+      if (!ebook) return;
+      void persist(applyEbookOps(ebook, [{ op: "remove_image_slot", chapterId, slotId }]));
+    },
+    onResize: (chapterId, slotId, width) => {
+      if (!ebook) return;
+      void persist({
+        ...ebook,
+        chapters: ebook.chapters.map((c) =>
+          c.id === chapterId ? { ...c, images: c.images.map((s) => (s.id === slotId ? { ...s, width } : s)) } : c,
+        ),
+      });
+    },
+  };
+  const composerHasImage = (() => {
+    const t = composer?.target;
+    if (!t || !ebook) return false;
+    if (t.kind === "cover") return !!ebook.coverImage?.imageAssetRef;
+    if (t.kind === "slot") {
+      const slot = ebook.chapters.find((c) => c.id === t.chapterId)?.images.find((s) => s.id === t.slotId);
+      return !!slot?.imageAssetRef;
+    }
+    return false;
+  })();
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-white dark:bg-neutral-950">
       {/* Top bar */}
@@ -217,6 +277,7 @@ export function EbookStudio({
               workspaceId={workspaceId}
               planId={planId}
               onEbook={setEbook}
+              onCreateImage={() => openComposer(null, "", "create")}
               // Persist un-confirmed local edits (toc_review inline title/summary) before the
               // chat mutates the persisted draft, so the returned snapshot doesn't wipe them.
               onBeforeSend={async () => {
@@ -254,10 +315,29 @@ export function EbookStudio({
               onConfirmChapter={confirmChapter}
               onSaveChapter={saveChapter}
               onFinish={finish}
+              api={imageApi}
+              onGenerateCover={() => openComposer({ kind: "cover" }, "", "create", ebook.coverImage?.aspect ?? "1:1")}
             />
           )}
         </main>
       </div>
+
+      {composer ? (
+        <Modal open title={composer.target?.kind === "cover" ? "Cover image" : "Create image"} onClose={() => setComposer(null)}>
+          <EbookImageComposer
+            workspaceId={workspaceId}
+            planId={planId}
+            target={composer.target}
+            seedBrief={composer.brief}
+            seedMode={composer.mode}
+            seedAspect={composer.aspect}
+            hasImage={composerHasImage}
+            chapters={(ebook?.chapters ?? []).map((c) => ({ id: c.id, title: c.title }))}
+            onEbook={setEbook}
+            onClose={() => setComposer(null)}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

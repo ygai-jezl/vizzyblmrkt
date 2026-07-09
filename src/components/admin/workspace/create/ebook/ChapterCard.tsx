@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EbookChapter, EbookImageSlot } from "@/lib/types/contentPlan";
 import {
   splitChapterByImages,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/content/create/ebookHtml";
 import { ebookAspectRatioCss } from "@/lib/content/create/ebook";
 import { EbookChapterEditor } from "./EbookChapterEditor";
+import type { EbookImageApi } from "./imageApi";
 
 /** The gate state of a chapter within the confirm-by-confirm flow. */
 export type ChapterState = "locked" | "planned" | "streaming" | "generated" | "confirmed";
@@ -17,27 +18,105 @@ const PRIMARY =
 const SECONDARY =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900";
 
-/** An inline image slot: v1 renders an inert, aspect-framed placeholder card. */
-function SlotCard({ slot }: { slot: EbookImageSlot | undefined }) {
+const SLOT_CTRL = "rounded px-1.5 py-0.5 text-[11px] hover:bg-neutral-100 disabled:opacity-40 dark:hover:bg-neutral-800";
+
+/**
+ * An inline image slot. Placeholder → Generate / Upload / ✕. Generated → the image (served via
+ * the authenticated asset proxy) + a width slider + Edit / Regenerate / Upload / ✕. Inert when
+ * no `api` (e.g. inside the Tiptap editor's node view). Width drags locally, persists on release.
+ */
+function SlotCard({
+  slot,
+  chapterId,
+  api,
+}: {
+  slot: EbookImageSlot | undefined;
+  chapterId: string;
+  api?: EbookImageApi;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [w, setW] = useState(slot?.width ?? 100);
+  // Re-sync to the persisted width (revert a failed resize; reflect a server snapshot).
+  useEffect(() => {
+    if (slot) setW(slot.width);
+  }, [slot?.width]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!slot) return null;
+  const generated = slot.status === "generated" && !!slot.imageAssetRef;
+
+  const uploadInput = api ? (
+    <input
+      ref={fileRef}
+      type="file"
+      accept="image/png,image/jpeg,image/webp"
+      className="hidden"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) api.onUpload(chapterId, slot, f);
+        e.target.value = "";
+      }}
+    />
+  ) : null;
+
+  if (generated) {
+    return (
+      <div className="my-4 flex flex-col items-center">
+        <div style={{ width: `${w}%`, aspectRatio: ebookAspectRatioCss(slot.aspect) }} className="overflow-hidden rounded-md">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={api!.assetUrl(slot.imageAssetRef!)}
+            alt={slot.contextPrompt || "eBook illustration"}
+            className="h-full w-full object-cover"
+          />
+        </div>
+        {api ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            <input
+              type="range"
+              min={20}
+              max={100}
+              value={w}
+              onChange={(e) => setW(Number(e.target.value))}
+              onMouseUp={() => api.onResize(chapterId, slot.id, w)}
+              onTouchEnd={() => api.onResize(chapterId, slot.id, w)}
+              onKeyUp={() => api.onResize(chapterId, slot.id, w)}
+              className="w-24"
+              title={`Width ${w}%`}
+            />
+            <button type="button" onClick={() => api.onEdit(chapterId, slot)} className={SLOT_CTRL}>Edit</button>
+            <button type="button" onClick={() => api.onGenerate(chapterId, slot)} className={SLOT_CTRL}>Regenerate</button>
+            <button type="button" onClick={() => fileRef.current?.click()} className={SLOT_CTRL}>Upload</button>
+            <button type="button" onClick={() => api.onRemove(chapterId, slot.id)} className={`${SLOT_CTRL} text-red-600`}>✕</button>
+            {uploadInput}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
-    <div className="my-4 flex justify-center">
+    <div className="my-4 flex flex-col items-center">
       <div
         className="flex flex-col items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 p-4 text-center text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900/40"
         style={{ width: `${slot.width}%`, aspectRatio: ebookAspectRatioCss(slot.aspect) }}
       >
         <span aria-hidden className="text-lg">🖼</span>
         <span className="mt-1 line-clamp-3">{slot.contextPrompt || "Image placeholder"}</span>
-        <span className="mt-1 text-[10px] uppercase tracking-wide text-neutral-400">
-          {slot.aspect}
-        </span>
+        <span className="mt-1 text-[10px] uppercase tracking-wide text-neutral-400">{slot.aspect}</span>
       </div>
+      {api ? (
+        <div className="mt-1.5 flex items-center gap-2">
+          <button type="button" onClick={() => api.onGenerate(chapterId, slot)} className={SLOT_CTRL}>Generate</button>
+          <button type="button" onClick={() => fileRef.current?.click()} className={SLOT_CTRL}>Upload</button>
+          <button type="button" onClick={() => api.onRemove(chapterId, slot.id)} className={`${SLOT_CTRL} text-red-600`}>✕</button>
+          {uploadInput}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-/** Rendered (read) chapter: sanitized HTML segments interleaved with slot placeholder cards. */
-function ChapterContent({ chapter }: { chapter: EbookChapter }) {
+/** Rendered (read) chapter: sanitized HTML segments interleaved with interactive slot cards. */
+function ChapterContent({ chapter, api }: { chapter: EbookChapter; api?: EbookImageApi }) {
   const byId = new Map(chapter.images.map((s) => [s.id, s]));
   const segments = splitChapterByImages(chapter.bodyHtml);
   return (
@@ -47,7 +126,7 @@ function ChapterContent({ chapter }: { chapter: EbookChapter }) {
           // bodyHtml is server-sanitized (sanitizeEbookHtml) on every persist.
           <div key={i} dangerouslySetInnerHTML={{ __html: seg.html }} />
         ) : (
-          <SlotCard key={i} slot={byId.get(seg.slotId)} />
+          <SlotCard key={seg.slotId} slot={byId.get(seg.slotId)} chapterId={chapter.id} api={api} />
         ),
       )}
     </div>
@@ -61,6 +140,7 @@ export function ChapterCard({
   state,
   streamingText,
   busy,
+  api,
   onGenerate,
   onConfirm,
   onSaveEdit,
@@ -71,6 +151,7 @@ export function ChapterCard({
   state: ChapterState;
   streamingText: string;
   busy: boolean;
+  api?: EbookImageApi;
   onGenerate: () => void;
   onConfirm: (andContinue: boolean) => void;
   onSaveEdit: (next: EbookChapter) => void;
@@ -148,7 +229,7 @@ export function ChapterCard({
             </>
           ) : (
             <>
-              <ChapterContent chapter={chapter} />
+              <ChapterContent chapter={chapter} api={api} />
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button type="button" onClick={() => { setDraft(chapter.bodyHtml); setEditing(true); }} className={SECONDARY}>
                   Edit

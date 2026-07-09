@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyEbookOps, extractEbookOps, EbookOpSchema, type EbookOp } from "./ebookOps";
+import { applyEbookOps, applyGeneratedImage, draftHasImageRef, extractEbookOps, EbookOpSchema, type EbookOp } from "./ebookOps";
 import { buildImageAnchor } from "./ebookHtml";
 import { CONTENT_PLAN_LIMITS, type EbookDoc, type EbookChapter } from "@/lib/types/contentPlan";
 
@@ -104,6 +104,54 @@ describe("applyEbookOps — bodies + image slots", () => {
     const out = applyEbookOps(withImg, [{ op: "remove_image_slot", chapterId: "c1", slotId: "img_1" }]);
     expect(out.chapters[0]!.images).toHaveLength(0);
     expect(out.chapters[0]!.bodyHtml).not.toContain("data-ebook-image");
+  });
+});
+
+describe("applyGeneratedImage", () => {
+  const img = { imageAssetRef: "abc.png", imagePrompt: "a prompt", aspect: "1:4" as const, contextPrompt: "a hero" };
+
+  it("cover: sets EbookDoc.coverImage (generated)", () => {
+    const out = applyGeneratedImage(book(), { kind: "cover" }, img, () => "ns1");
+    expect(out.coverImage).toMatchObject({ id: "ns1", status: "generated", imageAssetRef: "abc.png", aspect: "1:4" });
+  });
+
+  it("slot: updates an existing slot in place; unknown slot is a no-op", () => {
+    const withSlot = book({
+      chapters: [chapter("c1", { images: [{ id: "img_1", status: "placeholder", imageAssetRef: null, aspect: "1:1", width: 100, contextPrompt: "seed", imagePrompt: null }] })],
+    });
+    const out = applyGeneratedImage(withSlot, { kind: "slot", chapterId: "c1", slotId: "img_1" }, img);
+    expect(out.chapters[0]!.images[0]).toMatchObject({ id: "img_1", status: "generated", imageAssetRef: "abc.png", aspect: "1:4" });
+    // unknown slot → unchanged
+    expect(applyGeneratedImage(withSlot, { kind: "slot", chapterId: "c1", slotId: "ghost" }, img)).toEqual(withSlot);
+  });
+
+  it("new: appends a generated slot + anchor; cap-guards a near-max body", () => {
+    const out = applyGeneratedImage(book(), { kind: "new", chapterId: "c1" }, img, () => "ns1");
+    const c1 = out.chapters[0]!;
+    expect(c1.images).toHaveLength(1);
+    expect(c1.images[0]).toMatchObject({ id: "ns1", status: "generated", imageAssetRef: "abc.png" });
+    expect(c1.bodyHtml).toContain(buildImageAnchor("ns1"));
+
+    const nearMax = book({ chapters: [chapter("c1", { bodyHtml: "x".repeat(CONTENT_PLAN_LIMITS.MAX_CHAPTER_CHARS - 10) })] });
+    const guarded = applyGeneratedImage(nearMax, { kind: "new", chapterId: "c1" }, img, () => "ns1");
+    expect(guarded.chapters[0]!.images).toHaveLength(0); // no room for the anchor
+  });
+});
+
+describe("draftHasImageRef", () => {
+  const img = { imageAssetRef: "ref.png", imagePrompt: null, aspect: "1:1" as const };
+  it("detects a ref at slot / new / cover targets, and its absence when the mutate no-op'd", () => {
+    const coverDoc = applyGeneratedImage(book(), { kind: "cover" }, img, () => "n1");
+    expect(draftHasImageRef(coverDoc, { kind: "cover" }, "ref.png")).toBe(true);
+    expect(draftHasImageRef(book(), { kind: "cover" }, "ref.png")).toBe(false);
+
+    const newDoc = applyGeneratedImage(book(), { kind: "new", chapterId: "c1" }, img, () => "n1");
+    expect(draftHasImageRef(newDoc, { kind: "new", chapterId: "c1" }, "ref.png")).toBe(true);
+
+    // A "new" against a full chapter no-ops → ref absent.
+    const full = book({ chapters: [chapter("c1", { images: Array.from({ length: CONTENT_PLAN_LIMITS.MAX_IMAGES_PER_CHAPTER }, (_, i) => ({ id: `i${i}`, status: "generated" as const, imageAssetRef: `x${i}.png`, aspect: "1:1" as const, width: 100, contextPrompt: "", imagePrompt: null })) })] });
+    const noop = applyGeneratedImage(full, { kind: "new", chapterId: "c1" }, img, () => "n1");
+    expect(draftHasImageRef(noop, { kind: "new", chapterId: "c1" }, "ref.png")).toBe(false);
   });
 });
 

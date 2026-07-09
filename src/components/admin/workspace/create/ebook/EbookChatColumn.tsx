@@ -18,17 +18,36 @@ export function EbookChatColumn({
   planId,
   onEbook,
   onBeforeSend,
+  onCreateImage,
 }: {
   workspaceId: string;
   planId: string;
   onEbook: (ebook: EbookDoc) => void;
   onBeforeSend?: () => Promise<void>;
+  onCreateImage?: () => void;
 }) {
   const { messages, isLoading, isStreaming, sendMessage } = useEbookChat({ workspaceId, planId, onEbook, onBeforeSend });
   const [prompt, setPrompt] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { resetHeight } = useAutoResizeTextarea(textareaRef, { minHeight: 24, maxHeight: 160, value: prompt });
+
+  // Close the "+" menu on outside click / Escape (mirrors ModelSelector).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // Busy the whole turn (isLoading clears at the first token; isStreaming stays true until done),
   // so a mid-stream second submit can't interleave into the shared accumulator/message.
@@ -99,14 +118,31 @@ export function EbookChatColumn({
           onSubmit={submit}
           className="flex items-end gap-2 rounded-[24px] border border-neutral-200 bg-white px-3 py-2 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
         >
-          <button
-            type="button"
-            title="Create image — coming in the next update"
-            disabled
-            className="flex h-8 w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600"
-          >
-            <Plus size={18} />
-          </button>
+          <div ref={menuRef} className="relative shrink-0">
+            <button
+              type="button"
+              title="Create image"
+              onClick={() => (onCreateImage ? setMenuOpen((o) => !o) : undefined)}
+              disabled={!onCreateImage}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-300 dark:hover:bg-neutral-800 dark:disabled:text-neutral-600"
+            >
+              <Plus size={18} />
+            </button>
+            {menuOpen ? (
+              <div className="absolute bottom-full left-0 z-50 mb-2 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onCreateImage?.();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  <span aria-hidden>🖼</span> Create image
+                </button>
+              </div>
+            ) : null}
+          </div>
           <textarea
             ref={textareaRef}
             value={prompt}

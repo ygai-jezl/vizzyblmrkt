@@ -38,6 +38,65 @@ export function ebookAspectRatioCss(aspect: EbookAspect): string {
  */
 export const EBOOK_IMAGE_INLINE_MAX_BYTES = 7 * 1024 * 1024;
 
+/** The model's documented per-prompt input-image ceiling for the edit path. */
+export const EBOOK_IMAGE_EDIT_MAX_INPUTS = 14;
+
+/**
+ * Art-direction style presets for eBook images. Same `{id,label,hint,keywords}` shape as
+ * SOCIAL_IMAGE_STYLES but tuned for book illustration (illustration-leaning default rather
+ * than photographic). `keywords` lead the expanded image prompt.
+ */
+export interface EbookImageStyle {
+  id: string;
+  label: string;
+  hint: string;
+  keywords: string;
+}
+
+export const EBOOK_IMAGE_STYLES: EbookImageStyle[] = [
+  {
+    id: "editorial",
+    label: "Editorial illustration",
+    hint: "Clean modern editorial art",
+    keywords:
+      "modern editorial illustration, flat vector shapes, limited confident palette, clean linework, generous negative space",
+  },
+  {
+    id: "photographic",
+    label: "Photographic",
+    hint: "Realistic photography",
+    keywords: "photorealistic, natural soft lighting, shallow depth of field, candid, high detail",
+  },
+  {
+    id: "minimal",
+    label: "Minimal line",
+    hint: "Simple single-weight line art",
+    keywords: "minimal single-weight line drawing, monochrome, lots of white space, elegant and restrained",
+  },
+  {
+    id: "diagram",
+    label: "Diagrammatic",
+    hint: "Explanatory diagram / schematic",
+    keywords: "clean explanatory diagram, labelled schematic feel, geometric isometric forms, muted infographic palette",
+  },
+  {
+    id: "watercolor",
+    label: "Watercolor",
+    hint: "Soft painted texture",
+    keywords: "soft watercolor wash, organic texture, gentle gradients, hand-painted warmth",
+  },
+];
+
+/** Tuple of style ids for zod route validation (kept in lockstep with EBOOK_IMAGE_STYLES; a test asserts it). */
+export const EBOOK_IMAGE_STYLE_IDS = ["editorial", "photographic", "minimal", "diagram", "watercolor"] as const;
+export type EbookImageStyleId = (typeof EBOOK_IMAGE_STYLE_IDS)[number];
+export const DEFAULT_EBOOK_IMAGE_STYLE: EbookImageStyleId = "editorial";
+
+/** Resolve a style id → preset (falls back to the first preset for an unknown id). */
+export function ebookImageStyle(id: string): EbookImageStyle {
+  return EBOOK_IMAGE_STYLES.find((s) => s.id === id) ?? EBOOK_IMAGE_STYLES[0]!;
+}
+
 /** Server flag — every studio route 503s unless this is on. */
 export function isEbookEnabled(): boolean {
   return process.env.CREATE_EBOOK_ENABLED === "true";

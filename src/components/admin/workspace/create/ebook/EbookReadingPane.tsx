@@ -2,7 +2,9 @@
 
 import type { EbookChapter, EbookDoc } from "@/lib/types/contentPlan";
 import { CONTENT_PLAN_LIMITS } from "@/lib/types/contentPlan";
+import { ebookAspectRatioCss } from "@/lib/content/create/ebook";
 import { ChapterCard, type ChapterState } from "./ChapterCard";
+import type { EbookImageApi } from "./imageApi";
 import type { EbookPhase } from "./EbookStudio";
 
 const PRIMARY =
@@ -28,6 +30,8 @@ export function EbookReadingPane({
   onConfirmChapter,
   onSaveChapter,
   onFinish,
+  api,
+  onGenerateCover,
 }: {
   ebook: EbookDoc;
   phase: EbookPhase;
@@ -40,6 +44,8 @@ export function EbookReadingPane({
   onConfirmChapter: (chapterId: string, andContinue: boolean) => void;
   onSaveChapter: (chapter: EbookChapter) => void;
   onFinish: () => void;
+  api?: EbookImageApi;
+  onGenerateCover?: () => void;
 }) {
   const reviewing = phase === "toc_review";
   const allConfirmed = ebook.chapters.length > 0 && currentIndex >= ebook.chapters.length;
@@ -108,6 +114,27 @@ export function EbookReadingPane({
         {ebook.industryLens ? (
           <p className="mt-3 text-xs uppercase tracking-wide text-neutral-400">{ebook.industryLens}</p>
         ) : null}
+
+        {/* Cover image — generated art or a prompt to create one. */}
+        {api ? (
+          ebook.coverImage?.imageAssetRef ? (
+            <div className="mt-4 flex items-center gap-3">
+              <div style={{ aspectRatio: ebookAspectRatioCss(ebook.coverImage.aspect) }} className="w-40 overflow-hidden rounded-md">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={api.assetUrl(ebook.coverImage.imageAssetRef)} alt="eBook cover" className="h-full w-full object-cover" />
+              </div>
+              {onGenerateCover ? (
+                <button type="button" onClick={onGenerateCover} className={SECONDARY}>
+                  Change cover
+                </button>
+              ) : null}
+            </div>
+          ) : onGenerateCover ? (
+            <button type="button" onClick={onGenerateCover} className={`${SECONDARY} mt-4`}>
+              🖼 Generate cover
+            </button>
+          ) : null
+        ) : null}
       </header>
 
       {/* TOC REVIEW — shape the outline, then confirm. */}
@@ -166,6 +193,7 @@ export function EbookReadingPane({
               state={chapterState(i, c)}
               streamingText={streaming?.chapterId === c.id ? streaming.text : ""}
               busy={busy}
+              api={api}
               onGenerate={() => onGenerateChapter(c.id)}
               onConfirm={(andContinue) => onConfirmChapter(c.id, andContinue)}
               onSaveEdit={onSaveChapter}

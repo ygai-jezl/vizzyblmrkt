@@ -495,15 +495,22 @@ function EmailFrame({ node, view, brandName }: FrameProps) {
 }
 
 // ── eBook (hub) ──────────────────────────────────────────────────────────────
-function EbookFrame({ node, view, brandName }: FrameProps) {
+function EbookFrame({ node, view, brandName, workspaceId }: FrameProps) {
   const ebook = node.ebook ?? null;
   const brand = brandName || "Your Brand";
   const chapters = ebook?.chapters ?? [];
+  const coverRef = ebook?.coverImage?.imageAssetRef;
+  const coverUrl = coverRef && workspaceId ? `/api/admin/workspace/${workspaceId}/asset/${coverRef}` : null;
   if (view === "feed" || !ebook) {
-    // The "cover" — title, subtitle, chapter count.
+    // The "cover" — cover art (if any), title, subtitle, chapter count.
     return (
       <div className="rounded-lg border border-black/10 bg-white px-6 py-8 text-center dark:border-white/10 dark:bg-neutral-950">
-        <div className="text-4xl">📖</div>
+        {coverUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverUrl} alt="eBook cover" className="mx-auto mb-3 max-h-40 rounded-md object-contain" />
+        ) : (
+          <div className="text-4xl">📖</div>
+        )}
         <h3 className="mt-3 text-2xl font-bold leading-snug">{ebook?.title || node.role}</h3>
         {ebook?.subtitle ? <p className="mt-2 text-sm text-neutral-500">{ebook.subtitle}</p> : null}
         <div className="mt-4 text-xs uppercase tracking-wide text-neutral-400">

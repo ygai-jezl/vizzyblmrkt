@@ -157,6 +157,78 @@ function applyOne(
   }
 }
 
+/** Where a generated/uploaded image lands: an existing slot, a new slot in a chapter, or the cover. */
+export type EbookImageTarget =
+  | { kind: "slot"; chapterId: string; slotId: string }
+  | { kind: "new"; chapterId: string }
+  | { kind: "cover" };
+
+/**
+ * Write a generated/uploaded image result onto the draft — PURE. `slot` updates an existing
+ * slot in place; `new` appends a generated slot + anchor to the chapter (cap-guarded, so a
+ * near-max body can't orphan it); `cover` sets EbookDoc.coverImage. Unknown chapter/slot ids
+ * are a no-op. The transactional mutator re-sanitizes/reconciles after this runs.
+ */
+export function applyGeneratedImage(
+  draft: EbookDoc,
+  target: EbookImageTarget,
+  image: { imageAssetRef: string; imagePrompt: string | null; aspect: EbookImageSlot["aspect"]; contextPrompt?: string },
+  makeSlotId: () => string = () => `img_${crypto.randomUUID()}`,
+): EbookDoc {
+  const { MAX_IMAGES_PER_CHAPTER, MAX_CHAPTER_CHARS } = CONTENT_PLAN_LIMITS;
+  if (target.kind === "cover") {
+    const prev = draft.coverImage;
+    return {
+      ...draft,
+      coverImage: {
+        id: prev?.id ?? makeSlotId(),
+        status: "generated",
+        imageAssetRef: image.imageAssetRef,
+        imagePrompt: image.imagePrompt ?? null,
+        aspect: image.aspect,
+        width: prev?.width ?? 100,
+        contextPrompt: image.contextPrompt ?? prev?.contextPrompt ?? "",
+      },
+    };
+  }
+  if (target.kind === "slot") {
+    return mapChapter(draft, target.chapterId, (c) => ({
+      ...c,
+      images: c.images.map((s) =>
+        s.id === target.slotId
+          ? { ...s, status: "generated" as const, imageAssetRef: image.imageAssetRef, imagePrompt: image.imagePrompt ?? null, aspect: image.aspect }
+          : s,
+      ),
+    }));
+  }
+  // "new"
+  return mapChapter(draft, target.chapterId, (c) => {
+    if (c.images.length >= MAX_IMAGES_PER_CHAPTER) return c;
+    const slot: EbookImageSlot = {
+      id: makeSlotId(),
+      status: "generated",
+      imageAssetRef: image.imageAssetRef,
+      imagePrompt: image.imagePrompt ?? null,
+      aspect: image.aspect,
+      width: 100,
+      contextPrompt: image.contextPrompt ?? "",
+    };
+    const anchor = buildImageAnchor(slot.id);
+    if (c.bodyHtml.length + anchor.length > MAX_CHAPTER_CHARS) return c;
+    return { ...c, bodyHtml: `${c.bodyHtml}${anchor}`, images: [...c.images, slot] };
+  });
+}
+
+/** True if the persisted draft actually references `ref` at the target — used to detect a
+ *  mutate that no-op'd (target full / removed) so the caller can clean up the orphan asset. */
+export function draftHasImageRef(draft: EbookDoc, target: EbookImageTarget, ref: string): boolean {
+  if (target.kind === "cover") return draft.coverImage?.imageAssetRef === ref;
+  const chapter = draft.chapters.find((c) => c.id === target.chapterId);
+  if (!chapter) return false;
+  if (target.kind === "slot") return chapter.images.find((s) => s.id === target.slotId)?.imageAssetRef === ref;
+  return chapter.images.some((s) => s.imageAssetRef === ref); // "new" (refs are unique uuids)
+}
+
 /**
  * Extract + validate ops from a model reply. The chat prompt asks the model to emit a fenced
  * ```ops JSON block of the shape {"ops":[…]}; we pull the first fenced block (or the first

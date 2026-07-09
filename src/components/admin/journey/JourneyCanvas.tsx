@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ReactFlow,
@@ -12,6 +12,7 @@ import {
   type Node,
   type Edge,
   type Connection,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type {
@@ -93,6 +94,10 @@ export function JourneyCanvas({
   const [status, setStatus] = useState<JourneyStatus>(initial.status);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // React Flow instance + the pane's DOM box — used to drop a new node in the
+  // CURRENT viewport (not a fixed off-screen spot) so it's actually visible.
+  const rf = useRef<ReactFlowInstance | null>(null);
+  const paneRef = useRef<HTMLDivElement | null>(null);
 
   const nodeTypes = useMemo(
     () => ({
@@ -147,10 +152,21 @@ export function JourneyCanvas({
                 ],
               }
             : { ...(extraData ?? {}) }; // exit — optional handoff target, else a plain terminal
-    setNodes((nds) => [
-      ...nds,
-      { id, type, position: { x: 180, y: 120 + nds.length * 90 }, data },
-    ]);
+    // Drop the node where the operator is actually looking: the centre of the
+    // visible pane (biased left so the slide-out inspector doesn't cover it),
+    // with a small per-add offset so repeated adds don't stack exactly. Falls
+    // back to a fixed spot only if the instance isn't ready yet.
+    const inst = rf.current;
+    const rect = paneRef.current?.getBoundingClientRect();
+    const jitter = (nodes.length % 6) * 28;
+    const position =
+      inst && rect
+        ? inst.screenToFlowPosition({
+            x: rect.left + rect.width * 0.4 + jitter,
+            y: rect.top + rect.height * 0.4 + jitter,
+          })
+        : { x: 180, y: 120 + nodes.length * 90 };
+    setNodes((nds) => [...nds, { id, type, position, data }]);
     setSelectedId(id);
   }
 
@@ -214,6 +230,18 @@ export function JourneyCanvas({
   async function onSave() {
     setBusy(true);
     setMsg(null);
+    const ok = await save();
+    setBusy(false);
+    setMsg(ok ? "Saved." : "Save failed.");
+  }
+
+  // Closing the node editor (inspector ✕ or a pane click) auto-persists the graph
+  // so a node's edits are never lost by forgetting to hit Save. No-op when
+  // nothing is selected (a bare pane click shouldn't fire a save).
+  async function deselectAndSave() {
+    if (!selectedId) return;
+    setSelectedId(null);
+    setBusy(true);
     const ok = await save();
     setBusy(false);
     setMsg(ok ? "Saved." : "Save failed.");
@@ -318,7 +346,10 @@ export function JourneyCanvas({
         ) : null}
       </div>
 
-      <div className="h-[600px] rounded-md border border-neutral-200 dark:border-neutral-800">
+      <div
+        ref={paneRef}
+        className="h-[600px] rounded-md border border-neutral-200 dark:border-neutral-800"
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -326,8 +357,11 @@ export function JourneyCanvas({
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
+          onInit={(inst) => {
+            rf.current = inst;
+          }}
           onNodeClick={(_, n) => setSelectedId(n.id)}
-          onPaneClick={() => setSelectedId(null)}
+          onPaneClick={deselectAndSave}
           colorMode="system"
           proOptions={{ hideAttribution: true }}
           fitView
@@ -344,7 +378,7 @@ export function JourneyCanvas({
           questions={questions}
           onUpdate={updateNodeData}
           onDelete={deleteNode}
-          onClose={() => setSelectedId(null)}
+          onClose={deselectAndSave}
           onCreateSequence={createSequenceRedirect}
           onCreateWorkspace={createWorkspaceRedirect}
         />

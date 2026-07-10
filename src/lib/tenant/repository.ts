@@ -15,6 +15,7 @@ import type { Broadcast } from "@/lib/types/broadcast";
 import type { Journey } from "@/lib/types/journey";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { EmailEvent } from "@/lib/types/emailEvent";
+import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
@@ -256,6 +257,8 @@ export interface TenantRepositories {
   emailJobs: TenantCollection<EmailJob>;
   /** Per-recipient engagement events (opens/clicks/...) from Mandrill webhooks. */
   emailEvents: TenantCollection<EmailEvent>;
+  /** Tenant-wide unsubscribe / spam / hard-bounce opt-outs (send-time suppression). */
+  emailSuppressions: TenantCollection<EmailSuppression>;
   /** Unified CRM: person records + company intelligence. Email history is read
    *  from `emailEvents` (the Mandrill-webhook engagement stream), keyed by signupId. */
   contacts: TenantCollection<Contact>;
@@ -313,6 +316,12 @@ export function forTenant(
     journeys: new TenantCollection<Journey>(regionalDb, "journeys", t),
     emailJobs: new TenantCollection<EmailJob>(regionalDb, "email_jobs", t),
     emailEvents: new TenantCollection<EmailEvent>(regionalDb, "email_events", t),
+    // Opt-outs are keyed by email (marketing PII) → regional DB, like signups.
+    emailSuppressions: new TenantCollection<EmailSuppression>(
+      regionalDb,
+      "email_suppressions",
+      t,
+    ),
     // Unified CRM PII → regional DB, like signups.
     contacts: new TenantCollection<Contact>(regionalDb, "contacts", t),
     companies: new TenantCollection<Company>(regionalDb, "companies", t),

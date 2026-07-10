@@ -82,6 +82,79 @@ describe("compileBroadcast (audience-wide, MailChimp tags)", () => {
   });
 });
 
+describe("mandatory footer (safety net + token resolution)", () => {
+  const footer = {
+    brand: "Acme Team",
+    unsubscribeUrl: "https://app.test/unsubscribe?u=tok",
+    managePreferencesUrl: "https://app.test/unsubscribe?u=tok",
+    privacyUrl: "https://acme.test/privacy",
+  };
+
+  it("journey: appends a footer to a raw body and resolves its tokens", () => {
+    const signup = { firstName: "Jo", amountReferred: 0 } as unknown as Signup;
+    const out = compileJourneyEmail(
+      { subject: "s", body: "<p>Hello</p>" },
+      { signup, campaign, footer },
+    );
+    expect(out.html).toContain("data-vzb-footer");
+    expect(out.html).toContain("This email was sent by Acme Team.");
+    expect(out.html).toContain('href="https://app.test/unsubscribe?u=tok"');
+    expect(out.html).toContain('href="https://acme.test/privacy"');
+    expect(out.html).not.toContain("{{sender_brand}}");
+    expect(out.html).not.toContain("{{unsubscribe_url}}");
+  });
+
+  it("journey: keeps the unsubscribe URL + no literal entities in the text/plain part", () => {
+    const signup = { firstName: "Jo", amountReferred: 0 } as unknown as Signup;
+    const out = compileJourneyEmail({ subject: "s", body: "<p>Hi</p>" }, { signup, campaign, footer });
+    // The footer's Unsubscribe link survives into text/plain with its URL…
+    expect(out.text).toContain("Unsubscribe (https://app.test/unsubscribe?u=tok)");
+    // …and the &nbsp; separators are decoded, not shown as literal entity codes.
+    expect(out.text).not.toContain("&nbsp;");
+  });
+
+  it("journey: does NOT double-append when the body already carries a footer", () => {
+    const signup = { firstName: "Jo", amountReferred: 0 } as unknown as Signup;
+    const body = `<p>Hi</p><div data-vzb-footer="1">This email was sent by {{sender_brand}}.</div>`;
+    const out = compileJourneyEmail({ subject: "s", body }, { signup, campaign, footer });
+    expect(out.html.match(/data-vzb-footer/g)?.length).toBe(1);
+    expect(out.html).toContain("This email was sent by Acme Team.");
+  });
+
+  it("journey: does NOT double-append for a LEGACY footer (only the {{unsubscribe_url}} token)", () => {
+    const signup = { firstName: "Jo", amountReferred: 0 } as unknown as Signup;
+    // Old footer blocks predate the data-vzb-footer marker.
+    const body = `<p>Hi</p><div>Old footer <a href="{{unsubscribe_url}}">Unsubscribe</a></div>`;
+    const out = compileJourneyEmail({ subject: "s", body }, { signup, campaign, footer });
+    // The legacy token resolved, and no second (marker) footer was appended.
+    expect(out.html).not.toContain("data-vzb-footer");
+    expect(out.html).toContain('href="https://app.test/unsubscribe?u=tok"');
+  });
+
+  it("journey: appends a footer to a plain-text body too", () => {
+    const signup = { firstName: "Jo", amountReferred: 0 } as unknown as Signup;
+    const out = compileJourneyEmail(
+      { subject: "s", body: "Just some plain text" },
+      { signup, campaign, footer },
+    );
+    expect(out.html).toContain("data-vzb-footer");
+    expect(out.html).toContain("This email was sent by Acme Team.");
+  });
+
+  it("broadcast: footer uses MailChimp native tags + resolved brand/privacy", () => {
+    const out = compileBroadcast(
+      { subject: "s", body: "<p>Yo</p>" },
+      campaign,
+      footer,
+    );
+    expect(out.html).toContain("data-vzb-footer");
+    expect(out.html).toContain("This email was sent by Acme Team.");
+    expect(out.html).toContain('href="*|UNSUB|*"');
+    expect(out.html).toContain('href="*|UPDATE_PROFILE|*"');
+    expect(out.html).toContain('href="https://acme.test/privacy"');
+  });
+});
+
 describe("emoji + charset robustness", () => {
   it("preserves emoji in a journey email's subject + body and declares utf-8", () => {
     const signup = { firstName: "Maya", amountReferred: 0 } as unknown as Signup;

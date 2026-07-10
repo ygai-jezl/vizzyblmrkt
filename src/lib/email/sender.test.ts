@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { resolveSender } from "./sender";
+import { describe, it, expect, afterEach } from "vitest";
+import { resolveSender, resolveFooterBrand } from "./sender";
 import type { EmailSenderConfig, Tenant } from "@/lib/types/tenant";
 
 /** Minimal tenant carrying only the sender config the resolver reads. */
@@ -88,5 +88,29 @@ describe("resolveSender", () => {
       fromEmail: undefined,
       replyTo: undefined,
     });
+  });
+});
+
+describe("resolveFooterBrand", () => {
+  afterEach(() => {
+    delete process.env.EMAIL_FROM;
+  });
+
+  it("prefers the verified-domain sender name", () => {
+    const t = tenantWith({ senderName: "Acme Team", domains: [] });
+    expect(resolveFooterBrand({ ...t, tenantName: "Acme Inc" } as Tenant)).toBe("Acme Team");
+  });
+
+  it("lets a per-campaign fromName override the tenant sender name", () => {
+    const t = tenantWith({ senderName: "Acme Team", domains: [] });
+    expect(resolveFooterBrand(t, { emailFromName: "Acme News" })).toBe("Acme News");
+  });
+
+  it("falls back to the tenant name, then env, then the app default", () => {
+    expect(resolveFooterBrand({ tenantName: "Acme Inc" } as Tenant)).toBe("Acme Inc");
+    process.env.EMAIL_FROM = "Env Brand <hi@x.com>";
+    expect(resolveFooterBrand(null)).toBe("Env Brand");
+    delete process.env.EMAIL_FROM;
+    expect(resolveFooterBrand(null)).toBe("YouGrow.ai");
   });
 });

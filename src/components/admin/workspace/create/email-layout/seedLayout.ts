@@ -1,5 +1,10 @@
 import type { ContentNode } from "@/lib/types/contentPlan";
-import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
+import {
+  ensureFooterLast,
+  type EmailLayout,
+  type EmailBlock,
+  type EmailBlockKind,
+} from "@/lib/types/emailLayout";
 import { looksHtml, paragraphize, escapeHtml, sanitizeEmailHtml } from "@/lib/email/emailRender";
 
 /** A short unique block id (kind-prefixed, ≤64 chars). */
@@ -42,10 +47,11 @@ function bodyToCopyHtml(body: string): string {
  * holding the current body, so Regenerate can later refill exactly that block.
  */
 export function seedLayoutFromNode(node: ContentNode): EmailLayout {
-  if (node.layout) return structuredClone(node.layout);
+  if (node.layout) return ensureFooterLast(structuredClone(node.layout));
   const blocks: EmailBlock[] = [
     { id: newBlockId("heading"), kind: "heading", html: node.subject || "Your heading", level: 2, align: "left" },
     { id: newBlockId("text"), kind: "text", role: "copy", html: bodyToCopyHtml(node.body) },
   ];
-  return { blocks };
+  // Guarantee the mandatory footer (appended last).
+  return ensureFooterLast({ blocks });
 }

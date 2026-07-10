@@ -61,3 +61,32 @@ export function resolveSender(
 
   return { fromName, fromEmail, replyTo };
 }
+
+/** App-default brand, used only when a tenant has configured no sender identity. */
+const APP_BRAND_FALLBACK = "YouGrow.ai";
+
+/** Display name parsed out of the env EMAIL_FROM ("Name <addr>"), if any. */
+function envFromName(): string | undefined {
+  const from = process.env.EMAIL_FROM;
+  const m = from?.match(/^\s*(.*?)\s*<[^>]+>\s*$/);
+  return m?.[1]?.trim() || undefined;
+}
+
+/**
+ * The brand shown in the footer's "This email was sent by {Brand}." — the
+ * display name tied to the tenant's verified sending domain (emailSenderConfig
+ * .senderName, via resolveSender.fromName, with a per-campaign override). Falls
+ * back to the tenant name, then the env sender name, then the app default, so
+ * the footer is never blank.
+ */
+export function resolveFooterBrand(
+  tenant: Tenant | null | undefined,
+  campaign?: CampaignSenderOverrides | null,
+): string {
+  return (
+    resolveSender(tenant, campaign).fromName ||
+    tenant?.tenantName?.trim() ||
+    envFromName() ||
+    APP_BRAND_FALLBACK
+  );
+}

@@ -7,6 +7,7 @@ import {
   EmailLayoutSchema,
   MAX_EMAIL_BLOCKS,
   MAX_TEXT_HTML,
+  ensureFooterLast,
   type EmailLayout,
   type EmailBlock,
 } from "@/lib/types/emailLayout";
@@ -42,8 +43,11 @@ function copyHtmlFrom(body: string): string {
 
 /** Returns a SCHEMA-VALID layout (re-parsed) or null if it can't be made valid. */
 function normalize(layout: EmailLayout, currentBody: string): EmailLayout | null {
+  // Reserve TWO slots: normalize may add BOTH a synthesized copy block (unshift
+  // below) AND the mandatory footer (ensureFooterLast). Reserving one would let a
+  // no-text AI layout overflow MAX_EMAIL_BLOCKS and fail re-validation → null.
   const blocks: EmailBlock[] = layout.blocks
-    .slice(0, MAX_EMAIL_BLOCKS)
+    .slice(0, MAX_EMAIL_BLOCKS - 2)
     .map((b) => ({ ...b, id: `${b.kind}_${randomUUID()}` }) as EmailBlock);
 
   // Pick the copy target: first text block already flagged copy, else the first text block.
@@ -60,8 +64,11 @@ function normalize(layout: EmailLayout, currentBody: string): EmailLayout | null
     const cleared = b.role === "copy" ? ({ ...b, role: undefined } as EmailBlock) : b;
     return i === copyIdx ? ({ ...cleared, role: "copy", html } as EmailBlock) : cleared;
   });
-  // Re-validate so a normalized layout can never fail the graph PUT (silent save error).
-  const reparsed = EmailLayoutSchema.safeParse({ ...layout, blocks: next });
+  // Guarantee the mandatory footer (exactly one, pinned last) — the AI is only
+  // encouraged to add one, so enforce it here. Re-validate so a normalized layout
+  // can never fail the graph PUT (silent save error).
+  const withFooter = ensureFooterLast({ ...layout, blocks: next });
+  const reparsed = EmailLayoutSchema.safeParse(withFooter);
   return reparsed.success ? reparsed.data : null;
 }
 

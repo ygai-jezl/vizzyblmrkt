@@ -178,3 +178,23 @@ export function blockKindLabel(kind: EmailBlockKind): string {
 export function findCopyBlockIndex(layout: EmailLayout): number {
   return layout.blocks.findIndex((b) => b.role === "copy");
 }
+
+/**
+ * The MANDATORY footer invariant: every email layout carries EXACTLY ONE footer
+ * block, pinned LAST. The footer's content is fixed (sent-by brand + Manage
+ * preferences / Unsubscribe / Privacy Policy — see renderFooter in emailRender.ts);
+ * only its section background is user-editable, and it can't be removed or
+ * reordered. Mirrors the role:"copy" invariant. Called on every entry point that
+ * loads a layout into the editor (seedLayoutFromNode / adoptLayout) and on AI
+ * output (generateEmailLayout.normalizeLayout), so a footer is always present.
+ *
+ * Keeps the first existing footer (preserving its sectionBg), drops any extras,
+ * appends one if none exists, and moves it to the end.
+ */
+export function ensureFooterLast(layout: EmailLayout): EmailLayout {
+  const footer =
+    layout.blocks.find((b) => b.kind === "footer") ??
+    ({ id: `footer_${crypto.randomUUID()}`, kind: "footer", text: "" } as EmailBlock);
+  const nonFooters = layout.blocks.filter((b) => b.kind !== "footer");
+  return { ...layout, blocks: [...nonFooters, footer] };
+}

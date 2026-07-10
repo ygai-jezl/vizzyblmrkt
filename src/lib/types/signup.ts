@@ -86,6 +86,14 @@ export const SignupSchema = z.object({
   removedDate: z.string().nullable().optional(),
   removedPriority: z.number().int().nullable().optional(),
 
+  /**
+   * When this recipient unsubscribed from the brand's marketing email (ISO 8601).
+   * Set from the footer's Unsubscribe / one-click List-Unsubscribe. Tenant-wide
+   * suppression (the authoritative send-time block) lives in `email_suppressions`;
+   * this stamp mirrors it onto the signup for the CRM/analytics view.
+   */
+  unsubscribedAt: z.string().nullable().optional(),
+
   // Arbitrary developer payload + form answers
   metadata: z.record(z.string(), z.unknown()).optional(),
   answers: z.array(AnswerSchema).optional(),

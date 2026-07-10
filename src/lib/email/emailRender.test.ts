@@ -99,16 +99,22 @@ describe("renderEmailLayout", () => {
     expect(html).toContain("color:#111111"); // heading fell back to the default ink
   });
 
-  it("renders a footer with a mock Unsubscribe button and social icon images", () => {
+  it("renders the mandatory footer (sent-by brand + all three links) and social icons", () => {
     const html = renderEmailLayout({
       blocks: [
         { id: "s", kind: "social", align: "center", links: [{ platform: "linkedin", url: "https://x.com" }] },
-        { id: "f", kind: "footer", text: "You signed up." },
+        { id: "f", kind: "footer", text: "" },
       ],
     });
+    // Fixed footer content — resolved downstream at send (mergeVars).
+    expect(html).toContain("This email was sent by {{sender_brand}}.");
+    expect(html).toContain("Manage preferences");
     expect(html).toContain("Unsubscribe");
+    expect(html).toContain("Privacy Policy");
     expect(html).toContain("{{unsubscribe_url}}");
-    expect(html).toContain("You signed up.");
+    expect(html).toContain("{{manage_preferences_url}}");
+    expect(html).toContain("{{privacy_url}}");
+    expect(html).toContain("data-vzb-footer"); // presence marker for the compiler safety net
     expect(html).toContain("data:image/svg+xml"); // greyscale favicon
   });
 

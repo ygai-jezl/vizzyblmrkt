@@ -28,6 +28,7 @@ function present(config: EmailSenderConfig) {
     fromLocalPart: config.fromLocalPart ?? "",
     fromDomain: config.fromDomain ?? "",
     replyTo: config.replyTo ?? "",
+    privacyPolicyUrl: config.privacyPolicyUrl ?? "",
     domains: config.domains ?? [],
     providerConfigured: mandrillConfigured(),
   };
@@ -67,6 +68,16 @@ const SenderIdentitySchema = z.object({
       message: "enter a valid email address",
     })
     .optional(),
+  privacyPolicyUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    // Reject whitespace and HTML-attribute-breakout chars — this URL is rendered
+    // into the footer's href (defence in depth alongside escaping at render time).
+    .refine((s) => s === "" || /^https?:\/\/[^\s"'<>\\]+$/i.test(s), {
+      message: "enter a valid http(s) URL",
+    })
+    .optional(),
 });
 
 /** Save the global sender identity (name / from / reply-to). Domains unchanged. */
@@ -85,12 +96,19 @@ export async function PUT(req: Request) {
   // Omitted → keep existing; empty string → clear.
   const keep = (next: string | undefined, prev: string | undefined) =>
     next === undefined ? prev : next || undefined;
+  const privacyPolicyUrl = keep(parsed.data.privacyPolicyUrl, existing.privacyPolicyUrl);
+  // Privacy Policy URL is mandatory: reject a save that would leave it unset
+  // (either newly provided or already stored). The footer always renders it.
+  if (!privacyPolicyUrl) {
+    return NextResponse.json({ error: "privacy_policy_required" }, { status: 400 });
+  }
   const config: EmailSenderConfig = {
     ...existing,
     senderName: keep(parsed.data.senderName, existing.senderName),
     fromLocalPart: keep(parsed.data.fromLocalPart, existing.fromLocalPart),
     fromDomain: keep(parsed.data.fromDomain, existing.fromDomain),
     replyTo: keep(parsed.data.replyTo, existing.replyTo),
+    privacyPolicyUrl,
   };
   await saveSenderConfig(ctx.tenantId, config);
   return NextResponse.json(present(config));

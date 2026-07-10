@@ -147,6 +147,13 @@ export const EmailSenderConfigSchema = z.object({
   fromDomain: z.string().optional(),
   /** Reply-To address shown to recipients. */
   replyTo: z.string().optional(),
+  /**
+   * Public Privacy Policy URL, rendered as the "Privacy Policy" link in every
+   * marketing email footer. Required going forward (enforced in the Domains
+   * settings form + PUT route); optional here so tenant docs predating the
+   * field still parse — the footer falls back to DEFAULT_PRIVACY_URL.
+   */
+  privacyPolicyUrl: z.string().url().optional(),
   domains: z.array(SenderDomainSchema).default([]),
 });
 export type EmailSenderConfig = z.infer<typeof EmailSenderConfigSchema>;

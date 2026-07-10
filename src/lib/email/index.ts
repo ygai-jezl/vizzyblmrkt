@@ -34,6 +34,13 @@ export interface EmailMessage {
   metadata?: Record<string, string>;
   /** Mandrill tags (each ≤50 chars and must not start with "_"). */
   tags?: string[];
+  /**
+   * One-click unsubscribe (RFC 2369 / 8058). Emits `List-Unsubscribe: <url>` and,
+   * when `oneClick`, `List-Unsubscribe-Post: List-Unsubscribe=One-Click` so inbox
+   * providers show a native Unsubscribe button that POSTs to the URL. Mandrill
+   * only (folded into message.headers); Resend/log ignore it.
+   */
+  listUnsubscribe?: { url: string; oneClick?: boolean };
 }
 
 export interface EmailResult {
@@ -64,6 +71,15 @@ async function sendViaMandrill(
   const parsed = parseFrom(process.env.EMAIL_FROM ?? DEFAULT_FROM);
   const fromEmail = msg.fromEmail?.trim() || parsed.email;
   const fromName = msg.fromName?.trim() || parsed.name;
+  // Custom SMTP headers (Reply-To + one-click List-Unsubscribe), sent only when set.
+  const headers: Record<string, string> = {};
+  if (msg.replyTo) headers["Reply-To"] = msg.replyTo;
+  if (msg.listUnsubscribe?.url) {
+    headers["List-Unsubscribe"] = `<${msg.listUnsubscribe.url}>`;
+    if (msg.listUnsubscribe.oneClick) {
+      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+    }
+  }
   try {
     const res = await fetch("https://mandrillapp.com/api/1.0/messages/send", {
       method: "POST",
@@ -77,7 +93,7 @@ async function sendViaMandrill(
           from_email: fromEmail,
           ...(fromName ? { from_name: fromName } : {}),
           to: [{ email: msg.to, type: "to" }],
-          ...(msg.replyTo ? { headers: { "Reply-To": msg.replyTo } } : {}),
+          ...(Object.keys(headers).length ? { headers } : {}),
           ...(msg.track?.opens ? { track_opens: true } : {}),
           ...(msg.track?.clicks ? { track_clicks: true } : {}),
           ...(msg.metadata ? { metadata: msg.metadata } : {}),

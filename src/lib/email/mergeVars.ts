@@ -1,6 +1,7 @@
 import type { Signup } from "@/lib/types/signup";
 import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 import { buildVoiceChatLink } from "@/lib/waitlist/voiceChatLink";
+import { escapeHtml } from "@/lib/email/emailRender";
 
 /**
  * Email merge variables. Authors write {{token}} in the composer; they are
@@ -18,11 +19,28 @@ export const MERGE_VARS = [
 ] as const;
 export type MergeVar = (typeof MERGE_VARS)[number];
 
+/**
+ * Resolved values for the mandatory footer's internal tokens (sender_brand,
+ * unsubscribe_url, manage_preferences_url, privacy_url). Built at send time in
+ * the delivery worker (brand via resolveFooterBrand, a signed per-recipient
+ * unsubscribe URL, the tenant's Privacy Policy URL) and threaded through the
+ * compiler. These are NOT author-insertable tokens — they don't appear in
+ * MERGE_VARS / the composer's merge menu.
+ */
+export interface FooterMergeValues {
+  brand: string;
+  unsubscribeUrl: string;
+  managePreferencesUrl: string;
+  privacyUrl: string;
+}
+
 export interface MergeContext {
   signup: Signup;
   campaign: Campaign;
   /** 1-based waitlist position; resolved at send time (see lib/waitlist/rank.ts). */
   rank?: number;
+  /** Resolved footer identity + link URLs (journey path). */
+  footer?: FooterMergeValues;
 }
 
 /** Match {{ token }} or {{ metadata.key }} (whitespace-tolerant). */
@@ -70,6 +88,16 @@ function lookup(key: string, ctx: MergeContext): unknown {
       // Per-recipient deep link that opens the waitlist page and auto-launches
       // the post-signup voice chat. Blank when the launch has voice disabled.
       return buildVoiceChatLink(ctx.signup, ctx.campaign);
+    // Mandatory-footer tokens (resolved from ctx.footer, built in the delivery
+    // worker). Internal — not in MERGE_VARS / the author merge menu.
+    case "sender_brand":
+      return ctx.footer?.brand ?? "";
+    case "unsubscribe_url":
+      return ctx.footer?.unsubscribeUrl ?? "";
+    case "manage_preferences_url":
+      return ctx.footer?.managePreferencesUrl ?? "";
+    case "privacy_url":
+      return ctx.footer?.privacyUrl ?? "";
     default:
       return "";
   }
@@ -91,10 +119,28 @@ const MAILCHIMP_TAGS: Record<MergeVar, string> = {
   waitlist_name: "",
 };
 
-/** Translate our {{tokens}} into MailChimp merge tags for a broadcast body. */
-export function toMailchimpMergeTags(template: string, campaign: Campaign): string {
+/**
+ * Translate our {{tokens}} into MailChimp merge tags for a broadcast body. The
+ * footer's Unsubscribe / Manage-preferences map to MailChimp's NATIVE tags so
+ * the campaign stays provider-compliant (MailChimp won't append a second
+ * footer); sender_brand / privacy_url are campaign/tenant constants resolved in
+ * the delivery worker and passed via `footer`.
+ */
+export function toMailchimpMergeTags(
+  template: string,
+  campaign: Campaign,
+  footer?: FooterMergeValues,
+): string {
   return template.replace(TOKEN_RE, (_m, key: string) => {
     if (key === "waitlist_name") return resolveProductName(campaign);
+    // Footer identity values are tenant-controlled (brand/privacy URL) and land
+    // inside footer markup/href — escape them here (the journey path escapes via
+    // renderMergeVars(escapeHtml); this path has no such wrapper). The MailChimp
+    // *|...|* tags are our own constants, emitted verbatim.
+    if (key === "sender_brand") return escapeHtml(footer?.brand ?? "");
+    if (key === "unsubscribe_url") return "*|UNSUB|*";
+    if (key === "manage_preferences_url") return "*|UPDATE_PROFILE|*";
+    if (key === "privacy_url") return escapeHtml(footer?.privacyUrl ?? "");
     if (key.startsWith("metadata.")) return ""; // not available as a list field
     return MAILCHIMP_TAGS[key as MergeVar] ?? "";
   });

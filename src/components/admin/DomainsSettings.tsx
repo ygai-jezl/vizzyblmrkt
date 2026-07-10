@@ -43,6 +43,7 @@ interface ConfigResponse {
   fromLocalPart: string;
   fromDomain: string;
   replyTo: string;
+  privacyPolicyUrl: string;
   domains: SenderDomain[];
   providerConfigured: boolean;
 }
@@ -64,6 +65,7 @@ export function DomainsSettings() {
   const [fromLocalPart, setFromLocalPart] = useState("");
   const [fromDomain, setFromDomain] = useState("");
   const [replyTo, setReplyTo] = useState("");
+  const [privacyPolicyUrl, setPrivacyPolicyUrl] = useState("");
   const [senderStatus, setSenderStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const [newDomain, setNewDomain] = useState("");
@@ -78,6 +80,7 @@ export function DomainsSettings() {
     setFromLocalPart(data.fromLocalPart);
     setFromDomain(data.fromDomain);
     setReplyTo(data.replyTo);
+    setPrivacyPolicyUrl(data.privacyPolicyUrl ?? "");
     setDomains(data.domains);
     setProviderConfigured(data.providerConfigured);
   }
@@ -261,12 +264,20 @@ export function DomainsSettings() {
   }
 
   async function saveSender() {
+    // Privacy Policy URL is mandatory — every email footer links to it.
+    const privacy = privacyPolicyUrl.trim();
+    if (!/^https?:\/\/[^\s"'<>\\]+$/i.test(privacy)) {
+      setSenderStatus("error");
+      setError("Enter a valid Privacy Policy URL (https://…) — it's required for the email footer.");
+      return;
+    }
+    setError(null);
     setSenderStatus("saving");
     try {
       const res = await fetch("/api/admin/account/domains", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ senderName, fromLocalPart, fromDomain, replyTo }),
+        body: JSON.stringify({ senderName, fromLocalPart, fromDomain, replyTo, privacyPolicyUrl: privacy }),
       });
       if (!res.ok) throw new Error("save_failed");
       applyConfig((await res.json()) as ConfigResponse);
@@ -492,6 +503,27 @@ export function DomainsSettings() {
               placeholder="replies@mail.example.com"
               className={INPUT_CLASS}
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">
+              Privacy Policy URL <span className="text-red-500">*</span>
+            </label>
+            <input
+              value={privacyPolicyUrl}
+              onChange={(e) => {
+                setPrivacyPolicyUrl(e.target.value);
+                setSenderStatus("idle");
+              }}
+              placeholder="https://yourbrand.com/privacy"
+              inputMode="url"
+              aria-required="true"
+              className={INPUT_CLASS}
+            />
+            <p className="text-xs text-neutral-500">
+              Required. Linked in the footer of every email you send (waitlist journeys and
+              broadcasts), alongside Unsubscribe and Manage preferences.
+            </p>
           </div>
 
           <div className="flex items-center gap-3">

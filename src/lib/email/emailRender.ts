@@ -53,9 +53,25 @@ export function wrap(inner: string, heroImageUrl: string | null): string {
 
 export function htmlToText(html: string): string {
   return html
+    // Keep an anchor's URL alongside its label so text/plain readers can act on
+    // links (notably the footer's Unsubscribe) — "label (https://…)". Skip empty
+    // and in-page (#) hrefs, and don't duplicate when label already IS the URL.
+    .replace(/<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, inner: string) => {
+      const label = inner.replace(/<[^>]+>/g, "").trim();
+      return href && !href.startsWith("#") && href !== label ? `${label} (${href})` : label;
+    })
     .replace(/<\/(p|div|h\d|li)>/gi, "\n")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
+    // Decode the handful of entities our own markup emits, so text/plain never
+    // shows literal "&nbsp;"/"&amp;" codes (the footer uses &nbsp; separators).
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -181,6 +197,53 @@ function withSection(inner: string, sectionBg: string | null | undefined): strin
   return bg ? `<div style="background:${bg};padding:16px 16px 1px">${inner}</div>` : inner;
 }
 
+/**
+ * The MANDATORY email footer — one consistent, non-removable footer on every
+ * marketing send (journey + broadcast). Its identity + link tokens are emitted
+ * VERBATIM and resolved downstream per-recipient (mergeVars.ts renderMergeVars)
+ * or per-campaign (mergeVars.ts toMailchimpMergeTags → MailChimp native tags):
+ *   {{sender_brand}} · {{manage_preferences_url}} · {{unsubscribe_url}} · {{privacy_url}}
+ *
+ * The `data-vzb-footer` marker lets the compilers detect an already-present
+ * footer (from the editor's locked Footer block) and skip the safety-net append,
+ * guaranteeing EXACTLY ONE footer whether or not the email was authored in the
+ * layout editor. See FOOTER_MARKER + compileJourneyEmail/compileBroadcast.
+ */
+export const FOOTER_MARKER = "data-vzb-footer";
+
+/** Footer inner HTML (no section band — renderBlock adds it from block.sectionBg). */
+function renderFooterInner(): string {
+  // `mc:disable-tracking` keeps Mandrill from rewriting these to click-tracking
+  // redirects: the unsubscribe/preferences/privacy controls must be DIRECT links
+  // (bulk-sender guidance), and tracking them would inflate journey click metrics.
+  const link = (token: string, label: string) =>
+    `<a href="${token}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">${label}</a>`;
+  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${FONT};font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br />${link(
+    "{{manage_preferences_url}}",
+    "Manage preferences",
+  )} &nbsp;|&nbsp; ${link("{{unsubscribe_url}}", "Unsubscribe")} &nbsp;|&nbsp; ${link(
+    "{{privacy_url}}",
+    "Privacy Policy",
+  )}</div>`;
+}
+
+/** Full footer including its optional per-section background band. Used by the
+ *  send-path safety net (compiler.ts) when a body lacks a footer block. */
+export function renderFooter(sectionBg?: string | null): string {
+  return withSection(renderFooterInner(), sectionBg ?? null);
+}
+
+/**
+ * Whether a RAW (pre-merge) body already carries a footer, so the compiler's
+ * safety net doesn't append a duplicate. Matches the current marker AND the
+ * legacy `{{unsubscribe_url}}` token (older footer blocks predate the marker),
+ * so content authored before the mandatory footer never double-renders one.
+ * `{{unsubscribe_url}}` is footer-only — it's not an author-insertable token.
+ */
+export function hasFooter(rawBody: string): boolean {
+  return rawBody.includes(FOOTER_MARKER) || rawBody.includes("{{unsubscribe_url}}");
+}
+
 function renderInner(block: EmailBlock): string {
   switch (block.kind) {
     case "text":
@@ -235,10 +298,12 @@ function renderInner(block: EmailBlock): string {
         .join("");
       return `<div style="text-align:${block.align};margin:8px 0 16px">${items}</div>`;
     }
-    case "footer": {
-      const note = block.text ? `${escapeHtml(block.text)}<br />` : "";
-      return `<div style="text-align:center;margin:24px 0 0;font-family:${FONT};font-size:12px;line-height:1.7;color:#999999">${note}<a href="{{unsubscribe_url}}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:6px;padding:6px 14px;border:1px solid #cccccc;border-radius:6px;color:#999999;text-decoration:none;font-size:11px">Unsubscribe</a></div>`;
-    }
+    case "footer":
+      // The footer's content is FIXED (sent-by brand + Manage preferences /
+      // Unsubscribe / Privacy Policy). Only its section background is editable —
+      // block.text is ignored (kept on the type for back-compat). renderBlock
+      // adds the section band from block.sectionBg.
+      return renderFooterInner();
   }
 }
 

@@ -112,6 +112,21 @@ describe("renderMergeVars (journey / per-recipient)", () => {
       renderMergeVars("<p>Hi {{first_name}}</p>", { signup: evil, campaign }, esc),
     ).toBe("<p>Hi &lt;b&gt;x&lt;/b&gt;</p>");
   });
+
+  it("resolves the footer tokens from ctx.footer (blank without it)", () => {
+    const footer = {
+      brand: "Acme Team",
+      unsubscribeUrl: "https://app/u",
+      managePreferencesUrl: "https://app/m",
+      privacyUrl: "https://acme/p",
+    };
+    const tpl = "{{sender_brand}}|{{unsubscribe_url}}|{{manage_preferences_url}}|{{privacy_url}}";
+    expect(renderMergeVars(tpl, { signup, campaign, footer })).toBe(
+      "Acme Team|https://app/u|https://app/m|https://acme/p",
+    );
+    // Missing footer → all blank (never a raw {{token}}).
+    expect(renderMergeVars(tpl, { signup, campaign })).toBe("|||");
+  });
 });
 
 describe("resolveProductName", () => {
@@ -148,5 +163,32 @@ describe("toMailchimpMergeTags (broadcast)", () => {
     expect(
       toMailchimpMergeTags("Chat: {{voice_chat_link}}", campaign),
     ).toBe("Chat: ");
+  });
+
+  it("maps footer tokens to MailChimp native tags + footer constants", () => {
+    const footer = {
+      brand: "Acme Team",
+      unsubscribeUrl: "",
+      managePreferencesUrl: "",
+      privacyUrl: "https://acme/p",
+    };
+    const tpl = "{{sender_brand}}|{{unsubscribe_url}}|{{manage_preferences_url}}|{{privacy_url}}";
+    expect(toMailchimpMergeTags(tpl, campaign, footer)).toBe(
+      "Acme Team|*|UNSUB|*|*|UPDATE_PROFILE|*|https://acme/p",
+    );
+  });
+
+  it("HTML-escapes tenant-controlled footer brand + privacy URL (no attribute breakout)", () => {
+    const footer = {
+      brand: '<b>x</b>',
+      unsubscribeUrl: "",
+      managePreferencesUrl: "",
+      // A malicious privacy URL that would break out of href="" if unescaped.
+      privacyUrl: 'https://x/"><img src=x onerror=alert(1)>',
+    };
+    const out = toMailchimpMergeTags('{{sender_brand}}|href="{{privacy_url}}"', campaign, footer);
+    expect(out).toContain("&lt;b&gt;x&lt;/b&gt;");
+    expect(out).toContain("&quot;&gt;&lt;img");
+    expect(out).not.toContain('"><img');
   });
 });

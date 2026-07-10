@@ -9,6 +9,15 @@ import {
   readEventMetadata,
 } from "@/lib/email/mandrillWebhook";
 import { recordEmailEvent } from "@/lib/email/events";
+import { suppressEmail } from "@/lib/email/suppression";
+import type { EmailSuppressionReason } from "@/lib/types/emailSuppression";
+
+/** Engagement events that mean "never email this address again". */
+const SUPPRESSION_REASON: Partial<Record<string, EmailSuppressionReason>> = {
+  unsub: "unsubscribe",
+  spam: "spam",
+  bounce: "hard_bounce", // mapMandrillEventType maps hard_bounce → "bounce"
+};
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,6 +100,24 @@ export async function POST(req: Request) {
       // One bad event must never fail the batch (that triggers a full re-send).
       console.error("[mandrill-webhook] failed to record event", err);
       skipped += 1;
+    }
+
+    // Tenant-wide suppression: an unsubscribe / spam complaint / hard bounce means
+    // stop ALL future marketing to this address (journey + broadcast). Best-effort.
+    const reason = SUPPRESSION_REASON[type];
+    const email = typeof ev.msg?.email === "string" ? ev.msg.email : "";
+    if (reason && email) {
+      try {
+        await suppressEmail(ctx, {
+          email,
+          reason,
+          source: `mandrill-${ev.event}`,
+          campaignId: meta.campaignId || null,
+          signupId: meta.signupId || null,
+        });
+      } catch (err) {
+        console.error("[mandrill-webhook] failed to suppress", err);
+      }
     }
   }
 

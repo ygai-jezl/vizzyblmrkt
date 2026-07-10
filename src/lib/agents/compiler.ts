@@ -4,6 +4,7 @@ import {
   renderMergeVars,
   toMailchimpMergeTags,
   type MergeContext,
+  type FooterMergeValues,
 } from "@/lib/email/mergeVars";
 import {
   wrap,
@@ -12,6 +13,8 @@ import {
   bodyToHtml,
   htmlToText,
   escapeHtml,
+  renderFooter,
+  hasFooter,
 } from "@/lib/email/emailRender";
 
 /**
@@ -32,12 +35,21 @@ export interface CompiledEmail {
 export function compileBroadcast(
   content: EmailContent,
   campaign: Campaign,
+  footer?: FooterMergeValues,
 ): CompiledEmail {
-  const subject = toMailchimpMergeTags(content.subject, campaign);
-  const body = toMailchimpMergeTags(content.body, campaign);
+  const subject = toMailchimpMergeTags(content.subject, campaign, footer);
+  const bodyHasFooter = hasFooter(content.body); // check the RAW body (pre-translation)
+  const body = toMailchimpMergeTags(content.body, campaign, footer);
+  let inner = bodyToHtml(body);
+  // Guarantee exactly one mandatory footer: the editor's locked Footer block
+  // already renders one; otherwise append it here so even a raw-body broadcast
+  // carries the consistent footer + unsubscribe.
+  if (!bodyHasFooter) {
+    inner += toMailchimpMergeTags(renderFooter(null), campaign, footer);
+  }
   return {
     subject,
-    html: wrap(bodyToHtml(body), content.heroImageUrl ?? null),
+    html: wrap(inner, content.heroImageUrl ?? null),
     warnings: qaWarnings(content, campaign),
   };
 }
@@ -53,10 +65,21 @@ export function compileJourneyEmail(
   // stored-XSS, but never the author's own markup. For an HTML template, escape
   // values at substitution and keep tags; for plain text, substitute raw then
   // escape the whole thing once (avoids double-escaping).
-  const body = looksHtml(content.body)
-    ? renderMergeVars(content.body, mergeCtx, escapeHtml)
-    : paragraphize(escapeHtml(renderMergeVars(content.body, mergeCtx)));
-  const html = wrap(body, content.heroImageUrl ?? null);
+  //
+  // Mandatory footer: the editor's locked Footer block already emits one (its
+  // {{tokens}} resolve in the body pass); otherwise append our footer HTML and
+  // resolve its tokens (single pass over each fragment — never double-render, so
+  // a subscriber value that literally contains "{{...}}" can't be re-processed).
+  let inner: string;
+  if (looksHtml(content.body)) {
+    const raw = hasFooter(content.body) ? content.body : content.body + renderFooter(null);
+    inner = renderMergeVars(raw, mergeCtx, escapeHtml);
+  } else {
+    const bodyHtml = paragraphize(escapeHtml(renderMergeVars(content.body, mergeCtx)));
+    const footerHtml = renderMergeVars(renderFooter(null), mergeCtx, escapeHtml);
+    inner = bodyHtml + footerHtml;
+  }
+  const html = wrap(inner, content.heroImageUrl ?? null);
   return {
     subject,
     html,

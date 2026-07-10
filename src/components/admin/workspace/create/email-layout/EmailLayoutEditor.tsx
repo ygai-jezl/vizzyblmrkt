@@ -7,6 +7,7 @@ import {
   EMAIL_BLOCK_KINDS,
   MAX_EMAIL_BLOCKS,
   blockKindLabel,
+  ensureFooterLast,
   type EmailBlock,
   type EmailBlockKind,
   type EmailLayout,
@@ -44,7 +45,8 @@ function adoptLayout(layout: EmailLayout): EmailLayout {
     copyIdx = 0;
   }
   blocks[copyIdx] = { ...blocks[copyIdx], role: "copy" } as EmailBlock;
-  return { ...layout, blocks };
+  // Guarantee the mandatory footer (exactly one, pinned last).
+  return ensureFooterLast({ ...layout, blocks });
 }
 
 export function EmailLayoutEditor({
@@ -100,8 +102,9 @@ export function EmailLayoutEditor({
       );
       const data = (await res.json().catch(() => ({}))) as { layout?: EmailLayout };
       if (res.ok && data.layout) {
-        setLayout(data.layout);
-        setSelectedId(data.layout.blocks[0]?.id ?? null);
+        const next = ensureFooterLast(data.layout);
+        setLayout(next);
+        setSelectedId(next.blocks[0]?.id ?? null);
         setMsg("Layout generated — review and save.");
         setNlBrief("");
       } else {
@@ -112,16 +115,35 @@ export function EmailLayoutEditor({
     }
   }
 
-  const previewHtml = useMemo(() => wrap(renderEmailLayout(layout), null), [layout]);
+  // Preview substitutes the footer's internal tokens with friendly placeholders
+  // (they're resolved per-recipient at send, not author-editable).
+  const previewHtml = useMemo(
+    () =>
+      wrap(renderEmailLayout(layout), null)
+        .replaceAll("{{sender_brand}}", "Your Brand")
+        .replaceAll("{{manage_preferences_url}}", "#")
+        .replaceAll("{{unsubscribe_url}}", "#")
+        .replaceAll("{{privacy_url}}", "#"),
+    [layout],
+  );
   const selected = layout.blocks.find((b) => b.id === selectedId) ?? null;
 
   function addBlock(kind: EmailBlockKind) {
+    // The footer is mandatory + auto-managed — never added from the palette.
+    if (kind === "footer") return;
     if (layout.blocks.length >= MAX_EMAIL_BLOCKS) {
       setMsg(`Max ${MAX_EMAIL_BLOCKS} blocks.`);
       return;
     }
     const b = defaultBlock(kind);
-    setLayout((l) => ({ ...l, blocks: [...l.blocks, b] }));
+    // Insert BEFORE the trailing footer so the footer always stays last.
+    setLayout((l) => {
+      const footerIdx = l.blocks.findIndex((x) => x.kind === "footer");
+      const blocks = [...l.blocks];
+      if (footerIdx >= 0) blocks.splice(footerIdx, 0, b);
+      else blocks.push(b);
+      return { ...l, blocks };
+    });
     setSelectedId(b.id);
   }
   function updateBlock(id: string, patch: Partial<EmailBlock>) {
@@ -133,6 +155,8 @@ export function EmailLayoutEditor({
   function deleteBlock(id: string) {
     setLayout((l) => {
       const removed = l.blocks.find((b) => b.id === id);
+      // The footer is mandatory and can't be removed.
+      if (removed?.kind === "footer") return l;
       let blocks = l.blocks.filter((b) => b.id !== id);
       // If we removed the AI copy block, promote the first remaining text block so
       // Regenerate always has a target (the copy-block invariant).
@@ -149,6 +173,8 @@ export function EmailLayoutEditor({
       const i = l.blocks.findIndex((b) => b.id === id);
       const j = i + dir;
       if (i < 0 || j < 0 || j >= l.blocks.length) return l;
+      // The footer is pinned last: it can't move, and no block can swap past it.
+      if (l.blocks[i]!.kind === "footer" || l.blocks[j]!.kind === "footer") return l;
       const blocks = [...l.blocks];
       [blocks[i], blocks[j]] = [blocks[j]!, blocks[i]!];
       return { ...l, blocks };
@@ -267,16 +293,30 @@ export function EmailLayoutEditor({
         {/* Palette */}
         <div className="w-40 shrink-0 space-y-1 overflow-y-auto border-r border-neutral-200 p-2 dark:border-neutral-800">
           <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Add block</div>
-          {EMAIL_BLOCK_KINDS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => addBlock(k)}
-              className="block w-full rounded-md border border-neutral-200 px-2 py-1.5 text-left text-xs hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
-            >
-              + {blockKindLabel(k)}
-            </button>
-          ))}
+          {EMAIL_BLOCK_KINDS.map((k) =>
+            // The footer is always included and can't be added/removed — show it
+            // disabled so the user knows it's there and managed automatically.
+            k === "footer" ? (
+              <button
+                key={k}
+                type="button"
+                disabled
+                title="Every email includes the footer automatically — it can't be removed."
+                className="block w-full cursor-not-allowed rounded-md border border-dashed border-neutral-200 px-2 py-1.5 text-left text-xs text-neutral-400 dark:border-neutral-800"
+              >
+                ✓ Footer · required
+              </button>
+            ) : (
+              <button
+                key={k}
+                type="button"
+                onClick={() => addBlock(k)}
+                className="block w-full rounded-md border border-neutral-200 px-2 py-1.5 text-left text-xs hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+              >
+                + {blockKindLabel(k)}
+              </button>
+            ),
+          )}
         </div>
 
         {/* Edit surface OR preview */}
@@ -294,7 +334,8 @@ export function EmailLayoutEditor({
                   block={block}
                   selected={block.id === selectedId}
                   isFirst={i === 0}
-                  isLast={i === layout.blocks.length - 1}
+                  // Can't move down INTO the footer's last slot.
+                  isLast={i === layout.blocks.length - 1 || layout.blocks[i + 1]?.kind === "footer"}
                   onSelect={() => setSelectedId(block.id)}
                   onChange={(patch) => updateBlock(block.id, patch)}
                   onMove={(dir) => moveBlock(block.id, dir)}
@@ -449,6 +490,8 @@ function BlockCard({
   onMarkCopy: () => void;
 }) {
   const CTRL = "rounded px-1.5 py-0.5 text-xs hover:bg-neutral-100 disabled:opacity-30 dark:hover:bg-neutral-800";
+  // The footer is mandatory: no move/delete, only its background is editable.
+  const locked = block.kind === "footer";
   return (
     <div
       onClick={onSelect}
@@ -457,22 +500,25 @@ function BlockCard({
       <div className="mb-1 flex items-center gap-1">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{blockKindLabel(block.kind)}</span>
         {block.role === "copy" ? <span className="rounded-full bg-indigo-100 px-1.5 text-[10px] text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">AI copy</span> : null}
-        <div className="ml-auto flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {block.kind === "text" ? (
-            <button type="button" onClick={onMarkCopy} title="Mark as AI copy block" className={CTRL}>
-              ★
+        {locked ? <span className="rounded-full bg-neutral-200 px-1.5 text-[10px] text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">Required</span> : null}
+        {locked ? null : (
+          <div className="ml-auto flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+            {block.kind === "text" ? (
+              <button type="button" onClick={onMarkCopy} title="Mark as AI copy block" className={CTRL}>
+                ★
+              </button>
+            ) : null}
+            <button type="button" onClick={() => onMove(-1)} disabled={isFirst} className={CTRL}>
+              ↑
             </button>
-          ) : null}
-          <button type="button" onClick={() => onMove(-1)} disabled={isFirst} className={CTRL}>
-            ↑
-          </button>
-          <button type="button" onClick={() => onMove(1)} disabled={isLast} className={CTRL}>
-            ↓
-          </button>
-          <button type="button" onClick={onDelete} className={`${CTRL} text-red-600`}>
-            ✕
-          </button>
-        </div>
+            <button type="button" onClick={() => onMove(1)} disabled={isLast} className={CTRL}>
+              ↓
+            </button>
+            <button type="button" onClick={onDelete} className={`${CTRL} text-red-600`}>
+              ✕
+            </button>
+          </div>
+        )}
       </div>
       {/* Only the inline TEXT editor swallows clicks (so typing doesn't re-select);
           every other block body bubbles to onSelect so a click anywhere selects it. */}
@@ -521,7 +567,7 @@ function BlockMiniPreview({ block }: { block: EmailBlock }) {
     case "footer":
       return (
         <div className="text-center text-[10px] text-neutral-400">
-          {block.text || "Footer"} · Unsubscribe
+          Sent by your brand · Manage preferences · Unsubscribe · Privacy Policy
         </div>
       );
     default:

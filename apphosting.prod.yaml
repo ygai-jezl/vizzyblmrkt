@@ -229,6 +229,17 @@ env:
     value: us9
     availability:
       - RUNTIME
+  # MailChimp audience webhook master key (→ /api/webhooks/mailchimp). A broadcast
+  # unsubscribe uses MailChimp's native *|UNSUB|*, so this webhook mirrors that
+  # opt-out into our suppression store (email_suppressions) → also stops journeys,
+  # keeping unsubscribe TENANT-WIDE. The per-audience webhook URL carries ?t=<tenant
+  # ids>&key=HMAC(this,?t=). Provision BEFORE deploying this file:
+  #   firebase apphosting:secrets:set mailchimp-webhook-key --project vizzybl-marketing-prod
+  # then register the webhook URL in the MailChimp audience Settings → Webhooks.
+  - variable: MAILCHIMP_WEBHOOK_KEY
+    secret: mailchimp-webhook-key
+    availability:
+      - RUNTIME
   # Shared secret the scheduled delivery worker (Cloud Scheduler) presents as
   # `X-Worker-Secret` to POST /api/admin/email/jobs/process; the cron then drains
   # every tenant's queue across all regions. Provision BEFORE deploying this file:
@@ -287,6 +298,16 @@ env:
   #   firebase apphosting:secrets:set canvas-context-signing-key --project vizzybl-marketing-prod
   - variable: CANVAS_CONTEXT_SIGNING_KEY
     secret: canvas-context-signing-key
+    availability:
+      - RUNTIME
+  # Signs the per-recipient email unsubscribe token (footer Unsubscribe / Manage
+  # preferences links + the RFC 8058 one-click List-Unsubscribe header). Any long
+  # random value; unforgeable + never expires. If absent in prod the footer safely
+  # falls back to the Privacy Policy link (no broken unsubscribe). Provision BEFORE
+  # deploying this file:
+  #   firebase apphosting:secrets:set unsubscribe-signing-key --project vizzybl-marketing-prod
+  - variable: UNSUBSCRIBE_SIGNING_KEY
+    secret: unsubscribe-signing-key
     availability:
       - RUNTIME
   # - variable: GEMINI_API_KEY          # Vertex AI Express / Agent Platform key

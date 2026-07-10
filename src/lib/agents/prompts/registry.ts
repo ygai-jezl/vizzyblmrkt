@@ -365,7 +365,8 @@ BLOCK KINDS (emit ONLY these, single column, at most [[max_blocks]] blocks):
 - divider: {"kind":"divider","color":"#rrggbb","thickness":1-8}
 - spacer: {"kind":"spacer","height":4-120}
 - social: {"kind":"social","align":"center","links":[{"platform":"x|linkedin|instagram|facebook|youtube|tiktok|website","url":""}]}
-- footer: {"kind":"footer","text":"<short footer note>"} — renders an Unsubscribe button; put this LAST.
+
+Do NOT emit a footer block — a mandatory footer (sender brand + Manage preferences / Unsubscribe / Privacy Policy) is added automatically to every email.
 
 Any block MAY also set "sectionBg":"#rrggbb" (a background behind that section); text and heading MAY set "color":"#rrggbb" (text colour). Use the brand palette for button colours + section backgrounds where given.
 

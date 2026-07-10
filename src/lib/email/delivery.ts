@@ -5,6 +5,12 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
+import {
+  unsubscribeLinks,
+  journeyFooterValues,
+  broadcastFooterValues,
+} from "@/lib/email/footer";
+import { isSuppressed } from "@/lib/email/suppression";
 import { compileBroadcast, compileJourneyEmail } from "@/lib/agents";
 import {
   resolveMailchimpConfig,
@@ -296,6 +302,7 @@ async function processBroadcastJob(
     const compiled = compileBroadcast(
       { subject: b.subject, body: b.body, heroImageUrl: b.heroImageUrl ?? null },
       campaign,
+      broadcastFooterValues(tenant, campaign),
     );
     // Tenant/campaign sender identity overrides the env defaults. NOTE: a
     // MailChimp Marketing campaign can only override the display name + reply-to;
@@ -433,6 +440,11 @@ async function processJourneyStepJob(
   // re-enrolling — the exact bug this guards against).
   if (!signup || signup.status !== "verified_active" || !signup.email) return "drop";
 
+  // Tenant-wide unsubscribe / spam / hard-bounce opt-out: stop the chain here for
+  // any suppressed address (the footer's Unsubscribe writes to this store). Drop
+  // (free the dedupe key) rather than tombstone, matching the guards above.
+  if (await isSuppressed(ctx, signup.email, db)) return "drop";
+
   const campaign = await forTenant(ctx, db).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
   // Belt-and-braces: archiving a launch pauses its journey (which already stops
@@ -477,7 +489,16 @@ async function processJourneyStepJob(
   // is unchanged, preserving idempotency. No test configured → always "control".
   const variantId = allocateVariant(node.id, signup.id, node.data.abTest).variantId;
   const arm = resolveArmContent(node, variantId);
-  const compiled = compileJourneyEmail(arm, { signup, campaign, rank });
+  // Mandatory footer: a signed, per-recipient unsubscribe page URL (footer link)
+  // + the one-click API URL (List-Unsubscribe header) + brand + Privacy Policy.
+  const unsub = unsubscribeLinks({
+    tenantId: ctx.tenantId,
+    campaignId: journey.campaignId,
+    signupId: signup.id,
+    email: signup.email,
+  });
+  const footer = journeyFooterValues({ tenant, campaign, unsubscribeUrl: unsub.pageUrl });
+  const compiled = compileJourneyEmail(arm, { signup, campaign, rank, footer });
 
   // Send once per job: if a prior attempt already dispatched (then failed during
   // the next-step enqueue), don't re-send — just continue to scheduling.
@@ -490,6 +511,9 @@ async function processJourneyStepJob(
       fromEmail: sender.fromEmail,
       fromName: sender.fromName,
       replyTo: sender.replyTo,
+      // One-click unsubscribe (RFC 8058) — the inbox "Unsubscribe" button posts
+      // to our API route. Only set when we minted a real URL (else omit, don't break).
+      ...(unsub.apiUrl ? { listUnsubscribe: { url: unsub.apiUrl, oneClick: true } } : {}),
       track: { opens: true, clicks: true },
       // Echoed back verbatim on Mandrill open/click webhooks — attributes the
       // event to this step + recipient + A/B arm with no database lookup.

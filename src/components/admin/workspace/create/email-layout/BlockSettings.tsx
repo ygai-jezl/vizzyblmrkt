@@ -145,19 +145,11 @@ export function BlockSettings({
       ) : null}
 
       {block.kind === "footer" ? (
-        <>
-          <label className={LABEL}>
-            Footer note
-            <textarea
-              value={block.text}
-              onChange={(e) => onChange({ text: e.target.value })}
-              rows={3}
-              maxLength={500}
-              className={`mt-1 ${FIELD}`}
-            />
-          </label>
-          <p className="text-xs text-neutral-500">An Unsubscribe button renders below (mock).</p>
-        </>
+        <p className="text-xs text-neutral-500">
+          This footer is <span className="font-medium">required on every email</span> — “sent by”
+          your verified-domain brand, plus Manage preferences, Unsubscribe and Privacy Policy.
+          Its content is fixed; you can only change its background colour above.
+        </p>
       ) : null}
 
       {block.kind === "heading" ? (

@@ -1,27 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { deriveTenantWebhookKey, tenantWebhookKeyMatches } from "./mailchimpWebhookAuth";
+import { deriveMailchimpWebhookKey, mailchimpWebhookKeyMatches } from "./mailchimpWebhookAuth";
 
-describe("mailchimp webhook per-tenant key", () => {
+describe("mailchimp webhook per-audience key", () => {
   const master = "master-secret";
+  const listA = "aud_111";
+  const listB = "aud_222";
 
-  it("is deterministic per tenant", () => {
-    expect(deriveTenantWebhookKey("ten_a", master)).toBe(deriveTenantWebhookKey("ten_a", master));
+  it("is deterministic per audience", () => {
+    expect(deriveMailchimpWebhookKey(listA, master)).toBe(deriveMailchimpWebhookKey(listA, master));
   });
 
-  it("differs per tenant — one tenant's key never authorises another's", () => {
-    const a = deriveTenantWebhookKey("ten_a", master);
-    const b = deriveTenantWebhookKey("ten_b", master);
+  it("differs per audience — a key for one list never authorises another list_id", () => {
+    const a = deriveMailchimpWebhookKey(listA, master);
+    const b = deriveMailchimpWebhookKey(listB, master);
     expect(a).not.toBe(b);
-    // A BYO tenant admin knows their own key but can't forge the victim's.
-    expect(tenantWebhookKeyMatches(a, deriveTenantWebhookKey("ten_b", master))).toBe(false);
-    expect(tenantWebhookKeyMatches(a, deriveTenantWebhookKey("ten_a", master))).toBe(true);
+    // Knowing your own audience's key can't forge a write for a different list_id.
+    expect(mailchimpWebhookKeyMatches(a, deriveMailchimpWebhookKey(listB, master))).toBe(false);
+    expect(mailchimpWebhookKeyMatches(a, deriveMailchimpWebhookKey(listA, master))).toBe(true);
   });
 
   it("depends on the master secret", () => {
-    expect(deriveTenantWebhookKey("ten_a", master)).not.toBe(deriveTenantWebhookKey("ten_a", "other"));
+    expect(deriveMailchimpWebhookKey(listA, master)).not.toBe(deriveMailchimpWebhookKey(listA, "other"));
   });
 
   it("rejects an empty / mismatched key without throwing", () => {
-    expect(tenantWebhookKeyMatches("", deriveTenantWebhookKey("ten_a", master))).toBe(false);
+    expect(mailchimpWebhookKeyMatches("", deriveMailchimpWebhookKey(listA, master))).toBe(false);
   });
 });

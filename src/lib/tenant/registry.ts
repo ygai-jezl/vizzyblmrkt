@@ -61,6 +61,32 @@ export async function listAllTenants(
   return snap.docs.map((d) => TenantSchema.parse({ id: d.id, ...d.data() }));
 }
 
+/**
+ * Resolve the tenant(s) whose email sending uses a given MailChimp audience
+ * (list) id. Used by the MailChimp audience webhook to map an unsubscribe/clean
+ * event (which carries only the email + `list_id`) back to the owning tenant,
+ * WITHOUT baking tenant ids into the webhook URL — so onboarding a new tenant
+ * with its own audience needs no webhook change. A tenant "owns" an audience via
+ * its per-tenant `emailSenderConfig`? no — via `mailchimpConfig.audienceId`
+ * (BYO/dedicated audiences). Tenants on the shared platform audience leave that
+ * unset (they use the env-level config), so they aren't matched here — the
+ * webhook resolves them from MAILCHIMP_SHARED_AUDIENCE_TENANTS instead.
+ *
+ * Single-field equality on a nested map field → served by Firestore's default
+ * indexing, so it scales to any tenant count with one indexed read.
+ */
+export async function getTenantsByMailchimpAudience(
+  audienceId: string,
+  db: FirestoreLike = defaultDb(),
+): Promise<Tenant[]> {
+  if (!audienceId) return [];
+  const snap = await db
+    .collection("tenants")
+    .where("mailchimpConfig.audienceId", "==", audienceId)
+    .get();
+  return snap.docs.map((d) => TenantSchema.parse({ id: d.id, ...d.data() }));
+}
+
 /** List every tenant association for a logged-in user (single fast read). */
 export async function getTenantsForUser(
   userId: string,

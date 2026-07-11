@@ -232,12 +232,23 @@ env:
   # MailChimp audience webhook master key (→ /api/webhooks/mailchimp). A broadcast
   # unsubscribe uses MailChimp's native *|UNSUB|*, so this webhook mirrors that
   # opt-out into our suppression store (email_suppressions) → also stops journeys,
-  # keeping unsubscribe TENANT-WIDE. The per-audience webhook URL carries ?t=<tenant
-  # ids>&key=HMAC(this,?t=). Provision BEFORE deploying this file:
+  # keeping unsubscribe TENANT-WIDE. The webhook URL carries NO tenant ids — only
+  # ?key=HMAC(this, <audience list_id>); the owning tenant is resolved from the
+  # event's list_id (scales to any tenant count with no URL changes). Provision
+  # BEFORE deploying this file:
   #   firebase apphosting:secrets:set mailchimp-webhook-key --project vizzybl-marketing-prod
   # then register the webhook URL in the MailChimp audience Settings → Webhooks.
   - variable: MAILCHIMP_WEBHOOK_KEY
     secret: mailchimp-webhook-key
+    availability:
+      - RUNTIME
+  # Brands that share the ONE platform MailChimp audience (MAILCHIMP_AUDIENCE_ID).
+  # A shared-audience unsubscribe can't be attributed to a single brand from the
+  # event, so it's mirrored into each of these (they leave mailchimpConfig unset,
+  # so they aren't found by the list_id → tenant lookup). Tenants with their OWN
+  # audience resolve automatically and are NOT listed here. Comma-separated.
+  - variable: MAILCHIMP_SHARED_AUDIENCE_TENANTS
+    value: ten_yougrow-ai,ten_vzb
     availability:
       - RUNTIME
   # Shared secret the scheduled delivery worker (Cloud Scheduler) presents as

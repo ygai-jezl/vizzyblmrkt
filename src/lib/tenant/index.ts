@@ -18,6 +18,7 @@ export type { VerifiedClaims } from "./context";
 export {
   getTenantById,
   getTenantByOrigin,
+  getTenantsByMailchimpAudience,
   getTenantsForUser,
   getTenantMembership,
   listAllTenants,

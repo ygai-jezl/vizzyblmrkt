@@ -38,9 +38,11 @@ export function isLinkedInConfigured(): boolean {
 // credentials + scopes. Same authorize/token endpoints (the app is keyed by client_id).
 export const LINKEDIN_ORG_OAUTH_PATH = "/api/admin/integrations/linkedin_org/callback";
 export const LINKEDIN_ORG_STATE_COOKIE = "li_org_state";
-/** r_organization_admin → list the Pages the member admins (organizationAcls);
- *  w_organization_social → post as the Page. No OpenID (CM-only app). */
-export const LINKEDIN_ORG_SCOPES = "r_organization_admin w_organization_social";
+/** rw_organization_admin → list the Pages the member admins (organizationAcls) +
+ *  manage Page data; w_organization_social → post as the Page. No OpenID (CM-only app).
+ *  NB: the Community Management product grants `rw_organization_admin` — `r_organization_admin`
+ *  is an Advertising-API scope and requesting it on a CM-only app 400s (unauthorized_scope). */
+export const LINKEDIN_ORG_SCOPES = "rw_organization_admin w_organization_social";
 export const LINKEDIN_ORG_ACLS_URL =
   "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED";
 

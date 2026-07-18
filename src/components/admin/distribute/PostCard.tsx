@@ -83,6 +83,15 @@ export function PostCard({
         {post.status === "failed" && post.lastError ? ` · ${post.lastError}` : ""}
       </div>
 
+      {/* A successful publish can still drop its image (upload failed / asset gone) and
+          degrade to text-only; lastError carries the `li_image:` note on a done post.
+          Surface it distinctly — the failed-post branch above never fires for status:done. */}
+      {post.status === "done" && post.lastError?.startsWith("li_image:") ? (
+        <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+          ⚠ image not attached — posted text-only ({post.lastError.replace(/^li_image:/, "")})
+        </p>
+      ) : null}
+
       <div className="mt-2">
         <PreviewToggle channel={post.channel} body={post.body} />
       </div>

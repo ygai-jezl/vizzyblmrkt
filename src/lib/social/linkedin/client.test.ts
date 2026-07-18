@@ -57,6 +57,25 @@ describe("postToLinkedIn", () => {
     expect((calls[0]!.init.headers as Record<string, string>)["x-restli-protocol-version"]).toBe("2.0.0");
   });
 
+  it("attaches content.media when an imageUrn is supplied", async () => {
+    const { fn, calls } = fakeFetch([{ ok: true, status: 201, headers: { "x-restli-id": "urn:li:share:1" } }]);
+    await postToLinkedIn(
+      { authorUrn: author, text: "with image", accessToken: "t", imageUrn: "urn:li:image:IMG", imageAltText: "alt" },
+      { fetch: fn },
+    );
+    expect(calls[0]!.body).toMatchObject({
+      author,
+      commentary: "with image",
+      content: { media: { id: "urn:li:image:IMG", altText: "alt" } },
+    });
+  });
+
+  it("omits content entirely for a text-only post (no imageUrn)", async () => {
+    const { fn, calls } = fakeFetch([{ ok: true, status: 201, headers: { "x-restli-id": "urn:li:share:2" } }]);
+    await postToLinkedIn({ authorUrn: author, text: "text only", accessToken: "t" }, { fetch: fn });
+    expect((calls[0]!.body as Record<string, unknown>).content).toBeUndefined();
+  });
+
   it("falls back to a body id when the header is absent", async () => {
     const { fn } = fakeFetch([{ ok: true, status: 201, body: { id: "urn:li:share:7" } }]);
     const r = await postToLinkedIn({ authorUrn: author, text: "x", accessToken: "t" }, { fetch: fn });

@@ -267,6 +267,24 @@ env:
     secret: distribute-worker-secret
     availability:
       - RUNTIME
+  # LinkedIn Company Page publishing (Community Management API — App 2). Provision with
+  # infra/linkedin-cm/setup.sh secret vizzybl-marketing-prod, then grant the full secret
+  # IAM triple. SOCIAL_TOKEN_ENC_KEY is the shared AES root for social tokens (provision
+  # via infra/x-oauth/setup.sh if it doesn't already exist in prod). Personal-member
+  # (LINKEDIN_OAUTH_*) + X (X_OAUTH_*) blocks are intentionally omitted — the send path
+  # fail-softs to "not connected" for any channel whose credentials aren't configured.
+  - variable: SOCIAL_TOKEN_ENC_KEY
+    secret: social-token-enc-key
+    availability:
+      - RUNTIME
+  - variable: LINKEDIN_CM_CLIENT_ID
+    secret: linkedin-cm-client-id
+    availability:
+      - RUNTIME
+  - variable: LINKEDIN_CM_CLIENT_SECRET
+    secret: linkedin-cm-client-secret
+    availability:
+      - RUNTIME
   # Real social publishing (X/LinkedIn). Overrides the base "true" → OFF in prod: the
   # code ships promoted but the worker only manual-stamps until this is deliberately
   # flipped to "true" (after connecting prod accounts + clearing the X tier / LinkedIn

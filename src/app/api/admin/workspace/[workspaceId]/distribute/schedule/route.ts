@@ -131,6 +131,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       pps: scorePPS(node.body, channel.data),
       // "Post as Page" only applies to LinkedIn; the worker verifies the tenant admins it.
       linkedInAuthorUrn: channel.data === "linkedin" ? (parsed.data.linkedInAuthorUrn ?? null) : null,
+      // Carry the node's on-brand image (+ its prompt as alt text) so the worker can
+      // attach it at publish (LinkedIn).
+      imageAssetRef: node.imageAssetRef ?? null,
+      imageAltText: node.imagePrompt ?? null,
       scheduledAt,
     });
     // Reflect the schedule back onto the source node so the canvas shows it.

@@ -23,8 +23,13 @@ export interface LinkedInPublishInput {
   authorUrn: string;
   /** The post body (single post). */
   text: string;
-  /** Member OAuth 2.0 access token (w_member_social). */
+  /** Member OAuth 2.0 access token (w_member_social / w_organization_social). */
   accessToken: string;
+  /** Optional image URN from a prior uploadLinkedInImage (see media.ts). When present
+   *  it's attached as the post's single-image `content.media`; absent → text-only. */
+  imageUrn?: string;
+  /** Optional accessibility alt text for the attached image. */
+  imageAltText?: string;
 }
 
 export type LinkedInPublishResult =
@@ -53,6 +58,29 @@ export async function postToLinkedIn(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? PUBLISH_BUDGET_MS);
 
+  // A single-image post attaches the pre-uploaded image URN as `content.media`; a
+  // text-only post omits `content` entirely (identical to the prior behaviour).
+  const body: Record<string, unknown> = {
+    author: input.authorUrn,
+    commentary: text,
+    visibility: "PUBLIC",
+    distribution: {
+      feedDistribution: "MAIN_FEED",
+      targetEntities: [],
+      thirdPartyDistributionChannels: [],
+    },
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+  };
+  if (input.imageUrn) {
+    body.content = {
+      media: {
+        id: input.imageUrn,
+        ...(input.imageAltText ? { altText: input.imageAltText } : {}),
+      },
+    };
+  }
+
   try {
     let res: Response;
     try {
@@ -64,18 +92,7 @@ export async function postToLinkedIn(
           "linkedin-version": version,
           "x-restli-protocol-version": "2.0.0",
         },
-        body: JSON.stringify({
-          author: input.authorUrn,
-          commentary: text,
-          visibility: "PUBLIC",
-          distribution: {
-            feedDistribution: "MAIN_FEED",
-            targetEntities: [],
-            thirdPartyDistributionChannels: [],
-          },
-          lifecycleState: "PUBLISHED",
-          isReshareDisabledByAuthor: false,
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
     } catch {

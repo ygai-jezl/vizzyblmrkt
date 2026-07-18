@@ -4,7 +4,9 @@ import type { Region, Tenant } from "@/lib/types/tenant";
 import { ensureFreshAccessToken } from "@/lib/social/tokenRefresh";
 import { publishToX, fetchXPublicMetrics } from "@/lib/social/x/client";
 import { postToLinkedIn } from "@/lib/social/linkedin/client";
+import { uploadLinkedInImage } from "@/lib/social/linkedin/media";
 import { personUrn } from "@/lib/social/linkedin/oauth";
+import { readWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { isSocialPublishEnabled, buildXThread, classifyPublishResult } from "./publishX";
 import {
   AUTO_PLUG_DELAY_MS,
@@ -305,8 +307,35 @@ async function publishPost(
       });
       return "parked";
     }
+    // Attach the on-brand image if the node carried one. A failed upload must NOT sink
+    // the publish — fall back to a text-only post and record why (imageNote), so a
+    // missing/blocked image degrades gracefully rather than parking the whole post.
+    let imageUrn: string | undefined;
+    let imageNote: string | undefined;
+    if (post.imageAssetRef) {
+      const asset = await readWorkspaceAsset(ctx.tenantId, post.workspaceId, post.imageAssetRef);
+      if (!asset) {
+        imageNote = "li_image:asset_missing";
+      } else {
+        const up = await uploadLinkedInImage({
+          ownerUrn: authorUrn,
+          bytes: asset.bytes,
+          accessToken,
+          contentType: asset.contentType,
+        });
+        if (up.ok) imageUrn = up.imageUrn;
+        else imageNote = `li_image:${up.reason}`;
+      }
+    }
     const outcome = classifyPublishResult(
-      await postToLinkedIn({ authorUrn, text: renderedVariant ?? post.body, accessToken }),
+      await postToLinkedIn({
+        authorUrn,
+        text: renderedVariant ?? post.body,
+        accessToken,
+        imageUrn,
+        // Only meaningful when an image actually attached; harmless otherwise.
+        imageAltText: imageUrn ? (post.imageAltText ?? undefined) : undefined,
+      }),
     );
     if (outcome.kind === "published") {
       await repo.update(post.id, {
@@ -314,7 +343,9 @@ async function publishPost(
         ...renderPatch,
         publishedRef: { platform: "linkedin", remoteId: outcome.remoteId, url: outcome.url, publishedAt: now },
         processedAt: now,
-        lastError: null,
+        // Surface a dropped-image note even on success so the operator can see the post
+        // went out text-only; null when the image (or no image) was fine.
+        lastError: imageNote ?? null,
       });
       return "done";
     }
@@ -724,6 +755,10 @@ export interface SchedulePostInput {
   pps?: PpsResult | null;
   /** LinkedIn author URN (org URN → post as that Page; absent → personal). */
   linkedInAuthorUrn?: string | null;
+  /** On-brand post image (workspace-asset filename); attached at publish. Null → text-only. */
+  imageAssetRef?: string | null;
+  /** Accessibility alt text for the image (from the node's imagePrompt). */
+  imageAltText?: string | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
 }
@@ -764,6 +799,8 @@ export async function schedulePost(
       renderedVariant: null,
       pps: input.pps ?? null,
       linkedInAuthorUrn: input.linkedInAuthorUrn ?? null,
+      imageAssetRef: input.imageAssetRef ?? null,
+      imageAltText: input.imageAltText ?? null,
       publishedRef: null,
       lastError: null,
       createdAt: now,
@@ -801,6 +838,8 @@ export async function schedulePost(
         threadParts: null, // a prior deconstruction is stale once body is refreshed
         pps: input.pps ?? null,
         linkedInAuthorUrn: input.linkedInAuthorUrn ?? null,
+        imageAssetRef: input.imageAssetRef ?? null,
+        imageAltText: input.imageAltText ?? null,
         channel: input.channel,
         format: input.format ?? null,
       };

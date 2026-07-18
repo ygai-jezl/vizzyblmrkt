@@ -102,6 +102,14 @@ export const ScheduledPostSchema = z.object({
   threadParts: z.array(z.string().max(2000)).max(50).nullable().optional(),
   /** Phase 2: carousel asset ids (served via the app proxy). */
   carouselAssetRefs: z.array(z.string().max(200)).max(20).nullable().optional(),
+  /** Phase 6a: single on-brand post image (a workspace-asset filename, copied from the
+   *  Create node's `imageAssetRef` at schedule time). The worker uploads it to LinkedIn
+   *  and attaches it as the post's image. Null → text-only post. Bound ≥ the source
+   *  ContentNode.imageAssetRef (max 2000) so a valid ref can never be rejected here. */
+  imageAssetRef: z.string().max(2000).nullable().optional(),
+  /** Phase 6a: accessibility alt text for the attached image (copied from the node's
+   *  `imagePrompt`). Sent as the LinkedIn media altText; null → image ships without it. */
+  imageAltText: z.string().max(1000).nullable().optional(),
   /** Phase 3: predictive performance score at schedule time. */
   pps: z
     .object({

@@ -120,7 +120,7 @@ export default function Home() {
 
             <a
               href="#platform"
-              className="rounded text-sm text-brand-muted transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-bg"
+              className="rounded text-sm text-brand-muted transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-bg"
             >
               Explore the platform ↓
             </a>
@@ -293,8 +293,8 @@ export default function Home() {
               className="pointer-events-none absolute inset-0 opacity-70"
               style={{
                 backgroundImage:
-                  "radial-gradient(circle at 30% 0%, rgba(99,102,241,0.18) 0%, transparent 55%)," +
-                  "radial-gradient(circle at 75% 100%, rgba(139,92,246,0.16) 0%, transparent 55%)",
+                  "radial-gradient(circle at 30% 0%, rgba(37,99,235,0.18) 0%, transparent 55%)," +
+                  "radial-gradient(circle at 75% 100%, rgba(6,182,212,0.16) 0%, transparent 55%)",
               }}
             />
             <div className="relative mx-auto flex max-w-2xl flex-col items-center gap-6">

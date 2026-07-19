@@ -12,11 +12,10 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      // Marketing homepage design tokens, ported from the Vizzybl website
-      // (near-black surfaces + indigo/violet accents). Namespaced under `brand-*`
-      // so they never shadow Tailwind's built-in palettes (indigo/violet/emerald,
-      // whose 500/600 shades already match the accent hexes, are used directly for
-      // gradients). Additive only — used exclusively by src/components/marketing/*.
+      // Marketing homepage design tokens: Vizzybl-website dark surfaces with a
+      // Typewise blue→cyan accent. Namespaced under `brand-*` so they never shadow
+      // Tailwind's built-in palettes (blue/sky/cyan/emerald, whose shades supply the
+      // accents/gradients directly). Additive — used only by src/components/marketing/*.
       colors: {
         brand: {
           bg: "#0a0a0f",
@@ -25,7 +24,7 @@ const config: Config = {
           line: "#2a2a38",
           muted: "#a0a0b8",
           faint: "#6a6a82",
-          periwinkle: "#a5b4fc",
+          sky: "#7dd3fc", // light-blue tail for the white→sky stat gradient
         },
       },
       fontFamily: {
@@ -33,9 +32,9 @@ const config: Config = {
         display: ["var(--font-display)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        // The signature Vizzybl indigo "glow" used on hover-lift cards.
-        glow: "0 8px 24px rgba(99,102,241,0.30)",
-        "glow-soft": "0 12px 40px rgba(99,102,241,0.18)",
+        // The signature "glow" on hover-lift cards — Typewise blue.
+        glow: "0 8px 24px rgba(37,99,235,0.30)",
+        "glow-soft": "0 12px 40px rgba(37,99,235,0.18)",
       },
     },
   },

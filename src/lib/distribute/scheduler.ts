@@ -271,20 +271,31 @@ async function publishPost(
   // phase — the auto_plug/performance_fetch enqueues are X-only).
   if (post.channel === "linkedin" && isSocialPublishEnabled()) {
     const tenant = await getTenantById(ctx.tenantId, db);
-    // Resolve the author: a linkedin_org URN → post as that Company Page (CM/App-2
-    // token, and only if the tenant actually administers it); otherwise → the
-    // connected member (personal/App-1 token).
-    const wantsOrg = post.linkedInAuthorUrn?.startsWith("urn:li:organization:") ?? false;
+    // Resolve the author (ALL posting flows through here — UI, agent, API):
+    //  • an explicit linkedin_org URN → that Company Page;
+    //  • no explicit choice + NO personal connection + ≥1 admin Page → default to the
+    //    first Page. This is the authoritative Company-Page-only default: it covers
+    //    non-UI callers and closes the UI race where a Schedule click can beat the
+    //    author-list fetch and persist a null author;
+    //  • otherwise → the connected member (personal/App-1 token).
+    // A Page post uses the CM/App-2 token and only if the tenant actually administers it.
+    const orgs = tenant?.socialConnections?.linkedin_org?.orgs ?? [];
+    const hasPersonal = Boolean(tenant?.socialConnections?.linkedin?.userId);
+    const explicitOrg = post.linkedInAuthorUrn?.startsWith("urn:li:organization:")
+      ? post.linkedInAuthorUrn
+      : undefined;
+    const targetOrgUrn =
+      explicitOrg ?? (!hasPersonal && orgs.length > 0 ? orgs[0]!.urn : undefined);
+
     let authorUrn: string | undefined;
     let accessToken: string | undefined;
-    if (wantsOrg) {
+    if (targetOrgUrn) {
       // Only post as a Page the tenant actually administers; refresh the CM token first.
-      const cm = tenant?.socialConnections?.linkedin_org;
-      const admins = cm?.orgs?.some((o) => o.urn === post.linkedInAuthorUrn) ?? false;
+      const admins = orgs.some((o) => o.urn === targetOrgUrn);
       if (admins) {
         const token = await ensureFreshAccessToken(ctx, "linkedin_org", tenant);
         if (token) {
-          authorUrn = post.linkedInAuthorUrn ?? undefined;
+          authorUrn = targetOrgUrn;
           accessToken = token;
         }
       }
@@ -302,7 +313,7 @@ async function publishPost(
       await repo.update(post.id, {
         status: "failed",
         ...renderPatch,
-        lastError: wantsOrg ? "linkedin_page_not_connected" : "linkedin_not_connected",
+        lastError: targetOrgUrn ? "linkedin_page_not_connected" : "linkedin_not_connected",
         processedAt: now,
       });
       return "parked";

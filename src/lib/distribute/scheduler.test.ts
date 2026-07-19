@@ -208,6 +208,43 @@ describe("processScheduledPosts", () => {
     }
   });
 
+  it("Company-Page-only tenant + no explicit author defaults to the first admin Page (org path)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    // Tenant administers a Page but has NO personal LinkedIn connection. The stored token
+    // can't decrypt (no SOCIAL_TOKEN_ENC_KEY), so publishing still parks — but as
+    // 'linkedin_page_not_connected', proving the null-author post routed to the PAGE (org)
+    // path via the Company-Page-only default, NOT the personal 'linkedin_not_connected'.
+    db.seed("tenants", TENANT, {
+      tenantName: "T",
+      rootDomain: "t.example",
+      status: "active",
+      region: "us",
+      allowedOrigins: [],
+      billingTier: "free",
+      ownerId: "u1",
+      createdAt: PAST,
+      updatedAt: PAST,
+      socialConnections: {
+        linkedin_org: {
+          platform: "linkedin_org",
+          enc: { ct: "x", iv: "y", tag: "z" },
+          orgs: [{ urn: "urn:li:organization:5", name: "Acme" }],
+          connectedAt: PAST,
+        },
+      },
+    });
+    seedPost(db, "p1", { scheduledAt: PAST, channel: "linkedin" }); // no linkedInAuthorUrn
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      const r = await processScheduledPosts(ctx, 25, db);
+      expect(r).toMatchObject({ processed: 1, done: 0, failed: 1 });
+      expect(db.raw(COLLECTION, "p1")!.lastError).toBe("linkedin_page_not_connected");
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
   it("does not pick up a post scheduled in the future", async () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Author {
   urn: string | null;
@@ -9,8 +9,14 @@ interface Author {
 
 /**
  * "Post as" selector for a LinkedIn post — the connected member or a Company Page the
- * member administers. Renders nothing unless there's a real choice (a Page connected),
- * so non-org tenants see no clutter. `value`/`onChange` carry the org URN (or null = You).
+ * member administers. Rendered whenever a Company Page is connected (or there's >1
+ * identity); a personal-only (or unconnected) tenant sees no single-option clutter.
+ * `value`/`onChange` carry the org URN (or null = You).
+ *
+ * Company-Page-only default: when the tenant has NO personal connection (only Pages —
+ * the CM-API setup) and nothing is chosen yet, it auto-selects the first Page. Without
+ * this a new LinkedIn post falls to the personal author, which isn't connected, and
+ * parks as linkedin_not_connected.
  */
 export function LinkedInAuthorSelect({
   value,
@@ -22,13 +28,30 @@ export function LinkedInAuthorSelect({
   disabled?: boolean;
 }) {
   const [authors, setAuthors] = useState<Author[] | null>(null);
+  // Latest value/onChange without re-triggering the one-shot fetch effect below — keeps
+  // it []-dep + lint-clean while defaulting against the freshest selection.
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    valueRef.current = value;
+    onChangeRef.current = onChange;
+  });
 
   useEffect(() => {
     let live = true;
     fetch("/api/admin/distribute/linkedin-authors")
       .then((r) => (r.ok ? r.json() : { authors: [] }))
       .then((d: { authors?: Author[] }) => {
-        if (live) setAuthors(d.authors ?? []);
+        if (!live) return;
+        const list = d.authors ?? [];
+        setAuthors(list);
+        // Default to the sole/first Page when there's no personal identity and nothing
+        // is selected yet — else the post parks on a missing personal author.
+        const hasPersonal = list.some((a) => a.urn === null);
+        const firstPage = list.find((a) => a.urn !== null);
+        if (valueRef.current == null && !hasPersonal && firstPage) {
+          onChangeRef.current(firstPage.urn);
+        }
       })
       .catch(() => live && setAuthors([]));
     return () => {
@@ -36,8 +59,11 @@ export function LinkedInAuthorSelect({
     };
   }, []);
 
-  // Only offer a choice when there's more than one identity (a Page is connected).
-  if (!authors || authors.length <= 1) return null;
+  // Offer the picker whenever a Page is connected (or there's >1 identity); hide it for a
+  // personal-only or unconnected tenant so there's no pointless single-option select.
+  if (!authors) return null;
+  const hasPage = authors.some((a) => a.urn !== null);
+  if (authors.length <= 1 && !hasPage) return null;
 
   return (
     <label className="flex items-center gap-1 text-xs text-neutral-500">

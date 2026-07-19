@@ -11,7 +11,33 @@ const config: Config = {
     "./src/lib/**/*.{ts,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      // Marketing homepage design tokens, ported from the Vizzybl website
+      // (near-black surfaces + indigo/violet accents). Namespaced under `brand-*`
+      // so they never shadow Tailwind's built-in palettes (indigo/violet/emerald,
+      // whose 500/600 shades already match the accent hexes, are used directly for
+      // gradients). Additive only — used exclusively by src/components/marketing/*.
+      colors: {
+        brand: {
+          bg: "#0a0a0f",
+          surface: "#141419",
+          raised: "#1e1e28",
+          line: "#2a2a38",
+          muted: "#a0a0b8",
+          faint: "#6a6a82",
+          periwinkle: "#a5b4fc",
+        },
+      },
+      fontFamily: {
+        // Display face wired up (self-hosted) in src/app/page.tsx via next/font.
+        display: ["var(--font-display)", "ui-sans-serif", "system-ui", "sans-serif"],
+      },
+      boxShadow: {
+        // The signature Vizzybl indigo "glow" used on hover-lift cards.
+        glow: "0 8px 24px rgba(99,102,241,0.30)",
+        "glow-soft": "0 12px 40px rgba(99,102,241,0.18)",
+      },
+    },
   },
   // Typography plugin styles the `prose` class (headings, lists, tables, blockquotes) — used by
   // the eBook reading pane + preview and the Markdown/blog renderers. Without it, Preflight

@@ -1,8 +1,8 @@
 import type { ComponentType, ReactNode, SVGProps } from "react";
 
 /**
- * Marketing homepage primitives — the Vizzybl "skin" (dark surfaces, indigo/violet
- * gradient headlines, hover-lift cards, indigo glow) reproduced with Tailwind so
+ * Marketing homepage primitives — the Vizzybl "skin" (dark surfaces, blue/cyan
+ * gradient headlines, hover-lift cards, blue glow) reproduced with Tailwind so
  * the homepage stays dependency-free. All server components: the only motion is
  * pure-CSS hover, matching the Vizzybl reference (no animation library). Brand
  * tokens live in tailwind.config.ts as `brand-*`.
@@ -21,13 +21,13 @@ export function Wordmark({
   href?: string;
   size?: "sm" | "lg";
 }) {
-  const cls = `bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text font-display font-extrabold tracking-tight text-transparent ${
+  const cls = `bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text font-display font-extrabold tracking-tight text-transparent ${
     size === "lg" ? "text-lg" : "text-base"
   }`;
   return href ? (
     <a
       href={href}
-      className={`${cls} rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-bg`}
+      className={`${cls} rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-bg`}
     >
       YouGrow.ai
     </a>
@@ -36,7 +36,7 @@ export function Wordmark({
   );
 }
 
-/** Layered radial-gradient page backdrop (indigo top-left, violet bottom-right). */
+/** Layered radial-gradient page backdrop (blue top-left, cyan bottom-right). */
 export function BlobBackground() {
   return (
     <div
@@ -44,8 +44,8 @@ export function BlobBackground() {
       className="pointer-events-none fixed inset-0 -z-10 bg-brand-bg"
       style={{
         backgroundImage:
-          "radial-gradient(circle at 15% 12%, rgba(99,102,241,0.14) 0%, transparent 45%)," +
-          "radial-gradient(circle at 85% 88%, rgba(139,92,246,0.14) 0%, transparent 45%)",
+          "radial-gradient(circle at 15% 12%, rgba(37,99,235,0.16) 0%, transparent 45%)," +
+          "radial-gradient(circle at 85% 88%, rgba(6,182,212,0.14) 0%, transparent 45%)",
       }}
     />
   );
@@ -72,14 +72,14 @@ export function Section({
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">
+    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-400">
       {children}
     </p>
   );
 }
 
 /**
- * A display heading. Text inside `<em>` is rendered as the indigo→violet gradient
+ * A display heading. Text inside `<em>` is rendered as the blue→cyan gradient
  * accent (the Vizzybl signature); everything else is plain white.
  */
 export function GradientHeading({
@@ -93,7 +93,7 @@ export function GradientHeading({
 }) {
   return (
     <Tag
-      className={`font-display font-extrabold tracking-tight text-white [&_em]:bg-gradient-to-br [&_em]:from-indigo-400 [&_em]:to-violet-400 [&_em]:bg-clip-text [&_em]:not-italic [&_em]:text-transparent ${className}`}
+      className={`font-display font-extrabold tracking-tight text-white [&_em]:bg-gradient-to-br [&_em]:from-blue-400 [&_em]:to-cyan-400 [&_em]:bg-clip-text [&_em]:not-italic [&_em]:text-transparent ${className}`}
     >
       {children}
     </Tag>
@@ -104,7 +104,7 @@ export function GradientHeading({
 export function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="bg-gradient-to-br from-white to-brand-periwinkle bg-clip-text font-display text-3xl font-extrabold text-transparent sm:text-4xl">
+      <span className="bg-gradient-to-br from-white to-brand-sky bg-clip-text font-display text-3xl font-extrabold text-transparent sm:text-4xl">
         {value}
       </span>
       <span className="text-sm text-brand-muted">{label}</span>
@@ -122,7 +122,7 @@ export function StatRow({
     <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
       {items.map(({ icon: Icon, label }) => (
         <li key={label} className="flex items-center gap-2 text-sm text-brand-muted">
-          {Icon ? <Icon size={16} className="text-indigo-400" /> : null}
+          {Icon ? <Icon size={16} className="text-blue-400" /> : null}
           {label}
         </li>
       ))}
@@ -130,7 +130,7 @@ export function StatRow({
   );
 }
 
-/** Primary (solid indigo) or secondary (outline) call-to-action link. */
+/** Primary (solid blue) or secondary (outline) call-to-action link. */
 export function CTAButton({
   href,
   children,
@@ -143,11 +143,11 @@ export function CTAButton({
   external?: boolean;
 }) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-bg";
+    "inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-bg";
   const styles =
     variant === "primary"
-      ? "bg-indigo-600 text-white shadow-glow hover:-translate-y-0.5 hover:bg-indigo-700"
-      : "border border-brand-line bg-white/[0.02] text-white hover:-translate-y-0.5 hover:border-indigo-500/60 hover:bg-white/[0.05]";
+      ? "bg-blue-600 text-white shadow-glow hover:-translate-y-0.5 hover:bg-blue-700"
+      : "border border-brand-line bg-white/[0.02] text-white hover:-translate-y-0.5 hover:border-blue-500/60 hover:bg-white/[0.05]";
   const props = external
     ? { target: "_blank", rel: "noopener noreferrer" }
     : {};
@@ -235,11 +235,11 @@ function CheckDot() {
   return (
     <svg
       viewBox="0 0 20 20"
-      className="mt-0.5 h-5 w-5 flex-none text-indigo-400"
+      className="mt-0.5 h-5 w-5 flex-none text-blue-400"
       fill="none"
       aria-hidden
     >
-      <circle cx="10" cy="10" r="9" className="fill-indigo-500/10" />
+      <circle cx="10" cy="10" r="9" className="fill-blue-500/10" />
       <path
         d="M6 10.5l2.5 2.5L14 7.5"
         stroke="currentColor"
@@ -262,8 +262,8 @@ export function FeatureCard({
   children: ReactNode;
 }) {
   return (
-    <div className="group flex flex-col gap-3 rounded-xl border border-brand-line bg-brand-surface p-6 transition-all duration-200 hover:-translate-y-1 hover:border-indigo-500/60 hover:shadow-glow">
-      <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-brand-line bg-brand-raised text-indigo-400 transition-colors group-hover:border-indigo-500/50 group-hover:text-indigo-300">
+    <div className="group flex flex-col gap-3 rounded-xl border border-brand-line bg-brand-surface p-6 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/60 hover:shadow-glow">
+      <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-brand-line bg-brand-raised text-blue-400 transition-colors group-hover:border-blue-500/50 group-hover:text-sky-300">
         <Icon size={20} />
       </span>
       <h3 className="font-display text-lg font-semibold text-white">{title}</h3>

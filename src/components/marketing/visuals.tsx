@@ -34,15 +34,15 @@ export function CanvasVisual() {
     <VisualFrame>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-xs font-medium text-brand-muted">Content canvas</span>
-        <span className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-[11px] font-medium text-indigo-300">
+        <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-300">
           4 / 6 generated
         </span>
       </div>
       <svg viewBox="0 0 420 296" className="h-auto w-full" aria-hidden>
         <defs>
           <linearGradient id="hubGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#6366f1" />
-            <stop offset="1" stopColor="#8b5cf6" />
+            <stop offset="0" stopColor="#2563eb" />
+            <stop offset="1" stopColor="#06b6d4" />
           </linearGradient>
         </defs>
         {/* edges */}
@@ -53,7 +53,7 @@ export function CanvasVisual() {
             y1={hub.y}
             x2={s.x}
             y2={s.y}
-            stroke={s.generating ? "#8b5cf6" : "#3a3a4d"}
+            stroke={s.generating ? "#06b6d4" : "#3a3a4d"}
             strokeWidth="1.5"
             strokeDasharray={s.generating ? "4 4" : undefined}
             className={s.generating ? "animate-pulse" : undefined}
@@ -69,7 +69,7 @@ export function CanvasVisual() {
               height="30"
               rx="8"
               fill="#1e1e28"
-              stroke={s.generating ? "#8b5cf6" : "#2a2a38"}
+              stroke={s.generating ? "#06b6d4" : "#2a2a38"}
               strokeWidth="1.25"
             />
             <text
@@ -78,7 +78,7 @@ export function CanvasVisual() {
               textAnchor="middle"
               dominantBaseline="middle"
               fontSize="11.5"
-              fill={s.generating ? "#c4b5fd" : "#a0a0b8"}
+              fill={s.generating ? "#7dd3fc" : "#a0a0b8"}
               fontWeight="500"
             >
               {s.label}
@@ -123,7 +123,7 @@ export function VizzyChatVisual() {
   return (
     <VisualFrame>
       <div className="flex items-center gap-2.5 border-b border-brand-line pb-3">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 font-display text-sm font-bold text-white">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 font-display text-sm font-bold text-white">
           V
         </span>
         <div className="flex flex-col">
@@ -139,21 +139,21 @@ export function VizzyChatVisual() {
       </div>
 
       <div className="flex flex-col gap-3 pt-4">
-        <div className="ml-auto max-w-[80%] rounded-2xl rounded-tr-sm bg-indigo-500/90 px-3.5 py-2 text-sm text-white">
+        <div className="ml-auto max-w-[80%] rounded-2xl rounded-tr-sm bg-blue-500/90 px-3.5 py-2 text-sm text-white">
           Build a 4-email welcome journey.
         </div>
         <p className="flex items-center gap-2 pl-1 text-[13px] italic text-brand-faint">
-          <Sparkles size={13} className="animate-pulse text-violet-400" />
+          <Sparkles size={13} className="animate-pulse text-cyan-400" />
           Pulling your onboarding docs…
         </p>
-        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-brand-line bg-brand-raised px-3 py-1.5 font-mono text-[12px] text-indigo-300">
+        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-brand-line bg-brand-raised px-3 py-1.5 font-mono text-[12px] text-sky-300">
           <ArrowRight size={13} />
           build_email_journey()
         </div>
         <div className="max-w-[88%] rounded-2xl rounded-tl-sm border border-brand-line bg-brand-raised px-3.5 py-2 text-sm text-brand-muted">
           Drafted a 4-step welcome journey on your canvas. Want me to A/B the
           subject lines?
-          <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse bg-indigo-400 align-middle" />
+          <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse bg-blue-400 align-middle" />
         </div>
       </div>
     </VisualFrame>
@@ -175,7 +175,7 @@ export function KnowledgeVisual() {
             key={label}
             className="flex flex-col items-center gap-1.5 rounded-lg border border-brand-line bg-brand-raised py-3"
           >
-            <Icon size={18} className="text-indigo-300" />
+            <Icon size={18} className="text-sky-300" />
             <span className="flex items-center gap-1 text-[11px] text-brand-muted">
               {label}
               {locked ? <Lock size={9} className="text-brand-faint" /> : null}
@@ -186,13 +186,13 @@ export function KnowledgeVisual() {
 
       <div className="my-3 flex flex-col items-center gap-2">
         <div className="h-4 w-px bg-brand-line" />
-        <div className="flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5">
+        <div className="flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5">
           <span className="flex gap-1">
             {[0, 1, 2, 3, 4].map((i) => (
-              <span key={i} className="h-1.5 w-1.5 rounded-full bg-indigo-400/80" />
+              <span key={i} className="h-1.5 w-1.5 rounded-full bg-blue-400/80" />
             ))}
           </span>
-          <span className="text-[11px] font-medium text-indigo-200">
+          <span className="text-[11px] font-medium text-sky-200">
             Vector search over your knowledge
           </span>
         </div>
@@ -204,7 +204,7 @@ export function KnowledgeVisual() {
           &ldquo;Our SSO setup takes about{" "}
           <span className="text-white">10 minutes</span> and supports SAML &amp;
           SCIM&rdquo;
-          <span className="ml-1.5 rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] text-indigo-300">
+          <span className="ml-1.5 rounded border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-sky-300">
             cited: your docs
           </span>
         </p>
@@ -224,7 +224,7 @@ export function WaitlistVoiceVisual() {
           <span className="text-xs font-medium uppercase tracking-widest text-brand-faint">
             Your position
           </span>
-          <span className="bg-gradient-to-br from-indigo-400 to-violet-400 bg-clip-text font-display text-5xl font-extrabold tabular-nums text-transparent">
+          <span className="bg-gradient-to-br from-blue-400 to-cyan-400 bg-clip-text font-display text-5xl font-extrabold tabular-nums text-transparent">
             #128
           </span>
         </div>
@@ -235,7 +235,7 @@ export function WaitlistVoiceVisual() {
 
       <div className="mt-4 flex items-center gap-3">
         <div className="flex -space-x-2">
-          {["#6366f1", "#8b5cf6", "#a5b4fc", "#22d3ee"].map((c, i) => (
+          {["#2563eb", "#06b6d4", "#38bdf8", "#22d3ee"].map((c, i) => (
             <span
               key={i}
               className="h-7 w-7 rounded-full border-2 border-brand-surface"
@@ -249,14 +249,14 @@ export function WaitlistVoiceVisual() {
       </div>
 
       <div className="mt-5 flex items-center gap-3 rounded-xl border border-brand-line bg-brand-raised px-3.5 py-3">
-        <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-cyan-400 text-white">
+        <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
           <Mic size={16} />
         </span>
         <div className="flex h-8 flex-1 items-center gap-[3px]">
           {WAVE.map((h, i) => (
             <span
               key={i}
-              className={`w-[3px] flex-1 rounded-full bg-gradient-to-t from-indigo-500 to-violet-400 ${
+              className={`w-[3px] flex-1 rounded-full bg-gradient-to-t from-blue-500 to-cyan-400 ${
                 i % 4 === 0 ? "animate-pulse" : ""
               }`}
               style={{ height: `${h}px` }}
@@ -275,10 +275,10 @@ export function EmailBuilderVisual() {
     <VisualFrame>
       <div className="mb-3 flex items-center gap-2">
         <div className="flex flex-1 items-center gap-2 rounded-lg border border-brand-line bg-brand-raised px-3 py-2 text-[13px] text-brand-faint">
-          <Sparkles size={13} className="text-violet-400" />
+          <Sparkles size={13} className="text-cyan-400" />
           Describe the email you want…
         </div>
-        <span className="rounded-md border border-indigo-500/30 bg-indigo-500/10 px-2 py-1 text-[11px] font-semibold text-indigo-300">
+        <span className="rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-semibold text-sky-300">
           A/B
         </span>
       </div>
@@ -296,7 +296,7 @@ export function EmailBuilderVisual() {
         </div>
         {/* button block */}
         <div className="mt-1 flex justify-center">
-          <span className="rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-glow">
+          <span className="rounded-lg bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-glow">
             Get started
           </span>
         </div>
@@ -306,7 +306,7 @@ export function EmailBuilderVisual() {
 }
 
 // ── Brand Kit: PDF → extracted palette + tone ────────────────────────────────
-const KIT_PALETTE = ["#0f172a", "#6366f1", "#8b5cf6", "#22d3ee", "#f8fafc"];
+const KIT_PALETTE = ["#0f172a", "#2563eb", "#06b6d4", "#22d3ee", "#f8fafc"];
 
 export function BrandKitVisual() {
   return (
@@ -317,7 +317,7 @@ export function BrandKitVisual() {
           <span className="text-[13px] text-brand-muted">brand-guidelines.pdf</span>
         </div>
         <ArrowRight size={16} className="flex-none text-brand-faint" />
-        <span className="flex items-center gap-1.5 text-[13px] font-medium text-indigo-300">
+        <span className="flex items-center gap-1.5 text-[13px] font-medium text-sky-300">
           <Palette size={15} />
           Brand kit
         </span>

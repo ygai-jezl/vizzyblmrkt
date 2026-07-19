@@ -10,12 +10,9 @@ import {
   type CalendarNewsletter,
 } from "@/lib/distribute/uiModel";
 import { scorePPS } from "@/lib/distribute/pps";
-import { channelLabel } from "@/lib/content/channels";
-import { PpsGauge } from "./PpsGauge";
 import { ListView } from "./ListView";
 import { CalendarView } from "./CalendarView";
-import { SchedulePicker } from "./SchedulePicker";
-import { PreviewToggle } from "./preview/PreviewToggle";
+import { SchedulableRow } from "./SchedulableRow";
 
 type View = "list" | "calendar";
 
@@ -183,31 +180,12 @@ export function DistributeClient({
         ) : (
           <ul className="mt-2 divide-y divide-neutral-200 dark:divide-neutral-800">
             {scoredSchedulable.map((s) => (
-              <li
+              <SchedulableRow
                 key={`${s.planId}:${s.node.id}`}
-                className="flex flex-wrap items-center justify-between gap-2 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-xs text-neutral-500">
-                    <span>
-                      {s.planName} · {channelLabel(s.node.channel)}
-                    </span>
-                    <PpsGauge pps={s.pps} />
-                  </div>
-                  <div className="truncate text-sm text-neutral-700 dark:text-neutral-300">
-                    {s.node.body.slice(0, 120)}
-                    {s.node.body.length > 120 ? "…" : ""}
-                  </div>
-                  <div className="mt-1">
-                    <PreviewToggle channel={s.node.channel} body={s.node.body} />
-                  </div>
-                </div>
-                <SchedulePicker
-                  label="Schedule"
-                  disabled={busy}
-                  onSubmit={(iso) => schedule(s.planId, s.node.id, iso)}
-                />
-              </li>
+                item={s}
+                busy={busy}
+                onSchedule={schedule}
+              />
             ))}
           </ul>
         )}

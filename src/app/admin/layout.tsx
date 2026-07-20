@@ -7,6 +7,7 @@ import {
   deriveFaviconUrl,
 } from "@/lib/tenant";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { SessionKeeper } from "@/components/admin/SessionKeeper";
 import type { BrandOption } from "@/components/admin/BrandSwitcher";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +86,7 @@ export default async function AdminLayout({
 
   return (
     <div className="flex min-h-screen">
+      <SessionKeeper />
       <AdminSidebar
         brands={brands}
         launches={launches}

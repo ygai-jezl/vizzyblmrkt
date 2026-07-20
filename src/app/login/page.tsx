@@ -4,38 +4,31 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithPopup } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
+import { mintSession, safeNextPath } from "@/lib/auth/clientSession";
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function postSession(idToken: string) {
-    const res = await fetch("/api/auth/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken }),
-    });
-    return { status: res.status, body: await res.json().catch(() => ({})) };
-  }
-
   async function signIn() {
     setBusy(true);
     setError(null);
     try {
       const cred = await signInWithPopup(getClientAuth(), googleProvider());
-      let r = await postSession(await cred.user.getIdToken());
-      // First sign-in: claims were just minted — refresh the token and retry.
-      if (r.body?.needsRefresh) {
-        r = await postSession(await cred.user.getIdToken(true));
-      }
-      if (r.status === 403) {
+      const result = await mintSession(cred.user);
+      if (result === "forbidden") {
         setError("Access denied. Sign in with your @yougrow.ai account.");
         setBusy(false);
         return;
       }
-      if (!r.body?.ok) throw new Error("session");
-      router.push("/admin/signups");
+      if (result !== "ok") throw new Error("session");
+      // Return to where the session expired (validated, internal paths only);
+      // read at click time so the client page needs no useSearchParams Suspense.
+      const next = safeNextPath(
+        new URLSearchParams(window.location.search).get("next"),
+      );
+      router.push(next ?? "/admin/signups");
       router.refresh();
     } catch {
       setError("Sign-in failed. Please try again.");

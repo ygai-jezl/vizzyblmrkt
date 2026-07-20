@@ -23,6 +23,7 @@ import type { Workspace } from "@/lib/types/workspace";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { SocialEvent } from "@/lib/types/socialEvent";
 import type { EngagedContact } from "@/lib/types/engagedContact";
+import type { ImageAsset } from "@/lib/types/imageAsset";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -278,6 +279,10 @@ export interface TenantRepositories {
   /** CRM "Engaged" tab: distinct social profiles who engaged. Separate from
    *  `contacts` so scraped social identities never pollute the email CRM. */
   socialEngaged: TenantCollection<EngagedContact>;
+  /** Brand Kit: registry of every AI-generated image across the tenant's workspaces.
+   *  The bytes live in the private GCS bucket; each row carries the workspaceId +
+   *  filename needed to serve them via the authenticated workspace-asset proxy. */
+  imageAssets: TenantCollection<ImageAsset>;
 }
 
 /**
@@ -343,5 +348,8 @@ export function forTenant(
     // Inbound social engagement PII → regional DB, like email_events.
     socialEvents: new TenantCollection<SocialEvent>(regionalDb, "social_events", t),
     socialEngaged: new TenantCollection<EngagedContact>(regionalDb, "social_engaged", t),
+    // Brand Kit image registry: generated-content metadata (no end-user PII) →
+    // regional DB, colocated with the workspaces/content it references.
+    imageAssets: new TenantCollection<ImageAsset>(regionalDb, "image_assets", t),
   };
 }

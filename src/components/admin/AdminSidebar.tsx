@@ -19,10 +19,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  SwatchBook,
   type LucideIcon,
 } from "lucide-react";
 import { BrandSwitcher, type BrandOption } from "./BrandSwitcher";
 import { LogoutButton } from "./LogoutButton";
+import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 
 interface NavLink {
   href: string;
@@ -71,6 +73,19 @@ const STATIC_GROUPS: NavGroup[] = [
         icon: FolderKanban,
         matchPattern: "/admin/workspace",
       },
+      // Brand Kit asset library — hidden unless the client flag is on (NEXT_PUBLIC_*
+      // is inlined at build, so this evaluates once). matchPattern doesn't collide
+      // with /admin/workspace; the longest-match resolver highlights it on children.
+      ...(isBrandKitUiEnabled()
+        ? [
+            {
+              href: "/admin/brand-kit",
+              label: "Brand Kit",
+              icon: SwatchBook,
+              matchPattern: "/admin/brand-kit",
+            } as NavLink,
+          ]
+        : []),
     ],
   },
   // "Active Launches" is rendered separately (dynamic list).

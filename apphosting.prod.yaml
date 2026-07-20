@@ -318,6 +318,19 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand Kit asset library (Content OS → Images gallery + Customise). Kept OFF in prod
+  # until the image_assets composite index is deployed (firebase deploy --only
+  # firestore:indexes) — otherwise the gallery degrades to empty. Flip both to "true" after
+  # the index is READY. Customise reuses gemini-3.1-flash-image + EMAIL_ASSET_BUCKET.
+  - variable: BRAND_KIT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_KIT_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Signs the short-lived capability token the admin-chat proxy mints so the
   # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
   # journey DRAFT, scoped to the verified tenant. Keep COMMENTED until the secret

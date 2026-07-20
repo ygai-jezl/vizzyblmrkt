@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import { getContentPlan } from "@/lib/tenant/workspaceContent";
+import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import {
   storeWorkspaceImage,
   MAX_SCREENSHOT_BYTES,
@@ -17,10 +17,11 @@ type RouteParams = { params: Promise<{ workspaceId: string; planId: string; node
 
 /**
  * Upload an image (PNG / JPG / WebP) as a social post node's image → private workspace
- * asset. The manual alternative to AI generation; returns the asset FILENAME (the inspector
- * applies it via onUpdate and the canvas Save persists it). FLAG-GATED (503 until
- * CREATE_SOCIAL_IMAGE_ENABLED); needs no Vertex/model access. Type is trusted from the
- * magic-byte sniff inside storeWorkspaceImage, not the client content-type.
+ * asset. The manual alternative to AI generation; PERSISTS the asset FILENAME onto the node
+ * (durable without a manual Save, like generation) and returns it (the inspector also applies
+ * it via onUpdate). FLAG-GATED (503 until CREATE_SOCIAL_IMAGE_ENABLED); needs no Vertex/model
+ * access. Type is trusted from the magic-byte sniff inside storeWorkspaceImage, not the client
+ * content-type.
  */
 export async function POST(req: Request, { params }: RouteParams) {
   const blocked = sameOriginGuard(req);
@@ -78,5 +79,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: stored.reason === "no_asset_bucket" ? 503 : 502 },
     );
   }
-  return NextResponse.json({ imageAssetRef: stored.filename });
+
+  // Persist the ref onto the node so an uploaded image is durable without a manual Save.
+  // Uploaded images carry no AI aspect/prompt metadata.
+  const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+    imageAssetRef: stored.filename,
+    imageAspect: null,
+    imagePrompt: null,
+  });
+  if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
+  return NextResponse.json({ imageAssetRef: updated.imageAssetRef });
 }

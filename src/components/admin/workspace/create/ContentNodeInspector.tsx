@@ -43,6 +43,7 @@ export function ContentNodeInspector({
   onClose,
   onOpenLayout,
   onOpenPreview,
+  onImageBusyChange,
 }: {
   node: ContentNode;
   workspaceId: string;
@@ -53,6 +54,9 @@ export function ContentNodeInspector({
   briefBusy?: boolean;
   onUpdate: (patch: Partial<ContentNode>) => void;
   onGenerate: () => void;
+  /** Social nodes — flag the node + canvas busy while an image op is in flight (see
+   *  SocialImageControls.onBusyChange). */
+  onImageBusyChange?: (busy: boolean) => void;
   /** Spoke/promo nodes — (re)write the brief from what the node is connected to. */
   onSuggestBrief?: () => void;
   onApprove: () => void;
@@ -384,6 +388,7 @@ export function ContentNodeInspector({
           workspaceId={workspaceId}
           planId={planId}
           onUpdate={onUpdate}
+          onBusyChange={onImageBusyChange}
         />
       ) : null}
 
@@ -466,27 +471,33 @@ export function ContentNodeInspector({
 
 /**
  * ✨ On-brand image generation for a social post node (linkedin/x/instagram). Local
- * brief/aspect/style state; POSTs the flag-gated post-image route, then applies the
- * returned workspace-asset filename via onUpdate (persisted by the canvas Save). Keyed
- * by node id at the call site so state resets when a different node is selected.
+ * brief/aspect/style state; POSTs the flag-gated post-image route (which persists the ref
+ * onto the node server-side), then mirrors the returned filename into local canvas state via
+ * onUpdate so the thumbnail shows instantly. Generate / upload / remove are all durable
+ * without a manual Save. Keyed by node id at the call site so state resets on node switch.
  */
 function SocialImageControls({
   node,
   workspaceId,
   planId,
   onUpdate,
+  onBusyChange,
 }: {
   node: ContentNode;
   workspaceId: string;
   planId: string;
   onUpdate: (patch: Partial<ContentNode>) => void;
+  /** Mark the node + canvas busy while an image op is in flight, so a concurrent whole-graph
+   *  Save (which reads local state where this node's ref is still stale mid-request) can't
+   *  race the per-node persist and clobber the just-saved imageAssetRef. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [brief, setBrief] = useState("");
   const [aspect, setAspect] = useState<SocialAspect>(
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
   const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
-  const [busy, setBusy] = useState<null | "generate" | "upload">(null);
+  const [busy, setBusy] = useState<null | "generate" | "upload" | "remove">(null);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -498,6 +509,7 @@ function SocialImageControls({
   async function generate() {
     if (!brief.trim() || busy) return;
     setBusy("generate");
+    onBusyChange?.(true);
     setErr(null);
     try {
       const res = await fetch(
@@ -526,6 +538,7 @@ function SocialImageControls({
       setErr("Couldn't generate — try again.");
     } finally {
       setBusy(null);
+      onBusyChange?.(false);
     }
   }
 
@@ -534,6 +547,7 @@ function SocialImageControls({
     e.target.value = ""; // let the same file be re-picked after a failure
     if (!file || busy) return;
     setBusy("upload");
+    onBusyChange?.(true);
     setErr(null);
     try {
       const fd = new FormData();
@@ -553,6 +567,33 @@ function SocialImageControls({
       setErr("Couldn't upload — try again.");
     } finally {
       setBusy(null);
+      onBusyChange?.(false);
+    }
+  }
+
+  // Remove clears the image server-side (durable, like generate/upload) then mirrors it
+  // into local canvas state — so it survives a reload instead of reappearing on refetch.
+  async function remove() {
+    if (busy) return;
+    setBusy("remove");
+    onBusyChange?.(true);
+    setErr(null);
+    try {
+      const res = await fetch(
+        `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/post-image`,
+        { method: "DELETE" },
+      );
+      if (res.ok) {
+        onUpdate({ imageAssetRef: null, imageAspect: null, imagePrompt: null });
+      } else {
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        setErr(data.message ?? "Couldn't remove — try again.");
+      }
+    } catch {
+      setErr("Couldn't remove — try again.");
+    } finally {
+      setBusy(null);
+      onBusyChange?.(false);
     }
   }
 
@@ -633,17 +674,18 @@ function SocialImageControls({
         {hasImage ? (
           <button
             type="button"
-            onClick={() => onUpdate({ imageAssetRef: null, imageAspect: null, imagePrompt: null })}
-            className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+            onClick={remove}
+            disabled={busy !== null}
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
           >
-            Remove
+            {busy === "remove" ? "Removing…" : "Remove"}
           </button>
         ) : null}
         {err ? <span className="text-xs text-red-600">{err}</span> : null}
       </div>
       <p className="mt-1.5 text-[10px] text-neutral-400">
         Generate an on-brand image (Brand Kit + this post&apos;s copy) or upload your own
-        (PNG / JPG / WebP). Save the canvas to keep it.
+        (PNG / JPG / WebP). It&apos;s saved to this post automatically.
       </p>
     </div>
   );

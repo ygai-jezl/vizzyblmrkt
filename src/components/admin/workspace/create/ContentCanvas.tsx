@@ -576,6 +576,13 @@ export function ContentCanvas({
           onGenerate={() => saveThenGenerate(selectedCn.id)}
           onSuggestBrief={() => suggestBrief(selectedCn.id)}
           onApprove={() => updateCn(selectedCn.id, { status: "approved" })}
+          onImageBusyChange={(b) => {
+            // An in-flight image op persists the ref per-node server-side; block the whole-graph
+            // Save (canvas busy) + this node's own generate/auto-brief (node busy) meanwhile, so a
+            // stale full-graph write can't land after the per-node persist and clobber the ref.
+            setBusy(b);
+            patchNode(selectedCn.id, { busy: b });
+          }}
           onDelete={() => deleteNode(selectedCn.id)}
           onClose={() => setSelectedId(null)}
           onOpenLayout={

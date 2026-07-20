@@ -422,6 +422,9 @@ export async function updateContentPlanNode(
       | "subjectVariants"
       | "layout"
       | "ebook"
+      | "imageAssetRef"
+      | "imageAspect"
+      | "imagePrompt"
     >
   >,
 ): Promise<ContentNode | null> {

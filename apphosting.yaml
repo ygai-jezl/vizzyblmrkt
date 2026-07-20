@@ -200,6 +200,21 @@ env:
       - BUILD
       - RUNTIME
   #
+  # Brand Kit asset library (Content OS sidebar item → Images gallery + Customise). Server
+  # flag gates the list/customize routes + the pages; the NEXT_PUBLIC mirror shows the
+  # sidebar item (must be available at BUILD so Next inlines it). Customise reuses the
+  # edit-capable gemini-3.1-flash-image (GEMINI_EBOOK_IMAGE_MODEL) + EMAIL_ASSET_BUCKET.
+  # ENABLED on dev; keep OFF in prod until the image_assets index is live (override in prod).
+  - variable: BRAND_KIT_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_KIT_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
   # Create eBook studio (eBook hub content type: split-view ToC → chapter streaming →
   # on-brand image gen/edit → canvas hub). Server flag gates every studio route; the
   # NEXT_PUBLIC mirror shows the Scope toggle + studio (must be available at BUILD).

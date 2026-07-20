@@ -9,6 +9,7 @@ import { assembleBrandContext } from "@/lib/content/create/brandContext";
 import { applyGeneratedImage, draftHasImageRef } from "@/lib/content/create/ebookOps";
 import { EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
 import { deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
+import { deleteImageAsset } from "@/lib/admin/brandKit";
 import { EbookAspect } from "@/lib/types/contentPlan";
 import { htmlToText } from "@/lib/email/emailRender";
 
@@ -99,6 +100,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     style,
     copyExcerpt,
     priorImageRef: mode === "edit" ? priorImageRef : null,
+    // Register the generated image in the Brand Kit library (best-effort).
+    region: ctx.region,
+    planId,
+    chapterId: target.kind === "cover" ? undefined : target.chapterId,
     brandContext: assembleBrandContext({
       brandVoice: ws.brandVoice ?? null,
       audience: ws.audience ?? null,
@@ -128,6 +133,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   // orphan — clean it up and tell the operator rather than reporting a false success.
   if (!draftHasImageRef(saved, target, ref)) {
     await deleteWorkspaceAsset(ctx.tenantId, workspaceId, ref).catch(() => {});
+    // The best-effort Brand Kit registry row (if one was written) now points at deleted
+    // bytes — remove it so the gallery doesn't show a permanent broken tile.
+    if (result.imageAssetId) await deleteImageAsset(ctx, result.imageAssetId).catch(() => {});
     return NextResponse.json(
       { error: "not_applied", message: "Couldn't attach the image — the chapter may be full or was changed. Try again." },
       { status: 409 },

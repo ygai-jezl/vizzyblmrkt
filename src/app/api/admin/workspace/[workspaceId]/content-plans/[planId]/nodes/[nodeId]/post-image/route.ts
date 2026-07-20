@@ -70,6 +70,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     aspect: parsed.data.aspect,
     style: parsed.data.style,
     copyExcerpt: htmlToText(node.body || ""),
+    // Register the generated image in the Brand Kit library (best-effort).
+    region: ctx.region,
+    planId,
+    nodeId,
     brandContext: assembleBrandContext({
       brandVoice: ws.brandVoice ?? null,
       audience: ws.audience ?? null,

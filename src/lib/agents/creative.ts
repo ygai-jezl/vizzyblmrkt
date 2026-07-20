@@ -6,7 +6,7 @@ import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
 import { generateText, generateImage, generateBlockImage, generateEbookImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
-import { storeWorkspaceImage, readWorkspaceAsset } from "@/lib/workspace/assetStore";
+import { storeWorkspaceImage, readWorkspaceAsset, deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { SOCIAL_ASPECT_TO_GEMINI, socialImageStyle, type SocialAspect, type SocialImageStyle } from "@/lib/content/create/socialImage";
 import {
   EBOOK_ASPECT_TO_GEMINI,
@@ -14,6 +14,9 @@ import {
   ebookImageStyle,
 } from "@/lib/content/create/ebook";
 import type { EbookAspect } from "@/lib/types/contentPlan";
+import { recordImageAsset } from "@/lib/admin/brandKit";
+import type { ImageAsset } from "@/lib/types/imageAsset";
+import type { Region } from "@/lib/types/tenant";
 
 /**
  * Agent 3 — Creative Director & Copywriter. Drafts performance-informed copy
@@ -187,6 +190,15 @@ export interface GenerateSocialImageInput {
   /** Pre-assembled on-brand context (see brandContext.ts). */
   brandContext: string;
   knowledgeContext?: string;
+  /**
+   * Data-residency region. When present, the generated image is registered in the
+   * Brand Kit image library (best-effort — never blocks the generation). Absent ⇒
+   * no registry write (keeps existing callers/tests unaffected).
+   */
+  region?: Region;
+  /** Optional source linkage for the Brand Kit registry (best-effort). */
+  planId?: string;
+  nodeId?: string;
 }
 
 export interface GenerateSocialImageResult {
@@ -226,8 +238,30 @@ export async function generateSocialPostImage(
   }
   const stored = await storeWorkspaceImage(input.tenantId, input.workspaceId, img.bytes, img.mimeType);
   if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };
+  const cappedPrompt = imagePrompt.slice(0, 1000);
+  // Register in the Brand Kit image library (best-effort — a Firestore blip must
+  // never fail an already-stored image). Only when the caller supplies its region.
+  if (input.region) {
+    await recordImageAsset(
+      { tenantId: input.tenantId, region: input.region },
+      {
+        workspaceId: input.workspaceId,
+        filename: stored.filename,
+        mimeType: img.mimeType,
+        kind: "social",
+        prompt: cappedPrompt,
+        brief: input.brief.slice(0, 1000),
+        aspect: input.aspect,
+        style: input.style,
+        channel: input.channel,
+        source: { planId: input.planId ?? null, nodeId: input.nodeId ?? null },
+        parentAssetId: null,
+        byteSize: img.bytes.length,
+      },
+    ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+  }
   // Cap the stored prompt to the ContentNode.imagePrompt schema limit (1000).
-  return { imageAssetRef: stored.filename, imagePrompt: imagePrompt.slice(0, 1000), source: "agent3" };
+  return { imageAssetRef: stored.filename, imagePrompt: cappedPrompt, source: "agent3" };
 }
 
 export interface GenerateEbookImageInput {
@@ -245,12 +279,23 @@ export interface GenerateEbookImageInput {
   copyExcerpt?: string;
   /** ITERATIVE EDIT: the existing image asset filename to feed back in (image-in→image-out). */
   priorImageRef?: string | null;
+  /**
+   * Data-residency region. When present, the generated image is registered in the
+   * Brand Kit image library (best-effort). Absent ⇒ no registry write.
+   */
+  region?: Region;
+  /** Optional source linkage for the Brand Kit registry (best-effort). */
+  planId?: string;
+  chapterId?: string;
 }
 
 export interface GenerateEbookImageResult {
   imageAssetRef: string | null;
   imagePrompt: string | null;
   source: "gemini" | "unavailable";
+  /** The Brand Kit registry row id created for this image (when input.region is set),
+   *  so a caller that later discards the image can delete the dangling row. */
+  imageAssetId?: string | null;
   reason?:
     | "image_model_unavailable"
     | "bad_type"
@@ -318,7 +363,135 @@ export async function generateEbookSlotImage(
   }
   const stored = await storeWorkspaceImage(input.tenantId, input.workspaceId, img.bytes, img.mimeType);
   if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };
-  return { imageAssetRef: stored.filename, imagePrompt: imagePrompt.slice(0, 1000), source: "gemini" };
+  const cappedPrompt = imagePrompt.slice(0, 1000);
+  // Register in the Brand Kit image library (best-effort). eBook-internal edits key
+  // by filename (not assetId), so lineage (parentAssetId) is only resolvable in the
+  // Brand Kit Customise flow — left null here. Return the created row id so the route
+  // can delete it if the image is later discarded (not applied to the draft).
+  let recordedAssetId: string | null = null;
+  if (input.region) {
+    recordedAssetId = await recordImageAsset(
+      { tenantId: input.tenantId, region: input.region },
+      {
+        workspaceId: input.workspaceId,
+        filename: stored.filename,
+        mimeType: img.mimeType,
+        kind: "ebook",
+        prompt: cappedPrompt,
+        brief: input.brief.slice(0, 1000),
+        aspect: input.aspect,
+        style: input.style,
+        source: { planId: input.planId ?? null, chapterId: input.chapterId ?? null },
+        parentAssetId: null,
+        byteSize: img.bytes.length,
+      },
+    )
+      .then((a) => a.id)
+      .catch((e) => {
+        console.warn("[brandKit] record ebook image failed:", e);
+        return null;
+      });
+  }
+  return {
+    imageAssetRef: stored.filename,
+    imagePrompt: cappedPrompt,
+    source: "gemini",
+    imageAssetId: recordedAssetId,
+  };
+}
+
+/** Why a Customise (image-to-image edit) couldn't be produced — surfaced to the operator. */
+export type CustomizeImageFailure =
+  | "image_model_unavailable"
+  | "bad_type"
+  | "too_large"
+  | "no_asset_bucket"
+  | "store_failed"
+  | "prior_too_large"
+  | "prior_unreadable"
+  | "record_failed";
+
+export interface CustomizeImageInput {
+  tenantId: string;
+  region: Region;
+  /** The source asset to iterate on (its bytes are read from ITS workspace). */
+  source: ImageAsset;
+  /** The concise change instruction ("make the background navy"). */
+  instruction: string;
+}
+
+export interface CustomizeImageResult {
+  asset: ImageAsset | null;
+  reason?: CustomizeImageFailure;
+}
+
+/**
+ * Brand Kit "Customise": generate a NEW image from an existing one via the edit-capable
+ * Nano Banana 2 FULL model (image-in→image-out). Non-destructive — the source asset is
+ * never mutated; the result is stored as a fresh workspace asset under the SAME workspace
+ * and recorded as a new ImageAsset with `parentAssetId` = the source. Reuses the same
+ * inline-size clamp discipline as generateEbookSlotImage: a source that can't be read (or
+ * is too large to inline) FAILS rather than silently regenerating from the instruction.
+ */
+export async function customizeImageAsset(
+  input: CustomizeImageInput,
+): Promise<CustomizeImageResult> {
+  const { tenantId, region, source, instruction } = input;
+
+  // 1. Load the source bytes from ITS workspace (clamped to the inline edit limit).
+  const prior = await readWorkspaceAsset(tenantId, source.workspaceId, source.filename).catch(
+    () => null,
+  );
+  if (!prior) return { asset: null, reason: "prior_unreadable" };
+  if (prior.bytes.length > EBOOK_IMAGE_INLINE_MAX_BYTES) {
+    return { asset: null, reason: "prior_too_large" };
+  }
+
+  // 2. Best-effort aspect mapping (the FULL model preserves the input image's aspect
+  //    anyway; this only nudges the target when the source aspect is known).
+  const aspectRatio =
+    (source.aspect && (EBOOK_ASPECT_TO_GEMINI as Record<string, string>)[source.aspect]) ??
+    (source.aspect && (SOCIAL_ASPECT_TO_GEMINI as Record<string, string>)[source.aspect]) ??
+    "1:1";
+
+  // 3. Edit: image-in → image-out.
+  const img = await generateEbookImage({
+    prompt: instruction,
+    aspectRatio,
+    inputImages: [{ base64: prior.bytes.toString("base64"), mimeType: prior.contentType }],
+  });
+  if (!img) return { asset: null, reason: "image_model_unavailable" };
+
+  // 4. Store as a NEW asset under the SAME workspaceId (auth proxy works; non-destructive).
+  const stored = await storeWorkspaceImage(tenantId, source.workspaceId, img.bytes, img.mimeType);
+  if (!stored.ok) return { asset: null, reason: stored.reason };
+
+  // 5. Record with lineage. If the registry write fails, delete the just-stored orphan
+  //    bytes and surface a mapped reason — never leak an object or throw a raw 500.
+  try {
+    const asset = await recordImageAsset(
+      { tenantId, region },
+      {
+        workspaceId: source.workspaceId,
+        filename: stored.filename,
+        mimeType: img.mimeType,
+        kind: "customized",
+        prompt: instruction.slice(0, 1000),
+        brief: instruction.slice(0, 1000),
+        aspect: source.aspect ?? null,
+        style: source.style ?? null,
+        channel: source.channel ?? null,
+        source: source.source ?? null,
+        parentAssetId: source.id,
+        byteSize: img.bytes.length,
+      },
+    );
+    return { asset };
+  } catch (err) {
+    console.warn("[brandKit] customize record failed; cleaning orphan:", err);
+    await deleteWorkspaceAsset(tenantId, source.workspaceId, stored.filename).catch(() => {});
+    return { asset: null, reason: "record_failed" };
+  }
 }
 
 // ---- internals ------------------------------------------------------------

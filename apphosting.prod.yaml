@@ -285,12 +285,13 @@ env:
     secret: linkedin-cm-client-secret
     availability:
       - RUNTIME
-  # Real social publishing (X/LinkedIn). Overrides the base "true" → OFF in prod: the
-  # code ships promoted but the worker only manual-stamps until this is deliberately
-  # flipped to "true" (after connecting prod accounts + clearing the X tier / LinkedIn
-  # prod-app approvals). Prevents a promotion from posting anything unexpectedly.
+  # Real social publishing (X/LinkedIn). ENABLED 2026-07-20 for LinkedIn Company Page
+  # go-live (ten_vzb / Vizzybl.ai Page connected via the CM API). When "false" the worker
+  # only manual-stamps posts (no external call); "true" publishes for real to any tenant
+  # with a connected+valid social token. NOTE: X in prod stays effectively inert (no
+  # X_OAUTH_* creds wired here), so this primarily activates LinkedIn Page/personal posts.
   - variable: DISTRIBUTE_SOCIAL_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # Create-side social post image generation — ENABLED on prod (server route + NEXT_PUBLIC

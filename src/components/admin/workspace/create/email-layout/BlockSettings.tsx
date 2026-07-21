@@ -91,7 +91,7 @@ function ImageGenControls({
         value={brief}
         onChange={(e) => setBrief(e.target.value)}
         rows={2}
-        placeholder="Describe the image (on-brand, no text)…"
+        placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
         className={`${FIELD} text-xs`}
       />
       <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">

@@ -4,6 +4,7 @@ import { platformOrigin } from "@/lib/platform/origin";
 import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
 import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
+import { brandVoiceSection } from "./prompts/compose";
 import { generateText, generateImage, generateBlockImage, generateEbookImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
 import { storeWorkspaceImage, readWorkspaceAsset, deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
@@ -53,6 +54,13 @@ export interface DraftCopyInput {
    * renders empty and Agent 3 writes ungrounded, exactly as before.
    */
   knowledgeContext?: string;
+  /**
+   * The tenant-global authored brand voice (already resolved to plaintext by
+   * `resolveBrandVoiceText`). Fenced as untrusted before it enters the prompt. Optional:
+   * absent ⇒ the `[[brand_voice]]` placeholder renders empty and copy grounds on the
+   * campaign's tone enum only, exactly as before.
+   */
+  brandVoice?: string | null;
 }
 
 export interface DraftCopyResult {
@@ -75,6 +83,7 @@ export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult>
   const locale = input.locale ?? resolveCampaignLocale(input.campaign);
   const prompt = renderPrompt("creative.draft_copy", {
     ...strategyVars(input.campaign),
+    brand_voice: brandVoiceSection(input.brandVoice),
     response_language_directive: languageDirective(locale),
     performance: input.performance ?? "No prior sends yet.",
     knowledge_context: input.knowledgeContext?.trim()
@@ -103,6 +112,8 @@ export interface GenerateHeroImageInput {
    * load images via `<base>/api/email-asset/<path>` (see imageStore.ts).
    */
   baseUrl?: string;
+  /** Resolved tenant-global brand voice (fenced as untrusted); absent ⇒ tone enum only. */
+  brandVoice?: string | null;
 }
 
 /** Why an image couldn't be produced — surfaced verbatim to the operator. */
@@ -122,6 +133,7 @@ export async function generateHeroImage(
 ): Promise<GenerateHeroImageResult> {
   const expandPrompt = renderPrompt("creative.image_brief", {
     brand_tone: strategyVars(input.campaign).brand_tone,
+    brand_voice: brandVoiceSection(input.brandVoice),
     brief: input.brief,
   });
   // Expand the brief into a richer image prompt; fall back to the raw brief.

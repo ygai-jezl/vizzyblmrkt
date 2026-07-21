@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assembleBrandContext, layoutPaletteHexes } from "./brandContext";
+import { assembleBrandContext, layoutPaletteHexes, resolveBrandVoiceText } from "./brandContext";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 
 describe("assembleBrandContext", () => {
@@ -35,5 +35,32 @@ describe("assembleBrandContext", () => {
     const out = assembleBrandContext({ layout });
     expect(out).toContain("#abcdef");
     expect(out).toContain("#123456");
+  });
+});
+
+describe("resolveBrandVoiceText", () => {
+  it("the authored tenant-global voice wins over the legacy workspace free text", () => {
+    const out = resolveBrandVoiceText({
+      tenantBrandVoice: { summary: "Confident and warm", dos: ["Be clear"] },
+      workspaceBrandVoice: "legacy workspace blurb",
+    });
+    expect(out).toContain("Summary: Confident and warm");
+    expect(out).toContain("Do: Be clear");
+    expect(out).not.toContain("legacy workspace blurb");
+  });
+
+  it("falls back to the legacy workspace voice when no global voice is authored", () => {
+    expect(
+      resolveBrandVoiceText({ tenantBrandVoice: null, workspaceBrandVoice: "legacy blurb" }),
+    ).toBe("legacy blurb");
+    // An empty/whitespace-only global voice does NOT shadow the workspace fallback.
+    expect(
+      resolveBrandVoiceText({ tenantBrandVoice: { summary: "   " }, workspaceBrandVoice: "legacy" }),
+    ).toBe("legacy");
+  });
+
+  it("returns null when neither is set (byte-identical to today's behaviour)", () => {
+    expect(resolveBrandVoiceText({})).toBeNull();
+    expect(resolveBrandVoiceText({ tenantBrandVoice: {}, workspaceBrandVoice: "  " })).toBeNull();
   });
 });

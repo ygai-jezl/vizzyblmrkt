@@ -9,6 +9,7 @@ import {
   EmailSenderConfigSchema,
   type Tenant,
   type BrandKit,
+  type BrandVoice,
   type EmailSenderConfig,
   type GitConnection,
   type SocialConnection,
@@ -106,6 +107,26 @@ export function withPreservedLearnedStyle(
     learnedImageStyleUpdatedAt: existing?.learnedImageStyleUpdatedAt ?? null,
     learnedImageStyleSampleCount: existing?.learnedImageStyleSampleCount ?? null,
   };
+}
+
+/**
+ * Write the authored tenant-global brand voice (top-level `brandVoice` field). Because it is
+ * NOT nested inside `brandKit`, this `.update()` merge can't clobber the extracted kit and a
+ * PDF re-extract can't clobber the voice. Stamps `updatedAt` on both the voice and the tenant.
+ * Firestore removes the field when passed `null` via FieldValue.delete (the Delete affordance).
+ */
+export async function setTenantBrandVoice(
+  id: string,
+  brandVoice: BrandVoice | null,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      brandVoice: brandVoice === null ? FieldValue.delete() : { ...brandVoice, updatedAt: now },
+      updatedAt: now,
+    });
 }
 
 /** Store/replace a tenant's encrypted git OAuth connection (control-plane). */

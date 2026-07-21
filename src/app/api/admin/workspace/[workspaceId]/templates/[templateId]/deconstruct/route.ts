@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
+import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { getTemplate, createTemplate } from "@/lib/tenant/workspaceContent";
 import { deconstructTemplate } from "@/lib/content/deconstruct";
 import { isChannel } from "@/lib/content/channels";
@@ -46,7 +47,7 @@ export async function POST(
       sourceSnapshot: template.sourceSnapshot,
     },
     channels,
-    brandVoice: ws.brandVoice ?? null,
+    brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
     audience: ws.audience ?? null,
   });
 

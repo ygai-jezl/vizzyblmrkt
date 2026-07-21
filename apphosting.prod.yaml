@@ -330,6 +330,17 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand voice — authored tenant-global voice grounding all AI copy. OFF in prod until the
+  # full feature (author → ground → AI-generate) is reviewed + smoked on dev, then flip to "true".
+  - variable: BRAND_VOICE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_VOICE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Brand-style feedback loop (RL-lite). Capture UI (👍/👎 + rating, seed upload) rides on
   # BRAND_KIT_ENABLED. LEARNING enabled now that the image_assets composite indexes
   # (tenantId, brandVote, brandRating desc, createdAt desc) and (tenantId, brandVote,

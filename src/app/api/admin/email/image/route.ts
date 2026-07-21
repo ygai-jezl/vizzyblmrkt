@@ -6,6 +6,7 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { platformOrigin } from "@/lib/platform/origin";
 import { forTenant } from "@/lib/tenant";
 import { generateHeroImage } from "@/lib/agents";
+import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
     brief: parsed.data.brief,
     tenantId: ctx.tenantId,
     baseUrl,
+    brandVoice: await activeBrandVoiceText(ctx.tenantId),
   });
   return NextResponse.json(result);
 }

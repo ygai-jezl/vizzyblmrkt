@@ -1,5 +1,6 @@
 import type { Campaign } from "@/lib/types/campaign";
 import { draftCopy } from "@/lib/agents/creative";
+import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { JourneyGraphSchema, type JourneyGraph } from "@/lib/types/journey";
 import { validateJourneyGraph } from "@/lib/email/delivery";
 import { appendConvergentExit } from "@/lib/journey/exit";
@@ -18,6 +19,7 @@ async function fillContentWithAgent3(
   campaign: Campaign,
   graph: JourneyGraph,
   brief: string,
+  brandVoice: string | null,
 ): Promise<JourneyGraph> {
   const at = new Date().toISOString();
   const nodes = await Promise.all(
@@ -34,6 +36,7 @@ async function fillContentWithAgent3(
         campaign,
         brief: stepBrief,
         variantCount: 1,
+        brandVoice,
       });
       const variant = variants[0];
 
@@ -82,7 +85,9 @@ export const journeyCanvasKind: CanvasKind = {
     // route converges into (LLM output can dangle). The hand-built canvas wires
     // exits by hand and never reaches this path.
     const converged = appendConvergentExit(parsed.data);
-    const filled = await fillContentWithAgent3(campaign, converged, brief);
+    // Tenant-global authored brand voice (resolved once; null ⇒ campaign tone enum only).
+    const brandVoice = await activeBrandVoiceText(ctx.tenantId);
+    const filled = await fillContentWithAgent3(campaign, converged, brief, brandVoice);
 
     // Defense-in-depth: convergence adds a node + edges and upsertJourneyDraft
     // does NOT re-validate, so re-check the SAME schema (incl. the node/edge

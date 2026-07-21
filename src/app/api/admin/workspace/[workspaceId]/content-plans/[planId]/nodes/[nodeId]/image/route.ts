@@ -5,7 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { generateEmailBlockImage } from "@/lib/agents/creative";
-import { assembleBrandContext } from "@/lib/content/create/brandContext";
+import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { htmlToText } from "@/lib/email/emailRender";
 import { findCopyBlockIndex } from "@/lib/types/emailLayout";
 import { platformOrigin } from "@/lib/platform/origin";
@@ -58,7 +58,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     subject: node.subject ?? "",
     copyExcerpt: htmlToText(copyHtml || ""),
     brandContext: assembleBrandContext({
-      brandVoice: ws.brandVoice ?? null,
+      brandVoice: resolveBrandVoiceText({
+        tenantBrandVoice: tenant?.brandVoice,
+        workspaceBrandVoice: ws.brandVoice,
+      }),
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
       layout: node.layout ?? null,

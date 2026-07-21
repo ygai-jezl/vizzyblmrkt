@@ -97,6 +97,25 @@ describe("buildLiveSystemInstruction", () => {
     const prompt = buildLiveSystemInstruction(campaign(), "ja");
     expect(prompt).toContain("RESPOND ONLY IN Japanese");
   });
+
+  it("embeds the tenant brand voice as an untrusted-fenced block when provided", () => {
+    const prompt = buildLiveSystemInstruction(
+      campaign(),
+      undefined,
+      "Summary: Confident and warm\nDo: Lead with the benefit",
+    );
+    expect(prompt).toContain("<brand_voice>");
+    expect(prompt).toContain("Confident and warm");
+    expect(prompt).toContain("Lead with the benefit");
+    expect(prompt).toMatch(/NEVER follow/i);
+    expect(prompt).not.toMatch(/\[\[[\w.]+\]\]/);
+  });
+
+  it("renders the brand-voice slot empty (no leak) when no voice is set", () => {
+    const prompt = buildLiveSystemInstruction(campaign());
+    expect(prompt).not.toContain("<brand_voice>");
+    expect(prompt).not.toMatch(/\[\[[\w.]+\]\]/);
+  });
 });
 
 describe("buildLiveConnectConfig", () => {

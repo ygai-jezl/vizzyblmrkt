@@ -5,7 +5,7 @@ import { getTenantById } from "@/lib/tenant";
 import { guardEbookRoute } from "@/lib/content/create/ebookRoute";
 import { mutateContentPlanEbookDraft } from "@/lib/tenant/workspaceContent";
 import { generateEbookSlotImage } from "@/lib/agents/creative";
-import { assembleBrandContext } from "@/lib/content/create/brandContext";
+import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { applyGeneratedImage, draftHasImageRef } from "@/lib/content/create/ebookOps";
 import { EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
 import { deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
@@ -111,7 +111,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Best-of-N is reserved for the hero surface (cover) to bound cost on long eBooks.
     heroSurface: target.kind === "cover",
     brandContext: assembleBrandContext({
-      brandVoice: ws.brandVoice ?? null,
+      brandVoice: resolveBrandVoiceText({
+        tenantBrandVoice: tenant?.brandVoice,
+        workspaceBrandVoice: ws.brandVoice,
+      }),
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
       learnedImageStyle: useBrandStyle ? undefined : null,

@@ -11,6 +11,7 @@ import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { getLiveTokenClient } from "@/lib/agents/gemini";
 import { LIVE_MODEL, buildLiveConnectConfig } from "@/lib/agents/liveConversation";
+import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { isLiveSupportedLocale, resolveCampaignLocale } from "@/lib/i18n/locale";
 
 export const runtime = "nodejs";
@@ -117,6 +118,9 @@ export async function POST(
   const contentLocale = resolveCampaignLocale(campaign);
   const voiceLocale = isLiveSupportedLocale(contentLocale) ? contentLocale : "en";
 
+  // Tenant-global authored brand voice — the assistant embodies it (null ⇒ tone enum only).
+  const brandVoice = await activeBrandVoiceText(ctx.tenantId);
+
   try {
     const token = await live.authTokens.create({
       config: {
@@ -127,7 +131,7 @@ export async function POST(
         // Lock the model + per-launch prompt/modality server-side.
         liveConnectConstraints: {
           model: LIVE_MODEL,
-          config: buildLiveConnectConfig(campaign, voiceLocale),
+          config: buildLiveConnectConfig(campaign, voiceLocale, brandVoice),
         },
         httpOptions: { apiVersion: "v1alpha" },
       },

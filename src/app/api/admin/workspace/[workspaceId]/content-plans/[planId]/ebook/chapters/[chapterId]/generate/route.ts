@@ -6,6 +6,7 @@ import {
   parseChapterImagePlaceholders,
   fallbackChapterHtml,
 } from "@/lib/content/create/ebookChapter";
+import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { generateTextStream } from "@/lib/agents/gemini";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 
@@ -59,6 +60,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   }).catch(() => null);
 
+  const brandVoice = await activeBrandVoiceText(ctx.tenantId, ws.brandVoice);
   const prompt = buildChapterPrompt({
     bookTitle: ebook.title,
     spark: plan.scope.spark,
@@ -68,7 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     chapterSummary: chapter.summary,
     knowledgeContext: rag?.formatted ?? "",
     proofAssets: plan.knowledge.proofAssets,
-    brandVoice: ws.brandVoice ?? null,
+    brandVoice,
     audience: ws.audience ?? null,
   });
 

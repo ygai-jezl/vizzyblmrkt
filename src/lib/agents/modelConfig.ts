@@ -17,7 +17,7 @@
 
 /** Text / multimodal generation: Agent 1 market-intel, Agent 3 creative, the
  *  compiler, templatize/deconstruct, the Create architect, and i18n translation. */
-export const DEFAULT_TEXT_MODEL = "gemini-3.5-flash";
+export const DEFAULT_TEXT_MODEL = "gemini-3.6-flash";
 export const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? DEFAULT_TEXT_MODEL;
 
 /** Image generation (Imagen) — Agent 3 hero images. */
@@ -49,3 +49,14 @@ export const EBOOK_IMAGE_MODEL =
  *  model — see liveConversation.ts for the cascaded-model language-code caveat. */
 export const DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 export const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? DEFAULT_LIVE_MODEL;
+
+/**
+ * Resolve an operator-selected image-model SLUG (see lib/content/create/imageModels.ts) to the
+ * actual, env-overridable model id. Keeps model selection env-configurable and off the client:
+ * the UI/routes pass a slug, the server maps it here. "full" → the edit-capable Nano Banana 2
+ * FULL model; anything else → the lite block model. Callers should validate the slug (zod) first;
+ * an unknown slug falls back to the lite model rather than throwing.
+ */
+export function resolveImageModel(slug: string): string {
+  return slug === "full" ? EBOOK_IMAGE_MODEL : BLOCK_IMAGE_MODEL;
+}

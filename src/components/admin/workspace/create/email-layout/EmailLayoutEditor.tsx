@@ -15,6 +15,7 @@ import {
 import type { EmailTemplate } from "@/lib/types/emailTemplate";
 import { wrap, renderEmailLayout } from "@/lib/email/emailRender";
 import { Modal } from "@/components/admin/email/Modal";
+import { imageModelOverride, type ImageModelSlug } from "@/lib/content/create/imageModels";
 import { seedLayoutFromNode, defaultBlock, newBlockId } from "./seedLayout";
 import { PRESET_EMAIL_TEMPLATES } from "./presetTemplates";
 import { TextBlockEditor } from "./TextBlockEditor";
@@ -74,13 +75,14 @@ export function EmailLayoutEditor({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function generateImageUrl(brief: string): Promise<string | null> {
+  async function generateImageUrl(brief: string, model: ImageModelSlug): Promise<string | null> {
     const res = await fetch(
       `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/image`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief }),
+        // Send `model` only when changed from this surface's default (see imageModelOverride).
+        body: JSON.stringify({ brief, model: imageModelOverride(model, "email") }),
       },
     );
     const data = (await res.json().catch(() => ({}))) as { imageUrl?: string };

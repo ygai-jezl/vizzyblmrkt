@@ -5,6 +5,8 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { generateEmailBlockImage } from "@/lib/agents/creative";
+import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
+import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { htmlToText } from "@/lib/email/emailRender";
 import { findCopyBlockIndex } from "@/lib/types/emailLayout";
@@ -19,6 +21,8 @@ type RouteParams = { params: Promise<{ workspaceId: string; planId: string; node
 const BodySchema = z.object({
   brief: z.string().min(1).max(1000),
   blockId: z.string().max(64).optional(),
+  /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
+  model: z.enum(IMAGE_MODEL_SLUGS).optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -57,6 +61,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     brief: parsed.data.brief,
     subject: node.subject ?? "",
     copyExcerpt: htmlToText(copyHtml || ""),
+    imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     brandContext: assembleBrandContext({
       brandVoice: resolveBrandVoiceText({
         tenantBrandVoice: tenant?.brandVoice,

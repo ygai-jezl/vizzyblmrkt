@@ -9,6 +9,12 @@ import {
   EBOOK_IMAGE_STYLES,
   DEFAULT_EBOOK_IMAGE_STYLE,
 } from "@/lib/content/create/ebook";
+import {
+  DEFAULT_IMAGE_MODEL_SLUG,
+  imageModelOverride,
+  type ImageModelSlug,
+} from "@/lib/content/create/imageModels";
+import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 
 const PRIMARY =
   "rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900";
@@ -53,6 +59,8 @@ export function EbookImageComposer({
   const [brief, setBrief] = useState(seedBrief);
   const [aspect, setAspect] = useState<EbookAspect>(seedAspect);
   const [style, setStyle] = useState<string>(DEFAULT_EBOOK_IMAGE_STYLE);
+  // Per-generation image model (defaults to this surface's current model — full).
+  const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.ebook);
   const [pickKind, setPickKind] = useState<"cover" | "new">(chapters.length ? "new" : "cover");
   const [pickChapter, setPickChapter] = useState<string>(chapters[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
@@ -71,7 +79,8 @@ export function EbookImageComposer({
       const res = await fetch(base, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: effectiveTarget, aspect, style, ...payload }),
+        // Send `model` only when changed from this surface's default (see imageModelOverride).
+        body: JSON.stringify({ target: effectiveTarget, aspect, style, model: imageModelOverride(model, "ebook"), ...payload }),
       });
       const data = (await res.json().catch(() => ({}))) as { ebook?: EbookDoc; message?: string };
       if (res.ok && data.ebook) {
@@ -174,6 +183,10 @@ export function EbookImageComposer({
               </option>
             ))}
           </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-sm">
+          <span className="text-neutral-500">Model</span>
+          <ImageModelSelect value={model} onChange={setModel} />
         </label>
       </div>
 

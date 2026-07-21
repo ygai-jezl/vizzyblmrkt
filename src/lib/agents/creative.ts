@@ -161,6 +161,8 @@ export interface GenerateBlockImageInput {
   brandContext: string;
   knowledgeContext?: string;
   baseUrl?: string;
+  /** Operator-selected image model id (resolveImageModel). Omit to use the default lite model. */
+  imageModel?: string;
 }
 
 export interface GenerateBlockImageResult {
@@ -186,7 +188,8 @@ export async function generateEmailBlockImage(
     knowledge_context: input.knowledgeContext ?? "",
   });
   const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
-  const img = await generateBlockImage(imagePrompt);
+  // undefined aspect → the function's 1:1 default; input.imageModel overrides the model per gen.
+  const img = await generateBlockImage(imagePrompt, undefined, input.imageModel);
   if (!img) return { imageUrl: null, source: "unavailable", reason: "image_model_unavailable" };
   const stored = await storeEmailImage(input.tenantId, input.ownerId, img);
   if (!stored.ok) return { imageUrl: null, source: "unavailable", reason: stored.reason };
@@ -223,6 +226,12 @@ export interface GenerateSocialImageInput {
    * which passes `learnedImageStyle: null` to assembleBrandContext.
    */
   useBrandStyle?: boolean;
+  /**
+   * Operator-selected image model id (resolveImageModel). When set it overrides BOTH the lite
+   * default AND the automatic lite→full upgrade below; omit to keep the existing behaviour
+   * (lite, or full when brand-style references are attached).
+   */
+  imageModel?: string;
 }
 
 export interface GenerateSocialImageResult {
@@ -275,8 +284,10 @@ export async function generateSocialPostImage(
           prompt: `${imagePrompt}\n\n${STYLE_REF_DIRECTIVE}`,
           aspectRatio: SOCIAL_ASPECT_TO_GEMINI[input.aspect],
           styleRefImages: styleRefs,
+          // Operator override wins; else undefined keeps the style-ref path's full-model default.
+          model: input.imageModel,
         })
-      : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect]);
+      : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect], input.imageModel);
   // Best-of-N (L3): when enabled, generate several and auto-pick the most on-brand.
   const img =
     input.useBrandStyle !== false && isBestOfNEnabled()
@@ -349,6 +360,8 @@ export interface GenerateEbookImageInput {
    * even when the best-of-N flag is on, so a long eBook doesn't multiply its whole build cost.
    */
   heroSurface?: boolean;
+  /** Operator-selected image model id (resolveImageModel). Omit to use the default full model. */
+  imageModel?: string;
 }
 
 export interface GenerateEbookImageResult {
@@ -432,6 +445,7 @@ export async function generateEbookSlotImage(
       aspectRatio: EBOOK_ASPECT_TO_GEMINI[input.aspect],
       inputImages,
       styleRefImages: styleRefs,
+      model: input.imageModel,
     });
   // Best-of-N (L3) on CREATE + HERO surface only (the eBook cover) — never on an edit, and
   // never on every chapter illustration (that would multiply a long eBook's build cost).
@@ -504,6 +518,8 @@ export interface CustomizeImageInput {
   source: ImageAsset;
   /** The concise change instruction ("make the background navy"). */
   instruction: string;
+  /** Operator-selected image model id (resolveImageModel). Omit to use the default full model. */
+  imageModel?: string;
 }
 
 export interface CustomizeImageResult {
@@ -540,11 +556,13 @@ export async function customizeImageAsset(
     (source.aspect && (SOCIAL_ASPECT_TO_GEMINI as Record<string, string>)[source.aspect]) ??
     "1:1";
 
-  // 3. Edit: image-in → image-out.
+  // 3. Edit: image-in → image-out. Operator model override wins; else the full-model default
+  //    (Customise is an edit, which needs the edit-capable model).
   const img = await generateEbookImage({
     prompt: instruction,
     aspectRatio,
     inputImages: [{ base64: prior.bytes.toString("base64"), mimeType: prior.contentType }],
+    model: input.imageModel,
   });
   if (!img) return { asset: null, reason: "image_model_unavailable" };
 

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { EmailBlock } from "@/lib/types/emailLayout";
 import { SOCIAL_PLATFORMS } from "@/lib/types/emailLayout";
+import { DEFAULT_IMAGE_MODEL_SLUG, type ImageModelSlug } from "@/lib/content/create/imageModels";
+import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 
 /**
  * Settings panel for the selected block. Text/heading COPY is edited inline in the
@@ -74,10 +76,12 @@ function ImageGenControls({
   onGenerate,
   onApply,
 }: {
-  onGenerate: (brief: string) => Promise<string | null>;
+  onGenerate: (brief: string, model: ImageModelSlug) => Promise<string | null>;
   onApply: (url: string) => void;
 }) {
   const [brief, setBrief] = useState("");
+  // Per-generation image model (defaults to this surface's current model — lite).
+  const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.email);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   return (
@@ -90,6 +94,10 @@ function ImageGenControls({
         placeholder="Describe the image (on-brand, no text)…"
         className={`${FIELD} text-xs`}
       />
+      <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+        Model
+        <ImageModelSelect value={model} onChange={setModel} className={`${FIELD} text-xs`} />
+      </label>
       <button
         type="button"
         disabled={busy || !brief.trim()}
@@ -97,7 +105,7 @@ function ImageGenControls({
           setBusy(true);
           setErr(null);
           try {
-            const url = await onGenerate(brief.trim());
+            const url = await onGenerate(brief.trim(), model);
             if (url) onApply(url);
             else setErr("Couldn't generate — try again.");
           } finally {
@@ -120,7 +128,7 @@ export function BlockSettings({
 }: {
   block: EmailBlock | null;
   onChange: (patch: Partial<EmailBlock>) => void;
-  onGenerateImage?: (brief: string) => Promise<string | null>;
+  onGenerateImage?: (brief: string, model: ImageModelSlug) => Promise<string | null>;
 }) {
   if (!block) {
     return <p className="p-3 text-xs text-neutral-500">Select a block to edit its settings.</p>;

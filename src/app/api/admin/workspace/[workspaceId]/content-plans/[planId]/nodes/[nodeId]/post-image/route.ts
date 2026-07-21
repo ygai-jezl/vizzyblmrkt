@@ -11,6 +11,8 @@ import {
   isSocialImageChannel,
   SOCIAL_IMAGE_STYLE_IDS,
 } from "@/lib/content/create/socialImage";
+import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
+import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { htmlToText } from "@/lib/email/emailRender";
 
 export const runtime = "nodejs";
@@ -24,6 +26,8 @@ const BodySchema = z.object({
   style: z.enum(SOCIAL_IMAGE_STYLE_IDS),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
+  /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
+  model: z.enum(IMAGE_MODEL_SLUGS).optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -80,6 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     planId,
     nodeId,
     useBrandStyle,
+    imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     brandContext: assembleBrandContext({
       brandVoice: resolveBrandVoiceText({
         tenantBrandVoice: tenant?.brandVoice,

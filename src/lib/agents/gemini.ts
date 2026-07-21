@@ -292,16 +292,20 @@ export async function generateSlideImage(
  * (generateContent + IMAGE modality; env-overridable BLOCK_IMAGE_MODEL). Defaults to a
  * 1:1 aspect ratio (imageConfig.aspectRatio — one of "1:1","2:3","3:2","3:4","4:3",
  * "9:16","16:9","21:9"). Null on missing config / error / no image part.
+ *
+ * `model` overrides the model id for THIS call (operator model selection — see
+ * resolveImageModel / imageModels.ts); omit it to use the default lite block model.
  */
 export async function generateBlockImage(
   prompt: string,
   aspectRatio = "1:1",
+  model: string = BLOCK_IMAGE_MODEL,
 ): Promise<GeneratedImage | null> {
   const ai = getClient();
   if (!ai) return null;
   try {
     const res = await ai.models.generateContent({
-      model: BLOCK_IMAGE_MODEL,
+      model,
       contents: prompt,
       config: { responseModalities: [Modality.TEXT, Modality.IMAGE], imageConfig: { aspectRatio } },
     });
@@ -331,6 +335,7 @@ export async function generateEbookImage({
   aspectRatio = "1:1",
   inputImages = [],
   styleRefImages = [],
+  model = EBOOK_IMAGE_MODEL,
 }: {
   prompt: string;
   aspectRatio?: string;
@@ -343,17 +348,29 @@ export async function generateEbookImage({
    * model limit (FULL: ≤14) and each ≤7 MB.
    */
   styleRefImages?: { base64: string; mimeType: string }[];
+  /**
+   * Override the model id for THIS call (operator model selection — see resolveImageModel /
+   * imageModels.ts). Omit to use the default edit-capable full model. NOTE: an edit
+   * (`inputImages` set) or `styleRefImages` needs a multimodal-input model — the lite model
+   * may return no image part, in which case this degrades to null like any other miss.
+   */
+  model?: string;
 }): Promise<GeneratedImage | null> {
   const ai = getClient();
   if (!ai) return null;
   try {
+    // Image-to-image EDITS (inputImages present) require the edit-capable model. Ignore a
+    // non-edit-capable override (e.g. an operator "lite" pick on Customise / eBook Refine) so an
+    // edit can't silently no-op on a text-only model. Style references are NOT edits — a
+    // styleRef-only generation still honours the chosen model.
+    const effectiveModel = inputImages.length > 0 ? EBOOK_IMAGE_MODEL : model;
     const parts = [
       { text: prompt },
       ...inputImages.map((img) => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
       ...styleRefImages.map((img) => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
     ];
     const res = await ai.models.generateContent({
-      model: EBOOK_IMAGE_MODEL,
+      model: effectiveModel,
       contents: [{ role: "user", parts }],
       config: { responseModalities: [Modality.TEXT, Modality.IMAGE], imageConfig: { aspectRatio } },
     });

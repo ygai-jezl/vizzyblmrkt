@@ -16,6 +16,12 @@ import {
   type SocialAspect,
   type SocialImageStyle,
 } from "@/lib/content/create/socialImage";
+import {
+  DEFAULT_IMAGE_MODEL_SLUG,
+  imageModelOverride,
+  type ImageModelSlug,
+} from "@/lib/content/create/imageModels";
+import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 import type { TemplateOption } from "./types";
 
 /**
@@ -497,6 +503,8 @@ function SocialImageControls({
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
   const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
+  // Per-generation image model (defaults to this surface's current model — lite).
+  const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.social);
   // Brand-style loop: apply the learned brand style + reference images by default.
   const [useBrandStyle, setUseBrandStyle] = useState(true);
   const [busy, setBusy] = useState<null | "generate" | "upload" | "remove">(null);
@@ -519,7 +527,16 @@ function SocialImageControls({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brief: brief.trim(), aspect, style, useBrandStyle }),
+          // Send `model` ONLY when the operator changed it from the default — an unchanged
+          // dropdown omits it so the server keeps its adaptive default (lite, or full when
+          // brand-style references are attached). See imageModelOverride.
+          body: JSON.stringify({
+            brief: brief.trim(),
+            aspect,
+            style,
+            useBrandStyle,
+            model: imageModelOverride(model, "social"),
+          }),
         },
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -648,6 +665,16 @@ function SocialImageControls({
           </select>
         </label>
         <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
+      </div>
+      <div className="mt-2">
+        <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
+          Model
+          <ImageModelSelect
+            value={model}
+            onChange={setModel}
+            className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          />
+        </label>
       </div>
       <label className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
         <input

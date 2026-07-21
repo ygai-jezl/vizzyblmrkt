@@ -46,6 +46,7 @@ interface ConfigResponse {
   privacyPolicyUrl: string;
   domains: SenderDomain[];
   providerConfigured: boolean;
+  rootDomain?: string;
 }
 
 const INPUT_CLASS =
@@ -68,6 +69,9 @@ export function DomainsSettings() {
   const [privacyPolicyUrl, setPrivacyPolicyUrl] = useState("");
   const [senderStatus, setSenderStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
+  const [rootDomain, setRootDomain] = useState("");
+  const [rootDomainStatus, setRootDomainStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
   const [newDomain, setNewDomain] = useState("");
   const [adding, setAdding] = useState(false);
   const [busyDomain, setBusyDomain] = useState<string | null>(null);
@@ -83,6 +87,7 @@ export function DomainsSettings() {
     setPrivacyPolicyUrl(data.privacyPolicyUrl ?? "");
     setDomains(data.domains);
     setProviderConfigured(data.providerConfigured);
+    setRootDomain(data.rootDomain ?? "");
   }
 
   useEffect(() => {
@@ -357,6 +362,33 @@ export function DomainsSettings() {
     return <p className="text-sm text-neutral-500">Loading…</p>;
   }
 
+  async function savePrimaryDomain() {
+    setRootDomainStatus("saving");
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/account/domains", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rootDomain }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { rootDomain?: string; error?: string };
+      if (!res.ok) {
+        setRootDomainStatus("error");
+        setError(
+          data.error === "invalid_domain"
+            ? "Enter a valid domain, e.g. acme.com."
+            : "Couldn't save your primary domain.",
+        );
+        return;
+      }
+      if (data.rootDomain != null) setRootDomain(data.rootDomain);
+      setRootDomainStatus("saved");
+    } catch {
+      setRootDomainStatus("error");
+      setError("Couldn't save your primary domain.");
+    }
+  }
+
   return (
     <div className="space-y-8">
       {!providerConfigured ? (
@@ -372,6 +404,45 @@ export function DomainsSettings() {
           {error}
         </p>
       ) : null}
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">Primary domain</h2>
+          <p className="mt-1 text-sm text-neutral-500">
+            Your brand&apos;s main website (e.g. acme.com). Used to derive your favicon and to
+            ground AI features like brand-voice generation. This is not a sending domain.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={rootDomain}
+            onChange={(e) => {
+              setRootDomain(e.target.value);
+              setRootDomainStatus("idle");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void savePrimaryDomain();
+              }
+            }}
+            placeholder="acme.com"
+            aria-label="Primary domain"
+            className={`${INPUT_CLASS} max-w-xs`}
+          />
+          <button
+            type="button"
+            onClick={() => void savePrimaryDomain()}
+            className={PRIMARY_BTN}
+            disabled={!rootDomain.trim() || rootDomainStatus === "saving"}
+          >
+            {rootDomainStatus === "saving" ? "Saving…" : "Save"}
+          </button>
+          {rootDomainStatus === "saved" ? (
+            <span className="text-sm text-green-600 dark:text-green-400">Saved.</span>
+          ) : null}
+        </div>
+      </section>
 
       <section className="space-y-4">
         <div>

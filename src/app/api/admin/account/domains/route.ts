@@ -16,6 +16,9 @@ import {
   checkSendingDomain,
   mandrillConfigured,
 } from "@/lib/email/senderDomains";
+import { getTenantById } from "@/lib/tenant";
+import { updateTenantConfig } from "@/lib/tenant/control";
+import { deriveFaviconUrl } from "@/lib/tenant/favicon";
 import type { EmailSenderConfig, SenderDomain } from "@/lib/types/tenant";
 
 export const runtime = "nodejs";
@@ -48,7 +51,32 @@ export async function GET(req: Request) {
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const config = await getSenderConfig(ctx.tenantId);
-  return NextResponse.json(present(config));
+  const tenant = await getTenantById(ctx.tenantId);
+  // rootDomain is the brand's primary WEBSITE (bare host) — distinct from the sending
+  // sub-domains above; surfaced here so it's editable and can ground AI brand-voice gen.
+  return NextResponse.json({ ...present(config), rootDomain: tenant?.rootDomain ?? "" });
+}
+
+/**
+ * Update the brand's PRIMARY DOMAIN (`tenant.rootDomain`) — the marketing website host,
+ * NOT a sending sub-domain. Decoupled from the sender-identity PUT (which requires a privacy
+ * policy) so setting the primary domain never demands unrelated fields. Re-derives the favicon
+ * from the new host (it's derived from rootDomain, with no separate custom-favicon setter).
+ */
+const PrimaryDomainSchema = z.object({ rootDomain: z.string().max(253) });
+export async function PATCH(req: Request) {
+  const blocked = sameOriginGuard(req);
+  if (blocked) return blocked;
+  const ctx = await requireCtx();
+  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const parsed = PrimaryDomainSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  const rootDomain = normalizeDomain(parsed.data.rootDomain);
+  if (!isValidDomain(rootDomain)) return NextResponse.json({ error: "invalid_domain" }, { status: 400 });
+
+  await updateTenantConfig(ctx.tenantId, { rootDomain, faviconUrl: deriveFaviconUrl(rootDomain) });
+  return NextResponse.json({ rootDomain });
 }
 
 const SenderIdentitySchema = z.object({

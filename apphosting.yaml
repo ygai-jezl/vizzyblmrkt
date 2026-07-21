@@ -215,6 +215,20 @@ env:
       - BUILD
       - RUNTIME
   #
+  # Brand voice — authored tenant-global voice (Summary/Do/Don't/guidelines) that grounds all
+  # AI copy (Content OS + launch broadcasts + Live voice). Server flag gates the voice page +
+  # route; the NEXT_PUBLIC mirror (BUILD-inlined) lights up the "Brand voice" tile in the Brand
+  # Kit grid. ENABLED on dev for smoke; keep OFF in prod until reviewed (override in prod yaml).
+  - variable: BRAND_VOICE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_VOICE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
   # Brand-style feedback loop (RL-lite): operators 👍/👎 + 1–10 rate generated images (and
   # can seed with uploads); the style engine learns from what they approve. LOOP gates the
   # L1 vision-extraction + learned-style synthesis writes (needs the (tenantId, brandVote,

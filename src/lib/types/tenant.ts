@@ -260,6 +260,30 @@ export const BrandKitSchema = z.object({
 });
 export type BrandKit = z.infer<typeof BrandKitSchema>;
 
+/**
+ * Authored, tenant-GLOBAL brand voice (Canva-style). Deliberately a TOP-LEVEL tenant field,
+ * NOT part of `brandKit`: the brandKit map is replaced wholesale on every PDF re-extract and
+ * manual Brand save, so keeping the voice out of it means those writes can never clobber it
+ * (and it needs no preservation helper). This is operator/AI-AUTHORED, distinct from the
+ * PDF-EXTRACTED `brandKit.voice`/`tone`. One voice per brand; every workspace uses it. Grounds
+ * all AI text generation via `resolveBrandVoiceText` → `brandVoiceSection`/`assembleBrandContext`.
+ */
+export const BrandVoiceSchema = z.object({
+  /** What the voice achieves + WHEN to use it (the reference's "Summary"). */
+  summary: z.string().max(500).nullable().optional(),
+  /** Guidance for tone / vocabulary / key messages. */
+  dos: z.array(z.string().max(300)).max(12).nullable().optional(),
+  /** Common mistakes to avoid. */
+  donts: z.array(z.string().max(300)).max(12).nullable().optional(),
+  /** Free-text "how to write in your brand voice" guidelines. */
+  guidelines: z.string().max(2000).nullable().optional(),
+  /** Provenance: the domain the AI generator was grounded in (if AI-authored). */
+  sourceDomain: z.string().max(253).nullable().optional(),
+  generatedAt: z.string().max(40).nullable().optional(),
+  updatedAt: z.string().max(40).nullable().optional(),
+});
+export type BrandVoice = z.infer<typeof BrandVoiceSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -304,6 +328,8 @@ export const TenantSchema = z.object({
   supportedLocales: z.array(z.string()).optional(),
   /** AI-extracted brand kit (from an uploaded guidelines PDF); powers on-brand generation. */
   brandKit: BrandKitSchema.optional(),
+  /** Authored, tenant-global brand voice (Summary/Do/Don't/guidelines); grounds all AI copy. */
+  brandVoice: BrandVoiceSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

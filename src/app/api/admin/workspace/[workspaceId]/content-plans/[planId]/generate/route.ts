@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
+import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { getContentPlan, listTemplates, updateContentPlan } from "@/lib/tenant/workspaceContent";
 import { architectPlan, architectSequence, architectEbookPlan } from "@/lib/content/create/architect";
 import { isEbookEnabled } from "@/lib/content/create/ebook";
@@ -47,6 +48,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   }).catch(() => null);
 
+  // Resolve the active brand voice once (tenant-global authored voice, else workspace fallback).
+  const brandVoice = await activeBrandVoiceText(ctx.tenantId, ws.brandVoice);
+
   // Three architects: an eBook plan finalizes the authored book onto a hub+spoke canvas;
   // an email sequence builds a linear drip; everything else builds the hub-and-spoke graph.
   const hubChannel = plan.topology.hubChannel;
@@ -78,7 +82,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       spark: plan.scope.spark,
       topicLabels: plan.scope.topics.map(contentMatrixLabel),
       knowledgeContext: rag?.formatted ?? "",
-      brandVoice: ws.brandVoice ?? null,
+      brandVoice,
       audience: ws.audience ?? null,
     });
   } else {
@@ -89,7 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       hubChannel,
       spokeChannels: plan.topology.spokeChannels,
       knowledgeContext: rag?.formatted ?? "",
-      brandVoice: ws.brandVoice ?? null,
+      brandVoice,
       audience: ws.audience ?? null,
       templates: (await listTemplates(ctx, workspaceId)).map((t) => ({
         id: t.id,

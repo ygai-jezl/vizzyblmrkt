@@ -1,5 +1,6 @@
-import type { BrandKit } from "@/lib/types/tenant";
+import type { BrandKit, BrandVoice } from "@/lib/types/tenant";
 import type { EmailLayout } from "@/lib/types/emailLayout";
+import { renderBrandVoice } from "@/lib/agents/prompts/compose";
 
 /**
  * Assemble the on-brand context block shared by NL→layout + image generation. Pulls
@@ -22,6 +23,23 @@ export interface BrandContextInput {
    *  - a string → use it verbatim.
    */
   learnedImageStyle?: string | null;
+}
+
+/**
+ * Resolve the single brand-voice string that grounds a generation. Precedence (the ONE place
+ * this is decided): the authored tenant-GLOBAL voice (`tenant.brandVoice`, rendered compactly)
+ * wins when it has any content; otherwise fall back to the legacy per-workspace free-text
+ * `workspace.brandVoice`. Returns null when neither is set — so callers pass the SAME value they
+ * do today (byte-identical output) until an operator authors a global voice. The returned string
+ * is fenced as untrusted by `brandVoiceSection`/`assembleBrandContext` downstream — never here.
+ */
+export function resolveBrandVoiceText(input: {
+  tenantBrandVoice?: BrandVoice | null;
+  workspaceBrandVoice?: string | null;
+}): string | null {
+  const authored = renderBrandVoice(input.tenantBrandVoice).trim();
+  if (authored) return authored;
+  return input.workspaceBrandVoice?.trim() || null;
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;

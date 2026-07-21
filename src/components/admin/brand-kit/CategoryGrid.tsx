@@ -13,7 +13,11 @@ import {
   Plus,
   type LucideIcon,
 } from "lucide-react";
-import { BRAND_KIT_IMAGES_ROUTE } from "@/lib/content/brandKit";
+import {
+  BRAND_KIT_IMAGES_ROUTE,
+  BRAND_KIT_VOICE_ROUTE,
+  isBrandVoiceUiEnabled,
+} from "@/lib/content/brandKit";
 
 interface Category {
   key: string;
@@ -33,7 +37,12 @@ const CATEGORIES: Category[] = [
   { key: "logos", label: "Logos", icon: Hexagon },
   { key: "colours", label: "Colours", icon: Palette },
   { key: "fonts", label: "Fonts", icon: Type },
-  { key: "brand-voice", label: "Brand voice", icon: MessageSquareQuote },
+  {
+    key: "brand-voice",
+    label: "Brand voice",
+    icon: MessageSquareQuote,
+    href: isBrandVoiceUiEnabled() ? BRAND_KIT_VOICE_ROUTE : undefined,
+  },
   { key: "images", label: "Images", icon: Images, href: BRAND_KIT_IMAGES_ROUTE },
   { key: "components", label: "Components", icon: Component },
   { key: "graphics", label: "Graphics", icon: Shapes },

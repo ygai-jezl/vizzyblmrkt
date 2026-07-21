@@ -5,6 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { generateEmailLayout } from "@/lib/content/create/generateEmailLayout";
+import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { findCopyBlockIndex } from "@/lib/types/emailLayout";
 
 export const runtime = "nodejs";
@@ -48,7 +49,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     brief: parsed.data.brief,
     subject: node.subject ?? "",
     currentBody,
-    brandVoice: ws.brandVoice ?? null,
+    brandVoice: resolveBrandVoiceText({
+      tenantBrandVoice: tenant?.brandVoice,
+      workspaceBrandVoice: ws.brandVoice,
+    }),
     audience: ws.audience ?? null,
     brandKit: tenant?.brandKit ?? null,
   });

@@ -5,7 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { generateSocialPostImage } from "@/lib/agents/creative";
-import { assembleBrandContext } from "@/lib/content/create/brandContext";
+import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import {
   isSocialImageEnabled,
   isSocialImageChannel,
@@ -81,7 +81,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     nodeId,
     useBrandStyle,
     brandContext: assembleBrandContext({
-      brandVoice: ws.brandVoice ?? null,
+      brandVoice: resolveBrandVoiceText({
+        tenantBrandVoice: tenant?.brandVoice,
+        workspaceBrandVoice: ws.brandVoice,
+      }),
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
       // Suppress the learned text directive too when the override is off (explicit null);

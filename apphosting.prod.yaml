@@ -330,6 +330,18 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand voice — authored tenant-global voice grounding all AI copy (Content OS + launch
+  # broadcasts + Live voice) + AI-generate from the primary domain. No new infra/index required;
+  # Gemini is already configured in prod. ENABLED in prod.
+  - variable: BRAND_VOICE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_VOICE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
   # Brand-style feedback loop (RL-lite). Capture UI (👍/👎 + rating, seed upload) rides on
   # BRAND_KIT_ENABLED. LEARNING enabled now that the image_assets composite indexes
   # (tenantId, brandVote, brandRating desc, createdAt desc) and (tenantId, brandVote,

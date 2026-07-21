@@ -6,6 +6,7 @@ import {
 } from "@/lib/i18n/locale";
 import { LIVE_MODEL } from "./modelConfig";
 import { renderPrompt } from "./prompts/registry";
+import { brandVoiceSection } from "./prompts/compose";
 import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 
 /**
@@ -37,8 +38,16 @@ function isCascadedLiveModel(model: string): boolean {
  * `locale` (base code, e.g. "fr") steers the spoken language via a system-prompt
  * directive — the only lever for the native-audio Live model, which cannot take
  * `speech_config.language_code`. Defaults to the launch's resolved locale.
+ *
+ * `brandVoice` is the resolved tenant-global authored voice (plaintext); it's fenced as
+ * untrusted before it enters the instruction. Absent ⇒ the `[[brand_voice]]` slot renders
+ * empty and the assistant embodies the campaign tone enum only, exactly as before.
  */
-export function buildLiveSystemInstruction(campaign: Campaign, locale?: string): string {
+export function buildLiveSystemInstruction(
+  campaign: Campaign,
+  locale?: string,
+  brandVoice?: string | null,
+): string {
   const s = campaign.strategy;
   const c = campaign.aiConversation;
   const topics = (c?.probeTopics ?? []).map((t) => `- ${t}`).join("\n");
@@ -53,6 +62,7 @@ export function buildLiveSystemInstruction(campaign: Campaign, locale?: string):
     target_audience: s?.targetAudience ?? "GENERAL_CONSUMERS",
     campaign_goal: s?.campaignGoal ?? "PRE_LAUNCH_WAITLIST",
     custom_tone: s?.customToneInstructions?.trim() ?? "",
+    brand_voice: brandVoiceSection(brandVoice),
     probe_topics:
       topics ||
       "- Why they signed up\n- What they use today\n- What would make this a must-have",
@@ -65,7 +75,11 @@ export function buildLiveSystemInstruction(campaign: Campaign, locale?: string):
  * text ("golden data"). `sessionResumption` lets a longer call reconnect past the
  * per-session time cap.
  */
-export function buildLiveConnectConfig(campaign: Campaign, locale?: string): LiveConnectConfig {
+export function buildLiveConnectConfig(
+  campaign: Campaign,
+  locale?: string,
+  brandVoice?: string | null,
+): LiveConnectConfig {
   const lang = locale ?? resolveCampaignLocale(campaign);
   const liveCode = liveCodeFor(lang);
 
@@ -77,7 +91,7 @@ export function buildLiveConnectConfig(campaign: Campaign, locale?: string): Liv
   // model accepts).
   const config: LiveConnectConfig = {
     responseModalities: [Modality.AUDIO],
-    systemInstruction: buildLiveSystemInstruction(campaign, lang),
+    systemInstruction: buildLiveSystemInstruction(campaign, lang, brandVoice),
     inputAudioTranscription: {},
     outputAudioTranscription: {},
     sessionResumption: {},

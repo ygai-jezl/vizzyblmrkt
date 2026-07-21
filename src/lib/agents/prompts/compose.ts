@@ -1,3 +1,5 @@
+import type { BrandVoice } from "@/lib/types/tenant";
+
 /**
  * Dynamic prompt composition — assemble a prompt from ordered, named sections in a
  * fixed canonical order (Identity → Communication → Temporal → UserProfile →
@@ -49,4 +51,22 @@ export function brandVoiceSection(brandVoice?: string | null): string {
 /** UserProfile section from a workspace audience persona (fenced as untrusted). */
 export function audienceSection(audience?: string | null): string {
   return fencedContext("Audience / reader persona", "audience", audience);
+}
+
+/**
+ * Flatten the authored, structured tenant brand voice (Summary / Do / Don't / free-text
+ * guidelines) into a single compact plaintext block. Pure — the OUTPUT is later fenced as
+ * untrusted by `brandVoiceSection`/`assembleBrandContext`, so this never fences on its own.
+ * Returns "" when the voice is empty, so it composes away cleanly (see `resolveBrandVoiceText`).
+ */
+export function renderBrandVoice(voice?: BrandVoice | null): string {
+  if (!voice) return "";
+  const parts: string[] = [];
+  if (voice.summary?.trim()) parts.push(`Summary: ${voice.summary.trim()}`);
+  if (voice.guidelines?.trim()) parts.push(voice.guidelines.trim());
+  const dos = (voice.dos ?? []).map((d) => d.trim()).filter(Boolean);
+  const donts = (voice.donts ?? []).map((d) => d.trim()).filter(Boolean);
+  if (dos.length) parts.push(`Do: ${dos.join("; ")}`);
+  if (donts.length) parts.push(`Don't: ${donts.join("; ")}`);
+  return parts.join("\n");
 }

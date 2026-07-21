@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ImageOff } from "lucide-react";
+import { ImageOff, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Modal } from "@/components/admin/email/Modal";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import { imageAssetProxyUrl } from "@/lib/content/brandKit";
@@ -37,10 +37,13 @@ export function ImageDetailModal({
   asset,
   onClose,
   onCustomized,
+  onFeedback,
 }: {
   asset: ImageAsset;
   onClose: () => void;
   onCustomized: (asset: ImageAsset) => void;
+  /** Fired after a brand-fit vote so the gallery can refresh the row's badge. */
+  onFeedback: (asset: ImageAsset) => void;
 }) {
   const [broken, setBroken] = useState(false);
   const [instruction, setInstruction] = useState("");
@@ -118,6 +121,8 @@ export function ImageDetailModal({
             <Field label="Lineage" value={`Customised from ${asset.parentAssetId}`} />
           ) : null}
 
+          <BrandFitControls asset={asset} onFeedback={onFeedback} />
+
           <div className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
             <div className="text-xs uppercase tracking-wide text-neutral-400">Customise</div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
@@ -149,5 +154,129 @@ export function ImageDetailModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+const RATING_ANCHORS: Record<number, string> = { 1: "On Brand", 5: "Good", 10: "Perfect" };
+
+/**
+ * Brand-fit feedback: 👍 (with a 1–10 rating, 1 = On Brand · 5 = Good · 10 = Perfect) or
+ * 👎. A 👍 teaches the style engine to generate MORE like this image (weighted by the
+ * rating); a 👎 teaches it to steer away. Optimistic-ish: posts and hands the updated row
+ * back to the gallery so the badge refreshes everywhere.
+ */
+function BrandFitControls({
+  asset,
+  onFeedback,
+}: {
+  asset: ImageAsset;
+  onFeedback: (asset: ImageAsset) => void;
+}) {
+  const [vote, setVote] = useState<"up" | "down" | null>(asset.brandVote ?? null);
+  const [rating, setRating] = useState<number | null>(asset.brandRating ?? null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(nextVote: "up" | "down" | null, nextRating: number | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/brand-kit/images/${asset.id}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vote: nextVote,
+          ...(nextVote === "up" && nextRating ? { rating: nextRating } : {}),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { image?: ImageAsset; message?: string };
+      if (!res.ok || !data.image) {
+        setError(data.message ?? "Couldn't save — try again.");
+        return;
+      }
+      setVote(nextVote);
+      setRating(nextVote === "up" ? nextRating : null);
+      onFeedback(data.image);
+    } catch {
+      setError("Couldn't save — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 👍 defaults the rating to 8 ("great") until the operator picks a precise number.
+  function thumbUp() {
+    if (vote === "up") return send(null, null); // toggle off
+    void send("up", rating ?? 8);
+  }
+  function thumbDown() {
+    void send(vote === "down" ? null : "down", null);
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+      <div className="text-xs uppercase tracking-wide text-neutral-400">Brand fit</div>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        Teach the style engine — 👍 on-brand images make future generations look more like
+        them; 👎 steers away.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={thumbUp}
+          aria-pressed={vote === "up"}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium disabled:opacity-60 ${
+            vote === "up"
+              ? "border-green-500 bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300"
+              : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+          }`}
+        >
+          <ThumbsUp size={14} /> On-brand
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={thumbDown}
+          aria-pressed={vote === "down"}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium disabled:opacity-60 ${
+            vote === "down"
+              ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
+              : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+          }`}
+        >
+          <ThumbsDown size={14} /> Off-brand
+        </button>
+      </div>
+
+      {vote === "up" ? (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] text-neutral-400">
+            <span>1 · On Brand</span>
+            <span>5 · Good</span>
+            <span>10 · Perfect</span>
+          </div>
+          <div className="flex gap-1">
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+              <button
+                key={n}
+                type="button"
+                disabled={busy}
+                title={RATING_ANCHORS[n] ?? `${n}/10`}
+                onClick={() => send("up", n)}
+                className={`h-7 flex-1 rounded text-[11px] font-medium disabled:opacity-60 ${
+                  rating === n
+                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                    : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+    </div>
   );
 }

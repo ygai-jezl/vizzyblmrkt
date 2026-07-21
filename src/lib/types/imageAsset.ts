@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StyleProfileSchema } from "./styleProfile";
 
 /**
  * A single AI-generated image in the Brand Kit asset library. Unlike the scattered
@@ -49,5 +50,23 @@ export const ImageAssetSchema = z.object({
   title: z.string().max(200).nullable().optional(),
   byteSize: z.number().int().nonnegative().nullable().optional(),
   createdAt: z.string(),
+
+  // ---- Brand-style feedback loop (all optional so pre-existing docs still parse) ----
+  /**
+   * Operator's brand-fit verdict. "up" = an on-brand exemplar the style engine learns
+   * FROM (weighted by `brandRating`); "down" = an off-brand image to steer AWAY from.
+   * null / absent = no verdict yet.
+   */
+  brandVote: z.enum(["up", "down"]).nullable().optional(),
+  /**
+   * On a 👍, how on-brand (1 = On Brand · 5 = Good · 10 = Perfect). Weights how much
+   * this exemplar influences the synthesized style + reference-image selection. Only
+   * meaningful when `brandVote === "up"`.
+   */
+  brandRating: z.number().int().min(1).max(10).nullable().optional(),
+  /** ISO of the last vote (set/cleared alongside `brandVote`). */
+  brandVoteSetAt: z.string().nullable().optional(),
+  /** L1: the aesthetic fingerprint extracted from this image's bytes (👍 images only). */
+  styleProfile: StyleProfileSchema.nullable().optional(),
 });
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;

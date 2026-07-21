@@ -66,6 +66,73 @@ export async function deleteImageAsset(ctx: TenantContext, id: string): Promise<
   await forTenant(ctx).imageAssets.delete(id);
 }
 
+/**
+ * Patch an image asset (tenant-scoped update re-verifies ownership + strips
+ * tenantId/id/createdAt). Returns the fresh row, or null if it doesn't exist for
+ * this tenant. Used by the brand-style feedback loop (vote + styleProfile writes).
+ */
+export async function updateImageAsset(
+  ctx: TenantContext,
+  id: string,
+  patch: Partial<Omit<ImageAsset, "id" | "tenantId" | "createdAt">>,
+): Promise<ImageAsset | null> {
+  const existing = await forTenant(ctx).imageAssets.getById(id);
+  if (!existing) return null;
+  await forTenant(ctx).imageAssets.update(id, patch);
+  return { ...existing, ...patch };
+}
+
+/**
+ * Record (or clear) the operator's brand-fit verdict on an image. A vote stamps
+ * `brandVoteSetAt`; a 👎 or a clear (null) drops the numeric rating. Idempotent.
+ */
+export async function setImageBrandVote(
+  ctx: TenantContext,
+  id: string,
+  input: { vote: "up" | "down" | null; rating?: number | null },
+): Promise<ImageAsset | null> {
+  const vote = input.vote;
+  const rating = vote === "up" ? (input.rating ?? null) : null;
+  return updateImageAsset(ctx, id, {
+    brandVote: vote,
+    brandRating: rating,
+    brandVoteSetAt: vote ? new Date().toISOString() : null,
+  });
+}
+
+/**
+ * The tenant's positive brand exemplars (👍), highest-rated first then newest.
+ * Backs the L1 style synthesis and the L2 reference-image pool. Needs the
+ * (tenantId, brandVote, brandRating desc, createdAt desc) composite index.
+ */
+export async function listBrandExemplars(
+  ctx: TenantContext,
+  params: { minRating?: number; limit?: number } = {},
+): Promise<ImageAsset[]> {
+  const rows = await forTenant(ctx).imageAssets.find({
+    where: [["brandVote", "==", "up"]],
+    orderBy: [
+      ["brandRating", "desc"],
+      ["createdAt", "desc"],
+    ],
+    limit: Math.min(params.limit ?? 20, 100),
+  });
+  const min = params.minRating ?? 0;
+  return min > 0 ? rows.filter((r) => (r.brandRating ?? 0) >= min) : rows;
+}
+
+/** The tenant's negative exemplars (👎) — off-brand traits to steer away from. */
+export async function listBrandNegatives(
+  ctx: TenantContext,
+  params: { limit?: number } = {},
+): Promise<ImageAsset[]> {
+  return forTenant(ctx).imageAssets.find({
+    where: [["brandVote", "==", "down"]],
+    orderBy: [["createdAt", "desc"]],
+    limit: Math.min(params.limit ?? 8, 50),
+  });
+}
+
 export type RecordImageInput = Omit<ImageAsset, "id" | "tenantId" | "createdAt">;
 
 /**

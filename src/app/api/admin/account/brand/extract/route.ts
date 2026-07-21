@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { updateTenantConfig } from "@/lib/tenant/control";
+import { updateTenantConfig, withPreservedLearnedStyle } from "@/lib/tenant/control";
+import { getTenantById } from "@/lib/tenant";
 import { readBrandPdf } from "@/lib/tenant/brandAsset";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithFile, parseFirstJson } from "@/lib/agents/gemini";
@@ -48,6 +49,10 @@ export async function POST(req: Request) {
   });
   if (!kit.success) return NextResponse.json({ error: "extraction_invalid" }, { status: 502 });
 
-  await updateTenantConfig(ctx.tenantId, { brandKit: kit.data });
-  return NextResponse.json({ brandKit: kit.data });
+  // Re-extraction REPLACES the whole brandKit — carry the feedback-loop learned style
+  // forward so it isn't wiped (it lives on brandKit; the extract model never returns it).
+  const existing = await getTenantById(ctx.tenantId);
+  const merged = withPreservedLearnedStyle(kit.data, existing?.brandKit);
+  await updateTenantConfig(ctx.tenantId, { brandKit: merged });
+  return NextResponse.json({ brandKit: merged });
 }

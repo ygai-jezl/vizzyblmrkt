@@ -22,6 +22,8 @@ const BodySchema = z.object({
   brief: z.string().min(1).max(1000),
   aspect: z.enum(["1:1", "4:5", "1.91:1"]),
   style: z.enum(SOCIAL_IMAGE_STYLE_IDS),
+  /** Brand-style loop override (default true = apply learned style + references). */
+  useBrandStyle: z.boolean().optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -64,6 +66,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
   const tenant = await getTenantById(ctx.tenantId);
+  const useBrandStyle = parsed.data.useBrandStyle !== false;
   const result = await generateSocialPostImage({
     tenantId: ctx.tenantId,
     workspaceId,
@@ -76,10 +79,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     region: ctx.region,
     planId,
     nodeId,
+    useBrandStyle,
     brandContext: assembleBrandContext({
       brandVoice: ws.brandVoice ?? null,
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
+      // Suppress the learned text directive too when the override is off (explicit null);
+      // otherwise fall back to the kit's learned style (automatic apply).
+      learnedImageStyle: useBrandStyle ? undefined : null,
     }),
   });
 

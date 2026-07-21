@@ -497,6 +497,8 @@ function SocialImageControls({
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
   const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
+  // Brand-style loop: apply the learned brand style + reference images by default.
+  const [useBrandStyle, setUseBrandStyle] = useState(true);
   const [busy, setBusy] = useState<null | "generate" | "upload" | "remove">(null);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -517,7 +519,7 @@ function SocialImageControls({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brief: brief.trim(), aspect, style }),
+          body: JSON.stringify({ brief: brief.trim(), aspect, style, useBrandStyle }),
         },
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -647,6 +649,15 @@ function SocialImageControls({
         </label>
         <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
       </div>
+      <label className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+        <input
+          type="checkbox"
+          checked={useBrandStyle}
+          onChange={(e) => setUseBrandStyle(e.target.checked)}
+          className="h-3.5 w-3.5"
+        />
+        Use learned brand style
+      </label>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"

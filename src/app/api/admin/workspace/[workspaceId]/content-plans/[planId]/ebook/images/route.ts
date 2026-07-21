@@ -31,6 +31,8 @@ const BodySchema = z.object({
   style: z.enum(EBOOK_IMAGE_STYLE_IDS),
   mode: z.enum(["create", "edit"]).default("create"),
   instruction: z.string().max(1000).optional(),
+  /** Brand-style loop override (default true = apply learned style + references). */
+  useBrandStyle: z.boolean().optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -92,6 +94,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   const effectiveAspect: z.infer<typeof EbookAspect> = mode === "edit" && priorAspect ? priorAspect : aspect;
 
   const tenant = await getTenantById(ctx.tenantId);
+  const useBrandStyle = parsed.data.useBrandStyle !== false;
   const result = await generateEbookSlotImage({
     tenantId: ctx.tenantId,
     workspaceId,
@@ -104,10 +107,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     region: ctx.region,
     planId,
     chapterId: target.kind === "cover" ? undefined : target.chapterId,
+    useBrandStyle,
+    // Best-of-N is reserved for the hero surface (cover) to bound cost on long eBooks.
+    heroSurface: target.kind === "cover",
     brandContext: assembleBrandContext({
       brandVoice: ws.brandVoice ?? null,
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
+      learnedImageStyle: useBrandStyle ? undefined : null,
     }),
   });
 

@@ -13,6 +13,15 @@ export interface BrandContextInput {
   audience?: string | null;
   brandKit?: BrandKit | null;
   layout?: EmailLayout | null;
+  /**
+   * LEARNED image style directive (brand-style feedback loop). Tri-state:
+   *  - `undefined` / key absent → auto-include `brandKit.learnedImageStyle` (the default
+   *    "automatic apply" behaviour, so every surface benefits with no wiring).
+   *  - explicit `null` → SUPPRESS it (the per-generation "Use learned brand style: off"
+   *    override).
+   *  - a string → use it verbatim.
+   */
+  learnedImageStyle?: string | null;
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -51,6 +60,14 @@ export function assembleBrandContext(input: BrandContextInput): string {
   if (kit.fonts?.length) lines.push(`Fonts: ${kit.fonts.join(", ")}`);
   if (kit.dos?.length) lines.push(`Do: ${kit.dos.join("; ")}`);
   if (kit.donts?.length) lines.push(`Don't: ${kit.donts.join("; ")}`);
+
+  // Learned image style (feedback loop). `!== undefined` so an explicit null suppresses
+  // (override off); absence falls back to the kit's stored directive (automatic apply).
+  const learned =
+    input.learnedImageStyle !== undefined ? input.learnedImageStyle : (kit.learnedImageStyle ?? null);
+  if (learned?.trim()) {
+    lines.push(`Learned brand image style (from operator-approved exemplars): ${learned.trim()}`);
+  }
 
   if (!lines.length) return "";
   return (

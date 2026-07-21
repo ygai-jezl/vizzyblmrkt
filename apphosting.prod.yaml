@@ -331,17 +331,16 @@ env:
       - BUILD
       - RUNTIME
   # Brand-style feedback loop (RL-lite). Capture UI (👍/👎 + rating, seed upload) rides on
-  # BRAND_KIT_ENABLED and is live in prod, but the LEARNING is kept OFF until the new
-  # image_assets composite index (tenantId, brandVote, brandRating desc, createdAt desc)
-  # is deployed + READY (firebase deploy --only firestore:indexes) — otherwise the
-  # exemplar list query degrades. Flip LOOP + REFS to "true" after the index is READY.
-  # BEST_OF_N stays OFF (N× cost; enable per hero surface only).
+  # BRAND_KIT_ENABLED. LEARNING enabled now that the image_assets composite indexes
+  # (tenantId, brandVote, brandRating desc, createdAt desc) and (tenantId, brandVote,
+  # createdAt desc) are deployed + READY. LOOP = L1 style extraction/synthesis; REFS = L2
+  # style reference images. BEST_OF_N stays OFF (N× cost; enable per hero surface only).
   - variable: BRAND_STYLE_LOOP_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_STYLE_REFS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_BEST_OF_N

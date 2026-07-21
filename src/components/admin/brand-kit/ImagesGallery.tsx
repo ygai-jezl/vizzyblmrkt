@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
-import { ImageOff } from "lucide-react";
+import { useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
+import { ImageOff, ThumbsUp, ThumbsDown, ImagePlus } from "lucide-react";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import { imageAssetProxyUrl } from "@/lib/content/brandKit";
 import { ImageDetailModal } from "./ImageDetailModal";
@@ -64,24 +64,34 @@ export function ImagesGallery({
     }
   }, [cursor]);
 
-  // Prepend a freshly-customised image so the operator sees the result immediately.
-  const onCustomized = useCallback((asset: ImageAsset) => {
+  // Prepend a freshly-customised or seed-uploaded image so it shows immediately.
+  const prepend = useCallback((asset: ImageAsset) => {
     setRows((prev) => [asset, ...prev]);
+  }, []);
+
+  // Replace a row in place after a brand-fit vote so its badge refreshes, and keep
+  // `selected` in sync so the modal reflects the new vote/rating.
+  const onFeedback = useCallback((asset: ImageAsset) => {
+    setRows((prev) => prev.map((r) => (r.id === asset.id ? asset : r)));
+    setSelected((cur) => (cur && cur.id === asset.id ? asset : cur));
   }, []);
 
   return (
     <div className="space-y-3">
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search images by prompt, kind, style, or channel…"
-        className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-1.5 text-sm dark:border-neutral-700"
-      />
+      <div className="flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search images by prompt, kind, style, or channel…"
+          className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-1.5 text-sm dark:border-neutral-700"
+        />
+        <SeedUpload onUploaded={prepend} />
+      </div>
 
       {visible.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
           {rows.length === 0
-            ? "No images yet — generate a social or eBook image and it will appear here."
+            ? "No images yet — generate a social or eBook image, or upload a few that nail your brand to teach the style engine."
             : "No images match your search."}
         </p>
       ) : (
@@ -110,8 +120,74 @@ export function ImagesGallery({
         <ImageDetailModal
           asset={selected}
           onClose={() => setSelected(null)}
-          onCustomized={onCustomized}
+          onCustomized={prepend}
+          onFeedback={onFeedback}
         />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * COLD START: upload existing on-brand images as seed exemplars (marked 👍, rating 9) so
+ * the style engine has something to learn from before anything's generated. Uploads each
+ * picked file sequentially and prepends the recorded rows.
+ */
+function SeedUpload({ onUploaded }: { onUploaded: (asset: ImageAsset) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []).slice(0, 3); // up to 3 at a time
+    e.target.value = ""; // allow re-picking the same file after a failure
+    if (files.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("rating", "9");
+        const res = await fetch("/api/admin/brand-kit/images/upload", { method: "POST", body: fd });
+        const data = (await res.json().catch(() => ({}))) as { image?: ImageAsset; message?: string };
+        if (!res.ok || !data.image) {
+          setError(data.message ?? "Upload failed — try again.");
+          break;
+        }
+        onUploaded(data.image);
+      }
+    } catch {
+      setError("Upload failed — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="relative shrink-0">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        multiple
+        onChange={onPick}
+        className="hidden"
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+        title="Upload existing on-brand images to teach the style engine"
+        className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900"
+      >
+        <ImagePlus size={15} />
+        {busy ? "Uploading…" : "Add brand images"}
+      </button>
+      {error ? (
+        <p className="absolute right-0 top-full mt-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
       ) : null}
     </div>
   );
@@ -143,6 +219,16 @@ function ImageCard({ asset, onOpen }: { asset: ImageAsset; onOpen: () => void })
         <span className="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
           {KIND_LABEL[asset.kind] ?? asset.kind}
         </span>
+        {asset.brandVote === "up" ? (
+          <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-green-600/90 px-2 py-0.5 text-[11px] font-medium text-white">
+            <ThumbsUp size={11} />
+            {asset.brandRating ?? ""}
+          </span>
+        ) : asset.brandVote === "down" ? (
+          <span className="absolute right-2 top-2 flex items-center rounded-full bg-red-600/90 px-2 py-0.5 text-white">
+            <ThumbsDown size={11} />
+          </span>
+        ) : null}
       </div>
       <div className="px-2.5 py-2">
         <p className="truncate text-xs text-neutral-600 dark:text-neutral-400">

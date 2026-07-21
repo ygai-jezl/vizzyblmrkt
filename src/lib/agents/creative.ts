@@ -15,8 +15,13 @@ import {
 } from "@/lib/content/create/ebook";
 import type { EbookAspect } from "@/lib/types/contentPlan";
 import { recordImageAsset } from "@/lib/admin/brandKit";
+import { retrieveExemplarImages, STYLE_REF_DIRECTIVE } from "@/lib/content/create/exemplarImages";
+import { isBestOfNEnabled, bestOfNCount } from "@/lib/content/create/brandStyleLoop";
+import { generateBestOfN } from "@/lib/content/create/bestOfN";
+import type { GeneratedImage } from "./gemini";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { Region } from "@/lib/types/tenant";
+import type { TenantContext } from "@/lib/tenant/types";
 
 /**
  * Agent 3 — Creative Director & Copywriter. Drafts performance-informed copy
@@ -199,6 +204,13 @@ export interface GenerateSocialImageInput {
   /** Optional source linkage for the Brand Kit registry (best-effort). */
   planId?: string;
   nodeId?: string;
+  /**
+   * Brand-style loop override (default true = automatic apply). When false, skip the
+   * learned style reference images for THIS generation (the "Use learned brand style"
+   * toggle off). The learned text directive is suppressed separately by the caller,
+   * which passes `learnedImageStyle: null` to assembleBrandContext.
+   */
+  useBrandStyle?: boolean;
 }
 
 export interface GenerateSocialImageResult {
@@ -232,7 +244,37 @@ export async function generateSocialPostImage(
     knowledge_context: input.knowledgeContext ?? "",
   });
   const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
-  const img = await generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect]);
+
+  // Brand-style loop (L2): fetch on-brand style references. When present, HYBRID-switch
+  // this generation from the lite/text-only model to the FULL model so it can SEE the
+  // brand look; otherwise stay on the lite path (bounds the added cost to the cases that
+  // actually benefit). Gated by the flag + region + the per-generation override.
+  const styleRefs =
+    input.region && input.useBrandStyle !== false
+      ? await retrieveExemplarImages({
+          ctx: tenantCtx(input.tenantId, input.region),
+          kind: "social",
+          channel: input.channel,
+        })
+      : [];
+  const produceImage = (): Promise<GeneratedImage | null> =>
+    styleRefs.length > 0
+      ? generateEbookImage({
+          prompt: `${imagePrompt}\n\n${STYLE_REF_DIRECTIVE}`,
+          aspectRatio: SOCIAL_ASPECT_TO_GEMINI[input.aspect],
+          styleRefImages: styleRefs,
+        })
+      : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect]);
+  // Best-of-N (L3): when enabled, generate several and auto-pick the most on-brand.
+  const img =
+    input.useBrandStyle !== false && isBestOfNEnabled()
+      ? await generateBestOfN({
+          n: bestOfNCount(),
+          generate: produceImage,
+          styleReference: input.brandContext,
+          brief: input.brief,
+        })
+      : await produceImage();
   if (!img) {
     return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
   }
@@ -287,6 +329,14 @@ export interface GenerateEbookImageInput {
   /** Optional source linkage for the Brand Kit registry (best-effort). */
   planId?: string;
   chapterId?: string;
+  /** Brand-style loop override (default true). When false, skip style references. */
+  useBrandStyle?: boolean;
+  /**
+   * Best-of-N (L3) is expensive (N× gen + N× judge), so it runs on HERO surfaces only.
+   * The route sets this true for the eBook COVER; chapter/slot illustrations stay single-shot
+   * even when the best-of-N flag is on, so a long eBook doesn't multiply its whole build cost.
+   */
+  heroSurface?: boolean;
 }
 
 export interface GenerateEbookImageResult {
@@ -353,11 +403,35 @@ export async function generateEbookSlotImage(
         }),
       )) ?? input.brief;
 
-  const img = await generateEbookImage({
-    prompt: imagePrompt,
-    aspectRatio: EBOOK_ASPECT_TO_GEMINI[input.aspect],
-    inputImages,
-  });
+  // Brand-style loop (L2): on CREATE only (never during an edit — that would confuse the
+  // model with the prior image), attach on-brand style references so a fresh illustration
+  // matches the learned look. Gated by flag + region + the per-generation override.
+  const styleRefs =
+    !isEdit && input.region && input.useBrandStyle !== false
+      ? await retrieveExemplarImages({
+          ctx: tenantCtx(input.tenantId, input.region),
+          kind: "ebook",
+        })
+      : [];
+
+  const produceImage = (): Promise<GeneratedImage | null> =>
+    generateEbookImage({
+      prompt: styleRefs.length > 0 ? `${imagePrompt}\n\n${STYLE_REF_DIRECTIVE}` : imagePrompt,
+      aspectRatio: EBOOK_ASPECT_TO_GEMINI[input.aspect],
+      inputImages,
+      styleRefImages: styleRefs,
+    });
+  // Best-of-N (L3) on CREATE + HERO surface only (the eBook cover) — never on an edit, and
+  // never on every chapter illustration (that would multiply a long eBook's build cost).
+  const img =
+    !isEdit && input.heroSurface === true && input.useBrandStyle !== false && isBestOfNEnabled()
+      ? await generateBestOfN({
+          n: bestOfNCount(),
+          generate: produceImage,
+          styleReference: input.brandContext,
+          brief: input.brief,
+        })
+      : await produceImage();
   if (!img) {
     return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
   }
@@ -495,6 +569,11 @@ export async function customizeImageAsset(
 }
 
 // ---- internals ------------------------------------------------------------
+
+/** Minimal system-scoped tenant context for best-effort registry reads/writes. */
+function tenantCtx(tenantId: string, region: Region): TenantContext {
+  return { tenantId, region, source: "system" };
+}
 
 function parseVariants(raw: string): CopyVariant[] | null {
   // Extract the first {...} block (models sometimes wrap JSON in fences/prose).

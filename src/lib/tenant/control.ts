@@ -8,6 +8,7 @@ import {
   TenantSchema,
   EmailSenderConfigSchema,
   type Tenant,
+  type BrandKit,
   type EmailSenderConfig,
   type GitConnection,
   type SocialConnection,
@@ -66,6 +67,45 @@ export async function updateTenantConfig(
     .collection("tenants")
     .doc(id)
     .update({ ...rest, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * Write ONLY the learned-image-style fields (brand-style feedback loop) via DOTTED field
+ * paths, so it never replaces the whole `brandKit` map — a concurrent PDF extract / manual
+ * brand save can't clobber palette/tone, and this write can't clobber them. `directive:null`
+ * clears the learned style. Firestore creates the `brandKit` map if the tenant has none yet.
+ */
+export async function setTenantLearnedImageStyle(
+  id: string,
+  input: { directive: string | null; sampleCount: number },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      "brandKit.learnedImageStyle": input.directive,
+      "brandKit.learnedImageStyleUpdatedAt": now,
+      "brandKit.learnedImageStyleSampleCount": input.sampleCount,
+      updatedAt: now,
+    });
+}
+
+/**
+ * Carry the learned-image-style fields forward onto a fresh whole-`brandKit` payload, so a
+ * PDF re-extraction or a manual brand save (both of which REPLACE the whole map) preserves
+ * what the feedback loop synthesized. Reads the fields off the tenant's current kit.
+ */
+export function withPreservedLearnedStyle(
+  next: BrandKit,
+  existing: BrandKit | null | undefined,
+): BrandKit {
+  return {
+    ...next,
+    learnedImageStyle: existing?.learnedImageStyle ?? null,
+    learnedImageStyleUpdatedAt: existing?.learnedImageStyleUpdatedAt ?? null,
+    learnedImageStyleSampleCount: existing?.learnedImageStyleSampleCount ?? null,
+  };
 }
 
 /** Store/replace a tenant's encrypted git OAuth connection (control-plane). */

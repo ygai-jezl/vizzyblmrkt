@@ -330,6 +330,27 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand-style feedback loop (RL-lite). Capture UI (👍/👎 + rating, seed upload) rides on
+  # BRAND_KIT_ENABLED. LEARNING enabled now that the image_assets composite indexes
+  # (tenantId, brandVote, brandRating desc, createdAt desc) and (tenantId, brandVote,
+  # createdAt desc) are deployed + READY. LOOP = L1 style extraction/synthesis; REFS = L2
+  # style reference images. BEST_OF_N stays OFF (N× cost; enable per hero surface only).
+  - variable: BRAND_STYLE_LOOP_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: BRAND_STYLE_REFS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: BRAND_BEST_OF_N
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_BEST_OF_N_COUNT
+    value: "2"
+    availability:
+      - RUNTIME
   # Signs the short-lived capability token the admin-chat proxy mints so the
   # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
   # journey DRAFT, scoped to the verified tenant. Keep COMMENTED until the secret

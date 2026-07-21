@@ -330,10 +330,19 @@ export async function generateEbookImage({
   prompt,
   aspectRatio = "1:1",
   inputImages = [],
+  styleRefImages = [],
 }: {
   prompt: string;
   aspectRatio?: string;
   inputImages?: { base64: string; mimeType: string }[];
+  /**
+   * STYLE reference images (brand-style loop, Layer 2). Appended after inputImages so the
+   * caller's prompt can distinguish "edit THIS image" (inputImages) from "match the LOOK
+   * of these" (styleRefImages). There's no dedicated Gemini styleReference field — the
+   * distinction is prompt-driven. Callers must keep the combined image count within the
+   * model limit (FULL: ≤14) and each ≤7 MB.
+   */
+  styleRefImages?: { base64: string; mimeType: string }[];
 }): Promise<GeneratedImage | null> {
   const ai = getClient();
   if (!ai) return null;
@@ -341,6 +350,7 @@ export async function generateEbookImage({
     const parts = [
       { text: prompt },
       ...inputImages.map((img) => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
+      ...styleRefImages.map((img) => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
     ];
     const res = await ai.models.generateContent({
       model: EBOOK_IMAGE_MODEL,

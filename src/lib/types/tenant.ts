@@ -245,6 +245,18 @@ export const BrandKitSchema = z.object({
   donts: z.array(z.string().max(300)).max(30).nullable().optional(),
   /** ISO of the last successful AI extraction. */
   extractedAt: z.string().max(40).nullable().optional(),
+
+  /**
+   * LEARNED image style — an art-director directive synthesized from the images the
+   * operator marked on-brand in the Brand Kit gallery (👍 + 1–10 rating; see
+   * src/lib/content/create/styleProfile.ts). Distinct from `imageryStyle` (which comes
+   * from the guidelines PDF): this is a rolling signal learned from what they actually
+   * approved, injected into every image prompt via assembleBrandContext. Nullable so
+   * tenants without any exemplars yet simply have none.
+   */
+  learnedImageStyle: z.string().max(2000).nullable().optional(),
+  learnedImageStyleUpdatedAt: z.string().max(40).nullable().optional(),
+  learnedImageStyleSampleCount: z.number().int().nonnegative().nullable().optional(),
 });
 export type BrandKit = z.infer<typeof BrandKitSchema>;
 

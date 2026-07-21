@@ -8,6 +8,8 @@ import { generateEbookSlotImage } from "@/lib/agents/creative";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { applyGeneratedImage, draftHasImageRef } from "@/lib/content/create/ebookOps";
 import { EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
+import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
+import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { deleteImageAsset } from "@/lib/admin/brandKit";
 import { EbookAspect } from "@/lib/types/contentPlan";
@@ -33,6 +35,8 @@ const BodySchema = z.object({
   instruction: z.string().max(1000).optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
+  /** Operator-selected image model slug (lite | full). Omit to use the surface default (full). */
+  model: z.enum(IMAGE_MODEL_SLUGS).optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -108,6 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     planId,
     chapterId: target.kind === "cover" ? undefined : target.chapterId,
     useBrandStyle,
+    imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     // Best-of-N is reserved for the hero surface (cover) to bound cost on long eBooks.
     heroSurface: target.kind === "cover",
     brandContext: assembleBrandContext({

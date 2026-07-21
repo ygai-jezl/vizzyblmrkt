@@ -55,9 +55,16 @@ describe("generateSocialPostImage", () => {
     const res = await generateSocialPostImage(input({ aspect: "4:5" }));
     expect(res.source).toBe("agent3");
     expect(res.imageAssetRef).toBe("abc123.png");
-    // 4:5 has no Gemini equivalent → 3:4.
-    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "3:4");
+    // 4:5 has no Gemini equivalent → 3:4. No operator model override → 3rd arg undefined (the
+    // generator falls back to its default lite block model).
+    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "3:4", undefined);
     expect(mockStore).toHaveBeenCalledWith("ten_x", "ws1", expect.any(Buffer), "image/png");
+  });
+
+  it("passes the operator-selected image model through to the generator", async () => {
+    await generateSocialPostImage(input({ imageModel: "gemini-3.1-flash-image" }));
+    // The chosen model reaches generateBlockImage as its 3rd arg (overriding the lite default).
+    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "1:1", "gemini-3.1-flash-image");
   });
 
   it("degrades to a null ref (no store) when the image model is unavailable", async () => {

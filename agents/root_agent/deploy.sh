@@ -101,7 +101,7 @@ cat > "$SCRIPT_DIR/.agent_engine_config.json" <<EOF
   "env_vars": {
     "GOOGLE_GENAI_USE_VERTEXAI": "1",
     "GOOGLE_CLOUD_LOCATION": "global",
-    "ROOT_AGENT_MODEL": "gemini-3.5-flash"${CANVAS_ENTRY}
+    "ROOT_AGENT_MODEL": "gemini-3.6-flash"${CANVAS_ENTRY}
   }
 }
 EOF

@@ -5,6 +5,12 @@ import { ImageOff, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Modal } from "@/components/admin/email/Modal";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import { imageAssetProxyUrl } from "@/lib/content/brandKit";
+import {
+  DEFAULT_IMAGE_MODEL_SLUG,
+  imageModelOverride,
+  type ImageModelSlug,
+} from "@/lib/content/create/imageModels";
+import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -47,6 +53,8 @@ export function ImageDetailModal({
 }) {
   const [broken, setBroken] = useState(false);
   const [instruction, setInstruction] = useState("");
+  // Per-generation image model (defaults to this surface's current model — full).
+  const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.customise);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -60,7 +68,8 @@ export function ImageDetailModal({
       const res = await fetch(`/api/admin/brand-kit/images/${asset.id}/customize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction: instruction.trim() }),
+        // Send `model` only when changed from this surface's default (see imageModelOverride).
+        body: JSON.stringify({ instruction: instruction.trim(), model: imageModelOverride(model, "customise") }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         image?: ImageAsset;
@@ -136,6 +145,10 @@ export function ImageDetailModal({
               placeholder="e.g. make the background navy blue and add soft studio lighting"
               className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
             />
+            <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+              Model
+              <ImageModelSelect value={model} onChange={setModel} />
+            </label>
             {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
             {done ? (
               <p className="text-xs text-green-600 dark:text-green-400">

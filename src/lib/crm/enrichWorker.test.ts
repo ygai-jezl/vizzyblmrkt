@@ -81,7 +81,7 @@ describe("processContactEnrichJob", () => {
     enrichCompany.mockResolvedValue({
       profile: { name: "Acme Inc", industry: "SaaS", confidence: 0.9 },
       source: "agent1",
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       groundingUsed: true,
     });
 

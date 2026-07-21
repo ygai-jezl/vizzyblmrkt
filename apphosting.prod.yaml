@@ -148,7 +148,7 @@ env:
   # NOT here — it is pinned in src/lib/types/knowledgeBase.ts (coupled to the vector
   # index dimension; changing it is a re-embed migration, not a config flip).
   # - variable: GEMINI_TEXT_MODEL
-  #   value: gemini-3.5-flash
+  #   value: gemini-3.6-flash
   #   availability:
   #     - RUNTIME
   # - variable: GEMINI_IMAGE_MODEL

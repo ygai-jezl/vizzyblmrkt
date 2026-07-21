@@ -4,6 +4,8 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getImageAsset } from "@/lib/admin/brandKit";
 import { customizeImageAsset } from "@/lib/agents/creative";
+import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
+import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
 
 export const runtime = "nodejs";
@@ -11,7 +13,11 @@ export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ assetId: string }> };
 
-const BodySchema = z.object({ instruction: z.string().min(1).max(1000) });
+const BodySchema = z.object({
+  instruction: z.string().min(1).max(1000),
+  /** Operator-selected image model slug (lite | full). Omit to use the surface default (full). */
+  model: z.enum(IMAGE_MODEL_SLUGS).optional(),
+});
 
 const IMAGE_ERRORS: Record<string, string> = {
   image_model_unavailable: "The image model isn't available right now.",
@@ -51,6 +57,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     region: ctx.region,
     source,
     instruction: parsed.data.instruction,
+    imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
   });
 
   if (!result.asset) {

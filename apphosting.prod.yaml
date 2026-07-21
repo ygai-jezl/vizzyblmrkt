@@ -330,14 +330,15 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # Brand voice — authored tenant-global voice grounding all AI copy. OFF in prod until the
-  # full feature (author → ground → AI-generate) is reviewed + smoked on dev, then flip to "true".
+  # Brand voice — authored tenant-global voice grounding all AI copy (Content OS + launch
+  # broadcasts + Live voice) + AI-generate from the primary domain. No new infra/index required;
+  # Gemini is already configured in prod. ENABLED in prod.
   - variable: BRAND_VOICE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_VOICE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

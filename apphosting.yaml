@@ -411,8 +411,8 @@ env:
   # (src/lib/agents/modelConfig.ts); uncomment to pin a model in this env with no
   # code change. The embedding model is NOT here — it is pinned in
   # src/lib/types/knowledgeBase.ts (coupled to the vector-index dimension).
-  # - variable: GEMINI_TEXT_MODEL          # optional — defaults to gemini-3.5-flash
-  #   value: gemini-3.5-flash
+  # - variable: GEMINI_TEXT_MODEL          # optional — defaults to gemini-3.6-flash
+  #   value: gemini-3.6-flash
   #   availability:
   #     - RUNTIME
   # - variable: GEMINI_IMAGE_MODEL         # optional — defaults to imagen-4.0-generate-001

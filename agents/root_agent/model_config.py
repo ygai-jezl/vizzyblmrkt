@@ -14,4 +14,4 @@ from __future__ import annotations
 import os
 
 # Flash for speed/cost; thinking is selected per-request via the [mode:] prefix.
-DEFAULT_MODEL = os.environ.get("ROOT_AGENT_MODEL", "gemini-3.5-flash")
+DEFAULT_MODEL = os.environ.get("ROOT_AGENT_MODEL", "gemini-3.6-flash")

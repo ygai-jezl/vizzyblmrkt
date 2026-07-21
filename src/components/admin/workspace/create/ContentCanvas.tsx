@@ -331,6 +331,29 @@ export function ContentCanvas({
     await generateOne(id); // re-sets busy:true then clears it — harmless
   }
 
+  // Approve PERSISTS. Approve is a commit in the operator's mental model, not just a local
+  // status flip — so it saves the whole graph (which carries the edited body already in local
+  // state + the new approved status) so those edits survive a reload. Without this the copy
+  // edit + approval lived only in React state until the separate toolbar Save, so any reload
+  // silently dropped them. Optimistically flip to approved (synchronous ref update → save()
+  // sees it), persist, and roll the status back on failure so the UI never claims an unsaved
+  // "Approved". busy blocks a double-submit during the round-trip.
+  async function approveNode(id: string): Promise<void> {
+    const d = nodesRef.current.find((n) => n.id === id)?.data as ContentNodeData | undefined;
+    if (!d || d.busy || d.briefBusy || d.cn.status === "generating") return;
+    const prevStatus = d.cn.status;
+    updateCn(id, { status: "approved" });
+    patchNode(id, { busy: true });
+    const ok = await save();
+    patchNode(id, { busy: false });
+    if (ok) {
+      setMsg("Approved & saved.");
+    } else {
+      updateCn(id, { status: prevStatus });
+      setMsg("Approve failed to save — check your connection and retry.");
+    }
+  }
+
   // Keep the node-card Generate button (which fires through the stable generateRef) on
   // the latest saveThenGenerate, so it persists before generating like the other paths.
   useEffect(() => {
@@ -575,7 +598,7 @@ export function ContentCanvas({
           onUpdate={(patch) => updateCn(selectedCn.id, patch)}
           onGenerate={() => saveThenGenerate(selectedCn.id)}
           onSuggestBrief={() => suggestBrief(selectedCn.id)}
-          onApprove={() => updateCn(selectedCn.id, { status: "approved" })}
+          onApprove={() => approveNode(selectedCn.id)}
           onImageBusyChange={(b) => {
             // An in-flight image op persists the ref per-node server-side; block the whole-graph
             // Save (canvas busy) + this node's own generate/auto-brief (node busy) meanwhile, so a

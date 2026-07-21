@@ -638,7 +638,7 @@ function SocialImageControls({
         onChange={(e) => setBrief(e.target.value)}
         rows={2}
         maxLength={1000}
-        placeholder="Describe the image (on-brand, no text in the image)…"
+        placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
         className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
       />
       <div className="mt-2 flex items-center gap-1">

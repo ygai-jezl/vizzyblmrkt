@@ -330,15 +330,27 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand Kit → Logos — tenant corporate-logo library (brand_logos store + public /api/brand-logo
+  # proxy) + primary logo defaults into email-layout headers. ENABLED in prod now that the
+  # brand_logos composite index (tenantId ASC, createdAt DESC) is deployed on all prod DBs.
+  - variable: BRAND_KIT_LOGOS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_KIT_LOGOS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
   # Brand Kit → Colours — Colours-card source extractors (PDF/website/AI-theme/logo palette) +
   # review tray + named palette groups. No new infra (reuses Gemini + existing brand PDF/logo
-  # storage). Kept OFF in prod until the flow is reviewed on dev; flip both to "true" to enable.
+  # storage). ENABLED in prod (brand_logos index deployed for the logo source).
   - variable: BRAND_COLORS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_COLORS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

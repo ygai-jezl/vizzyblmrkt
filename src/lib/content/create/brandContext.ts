@@ -70,6 +70,7 @@ export function assembleBrandContext(input: BrandContextInput): string {
 
   const palette = [
     ...(kit.palette ?? []).map((c) => c.hex),
+    ...(kit.palettes ?? []).flatMap((g) => g.colors.map((c) => c.hex)),
     ...layoutPaletteHexes(input.layout),
   ].filter((h) => HEX.test(h));
   const uniquePalette = [...new Set(palette)].slice(0, 12);

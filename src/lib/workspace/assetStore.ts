@@ -32,12 +32,14 @@ function adminApp(): App {
   });
 }
 
-const EXT: Record<string, string> = {
+/** Sniffed-mime → file extension. Exported so the brand-logo store shares one mapping. */
+export const EXT: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/webp": "webp",
 };
-const CONTENT_TYPE: Record<string, string> = {
+/** File extension → content-type (for serving). Exported alongside EXT. */
+export const CONTENT_TYPE: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",

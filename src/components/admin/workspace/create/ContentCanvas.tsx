@@ -85,12 +85,16 @@ export function ContentCanvas({
   initial,
   templates,
   brandName,
+  primaryLogoUrl,
 }: {
   workspaceId: string;
   initial: ContentPlan;
   templates: TemplateOption[];
   /** Workspace name — the display identity in channel previews. */
   brandName?: string;
+  /** Absolute public URL of the tenant's primary brand logo, or null — defaulted into
+   *  the header of newly-seeded email layouts (see EmailLayoutEditor). */
+  primaryLogoUrl?: string | null;
 }) {
   const router = useRouter();
   const planId = initial.id;
@@ -645,6 +649,7 @@ export function ContentCanvas({
             node={editNode}
             workspaceId={workspaceId}
             planId={planId}
+            primaryLogoUrl={primaryLogoUrl}
             onSave={async (layout: EmailLayout, body: string) => {
               // Layout is the source of truth; body is its rendered HTML. Build the next
               // node list explicitly (setState is async → stale closure) and PERSIST it

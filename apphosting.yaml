@@ -215,6 +215,35 @@ env:
       - BUILD
       - RUNTIME
   #
+  # Brand Kit → Logos — the tenant's uploaded corporate-logo library + the primary-logo email
+  # wiring. Server flag gates the /admin/brand-kit/logos page + routes; the NEXT_PUBLIC mirror
+  # (BUILD-inlined) lights up the "Logos" tile. ENABLED on dev; keep OFF in prod until the
+  # brand_logos composite index is live (prod yaml is standalone, so absence = OFF there).
+  - variable: BRAND_KIT_LOGOS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_KIT_LOGOS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
+  # Brand Kit → Colours — the Colours card source extractors (PDF palette / website colours / AI
+  # colour theme / logo colours) + the review tray + named palette groups in Account → Brand.
+  # Server flag gates the extract/generate routes; the NEXT_PUBLIC mirror (BUILD-inlined) reveals
+  # the source actions + tray + groups. No new infra (reuses Gemini + existing brand PDF/logo
+  # storage). ENABLED on dev for smoke; keep OFF in prod until reviewed (override in prod yaml).
+  - variable: BRAND_COLORS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_COLORS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
   # Brand voice — authored tenant-global voice (Summary/Do/Don't/guidelines) that grounds all
   # AI copy (Content OS + launch broadcasts + Live voice). Server flag gates the voice page +
   # route; the NEXT_PUBLIC mirror (BUILD-inlined) lights up the "Brand voice" tile in the Brand

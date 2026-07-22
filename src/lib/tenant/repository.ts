@@ -24,6 +24,7 @@ import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { SocialEvent } from "@/lib/types/socialEvent";
 import type { EngagedContact } from "@/lib/types/engagedContact";
 import type { ImageAsset } from "@/lib/types/imageAsset";
+import type { BrandLogo } from "@/lib/types/brandLogo";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -283,6 +284,10 @@ export interface TenantRepositories {
    *  The bytes live in the private GCS bucket; each row carries the workspaceId +
    *  filename needed to serve them via the authenticated workspace-asset proxy. */
   imageAssets: TenantCollection<ImageAsset>;
+  /** Brand Kit: the tenant's uploaded corporate logos (brand-global). Bytes live at the
+   *  tenant-level GCS key `brand/{tenantId}/logos/...` and are served by the public
+   *  /api/brand-logo proxy so the primary logo can render in recipient-facing emails. */
+  logos: TenantCollection<BrandLogo>;
 }
 
 /**
@@ -351,5 +356,8 @@ export function forTenant(
     // Brand Kit image registry: generated-content metadata (no end-user PII) →
     // regional DB, colocated with the workspaces/content it references.
     imageAssets: new TenantCollection<ImageAsset>(regionalDb, "image_assets", t),
+    // Brand logos: brand-global metadata (no end-user PII) → regional DB, colocated with
+    // the workspaces/content that reference them.
+    logos: new TenantCollection<BrandLogo>(regionalDb, "brand_logos", t),
   };
 }

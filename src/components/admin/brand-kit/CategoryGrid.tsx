@@ -16,7 +16,9 @@ import {
 import {
   BRAND_KIT_IMAGES_ROUTE,
   BRAND_KIT_VOICE_ROUTE,
+  BRAND_KIT_LOGOS_ROUTE,
   isBrandVoiceUiEnabled,
+  isBrandKitLogosUiEnabled,
 } from "@/lib/content/brandKit";
 
 interface Category {
@@ -34,7 +36,12 @@ interface Category {
  */
 const CATEGORIES: Category[] = [
   { key: "brand-templates", label: "Brand Templates", icon: LayoutTemplate },
-  { key: "logos", label: "Logos", icon: Hexagon },
+  {
+    key: "logos",
+    label: "Logos",
+    icon: Hexagon,
+    href: isBrandKitLogosUiEnabled() ? BRAND_KIT_LOGOS_ROUTE : undefined,
+  },
   { key: "colours", label: "Colours", icon: Palette },
   { key: "fonts", label: "Fonts", icon: Type },
   {

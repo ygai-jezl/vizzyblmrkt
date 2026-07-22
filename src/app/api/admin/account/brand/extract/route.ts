@@ -53,6 +53,10 @@ export async function POST(req: Request) {
   // forward so it isn't wiped (it lives on brandKit; the extract model never returns it).
   const existing = await getTenantById(ctx.tenantId);
   const merged = withPreservedLearnedStyle(kit.data, existing?.brandKit);
+  // Named palette GROUPS (website / AI theme / logo, curated in the Colours card) are NOT
+  // produced by the full-kit extract prompt — carry them forward so a PDF re-extract (which
+  // replaces the whole brandKit map) never silently wipes the operator's kept palettes.
+  if (existing?.brandKit?.palettes?.length) merged.palettes = existing.brandKit.palettes;
   await updateTenantConfig(ctx.tenantId, { brandKit: merged });
   return NextResponse.json({ brandKit: merged });
 }

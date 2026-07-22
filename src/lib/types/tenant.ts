@@ -219,6 +219,37 @@ export const SocialConnectionSchema = z.object({
 export type SocialConnection = z.infer<typeof SocialConnectionSchema>;
 
 /**
+ * One colour in a brand palette. `role` (primary/secondary/accent/background/text) and
+ * `estimated` (hex guessed from an uncoded swatch or image pixels rather than a printed
+ * code) are optional metadata surfaced in the editor. Both are additive, so pre-existing
+ * `{hex,name}` palette entries still parse unchanged.
+ */
+export const PaletteColorSchema = z.object({
+  hex: z.string().max(9),
+  name: z.string().max(60).nullable().optional(),
+  role: z.string().max(40).nullable().optional(),
+  estimated: z.boolean().optional(),
+});
+export type PaletteColor = z.infer<typeof PaletteColorSchema>;
+
+/** Where a palette group came from (drives the review-tray / group label + badge). */
+export const PaletteSourceSchema = z.enum(["manual", "pdf", "website", "ai", "logo"]);
+export type PaletteSource = z.infer<typeof PaletteSourceSchema>;
+
+/**
+ * A named, source-labelled palette GROUP (the "Palettes" list in the Colours card). Kept
+ * after the operator reviews an extraction (PDF / website / AI theme / logo); the primary
+ * working palette stays the flat `brandKit.palette` below.
+ */
+export const PaletteGroupSchema = z.object({
+  id: z.string().max(64),
+  name: z.string().max(80),
+  source: PaletteSourceSchema.nullable().optional(),
+  colors: z.array(PaletteColorSchema).max(48),
+});
+export type PaletteGroup = z.infer<typeof PaletteGroupSchema>;
+
+/**
  * Brand Kit — a structured brand identity AI-extracted from an uploaded brand-
  * guidelines PDF (Account → Brand). EVERY field is nullable so a sparse guideline
  * still stores partially; it feeds on-brand AI generation (email layouts + images).
@@ -229,12 +260,14 @@ export const BrandKitSchema = z.object({
   pdfName: z.string().max(300).nullable().optional(),
   /** Freeform brand overview the model wrote. */
   summary: z.string().max(4000).nullable().optional(),
-  /** Extracted colours. */
-  palette: z
-    .array(z.object({ hex: z.string().max(9), name: z.string().max(60).nullable().optional() }))
-    .max(24)
-    .nullable()
-    .optional(),
+  /** The primary working palette ("Colour palette"). */
+  palette: z.array(PaletteColorSchema).max(24).nullable().optional(),
+  /**
+   * Named, source-labelled palette GROUPS ("Palettes"), kept from PDF / website / AI-theme /
+   * logo extraction after review. Additive: existing tenant docs simply have none. Their
+   * hexes also flow into on-brand generation alongside the flat `palette` (assembleBrandContext).
+   */
+  palettes: z.array(PaletteGroupSchema).max(20).nullable().optional(),
   fonts: z.array(z.string().max(80)).max(12).nullable().optional(),
   tone: z.string().max(1000).nullable().optional(),
   voice: z.string().max(1000).nullable().optional(),

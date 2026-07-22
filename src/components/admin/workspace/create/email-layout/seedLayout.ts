@@ -45,13 +45,33 @@ function bodyToCopyHtml(body: string): string {
  * The layout to open the editor with: the node's saved layout if any, otherwise a
  * starter built from the AI copy — a heading (the subject) + a role:"copy" text block
  * holding the current body, so Regenerate can later refill exactly that block.
+ *
+ * When the tenant has a primary brand logo (`opts.primaryLogoUrl`, an ABSOLUTE public
+ * URL so it also loads in a real inbox), a leading logo image block is prepended as a
+ * DEFAULT header. Only applies to a fresh seed — a saved `node.layout` is returned
+ * untouched, so an author's edits are never clobbered.
  */
-export function seedLayoutFromNode(node: ContentNode): EmailLayout {
+export function seedLayoutFromNode(
+  node: ContentNode,
+  opts: { primaryLogoUrl?: string | null } = {},
+): EmailLayout {
   if (node.layout) return ensureFooterLast(structuredClone(node.layout));
-  const blocks: EmailBlock[] = [
+  const blocks: EmailBlock[] = [];
+  if (opts.primaryLogoUrl) {
+    blocks.push({
+      id: newBlockId("image"),
+      kind: "image",
+      src: opts.primaryLogoUrl,
+      alt: "Logo",
+      href: null,
+      width: 140,
+      align: "left",
+    });
+  }
+  blocks.push(
     { id: newBlockId("heading"), kind: "heading", html: node.subject || "Your heading", level: 2, align: "left" },
     { id: newBlockId("text"), kind: "text", role: "copy", html: bodyToCopyHtml(node.body) },
-  ];
+  );
   // Guarantee the mandatory footer (appended last).
   return ensureFooterLast({ blocks });
 }

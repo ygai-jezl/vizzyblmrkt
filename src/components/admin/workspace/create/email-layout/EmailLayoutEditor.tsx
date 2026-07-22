@@ -33,10 +33,22 @@ import { BlockSettings } from "./BlockSettings";
  *  the template's DESIGNATED copy block (a text block flagged role:"copy") so its author's
  *  intent survives; else the first text block; else synthesize one — so Regenerate always
  *  has somewhere to write. */
-function adoptLayout(layout: EmailLayout): EmailLayout {
-  const blocks: EmailBlock[] = layout.blocks.map(
-    (b) => ({ ...b, id: newBlockId(b.kind), role: undefined }) as EmailBlock,
-  );
+function adoptLayout(layout: EmailLayout, primaryLogoUrl?: string | null): EmailLayout {
+  const blocks: EmailBlock[] = layout.blocks.map((b) => {
+    const next = { ...b, id: newBlockId(b.kind), role: undefined } as EmailBlock;
+    // Fill a preset's empty logo slot (image block, alt "Your logo", no src) with the
+    // brand's primary logo. Never overwrites a src the author already set; the 1:1 map
+    // order is preserved so the copy-index alignment below still holds.
+    if (
+      primaryLogoUrl &&
+      next.kind === "image" &&
+      !next.src &&
+      next.alt.trim().toLowerCase() === "your logo"
+    ) {
+      return { ...next, src: primaryLogoUrl } as EmailBlock;
+    }
+    return next;
+  });
   // Indices align 1:1 with the source layout (map preserves order), so a copy index found
   // in the original is valid here after roles were stripped.
   let copyIdx = layout.blocks.findIndex((b) => b.role === "copy" && b.kind === "text");
@@ -54,16 +66,22 @@ export function EmailLayoutEditor({
   node,
   workspaceId,
   planId,
+  primaryLogoUrl,
   onSave,
   onClose,
 }: {
   node: ContentNode;
   workspaceId: string;
   planId: string;
+  /** Absolute public URL of the tenant's primary brand logo, or null — defaulted into a
+   *  fresh layout's header + a preset's empty logo slot. */
+  primaryLogoUrl?: string | null;
   onSave: (layout: EmailLayout, body: string) => void;
   onClose: () => void;
 }) {
-  const [layout, setLayout] = useState<EmailLayout>(() => seedLayoutFromNode(node));
+  const [layout, setLayout] = useState<EmailLayout>(() =>
+    seedLayoutFromNode(node, { primaryLogoUrl }),
+  );
   const [selectedId, setSelectedId] = useState<string | null>(layout.blocks[0]?.id ?? null);
   const [tab, setTab] = useState<"edit" | "preview">("edit");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
@@ -217,7 +235,7 @@ export function EmailLayoutEditor({
   }
   /** Adopt a layout (saved template OR built-in starter) into the editor. */
   function applyLayout(source: EmailLayout) {
-    const adopted = adoptLayout(source);
+    const adopted = adoptLayout(source, primaryLogoUrl);
     setLayout(adopted);
     setSelectedId(adopted.blocks[0]?.id ?? null);
     setTemplateModal(null);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrandKit } from "@/lib/types/tenant";
+import { BrandColours } from "./brand-kit/BrandColours";
 
 /**
  * Account → Brand. Upload a brand-guidelines PDF → AI-extract a structured brand kit
@@ -27,6 +28,7 @@ export function BrandSettings() {
   const [pdfName, setPdfName] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "upload" | "extract" | "save">(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [colorsDirty, setColorsDirty] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function applyKit(k: BrandKit) {
@@ -36,6 +38,7 @@ export function BrandSettings() {
     setDontsText((k.donts ?? []).join("\n"));
     setPdfPath(k.pdfPath ?? null);
     setPdfName(k.pdfName ?? null);
+    setColorsDirty(false);
   }
 
   useEffect(() => {
@@ -108,12 +111,12 @@ export function BrandSettings() {
         body: JSON.stringify(payload),
       });
       setMsg(res.ok ? "Saved." : "Save failed.");
+      if (res.ok) setColorsDirty(false);
     } finally {
       setBusy(null);
     }
   }
 
-  const palette = kit.palette ?? [];
   const busyLabel = busy === "upload" ? "Uploading…" : busy === "extract" ? "Extracting…" : null;
 
   return (
@@ -169,40 +172,18 @@ export function BrandSettings() {
       </Field>
 
       <div>
-        <div className={LABEL}>Palette</div>
-        <div className="mt-2 space-y-2">
-          {palette.map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#000000"}
-                onChange={(e) => setKit((k) => ({ ...k, palette: palette.map((p, j) => (j === i ? { ...p, hex: e.target.value } : p)) }))}
-                className="h-8 w-12 rounded border border-neutral-300 dark:border-neutral-700"
-              />
-              <input
-                className={INPUT}
-                placeholder="Name (e.g. Primary)"
-                value={c.name ?? ""}
-                onChange={(e) => setKit((k) => ({ ...k, palette: palette.map((p, j) => (j === i ? { ...p, name: e.target.value } : p)) }))}
-              />
-              <button
-                type="button"
-                onClick={() => setKit((k) => ({ ...k, palette: palette.filter((_, j) => j !== i) }))}
-                className="rounded border border-neutral-300 px-2 py-1 text-xs text-red-600 dark:border-neutral-700"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          {palette.length < 24 ? (
-            <button
-              type="button"
-              onClick={() => setKit((k) => ({ ...k, palette: [...palette, { hex: "#000000", name: "" }] }))}
-              className="rounded border border-dashed border-neutral-300 px-2 py-1 text-xs dark:border-neutral-700"
-            >
-              + Add colour
-            </button>
-          ) : null}
+        <div className={LABEL}>Colours</div>
+        <div className={HINT}>Your brand palette. Build it from a PDF, your website, a logo, or an AI theme — review, then keep.</div>
+        <div className="mt-2">
+          <BrandColours
+            palette={kit.palette ?? []}
+            palettes={kit.palettes ?? []}
+            pdfPath={pdfPath}
+            onChange={({ palette, palettes }) => {
+              setKit((k) => ({ ...k, palette, palettes }));
+              setColorsDirty(true);
+            }}
+          />
         </div>
       </div>
 
@@ -241,7 +222,13 @@ export function BrandSettings() {
         >
           {busy === "save" ? "Saving…" : "Save brand kit"}
         </button>
-        {msg ? <span className="text-sm text-neutral-500">{msg}</span> : null}
+        {colorsDirty ? (
+          <span className="text-sm text-amber-600 dark:text-amber-400">
+            Unsaved colour changes — Save to keep them.
+          </span>
+        ) : msg ? (
+          <span className="text-sm text-neutral-500">{msg}</span>
+        ) : null}
       </div>
     </div>
   );

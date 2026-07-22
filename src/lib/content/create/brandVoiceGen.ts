@@ -2,6 +2,7 @@ import { safeFetch, readTextCapped } from "@/lib/security/ssrf";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
 import { BrandVoiceSchema, type BrandVoice } from "@/lib/types/tenant";
+import { htmlToText, stripFenceDelimiters } from "./siteText";
 
 /**
  * AI-generate a structured brand voice grounded in the brand's PRIMARY DOMAIN. Best-effort
@@ -10,25 +11,12 @@ import { BrandVoiceSchema, type BrandVoice } from "@/lib/types/tenant";
  * guidelines. Never persists — the caller returns the draft for operator review before save.
  */
 
+// Re-exported for existing importers/tests; the implementation now lives in ./siteText.
+export { stripFenceDelimiters };
+
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_FETCH_BYTES = 3 * 1024 * 1024;
 const MAX_SAMPLE_CHARS = 8000;
-
-/** Strip tags/scripts to readable text (same approach as templatize.ts's htmlToText). */
-function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<\/(p|div|li|h[1-6]|br|tr)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
 
 /** Fetch + reduce the brand homepage to plain text. Returns null on any failure (fail-soft). */
 async function fetchHomepageText(domain: string): Promise<string | null> {
@@ -52,16 +40,6 @@ async function fetchHomepageText(domain: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * Neutralize the untrusted-fence delimiter inside site text. `htmlToText` decodes entities
- * AFTER stripping tags, so an entity-encoded `&lt;/site_text&gt;` in page copy survives as a
- * literal `</site_text>` that would close the fence early. Stripping any `<site_text>`/`</site_text>`
- * token here guarantees third-party homepage content can never break out of the fence.
- */
-export function stripFenceDelimiters(text: string): string {
-  return text.replace(/<\/?\s*site_text[^>]*>/gi, " ");
 }
 
 const clampStr = (v: unknown, max: number): string | null =>

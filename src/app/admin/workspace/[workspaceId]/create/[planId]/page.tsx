@@ -2,8 +2,13 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
+import { headers } from "next/headers";
 import { getContentPlan, listTemplates } from "@/lib/tenant/workspaceContent";
 import { isEbookUiEnabled } from "@/lib/content/create/ebook";
+import { getPrimaryLogo } from "@/lib/admin/brandLogos";
+import { brandLogoAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
+import { platformOrigin } from "@/lib/platform/origin";
+import { originFromHeaders } from "@/lib/http/origin";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +44,22 @@ export default async function ContentPlanPage({
     framework: t.framework ?? null,
   }));
 
+  // The tenant's primary brand logo (ABSOLUTE public URL, so it loads in a real inbox)
+  // defaults into new email-layout headers. Gated on the logos feature; fail-soft so a
+  // lookup never blocks the canvas. Origin: the platform origin, else the request origin.
+  let primaryLogoUrl: string | null = null;
+  if (isBrandKitLogosEnabled()) {
+    try {
+      const logo = await getPrimaryLogo(ctx);
+      if (logo) {
+        const origin = platformOrigin() || originFromHeaders(await headers());
+        primaryLogoUrl = brandLogoAbsoluteUrl(origin, ctx.tenantId, logo.filename);
+      }
+    } catch (err) {
+      console.error("[create] primary logo lookup failed", err);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <Link
@@ -52,6 +73,7 @@ export default async function ContentPlanPage({
         initial={plan}
         templates={templateOptions}
         brandName={ws.name}
+        primaryLogoUrl={primaryLogoUrl}
       />
     </div>
   );

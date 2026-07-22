@@ -330,6 +330,18 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand Kit → Colours — Colours-card source extractors (PDF/website/AI-theme/logo palette) +
+  # review tray + named palette groups. No new infra (reuses Gemini + existing brand PDF/logo
+  # storage). Kept OFF in prod until the flow is reviewed on dev; flip both to "true" to enable.
+  - variable: BRAND_COLORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_COLORS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Brand voice — authored tenant-global voice grounding all AI copy (Content OS + launch
   # broadcasts + Live voice) + AI-generate from the primary domain. No new infra/index required;
   # Gemini is already configured in prod. ENABLED in prod.

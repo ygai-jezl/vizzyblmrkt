@@ -521,6 +521,20 @@
       ]
     },
     {
+      "collectionGroup": "brand_logos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "image_assets",
       "queryScope": "COLLECTION",
       "fields": [

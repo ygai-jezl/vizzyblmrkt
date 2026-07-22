@@ -93,6 +93,12 @@ function assertHttps(raw: string): URL {
   if (host === "localhost" || host.endsWith(".internal") || host.endsWith(".local")) {
     throw new Error("host_blocked");
   }
+  // An IP-LITERAL host bypasses the undici connect-time `lookup` hook entirely — Node does
+  // no DNS resolution when the host is already an IP, so safeLookup/isPrivateIp never run for
+  // it. Screen private/loopback/link-local literals HERE (v4 and v6, brackets already stripped),
+  // or a `https://127.0.0.1:.../` `https://10.x/`, `https://[::1]/` etc. would connect straight
+  // through — including via a redirect Location header, which re-enters assertHttps per hop.
+  if (isIP(host) && isPrivateIp(host)) throw new Error("host_blocked");
   return url;
 }
 
@@ -155,4 +161,34 @@ export async function readTextCapped(res: Response, maxBytes: number): Promise<s
     }
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Read a response body as raw bytes, ABORTING and returning null once `maxBytes` is exceeded
+ * (so an oversized image never fully buffers). Used to pull favicon/og-image bytes for a
+ * vision pass. Returns null on empty/oversized bodies.
+ */
+export async function readBytesCapped(res: Response, maxBytes: number): Promise<Buffer | null> {
+  if (!res.body) return null;
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore */
+        }
+        return null; // oversized — reject rather than truncate binary
+      }
+      chunks.push(Buffer.from(value));
+    }
+  }
+  const buf = Buffer.concat(chunks);
+  return buf.length ? buf : null;
 }

@@ -79,6 +79,18 @@ export const ContentNodeStatus = z.enum([
 ]);
 export type ContentNodeStatus = z.infer<typeof ContentNodeStatus>;
 
+/** Per-node DISTRIBUTION lifecycle (Distribute pillar). Kept SEPARATE from `status` so it
+ *  never perturbs generation gating (hubApproved / progress counts / schedulable checks).
+ *  Null until the node is scheduled. Written ONLY by the schedule route + Distribute worker
+ *  (updateContentPlanNode), never by canvas editing. */
+export const ContentDistributionStatus = z.enum([
+  "scheduled", // queued on campaign_scheduled_posts
+  "posting", // worker claimed it (in-flight)
+  "posted", // published successfully (terminal)
+  "failed", // terminally failed to post (parked / retries exhausted)
+]);
+export type ContentDistributionStatus = z.infer<typeof ContentDistributionStatus>;
+
 // Caps keep a saved graph bounded (anti-poisoning): a plan can't carry a runaway
 // node count or megabyte bodies. The spider-web can reach 5 core angles × up to 8
 // channels = 40 spokes + hub + 2 promos = 43; 60 leaves room for a few manual adds.
@@ -176,6 +188,9 @@ export const ContentNodeSchema = z.object({
   status: ContentNodeStatus.default("empty"),
   /** Distribute fills this (ISO); null until scheduled. */
   scheduledAt: z.string().nullable().optional(),
+  /** Distribute lifecycle badge (scheduled → posting → posted/failed); null until scheduled.
+   *  Server-owned: written by the schedule route + Distribute worker, never by canvas editing. */
+  distributionStatus: ContentDistributionStatus.nullable().optional(),
   warnings: z.array(z.string()).default([]),
   // ── Email-sequence fields (only on `email`/`wait`/`condition` nodes; null/[]
   //    elsewhere so hub-and-spoke plans are unaffected). ──

@@ -14,6 +14,7 @@ import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { Tenant } from "@/lib/types/tenant";
+import { ContentPlanSchema } from "@/lib/types/contentPlan";
 
 const TENANT = "ten_test";
 const WS = "ws_1";
@@ -55,6 +56,58 @@ function seedPost(
   // Stored docs never carry `id` (the doc key is the id); mirror that.
   const { id: _drop, ...data } = { ...base, ...overrides };
   db.seed(COLLECTION, id, data);
+}
+
+// The Create plan the worker reflects node status onto. updateContentPlanNode addresses it via
+// a slash-path collection ref (`workspaces/{ws}/content_plans`), which the fake stores as a flat
+// keyed map — so seed + read it under that exact key.
+const CONTENT_PLANS_PATH = `workspaces/${WS}/content_plans`;
+
+/** Seed a minimal, schema-valid content plan whose graph holds one approved+scheduled node. */
+function seedPlan(db: FakeFirestore, nodeId: string): void {
+  const plan = ContentPlanSchema.parse({
+    id: PLAN,
+    tenantId: TENANT,
+    workspaceId: WS,
+    name: "Test Plan",
+    strategy: { objective: "product_launch" },
+    scope: {},
+    knowledge: {},
+    topology: {},
+    graph: {
+      nodes: [
+        {
+          id: nodeId,
+          type: "spoke",
+          channel: "x",
+          role: "X Post",
+          position: { x: 0, y: 0 },
+          body: "hello world",
+          status: "approved",
+          distributionStatus: "scheduled",
+          scheduledAt: PAST,
+        },
+      ],
+      edges: [],
+    },
+    createdAt: PAST,
+    updatedAt: PAST,
+  });
+  db.seed(CONTENT_PLANS_PATH, PLAN, plan);
+}
+
+/** Read back the reflected node. updateContentPlanNode writes a Firestore dot-path field update
+ *  ("graph.nodes"); the fake stores that literally as a top-level key rather than merging into the
+ *  nested graph, so prefer that key (falling back to the nested array). */
+function reflectedNode(
+  db: FakeFirestore,
+  nodeId: string,
+): { id: string; distributionStatus?: string | null } | undefined {
+  const plan = db.raw(CONTENT_PLANS_PATH, PLAN) as Record<string, unknown> | undefined;
+  const nodes = (plan?.["graph.nodes"] ?? (plan?.graph as { nodes?: unknown[] } | undefined)?.nodes) as
+    | Array<{ id: string; distributionStatus?: string | null }>
+    | undefined;
+  return nodes?.find((n) => n.id === nodeId);
 }
 
 describe("schedulePost", () => {
@@ -140,6 +193,43 @@ describe("schedulePost", () => {
     await expect(
       schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "x", scheduledAt: FUTURE }, db),
     ).rejects.toBeInstanceOf(SchedulePostConflictError);
+  });
+});
+
+describe("node distribution reflection (Create canvas badge)", () => {
+  it("flips the source node to 'posted' when a publish job completes (manual stamp)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "p1", { scheduledAt: PAST }); // nodeId defaults to "p1"
+    seedPlan(db, "p1");
+    await processScheduledPosts(ctx, 25, db);
+    expect(db.raw(COLLECTION, "p1")!.status).toBe("done");
+    expect(reflectedNode(db, "p1")?.distributionStatus).toBe("posted");
+  });
+
+  it("flips the source node to 'failed' on a terminal park (x not connected)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "p1", { scheduledAt: PAST });
+    seedPlan(db, "p1");
+    process.env.DISTRIBUTE_SOCIAL_ENABLED = "true";
+    try {
+      await processScheduledPosts(ctx, 25, db);
+      expect(db.raw(COLLECTION, "p1")!.status).toBe("failed");
+      expect(reflectedNode(db, "p1")?.distributionStatus).toBe("failed");
+    } finally {
+      delete process.env.DISTRIBUTE_SOCIAL_ENABLED;
+    }
+  });
+
+  it("publishes fine when the source plan/node was deleted (reflection is best-effort)", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    seedPost(db, "p1", { scheduledAt: PAST });
+    // No plan seeded → updateContentPlanNode returns null; the publish must still complete.
+    const r = await processScheduledPosts(ctx, 25, db);
+    expect(r).toMatchObject({ processed: 1, done: 1 });
+    expect(db.raw(COLLECTION, "p1")!.status).toBe("done");
   });
 });
 

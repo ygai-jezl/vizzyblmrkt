@@ -382,17 +382,58 @@ export async function getContentPlan(
   return parsed.data;
 }
 
-/** Patch a plan's name / status / graph / eBook draft (full-field replace). */
+/** Patch a plan's name / status / graph / eBook draft (full-field replace).
+ *
+ * The distribution fields (`distributionStatus`, `scheduledAt`) are SERVER-OWNED — written only
+ * by the schedule route + Distribute worker via `updateContentPlanNode`, never by canvas editing.
+ * The canvas Save sends its whole in-memory graph, which was seeded once at mount and is unaware
+ * of any distribution write that landed since; replacing the graph wholesale would silently revert
+ * a worker-written `posted`/`failed` (or a schedule's `scheduledAt`) to a stale value. So when a
+ * `graph` is provided we re-read the current doc and overlay each existing node's distribution
+ * fields (matched by id) onto the incoming graph before writing — making updateContentPlanNode the
+ * single writer of those fields. */
 export async function updateContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   planId: string,
   patch: Partial<Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft">>,
+  // Injectable for tests (a FakeFirestore); defaults to the tenant's regional DB otherwise.
+  db?: FirestoreLike,
 ): Promise<void> {
-  await workspaceDoc(ctx, workspaceId)
-    .collection(CONTENT_PLANS)
-    .doc(planId)
-    .update({ ...patch, updatedAt: new Date().toISOString() });
+  const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
+  // Slash-path collection ref (see updateContentPlanNode) so the real SDK reads the nested
+  // subcollection and the fake treats it as a flat keyed map.
+  const ref = database.collection(`workspaces/${workspaceId}/${CONTENT_PLANS}`).doc(planId);
+  // Fast path: no graph replacement → a plain field update can't clobber node distribution state.
+  if (!patch.graph) {
+    await ref.update({ ...patch, updatedAt: new Date().toISOString() });
+    return;
+  }
+  // Graph replacement: overlay each existing node's server-owned distribution fields (matched by
+  // id) onto the incoming graph, INSIDE a transaction, so a worker write that lands between the
+  // read and the write can't be lost (and neither can this write clobber it) — the read+merge+write
+  // is atomic, mirroring updateContentPlanNode.
+  const incoming = patch.graph;
+  await database.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const current = snap.exists ? ContentPlanSchema.safeParse(snap.data()) : null;
+    const owned = current?.success
+      ? new Map(
+          current.data.graph.nodes.map(
+            (n) =>
+              [n.id, { distributionStatus: n.distributionStatus ?? null, scheduledAt: n.scheduledAt ?? null }] as const,
+          ),
+        )
+      : new Map<string, { distributionStatus: ContentNode["distributionStatus"]; scheduledAt: ContentNode["scheduledAt"] }>();
+    const graph = {
+      ...incoming,
+      nodes: incoming.nodes.map((n) => {
+        const keep = owned.get(n.id);
+        return keep ? { ...n, ...keep } : n;
+      }),
+    };
+    tx.update(ref, { ...patch, graph, updatedAt: new Date().toISOString() });
+  });
 }
 
 /**
@@ -413,6 +454,7 @@ export async function updateContentPlanNode(
       | "placeholderValues"
       | "status"
       | "scheduledAt"
+      | "distributionStatus"
       | "warnings"
       | "brief"
       | "templateId"
@@ -427,10 +469,18 @@ export async function updateContentPlanNode(
       | "imagePrompt"
     >
   >,
+  // Injectable so the Distribute worker (which threads its own FirestoreLike through, a
+  // FakeFirestore under test) reflects node status against the SAME db instead of reaching
+  // for the real getDb(). Defaults to the tenant's regional DB for all normal callers.
+  db?: FirestoreLike,
 ): Promise<ContentNode | null> {
-  const db = getDb(databaseIdForRegion(ctx.region));
-  const ref = workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId);
-  return db.runTransaction(async (tx) => {
+  const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
+  // Slash-path collection ref (`workspaces/{ws}/content_plans`): the real admin SDK reads it as
+  // the nested subcollection, while FirestoreLike/FakeFirestore treats it as a flat keyed map —
+  // so the worker's reflection runs against the injected fake in tests instead of real Firestore,
+  // and DocRefLike need not expose a `.collection()` the abstraction doesn't model.
+  const ref = database.collection(`workspaces/${workspaceId}/${CONTENT_PLANS}`).doc(planId);
+  return database.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return null;
     const parsed = ContentPlanSchema.safeParse(snap.data());

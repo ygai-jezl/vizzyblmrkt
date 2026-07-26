@@ -1,6 +1,8 @@
 import { forTenant, getTenantById, listAllTenants, TenantIsolationError } from "@/lib/tenant";
+import { updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
+import type { ContentDistributionStatus } from "@/lib/types/contentPlan";
 import { ensureFreshAccessToken } from "@/lib/social/tokenRefresh";
 import { publishToX, fetchXPublicMetrics } from "@/lib/social/x/client";
 import { postToLinkedIn } from "@/lib/social/linkedin/client";
@@ -57,6 +59,39 @@ import type { PpsResult } from "./pps";
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
 const LEASE_MS = 5 * 60_000;
+
+/**
+ * Reflect a distribution transition onto the source Create canvas node so its badge follows
+ * the lifecycle (scheduled → posting → posted/failed). Best-effort: the queue doc is the source
+ * of truth for publishing, so a failed or absent reflection must NEVER fail the publish — a
+ * deleted node/plan makes updateContentPlanNode return null (no throw), and any other error is
+ * caught + logged. Only the primary `publish` job maps to a node badge; auto-plug / performance
+ * follow-up jobs (which reuse the same link-back triple) no-op here.
+ */
+async function reflectNodeDistribution(
+  ctx: TenantContext,
+  post: ScheduledPost,
+  distributionStatus: ContentDistributionStatus,
+  db?: FirestoreLike,
+): Promise<void> {
+  if (post.jobKind !== "publish") return;
+  try {
+    await updateContentPlanNode(
+      ctx,
+      post.workspaceId,
+      post.contentPlanId,
+      post.nodeId,
+      { distributionStatus },
+      db,
+    );
+  } catch (err) {
+    console.warn(
+      `[distribute] node status reflection failed ${post.workspaceId}/${post.contentPlanId}/${post.nodeId}: ${
+        err instanceof Error ? err.message : "error"
+      }`,
+    );
+  }
+}
 
 export async function processScheduledPosts(
   ctx: TenantContext,
@@ -118,18 +153,27 @@ export async function processScheduledPosts(
     });
     if (!claimed) continue; // lost the race, or no longer eligible
     processed += 1;
+    // Badge the source node "posting" the moment we claim a publish job (no-op for
+    // follow-up jobs). Best-effort; overwritten by posted/failed below in the same run.
+    await reflectNodeDistribution(ctx, claimed, "posting", db);
 
     try {
       // A "parked" post is terminally failed WITHOUT a throw (a throw means retry).
       // Count it as failed so drain telemetry doesn't over-report success (e.g. an
       // operator draining after connecting X sees an accurate done/failed split).
       const outcome = await dispatchScheduledPost(ctx, claimed, db);
-      if (outcome === "parked") failed += 1;
+      if (outcome === "parked") {
+        failed += 1;
+        await reflectNodeDistribution(ctx, claimed, "failed", db);
+      }
       // "rescheduled" = a poll job (auto-plug / perf-fetch) that hasn't hit its trigger
       // re-armed itself for a later poll within its window. It is neither done nor
       // failed — count it only as processed so telemetry stays honest.
       else if (outcome === "rescheduled") { /* re-armed for a later poll */ }
-      else done += 1;
+      else {
+        done += 1;
+        await reflectNodeDistribution(ctx, claimed, "posted", db);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       const exhausted = claimed.attempts >= MAX_ATTEMPTS;
@@ -143,6 +187,9 @@ export async function processScheduledPosts(
         processedAt: exhausted ? new Date().toISOString() : null,
       });
       failed += 1;
+      // Only a TERMINAL failure badges the node failed — a retryable error leaves it
+      // "posting" so the badge doesn't flap red on a transient blip that will retry.
+      if (exhausted) await reflectNodeDistribution(ctx, claimed, "failed", db);
     }
   }
   return { processed, done, failed };

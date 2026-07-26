@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { channelLabel } from "@/lib/content/channels";
 import { emailFrameworkLabel } from "@/lib/content/emailFrameworks";
-import type { ContentNode, ContentNodeStatus } from "@/lib/types/contentPlan";
+import type { ContentNode, ContentNodeStatus, ContentDistributionStatus } from "@/lib/types/contentPlan";
 
 /**
  * Presentational React Flow nodes for the Create canvas. Each shows its role +
@@ -29,6 +29,34 @@ const STATUS_CHIP: Record<ContentNodeStatus, string> = {
   approved: "bg-emerald-600 text-white",
 };
 
+// Distribution lifecycle chip (overrides the generation status once a node is scheduled).
+// `posted` shares approved's emerald; `failed` uses a stronger solid red than the generation
+// `error` chip so a publish failure reads distinctly from a generation error.
+const DIST_CHIP: Record<ContentDistributionStatus, string> = {
+  scheduled: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+  posting: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300 animate-pulse",
+  posted: "bg-emerald-600 text-white",
+  failed: "bg-red-600 text-white",
+};
+const DIST_LABEL: Record<ContentDistributionStatus, string> = {
+  scheduled: "scheduled",
+  posting: "posting…",
+  posted: "posted",
+  failed: "failed",
+};
+
+/**
+ * The status chip a node shows. Precedence: an in-flight generate wins (rare, and it
+ * un-approves anyway), else the distribution lifecycle once scheduled, else the generation
+ * status. Shared by NodeShell + EmailNode so both stay in lockstep.
+ */
+function statusChip(cn: ContentNode, busy: boolean): { cls: string; label: string } {
+  if (busy) return { cls: STATUS_CHIP.generating, label: "generating" };
+  if (cn.distributionStatus)
+    return { cls: DIST_CHIP[cn.distributionStatus], label: DIST_LABEL[cn.distributionStatus] };
+  return { cls: STATUS_CHIP[cn.status], label: cn.status };
+}
+
 function preview(body: string): string {
   const t = body.replace(/\s+/g, " ").trim();
   return t.length > 140 ? `${t.slice(0, 140)}…` : t;
@@ -51,6 +79,7 @@ function NodeShell({
 }) {
   const cn = data.cn;
   const busy = data.busy || cn.status === "generating";
+  const chip = statusChip(cn, busy);
   return (
     <div className={`${width} rounded-md border bg-white p-2.5 shadow-sm dark:bg-neutral-900 ${accent}`}>
       {hasTarget ? <Handle type="target" position={Position.Top} /> : null}
@@ -58,8 +87,8 @@ function NodeShell({
         <div className="truncate text-xs font-semibold">
           {icon} {cn.role}
         </div>
-        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_CHIP[cn.status]}`}>
-          {busy ? "generating" : cn.status}
+        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${chip.cls}`}>
+          {chip.label}
         </span>
       </div>
       <div className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-500">
@@ -235,6 +264,7 @@ export function EmailNode({ data, selected }: NodeProps) {
   const d = data as ContentNodeData;
   const cn = d.cn;
   const busy = d.busy || cn.status === "generating";
+  const chip = statusChip(cn, busy);
   return (
     <div
       className={`w-56 rounded-md border bg-white p-2.5 shadow-sm dark:bg-neutral-900 ${
@@ -244,8 +274,8 @@ export function EmailNode({ data, selected }: NodeProps) {
       <Handle type="target" position={Position.Top} />
       <div className="flex items-center justify-between gap-2">
         <div className="truncate text-xs font-semibold">✉️ {cn.role}</div>
-        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_CHIP[cn.status]}`}>
-          {busy ? "generating" : cn.status}
+        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${chip.cls}`}>
+          {chip.label}
         </span>
       </div>
       {cn.framework ? (

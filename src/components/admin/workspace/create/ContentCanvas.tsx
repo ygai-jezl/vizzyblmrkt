@@ -156,6 +156,43 @@ export function ContentCanvas({
     [setNodes],
   );
 
+  // Distribution status (scheduled/posting/posted/failed) and scheduledAt are written
+  // SERVER-SIDE only (the schedule route + the Distribute worker), never on the canvas.
+  // But useNodesState seeds ONCE (below), so a router.refresh()-updated `initial` would
+  // never reach the badges. This reconciles ONLY those two server-owned fields from a
+  // refreshed snapshot into canvas state — body/brief/status/subject/layout are left
+  // untouched so an unsaved edit is never clobbered — and routes through applyNodes so a
+  // concurrent save() reads the merged value (nodesRef discipline). Node identity is
+  // preserved when nothing changed, so a node mid-drag stays put.
+  useEffect(() => {
+    const byId = new Map(initial.graph.nodes.map((n) => [n.id, n] as const));
+    applyNodes((nds) =>
+      nds.map((n) => {
+        const fresh = byId.get(n.id);
+        if (!fresh) return n;
+        const cur = (n.data as ContentNodeData).cn;
+        if (
+          (cur.distributionStatus ?? null) === (fresh.distributionStatus ?? null) &&
+          (cur.scheduledAt ?? null) === (fresh.scheduledAt ?? null)
+        ) {
+          return n; // no distribution change → keep identity
+        }
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            cn: {
+              ...cur,
+              distributionStatus: fresh.distributionStatus ?? null,
+              scheduledAt: fresh.scheduledAt ?? null,
+            },
+          },
+        };
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial]);
+
   // Same synchronous-ref discipline for edges, so the pipeline's full-graph save persists
   // the just-drawn edge (and every later one) instead of a render-lagged snapshot.
   const applyEdges = useCallback(

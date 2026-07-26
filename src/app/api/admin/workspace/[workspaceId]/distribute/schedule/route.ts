@@ -143,6 +143,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // log it rather than let the canvas silently diverge from the queue.
     await updateContentPlanNode(ctx, workspaceId, contentPlanId, nodeId, {
       scheduledAt,
+      distributionStatus: "scheduled",
     }).catch((err) => {
       console.warn(
         `[distribute] node schedule-reflection failed ${workspaceId}/${contentPlanId}/${nodeId}: ${
@@ -197,6 +198,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   }
   await updateContentPlanNode(ctx, workspaceId, contentPlanId, nodeId, {
     scheduledAt: null,
+    distributionStatus: null,
   }).catch((err) => {
     console.warn(
       `[distribute] node cancel-reflection failed ${workspaceId}/${contentPlanId}/${nodeId}: ${

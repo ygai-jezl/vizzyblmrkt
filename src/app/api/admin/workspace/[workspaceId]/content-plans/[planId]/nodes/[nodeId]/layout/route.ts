@@ -55,6 +55,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }),
     audience: ws.audience ?? null,
     brandKit: tenant?.brandKit ?? null,
+    brandTypography: tenant?.brandTypography ?? null,
   });
   if (!layout) return NextResponse.json({ error: "generation_failed" }, { status: 502 });
   return NextResponse.json({ layout });

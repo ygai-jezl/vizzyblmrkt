@@ -354,6 +354,36 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brand Kit → Fonts — tenant-global typography (text styles + guidelines, tenant.brandTypography)
+  # + custom font-file library (brand_fonts). ENABLED in prod; list pages degrade to empty until the
+  # brand_fonts (tenantId ASC, createdAt DESC) composite index is deployed + READY on all prod DBs.
+  - variable: BRAND_FONTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_FONTS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Brand Kit → Icons + Graphics — tenant-global uploaded ICON + GRAPHIC libraries (one brand_assets
+  # collection, raster). ENABLED in prod; list pages degrade to empty until the brand_assets
+  # (tenantId ASC, category ASC, createdAt DESC) composite index is deployed + READY on all prod DBs.
+  - variable: BRAND_ASSETS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_ASSETS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Deep reference integration — feed uploaded icons/graphics into image generation as visual
+  # references (mirrors BRAND_STYLE_REFS_ENABLED). Server-only. ENABLED in prod.
+  - variable: BRAND_ASSET_REFS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # Brand voice — authored tenant-global voice grounding all AI copy (Content OS + launch
   # broadcasts + Live voice) + AI-generate from the primary domain. No new infra/index required;
   # Gemini is already configured in prod. ENABLED in prod.

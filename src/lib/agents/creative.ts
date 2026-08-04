@@ -17,6 +17,10 @@ import {
 import type { EbookAspect } from "@/lib/types/contentPlan";
 import { recordImageAsset } from "@/lib/admin/brandKit";
 import { retrieveExemplarImages, STYLE_REF_DIRECTIVE } from "@/lib/content/create/exemplarImages";
+import {
+  retrieveBrandAssetRefs,
+  BRAND_ASSET_REF_DIRECTIVE,
+} from "@/lib/content/create/brandAssetRefs";
 import { isBestOfNEnabled, bestOfNCount } from "@/lib/content/create/brandStyleLoop";
 import { generateBestOfN } from "@/lib/content/create/bestOfN";
 import type { GeneratedImage } from "./gemini";
@@ -278,13 +282,21 @@ export async function generateSocialPostImage(
           channel: input.channel,
         })
       : [];
+  // Brand-asset refs (Brand Kit → Icons/Graphics): the brand's OWN visual assets, attached
+  // alongside the learned exemplars. Both share the model's image budget (≤3 each). Same gates.
+  const assetRefs =
+    input.region && input.useBrandStyle !== false
+      ? await retrieveBrandAssetRefs({ ctx: tenantCtx(input.tenantId, input.region) })
+      : [];
+  const refs = [...styleRefs, ...assetRefs];
+  const refDirective = refDirectiveFor(styleRefs.length, assetRefs.length);
   const produceImage = (): Promise<GeneratedImage | null> =>
-    styleRefs.length > 0
+    refs.length > 0
       ? generateEbookImage({
-          prompt: `${imagePrompt}\n\n${STYLE_REF_DIRECTIVE}`,
+          prompt: `${imagePrompt}\n\n${refDirective}`,
           aspectRatio: SOCIAL_ASPECT_TO_GEMINI[input.aspect],
-          styleRefImages: styleRefs,
-          // Operator override wins; else undefined keeps the style-ref path's full-model default.
+          styleRefImages: refs,
+          // Operator override wins; else undefined keeps the ref path's full-model default.
           model: input.imageModel,
         })
       : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect], input.imageModel);
@@ -438,13 +450,21 @@ export async function generateEbookSlotImage(
           kind: "ebook",
         })
       : [];
+  // Brand-asset refs (Brand Kit → Icons/Graphics), on CREATE only — never on an edit (the prior
+  // image would confuse the model). Attached alongside the learned exemplars; both ≤3.
+  const assetRefs =
+    !isEdit && input.region && input.useBrandStyle !== false
+      ? await retrieveBrandAssetRefs({ ctx: tenantCtx(input.tenantId, input.region) })
+      : [];
+  const refs = [...styleRefs, ...assetRefs];
+  const refDirective = refDirectiveFor(styleRefs.length, assetRefs.length);
 
   const produceImage = (): Promise<GeneratedImage | null> =>
     generateEbookImage({
-      prompt: styleRefs.length > 0 ? `${imagePrompt}\n\n${STYLE_REF_DIRECTIVE}` : imagePrompt,
+      prompt: refs.length > 0 ? `${imagePrompt}\n\n${refDirective}` : imagePrompt,
       aspectRatio: EBOOK_ASPECT_TO_GEMINI[input.aspect],
       inputImages,
-      styleRefImages: styleRefs,
+      styleRefImages: refs,
       model: input.imageModel,
     });
   // Best-of-N (L3) on CREATE + HERO surface only (the eBook cover) — never on an edit, and
@@ -601,6 +621,26 @@ export async function customizeImageAsset(
 // ---- internals ------------------------------------------------------------
 
 /** Minimal system-scoped tenant context for best-effort registry reads/writes. */
+/**
+ * Build the reference-image directive. When BOTH style exemplars AND brand-asset refs are attached,
+ * a single positional directive tells the model which trailing subset is which (refs are ordered
+ * [...styleRefs, ...assetRefs]) — avoiding two overlapping "the final images are…" claims.
+ */
+function refDirectiveFor(styleCount: number, assetCount: number): string {
+  if (styleCount && assetCount) {
+    return (
+      `The ${styleCount + assetCount} attached reference image(s) are from this brand — the first ` +
+      `${styleCount} are STYLE exemplars (match their palette, lighting, mood, and medium); the ` +
+      `remaining ${assetCount} are the brand's OWN icons/graphics (echo their shapes, colour, and ` +
+      `motifs). Do NOT copy any of their subjects, composition, text, logos, or watermarks — only ` +
+      `the overall visual style.`
+    );
+  }
+  if (styleCount) return STYLE_REF_DIRECTIVE;
+  if (assetCount) return BRAND_ASSET_REF_DIRECTIVE;
+  return "";
+}
+
 function tenantCtx(tenantId: string, region: Region): TenantContext {
   return { tenantId, region, source: "system" };
 }

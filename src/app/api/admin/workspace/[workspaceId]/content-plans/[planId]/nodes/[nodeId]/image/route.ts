@@ -69,6 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
+      typography: tenant?.brandTypography ?? null,
       layout: node.layout ?? null,
     }),
     baseUrl: platformOrigin() || originFromHeaders(req.headers),

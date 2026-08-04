@@ -244,6 +244,42 @@ env:
       - BUILD
       - RUNTIME
   #
+  # Brand Kit → Fonts — tenant-global typography (text styles + guidelines, tenant.brandTypography)
+  # + the uploaded custom font-file library (brand_fonts). Server flag gates the fonts page + its
+  # routes; the NEXT_PUBLIC mirror (BUILD-inlined) lights up the "Fonts" tile. ENABLED on dev for
+  # smoke; keep OFF in prod until the brand_fonts index is live (override in prod yaml).
+  - variable: BRAND_FONTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_FONTS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
+  # Brand Kit → Icons + Graphics — tenant-global uploaded ICON + GRAPHIC libraries (one brand_assets
+  # collection, raster). Server flag gates both pages + their routes; the NEXT_PUBLIC mirror
+  # (BUILD-inlined) lights up BOTH tiles. ENABLED on dev for smoke; keep OFF in prod until the
+  # brand_assets index is live (override in prod yaml).
+  - variable: BRAND_ASSETS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_ASSETS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  #
+  # Deep reference integration — feed the tenant's uploaded icons/graphics into image generation as
+  # visual references (mirrors BRAND_STYLE_REFS_ENABLED). Server-only. ENABLED on dev for smoke;
+  # keep OFF in prod until the libraries are provisioned (override in prod yaml).
+  - variable: BRAND_ASSET_REFS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  #
   # Brand voice — authored tenant-global voice (Summary/Do/Don't/guidelines) that grounds all
   # AI copy (Content OS + launch broadcasts + Live voice). Server flag gates the voice page +
   # route; the NEXT_PUBLIC mirror (BUILD-inlined) lights up the "Brand voice" tile in the Brand

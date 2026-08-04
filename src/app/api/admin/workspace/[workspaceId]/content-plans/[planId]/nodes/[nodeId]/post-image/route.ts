@@ -92,6 +92,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
+      typography: tenant?.brandTypography ?? null,
       // Suppress the learned text directive too when the override is off (explicit null);
       // otherwise fall back to the kit's learned style (automatic apply).
       learnedImageStyle: useBrandStyle ? undefined : null,

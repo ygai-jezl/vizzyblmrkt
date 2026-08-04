@@ -25,6 +25,8 @@ import type { SocialEvent } from "@/lib/types/socialEvent";
 import type { EngagedContact } from "@/lib/types/engagedContact";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { BrandLogo } from "@/lib/types/brandLogo";
+import type { BrandFont } from "@/lib/types/brandFont";
+import type { BrandAsset } from "@/lib/types/brandAsset";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -288,6 +290,13 @@ export interface TenantRepositories {
    *  tenant-level GCS key `brand/{tenantId}/logos/...` and are served by the public
    *  /api/brand-logo proxy so the primary logo can render in recipient-facing emails. */
   logos: TenantCollection<BrandLogo>;
+  /** Brand Kit: uploaded custom FONT FILES (brand-global). Bytes live at `brand/{tenantId}/fonts/...`
+   *  and are served by the public /api/brand-font proxy for in-app @font-face preview. */
+  brandFonts: TenantCollection<BrandFont>;
+  /** Brand Kit: uploaded ICONS + GRAPHICS (brand-global, discriminated by `category`). Bytes live at
+   *  `brand/{tenantId}/{category}s/...` and are served by the public /api/brand-asset proxy;
+   *  also fed into image generation as visual references. */
+  brandAssets: TenantCollection<BrandAsset>;
 }
 
 /**
@@ -359,5 +368,9 @@ export function forTenant(
     // Brand logos: brand-global metadata (no end-user PII) → regional DB, colocated with
     // the workspaces/content that reference them.
     logos: new TenantCollection<BrandLogo>(regionalDb, "brand_logos", t),
+    // Brand fonts + assets: brand-global metadata (no end-user PII) → regional DB, colocated
+    // with the workspaces/content that reference them, like logos.
+    brandFonts: new TenantCollection<BrandFont>(regionalDb, "brand_fonts", t),
+    brandAssets: new TenantCollection<BrandAsset>(regionalDb, "brand_assets", t),
   };
 }

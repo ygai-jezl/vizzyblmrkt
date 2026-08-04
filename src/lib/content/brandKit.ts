@@ -60,10 +60,70 @@ export function isBrandColorsUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_BRAND_COLORS_ENABLED === "true";
 }
 
+/**
+ * Server flag — the Content Steering surface (the transparent view of the learned
+ * post-performance directive + version timeline + point-in-time revert). Its read/revert
+ * routes 503 unless this is on. Governs visibility only; the LEARNING is gated separately by
+ * POST_PATTERNS_LEARN_ENABLED and injection by POST_PATTERNS_INJECT_ENABLED.
+ */
+export function isContentSteeringEnabled(): boolean {
+  return process.env.CONTENT_STEERING_ENABLED === "true";
+}
+
+/** Client mirror — the Content Steering card only links out when this is on. */
+export function isContentSteeringUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_CONTENT_STEERING_ENABLED === "true";
+}
+
+/**
+ * Server flag — the Brand Kit → Fonts routes/page 503/notFound() unless this is on. Governs the
+ * tenant-global typography (text styles + guidelines, `tenant.brandTypography`) AND the uploaded
+ * custom font-file library (`brand_fonts`). Independent of BRAND_KIT_ENABLED so it can roll out on
+ * its own (needs the brand_fonts composite index live in prod first).
+ */
+export function isBrandFontsEnabled(): boolean {
+  return process.env.BRAND_FONTS_ENABLED === "true";
+}
+
+/** Client mirror — the Brand Kit "Fonts" tile only links out when this is on. */
+export function isBrandFontsUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_BRAND_FONTS_ENABLED === "true";
+}
+
+/**
+ * Server flag — the Brand Kit → Icons / Graphics routes/pages 503/notFound() unless this is on.
+ * Governs the tenant-global uploaded ICON + GRAPHIC libraries (`brand_assets`). Independent of
+ * BRAND_KIT_ENABLED so it can roll out on its own (needs the brand_assets composite index live in
+ * prod first). ONE flag drives both categories (they share a collection + gallery).
+ */
+export function isBrandAssetsEnabled(): boolean {
+  return process.env.BRAND_ASSETS_ENABLED === "true";
+}
+
+/** Client mirror — the Brand Kit "Icons" + "Graphics" tiles only link out when this is on. */
+export function isBrandAssetsUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_BRAND_ASSETS_ENABLED === "true";
+}
+
+/**
+ * Server-only flag — attach the tenant's uploaded ICONS + GRAPHICS as visual reference images to
+ * image generation (deep reference integration). Mirrors BRAND_STYLE_REFS_ENABLED: it gates ONLY
+ * whether the bytes are fed to the model, not whether the library exists. Off by default so the
+ * libraries can ship inert.
+ */
+export function isBrandAssetRefsEnabled(): boolean {
+  return process.env.BRAND_ASSET_REFS_ENABLED === "true";
+}
+
 export const BRAND_KIT_ROUTE = "/admin/brand-kit";
 export const BRAND_KIT_IMAGES_ROUTE = "/admin/brand-kit/images";
 export const BRAND_KIT_VOICE_ROUTE = "/admin/brand-kit/voice";
 export const BRAND_KIT_LOGOS_ROUTE = "/admin/brand-kit/logos";
+export const BRAND_KIT_STEERING_ROUTE = "/admin/brand-kit/steering";
+export const BRAND_KIT_FONTS_ROUTE = "/admin/brand-kit/fonts";
+export const BRAND_KIT_COLOURS_ROUTE = "/admin/brand-kit/colours";
+export const BRAND_KIT_ICONS_ROUTE = "/admin/brand-kit/icons";
+export const BRAND_KIT_GRAPHICS_ROUTE = "/admin/brand-kit/graphics";
 
 /**
  * The DERIVED URL for an image asset's bytes, served through the authenticated
@@ -90,4 +150,25 @@ export function brandLogoPublicUrl(tenantId: string, filename: string): string {
  */
 export function brandLogoAbsoluteUrl(origin: string, tenantId: string, filename: string): string {
   return `${origin.replace(/\/+$/, "")}${brandLogoPublicUrl(tenantId, filename)}`;
+}
+
+/**
+ * RELATIVE public URL for an uploaded brand FONT file (served by the public /api/brand-font proxy,
+ * uuid-guarded). Used in the Fonts manager's @font-face rules for in-app preview. Never stored.
+ */
+export function brandFontPublicUrl(tenantId: string, filename: string): string {
+  return `/api/brand-font/${encodeURIComponent(tenantId)}/${encodeURIComponent(filename)}`;
+}
+
+/**
+ * RELATIVE public URL for an uploaded brand ASSET (icon/graphic) — served by the public
+ * /api/brand-asset proxy (uuid-guarded). The category is part of the path so the proxy can
+ * reconstruct the `brand/{tenantId}/{category}s/{filename}` key. Never stored.
+ */
+export function brandAssetPublicUrl(
+  tenantId: string,
+  category: "icon" | "graphic",
+  filename: string,
+): string {
+  return `/api/brand-asset/${encodeURIComponent(category)}/${encodeURIComponent(tenantId)}/${encodeURIComponent(filename)}`;
 }

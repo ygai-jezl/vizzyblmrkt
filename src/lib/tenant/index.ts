@@ -43,6 +43,24 @@ export {
   PERFORMANCE_EXEMPLARS,
 } from "./exemplars";
 export {
+  postPerformanceRef,
+  upsertPostMetricSnapshot,
+  writePostMeasurement,
+  writePostReward,
+  readPostPerformance,
+  listSettledForReward,
+  listBaselineCohort,
+  listScoredForChannel,
+  POST_PERFORMANCE,
+} from "./postPerformance";
+export type { PostPerformanceBase } from "./postPerformance";
+export {
+  writePostPerfVector,
+  findNearestPostVectors,
+  POST_PERF_VECTORS,
+} from "./postVectors";
+export type { PostPerfVectorRow, PostPerfNeighbor } from "./postVectors";
+export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,
@@ -58,8 +76,21 @@ export {
   setSocialSubscription,
   getSocialSubscription,
   deleteSocialSubscription,
+  setTenantLearnedChannelPatterns,
 } from "./control";
 export type { DomainGrantAudit, SocialSubscription } from "./control";
+export {
+  appendPatternVersion,
+  listPatternVersions,
+  getPatternVersion,
+  LEARNED_PATTERN_VERSIONS,
+} from "./patternVersions";
+export {
+  writeTrendingTopics,
+  readTrendingTopics,
+  readTrendingTopicsRaw,
+  TRENDING_TOPICS,
+} from "./trendingTopics";
 export {
   recordLaunchDeletion,
   writeAuditObject,

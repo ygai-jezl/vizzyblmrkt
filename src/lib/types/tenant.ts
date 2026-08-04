@@ -317,6 +317,92 @@ export const BrandVoiceSchema = z.object({
 });
 export type BrandVoice = z.infer<typeof BrandVoiceSchema>;
 
+/**
+ * A named TEXT STYLE in the Brand Kit → Fonts section (the Canva-style typography rows:
+ * Title / Subtitle / Heading / … / Caption). `role` is the semantic slot (the "Type"
+ * dropdown); `fontFamily` is a family name from the curated list or an uploaded custom
+ * font (see src/lib/content/fonts.ts). All presentation fields are nullable so a partially
+ * configured style still stores. `id` is a stable client-generated uuid used as the React key.
+ */
+export const TextStyleRoleSchema = z.enum([
+  "title",
+  "subtitle",
+  "heading",
+  "subheading",
+  "sectionHeader",
+  "body",
+  "quote",
+  "caption",
+]);
+export type TextStyleRole = z.infer<typeof TextStyleRoleSchema>;
+
+export const TextStyleSchema = z.object({
+  id: z.string().max(64),
+  name: z.string().max(60),
+  role: TextStyleRoleSchema,
+  fontFamily: z.string().max(80).nullable().optional(),
+  size: z.number().int().min(8).max(200).nullable().optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+});
+export type TextStyle = z.infer<typeof TextStyleSchema>;
+
+/**
+ * Authored, tenant-GLOBAL typography (Brand Kit → Fonts). A TOP-LEVEL tenant field (NOT part of
+ * `brandKit`), mirroring `brandVoice`: `brandKit` is replaced wholesale on every PDF re-extract /
+ * Brand save, so keeping typography out of it means those writes can never clobber it. The
+ * uploaded font FILES live in the separate `brand_fonts` collection; this holds the STYLE config
+ * only. Grounds on-brand generation via assembleBrandContext (typography lines). Every field is
+ * optional so tenants without any typography simply have none.
+ */
+export const BrandTypographySchema = z.object({
+  styles: z.array(TextStyleSchema).max(24).nullable().optional(),
+  /** Free-text "how to use the brand's type" guidance (the Fonts → Guidelines entry). */
+  guidelines: z.string().max(2000).nullable().optional(),
+  updatedAt: z.string().max(40).nullable().optional(),
+});
+export type BrandTypography = z.infer<typeof BrandTypographySchema>;
+
+/**
+ * Learned POST-PERFORMANCE patterns — the abstract "what performs on this channel" directive the
+ * Distribute feedback loop synthesizes from PROMOTED clusters (repeatable, above-baseline posts).
+ * Top-level (NOT nested in brandKit) for clobber-safety, mirroring brandVoice. Per-channel because
+ * a LinkedIn pattern ≠ an X pattern. Each channel fragment is independently versioned + revertable
+ * (the "Content Steering" transparency surface); `frozen` blocks auto-promotion after an operator
+ * reverts to a past version, until they resume learning.
+ */
+export const LearnedPatternRuleSchema = z.object({
+  text: z.string().max(200),
+  /** How many distinct posts support this move. */
+  support: z.number().int().nonnegative().default(0),
+  /** Mean baseline-relative lift of the supporting posts (reward units, ~−1..1). */
+  meanLift: z.number().default(0),
+});
+export const LearnedChannelPatternsSchema = z.object({
+  /** The abstract directive injected into generation (null = nothing learned yet). */
+  directive: z.string().max(1500).nullable().optional(),
+  perform: z.array(LearnedPatternRuleSchema).max(8).default([]),
+  avoid: z.array(LearnedPatternRuleSchema).max(6).default([]),
+  sampleCount: z.number().int().nonnegative().default(0),
+  championScore: z.number().nullable().optional(),
+  /** The version currently LIVE for this channel (what injection reads). */
+  activeVersion: z.number().int().nonnegative().default(0),
+  /** Highest version ever synthesized for this channel. */
+  latestVersion: z.number().int().nonnegative().default(0),
+  /** Set by a revert — the version the operator pinned. */
+  pinnedVersion: z.number().int().nonnegative().nullable().optional(),
+  /** When true, auto-promotion is paused (an operator reverted); resume clears it. */
+  frozen: z.boolean().default(false),
+  updatedAt: z.string().max(40).nullable().optional(),
+});
+export const LearnedPostPatternsSchema = z.object({
+  channelFragments: z.record(z.string(), LearnedChannelPatternsSchema).default({}),
+  updatedAt: z.string().max(40).nullable().optional(),
+});
+export type LearnedPatternRule = z.infer<typeof LearnedPatternRuleSchema>;
+export type LearnedChannelPatterns = z.infer<typeof LearnedChannelPatternsSchema>;
+export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -363,6 +449,11 @@ export const TenantSchema = z.object({
   brandKit: BrandKitSchema.optional(),
   /** Authored, tenant-global brand voice (Summary/Do/Don't/guidelines); grounds all AI copy. */
   brandVoice: BrandVoiceSchema.optional(),
+  /** Authored, tenant-global typography (Brand Kit → Fonts text styles + guidelines); grounds
+   *  on-brand generation. Top-level (like brandVoice) so a PDF re-extract can't clobber it. */
+  brandTypography: BrandTypographySchema.optional(),
+  /** Learned post-performance patterns (per-channel, versioned) from the Distribute feedback loop. */
+  learnedPostPatterns: LearnedPostPatternsSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

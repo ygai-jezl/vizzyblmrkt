@@ -1,6 +1,7 @@
-import type { BrandKit, BrandVoice } from "@/lib/types/tenant";
+import type { BrandKit, BrandVoice, BrandTypography } from "@/lib/types/tenant";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import { renderBrandVoice } from "@/lib/agents/prompts/compose";
+import { roleLabel } from "@/lib/content/fonts";
 
 /**
  * Assemble the on-brand context block shared by NL→layout + image generation. Pulls
@@ -23,6 +24,12 @@ export interface BrandContextInput {
    *  - a string → use it verbatim.
    */
   learnedImageStyle?: string | null;
+  /**
+   * Authored tenant-global TYPOGRAPHY (Brand Kit → Fonts). When present, its text styles +
+   * guidelines are injected so generation respects the brand's type. Supersedes the legacy
+   * `brandKit.fonts` string list (which stays a fallback when no typography is authored).
+   */
+  typography?: BrandTypography | null;
 }
 
 /**
@@ -76,7 +83,25 @@ export function assembleBrandContext(input: BrandContextInput): string {
   const uniquePalette = [...new Set(palette)].slice(0, 12);
   if (uniquePalette.length) lines.push(`Brand palette (hex): ${uniquePalette.join(", ")}`);
 
-  if (kit.fonts?.length) lines.push(`Fonts: ${kit.fonts.join(", ")}`);
+  // Typography: authored text styles (with a chosen family) take precedence; else fall back to
+  // the legacy free-text `brandKit.fonts` list so existing tenants keep byte-identical output.
+  const styledText = (input.typography?.styles ?? []).filter((s) => s.fontFamily?.trim());
+  if (styledText.length) {
+    const parts = styledText.map((s) => {
+      const bits = [s.fontFamily!.trim()];
+      if (s.size) bits.push(`${s.size}px`);
+      if (s.bold) bits.push("bold");
+      if (s.italic) bits.push("italic");
+      return `${roleLabel(s.role)}: ${bits.join(" ")}`;
+    });
+    lines.push(`Typography — ${parts.join("; ")}`);
+  } else if (kit.fonts?.length) {
+    lines.push(`Fonts: ${kit.fonts.join(", ")}`);
+  }
+  if (input.typography?.guidelines?.trim()) {
+    lines.push(`Typography guidelines: ${input.typography.guidelines.trim()}`);
+  }
+
   if (kit.dos?.length) lines.push(`Do: ${kit.dos.join("; ")}`);
   if (kit.donts?.length) lines.push(`Don't: ${kit.donts.join("; ")}`);
 

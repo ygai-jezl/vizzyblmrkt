@@ -14,6 +14,7 @@ import {
   type GitConnection,
   type SocialConnection,
   type Region,
+  type LearnedChannelPatterns,
 } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
@@ -125,6 +126,28 @@ export async function setTenantBrandVoice(
     .doc(id)
     .update({
       brandVoice: brandVoice === null ? FieldValue.delete() : { ...brandVoice, updatedAt: now },
+      updatedAt: now,
+    });
+}
+
+/**
+ * Write one channel's learned post-performance patterns (top-level `learnedPostPatterns`,
+ * control-plane). A DOTTED per-channel field-path update so it touches ONLY that channel's
+ * fragment — a concurrent synthesis on another channel, or a whole-tenant write, can't clobber
+ * it, and it can't clobber brandKit/brandVoice. Firestore auto-creates the intermediate maps.
+ */
+export async function setTenantLearnedChannelPatterns(
+  id: string,
+  channel: string,
+  fragment: LearnedChannelPatterns,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`learnedPostPatterns.channelFragments.${channel}`]: { ...fragment, updatedAt: now },
+      "learnedPostPatterns.updatedAt": now,
       updatedAt: now,
     });
 }

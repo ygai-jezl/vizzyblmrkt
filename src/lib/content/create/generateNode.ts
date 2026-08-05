@@ -31,6 +31,8 @@ import {
   type ContextRetrievalRequest,
 } from "@/lib/agents/knowledgeRetrieval";
 import { retrieveExemplars } from "@/lib/distribute/feedback/retrieveExemplars";
+import { retrievePostPatterns } from "@/lib/distribute/feedback/patterns";
+import { buildTrendingBlock } from "@/lib/agents/trending";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 
@@ -245,6 +247,13 @@ export async function generateNode(
     queryText: req.queryText,
   }).catch(() => null);
   const exemplarsBlock = exemplarCtx?.formatted ?? "";
+  // Learned-pattern DIRECTIVE (abstract "what performs") + optional TRENDING topics — both fenced
+  // DATA, both separately flag-gated (POST_PATTERNS_INJECT_ENABLED / TRENDING_TOPICS_ENABLED), the
+  // directive additionally skipped for holdout nodes so lift stays measurable. Empty when off.
+  const [patternsBlock, trendingBlock] = await Promise.all([
+    retrievePostPatterns(ctx, node.channel, node.id).catch(() => ""),
+    buildTrendingBlock(ctx).catch(() => ""),
+  ]);
 
   // Email-sequence node — scenario-aware copy + subject A/B variants + critics.
   if (node.type === "email") {
@@ -407,7 +416,8 @@ export async function generateNode(
       skeleton: useSkeleton ? skeleton : "(none)",
       knowledge_context: knowledgeContext,
       proof_assets: proofBlock,
-      exemplars: exemplarsBlock,
+      // Directive first (abstract rules), then trending (topicality), then instance exemplars.
+      exemplars: [patternsBlock, trendingBlock, exemplarsBlock].filter(Boolean).join("\n\n"),
     });
     prompt = composePrompt({
       identity: brandVoiceSection(input.brandVoice),

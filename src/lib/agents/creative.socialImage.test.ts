@@ -7,7 +7,10 @@ vi.mock("./gemini", () => ({
   generateImage: vi.fn(),
   generateBlockImage: vi.fn(),
 }));
-vi.mock("@/lib/workspace/assetStore", () => ({
+// Keep the real (pure) constants/helpers — creative.ts now transitively imports them via the
+// brand-asset ref loader — and only stub the GCS write so nothing touches storage.
+vi.mock("@/lib/workspace/assetStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspace/assetStore")>()),
   storeWorkspaceImage: vi.fn(),
 }));
 

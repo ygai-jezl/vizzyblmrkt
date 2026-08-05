@@ -17,14 +17,23 @@ import {
   thresholdCrossed,
 } from "./autoPlug";
 import { isClosedLoopEnabled } from "./feedback/retrieveExemplars";
-import { recordExemplar } from "./feedback/recordExemplar";
 import {
   PERFORMANCE_FETCH_DELAY_MS,
   PERFORMANCE_POLL_INTERVAL_MS,
   PERFORMANCE_WINDOW_MS,
-  exemplarQualifies,
-  exemplarTags,
 } from "./feedback/harvest";
+import { xToCommon, linkedinToCommon, parseHashtags, computeMeasurement } from "./feedback/metrics";
+import { reconcileTenantRewards } from "./feedback/reconcile";
+import { injectionCohortForNode, isPostPatternsInjectEnabled } from "./feedback/patterns";
+import { refreshTrendingTopics, isTrendingTopicsEnabled } from "@/lib/agents/trending";
+import { fetchLinkedInShareStatistics } from "@/lib/social/linkedin/stats";
+import { upsertPostMetricSnapshot, writePostMeasurement } from "@/lib/tenant";
+import {
+  postPerformanceDocId,
+  type PostMetricSnapshot,
+  type MetricRaw,
+  type PostMetricSource,
+} from "@/lib/types/postPerformance";
 import {
   scheduledPostDedupeKey,
   type ScheduledPost,
@@ -192,8 +201,38 @@ export async function processScheduledPosts(
       if (exhausted) await reflectNodeDistribution(ctx, claimed, "failed", db);
     }
   }
+  // Closed-loop reward reconciliation: score any settled-but-unscored posts (gated + bounded
+  // inside; a no-op when the loop is off or nothing has settled). Fail-soft — a reconciliation
+  // error must never fail the publish drain.
+  try {
+    await reconcileTenantRewards(ctx, db);
+  } catch (err) {
+    console.warn("[distribute] reward reconcile failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
+  // Trending topics: opportunistically refresh the tenant's grounded trend snapshot (gated +
+  // cadence-checked inside — a no-op when off or still fresh). Bounded by a timeout so a hung
+  // grounded Google-Search call can never starve this shared, sequential publish drain. Fail-soft.
+  if (isTrendingTopicsEnabled()) {
+    try {
+      const tenant = await getTenantById(ctx.tenantId, db);
+      // A concrete brand/domain the researcher can look up — NOT a tone summary (which degrades
+      // relevance and inflates the empty-result rate).
+      const industry = [tenant?.tenantName, tenant?.rootDomain].filter(Boolean).join(" — ");
+      if (industry) {
+        await Promise.race([
+          refreshTrendingTopics(ctx, { industry }, db),
+          new Promise((resolve) => setTimeout(resolve, TRENDING_REFRESH_TIMEOUT_MS)),
+        ]);
+      }
+    } catch (err) {
+      console.warn("[distribute] trending refresh failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
   return { processed, done, failed };
 }
+
+/** Cap the grounded trend refresh so it can't outlive its slice of the sequential drain. */
+const TRENDING_REFRESH_TIMEOUT_MS = 25_000;
 
 async function dispatchScheduledPost(
   ctx: TenantContext,
@@ -405,6 +444,12 @@ async function publishPost(
         // went out text-only; null when the image (or no image) was fine.
         lastError: imageNote ?? null,
       });
+      // Closed loop: harvest performance for COMPANY-PAGE posts only (org stats API needs
+      // an org URN; personal-author posts have no org analytics — deferred). Enqueued after
+      // the parent is stamped done so a crash here can only lose a follow-up, never re-post.
+      if (isClosedLoopEnabled() && authorUrn.startsWith("urn:li:organization:")) {
+        await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now, authorUrn);
+      }
       return "done";
     }
     if (outcome.kind === "park") {
@@ -642,6 +687,7 @@ async function enqueuePerformanceFetch(
   remoteId: string,
   publishedCopy: string,
   now: string,
+  authorUrn?: string | null,
 ): Promise<void> {
   const id = `perf:${parent.dedupeKey}`;
   const scheduledAt = new Date(Date.parse(now) + PERFORMANCE_FETCH_DELAY_MS).toISOString();
@@ -659,6 +705,9 @@ async function enqueuePerformanceFetch(
     claimedAt: null,
     body: publishedCopy, // the exact copy that published — the exemplar candidate
     sourceRemoteId: remoteId,
+    // The org URN whose Page owns the post — the key the LinkedIn stats API needs at
+    // harvest time (null for X / personal). Carried on the same field publish uses.
+    linkedInAuthorUrn: authorUrn ?? null,
     publishedRef: null,
     lastError: null,
     processedAt: null,
@@ -668,12 +717,68 @@ async function enqueuePerformanceFetch(
   else await repo.create(id, { ...fields, createdAt: now } as never);
 }
 
+/** Outcome of a per-channel metrics poll, normalized to the common MetricRaw shape. */
+type MetricsFetchOutcome =
+  | { kind: "ok"; raw: MetricRaw; source: PostMetricSource }
+  | { kind: "not_connected"; reason: string }
+  | { kind: "retry"; reason: string }
+  | { kind: "permanent"; reason: string };
+
+/** Classify a LinkedIn stats error into retry (transient) vs permanent (give up). */
+function classifyLinkedInStatsReason(reason: string): "retry" | "permanent" {
+  if (reason === "network_error" || reason === "timeout") return "retry";
+  const m = reason.match(/^li_api_(\d{3})/);
+  if (m) {
+    const code = Number(m[1]);
+    return code === 429 || code >= 500 ? "retry" : "permanent"; // 401/403/404 → permanent
+  }
+  return "permanent";
+}
+
+/** Poll the post's live engagement for its channel, mapping to the common metric shape. */
+async function fetchPostMetrics(
+  ctx: TenantContext,
+  post: ScheduledPost,
+  tenant: Tenant | null,
+): Promise<MetricsFetchOutcome> {
+  const remoteId = post.sourceRemoteId!;
+  if (post.channel === "x") {
+    const token = await ensureFreshAccessToken(ctx, "x", tenant);
+    if (!token) return { kind: "not_connected", reason: "x_not_connected" };
+    const m = await fetchXPublicMetrics(remoteId, token);
+    if (!m.ok) {
+      const cls = classifyPublishResult({ ok: false, reason: m.reason });
+      return cls.kind === "retry" ? { kind: "retry", reason: m.reason } : { kind: "permanent", reason: m.reason };
+    }
+    return { kind: "ok", raw: xToCommon(m.metrics), source: "x" };
+  }
+  if (post.channel === "linkedin") {
+    const orgUrn = post.linkedInAuthorUrn;
+    // Company-page analytics only: a personal-author post has no org stats API (deferred).
+    if (!orgUrn || !orgUrn.startsWith("urn:li:organization:")) {
+      return { kind: "permanent", reason: "li_no_org_author" };
+    }
+    const token = await ensureFreshAccessToken(ctx, "linkedin_org", tenant);
+    if (!token) return { kind: "not_connected", reason: "linkedin_not_connected" };
+    const m = await fetchLinkedInShareStatistics(token, { orgUrn, postUrn: remoteId });
+    if (!m.ok) {
+      return classifyLinkedInStatsReason(m.reason) === "retry"
+        ? { kind: "retry", reason: m.reason }
+        : { kind: "permanent", reason: m.reason };
+    }
+    return { kind: "ok", raw: linkedinToCommon(m.metrics), source: "linkedin_org" };
+  }
+  return { kind: "permanent", reason: "unsupported_channel" };
+}
+
 /**
- * Closed-loop harvest worker: poll a published post's real engagement; if it crossed
- * the high-performer bar, capture it as a performance exemplar to weight future Create
- * generations. MULTI-POLL: a below-bar poll re-arms within PERFORMANCE_WINDOW_MS (see
- * reschedulePollOrGiveUp) so a slow-burn post still gets harvested. Best-effort: a
- * permanent metrics failure gives up without harvesting; a transient failure retries.
+ * Closed-loop harvest worker: on every poll, capture a dated metric SNAPSHOT into the
+ * `post_performance` time-series (X + LinkedIn company-page). MULTI-POLL: re-arm within
+ * PERFORMANCE_WINDOW_MS so the series builds up (~48/72/…/168h); at window close, store the
+ * stable +7d measurement. The baseline-relative REWARD + exemplar recording run in the
+ * offline reconciliation pass (feedback/reward.ts), NOT on this hot path — the flat
+ * "likes ≥ 25" qualifier is gone. Best-effort: a permanent metrics failure gives up; a
+ * transient failure retries; capture/measurement writes are fail-soft (never break re-arm).
  */
 async function runPerformanceFetch(
   ctx: TenantContext,
@@ -688,7 +793,7 @@ async function runPerformanceFetch(
     return "done";
   }
   if (!isSocialPublishEnabled()) {
-    // Can't poll X → park (failed++) so telemetry is honest; re-arm after enabling.
+    // Can't poll → park (failed++) so telemetry is honest; re-arm after enabling.
     await repo.update(post.id, { status: "failed", processedAt: now, lastError: "social_disabled" });
     return "parked";
   }
@@ -697,53 +802,92 @@ async function runPerformanceFetch(
     return "parked";
   }
   const tenant = await getTenantById(ctx.tenantId, db);
-  // Refresh the token — this job runs +48h after publish, well past X's ~2h token.
-  const accessToken = await ensureFreshAccessToken(ctx, "x", tenant);
-  if (!accessToken) {
-    await repo.update(post.id, { status: "failed", processedAt: now, lastError: "x_not_connected" });
+  const fetched = await fetchPostMetrics(ctx, post, tenant);
+  if (fetched.kind === "not_connected") {
+    await repo.update(post.id, { status: "failed", processedAt: now, lastError: fetched.reason });
     return "parked";
   }
-
-  const metrics = await fetchXPublicMetrics(post.sourceRemoteId, accessToken);
-  if (!metrics.ok) {
-    const cls = classifyPublishResult({ ok: false, reason: metrics.reason });
-    if (cls.kind === "retry") throw new Error(`perf_metrics:${metrics.reason}`);
-    // Permanent (deleted tweet / auth) → best-effort give up, no harvest.
-    await repo.update(post.id, { status: "done", processedAt: now, lastError: `perf_metrics:${metrics.reason}` });
+  if (fetched.kind === "retry") throw new Error(`perf_metrics:${fetched.reason}`);
+  if (fetched.kind === "permanent") {
+    // Deleted post / auth / unsupported → best-effort give up, no capture.
+    await repo.update(post.id, { status: "done", processedAt: now, lastError: `perf_metrics:${fetched.reason}` });
     return "done";
   }
 
-  if (!exemplarQualifies(metrics.metrics)) {
-    // MULTI-POLL: below the high-performer bar → re-arm for another poll within the
-    // harvest window (a post that accrues likes over days still gets captured). Once
-    // the window elapses it completes without harvesting ("below_bar").
+  // Capture a snapshot every poll (the multi-poll cadence IS the snapshot cadence). Skip
+  // entirely when createdAt is unparseable — otherwise we'd write a post_performance doc with
+  // a corrupt publishedAt (which would misorder the reconciliation queries); reschedule then
+  // terminalizes the job as poll_window_unresolved.
+  const parentId = post.dedupeKey.replace(/^perf:/, "");
+  const startMs = Date.parse(post.createdAt);
+  const ageHours = Math.max(0, (nowMs - startMs) / 3_600_000);
+  const ppId = postPerformanceDocId(ctx.tenantId, post.channel, parentId);
+  let snapshots: PostMetricSnapshot[] = [];
+  if (Number.isFinite(startMs)) {
+    try {
+      snapshots = await upsertPostMetricSnapshot(
+        ctx,
+        {
+          id: ppId,
+          base: {
+            channel: post.channel,
+            sourcePostId: parentId,
+            sourceRemoteId: post.sourceRemoteId,
+            workspaceId: post.workspaceId,
+            contentPlanId: post.contentPlanId,
+            nodeId: post.nodeId,
+            authorUrn: post.linkedInAuthorUrn ?? null,
+            publishedAt: post.createdAt, // the perf job's createdAt == publish time
+            format: post.format ?? null,
+            body: post.body.slice(0, 4000), // the published copy — embedded for clustering
+            hashtags: parseHashtags(post.body),
+            // Only label the holdout cohort while injection is actually on — so posts published
+            // during the collect-only rollout (inject OFF) aren't miscounted as "injected" and
+            // don't bias the injected−holdout lift read. (A flag toggle mid-window is still an
+            // approximation; a per-generate stamp would be exact — deferred.)
+            injectionCohort: isPostPatternsInjectEnabled()
+              ? injectionCohortForNode(post.nodeId)
+              : undefined,
+          },
+          snapshot: { at: now, ageHours, source: fetched.source, raw: fetched.raw },
+        },
+        db,
+      );
+    } catch (err) {
+      // Capture is best-effort — a store failure must not break the poll re-arm/settle.
+      console.warn(
+        "[runPerformanceFetch] snapshot capture failed:",
+        err instanceof Error ? err.message.slice(0, 200) : "error",
+      );
+    }
+  }
+
+  // Settle once the poll window has closed (no more polls fit); else re-arm. When !settled,
+  // reschedulePollOrGiveUp always re-arms (and terminalizes a corrupt createdAt), so its
+  // give-up branch/error is unreachable here.
+  const settled = Number.isFinite(startMs) && nowMs + PERFORMANCE_POLL_INTERVAL_MS > startMs + PERFORMANCE_WINDOW_MS;
+  if (!settled) {
     return reschedulePollOrGiveUp(
       repo,
       post,
       nowMs,
       PERFORMANCE_POLL_INTERVAL_MS,
       PERFORMANCE_WINDOW_MS,
-      "below_bar",
+      "window_elapsed",
     );
   }
-
-  // Qualified → harvest. sourcePostId is the PARENT post (strip the perf: prefix) so
-  // there is one exemplar per source post. recordExemplar is fail-soft (never throws).
-  const parentId = post.dedupeKey.replace(/^perf:/, "");
-  const text = post.body; // the published copy carried on the job
-  const outcome = await recordExemplar(ctx, {
-    channel: post.channel,
-    text,
-    tags: exemplarTags(text, post.channel, post.format),
-    metric: { name: "likes", value: metrics.metrics.likes },
-    sourcePostId: parentId,
-    sourceRemoteId: post.sourceRemoteId,
-  });
-  await repo.update(post.id, {
-    status: "done",
-    processedAt: now,
-    lastError: outcome === "recorded" ? null : "exemplar_skipped",
-  });
+  const measurement = snapshots.length ? computeMeasurement(snapshots, now) : null;
+  if (measurement) {
+    try {
+      await writePostMeasurement(ctx, ppId, measurement, db);
+    } catch (err) {
+      console.warn(
+        "[runPerformanceFetch] measurement write failed:",
+        err instanceof Error ? err.message.slice(0, 200) : "error",
+      );
+    }
+  }
+  await repo.update(post.id, { status: "done", processedAt: now, lastError: measurement ? null : "no_snapshot" });
   return "done";
 }
 

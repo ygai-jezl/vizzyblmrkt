@@ -20,6 +20,12 @@ vi.mock("@/lib/social/x/client", () => ({
   publishToX: vi.fn(async () => ({ ok: false, reason: "unused" })),
 }));
 
+// The reward reconciliation is a real subsystem (embeddings + vector Firestore) exercised on
+// the emulator/live, not against the fake — stub it so the harvest/capture path is isolated.
+vi.mock("./feedback/reconcile", () => ({
+  reconcileTenantRewards: vi.fn(async () => 0),
+}));
+
 import { processScheduledPosts } from "./scheduler";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -123,7 +129,7 @@ describe("auto_plug_comment multi-poll", () => {
 });
 
 describe("performance_fetch multi-poll", () => {
-  it("re-arms for a later poll when below the high-performer bar INSIDE the window", async () => {
+  it("captures a snapshot then re-arms for a later poll INSIDE the window", async () => {
     const db = new FakeFirestore();
     seedPoll(db, "pf1", {
       jobKind: "performance_fetch",
@@ -135,9 +141,13 @@ describe("performance_fetch multi-poll", () => {
     expect(doc.status).toBe("pending");
     expect(doc.lastError).toBe("repoll");
     expect(Date.parse(doc.scheduledAt as string)).toBeGreaterThan(Date.now());
+    // A metric snapshot was captured into post_performance (time-series build-up).
+    const pp = db.raw("post_performance", "pp:ten_test:x:pf1")!;
+    expect(pp).toBeDefined();
+    expect((pp.snapshots as unknown[]).length).toBe(1);
   });
 
-  it("gives up (done, below_bar) once the harvest window has elapsed", async () => {
+  it("settles (done) with a stored measurement once the harvest window has elapsed", async () => {
     const db = new FakeFirestore();
     seedPoll(db, "pf1", {
       jobKind: "performance_fetch",
@@ -147,6 +157,9 @@ describe("performance_fetch multi-poll", () => {
     expect(r).toMatchObject({ processed: 1, done: 1, failed: 0 });
     const doc = db.raw(COLLECTION, "pf1")!;
     expect(doc.status).toBe("done");
-    expect(doc.lastError).toBe("below_bar");
+    expect(doc.lastError).toBeNull();
+    // The stable +7d measurement was computed and stored.
+    const pp = db.raw("post_performance", "pp:ten_test:x:pf1")!;
+    expect(pp.measurement).toBeDefined();
   });
 });

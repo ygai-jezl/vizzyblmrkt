@@ -12,7 +12,7 @@ import {
   type EmailBlock,
 } from "@/lib/types/emailLayout";
 import { sanitizeEmailHtml, looksHtml, paragraphize, escapeHtml } from "@/lib/email/emailRender";
-import type { BrandKit } from "@/lib/types/tenant";
+import type { BrandKit, BrandTypography } from "@/lib/types/tenant";
 import { assembleBrandContext } from "./brandContext";
 
 /**
@@ -29,6 +29,7 @@ export interface GenerateLayoutInput {
   brandVoice?: string | null;
   audience?: string | null;
   brandKit?: BrandKit | null;
+  brandTypography?: BrandTypography | null;
   knowledgeContext?: string;
 }
 
@@ -80,6 +81,7 @@ export async function generateEmailLayout(input: GenerateLayoutInput): Promise<E
       brandVoice: input.brandVoice,
       audience: input.audience,
       brandKit: input.brandKit,
+      typography: input.brandTypography,
     }),
     knowledge_context: input.knowledgeContext ?? "",
     max_blocks: MAX_EMAIL_BLOCKS,

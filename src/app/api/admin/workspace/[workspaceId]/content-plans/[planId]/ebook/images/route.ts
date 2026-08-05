@@ -122,6 +122,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
+      typography: tenant?.brandTypography ?? null,
       learnedImageStyle: useBrandStyle ? undefined : null,
     }),
   });

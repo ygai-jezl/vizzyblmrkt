@@ -38,6 +38,43 @@ describe("assembleBrandContext", () => {
   });
 });
 
+describe("assembleBrandContext — typography", () => {
+  it("emits a Typography line from styles that have a chosen family", () => {
+    const out = assembleBrandContext({
+      typography: {
+        styles: [
+          { id: "1", name: "Title", role: "title", fontFamily: "Montserrat", size: 42, bold: true },
+          { id: "2", name: "Body", role: "body", fontFamily: "Inter", size: 16 },
+          // no family → contributes nothing
+          { id: "3", name: "Caption", role: "caption", fontFamily: null, size: 12 },
+        ],
+        guidelines: "Never set body below 14px",
+      },
+    });
+    expect(out).toContain("Typography — Title: Montserrat 42px bold; Body: Inter 16px");
+    expect(out).toContain("Typography guidelines: Never set body below 14px");
+    expect(out).not.toContain("Caption:");
+  });
+
+  it("falls back to the legacy brandKit.fonts list when no styles have a family", () => {
+    const out = assembleBrandContext({
+      brandKit: { fonts: ["Helvetica", "Georgia"] },
+      typography: { styles: [{ id: "1", name: "Body", role: "body", fontFamily: null }] },
+    });
+    expect(out).toContain("Fonts: Helvetica, Georgia");
+    expect(out).not.toContain("Typography —");
+  });
+
+  it("styles with a family SUPPRESS the legacy fonts fallback (dedup)", () => {
+    const out = assembleBrandContext({
+      brandKit: { fonts: ["Helvetica"] },
+      typography: { styles: [{ id: "1", name: "Body", role: "body", fontFamily: "Inter" }] },
+    });
+    expect(out).toContain("Typography — Body: Inter");
+    expect(out).not.toContain("Fonts: Helvetica");
+  });
+});
+
 describe("resolveBrandVoiceText", () => {
   it("the authored tenant-global voice wins over the legacy workspace free text", () => {
     const out = resolveBrandVoiceText({

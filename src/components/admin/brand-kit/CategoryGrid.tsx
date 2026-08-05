@@ -10,6 +10,7 @@ import {
   Shapes,
   Sparkles,
   BarChart3,
+  Compass,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -17,8 +18,17 @@ import {
   BRAND_KIT_IMAGES_ROUTE,
   BRAND_KIT_VOICE_ROUTE,
   BRAND_KIT_LOGOS_ROUTE,
+  BRAND_KIT_STEERING_ROUTE,
+  BRAND_KIT_FONTS_ROUTE,
+  BRAND_KIT_COLOURS_ROUTE,
+  BRAND_KIT_ICONS_ROUTE,
+  BRAND_KIT_GRAPHICS_ROUTE,
   isBrandVoiceUiEnabled,
   isBrandKitLogosUiEnabled,
+  isContentSteeringUiEnabled,
+  isBrandFontsUiEnabled,
+  isBrandColorsUiEnabled,
+  isBrandAssetsUiEnabled,
 } from "@/lib/content/brandKit";
 
 interface Category {
@@ -42,8 +52,18 @@ const CATEGORIES: Category[] = [
     icon: Hexagon,
     href: isBrandKitLogosUiEnabled() ? BRAND_KIT_LOGOS_ROUTE : undefined,
   },
-  { key: "colours", label: "Colours", icon: Palette },
-  { key: "fonts", label: "Fonts", icon: Type },
+  {
+    key: "colours",
+    label: "Colours",
+    icon: Palette,
+    href: isBrandColorsUiEnabled() ? BRAND_KIT_COLOURS_ROUTE : undefined,
+  },
+  {
+    key: "fonts",
+    label: "Fonts",
+    icon: Type,
+    href: isBrandFontsUiEnabled() ? BRAND_KIT_FONTS_ROUTE : undefined,
+  },
   {
     key: "brand-voice",
     label: "Brand voice",
@@ -51,9 +71,25 @@ const CATEGORIES: Category[] = [
     href: isBrandVoiceUiEnabled() ? BRAND_KIT_VOICE_ROUTE : undefined,
   },
   { key: "images", label: "Images", icon: Images, href: BRAND_KIT_IMAGES_ROUTE },
+  {
+    key: "content-steering",
+    label: "Content Steering",
+    icon: Compass,
+    href: isContentSteeringUiEnabled() ? BRAND_KIT_STEERING_ROUTE : undefined,
+  },
   { key: "components", label: "Components", icon: Component },
-  { key: "graphics", label: "Graphics", icon: Shapes },
-  { key: "icons", label: "Icons", icon: Sparkles },
+  {
+    key: "graphics",
+    label: "Graphics",
+    icon: Shapes,
+    href: isBrandAssetsUiEnabled() ? BRAND_KIT_GRAPHICS_ROUTE : undefined,
+  },
+  {
+    key: "icons",
+    label: "Icons",
+    icon: Sparkles,
+    href: isBrandAssetsUiEnabled() ? BRAND_KIT_ICONS_ROUTE : undefined,
+  },
   { key: "charts", label: "Charts", icon: BarChart3 },
 ];
 

@@ -19,7 +19,8 @@ export default async function BrandKitPage() {
       <div>
         <h1 className="text-lg font-semibold">Brand Kit</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Your brand&apos;s reusable assets. Only Images is available today — more coming soon.
+          Your brand&apos;s reusable assets. Everything you define here is applied globally across
+          your generated content.
         </p>
       </div>
       <CategoryGrid />

@@ -47,6 +47,19 @@ import { processContactEraseJob } from "@/lib/crm/eraseWorker";
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
 const LEASE_MS = 5 * 60_000;
+/**
+ * Wall-clock budget for one scheduled all-tenant drain. Cloud Scheduler's attempt
+ * deadline is 120s (infra/email-worker/setup.sh), so new claims stop well before
+ * it and the rest wait for the next tick. Overlapping runs are SAFE (claims are
+ * transactional); the budget only keeps a run bounded.
+ */
+const RUN_BUDGET_MS = 90_000;
+
+/** Options for one drain. */
+export interface DrainOptions {
+  /** Epoch ms after which no NEW job is claimed; the job in flight finishes. */
+  deadlineAt?: number;
+}
 
 /**
  * Outcome of processing a single job. "done" parks it as complete; "drop"
@@ -62,12 +75,14 @@ type JobOutcome = "done" | "drop";
  * Drain due jobs from the queue. Idempotent + best-effort: a failed job retries
  * up to MAX_ATTEMPTS, then parks as "failed". Designed to be kicked inline after
  * enqueue (immediate sends) AND on a schedule (Cloud Scheduler) for future
- * journey steps. Single-worker semantics for MVP — claims aren't transactional.
+ * journey steps. Safe under overlapping drains: each job is claimed in a
+ * transaction, so exactly one drain processes it (see the claim below).
  */
 export async function processEmailJobs(
   ctx: TenantContext,
   limit = 25,
   db?: FirestoreLike,
+  opts: DrainOptions = {},
 ): Promise<{ processed: number; done: number; failed: number }> {
   const nowMs = Date.now();
   const now = new Date(nowMs).toISOString();
@@ -102,16 +117,35 @@ export async function processEmailJobs(
 
   // Rank is expensive (one ordered scan); compute once per campaign per run.
   const rankCache = new Map<string, Map<string, number>>();
+  let processed = 0;
   let done = 0;
   let failed = 0;
 
-  for (const job of jobs) {
-    const attempts = job.attempts + 1;
-    await forTenant(ctx, db).emailJobs.update(job.id, {
-      status: "processing",
-      attempts,
-      claimedAt: new Date().toISOString(),
+  for (const candidate of jobs) {
+    if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
+    // EXACTLY-ONCE CLAIM: the queries above only find CANDIDATES — the claim is
+    // authoritative. Inside a transaction we re-read the job FRESH and move
+    // due-pending / stale-processing → processing atomically. Overlapping drains
+    // (the cron, an inline kick after enqueue, a manual drain) all see the
+    // candidate, but only one commits; the others re-read "processing" (a fresh
+    // lease) or a finished status and decline — so no email is sent twice.
+    // Mirrors processScheduledPosts in src/lib/distribute/scheduler.ts.
+    const job = await forTenant(ctx, db).emailJobs.claim(candidate.id, (cur) => {
+      const isDue = cur.status === "pending" && cur.scheduledAt <= now;
+      const isStale =
+        cur.status === "processing" &&
+        typeof cur.claimedAt === "string" &&
+        cur.claimedAt <= staleBefore;
+      if (!isDue && !isStale) return null; // fresh lease / finished / not yet due
+      return {
+        status: "processing" as const,
+        attempts: cur.attempts + 1,
+        claimedAt: new Date().toISOString(),
+      };
     });
+    if (!job) continue; // lost the race, or no longer eligible
+    processed += 1;
+    const attempts = job.attempts;
     try {
       // Exhaustive dispatch (§H5): a new EmailJobType must be handled here or the
       // `never` check below fails to compile — it can never silently fall through
@@ -170,7 +204,7 @@ export async function processEmailJobs(
       failed += 1;
     }
   }
-  return { processed: jobs.length, done, failed };
+  return { processed, done, failed };
 }
 
 export interface TenantDrainResult {
@@ -178,6 +212,8 @@ export interface TenantDrainResult {
   processed: number;
   done: number;
   failed: number;
+  /** Tenants not reached because the run budget ran out (drained next tick). */
+  deferred: number;
   perTenant: Array<
     | { tenantId: string; region: Region; processed: number; done: number; failed: number }
     | { tenantId: string; region: Region; error: string }
@@ -198,44 +234,64 @@ export async function processEmailJobsForAllTenants(
     drain?: (
       ctx: TenantContext,
       limit: number,
+      opts?: DrainOptions,
     ) => Promise<{ processed: number; done: number; failed: number }>;
     /** Refresh broadcast open/click stats from MailChimp. Injectable for tests. */
     syncStats?: (ctx: TenantContext) => Promise<unknown>;
+    /** Wall-clock budget for the whole run, in ms. Injectable for tests. */
+    budgetMs?: number;
+    /** Clock. Injectable for tests. */
+    now?: () => number;
   } = {},
 ): Promise<TenantDrainResult> {
   const listTenants = deps.listTenants ?? listAllTenants;
-  const drain = deps.drain ?? processEmailJobs;
+  const drain =
+    deps.drain ??
+    ((c: TenantContext, limit: number, opts?: DrainOptions) =>
+      processEmailJobs(c, limit, undefined, opts));
   const syncStats = deps.syncStats ?? syncBroadcastStats;
+  const clock = deps.now ?? Date.now;
+  const deadlineAt = clock() + (deps.budgetMs ?? RUN_BUDGET_MS);
   const tenants = await listTenants();
   let processed = 0;
   let done = 0;
   let failed = 0;
+  let deferred = 0;
   const perTenant: TenantDrainResult["perTenant"] = [];
   for (const t of tenants) {
+    // Out of budget: leave the remaining tenants for the next tick rather than
+    // run past the scheduler's attempt deadline.
+    if (clock() >= deadlineAt) {
+      deferred += 1;
+      continue;
+    }
     const ctx: TenantContext = {
       tenantId: t.id,
       region: t.region,
       source: "system",
     };
     try {
-      const r = await drain(ctx, limitPerTenant);
+      const r = await drain(ctx, limitPerTenant, { deadlineAt });
       processed += r.processed;
       done += r.done;
       failed += r.failed;
       perTenant.push({ tenantId: t.id, region: t.region, ...r });
       // Refresh broadcast open/click stats from MailChimp (separate source from
-      // the Mandrill engagement webhook). Best-effort — never let it fail the run.
-      await syncStats(ctx).catch((err) => {
-        const msg = err instanceof Error ? err.message : "error";
-        console.warn(`[delivery] tenant ${t.id} broadcast-stats sync failed: ${msg}`);
-      });
+      // the Mandrill engagement webhook). Best-effort — never let it fail the
+      // run, and skip it once the budget is spent (it catches up next tick).
+      if (clock() < deadlineAt) {
+        await syncStats(ctx).catch((err) => {
+          const msg = err instanceof Error ? err.message : "error";
+          console.warn(`[delivery] tenant ${t.id} broadcast-stats sync failed: ${msg}`);
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       console.warn(`[delivery] tenant ${t.id} (${t.region}) drain failed: ${msg}`);
       perTenant.push({ tenantId: t.id, region: t.region, error: msg });
     }
   }
-  return { tenants: tenants.length, processed, done, failed, perTenant };
+  return { tenants: tenants.length, processed, done, failed, deferred, perTenant };
 }
 
 // ---- Broadcast (MailChimp Marketing campaign) -----------------------------
@@ -400,15 +456,35 @@ async function processLifecycleJob(
     fromName: sender.fromName,
     replyTo: sender.replyTo,
   });
-  // "log" provider (dev/tests) counts as success, like the journey send.
-  if (!res.sent && res.provider !== "log") {
+  // "log" provider (dev/tests) counts as success, like the journey send. An
+  // AMBIGUOUS result may have gone out, so it is treated as sent — never retried.
+  if (!res.sent && res.provider !== "log" && !res.ambiguous) {
     throw new Error(`send:${res.reason ?? "failed"}`);
   }
   await forTenant(ctx, db).emailJobs.update(job.id, {
     emailSentAt: new Date().toISOString(),
     mandrillMessageId: res.id ?? null,
+    ...ambiguityNote(ctx, job, res),
   });
   return "done";
+}
+
+/**
+ * For an AMBIGUOUS send (timeout, dropped connection, unreadable response), the
+ * job field that records it, plus a warning log. The caller then treats the email
+ * as sent: at-most-once beats a duplicate email in someone's inbox.
+ */
+function ambiguityNote(
+  ctx: TenantContext,
+  job: EmailJob,
+  res: { ambiguous?: boolean; reason?: string },
+): { sendAmbiguous?: string } {
+  if (!res.ambiguous) return {};
+  const reason = res.reason ?? "unknown";
+  console.warn(
+    `[delivery] ambiguous send treated as sent (never retried): tenant=${ctx.tenantId} job=${job.id} reason=${reason}`,
+  );
+  return { sendAmbiguous: reason };
 }
 
 async function processJourneyStepJob(
@@ -528,13 +604,16 @@ async function processJourneyStepJob(
       tags: ["journey", `node-${node.id}`],
     });
     // "log" provider (dev, no key) counts as success so the chain still advances.
-    if (!res.sent && res.provider !== "log") {
+    // An AMBIGUOUS result may have gone out, so it is treated as sent too — a
+    // retry could put a second copy in the recipient's inbox.
+    if (!res.sent && res.provider !== "log" && !res.ambiguous) {
       throw new Error(`send:${res.reason ?? "failed"}`);
     }
     await forTenant(ctx, db).emailJobs.update(job.id, {
       emailSentAt: new Date().toISOString(),
       mandrillMessageId: res.id ?? null,
       variantId,
+      ...ambiguityNote(ctx, job, res),
     });
     // Record the send as an engagement event ourselves rather than depend on
     // Mandrill's "Message is sent" webhook for the denominator — open/click rates

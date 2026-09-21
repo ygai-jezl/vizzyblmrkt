@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
+import { workerSecretMatches } from "@/lib/http/workerSecret";
 import {
   processEmailJobs,
   processEmailJobsForAllTenants,
@@ -21,10 +22,11 @@ export async function POST(req: Request) {
   const secret = process.env.EMAIL_WORKER_SECRET;
   const provided = req.headers.get("x-worker-secret");
 
-  // Machine (scheduler) caller: authenticated by the shared worker secret. Both
-  // sides must be non-empty so an unset secret can never authenticate an empty
-  // header — it falls through to the admin-session path instead.
-  if (secret && provided && provided === secret) {
+  // Machine (scheduler) caller: authenticated by the shared worker secret,
+  // compared in constant time. Both sides must be non-empty so an unset secret
+  // can never authenticate an empty header — it falls through to the
+  // admin-session path instead.
+  if (workerSecretMatches(provided, secret)) {
     const result = await processEmailJobsForAllTenants(100);
     return NextResponse.json({ ok: true, mode: "all_tenants", ...result });
   }

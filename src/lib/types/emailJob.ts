@@ -47,6 +47,10 @@ export const EmailJobSchema = z.object({
   /** Journey steps: the Mandrill message id returned at send time (audit/debug
    *  backstop; event attribution itself rides on per-message metadata). */
   mandrillMessageId: z.string().nullable().optional(),
+  /** Set when the provider's answer was AMBIGUOUS (timeout, dropped connection,
+   *  unreadable response): the email may have gone out, so it was treated as sent
+   *  and never retried. Holds the provider reason, for audit. */
+  sendAmbiguous: z.string().nullable().optional(),
   /** Journey steps: which A/B arm this recipient was allocated ("control" or a
    *  variant id). Deterministic per (node, recipient); see lib/journey/allocation.ts. */
   variantId: z.string().nullable().optional(),

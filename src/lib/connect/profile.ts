@@ -173,7 +173,8 @@ function withoutIdentity(user: ProductUser): Doc {
   return rest;
 }
 
-function tombstone(current: ProductUser, nowMs: number): Doc {
+/** The PII-free tombstone a deleted user becomes (kept ~30 days, then TTL'd). */
+export function tombstoneOf(current: ProductUser, nowMs: number): Doc {
   const now = new Date(nowMs).toISOString();
   return {
     connectionId: current.connectionId,
@@ -217,7 +218,7 @@ export function applyMessage(
     return isDelete ? { next: null, applied: false } : { reject: "user_deleted" };
   }
   if (isDelete) {
-    return current ? { next: tombstone(current, opts.nowMs), applied: true } : { next: null, applied: false };
+    return current ? { next: tombstoneOf(current, opts.nowMs), applied: true } : { next: null, applied: false };
   }
 
   const base: Doc = current ? withoutIdentity(current) : skeleton(opts.connection, msg.userId, ts, now);

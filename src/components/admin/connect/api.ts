@@ -1,0 +1,92 @@
+import type {
+  ConnectionCatalog,
+  ConsentPolicy,
+  SandboxUser,
+} from "@/lib/types/productConnection";
+import type { ProductUser } from "@/lib/types/productUser";
+import type { ConnectionDiagnostics, ProductEvent } from "@/lib/types/productEvent";
+
+/** A connection as the admin API returns it (never the sealed secrets). */
+export interface PublicConnection {
+  id: string;
+  name: string;
+  kind: "custom" | "sandbox";
+  status: "active" | "paused" | "revoked";
+  keyId: string;
+  secretPrefix: string;
+  rotating: boolean;
+  prevSecretExpiresAt?: string | null;
+  contextEndpoint?: { url: string; enabled: boolean; timeoutMs: number } | null;
+  webhookEndpoint?: { url: string; enabled: boolean } | null;
+  linkDomains: string[];
+  catalog: ConnectionCatalog;
+  consentPolicy: ConsentPolicy;
+  defaults: { timezone: string; locale: string };
+  health: {
+    lastEventAt?: string | null;
+    lastContextOkAt?: string | null;
+    lastContextError?: string | null;
+    consecutiveContextFailures?: number;
+  };
+  sandbox?: {
+    users: SandboxUser[];
+    webhookInbox: Array<{ receivedAt: string; type: string; body: string }>;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type { ProductUser, ProductEvent, ConnectionDiagnostics, SandboxUser, ConnectionCatalog };
+
+export interface ApiResponse<T> {
+  ok: boolean;
+  status: number;
+  data: T;
+}
+
+/** JSON fetch against the admin API. Never throws on HTTP errors. */
+export async function api<T = Record<string, unknown>>(path: string, init: RequestInit = {}): Promise<ApiResponse<T>> {
+  try {
+    const res = await fetch(path, {
+      ...init,
+      headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+    });
+    const data = (await res.json().catch(() => ({}))) as T;
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: { error: "network" } as T };
+  }
+}
+
+const MESSAGES: Record<string, string> = {
+  lifecycle_disabled: "Lifecycle journeys are switched off in this environment.",
+  forbidden: "Only admins can do that.",
+  unauthorized: "Your session expired — sign in again.",
+  not_found: "Not found.",
+  connection_revoked: "This connection has been revoked.",
+  sandbox_endpoints_fixed: "A sandbox's endpoints are fixed.",
+  invalid_url: "That URL isn't allowed. Use a public https address on port 443.",
+  invalid_link_domain: "That link domain isn't valid.",
+  recipient_not_allowed: "Test users must use your own address or one on a verified sending domain.",
+  duplicate_user_id: "Two test users share the same user id.",
+  connect_enc_key_unconfigured: "Connection secrets aren't configured in this environment yet.",
+  network: "Couldn't reach the server.",
+};
+
+/** A readable message for an admin-API error body. */
+export function errorText(data: unknown): string {
+  const d = (data ?? {}) as { error?: string; detail?: string };
+  const base = (d.error && MESSAGES[d.error]) || d.error || "Something went wrong.";
+  return d.detail ? `${base} (${d.detail})` : base;
+}
+
+/** "3 min ago" style relative time. */
+export function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  if (!Number.isFinite(s)) return "—";
+  if (s < 60) return `${Math.max(s, 0)}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86_400)} d ago`;
+}

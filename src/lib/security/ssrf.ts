@@ -23,7 +23,61 @@ function isPrivateV4(ip: string): boolean {
   if (a === 192 && b === 168) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  if (a === 192 && b === 0 && o[2] === 0) return true; // IETF assignments 192.0.0/24 (incl. NAT64 discovery)
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18/15
   if (a >= 224) return true; // multicast + reserved
+  return false;
+}
+
+/**
+ * Expand an IPv6 address — with `::` compression, a trailing dotted IPv4
+ * (`::ffff:1.2.3.4`) and/or a zone id (`fe80::1%eth0`) — into its eight 16-bit
+ * groups. Null when malformed.
+ */
+function ipv6Groups(ip: string): number[] | null {
+  let v = ip.split("%")[0] ?? "";
+  const dotted = /^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v);
+  if (dotted) {
+    const o = dotted[2]!.split(".").map(Number);
+    if (o.some((n) => n > 255)) return null;
+    v = `${dotted[1]}${((o[0]! << 8) | o[1]!).toString(16)}:${((o[2]! << 8) | o[3]!).toString(16)}`;
+  }
+  const halves = v.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 2 ? fill < 1 : head.length !== 8) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? fill : 0).fill("0"), ...tail].map(
+    (h) => (/^[0-9a-f]{1,4}$/.test(h) ? parseInt(h, 16) : NaN),
+  );
+  return groups.every((g) => Number.isInteger(g)) ? groups : null;
+}
+
+/** The IPv4 address carried in two 16-bit groups. */
+function embeddedV4(hi: number, lo: number): string {
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+
+function isPrivateV6(ip: string): boolean {
+  const g = ipv6Groups(ip);
+  if (!g) return true; // malformed → reject defensively
+  const [g0, g1, g2, , , g5, g6, g7] = g as [number, number, number, number, number, number, number, number];
+  const zeroes = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+  // ::, ::1, and the deprecated IPv4-compatible ::a.b.c.d form.
+  if (zeroes(0, 6)) return true;
+  // IPv4-mapped ::ffff:a.b.c.d — judge the embedded IPv4.
+  if (zeroes(0, 5) && g5 === 0xffff) return isPrivateV4(embeddedV4(g6, g7));
+  // NAT64: the well-known prefix 64:ff9b::/96 embeds an IPv4 address; anything
+  // else under 64:ff9b (incl. the local-use 64:ff9b:1::/48) is operator-defined.
+  if (g0 === 0x64 && g1 === 0xff9b) return zeroes(2, 6) ? isPrivateV4(embeddedV4(g6, g7)) : true;
+  // 6to4 2002::/16 embeds an IPv4 address in its next 32 bits.
+  if (g0 === 0x2002) return isPrivateV4(embeddedV4(g1, g2));
+  if (g0 === 0x2001 && g1 === 0) return true; // Teredo 2001::/32 (tunnelled; never needed)
+  if ((g0 & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((g0 & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((g0 & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated)
+  if ((g0 & 0xff00) === 0xff00) return true; // ff00::/8 multicast
   return false;
 }
 
@@ -31,25 +85,7 @@ export function isPrivateIp(ip: string): boolean {
   const v = ip.toLowerCase().replace(/^\[|\]$/g, "");
   const fam = isIP(v);
   if (fam === 4) return isPrivateV4(v);
-  if (fam === 6) {
-    if (v === "::1" || v === "::") return true;
-    if (/^f[cd]/.test(v)) return true; // fc00::/7 unique-local
-    if (/^fe[89ab]/.test(v)) return true; // fe80::/10 link-local
-    const m = /^::ffff:(.+)$/.exec(v); // IPv4-mapped IPv6
-    if (m && m[1]) {
-      const inner = m[1];
-      if (isIP(inner) === 4) return isPrivateV4(inner);
-      const parts = inner.split(":");
-      if (parts.length === 2) {
-        const hi = parseInt(parts[0] ?? "", 16);
-        const lo = parseInt(parts[1] ?? "", 16);
-        if (Number.isFinite(hi) && Number.isFinite(lo)) {
-          return isPrivateV4(`${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`);
-        }
-      }
-    }
-    return false;
-  }
+  if (fam === 6) return isPrivateV6(v);
   return true; // not a parseable IP → reject defensively
 }
 
@@ -81,7 +117,23 @@ const safeAgent = new Agent({ connect: { lookup: safeLookup } });
 
 type FetchInit = RequestInit & { dispatcher?: unknown };
 
-function assertHttps(raw: string): URL {
+/** Options shared by the URL screen and safeFetch. */
+export interface SafeUrlOptions {
+  /** When set, only these ports are allowed (an absent port means 443). */
+  allowedPorts?: number[];
+}
+
+/**
+ * Screen an outbound URL WITHOUT fetching it: https only, no localhost/internal
+ * names, no private IP literals, and (optionally) an allowed port. Use it to
+ * validate a tenant-supplied URL when it is SAVED; safeFetch re-applies it, plus
+ * the connect-time IP check, on every call. Throws on a blocked URL.
+ */
+export function assertSafeHttpsUrl(raw: string, opts: SafeUrlOptions = {}): URL {
+  return assertHttps(raw, opts);
+}
+
+function assertHttps(raw: string, opts: SafeUrlOptions = {}): URL {
   let url: URL;
   try {
     url = new URL(raw);
@@ -99,6 +151,10 @@ function assertHttps(raw: string): URL {
   // or a `https://127.0.0.1:.../` `https://10.x/`, `https://[::1]/` etc. would connect straight
   // through — including via a redirect Location header, which re-enters assertHttps per hop.
   if (isIP(host) && isPrivateIp(host)) throw new Error("host_blocked");
+  if (opts.allowedPorts) {
+    const port = url.port ? Number(url.port) : 443;
+    if (!opts.allowedPorts.includes(port)) throw new Error("port_blocked");
+  }
   return url;
 }
 
@@ -110,12 +166,12 @@ function assertHttps(raw: string): URL {
 export async function safeFetch(
   raw: string,
   init: RequestInit = {},
-  opts: { maxRedirects?: number; timeoutMs?: number } = {},
+  opts: { maxRedirects?: number; timeoutMs?: number } & SafeUrlOptions = {},
 ): Promise<Response> {
   const maxRedirects = opts.maxRedirects ?? 4;
   let current = raw;
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
-    const url = assertHttps(current);
+    const url = assertHttps(current, opts);
     const res = await fetch(url, {
       ...init,
       dispatcher: safeAgent,

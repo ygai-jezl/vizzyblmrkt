@@ -220,3 +220,79 @@ describe("TenantCollection isolation", () => {
     ).toThrow(TenantValidationError);
   });
 });
+
+describe("TenantCollection.upsert (atomic create-or-update)", () => {
+  it("creates when the id is free, stamping the trusted tenant", async () => {
+    const db = new FakeFirestore();
+    const r = await forTenant(ctxA, db).signups.upsert(
+      "s1",
+      () => ({ ...signup(), tenantId: "ten_EVIL" }) as never,
+      () => {
+        throw new Error("mutate must not run on create");
+      },
+    );
+    expect(r.created).toBe(true);
+    expect(db.raw("signups", "s1")).toMatchObject({ tenantId: "ten_A", email: "x@example.com" });
+  });
+
+  it("updates in place within the same tenant and never rewrites createdAt", async () => {
+    const db = new FakeFirestore();
+    const repo = forTenant(ctxA, db);
+    await repo.signups.create("s1", signup() as never);
+
+    const r = await repo.signups.upsert(
+      "s1",
+      () => {
+        throw new Error("create must not run on update");
+      },
+      (cur) => ({ score: (cur.score ?? 0) + 5, createdAt: "2099-01-01T00:00:00Z" }) as never,
+    );
+    expect(r.created).toBe(false);
+    expect(r.doc.score).toBe(5);
+    expect(db.raw("signups", "s1")).toMatchObject({ score: 5, createdAt: "2026-06-15T16:00:00Z" });
+  });
+
+  it("leaves the document unchanged when mutate returns null", async () => {
+    const db = new FakeFirestore();
+    const repo = forTenant(ctxA, db);
+    await repo.signups.create("s1", signup() as never);
+    const before = db.writeCountFor("signups", "s1");
+
+    await repo.signups.upsert("s1", () => signup() as never, () => null);
+
+    expect(db.writeCountFor("signups", "s1")).toBe(before);
+  });
+
+  it("refuses an id that belongs to another tenant, leaving it intact", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "s1", { ...signup(), tenantId: "ten_B" });
+
+    await expect(
+      forTenant(ctxA, db).signups.upsert("s1", () => signup() as never, () => ({ score: 9 }) as never),
+    ).rejects.toBeInstanceOf(TenantIsolationError);
+    expect(db.raw("signups", "s1")).toMatchObject({ tenantId: "ten_B", score: 0 });
+  });
+
+  it("takes the update path when a concurrent writer creates the doc first", async () => {
+    const db = new FakeFirestore();
+    db.onBeforeCommit = async () => {
+      await db.collection("signups").doc("s1").create({ ...signup(), tenantId: "ten_A", score: 1 });
+    };
+
+    const r = await forTenant(ctxA, db).signups.upsert(
+      "s1",
+      () => signup() as never,
+      (cur) => ({ score: (cur.score ?? 0) + 1 }) as never,
+    );
+
+    expect(r.created).toBe(false);
+    expect(db.raw("signups", "s1")).toMatchObject({ score: 2 });
+  });
+
+  it("rejects an empty id", async () => {
+    const db = new FakeFirestore();
+    await expect(
+      forTenant(ctxA, db).signups.upsert("", () => signup() as never, () => null),
+    ).rejects.toBeInstanceOf(TenantValidationError);
+  });
+});

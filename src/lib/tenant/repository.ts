@@ -205,6 +205,52 @@ export class TenantCollection<T extends TenantScoped> {
     });
   }
 
+  /**
+   * Atomically create-or-update a document with a caller-provided id. Inside a
+   * transaction: if the id is free, `create()` supplies the new document; if it
+   * exists in THIS tenant, `mutate(current)` returns a patch (or null to leave it
+   * unchanged). Racing upserts serialise — a concurrent create is seen on retry
+   * and takes the update path.
+   *
+   * SECURITY: like create(), an id that exists in ANOTHER tenant throws
+   * TenantIsolationError — it is never overwritten or re-homed. Identity fields
+   * (tenantId/id) are stamped/stripped, and createdAt is never rewritten on update.
+   */
+  async upsert(
+    id: string,
+    create: () => CreateInput<T>,
+    mutate: (current: T) => Partial<CreateInput<T>> | null,
+  ): Promise<{ doc: T; created: boolean }> {
+    if (!id) throw new TenantValidationError("upsert() requires a document id");
+    const ref = this.db.collection(this.name).doc(id);
+    return this.db.runTransaction(async (txn) => {
+      const snap = await txn.get(ref);
+      if (!snap.exists) {
+        const { tenantId: _t, id: _i, ...rest } = create() as Record<string, unknown>;
+        const doc = { ...rest, [TENANT_FIELD]: this.tenantId };
+        txn.create(ref, doc);
+        return { doc: { id, ...doc } as unknown as T, created: true };
+      }
+      const data = snap.data() ?? {};
+      if (data[TENANT_FIELD] !== this.tenantId) {
+        throw new TenantIsolationError(
+          `${this.name}/${id} already exists; refusing to overwrite`,
+        );
+      }
+      const current = { id: snap.id, ...data } as T;
+      const patch = mutate(current);
+      if (!patch) return { doc: current, created: false };
+      const {
+        tenantId: _t,
+        id: _i,
+        createdAt: _c,
+        ...rest
+      } = patch as Record<string, unknown>;
+      txn.update(ref, rest);
+      return { doc: { ...current, ...rest } as T, created: false };
+    });
+  }
+
   async delete(id: string): Promise<void> {
     const existing = await this.getById(id); // verifies tenant ownership
     if (!existing) {

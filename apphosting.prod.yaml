@@ -482,19 +482,22 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
-  # Lifecycle journeys — OFF in prod until verified on dev and promoted. Flip all
-  # three with a `chore(prod): enable …` commit after the prod smoke test.
+  # Lifecycle journeys — ON in prod (owner decision, 2026-09-21): Products,
+  # Journeys, the Approval Queue, the ingest API, AI lines and chat authoring.
+  # LIFECYCLE_MODE_CEILING below stays `test` until the vizzybl.ai launch (M7),
+  # so a published journey can only email listed test users. To switch off
+  # quickly, set LIFECYCLE_ENABLED (and the NEXT_PUBLIC_ mirror) back to "false".
   - variable: LIFECYCLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: LIFECYCLE_INGEST_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # CONNECT_SECRET_ENC_KEY and LIFECYCLE_WORKER_SECRET are set in apphosting.yaml
@@ -517,11 +520,11 @@ env:
     availability:
       - RUNTIME
   - variable: LIFECYCLE_AI_DRAFTS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

@@ -20,8 +20,10 @@ import {
 } from "./service";
 import { enrolUser, versionDocId } from "./enrol";
 import { lifecycleSender } from "./policy";
-import { lifecycleModeCeiling } from "./flags";
+import { isLifecycleAiDraftsEnabled, isLifecycleChatAuthoringEnabled, lifecycleModeCeiling } from "./flags";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
+import { architectLifecycleDraft } from "./architect";
+import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 
 /**
  * The Lifecycle → Journeys admin API (thin routes in src/app/api/admin/lifecycle
@@ -109,6 +111,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
     sender: { verified: sender.verified, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
     postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
     modeCeiling: lifecycleModeCeiling(),
+    features: { chatAuthoring: isLifecycleChatAuthoringEnabled(), aiLines: isLifecycleAiDraftsEnabled() },
   });
 }
 
@@ -411,4 +414,40 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
     },
     truncated: enrolments.length >= 2000 || events.length >= 5000,
   });
+}
+
+// ---- Generate (the canvas's AI button) -----------------------------------------------------
+
+const GenerateInput = z.object({
+  brief: z.string().max(2000).default(""),
+  options: z.unknown().optional(),
+});
+
+/** Rebuild the draft from the template with fresh on-brand copy (the architect Vizzy uses). */
+export async function generateJourneyDraft(
+  ctx: TenantContext,
+  journeyId: string,
+  input: unknown,
+  deps: { db?: FirestoreLike; generate?: (prompt: string) => Promise<string | null> } = {},
+): Promise<ApiResult> {
+  const parsed = GenerateInput.safeParse(input ?? {});
+  if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
+  const journey = await loadJourney(ctx, journeyId, deps.db);
+  if (!journey) return fail(404, "not_found");
+  const [connection, tenant] = await Promise.all([
+    forTenant(ctx, deps.db).productConnections.getById(journey.connectionId),
+    getTenantById(ctx.tenantId, deps.db).catch(() => null),
+  ]);
+  if (!connection) return fail(404, "connection_not_found");
+  const built = await architectLifecycleDraft({
+    connection,
+    options: parsed.data.options,
+    brief: parsed.data.brief,
+    brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice }),
+    generate: deps.generate,
+  });
+  if ("error" in built) return fail(422, "invalid_options", built.detail);
+  const saved = await saveLifecycleDraft(ctx, journeyId, built.draft, { db: deps.db, authoredBy: "human" });
+  if (!saved.ok) return fail(saved.status, saved.error, saved.detail);
+  return ok({ journey: saved.value.journey, issues: saved.value.issues, notes: built.notes });
 }

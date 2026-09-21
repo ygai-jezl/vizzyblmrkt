@@ -88,14 +88,21 @@ export const CreateJourneyInput = z.object({
 export async function createLifecycleJourney(
   ctx: TenantContext,
   input: unknown,
-  deps: { db?: FirestoreLike; nowMs?: number; authoredBy?: "human" | "agent" } = {},
+  deps: {
+    db?: FirestoreLike;
+    nowMs?: number;
+    authoredBy?: "human" | "agent";
+    /** A ready-made draft (the architect's) instead of the template's. */
+    draft?: LifecycleDraft;
+  } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; issues: GraphIssue[] }>> {
   const parsed = CreateJourneyInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const connection = await loadConnection(ctx, parsed.data.connectionId, deps.db);
   if (!connection || connection.status === "revoked") return fail(404, "connection_not_found");
 
-  const draft = parsed.data.template === "blank" ? blankDraft() : buildProductOnboardingDraft(connection.catalog);
+  const draft =
+    deps.draft ?? (parsed.data.template === "blank" ? blankDraft() : buildProductOnboardingDraft(connection.catalog));
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const journey = await forTenant(ctx, deps.db).lifecycleJourneys.create(newJourneyId(), {
     name: parsed.data.name,

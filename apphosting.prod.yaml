@@ -511,6 +511,10 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Create FIRST with: infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
   # - variable: LIFECYCLE_WORKER_SECRET
   #   secret: lifecycle-worker-secret

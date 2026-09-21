@@ -71,6 +71,25 @@ const MESSAGES: Record<string, string> = {
   duplicate_user_id: "Two test users share the same user id.",
   connect_enc_key_unconfigured: "Connection secrets aren't configured in this environment yet.",
   network: "Couldn't reach the server.",
+  // Lifecycle journeys
+  connection_not_found: "That product connection doesn't exist.",
+  connection_unavailable: "The journey's product connection is revoked.",
+  invalid_draft: "The journey couldn't be saved — part of it is malformed.",
+  invalid_journey: "Fix the issues listed before publishing.",
+  publish_conflict: "Someone else published at the same moment — reload and try again.",
+  not_published: "Publish the journey first.",
+  sender_unverified: "Live sending needs a From address on a verified sending domain.",
+  shadow_inbox_required: "Shadow mode needs a shadow inbox.",
+  shadow_inbox_not_allowed: "The shadow inbox must be your own address or on a verified sending domain.",
+  journey_not_active: "The journey must be published and active.",
+  user_not_found: "No user with that id has been seen from this product.",
+  already_enrolled: "That user is already in this journey.",
+  not_a_test_recipient: "In test mode only listed test users can be enrolled.",
+  enrolment_cap: "Today's enrolment cap for this journey is reached.",
+  user_deleted: "That user has been deleted.",
+  live: "Run-now is only for test and shadow enrolments.",
+  busy: "That enrolment is being processed right now — try again in a moment.",
+  not_active: "That enrolment has already finished.",
 };
 
 /** A readable message for an admin-API error body. */

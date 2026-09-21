@@ -732,7 +732,7 @@ export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<Lifecycle
 
 /**
  * "Run next step now" (admin): skip the current wait and send window for ONE
- * enrolment, then process it. Only for enrolments that can't reach a real user
+ * enrolment, then process it — the next email goes out now. Only for enrolments that can't reach a real user
  * unexpectedly — test or shadow mode, never live.
  */
 export async function runEnrolmentNow(
@@ -750,10 +750,15 @@ export async function runEnrolmentNow(
   if (lowestMode(enrolment.mode, journey.deliveryMode, lifecycleModeCeiling()) === "live") return { ok: false, error: "live" };
 
   const nowMs = clock();
+  const version = await repo.lifecycleVersions.getById(enrolment.versionId);
   const primed = await repo.lifecycleEnrolments.claim(enrolmentId, (cur) => {
     if (cur.status !== "active") return null;
     if (cur.leaseUntil && cur.leaseUntil > iso(nowMs)) return null;
+    // Parked AT a wait (not yet scheduled past it): skip that wait too.
+    const at = cur.cursor?.nodeId;
+    const waiting = version && at && version.graph.nodes.find((n) => n.id === at)?.type === "wait";
     return {
+      ...(waiting ? { cursor: cursorOf(nextNodeId(version.graph, at)) } : {}),
       nextRunAt: iso(nowMs),
       windowExemptUntil: iso(nowMs + 10 * 60_000),
       log: withLog(cur.log, [{ at: iso(nowMs), event: "run_now", detail: null }]),

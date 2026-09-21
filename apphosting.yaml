@@ -550,10 +550,9 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Root key that seals connection secrets (AES-GCM). Create it FIRST with
+  # Root key that seals connection secrets (AES-GCM). Created in dev with
   #   infra/lifecycle/setup.sh secret vizzybl-marketing-dev
-  # then uncomment (a rollout fails if it references a missing secret).
-  # - variable: CONNECT_SECRET_ENC_KEY
-  #   secret: connect-secret-enc-key
-  #   availability:
-  #     - RUNTIME
+  - variable: CONNECT_SECRET_ENC_KEY
+    secret: connect-secret-enc-key
+    availability:
+      - RUNTIME

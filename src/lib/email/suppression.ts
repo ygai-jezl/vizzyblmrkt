@@ -23,6 +23,15 @@ export function suppressionDocId(tenantId: string, email: string): string {
   return `sup_${hash}`;
 }
 
+/** Deterministic per-(tenant, email, category) id for a CATEGORY opt-out. */
+export function categorySuppressionDocId(tenantId: string, email: string, category: string): string {
+  const hash = createHash("sha256")
+    .update(`${tenantId}\n${normalizeEmail(email)}\n${category}`)
+    .digest("hex")
+    .slice(0, 40);
+  return `supc_${hash}`;
+}
+
 export interface SuppressInput {
   email: string;
   reason: EmailSuppressionReason;
@@ -49,6 +58,7 @@ export async function suppressEmail(
       source: input.source,
       campaignId: input.campaignId ?? null,
       signupId: input.signupId ?? null,
+      scope: "all",
       createdAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -68,4 +78,52 @@ export async function isSuppressed(
   const id = suppressionDocId(ctx.tenantId, email);
   const doc = await forTenant(ctx, db).emailSuppressions.getById(id);
   return doc != null;
+}
+
+/**
+ * Idempotently record a CATEGORY opt-out (lifecycle email in one category, e.g.
+ * "onboarding"). Other marketing to the address is unaffected.
+ */
+export async function suppressEmailCategory(
+  ctx: TenantContext,
+  input: { email: string; category: string; source: string; connectionId?: string | null; recipientId?: string | null },
+  db?: FirestoreLike,
+): Promise<void> {
+  const normalizedEmail = normalizeEmail(input.email);
+  if (!normalizedEmail) return;
+  try {
+    await forTenant(ctx, db).emailSuppressions.create(
+      categorySuppressionDocId(ctx.tenantId, normalizedEmail, input.category),
+      {
+        normalizedEmail,
+        email: input.email.trim(),
+        reason: "unsubscribe",
+        source: input.source,
+        scope: "category",
+        category: input.category,
+        connectionId: input.connectionId ?? null,
+        recipientId: input.recipientId ?? null,
+        createdAt: new Date().toISOString(),
+      },
+    );
+  } catch (err) {
+    if (err instanceof TenantIsolationError) return; // already opted out of this category
+    throw err;
+  }
+}
+
+/** Whether the address opted out of this category (or of everything). */
+export async function isSuppressedFor(
+  ctx: TenantContext,
+  email: string | null | undefined,
+  category: string,
+  db?: FirestoreLike,
+): Promise<boolean> {
+  if (!email) return false;
+  const repo = forTenant(ctx, db).emailSuppressions;
+  const [all, cat] = await Promise.all([
+    repo.getById(suppressionDocId(ctx.tenantId, email)),
+    repo.getById(categorySuppressionDocId(ctx.tenantId, email, category)),
+  ]);
+  return all != null || cat != null;
 }

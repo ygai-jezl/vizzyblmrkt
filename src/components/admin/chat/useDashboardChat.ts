@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { parseSSE } from "./streamTypes";
 import { type ChatMode, DEFAULT_CHAT_MODE } from "./chatModes";
 
@@ -15,11 +15,46 @@ import { type ChatMode, DEFAULT_CHAT_MODE } from "./chatModes";
 const CHAT_ENDPOINT = "/api/admin/agent/chat";
 const GENERIC_ERROR = "Sorry — I hit an error. Please try again.";
 
+/** A draft an agent saved on a canvas during this turn (shown as a card). */
+export interface CanvasCardData {
+  kind: string;
+  id: string;
+  title: string;
+  subtitle?: string;
+  url: string;
+  stats: Array<{ label: string; value: string | number }>;
+  warnings: number;
+}
+
 export interface ChatExchange {
   role: "user" | "agent";
   text: string;
   thoughtText?: string;
   isStreaming?: boolean;
+  artifacts?: CanvasCardData[];
+}
+
+export interface DashboardChatOptions {
+  /** The page the operator is chatting from (e.g. a lifecycle journey). */
+  context?: { connectionId?: string | null; journeyId?: string | null };
+  /** Called when an agent saves a canvas draft during a turn. */
+  onCanvasSaved?: (card: CanvasCardData) => void;
+}
+
+function asCard(result: Record<string, unknown> | undefined): CanvasCardData | null {
+  const card = result?.card as Partial<CanvasCardData> | undefined;
+  if (!card || typeof card !== "object" || typeof card.url !== "string" || typeof card.id !== "string") return null;
+  // Only same-app links: a card can never point the operator off-site.
+  if (!card.url.startsWith("/admin/")) return null;
+  return {
+    kind: String(card.kind ?? "canvas"),
+    id: card.id,
+    title: String(card.title ?? "Draft"),
+    subtitle: typeof card.subtitle === "string" ? card.subtitle : undefined,
+    url: card.url,
+    stats: Array.isArray(card.stats) ? card.stats.slice(0, 6) : [],
+    warnings: typeof card.warnings === "number" ? card.warnings : 0,
+  };
 }
 
 export interface UseDashboardChatReturn {
@@ -35,7 +70,12 @@ export interface UseDashboardChatReturn {
   sendMessage: (prompt: string) => Promise<void>;
 }
 
-export function useDashboardChat(): UseDashboardChatReturn {
+export function useDashboardChat(options: DashboardChatOptions = {}): UseDashboardChatReturn {
+  // Latest options without re-creating sendMessage on every render.
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    optionsRef.current = options;
+  });
   const [exchange, setExchange] = useState<ChatExchange[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -87,7 +127,13 @@ export function useDashboardChat(): UseDashboardChatReturn {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: trimmed, sessionId, mode }),
+          body: JSON.stringify({
+            message: trimmed,
+            sessionId,
+            mode,
+            connectionId: optionsRef.current.context?.connectionId ?? null,
+            journeyId: optionsRef.current.context?.journeyId ?? null,
+          }),
         });
         if (!response.ok || !response.body) {
           throw new Error(`agent_request_failed_${response.status}`);
@@ -132,9 +178,24 @@ export function useDashboardChat(): UseDashboardChatReturn {
                 setIsThinking(false);
                 setToolStatus(`Running ${event.toolName}…`);
                 break;
-              case "tool_result":
+              case "tool_result": {
                 setToolStatus("Processing…");
+                const card = asCard(event.result);
+                if (card) {
+                  setExchange((prev) => {
+                    const updated = [...prev];
+                    const last = updated.findLastIndex((m) => m.role === "agent");
+                    const target = last >= 0 ? updated[last] : undefined;
+                    if (target) {
+                      const others = (target.artifacts ?? []).filter((a) => a.id !== card.id);
+                      updated[last] = { ...target, artifacts: [...others, card] };
+                    }
+                    return updated;
+                  });
+                  optionsRef.current.onCanvasSaved?.(card);
+                }
                 break;
+              }
               case "done":
                 if (event.sessionId) setSessionId(event.sessionId);
                 setExchange((prev) => {

@@ -40,6 +40,11 @@ const Body = z.object({
   // The launch the operator is working in, if any. Lets the Campaign Ops
   // sub-agent author a journey draft for the right campaign.
   campaignId: z.string().max(200).nullish(),
+  // The lifecycle journey page the operator is chatting from, if any — lets the
+  // Lifecycle Ops sub-agent edit THAT journey. Brace-free ids only (they ride in
+  // the [ctx:{…}] envelope).
+  connectionId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
+  journeyId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
 });
 
 const encoder = new TextEncoder();
@@ -58,7 +63,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
-  const { message, sessionId, mode, campaignId } = parsed.data;
+  const { message, sessionId, mode, campaignId, connectionId, journeyId } = parsed.data;
 
   if (!isAgentRuntimeConfigured()) {
     return new Response(unconfiguredStream(), { headers: SSE_HEADERS });
@@ -75,7 +80,7 @@ export async function POST(req: Request) {
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const locale = normalizeLocale(tenant?.defaultLocale) ?? "en";
   const text =
-    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale }) + message;
+    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId }) + message;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

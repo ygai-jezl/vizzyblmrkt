@@ -31,6 +31,17 @@ export const EmailSuppressionSchema = z.object({
   /** The campaign/signup that triggered it, when known (audit only). */
   campaignId: z.string().nullable().optional(),
   signupId: z.string().nullable().optional(),
+  /**
+   * `all` (the default, and every legacy row) stops ALL marketing email to the
+   * address. `category` stops only lifecycle email in `category` (e.g. a
+   * one-click "stop onboarding tips"); its id is `supc_…`, so it never collides
+   * with — or satisfies — the tenant-wide `sup_…` row.
+   */
+  scope: z.enum(["all", "category"]).default("all"),
+  category: z.string().nullable().optional(),
+  /** Lifecycle recipient (a connected product's user), when known. */
+  connectionId: z.string().nullable().optional(),
+  recipientId: z.string().nullable().optional(),
   createdAt: z.string(),
 });
 export type EmailSuppression = z.infer<typeof EmailSuppressionSchema>;

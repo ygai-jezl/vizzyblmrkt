@@ -482,3 +482,49 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
+  # Lifecycle journeys — ON in prod (owner decision, 2026-09-21): Products,
+  # Journeys, the Approval Queue, the ingest API, AI lines and chat authoring.
+  # LIFECYCLE_MODE_CEILING below stays `test` until the vizzybl.ai launch (M7),
+  # so a published journey can only email listed test users. To switch off
+  # quickly, set LIFECYCLE_ENABLED (and the NEXT_PUBLIC_ mirror) back to "false".
+  - variable: LIFECYCLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: LIFECYCLE_INGEST_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # CONNECT_SECRET_ENC_KEY and LIFECYCLE_WORKER_SECRET are set in apphosting.yaml
+  # and INHERITED here, resolved against THIS project's Secret Manager — so both
+  # secrets must exist in prod (with App Hosting access) before any prod rollout,
+  # or the build fails. Create them with:
+  #   infra/lifecycle/setup.sh secret vizzybl-marketing-prod
+  #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
+  #
+  # Email unsubscribe / preference links must point at PROD. (apphosting.yaml
+  # sets this to the dev backend's URL for dev; without this override prod
+  # emails would link to dev, where the tokens don't verify.)
+  - variable: EMAIL_LINK_ORIGIN
+    value: https://yougrow.ai
+    availability:
+      - RUNTIME
+  # The highest delivery mode prod may use: test until the vizzybl.ai launch (M7).
+  - variable: LIFECYCLE_MODE_CEILING
+    value: test
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_AI_DRAFTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

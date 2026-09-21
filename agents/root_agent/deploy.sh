@@ -74,6 +74,7 @@ fi
 if [ -z "${CANVAS_CALLBACK_URL:-}" ]; then
   case "$PROJECT" in
     vizzybl-marketing-prod) CANVAS_CALLBACK_URL="https://yougrow.ai" ;;
+    vizzybl-marketing-dev)  CANVAS_CALLBACK_URL="https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app" ;;
     *) CANVAS_CALLBACK_URL="" ;;
   esac
 fi

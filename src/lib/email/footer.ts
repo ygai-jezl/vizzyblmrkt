@@ -2,7 +2,21 @@ import type { Tenant } from "@/lib/types/tenant";
 import { resolveFooterBrand, type CampaignSenderOverrides } from "@/lib/email/sender";
 import type { FooterMergeValues } from "@/lib/email/mergeVars";
 import { platformOrigin } from "@/lib/platform/origin";
-import { mintUnsubscribeTokenOrNull, type SignUnsubscribeInput } from "@/lib/email/unsubscribeToken";
+import {
+  mintUnsubscribeTokenOrNull,
+  mintUnsubscribeTokenV2OrNull,
+  type SignUnsubscribeInput,
+  type SignUnsubscribeV2Input,
+} from "@/lib/email/unsubscribeToken";
+
+/**
+ * The origin that email links (unsubscribe / preferences) point at: an explicit
+ * EMAIL_LINK_ORIGIN if set (e.g. the dev backend's URL), else the platform
+ * origin. Empty when neither is configured — callers then omit the links.
+ */
+export function emailLinkOrigin(): string {
+  return (process.env.EMAIL_LINK_ORIGIN ?? "").replace(/\/+$/, "") || platformOrigin();
+}
 
 /**
  * Resolves the concrete values for the mandatory footer's tokens (sender brand,
@@ -34,7 +48,22 @@ export function unsubscribeLinks(input: SignUnsubscribeInput): {
   apiUrl: string;
 } {
   const token = mintUnsubscribeTokenOrNull(input);
-  const origin = platformOrigin();
+  const origin = emailLinkOrigin();
+  if (!token || !origin) return { pageUrl: "", apiUrl: "" };
+  const q = `u=${encodeURIComponent(token)}`;
+  return { pageUrl: `${origin}/unsubscribe?${q}`, apiUrl: `${origin}/api/unsubscribe?${q}` };
+}
+
+/**
+ * Unsubscribe URLs for a LIFECYCLE email (a v2, category-scoped token). A
+ * one-click unsubscribe stops that category; the page offers "everything" too.
+ */
+export function lifecycleUnsubscribeLinks(input: SignUnsubscribeV2Input): {
+  pageUrl: string;
+  apiUrl: string;
+} {
+  const token = mintUnsubscribeTokenV2OrNull(input);
+  const origin = emailLinkOrigin();
   if (!token || !origin) return { pageUrl: "", apiUrl: "" };
   const q = `u=${encodeURIComponent(token)}`;
   return { pageUrl: `${origin}/unsubscribe?${q}`, apiUrl: `${origin}/api/unsubscribe?${q}` };

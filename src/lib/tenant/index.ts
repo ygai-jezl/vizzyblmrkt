@@ -116,3 +116,15 @@ export {
   TenantValidationError,
 } from "./errors";
 export type { TenantContext } from "./types";
+export {
+  putConnectionKey,
+  getConnectionKey,
+  deleteConnectionKey,
+} from "./connectionKeys";
+export type { ConnectionKeyRecord } from "./connectionKeys";
+export { applyProductMessage } from "./productIngest";
+export type { ApplyOutcome, ApplyMessageArgs } from "./productIngest";
+export { isRateLimited } from "./rateLimit";
+export { claimLifecycleSend } from "./lifecycleSend";
+export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
+export type { RateLimitConfig } from "./rateLimit";

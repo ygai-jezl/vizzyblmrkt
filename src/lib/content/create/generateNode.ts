@@ -2,18 +2,14 @@ import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
 import { getFramework } from "@/lib/content/frameworks";
 import { getEmailFramework, DEFAULT_EMAIL_FRAMEWORK } from "@/lib/content/emailFrameworks";
 import { getSequenceBlueprint } from "@/lib/content/create/sequenceBlueprints";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
-import {
-  spamScan,
-  fleschKincaidGrade,
-  READABILITY_MAX_GRADE,
-  collapseBangs,
-} from "@/lib/content/create/emailCritics";
+import { fleschKincaidGrade, READABILITY_MAX_GRADE } from "@/lib/content/create/emailCritics";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { bodyTokens } from "@/lib/content/placeholders";
 import { MERGE_VARS } from "@/lib/email/mergeVars";
@@ -96,34 +92,6 @@ function coerceBody(raw: string | null): string {
   if (!j || typeof j !== "object") return "";
   const body = (j as Record<string, unknown>).body;
   return typeof body === "string" ? body.trim().slice(0, MAX_BODY_CHARS) : "";
-}
-
-interface DraftedEmail {
-  subject: string;
-  previewText: string;
-  subjectVariants: string[];
-  body: string;
-}
-
-/** Parse the richer email JSON (subject + preview + A/B variants + body); tolerant. */
-function coerceEmail(raw: string | null): DraftedEmail {
-  const empty: DraftedEmail = { subject: "", previewText: "", subjectVariants: [], body: "" };
-  const j = raw ? parseFirstJson(raw) : null;
-  if (!j || typeof j !== "object") return empty;
-  const o = j as Record<string, unknown>;
-  const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-  const variants = Array.isArray(o.subjectVariants)
-    ? (o.subjectVariants as unknown[])
-        .map((v) => str(v, 200))
-        .filter(Boolean)
-        .slice(0, 3)
-    : [];
-  return {
-    subject: str(o.subject, 200),
-    previewText: str(o.previewText, 200),
-    subjectVariants: variants,
-    body: str(o.body, MAX_BODY_CHARS),
-  };
 }
 
 function formatForNode(node: ContentNode, hubBlockType: string): string {
@@ -281,15 +249,8 @@ export async function generateNode(
       proof_assets: proofBlock,
       exemplars: exemplarsBlock,
     });
-    const emailPrompt = composePrompt({
-      identity: brandVoiceSection(input.brandVoice),
-      communication: WRITING_RULES,
-      userProfile: audienceSection(input.audience),
-      task,
-    });
-    const raw = await generateText(emailPrompt);
-    const drafted = coerceEmail(raw);
-    if (!drafted.body) {
+    const drafted = await draftEmailCopy({ task, brandVoice: input.brandVoice, audience: input.audience });
+    if (!drafted) {
       return {
         body: "",
         placeholderValues: {},
@@ -313,12 +274,11 @@ export async function generateNode(
     const applied: Record<string, string> = {};
     const bake = (s: string) => fillKnownTokens(s, values, applied);
 
-    // Critics run on the MODEL PROSE first (spam scan + the safe bang auto-fix), THEN we
-    // bake tokens — so a baked value containing "!!" (legal in a URL) is never mangled.
-    const spam = spamScan(drafted.subject, drafted.body);
-    const finalSubject = bake(spam.cleanedSubject);
-    const finalBody = bake(spam.cleanedBody);
-    const warnings = [...spam.warnings];
+    // draftEmailCopy already ran the critics on the model prose (spam scan + the safe
+    // bang auto-fix); tokens are baked only now, so a baked "!!" is never mangled.
+    const finalSubject = bake(drafted.subject);
+    const finalBody = bake(drafted.body);
+    const warnings = [...drafted.warnings];
     const leftover = unfilledTokens(finalBody, applied).filter((t) => !RECIPIENT_TOKENS.has(t));
     if (leftover.length) warnings.push("unfilled_tokens");
     if (fleschKincaidGrade(finalBody) > READABILITY_MAX_GRADE) {
@@ -330,8 +290,8 @@ export async function generateNode(
       status: "generated" as const,
       format,
       subject: finalSubject,
-      previewText: bake(collapseBangs(drafted.previewText)),
-      subjectVariants: drafted.subjectVariants.map((v) => bake(collapseBangs(v))),
+      previewText: bake(drafted.previewText),
+      subjectVariants: drafted.subjectVariants.map((v) => bake(v)),
     };
 
     // With a visual layout, the AI copy fills the role:"copy" block and `body` is

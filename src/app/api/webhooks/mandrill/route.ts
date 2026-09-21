@@ -87,6 +87,8 @@ export async function POST(req: Request) {
         nodeId: meta.nodeId,
         signupId: meta.signupId,
         variantId: meta.variantId,
+        recipientKind: meta.recipientKind,
+        connectionId: meta.connectionId ?? null,
         type,
         ts: ev.ts
           ? new Date(ev.ts * 1000).toISOString()

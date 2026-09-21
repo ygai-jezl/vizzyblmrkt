@@ -27,6 +27,17 @@ import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandFont } from "@/lib/types/brandFont";
 import type { BrandAsset } from "@/lib/types/brandAsset";
+import type { ProductConnection } from "@/lib/types/productConnection";
+import type { ProductUser } from "@/lib/types/productUser";
+import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
+import type {
+  AiDraft,
+  LifecycleJourney,
+  LifecycleVersion,
+  LifecycleEnrolment,
+  LifecycleWebhook,
+  LifecycleCounter,
+} from "@/lib/types/lifecycle";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -205,6 +216,52 @@ export class TenantCollection<T extends TenantScoped> {
     });
   }
 
+  /**
+   * Atomically create-or-update a document with a caller-provided id. Inside a
+   * transaction: if the id is free, `create()` supplies the new document; if it
+   * exists in THIS tenant, `mutate(current)` returns a patch (or null to leave it
+   * unchanged). Racing upserts serialise — a concurrent create is seen on retry
+   * and takes the update path.
+   *
+   * SECURITY: like create(), an id that exists in ANOTHER tenant throws
+   * TenantIsolationError — it is never overwritten or re-homed. Identity fields
+   * (tenantId/id) are stamped/stripped, and createdAt is never rewritten on update.
+   */
+  async upsert(
+    id: string,
+    create: () => CreateInput<T>,
+    mutate: (current: T) => Partial<CreateInput<T>> | null,
+  ): Promise<{ doc: T; created: boolean }> {
+    if (!id) throw new TenantValidationError("upsert() requires a document id");
+    const ref = this.db.collection(this.name).doc(id);
+    return this.db.runTransaction(async (txn) => {
+      const snap = await txn.get(ref);
+      if (!snap.exists) {
+        const { tenantId: _t, id: _i, ...rest } = create() as Record<string, unknown>;
+        const doc = { ...rest, [TENANT_FIELD]: this.tenantId };
+        txn.create(ref, doc);
+        return { doc: { id, ...doc } as unknown as T, created: true };
+      }
+      const data = snap.data() ?? {};
+      if (data[TENANT_FIELD] !== this.tenantId) {
+        throw new TenantIsolationError(
+          `${this.name}/${id} already exists; refusing to overwrite`,
+        );
+      }
+      const current = { id: snap.id, ...data } as T;
+      const patch = mutate(current);
+      if (!patch) return { doc: current, created: false };
+      const {
+        tenantId: _t,
+        id: _i,
+        createdAt: _c,
+        ...rest
+      } = patch as Record<string, unknown>;
+      txn.update(ref, rest);
+      return { doc: { ...current, ...rest } as T, created: false };
+    });
+  }
+
   async delete(id: string): Promise<void> {
     const existing = await this.getById(id); // verifies tenant ownership
     if (!existing) {
@@ -297,6 +354,25 @@ export interface TenantRepositories {
    *  `brand/{tenantId}/{category}s/...` and are served by the public /api/brand-asset proxy;
    *  also fed into image generation as visual references. */
   brandAssets: TenantCollection<BrandAsset>;
+  /** Lifecycle: the tenant's connected products (keys, endpoints, catalog). */
+  productConnections: TenantCollection<ProductConnection>;
+  /** Lifecycle: the connected products' end users, built from ingested events. */
+  productUsers: TenantCollection<ProductUser>;
+  /** Lifecycle: the ingested identify/track log (idempotency gate + debugger). */
+  productEvents: TenantCollection<ProductEvent>;
+  /** Lifecycle: per-connection observed catalog + recent rejections. */
+  connectionDiagnostics: TenantCollection<ConnectionDiagnostics>;
+  /** Lifecycle journeys (draft) and their immutable published versions. */
+  lifecycleJourneys: TenantCollection<LifecycleJourney>;
+  lifecycleVersions: TenantCollection<LifecycleVersion>;
+  /** Per-user journey progress — also the lifecycle runner's queue. */
+  lifecycleEnrolments: TenantCollection<LifecycleEnrolment>;
+  /** Signed webhooks awaiting delivery to connected products. */
+  lifecycleWebhooks: TenantCollection<LifecycleWebhook>;
+  /** Exact daily send counters per journey. */
+  lifecycleCounters: TenantCollection<LifecycleCounter>;
+  /** Lifecycle: per-person AI lines awaiting (or past) staff approval. */
+  lifecycleDrafts: TenantCollection<AiDraft>;
 }
 
 /**
@@ -372,5 +448,28 @@ export function forTenant(
     // with the workspaces/content that reference them, like logos.
     brandFonts: new TenantCollection<BrandFont>(regionalDb, "brand_fonts", t),
     brandAssets: new TenantCollection<BrandAsset>(regionalDb, "brand_assets", t),
+    // Lifecycle: connected products and their end users' PII/events → regional DB,
+    // like signups. The control-plane `connection_keys` lookup (no PII) lives in
+    // src/lib/tenant/connectionKeys.ts.
+    productConnections: new TenantCollection<ProductConnection>(
+      regionalDb,
+      "product_connections",
+      t,
+    ),
+    productUsers: new TenantCollection<ProductUser>(regionalDb, "product_users", t),
+    productEvents: new TenantCollection<ProductEvent>(regionalDb, "product_events", t),
+    connectionDiagnostics: new TenantCollection<ConnectionDiagnostics>(
+      regionalDb,
+      "connection_diagnostics",
+      t,
+    ),
+    // Lifecycle runtime: journeys, versions, enrolments (end-user progress = PII
+    // adjacent), webhook queue and counters → regional DB, with the product users.
+    lifecycleJourneys: new TenantCollection<LifecycleJourney>(regionalDb, "lifecycle_journeys", t),
+    lifecycleVersions: new TenantCollection<LifecycleVersion>(regionalDb, "lifecycle_versions", t),
+    lifecycleEnrolments: new TenantCollection<LifecycleEnrolment>(regionalDb, "lifecycle_enrolments", t),
+    lifecycleWebhooks: new TenantCollection<LifecycleWebhook>(regionalDb, "lifecycle_webhooks", t),
+    lifecycleCounters: new TenantCollection<LifecycleCounter>(regionalDb, "lifecycle_counters", t),
+    lifecycleDrafts: new TenantCollection<AiDraft>(regionalDb, "lifecycle_drafts", t),
   };
 }

@@ -18,7 +18,7 @@ export interface Allocation {
 }
 
 /** FNV-1a (32-bit) — a tiny, stable, dependency-free string hash. */
-function fnv1a(input: string): number {
+export function fnv1a(input: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
     h ^= input.charCodeAt(i);

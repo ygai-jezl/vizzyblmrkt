@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { verifyUnsubscribeToken } from "@/lib/email/unsubscribeToken";
+import { verifyUnsubscribeTokenAny } from "@/lib/email/unsubscribeToken";
 import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { resolvePrivacyUrl } from "@/lib/email/footer";
-import { isSuppressed } from "@/lib/email/suppression";
+import { isSuppressed, isSuppressedFor } from "@/lib/email/suppression";
 import { UnsubscribeConfirm } from "./UnsubscribeConfirm";
 
 export const runtime = "nodejs";
@@ -40,7 +40,7 @@ export default async function UnsubscribePage({
 }) {
   const sp = await searchParams;
   const token = typeof sp.u === "string" ? sp.u : "";
-  const verified = verifyUnsubscribeToken(token);
+  const verified = verifyUnsubscribeTokenAny(token);
 
   if (!verified.ok) {
     return (
@@ -60,25 +60,36 @@ export default async function UnsubscribePage({
   const tenant = await getTenantById(claims.tenantId).catch(() => null);
   const brand = resolveFooterBrand(tenant, null);
   const privacyUrl = resolvePrivacyUrl(tenant);
+  const categoryLabel = verified.version === 2 ? verified.claims.categoryLabel : null;
 
   // Show the current state so a re-visit after a one-click unsubscribe reads right.
-  let already = false;
+  let allOff = false;
+  let categoryOff = false;
   if (tenant) {
     const ctx: TenantContext = { tenantId: tenant.id, region: tenant.region, source: "system" };
-    already = await isSuppressed(ctx, claims.email).catch(() => false);
+    allOff = await isSuppressed(ctx, claims.email).catch(() => false);
+    if (verified.version === 2 && !allOff) {
+      categoryOff = await isSuppressedFor(ctx, claims.email, verified.claims.category).catch(() => false);
+    }
   }
 
   return (
     <Shell>
       <h1 className="text-lg font-semibold text-neutral-900 dark:text-white">Email preferences</h1>
       <div className="mt-3">
-        {already ? (
+        {allOff ? (
           <p className="text-sm text-neutral-600 dark:text-neutral-300">
             You&rsquo;re unsubscribed from marketing emails from {brand}
             {claims.email ? ` (${claims.email})` : ""}. No further action is needed.
           </p>
         ) : (
-          <UnsubscribeConfirm token={token} brand={brand} email={claims.email} />
+          <UnsubscribeConfirm
+            token={token}
+            brand={brand}
+            email={claims.email}
+            categoryLabel={categoryLabel}
+            categoryOff={categoryOff}
+          />
         )}
       </div>
       <p className="mt-6 border-t border-neutral-100 pt-4 text-xs text-neutral-400 dark:border-neutral-800">

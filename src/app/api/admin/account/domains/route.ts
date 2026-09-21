@@ -32,6 +32,7 @@ function present(config: EmailSenderConfig) {
     fromDomain: config.fromDomain ?? "",
     replyTo: config.replyTo ?? "",
     privacyPolicyUrl: config.privacyPolicyUrl ?? "",
+    postalAddress: config.postalAddress ?? "",
     domains: config.domains ?? [],
     providerConfigured: mandrillConfigured(),
   };
@@ -106,6 +107,13 @@ const SenderIdentitySchema = z.object({
       message: "enter a valid http(s) URL",
     })
     .optional(),
+  /** Physical postal address for the lifecycle email footer (CAN-SPAM). */
+  postalAddress: z
+    .string()
+    .trim()
+    .max(300)
+    .refine((s) => !/[<>]/.test(s), { message: "no angle brackets" })
+    .optional(),
 });
 
 /** Save the global sender identity (name / from / reply-to). Domains unchanged. */
@@ -137,6 +145,7 @@ export async function PUT(req: Request) {
     fromDomain: keep(parsed.data.fromDomain, existing.fromDomain),
     replyTo: keep(parsed.data.replyTo, existing.replyTo),
     privacyPolicyUrl,
+    postalAddress: keep(parsed.data.postalAddress?.replace(/\s*\n\s*/g, ", "), existing.postalAddress),
   };
   await saveSenderConfig(ctx.tenantId, config);
   return NextResponse.json(present(config));

@@ -502,3 +502,13 @@ env:
   #   secret: connect-secret-enc-key
   #   availability:
   #     - RUNTIME
+  # The highest delivery mode prod may use: test until the vizzybl.ai launch (M7).
+  - variable: LIFECYCLE_MODE_CEILING
+    value: test
+    availability:
+      - RUNTIME
+  # Create FIRST with: infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
+  # - variable: LIFECYCLE_WORKER_SECRET
+  #   secret: lifecycle-worker-secret
+  #   availability:
+  #     - RUNTIME

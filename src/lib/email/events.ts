@@ -10,7 +10,10 @@ import type { EmailEventType } from "@/lib/types/emailEvent";
  * (same pattern as enqueueEmailJob).
  */
 export interface RecordEventInput {
+  /** "" for lifecycle sends (no launch). */
   campaignId: string;
+  recipientKind?: "signup" | "product_user";
+  connectionId?: string | null;
   journeyId: string;
   nodeId: string;
   signupId: string;
@@ -38,6 +41,8 @@ export async function recordEmailEvent(
   try {
     await forTenant(ctx, db).emailEvents.create(id, {
       campaignId: input.campaignId,
+      ...(input.recipientKind ? { recipientKind: input.recipientKind } : {}),
+      ...(input.connectionId ? { connectionId: input.connectionId } : {}),
       journeyId: input.journeyId,
       nodeId: input.nodeId,
       signupId: input.signupId,

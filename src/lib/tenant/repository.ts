@@ -30,6 +30,13 @@ import type { BrandAsset } from "@/lib/types/brandAsset";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
+import type {
+  LifecycleJourney,
+  LifecycleVersion,
+  LifecycleEnrolment,
+  LifecycleWebhook,
+  LifecycleCounter,
+} from "@/lib/types/lifecycle";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -354,6 +361,15 @@ export interface TenantRepositories {
   productEvents: TenantCollection<ProductEvent>;
   /** Lifecycle: per-connection observed catalog + recent rejections. */
   connectionDiagnostics: TenantCollection<ConnectionDiagnostics>;
+  /** Lifecycle journeys (draft) and their immutable published versions. */
+  lifecycleJourneys: TenantCollection<LifecycleJourney>;
+  lifecycleVersions: TenantCollection<LifecycleVersion>;
+  /** Per-user journey progress — also the lifecycle runner's queue. */
+  lifecycleEnrolments: TenantCollection<LifecycleEnrolment>;
+  /** Signed webhooks awaiting delivery to connected products. */
+  lifecycleWebhooks: TenantCollection<LifecycleWebhook>;
+  /** Exact daily send counters per journey. */
+  lifecycleCounters: TenantCollection<LifecycleCounter>;
 }
 
 /**
@@ -444,5 +460,12 @@ export function forTenant(
       "connection_diagnostics",
       t,
     ),
+    // Lifecycle runtime: journeys, versions, enrolments (end-user progress = PII
+    // adjacent), webhook queue and counters → regional DB, with the product users.
+    lifecycleJourneys: new TenantCollection<LifecycleJourney>(regionalDb, "lifecycle_journeys", t),
+    lifecycleVersions: new TenantCollection<LifecycleVersion>(regionalDb, "lifecycle_versions", t),
+    lifecycleEnrolments: new TenantCollection<LifecycleEnrolment>(regionalDb, "lifecycle_enrolments", t),
+    lifecycleWebhooks: new TenantCollection<LifecycleWebhook>(regionalDb, "lifecycle_webhooks", t),
+    lifecycleCounters: new TenantCollection<LifecycleCounter>(regionalDb, "lifecycle_counters", t),
   };
 }

@@ -10,6 +10,9 @@ import {
   type IngestMessage,
 } from "./protocol";
 import { applyMessage, productEventDocId, productUserDocId, toUtcIso } from "./profile";
+import { eraseProductUserHistory } from "./erase";
+import { enrolOnEvents, type TriggerEvent } from "@/lib/lifecycle/enrol";
+import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 
 /**
  * Ingest one verified batch from a connected product. Each message is validated
@@ -62,6 +65,7 @@ export async function ingestBatch(
   const observedEvents = new Map<string, number>();
   const observedTraits = new Map<string, string>();
   const deletedUsers: string[] = [];
+  const triggers: TriggerEvent[] = [];
 
   for (const [index, raw] of batch.entries()) {
     const reject = (reason: string) =>
@@ -123,18 +127,31 @@ export async function ingestBatch(
     }
     for (const [k, v] of Object.entries(msg.traits ?? {})) observedTraits.set(k, traitType(v));
     if (isDelete && result.outcome === "applied") deletedUsers.push(userDocId);
+    // A new event may enrol the user in a journey it triggers (checked after the batch).
+    if (msg.type === "track" && !isDelete && result.outcome === "applied" && result.user) {
+      triggers.push({ user: result.user, event: msg.event, timestamp: msg.timestamp });
+    }
   }
 
-  // Erasure cascade: a deleted user's event history goes too (their tombstone
-  // stays, PII-free, to block stale re-creation). Best-effort: a failure is
-  // logged and the next user.deleted retry repeats it.
+  // Erasure cascade: a deleted user's history goes too — events, journey
+  // enrolments, email engagement (their tombstone stays, PII-free, to block
+  // stale re-creation). Best-effort: a failure is logged and the next
+  // user.deleted retry repeats it.
   for (const productUserId of deletedUsers) {
-    await forTenant(ctx, opts.db)
-      .productEvents.deleteWhere([["productUserId", "==", productUserId]])
-      .catch((err) => {
-        const m = err instanceof Error ? err.message.slice(0, 200) : "error";
-        console.error(`[connect] erase cascade failed for ${ctx.tenantId}/${productUserId}: ${m}`);
-      });
+    await eraseProductUserHistory(ctx, productUserId, opts.db).catch((err) => {
+      const m = err instanceof Error ? err.message.slice(0, 200) : "error";
+      console.error(`[connect] erase cascade failed for ${ctx.tenantId}/${productUserId}: ${m}`);
+    });
+  }
+
+  // Lifecycle journeys triggered by this batch's events (users deleted in the
+  // same batch are skipped). Never fails the ingest: enrolment errors are logged.
+  const live = triggers.filter((t) => !deletedUsers.includes(t.user.id));
+  if (live.length > 0 && isLifecycleEnabled()) {
+    await enrolOnEvents(ctx, connection, live, { db: opts.db, nowMs }).catch((err) => {
+      const m = err instanceof Error ? err.message.slice(0, 200) : "error";
+      console.error(`[connect] journey enrolment failed for ${ctx.tenantId}/${connection.id}: ${m}`);
+    });
   }
 
   await recordDiagnostics(ctx, connection, { observedEvents, observedTraits, summary, now }, opts.db);

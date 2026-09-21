@@ -171,33 +171,45 @@ export function evaluateCondition(
 ): boolean {
   const field = CONDITION_FIELD_BY_KEY.get(cond.field);
   if (!field) return false;
-  const actual = field.read(ctx, cond);
+  return applyOperator(field.read(ctx, cond), cond.operator, cond.value);
+}
 
-  switch (cond.operator) {
+/**
+ * Compare a resolved field value with a rule's operator/value. Shared by the
+ * waitlist catalog above and the lifecycle field resolver
+ * (src/lib/lifecycle/fields.ts), so both read operators identically. `is_false`
+ * is true for missing/falsey data ("hasn't done X") — lifecycle callers that
+ * need three-state logic screen out unknown values before calling this.
+ */
+export function applyOperator(
+  actual: unknown,
+  operator: ConditionOperator,
+  value: number | string | boolean | undefined,
+): boolean {
+  switch (operator) {
     case "is_true":
       return actual === true;
     case "is_false":
       return actual !== true; // missing/false ⇒ "hasn't done X" ⇒ true
     case "eq":
-      return looseEq(actual, cond.value);
+      return looseEq(actual, value);
     case "neq":
-      return !looseEq(actual, cond.value);
+      return !looseEq(actual, value);
     case "contains":
       return (
         typeof actual === "string" &&
-        typeof cond.value === "string" &&
-        actual.toLowerCase().includes(cond.value.toLowerCase())
+        typeof value === "string" &&
+        actual.toLowerCase().includes(value.toLowerCase())
       );
     case "gt":
     case "gte":
     case "lt":
     case "lte": {
-      if (typeof actual !== "number" || typeof cond.value !== "number")
-        return false;
-      if (cond.operator === "gt") return actual > cond.value;
-      if (cond.operator === "gte") return actual >= cond.value;
-      if (cond.operator === "lt") return actual < cond.value;
-      return actual <= cond.value;
+      if (typeof actual !== "number" || typeof value !== "number") return false;
+      if (operator === "gt") return actual > value;
+      if (operator === "gte") return actual >= value;
+      if (operator === "lt") return actual < value;
+      return actual <= value;
     }
     default:
       return false;

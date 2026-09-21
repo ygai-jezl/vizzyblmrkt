@@ -19,3 +19,14 @@ export function isLifecycleUiEnabled(): boolean {
 export function isLifecycleIngestEnabled(): boolean {
   return process.env.LIFECYCLE_INGEST_ENABLED === "true";
 }
+
+/**
+ * The highest delivery mode any lifecycle send may use in this environment:
+ * `test` < `shadow` < `live`. Unset or unknown means `test` (the safest), so a
+ * misconfigured prod can never send to real users. dev: live; prod: test until
+ * the vizzybl.ai launch (M7).
+ */
+export function lifecycleModeCeiling(): "test" | "shadow" | "live" {
+  const v = process.env.LIFECYCLE_MODE_CEILING;
+  return v === "live" || v === "shadow" ? v : "test";
+}

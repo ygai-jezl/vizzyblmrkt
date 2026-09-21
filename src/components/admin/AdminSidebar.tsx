@@ -4,24 +4,25 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  CheckSquare,
-  Rocket,
-  Plus,
-  Users,
-  Database,
-  Radar,
-  LineChart,
-  GitBranch,
-  FolderKanban,
-  Settings,
   Archive,
+  CheckSquare,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  SwatchBook,
+  Database,
+  FolderKanban,
+  GitBranch,
+  LayoutDashboard,
+  LineChart,
   Plug,
+  Plus,
+  Radar,
+  Rocket,
+  Route,
+  Settings,
+  SwatchBook,
   type LucideIcon,
+  Users,
 } from "lucide-react";
 import { BrandSwitcher, type BrandOption } from "./BrandSwitcher";
 import { LogoutButton } from "./LogoutButton";
@@ -90,13 +91,16 @@ const STATIC_GROUPS: NavGroup[] = [
         : []),
     ],
   },
-  // Lifecycle journeys — connected products (Journeys + Approvals join later).
+  // Lifecycle journeys — journeys + connected products (Approvals joins in M3).
   // Hidden unless the client flag is on (NEXT_PUBLIC_* is inlined at build).
   ...(isLifecycleUiEnabled()
     ? [
         {
           title: "Lifecycle",
-          items: [{ href: "/admin/products", label: "Products", icon: Plug, matchPattern: "/admin/products" }],
+          items: [
+            { href: "/admin/lifecycle", label: "Journeys", icon: Route, matchPattern: "/admin/lifecycle" },
+            { href: "/admin/products", label: "Products", icon: Plug, matchPattern: "/admin/products" },
+          ],
         } as NavGroup,
       ]
     : []),

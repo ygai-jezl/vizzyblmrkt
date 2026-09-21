@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { verifyUnsubscribeToken } from "@/lib/email/unsubscribeToken";
-import { applyUnsubscribe } from "@/lib/email/unsubscribeAction";
+import { verifyUnsubscribeTokenAny } from "@/lib/email/unsubscribeToken";
+import { applyLifecycleUnsubscribe, applyUnsubscribe } from "@/lib/email/unsubscribeAction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,21 +18,29 @@ export const dynamic = "force-dynamic";
 /** One-click / confirm unsubscribe. */
 export async function POST(req: Request) {
   // Token from `?u=` (where the List-Unsubscribe header carries it) or a JSON body.
+  // The scope comes ONLY from the hosted page's JSON body: a one-click POST
+  // (form-encoded `List-Unsubscribe=One-Click`) never carries it, so for a
+  // lifecycle token it stops just that email category.
   const urlToken = new URL(req.url).searchParams.get("u") ?? "";
   let bodyToken = "";
+  let scope: "category" | "all" = "category";
   if ((req.headers.get("content-type") ?? "").includes("application/json")) {
-    const body = (await req.json().catch(() => null)) as { u?: string } | null;
+    const body = (await req.json().catch(() => null)) as { u?: string; scope?: string } | null;
     bodyToken = typeof body?.u === "string" ? body.u : "";
+    if (body?.scope === "all") scope = "all";
   }
   const token = (urlToken || bodyToken).trim();
 
-  const verified = verifyUnsubscribeToken(token);
+  const verified = verifyUnsubscribeTokenAny(token);
   if (!verified.ok) {
     return NextResponse.json({ error: verified.error }, { status: 400 });
   }
-  const { ok } = await applyUnsubscribe(verified.claims, "footer");
+  const { ok } =
+    verified.version === 2
+      ? await applyLifecycleUnsubscribe(verified.claims, scope, urlToken ? "list-unsubscribe" : "preferences-page")
+      : await applyUnsubscribe(verified.claims, "footer");
   if (!ok) return NextResponse.json({ error: "tenant_not_found" }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, scope: verified.version === 2 ? scope : "all" });
 }
 
 /** Non-one-click clients that GET the List-Unsubscribe URL → the human page. */

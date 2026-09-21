@@ -24,8 +24,12 @@ export const EmailEventSchema = z.object({
   /** = `evt:{journeyId}:{nodeId}:{signupId}:{variantId}:{type}` (the dedupe key). */
   id: z.string(),
   tenantId: z.string(),
-  /** Denormalised from the send metadata so the launch roll-up needs no join. */
-  campaignId: z.string(),
+  /** Denormalised from the send metadata so the launch roll-up needs no join.
+   *  "" for lifecycle (connected-product) sends, which belong to no launch. */
+  campaignId: z.string().default(""),
+  /** `product_user` for lifecycle sends (signupId then holds the product user id). */
+  recipientKind: z.enum(["signup", "product_user"]).optional(),
+  connectionId: z.string().nullable().optional(),
   journeyId: z.string(),
   nodeId: z.string(),
   signupId: z.string(),

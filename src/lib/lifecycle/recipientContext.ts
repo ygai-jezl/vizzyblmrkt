@@ -76,6 +76,8 @@ export function buildRenderValues(a: {
   rc: RecipientContext;
   context: ProductContext | null;
   insight: Insight | null;
+  /** The approved AI line that follows the insight (AI version only). */
+  aiLine?: string | null;
   footer: RenderValues["footer"];
 }): RenderValues {
   const steps = safeChecklist(a.rc, a.connection.linkDomains);
@@ -93,7 +95,7 @@ export function buildRenderValues(a: {
     })),
     nextStep: next ? { label: next.label, url: next.url } : null,
     checklist: steps.map((s) => ({ label: s.label, done: s.done, url: s.url })),
-    insight: a.insight ? { sentence: a.insight.sentence, aiLine: null } : null,
+    insight: a.insight ? { sentence: a.insight.sentence, aiLine: a.aiLine ?? null } : null,
     footer: a.footer,
   };
 }

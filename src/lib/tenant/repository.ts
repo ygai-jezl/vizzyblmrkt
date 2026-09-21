@@ -31,6 +31,7 @@ import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
 import type {
+  AiDraft,
   LifecycleJourney,
   LifecycleVersion,
   LifecycleEnrolment,
@@ -370,6 +371,8 @@ export interface TenantRepositories {
   lifecycleWebhooks: TenantCollection<LifecycleWebhook>;
   /** Exact daily send counters per journey. */
   lifecycleCounters: TenantCollection<LifecycleCounter>;
+  /** Lifecycle: per-person AI lines awaiting (or past) staff approval. */
+  lifecycleDrafts: TenantCollection<AiDraft>;
 }
 
 /**
@@ -467,5 +470,6 @@ export function forTenant(
     lifecycleEnrolments: new TenantCollection<LifecycleEnrolment>(regionalDb, "lifecycle_enrolments", t),
     lifecycleWebhooks: new TenantCollection<LifecycleWebhook>(regionalDb, "lifecycle_webhooks", t),
     lifecycleCounters: new TenantCollection<LifecycleCounter>(regionalDb, "lifecycle_counters", t),
+    lifecycleDrafts: new TenantCollection<AiDraft>(regionalDb, "lifecycle_drafts", t),
   };
 }

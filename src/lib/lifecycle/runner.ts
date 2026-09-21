@@ -22,15 +22,20 @@ import { isSuppressedFor } from "@/lib/email/suppression";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveFooterBrand } from "@/lib/email/sender";
-import { afterSend, decideNext, type Decision, type WalkEnv, type WalkResult, type WalkState } from "./planner";
+import type { AiDraft } from "@/lib/types/lifecycle";
+import { afterSend, afterSkip, decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
 import { nextNodeId } from "./graph";
-import { nextWindowAt, personalOffsetMinutes, resolveTimezone } from "./sendWindow";
-import { renderLifecycleEmail } from "./render";
+import { nextWindowAt } from "./sendWindow";
+import { renderLifecycleEmail, type RenderedEmail } from "./render";
 import { buildRecipientContext, buildRenderValues, nextStepOf, pickInsight, safeChecklist } from "./recipientContext";
 import { isTestRecipient, lifecycleSender, lowestMode } from "./policy";
-import { lifecycleModeCeiling } from "./flags";
+import { isLifecycleAiDraftsEnabled, lifecycleModeCeiling } from "./flags";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
 import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut";
+import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
+import { draftDocId, scheduleDraft, supersedeDrafts } from "./drafts";
+import { decideSendVersion, type SendVersion } from "./decide";
+import { prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
 
 /**
  * The lifecycle RUNNER. Each due enrolment is one queue item, processed by the
@@ -73,6 +78,8 @@ export interface RunnerDeps {
   sendWebhook?: typeof sendConnectionWebhook;
   listTenants?: () => Promise<Tenant[]>;
   budgetMs?: number;
+  /** AI line writer for draft preparation (tests inject a stub). */
+  generate?: PrepareDeps["generate"];
 }
 
 export type EnrolmentRunOutcome =
@@ -146,7 +153,15 @@ export class RunCache {
 }
 
 type DeliverResult =
-  | { kind: "sent"; status: "sent" | "unknown"; reason: string | null; insightId: string | null; atMs: number }
+  | {
+      kind: "sent";
+      status: "sent" | "unknown";
+      reason: string | null;
+      insightId: string | null;
+      atMs: number;
+      version?: "standard" | "ai" | "fallback";
+    }
+  | { kind: "skipped"; reason: string }
   | { kind: "hold"; untilMs: number; event: string; detail?: string }
   | { kind: "exclude"; reason: string }
   | { kind: "exit"; reason: string }
@@ -227,6 +242,11 @@ export async function processEnrolment(
     });
     return done !== null;
   };
+  const retireDrafts = () =>
+    supersedeDrafts(ctx, enrolmentId, { db: deps.db, nowMs }).catch((err) => {
+      console.warn(`[lifecycle] supersede drafts ${ctx.tenantId}/${enrolmentId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      return 0;
+    });
   const stop = async (reason: string, status: "exited" | "completed" = "exited"): Promise<EnrolmentRunOutcome> => {
     log(status === "completed" ? "completed" : "stopped", status === "completed" ? null : reason);
     const ok = await commit({
@@ -236,6 +256,7 @@ export async function processEnrolment(
       nextRunAt: null,
       pendingSend: null,
     });
+    if (ok) await retireDrafts();
     return ok ? status : "lost_lease";
   };
   const hold = async (untilMs: number, event: string, detail?: string): Promise<EnrolmentRunOutcome> => {
@@ -274,43 +295,29 @@ export async function processEnrolment(
       connection,
       user,
       mode: lowestMode(leased.mode, journey.deliveryMode, lifecycleModeCeiling()),
-      tz: resolveTimezone(user.timezone, connection.defaults.timezone, policy.fallbackTimezone),
-      offsetMin: personalOffsetMinutes(user.id, policy),
+      ...recipientClock(user, connection, version),
       policy,
       settings,
       nowMs,
     };
 
     const startCursor = leased.cursor?.nodeId ?? null;
-    let state: WalkState = {
-      cursor: startCursor,
-      nowMs,
-      anchorMs,
-      lastSentMs: leased.lastSentAt ? Date.parse(leased.lastSentAt) : null,
-      windowExemptUntilMs: leased.windowExemptUntil ? Date.parse(leased.windowExemptUntil) : null,
-      sent: leased.sentItems.map((s) => ({ poolId: s.poolId, itemId: s.itemId, status: s.status })),
-    };
+    let state: WalkState = walkStateOf(leased, nowMs);
     const excluded = new Set<string>();
     let context: ProductContext | null = null;
-    const env = (c: ProductContext | null, probe?: { used: boolean }): WalkEnv => ({
-      graph: version.graph,
-      pools: version.pools,
-      policy,
-      tz: scope.tz,
-      offsetMin: scope.offsetMin,
-      excluded,
-      recipientAt: (atMs) => {
-        if (probe) probe.used = true;
-        return buildRecipientContext({
-          user,
-          connection,
-          context: c,
-          emailsSent: state.sent.filter((s) => s.status !== "skipped").length,
-          enrolledAtMs: anchorMs,
-          nowMs: atMs,
-        });
-      },
-    });
+    const env = (c: ProductContext | null, probe?: { used: boolean }) =>
+      walkEnvFor({
+        version,
+        user,
+        connection,
+        context: c,
+        tz: scope.tz,
+        offsetMin: scope.offsetMin,
+        anchorMs,
+        emailsSent: () => state.sent.filter((s) => s.status !== "skipped").length,
+        excluded,
+        probe,
+      });
 
     // Walk once without context: a run that only reaches a wait needs no call
     // to the product. Anything that reads the user's state (a condition, a pool
@@ -362,6 +369,20 @@ export async function processEnrolment(
           nextRunAt: iso(d.runAtMs),
           windowExemptUntil: isoOrNull(state.windowExemptUntilMs),
         });
+        if (ok && d.reason === "wait" && isLifecycleAiDraftsEnabled()) {
+          // Predict the email this booked slot will send; if it carries an AI
+          // line, book a draft so it can be written and reviewed ahead of time.
+          const ahead = decideNext({ ...state, nowMs: d.runAtMs }, env(context)).decision;
+          if (ahead.kind === "send") {
+            await scheduleDraft(
+              ctx,
+              { enrolment: leased, version, nodeId: ahead.nodeId, poolId: ahead.pool.id, item: ahead.item, sendAtMs: d.runAtMs },
+              { db: deps.db, nowMs },
+            ).catch((err) => {
+              console.warn(`[lifecycle] draft booking ${ctx.tenantId}/${enrolmentId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            });
+          }
+        }
         return ok ? (sentOne ? "sent" : "waiting") : "lost_lease";
       }
       if (d.kind === "complete" || d.kind === "exit") {
@@ -373,6 +394,7 @@ export async function processEnrolment(
           cursor: null,
           nextRunAt: null,
         });
+        if (ok) await retireDrafts();
         return ok ? (sentOne ? "sent" : d.kind === "complete" ? "completed" : "exited") : "lost_lease";
       }
 
@@ -409,6 +431,20 @@ export async function processEnrolment(
           const ok = await commit({ pendingSend: null, failures, nextRunAt: iso(nowMs + backoffMs(failures)) });
           return ok ? "failed" : "lost_lease";
         }
+        case "skipped":
+          sentItems.push({
+            nodeId: d.nodeId,
+            poolId: d.pool.id,
+            itemId: d.item.id,
+            at: iso(clock()),
+            status: "skipped",
+            mode: scope.mode,
+            reason: r.reason,
+          });
+          log("email_skipped", `${d.item.label}: ${r.reason.replace(/_/g, " ")}`);
+          state = afterSkip(state, d);
+          walk = decideNext(state, env(context));
+          continue;
         case "sent": {
           sentItems.push({
             nodeId: d.nodeId,
@@ -418,6 +454,7 @@ export async function processEnrolment(
             status: r.status,
             mode: scope.mode,
             reason: r.reason,
+            ...(r.version ? { version: r.version } : {}),
           });
           if (r.insightId) usedInsightIds.push(r.insightId);
           lastSentAt = iso(r.atMs);
@@ -534,31 +571,49 @@ async function deliver(
     nowMs: s.nowMs,
   });
   const steps = safeChecklist(rc, connection.linkDomains);
-  const insight = pickInsight(context, usedInsightIds, nextStepOf(context, steps, connection.linkDomains)?.id ?? null);
-  const rendered = renderLifecycleEmail({
-    item,
-    values: buildRenderValues({
-      user,
-      connection,
-      rc,
-      context,
-      insight,
-      footer: {
-        brand: sender.fromName || resolveFooterBrand(tenant, null),
-        unsubscribeUrl: links.pageUrl || privacyUrl,
-        managePreferencesUrl: links.pageUrl || privacyUrl,
-        privacyUrl,
-        postalAddress,
-      },
-    }),
-    shadowFor: mode === "shadow" ? user.email : null,
-  });
-  if (rendered.missing.length > 0) return { kind: "exclude", reason: `missing ${rendered.missing.join(", ")}` };
-  if (!rendered.subject) return { kind: "exclude", reason: "empty subject" };
+  const footer = {
+    brand: sender.fromName || resolveFooterBrand(tenant, null),
+    unsubscribeUrl: links.pageUrl || privacyUrl,
+    managePreferencesUrl: links.pageUrl || privacyUrl,
+    privacyUrl,
+    postalAddress,
+  };
+  const renderWith = (
+    insight: ProductContext["insights"][number] | null,
+    aiLine: string | null,
+    subject?: string | null,
+  ): RenderedEmail =>
+    renderLifecycleEmail({
+      item: subject ? { ...item, subject } : item,
+      values: buildRenderValues({ user, connection, rc, context, insight, aiLine, footer }),
+      shadowFor: mode === "shadow" ? user.email : null,
+    });
 
-  // Claim: the day's send slot + pendingSend, in one transaction.
+  const standardInsight = pickInsight(context, usedInsightIds, nextStepOf(context, steps, connection.linkDomains)?.id ?? null);
+  const standard = renderWith(standardInsight, null);
+  if (standard.missing.length > 0) return { kind: "exclude", reason: `missing ${standard.missing.join(", ")}` };
+  if (!standard.subject) return { kind: "exclude", reason: "empty subject" };
+
+  // An AI-line email: render the reviewed line too (if there is one); the send
+  // transaction then picks the version from the FRESHEST draft.
+  const isAi = item.personalization === "ai_line";
+  const aiOn = isLifecycleAiDraftsEnabled();
+  const requireApproval = s.enrolment.requireApproval;
+  const draftId = isAi ? draftDocId(s.enrolment.id, d.pool.id, item.id) : null;
+  let aiEmail: { email: RenderedEmail; draftVersion: number } | null = null;
+  if (draftId) {
+    const pre = await forTenant(ctx, deps.db).lifecycleDrafts.getById(draftId);
+    const preVersion = decideSendVersion({ draft: pre, requireApproval, context, aiEnabled: aiOn });
+    if (pre && preVersion.version === "ai") {
+      const email = renderWith(context?.insights.find((i) => i.id === preVersion.insightId) ?? null, preVersion.aiLine, preVersion.subject);
+      if (email.missing.length === 0 && email.subject) aiEmail = { email, draftVersion: pre.draftVersion };
+    }
+  }
+
+  // Claim: the day's send slot + pendingSend (+ the draft), in one transaction.
   const atMs = clock();
   const counterId = counterDocId(journey.id, atMs);
+  const picked: { v: SendVersion | null; prevStatus: AiDraft["status"] | null } = { v: null, prevStatus: null };
   const claim = await claimLifecycleSend(
     ctx,
     {
@@ -567,6 +622,38 @@ async function deliver(
       pendingSend: { nodeId: d.nodeId, poolId: d.pool.id, itemId: item.id, at: iso(atMs) },
       counter: { id: counterId, journeyId: journey.id, day: utcDayKey(atMs), cap: journey.caps.sendsPerDay, ttlAt: new Date(atMs + COUNTER_TTL_MS) },
       updatedAt: iso(atMs),
+      ...(draftId
+        ? {
+            draft: {
+              id: draftId,
+              decide: (current: Record<string, unknown> | null) => {
+                const fresh = current as AiDraft | null;
+                let v = decideSendVersion({ draft: fresh, requireApproval, context, aiEnabled: aiOn });
+                if (v.version === "ai" && (!aiEmail || fresh?.draftVersion !== aiEmail.draftVersion)) {
+                  // Edited between our read and the send, or the AI version didn't render.
+                  v = requireApproval
+                    ? { version: "skip", reason: "approval_required" }
+                    : { version: "fallback", reason: aiEmail ? "changed_during_send" : "render_failed" };
+                }
+                picked.v = v;
+                picked.prevStatus = fresh?.status ?? null;
+                return {
+                  send: v.version !== "skip",
+                  patch: fresh
+                    ? {
+                        status: "used",
+                        usedVersion: v.version,
+                        usedAt: iso(atMs),
+                        fallbackReason: v.version === "fallback" ? v.reason : (fresh.fallbackReason ?? null),
+                        draftVersion: fresh.draftVersion + 1,
+                        updatedAt: iso(atMs),
+                      }
+                    : null,
+                };
+              },
+            },
+          }
+        : {}),
     },
     deps.db,
   );
@@ -574,12 +661,20 @@ async function deliver(
   if (claim === "capped") {
     return { kind: "hold", untilMs: nextWindowAt(nextUtcMidnight(atMs), s.tz, s.policy, s.offsetMin), event: "daily_cap" };
   }
+  const v = picked.v;
+  if (claim === "declined") return { kind: "skipped", reason: v?.version === "skip" ? v.reason : "declined" };
+
+  const useAi = v?.version === "ai" && aiEmail !== null;
+  const email = useAi ? aiEmail!.email : standard;
+  const version: "standard" | "ai" | "fallback" = !isAi ? "standard" : useAi ? "ai" : "fallback";
+  const fallbackNote = v?.version === "fallback" ? v.reason : null;
+  const insightId = v?.version === "ai" ? v.insightId : standard.insightUsed ? (standardInsight?.id ?? null) : null;
 
   const result = await (deps.send ?? sendEmail)({
     to,
-    subject: rendered.subject,
-    html: rendered.html,
-    text: rendered.text,
+    subject: email.subject,
+    html: email.html,
+    text: email.text,
     fromEmail: sender.fromEmail,
     fromName: sender.fromName,
     replyTo: sender.replyTo,
@@ -606,7 +701,7 @@ async function deliver(
     (err): EmailResult => ({ sent: false, provider: "mandrill", reason: err instanceof Error ? err.message.slice(0, 120) : "error", ambiguous: true }),
   );
 
-  const insightId = rendered.insightUsed ? (insight?.id ?? null) : null;
+  const note = (...parts: Array<string | null | undefined>) => parts.filter(Boolean).join(" · ") || null;
   if (result.sent || result.provider === "log") {
     if (result.sent && mode !== "shadow") {
       await recordEmailEvent(
@@ -626,14 +721,34 @@ async function deliver(
         deps.db,
       ).catch(() => {});
     }
-    return { kind: "sent", status: "sent", reason: result.sent ? null : "log provider (not delivered)", insightId, atMs };
+    return {
+      kind: "sent",
+      status: "sent",
+      reason: note(fallbackNote, result.sent ? null : "log provider (not delivered)"),
+      insightId,
+      atMs,
+      version,
+    };
   }
-  if (result.ambiguous) return { kind: "sent", status: "unknown", reason: result.reason ?? "ambiguous", insightId, atMs };
+  if (result.ambiguous) {
+    return { kind: "sent", status: "unknown", reason: note(fallbackNote, result.reason ?? "ambiguous"), insightId, atMs, version };
+  }
 
-  // A definite failure: nothing went out, so give the day's slot back.
+  // A definite failure: nothing went out, so give the day's slot back and put
+  // the draft back as it was — the retry makes the same choice.
   await forTenant(ctx, deps.db)
     .lifecycleCounters.claim(counterId, (cur) => ({ sends: Math.max(0, cur.sends - 1) }))
     .catch(() => {});
+  const prevStatus = picked.prevStatus;
+  if (draftId && prevStatus) {
+    await forTenant(ctx, deps.db)
+      .lifecycleDrafts.claim(draftId, (cur) =>
+        cur.status === "used"
+          ? { status: prevStatus, usedVersion: null, usedAt: null, draftVersion: cur.draftVersion + 1, updatedAt: iso(clock()) }
+          : null,
+      )
+      .catch(() => {});
+  }
   return { kind: "failed", reason: `${result.provider}: ${result.reason ?? "failed"}` };
 }
 
@@ -644,9 +759,10 @@ export interface TenantRunResult {
   outcomes: Partial<Record<EnrolmentRunOutcome, number>>;
   deferred: number;
   webhooks: WebhookDrainResult;
+  drafts: PrepareResult;
 }
 
-/** Drain one tenant: its due enrolments (4 at a time), then its outbound webhooks. */
+/** Drain one tenant: its due enrolments (4 at a time), outbound webhooks, then AI-line drafts to prepare. */
 export async function drainLifecycleTenant(
   ctx: TenantContext,
   deps: RunnerDeps = {},
@@ -691,7 +807,20 @@ export async function drainLifecycleTenant(
           },
         )
       : { delivered: 0, failed: 0, expired: 0 };
-  return { due: due.length, outcomes, deferred, webhooks };
+  const drafts: PrepareResult =
+    isLifecycleAiDraftsEnabled() && clock() < deadline
+      ? await prepareDueDrafts(ctx, {
+          db: deps.db,
+          now: clock,
+          deadlineAt: deadline,
+          fetchContext: deps.fetchContext,
+          generate: deps.generate,
+        }).catch((err): PrepareResult => {
+          console.error(`[lifecycle] drafts ${ctx.tenantId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+          return { prepared: 0, fallback: 0, superseded: 0 };
+        })
+      : { prepared: 0, fallback: 0, superseded: 0 };
+  return { due: due.length, outcomes, deferred, webhooks, drafts };
 }
 
 export interface LifecycleTickResult {
@@ -699,6 +828,7 @@ export interface LifecycleTickResult {
   deferredTenants: number;
   outcomes: Partial<Record<EnrolmentRunOutcome, number>>;
   webhooks: WebhookDrainResult;
+  drafts: PrepareResult;
 }
 
 /** The scheduler's tick: every tenant, within the run budget. */
@@ -706,7 +836,13 @@ export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<Lifecycle
   const clock = deps.now ?? Date.now;
   const deadline = clock() + (deps.budgetMs ?? LIFECYCLE_RUN_BUDGET_MS);
   const tenants = await (deps.listTenants ?? listAllTenants)();
-  const total: LifecycleTickResult = { tenants: 0, deferredTenants: 0, outcomes: {}, webhooks: { delivered: 0, failed: 0, expired: 0 } };
+  const total: LifecycleTickResult = {
+    tenants: 0,
+    deferredTenants: 0,
+    outcomes: {},
+    webhooks: { delivered: 0, failed: 0, expired: 0 },
+    drafts: { prepared: 0, fallback: 0, superseded: 0 },
+  };
   for (const t of tenants) {
     if (clock() >= deadline) {
       total.deferredTenants += 1;
@@ -723,6 +859,9 @@ export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<Lifecycle
       total.webhooks.delivered += r.webhooks.delivered;
       total.webhooks.failed += r.webhooks.failed;
       total.webhooks.expired += r.webhooks.expired;
+      total.drafts.prepared += r.drafts.prepared;
+      total.drafts.fallback += r.drafts.fallback;
+      total.drafts.superseded += r.drafts.superseded;
     } catch (err) {
       console.warn(`[lifecycle] tenant ${t.id} (${t.region}) drain failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     }

@@ -30,3 +30,8 @@ export function lifecycleModeCeiling(): "test" | "shadow" | "live" {
   const v = process.env.LIFECYCLE_MODE_CEILING;
   return v === "live" || v === "shadow" ? v : "test";
 }
+
+/** Server flag — per-person AI lines (prepared ahead, staff-approved). Off: standard emails only. */
+export function isLifecycleAiDraftsEnabled(): boolean {
+  return process.env.LIFECYCLE_AI_DRAFTS_ENABLED === "true";
+}

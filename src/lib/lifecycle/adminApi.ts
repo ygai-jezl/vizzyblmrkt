@@ -287,6 +287,11 @@ type ItemStats = {
   label: string;
   sent: number;
   unknown: number;
+  skipped: number;
+  /** AI-line emails: how many carried the reviewed line vs the standard version, and why. */
+  ai: number;
+  standard: number;
+  fallbackReasons: Record<string, number>;
   byMode: Record<string, number>;
   opens: number;
   clicks: number;
@@ -312,7 +317,23 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
     const key = `${poolId}:${itemId}`;
     let s = items.get(key);
     if (!s) {
-      s = { poolId, itemId, label: labels.get(key) ?? itemId, sent: 0, unknown: 0, byMode: {}, opens: 0, clicks: 0, unsubscribes: 0, bounces: 0, complaints: 0 };
+      s = {
+        poolId,
+        itemId,
+        label: labels.get(key) ?? itemId,
+        sent: 0,
+        unknown: 0,
+        skipped: 0,
+        ai: 0,
+        standard: 0,
+        fallbackReasons: {},
+        byMode: {},
+        opens: 0,
+        clicks: 0,
+        unsubscribes: 0,
+        bounces: 0,
+        complaints: 0,
+      };
       items.set(key, s);
     }
     return s;
@@ -324,12 +345,21 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
     byStatus[e.status] += 1;
     if (e.status === "exited" && e.stopReason) stopReasons[e.stopReason] = (stopReasons[e.stopReason] ?? 0) + 1;
     for (const s of e.sentItems) {
-      if (s.status === "skipped") continue;
       const st = itemFor(s.poolId, s.itemId);
+      poolOfItem.set(s.itemId, s.poolId);
+      if (s.status === "skipped") {
+        st.skipped += 1;
+        continue;
+      }
       if (s.status === "sent") st.sent += 1;
       else st.unknown += 1;
       st.byMode[s.mode] = (st.byMode[s.mode] ?? 0) + 1;
-      poolOfItem.set(s.itemId, s.poolId);
+      if (s.version === "ai") st.ai += 1;
+      if (s.version === "fallback") {
+        st.standard += 1;
+        const why = (s.reason ?? "unknown").split(" · ")[0]!;
+        st.fallbackReasons[why] = (st.fallbackReasons[why] ?? 0) + 1;
+      }
     }
   }
   // Engagement from the provider's webhooks (unique per recipient + item).

@@ -59,8 +59,9 @@ export function reasoningEngineUrl(
 /**
  * Build the `[ctx:{…}] [mode:…] ` prefix the agent's callbacks consume + strip.
  *
- * `extras` can carry a signed canvas capability token (`ctxToken`) and the active
- * `campaignId` so the Campaign Ops sub-agent can author a journey draft. Both
+ * `extras` can carry a signed canvas capability token (`ctxToken`), the active
+ * `campaignId` (Campaign Ops authors that launch's journey) and the lifecycle
+ * page's `connectionId` / `journeyId` (Lifecycle Ops edits that journey). All
  * MUST be brace-free strings — the agent-side envelope parser regex is
  * non-greedy and a nested `}` would truncate the JSON (see context_envelope.py).
  * The Python callback writes every key into session state generically, so no
@@ -70,7 +71,14 @@ export function contextEnvelope(
   ctx: TenantContext,
   traceId: string,
   mode?: ChatMode,
-  extras?: { ctxToken?: string | null; campaignId?: string | null; locale?: string | null },
+  extras?: {
+    ctxToken?: string | null;
+    campaignId?: string | null;
+    locale?: string | null;
+    /** The lifecycle page the operator is on (Vizzy edits THIS journey / product). */
+    connectionId?: string | null;
+    journeyId?: string | null;
+  },
 ): string {
   const payload: Record<string, unknown> = {
     tenantId: ctx.tenantId,
@@ -80,6 +88,8 @@ export function contextEnvelope(
   };
   if (extras?.ctxToken) payload.ctxToken = extras.ctxToken;
   if (extras?.campaignId) payload.campaignId = extras.campaignId;
+  if (extras?.connectionId) payload.connectionId = extras.connectionId;
+  if (extras?.journeyId) payload.journeyId = extras.journeyId;
   // Operator content language for the root agent. Omitted for English so the
   // common-case envelope is unchanged; the Python side no-ops on "en" anyway.
   if (extras?.locale && extras.locale !== "en") payload.locale = extras.locale;

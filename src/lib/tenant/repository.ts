@@ -27,6 +27,17 @@ import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandFont } from "@/lib/types/brandFont";
 import type { BrandAsset } from "@/lib/types/brandAsset";
+import type { ProductConnection } from "@/lib/types/productConnection";
+import type { ProductUser } from "@/lib/types/productUser";
+import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
+import type {
+  AiDraft,
+  LifecycleJourney,
+  LifecycleVersion,
+  LifecycleEnrolment,
+  LifecycleWebhook,
+  LifecycleCounter,
+} from "@/lib/types/lifecycle";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -343,6 +354,25 @@ export interface TenantRepositories {
    *  `brand/{tenantId}/{category}s/...` and are served by the public /api/brand-asset proxy;
    *  also fed into image generation as visual references. */
   brandAssets: TenantCollection<BrandAsset>;
+  /** Lifecycle: the tenant's connected products (keys, endpoints, catalog). */
+  productConnections: TenantCollection<ProductConnection>;
+  /** Lifecycle: the connected products' end users, built from ingested events. */
+  productUsers: TenantCollection<ProductUser>;
+  /** Lifecycle: the ingested identify/track log (idempotency gate + debugger). */
+  productEvents: TenantCollection<ProductEvent>;
+  /** Lifecycle: per-connection observed catalog + recent rejections. */
+  connectionDiagnostics: TenantCollection<ConnectionDiagnostics>;
+  /** Lifecycle journeys (draft) and their immutable published versions. */
+  lifecycleJourneys: TenantCollection<LifecycleJourney>;
+  lifecycleVersions: TenantCollection<LifecycleVersion>;
+  /** Per-user journey progress — also the lifecycle runner's queue. */
+  lifecycleEnrolments: TenantCollection<LifecycleEnrolment>;
+  /** Signed webhooks awaiting delivery to connected products. */
+  lifecycleWebhooks: TenantCollection<LifecycleWebhook>;
+  /** Exact daily send counters per journey. */
+  lifecycleCounters: TenantCollection<LifecycleCounter>;
+  /** Lifecycle: per-person AI lines awaiting (or past) staff approval. */
+  lifecycleDrafts: TenantCollection<AiDraft>;
 }
 
 /**
@@ -418,5 +448,28 @@ export function forTenant(
     // with the workspaces/content that reference them, like logos.
     brandFonts: new TenantCollection<BrandFont>(regionalDb, "brand_fonts", t),
     brandAssets: new TenantCollection<BrandAsset>(regionalDb, "brand_assets", t),
+    // Lifecycle: connected products and their end users' PII/events → regional DB,
+    // like signups. The control-plane `connection_keys` lookup (no PII) lives in
+    // src/lib/tenant/connectionKeys.ts.
+    productConnections: new TenantCollection<ProductConnection>(
+      regionalDb,
+      "product_connections",
+      t,
+    ),
+    productUsers: new TenantCollection<ProductUser>(regionalDb, "product_users", t),
+    productEvents: new TenantCollection<ProductEvent>(regionalDb, "product_events", t),
+    connectionDiagnostics: new TenantCollection<ConnectionDiagnostics>(
+      regionalDb,
+      "connection_diagnostics",
+      t,
+    ),
+    // Lifecycle runtime: journeys, versions, enrolments (end-user progress = PII
+    // adjacent), webhook queue and counters → regional DB, with the product users.
+    lifecycleJourneys: new TenantCollection<LifecycleJourney>(regionalDb, "lifecycle_journeys", t),
+    lifecycleVersions: new TenantCollection<LifecycleVersion>(regionalDb, "lifecycle_versions", t),
+    lifecycleEnrolments: new TenantCollection<LifecycleEnrolment>(regionalDb, "lifecycle_enrolments", t),
+    lifecycleWebhooks: new TenantCollection<LifecycleWebhook>(regionalDb, "lifecycle_webhooks", t),
+    lifecycleCounters: new TenantCollection<LifecycleCounter>(regionalDb, "lifecycle_counters", t),
+    lifecycleDrafts: new TenantCollection<AiDraft>(regionalDb, "lifecycle_drafts", t),
   };
 }

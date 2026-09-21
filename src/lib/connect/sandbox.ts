@@ -1,0 +1,305 @@
+import { randomUUID } from "node:crypto";
+import { forTenant, getConnectionKey, type TenantContext } from "@/lib/tenant";
+import type { FirestoreLike } from "@/lib/tenant/types";
+import type {
+  ConnectionCatalog,
+  ProductConnection,
+  SandboxUser,
+} from "@/lib/types/productConnection";
+import { readRequestTextCapped } from "@/lib/http/readBody";
+import { connectionSecrets, currentSecret } from "./keys";
+import { handleIngestRequest } from "./ingestHttp";
+import {
+  ContextRequestSchema,
+  HEADER_KEY_ID,
+  HEADER_SIGNATURE,
+  HEADER_TIMESTAMP,
+  WebhookPayloadSchema,
+  signedHeaders,
+  verifySignature,
+  zodReason,
+  type ProductContext,
+  type SignDirection,
+} from "./protocol";
+
+/**
+ * The Sandbox: a platform-hosted stand-in for a connected product, so the whole
+ * flow (events in → context pull → personalised email → unsubscribe sync) can be
+ * proven before any real product writes integration code.
+ *
+ * It behaves like a real integration: its context and webhook endpoints verify
+ * the platform's signatures exactly as a product would (the same handlers back
+ * the public /api/sandbox/* reference routes), and "fire event" signs a batch and
+ * runs it through the real ingest handler. The platform calls these IN-PROCESS
+ * (a signed Request handed straight to the handler) — the same verification code
+ * with no network hop, so no origin is trusted and there is no SSRF surface.
+ */
+
+/** A GEO-analytics-style SaaS: mirrors vizzybl.ai's brand → audit → prompts. */
+export const SANDBOX_CATALOG: ConnectionCatalog = {
+  events: [
+    { name: "user.signed_up", label: "Signed up", description: "A new user created an account." },
+    {
+      name: "onboarding.step_completed",
+      label: "Onboarding step completed",
+      description: "properties.step is the onboarding step id.",
+    },
+    { name: "onboarding.completed", label: "Onboarding completed", description: "Every onboarding step is done." },
+    { name: "user.deleted", label: "User deleted", description: "Erase this user and their history." },
+    {
+      name: "email_preferences.updated",
+      label: "Email preferences updated",
+      description: "properties.category + properties.subscribed.",
+    },
+  ],
+  traits: [
+    { key: "plan", type: "string", label: "Plan", description: "free, pro or ultra." },
+    { key: "company", type: "string", label: "Company", description: "" },
+    { key: "jobRole", type: "string", label: "Job role", description: "" },
+  ],
+  onboardingSteps: [
+    { id: "create_brand", label: "Add your brand", url: "https://app.example.com/brand/new", order: 0 },
+    { id: "run_audit", label: "Run your first audit", url: "https://app.example.com/audits/new", order: 1 },
+    { id: "monitor_prompts", label: "Monitor your first prompts", url: "https://app.example.com/prompts", order: 2 },
+  ],
+  glossary: [
+    { term: "Share of voice", definition: "How often AI answers mention your brand, compared with competitors." },
+    { term: "Citation", definition: "A source an AI answer links to or quotes." },
+  ],
+};
+
+/** Step links in the template point here. */
+export const SANDBOX_LINK_DOMAINS = ["example.com"];
+
+/** The default test user: no steps done, three facts, two insights. */
+export function defaultSandboxUser(email: string, firstName = "Alex"): SandboxUser {
+  return {
+    userId: "sandbox_alex",
+    email,
+    firstName,
+    timezone: "Europe/London",
+    steps: {},
+    facts: [
+      { id: "share_of_voice", label: "Share of voice", value: 12, unit: "%" },
+      { id: "competitors_named", label: "Competitors named instead of you", value: 3, unit: null },
+      { id: "engines_checked", label: "AI engines checked", value: 4, unit: null },
+    ],
+    insights: [
+      {
+        id: "competitors_named",
+        sentence: "ChatGPT named 3 competitors in answers about your category, but not you.",
+        factIds: ["competitors_named"],
+        weight: 0.8,
+        supportsStep: "monitor_prompts",
+      },
+      {
+        id: "share_of_voice",
+        sentence: "Across 4 AI engines, your brand appears in 12% of answers about your category.",
+        factIds: ["share_of_voice", "engines_checked"],
+        weight: 0.6,
+        supportsStep: "run_audit",
+      },
+    ],
+  };
+}
+
+/** What the sandbox's context endpoint returns for one test user. */
+export function buildSandboxContext(
+  conn: ProductConnection,
+  user: SandboxUser,
+  nowMs = Date.now(),
+): ProductContext {
+  const asOf = new Date(nowMs).toISOString();
+  const steps = [...conn.catalog.onboardingSteps]
+    .sort((a, b) => a.order - b.order)
+    .map((s) => ({
+      id: s.id,
+      label: s.label,
+      done: user.steps[s.id] === true,
+      doneAt: user.steps[s.id] === true ? asOf : null,
+      url: s.url ?? null,
+    }));
+  const next = steps.find((s) => !s.done);
+  return {
+    asOf,
+    steps,
+    nextStep: next ? { id: next.id, label: next.label, url: next.url } : null,
+    facts: user.facts.map((f) => ({ ...f, source: "sandbox", observedAt: asOf })),
+    insights: user.insights,
+    consent: { basis: "consent" },
+  };
+}
+
+// ---- Reference endpoints (signed, like a real product's) ------------------------
+
+function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+  });
+}
+
+/** Verify a platform→product request the way a real product must. */
+async function verifyInbound(
+  req: Request,
+  connectionId: string,
+  direction: SignDirection,
+  deps: { db?: FirestoreLike; nowMs?: number },
+): Promise<{ ok: true; raw: string; ctx: TenantContext; conn: ProductConnection } | { ok: false; res: Response }> {
+  const nowMs = deps.nowMs ?? Date.now();
+  const raw = await readRequestTextCapped(req, 16 * 1024);
+  if (raw === null) return { ok: false, res: json(413, { error: "body_too_large" }) };
+  const rec = await getConnectionKey(req.headers.get(HEADER_KEY_ID)?.trim() ?? "", deps.db);
+  if (!rec || rec.connectionId !== connectionId) return { ok: false, res: json(401, { error: "unknown_key" }) };
+  const ctx: TenantContext = { tenantId: rec.tenantId, region: rec.region, source: "api_key" };
+  const conn = await forTenant(ctx, deps.db).productConnections.getById(connectionId);
+  if (!conn || conn.kind !== "sandbox" || conn.status === "revoked") {
+    return { ok: false, res: json(404, { error: "not_found" }) };
+  }
+  const verified = verifySignature({
+    secrets: connectionSecrets(conn, nowMs),
+    direction,
+    timestamp: req.headers.get(HEADER_TIMESTAMP),
+    signature: req.headers.get(HEADER_SIGNATURE),
+    rawBody: raw,
+    nowMs,
+  });
+  if (!verified.ok) return { ok: false, res: json(401, { error: verified.reason }) };
+  return { ok: true, raw, ctx, conn };
+}
+
+/** POST /api/sandbox/context/[connectionId] — the reference context endpoint. */
+export async function handleSandboxContextRequest(
+  req: Request,
+  connectionId: string,
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
+): Promise<Response> {
+  const v = await verifyInbound(req, connectionId, "context", deps);
+  if (!v.ok) return v.res;
+  let body: unknown;
+  try {
+    body = JSON.parse(v.raw);
+  } catch {
+    return json(400, { error: "invalid_json" });
+  }
+  const parsed = ContextRequestSchema.safeParse(body);
+  if (!parsed.success) return json(400, { error: "invalid_request", detail: zodReason(parsed.error) });
+  const user = v.conn.sandbox?.users.find((u) => u.userId === parsed.data.userId);
+  if (!user) return json(404, { error: "unknown_user" });
+  return json(200, buildSandboxContext(v.conn, user, deps.nowMs));
+}
+
+const INBOX_SIZE = 20;
+
+/** POST /api/sandbox/webhook/[connectionId] — the reference webhook receiver. */
+export async function handleSandboxWebhookRequest(
+  req: Request,
+  connectionId: string,
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
+): Promise<Response> {
+  const v = await verifyInbound(req, connectionId, "webhook", deps);
+  if (!v.ok) return v.res;
+  let body: unknown;
+  try {
+    body = JSON.parse(v.raw);
+  } catch {
+    return json(400, { error: "invalid_json" });
+  }
+  const parsed = WebhookPayloadSchema.safeParse(body);
+  if (!parsed.success) return json(400, { error: "invalid_payload", detail: zodReason(parsed.error) });
+  const receivedAt = new Date(deps.nowMs ?? Date.now()).toISOString();
+  await forTenant(v.ctx, deps.db).productConnections.claim(connectionId, (cur) => {
+    if (!cur.sandbox) return null;
+    const entry = { receivedAt, type: parsed.data.type, body: v.raw.slice(0, 4000) };
+    return {
+      sandbox: { ...cur.sandbox, webhookInbox: [entry, ...cur.sandbox.webhookInbox].slice(0, INBOX_SIZE) },
+    };
+  });
+  return json(200, { ok: true });
+}
+
+// ---- Fire events (the sandbox acting as the product) ------------------------------
+
+export type SandboxAction =
+  | { kind: "identify" }
+  | { kind: "signed_up" }
+  | { kind: "step"; step: string }
+  | { kind: "completed" }
+  | { kind: "preferences"; category: string; subscribed: boolean }
+  | { kind: "deleted" };
+
+function messagesFor(user: SandboxUser, action: SandboxAction, timestamp: string): unknown[] {
+  const base = { userId: user.userId, timestamp };
+  const id = () => `sbx_${randomUUID()}`;
+  const identify = {
+    ...base,
+    type: "identify",
+    messageId: id(),
+    traits: { email: user.email, firstName: user.firstName ?? null, timezone: user.timezone, plan: "pro" },
+    consent: { basis: "consent", source: "sandbox" },
+  };
+  switch (action.kind) {
+    case "identify":
+      return [identify];
+    case "signed_up":
+      return [identify, { ...base, type: "track", messageId: id(), event: "user.signed_up" }];
+    case "step":
+      return [
+        { ...base, type: "track", messageId: id(), event: "onboarding.step_completed", properties: { step: action.step } },
+      ];
+    case "completed":
+      return [{ ...base, type: "track", messageId: id(), event: "onboarding.completed" }];
+    case "preferences":
+      return [
+        {
+          ...base,
+          type: "track",
+          messageId: id(),
+          event: "email_preferences.updated",
+          properties: { category: action.category, subscribed: action.subscribed },
+        },
+      ];
+    case "deleted":
+      return [{ ...base, type: "track", messageId: id(), event: "user.deleted" }];
+  }
+}
+
+/**
+ * Act as the product: sign a batch for one test user and run it through the
+ * REAL ingest handler (in-process). A step event also ticks the step on the test
+ * user, so the sandbox's context endpoint agrees with the events it sent.
+ */
+export async function fireSandboxEvent(
+  ctx: TenantContext,
+  conn: ProductConnection,
+  userId: string,
+  action: SandboxAction,
+  deps: { db?: FirestoreLike; nowMs?: number; origin: string },
+): Promise<{ status: number; body: unknown }> {
+  const user = conn.sandbox?.users.find((u) => u.userId === userId);
+  if (!user) return { status: 404, body: { error: "unknown_user" } };
+  const secret = currentSecret(conn);
+  if (!secret) return { status: 409, body: { error: "connection_revoked" } };
+
+  const nowMs = deps.nowMs ?? Date.now();
+  const raw = JSON.stringify({ batch: messagesFor(user, action, new Date(nowMs).toISOString()) });
+  const res = await handleIngestRequest(
+    new Request(`${deps.origin}/api/v1/events`, {
+      method: "POST",
+      headers: signedHeaders(conn.keyId, secret, "events", raw, nowMs),
+      body: raw,
+    }),
+    { db: deps.db, nowMs: () => nowMs },
+  );
+
+  if (res.status === 202 && action.kind === "step") {
+    await forTenant(ctx, deps.db).productConnections.claim(conn.id, (cur) => {
+      if (!cur.sandbox) return null;
+      const users = cur.sandbox.users.map((u) =>
+        u.userId === userId ? { ...u, steps: { ...u.steps, [action.step]: true } } : u,
+      );
+      return { sandbox: { ...cur.sandbox, users } };
+    });
+  }
+  return { status: res.status, body: await res.json() };
+}

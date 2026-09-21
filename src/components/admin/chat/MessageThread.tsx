@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, ChevronRight, Sparkles } from "lucide-react";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { CanvasCard } from "./CanvasCard";
 import type { ChatExchange } from "./useDashboardChat";
 
 /**
@@ -15,6 +16,8 @@ interface MessageThreadProps {
   isThinking: boolean;
   currentThought: string;
   toolStatus: string | null;
+  /** Narrow layouts (a docked panel) drop the centred max width. */
+  compact?: boolean;
 }
 
 export function MessageThread({
@@ -22,9 +25,10 @@ export function MessageThread({
   isThinking,
   currentThought,
   toolStatus,
+  compact = false,
 }: MessageThreadProps) {
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 py-6">
+    <div className={compact ? "w-full space-y-4 py-3" : "mx-auto w-full max-w-3xl space-y-5 py-6"}>
       {exchange.map((msg, idx) =>
         msg.role === "user" ? (
           <div key={idx} className="flex justify-end">
@@ -44,6 +48,7 @@ export function MessageThread({
               ) : msg.isStreaming ? (
                 <TypingDots />
               ) : null}
+              {msg.artifacts?.map((card) => <CanvasCard key={card.id} card={card} />)}
             </div>
           </div>
         ),

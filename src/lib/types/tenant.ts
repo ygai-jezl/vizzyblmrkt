@@ -148,6 +148,11 @@ export const EmailSenderConfigSchema = z.object({
   /** Reply-To address shown to recipients. */
   replyTo: z.string().optional(),
   /**
+   * Physical postal address printed in the footer of lifecycle (connected-product)
+   * emails — required for marketing mail in several jurisdictions (CAN-SPAM).
+   */
+  postalAddress: z.string().max(300).optional(),
+  /**
    * Public Privacy Policy URL, rendered as the "Privacy Policy" link in every
    * marketing email footer. Required going forward (enforced in the Domains
    * settings form + PUT route); optional here so tenant docs predating the

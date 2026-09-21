@@ -534,3 +534,63 @@ env:
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app/api/webhooks/mandrill
     availability:
       - RUNTIME
+  # Lifecycle journeys — connected products (Products page, sandbox, admin APIs)
+  # and the public ingest API (/api/v1/events). ENABLED on dev; OFF in prod until
+  # verified here and promoted (overridden in apphosting.prod.yaml).
+  - variable: LIFECYCLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: LIFECYCLE_INGEST_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Root key that seals connection secrets (AES-GCM). Created in dev with
+  #   infra/lifecycle/setup.sh secret vizzybl-marketing-dev
+  - variable: CONNECT_SECRET_ENC_KEY
+    secret: connect-secret-enc-key
+    availability:
+      - RUNTIME
+  # Lifecycle runner: the highest delivery mode dev may use (prod: test), and the
+  # Cloud Scheduler tick's shared secret. Created in dev with
+  #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-dev
+  - variable: LIFECYCLE_MODE_CEILING
+    value: live
+    availability:
+      - RUNTIME
+  # Per-person AI lines for lifecycle emails (prepared ~12 h ahead, reviewed in
+  # the Approval Queue, standard version on fallback). OFF in prod until M3 is
+  # verified here.
+  - variable: LIFECYCLE_AI_DRAFTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Vizzy can draft and edit lifecycle journeys from the chat (drafts only).
+  - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_WORKER_SECRET
+    secret: lifecycle-worker-secret
+    availability:
+      - RUNTIME
+  # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
+  # one-click header). Without it, emails carry no unsubscribe link and lifecycle
+  # marketing sends are held. Created in dev with a random value (separate from prod's).
+  - variable: UNSUBSCRIBE_SIGNING_KEY
+    secret: unsubscribe-signing-key
+    availability:
+      - RUNTIME
+  # Origin for unsubscribe / preference links in emails. dev has no
+  # NEXT_PUBLIC_PLATFORM_ORIGIN (widgets fall back to the request origin), so
+  # without this, dev emails would carry no unsubscribe link. prod uses the
+  # platform origin (https://yougrow.ai) and leaves this unset.
+  - variable: EMAIL_LINK_ORIGIN
+    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
+    availability:
+      - RUNTIME

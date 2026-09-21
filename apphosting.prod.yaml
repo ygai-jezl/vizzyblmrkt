@@ -482,3 +482,41 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
+  # Lifecycle journeys — OFF in prod until verified on dev and promoted. Flip all
+  # three with a `chore(prod): enable …` commit after the prod smoke test.
+  - variable: LIFECYCLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: LIFECYCLE_INGEST_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Create FIRST with: infra/lifecycle/setup.sh secret vizzybl-marketing-prod
+  # - variable: CONNECT_SECRET_ENC_KEY
+  #   secret: connect-secret-enc-key
+  #   availability:
+  #     - RUNTIME
+  # The highest delivery mode prod may use: test until the vizzybl.ai launch (M7).
+  - variable: LIFECYCLE_MODE_CEILING
+    value: test
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_AI_DRAFTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Create FIRST with: infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
+  # - variable: LIFECYCLE_WORKER_SECRET
+  #   secret: lifecycle-worker-secret
+  #   availability:
+  #     - RUNTIME

@@ -211,14 +211,16 @@ function withSection(inner: string, sectionBg: string | null | undefined): strin
  */
 export const FOOTER_MARKER = "data-vzb-footer";
 
-/** Footer inner HTML (no section band — renderBlock adds it from block.sectionBg). */
-function renderFooterInner(): string {
+/** Footer inner HTML (no section band — renderBlock adds it from block.sectionBg).
+ *  `withAddress` adds a `{{postal_address}}` line (lifecycle emails). */
+function renderFooterInner(opts: { withAddress?: boolean } = {}): string {
   // `mc:disable-tracking` keeps Mandrill from rewriting these to click-tracking
   // redirects: the unsubscribe/preferences/privacy controls must be DIRECT links
   // (bulk-sender guidance), and tracking them would inflate journey click metrics.
   const link = (token: string, label: string) =>
     `<a href="${token}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">${label}</a>`;
-  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${FONT};font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br />${link(
+  const address = opts.withAddress ? "<br />{{postal_address}}" : "";
+  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${FONT};font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.${address}<br />${link(
     "{{manage_preferences_url}}",
     "Manage preferences",
   )} &nbsp;|&nbsp; ${link("{{unsubscribe_url}}", "Unsubscribe")} &nbsp;|&nbsp; ${link(
@@ -229,8 +231,26 @@ function renderFooterInner(): string {
 
 /** Full footer including its optional per-section background band. Used by the
  *  send-path safety net (compiler.ts) when a body lacks a footer block. */
-export function renderFooter(sectionBg?: string | null): string {
-  return withSection(renderFooterInner(), sectionBg ?? null);
+export function renderFooter(sectionBg?: string | null, opts: { withAddress?: boolean } = {}): string {
+  return withSection(renderFooterInner(opts), sectionBg ?? null);
+}
+
+/**
+ * A plain, founder-style shell for `letter` lifecycle emails: no card, no hero —
+ * it should read like a personal note, not a newsletter.
+ */
+export function wrapLetter(inner: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
+  <div style="font-family:${FONT};font-size:15px;line-height:1.6;max-width:560px;margin:0 auto;padding:24px;color:#111">
+    ${inner}
+  </div>
+</body></html>`;
+}
+
+/** A hidden inbox preheader (the preview line after the subject). */
+export function preheaderHtml(text: string | null | undefined): string {
+  if (!text) return "";
+  return `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">${escapeHtml(text)}</div>`;
 }
 
 /**

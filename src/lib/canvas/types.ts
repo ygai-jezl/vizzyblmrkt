@@ -1,53 +1,70 @@
 import type { TenantContext } from "@/lib/tenant";
-import type { Campaign } from "@/lib/types/campaign";
-import type { JourneyStatus } from "@/lib/types/journey";
 
 /**
  * Canvas authoring — the reusable abstraction that lets an agent build a visual
- * "canvas" (today: the email Journey Canvas; later: a second email-sequence
- * canvas) and save it as a DRAFT for human review. Each canvas KIND owns its
- * schema, Agent-3 content fill, validation, and draft persistence behind one
- * self-contained `authorDraft`, so the agent endpoint stays generic over kind.
+ * "canvas" and save it as a DRAFT for human review. Two kinds today:
+ *  - `journey`: a launch's email Journey Canvas (scope: a campaign);
+ *  - `lifecycle`: a connected product's lifecycle journey (scope: a product
+ *    connection, and optionally the journey being edited).
+ * Each kind owns its request shape, scope loading, content fill, validation,
+ * persistence and the words it says back, behind one `authorDraft`, so the
+ * agent endpoint stays generic.
  *
- * Adding a second canvas = one new module under kinds/ + one line in registry.ts.
- * Nothing in the endpoint, auth, or agent tool changes.
+ * Adding a canvas = one new module under kinds/ + one line in registry.ts.
  */
+
+/** Where a draft lives. The kind resolves it from the request (never trusts tenant ids in it). */
+export type CanvasScope =
+  | { kind: "journey"; campaignId: string }
+  | { kind: "lifecycle"; connectionId: string; journeyId?: string | null };
+
+/** What the chat shows for a saved draft (a card with an "Open canvas" link). */
+export interface CanvasCard {
+  kind: string;
+  id: string;
+  title: string;
+  subtitle?: string;
+  url: string;
+  stats: Array<{ label: string; value: string | number }>;
+  warnings: number;
+}
 
 export type CanvasAuthorOutcome =
   | {
       ok: true;
-      journeyId: string;
-      status: JourneyStatus;
-      /** Soft issues (e.g. an incomplete graph) — the draft still saves so the
-       *  human can finish it on the canvas; activation is independently gated. */
+      id: string;
+      status: string;
+      /** Admin path of the canvas that now holds the draft. */
+      url: string;
+      /** Written for the operator — the agent relays it. */
+      summary: string;
+      /** Soft issues: the draft still saved, for the human to finish. */
       warnings: string[];
+      card: CanvasCard;
     }
   | {
       ok: false;
-      error: "invalid_graph" | "campaign_not_found" | "journey_active";
-      /** Zod issue strings when error === "invalid_graph". */
-      issues?: string[];
+      /** HTTP status for the endpoint to return. */
+      status: number;
+      error: string;
+      /** Structured problems the agent can repair and retry. */
+      issues?: unknown[];
     };
 
 export interface CanvasAuthorArgs {
+  /** Reconstructed from the signed capability token — the ONLY source of tenant scope. */
   ctx: TenantContext;
-  /** Loaded by the endpoint (kind-agnostic) so Agent 3 can match brand tone. */
-  campaign: Campaign;
-  campaignId: string;
-  /** The graph the agent assembled; the kind validates it against its schema. */
-  rawGraph: unknown;
-  /** Natural-language ask, used to brief Agent 3 per node. */
+  /** The request body; each kind parses what it needs from it. */
+  input: Record<string, unknown>;
+  /** Natural-language ask from the operator. */
   brief: string;
 }
 
 export interface CanvasKind {
   /** Stable id used in the agent request + registry (e.g. "journey"). */
   kind: string;
-  /** Human label woven into the summary surfaced back through the agent. */
+  /** Human label, e.g. "email journey". */
   label: string;
-  /**
-   * Parse rawGraph → fill copy via Agent 3 → validate → persist as a DRAFT.
-   * Never activates. Returns a structured outcome the endpoint maps to HTTP.
-   */
+  /** Parse → load scope → build/fill → validate → persist as a DRAFT. Never activates or publishes. */
   authorDraft(args: CanvasAuthorArgs): Promise<CanvasAuthorOutcome>;
 }

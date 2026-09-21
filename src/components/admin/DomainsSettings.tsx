@@ -44,6 +44,7 @@ interface ConfigResponse {
   fromDomain: string;
   replyTo: string;
   privacyPolicyUrl: string;
+  postalAddress?: string;
   domains: SenderDomain[];
   providerConfigured: boolean;
   rootDomain?: string;
@@ -67,6 +68,7 @@ export function DomainsSettings() {
   const [fromDomain, setFromDomain] = useState("");
   const [replyTo, setReplyTo] = useState("");
   const [privacyPolicyUrl, setPrivacyPolicyUrl] = useState("");
+  const [postalAddress, setPostalAddress] = useState("");
   const [senderStatus, setSenderStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const [rootDomain, setRootDomain] = useState("");
@@ -85,6 +87,7 @@ export function DomainsSettings() {
     setFromDomain(data.fromDomain);
     setReplyTo(data.replyTo);
     setPrivacyPolicyUrl(data.privacyPolicyUrl ?? "");
+    setPostalAddress(data.postalAddress ?? "");
     setDomains(data.domains);
     setProviderConfigured(data.providerConfigured);
     setRootDomain(data.rootDomain ?? "");
@@ -282,7 +285,7 @@ export function DomainsSettings() {
       const res = await fetch("/api/admin/account/domains", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ senderName, fromLocalPart, fromDomain, replyTo, privacyPolicyUrl: privacy }),
+        body: JSON.stringify({ senderName, fromLocalPart, fromDomain, replyTo, privacyPolicyUrl: privacy, postalAddress: postalAddress.trim() }),
       });
       if (!res.ok) throw new Error("save_failed");
       applyConfig((await res.json()) as ConfigResponse);
@@ -594,6 +597,23 @@ export function DomainsSettings() {
             <p className="text-xs text-neutral-500">
               Required. Linked in the footer of every email you send (waitlist journeys and
               broadcasts), alongside Unsubscribe and Manage preferences.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">Postal address</label>
+            <input
+              value={postalAddress}
+              onChange={(e) => {
+                setPostalAddress(e.target.value.slice(0, 300));
+                setSenderStatus("idle");
+              }}
+              placeholder="Your Company Ltd, 1 High Street, London, EC1A 1AA"
+              className={INPUT_CLASS}
+            />
+            <p className="text-xs text-neutral-500">
+              Printed in the footer of lifecycle emails. Needed before a lifecycle journey can send marketing
+              emails live (anti-spam law in several countries requires a physical address).
             </p>
           </div>
 

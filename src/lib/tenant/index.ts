@@ -125,4 +125,6 @@ export type { ConnectionKeyRecord } from "./connectionKeys";
 export { applyProductMessage } from "./productIngest";
 export type { ApplyOutcome, ApplyMessageArgs } from "./productIngest";
 export { isRateLimited } from "./rateLimit";
+export { claimLifecycleSend } from "./lifecycleSend";
+export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

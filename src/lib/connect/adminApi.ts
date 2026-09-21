@@ -21,6 +21,7 @@ import {
   fireSandboxEvent,
 } from "./sandbox";
 import { zodReason } from "./protocol";
+import { isOwnOrVerifiedAddress } from "@/lib/lifecycle/policy";
 
 /**
  * The Products admin API, as plain functions (status + body) so they're tested
@@ -318,17 +319,8 @@ export async function putSandboxUsers(
   if (conn.kind !== "sandbox" || !conn.sandbox) return fail(400, "not_a_sandbox");
 
   const tenant = await getTenantById(ctx.tenantId, db).catch(() => null);
-  const verified = new Set(
-    (tenant?.emailSenderConfig?.domains ?? [])
-      .filter((d) => d.status === "verified")
-      .map((d) => registrableDomain(d.domain))
-      .filter((d): d is string => Boolean(d)),
-  );
-  const own = ctx.email?.trim().toLowerCase();
   for (const u of parsed.data.users) {
-    const email = u.email.trim().toLowerCase();
-    const domain = registrableDomain(email.slice(email.lastIndexOf("@") + 1));
-    if (email !== own && !(domain && verified.has(domain))) {
+    if (!isOwnOrVerifiedAddress(u.email, { ownEmail: ctx.email, tenant })) {
       return fail(400, "recipient_not_allowed", u.email);
     }
   }

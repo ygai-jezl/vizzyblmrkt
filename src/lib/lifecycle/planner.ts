@@ -42,6 +42,8 @@ export interface WalkEnv {
   offsetMin: number;
   /** The recipient's context at a moment (stored profile + any live context). */
   recipientAt: (nowMs: number) => RecipientContext;
+  /** Pool items (`poolId:itemId`) not to pick in this walk (see pickPoolItem). */
+  excluded?: ReadonlySet<string>;
 }
 
 export type Decision =
@@ -113,7 +115,7 @@ export function decideNext(start: WalkState, env: WalkEnv): WalkResult {
           return { decision: { kind: "run_at", runAtMs, reason: "window" }, state, skipped };
         }
         const pool = env.pools.find((p) => p.id === node.data.poolId);
-        const item = pool ? pickPoolItem(pool, state.sent, env.recipientAt(state.nowMs)) : null;
+        const item = pool ? pickPoolItem(pool, state.sent, env.recipientAt(state.nowMs), env.excluded) : null;
         const after = nextNodeId(env.graph, node.id);
         if (!pool || !item) {
           skipped.push({ nodeId: node.id, poolId: node.data.poolId ?? "" });

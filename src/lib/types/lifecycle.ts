@@ -332,13 +332,14 @@ export const LifecycleWebhookSchema = z.object({
 });
 export type LifecycleWebhook = z.infer<typeof LifecycleWebhookSchema>;
 
-/** Exact daily send counter per journey; id = `${journeyId}_${yyyymmdd}`. */
+/** Exact daily send + enrolment counters per journey; id = `${journeyId}_${yyyymmdd}` (UTC day). */
 export const LifecycleCounterSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   journeyId: z.string(),
   day: z.string(),
   sends: z.number().int().nonnegative(),
+  enrolments: z.number().int().nonnegative().default(0),
   ttlAt: z.unknown().optional(),
 });
 export type LifecycleCounter = z.infer<typeof LifecycleCounterSchema>;

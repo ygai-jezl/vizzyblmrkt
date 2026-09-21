@@ -556,6 +556,17 @@ env:
     secret: connect-secret-enc-key
     availability:
       - RUNTIME
+  # Lifecycle runner: the highest delivery mode dev may use (prod: test), and the
+  # Cloud Scheduler tick's shared secret. Created in dev with
+  #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-dev
+  - variable: LIFECYCLE_MODE_CEILING
+    value: live
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_WORKER_SECRET
+    secret: lifecycle-worker-secret
+    availability:
+      - RUNTIME
   # Origin for unsubscribe / preference links in emails. dev has no
   # NEXT_PUBLIC_PLATFORM_ORIGIN (widgets fall back to the request origin), so
   # without this, dev emails would carry no unsubscribe link. prod uses the

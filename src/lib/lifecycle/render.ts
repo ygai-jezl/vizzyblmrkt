@@ -51,6 +51,8 @@ export interface RenderedEmail {
   html: string;
   text: string;
   missing: string[];
+  /** The insight block rendered an insight (the runner marks it used). */
+  insightUsed: boolean;
 }
 
 const TOKEN_RE = /\{\{\s*([A-Za-z_][\w.]*)\s*(?:\|([^}]*))?\}\}/g;
@@ -136,19 +138,28 @@ function insightBlock(insight: RenderValues["insight"], letter: boolean): string
   return `<div style="margin:8px 0 16px;padding:12px 14px;border-left:3px solid #111;background:#f6f6f6;font-family:${FONT};font-size:15px;line-height:1.6;color:#111">${text}</div>`;
 }
 
+interface RenderState {
+  missing: Set<string>;
+  insightUsed: boolean;
+}
+
 function renderTokens(
   template: string,
   v: RenderValues,
   mode: "html" | "text",
   letter: boolean,
-  missing: Set<string>,
+  st: RenderState,
 ): string {
+  const missing = st.missing;
   return template.replace(TOKEN_RE, (_m, key: string, fallback?: string) => {
     if (key.startsWith("block.")) {
       if (mode === "text") return "";
       if (key === "block.checklist") return checklistBlock(v.checklist);
       if (key === "block.next_step") return nextStepBlock(v.nextStep, letter);
-      if (key === "block.insight") return insightBlock(v.insight, letter);
+      if (key === "block.insight") {
+        if (v.insight) st.insightUsed = true;
+        return insightBlock(v.insight, letter);
+      }
       missing.add(key);
       return "";
     }
@@ -186,9 +197,9 @@ export function renderLifecycleEmail(input: {
 }): RenderedEmail {
   const { item, values } = input;
   const letter = item.format === "letter";
-  const missing = new Set<string>();
+  const st: RenderState = { missing: new Set<string>(), insightUsed: false };
 
-  const subject = renderTokens(item.subject, values, "text", letter, missing).replace(/[\r\n]+/g, " ").trim();
+  const subject = renderTokens(item.subject, values, "text", letter, st).replace(/[\r\n]+/g, " ").trim();
 
   // A saved layout is re-rendered (and so re-sanitised) at send. Plain-text bodies
   // (typical for letters) are escaped and paragraphed first; a block token alone
@@ -200,12 +211,13 @@ export function renderLifecycleEmail(input: {
 
   const body =
     (input.shadowFor ? shadowBanner(input.shadowFor) : "") +
-    neutralizeUnsafeHrefs(renderTokens(inner, values, "html", letter, missing));
+    neutralizeUnsafeHrefs(renderTokens(inner, values, "html", letter, st));
   const shell = letter ? wrapLetter : (x: string) => wrap(x, null);
   return {
     subject,
-    html: shell(preheaderHtml(item.previewText ? renderTokens(item.previewText, values, "text", letter, missing) : null) + body),
+    html: shell(preheaderHtml(item.previewText ? renderTokens(item.previewText, values, "text", letter, st) : null) + body),
     text: htmlToText(body),
-    missing: [...missing],
+    missing: [...st.missing],
+    insightUsed: st.insightUsed,
   };
 }

@@ -556,3 +556,11 @@ env:
     secret: connect-secret-enc-key
     availability:
       - RUNTIME
+  # Origin for unsubscribe / preference links in emails. dev has no
+  # NEXT_PUBLIC_PLATFORM_ORIGIN (widgets fall back to the request origin), so
+  # without this, dev emails would carry no unsubscribe link. prod uses the
+  # platform origin (https://yougrow.ai) and leaves this unset.
+  - variable: EMAIL_LINK_ORIGIN
+    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
+    availability:
+      - RUNTIME

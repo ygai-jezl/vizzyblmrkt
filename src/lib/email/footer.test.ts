@@ -6,7 +6,10 @@ import {
   journeyFooterValues,
   broadcastFooterValues,
   DEFAULT_PRIVACY_URL,
+  emailLinkOrigin,
+  lifecycleUnsubscribeLinks,
 } from "./footer";
+import { verifyUnsubscribeTokenAny } from "./unsubscribeToken";
 
 function tenant(over: Partial<Tenant> = {}): Tenant {
   return {
@@ -80,5 +83,45 @@ describe("broadcastFooterValues", () => {
     expect(v.brand).toBe("Acme Team");
     expect(v.privacyUrl).toBe(DEFAULT_PRIVACY_URL);
     expect(v.unsubscribeUrl).toBe("");
+  });
+});
+
+describe("lifecycleUnsubscribeLinks / emailLinkOrigin", () => {
+  const input = {
+    tenantId: "ten_a",
+    email: "alex@acme.test",
+    recipientId: "pu_1",
+    connectionId: "pcn_1",
+    category: "onboarding",
+    categoryLabel: "Onboarding tips",
+  };
+
+  afterEach(() => {
+    delete process.env.UNSUBSCRIBE_SIGNING_KEY;
+    delete process.env.NEXT_PUBLIC_PLATFORM_ORIGIN;
+    delete process.env.EMAIL_LINK_ORIGIN;
+  });
+
+  it("prefers EMAIL_LINK_ORIGIN over the platform origin", () => {
+    process.env.NEXT_PUBLIC_PLATFORM_ORIGIN = "https://app.test";
+    expect(emailLinkOrigin()).toBe("https://app.test");
+    process.env.EMAIL_LINK_ORIGIN = "https://dev.app.test/";
+    expect(emailLinkOrigin()).toBe("https://dev.app.test");
+  });
+
+  it("builds page + api URLs carrying a v2 token", () => {
+    process.env.UNSUBSCRIBE_SIGNING_KEY = "k";
+    process.env.EMAIL_LINK_ORIGIN = "https://dev.app.test";
+    const { pageUrl, apiUrl } = lifecycleUnsubscribeLinks(input);
+    expect(pageUrl).toMatch(/^https:\/\/dev\.app\.test\/unsubscribe\?u=/);
+    expect(apiUrl).toMatch(/^https:\/\/dev\.app\.test\/api\/unsubscribe\?u=/);
+    const token = decodeURIComponent(pageUrl.split("u=")[1]!);
+    const res = verifyUnsubscribeTokenAny(token);
+    expect(res.ok && res.version).toBe(2);
+  });
+
+  it("returns empty strings when no origin is configured", () => {
+    process.env.UNSUBSCRIBE_SIGNING_KEY = "k";
+    expect(lifecycleUnsubscribeLinks(input)).toEqual({ pageUrl: "", apiUrl: "" });
   });
 });

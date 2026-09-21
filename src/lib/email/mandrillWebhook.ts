@@ -100,6 +100,9 @@ export interface EventMetadata {
   nodeId: string;
   signupId: string;
   variantId: string;
+  /** Lifecycle sends: `product_user` + the connection (signupId = product user id). */
+  recipientKind?: "signup" | "product_user";
+  connectionId?: string;
 }
 
 export function readEventMetadata(ev: MandrillEvent): EventMetadata | null {
@@ -113,6 +116,9 @@ export function readEventMetadata(ev: MandrillEvent): EventMetadata | null {
     nodeId: get("nodeId"),
     signupId: get("signupId"),
     variantId: get("variantId") || "control",
+    ...(get("recipientKind") === "product_user"
+      ? { recipientKind: "product_user" as const, connectionId: get("connectionId") }
+      : {}),
   };
   // A non-journey send (or a malformed payload) lacks our keys — skip it.
   if (!meta.tenantId || !meta.journeyId || !meta.nodeId || !meta.signupId) {

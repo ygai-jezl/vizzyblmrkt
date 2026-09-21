@@ -579,6 +579,13 @@ env:
     secret: lifecycle-worker-secret
     availability:
       - RUNTIME
+  # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
+  # one-click header). Without it, emails carry no unsubscribe link and lifecycle
+  # marketing sends are held. Created in dev with a random value (separate from prod's).
+  - variable: UNSUBSCRIBE_SIGNING_KEY
+    secret: unsubscribe-signing-key
+    availability:
+      - RUNTIME
   # Origin for unsubscribe / preference links in emails. dev has no
   # NEXT_PUBLIC_PLATFORM_ORIGIN (widgets fall back to the request origin), so
   # without this, dev emails would carry no unsubscribe link. prod uses the

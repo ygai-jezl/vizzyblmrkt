@@ -395,17 +395,16 @@ env:
   #   availability:
   #     - RUNTIME
   #
-  # Signs the short-lived capability token the admin-chat proxy mints so the
-  # Campaign Ops sub-agent can call back (POST /api/agent/canvas) to save a
-  # journey DRAFT. Keep COMMENTED until the secret exists; while unset, agent
-  # journey authoring is off and chat is unaffected. Provision + uncomment, and
-  # deploy the root agent with CANVAS_CALLBACK_URL set to the dev App Hosting
-  # origin (CANVAS_CALLBACK_URL=<dev-url> bash agents/root_agent/deploy.sh):
-  #   firebase apphosting:secrets:set canvas-context-signing-key --project vizzybl-marketing-dev
-  # - variable: CANVAS_CONTEXT_SIGNING_KEY
-  #   secret: canvas-context-signing-key
-  #   availability:
-  #     - RUNTIME
+  # Signs the short-lived capability token the admin-chat proxy mints so Vizzy's
+  # specialists (Campaign Ops, Lifecycle Ops) can call back (POST
+  # /api/agent/canvas, GET /api/agent/lifecycle/*) to read context and save
+  # DRAFTS. Created in dev with a random value (prod has its own, set in
+  # apphosting.prod.yaml). The dev root agent is deployed with CANVAS_CALLBACK_URL
+  # = the dev App Hosting origin (the default in agents/root_agent/deploy.sh).
+  - variable: CANVAS_CONTEXT_SIGNING_KEY
+    secret: canvas-context-signing-key
+    availability:
+      - RUNTIME
   #
   # Git OAuth (private-repo ingestion). Per-tenant GitHub/GitLab connections: a
   # "Connect" flow stores an OAuth token ENCRYPTED on the tenant doc (AES-256-GCM,

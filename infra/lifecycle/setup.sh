@@ -14,9 +14,9 @@
 #
 # Order of operations (per environment):
 #   1) ./setup.sh secret <project> && ./setup.sh worker-secret <project>
-#   2) uncomment CONNECT_SECRET_ENC_KEY + LIFECYCLE_WORKER_SECRET in
-#      apphosting(.prod).yaml, then deploy (a secret must exist before a rollout
-#      references it)
+#      (apphosting.yaml references both and prod inherits them: a secret must
+#      exist, with App Hosting access, before any rollout — or the build fails)
+#   2) deploy
 #   3) firebase deploy --only firestore:indexes --project <dev|prod>   (wait for READY)
 #   4) ./setup.sh ttl <project>
 #   5) ./setup.sh scheduler <project>   (the tick no-ops while LIFECYCLE_ENABLED is off)
@@ -36,7 +36,8 @@ PROJECT="${2:-vizzybl-marketing-dev}"
 
 SECRET_NAME="connect-secret-enc-key"
 WORKER_SECRET_NAME="lifecycle-worker-secret"
-RUNTIME_SA="firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com"
+# The App Hosting backend id matches the project id in both environments.
+BACKEND="$PROJECT"
 # Every database in firebase.json (control plane + regional data planes).
 DATABASES=("(default)" "signups-eu" "signups-asia")
 
@@ -50,6 +51,14 @@ case "$PROJECT" in
   *) echo "Refusing: unexpected project '$PROJECT'" >&2; exit 2 ;;
 esac
 URI="${TARGET_HOST}/api/admin/lifecycle/tick"
+
+# App Hosting needs MORE than secretAccessor: it resolves `versions/latest`
+# (viewer) through its service agent (secretVersionManager). A plain IAM grant
+# fails the build with "Error resolving secret version". This is the supported way.
+grant_backend() { # <secret>
+  echo "==> Granting App Hosting backend '$BACKEND' access to $1"
+  firebase apphosting:secrets:grantaccess "$1" --backend "$BACKEND" --project "$PROJECT" --non-interactive
+}
 
 ttl_on() { # <database> <collection-group> <field>
   echo "==> TTL ${2}.${3} on ${1} (${PROJECT})"
@@ -67,10 +76,8 @@ case "$CMD" in
       openssl rand -base64 32 | tr -d '\n' \
         | gcloud secrets versions add "$SECRET_NAME" --project="$PROJECT" --data-file=-
     fi
-    echo "==> Granting $RUNTIME_SA read access"
-    gcloud secrets add-iam-policy-binding "$SECRET_NAME" --project="$PROJECT" \
-      --member="serviceAccount:${RUNTIME_SA}" --role="roles/secretmanager.secretAccessor" >/dev/null
-    echo "Done. Next: uncomment CONNECT_SECRET_ENC_KEY in the apphosting yaml for this env and deploy."
+    grant_backend "$SECRET_NAME"
+    echo "Done. CONNECT_SECRET_ENC_KEY is referenced from apphosting.yaml (prod inherits it)."
     ;;
   worker-secret)
     if gcloud secrets describe "$WORKER_SECRET_NAME" --project="$PROJECT" >/dev/null 2>&1; then
@@ -81,10 +88,8 @@ case "$CMD" in
       openssl rand -hex 32 | tr -d '\n' \
         | gcloud secrets versions add "$WORKER_SECRET_NAME" --project="$PROJECT" --data-file=-
     fi
-    echo "==> Granting $RUNTIME_SA read access"
-    gcloud secrets add-iam-policy-binding "$WORKER_SECRET_NAME" --project="$PROJECT" \
-      --member="serviceAccount:${RUNTIME_SA}" --role="roles/secretmanager.secretAccessor" >/dev/null
-    echo "Done. Next: reference LIFECYCLE_WORKER_SECRET in the apphosting yaml for this env and deploy."
+    grant_backend "$WORKER_SECRET_NAME"
+    echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.yaml (prod inherits it)."
     ;;
   scheduler)
     # The header must match what the app validates; the value is read from Secret

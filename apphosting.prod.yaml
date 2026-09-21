@@ -497,11 +497,20 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Create FIRST with: infra/lifecycle/setup.sh secret vizzybl-marketing-prod
-  # - variable: CONNECT_SECRET_ENC_KEY
-  #   secret: connect-secret-enc-key
-  #   availability:
-  #     - RUNTIME
+  # CONNECT_SECRET_ENC_KEY and LIFECYCLE_WORKER_SECRET are set in apphosting.yaml
+  # and INHERITED here, resolved against THIS project's Secret Manager — so both
+  # secrets must exist in prod (with App Hosting access) before any prod rollout,
+  # or the build fails. Create them with:
+  #   infra/lifecycle/setup.sh secret vizzybl-marketing-prod
+  #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
+  #
+  # Email unsubscribe / preference links must point at PROD. (apphosting.yaml
+  # sets this to the dev backend's URL for dev; without this override prod
+  # emails would link to dev, where the tokens don't verify.)
+  - variable: EMAIL_LINK_ORIGIN
+    value: https://yougrow.ai
+    availability:
+      - RUNTIME
   # The highest delivery mode prod may use: test until the vizzybl.ai launch (M7).
   - variable: LIFECYCLE_MODE_CEILING
     value: test
@@ -515,8 +524,4 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Create FIRST with: infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
-  # - variable: LIFECYCLE_WORKER_SECRET
-  #   secret: lifecycle-worker-secret
-  #   availability:
-  #     - RUNTIME
+  # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

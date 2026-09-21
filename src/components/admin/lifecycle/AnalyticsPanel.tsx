@@ -14,6 +14,10 @@ interface Analytics {
     label: string;
     sent: number;
     unknown: number;
+    skipped: number;
+    ai: number;
+    standard: number;
+    fallbackReasons: Record<string, number>;
     byMode: Record<string, number>;
     opens: number;
     clicks: number;
@@ -78,7 +82,9 @@ export function AnalyticsPanel({ journeyId }: { journeyId: string }) {
             <tr>
               <th className="px-3 py-2">Email</th>
               <th className="px-3 py-2">Sent</th>
+              <th className="px-3 py-2">AI line</th>
               <th className="px-3 py-2">Unknown</th>
+              <th className="px-3 py-2">Skipped</th>
               <th className="px-3 py-2">Opens</th>
               <th className="px-3 py-2">Clicks</th>
               <th className="px-3 py-2">Unsubscribes</th>
@@ -89,7 +95,7 @@ export function AnalyticsPanel({ journeyId }: { journeyId: string }) {
           <tbody>
             {data.items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-center text-neutral-500">
+                <td colSpan={10} className="px-3 py-4 text-center text-neutral-500">
                   Nothing sent yet.
                 </td>
               </tr>
@@ -101,9 +107,16 @@ export function AnalyticsPanel({ journeyId }: { journeyId: string }) {
                   <div className="text-xs text-neutral-500">
                     {Object.entries(i.byMode).map(([m, n]) => `${m}: ${n}`).join(" · ")}
                   </div>
+                  {i.standard > 0 ? (
+                    <div className="text-xs text-neutral-500">
+                      standard version: {Object.entries(i.fallbackReasons).map(([r, n]) => `${r.replace(/_/g, " ")} ${n}`).join(" · ")}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2">{i.sent}</td>
+                <td className="px-3 py-2">{i.ai + i.standard > 0 ? `${i.ai} of ${i.ai + i.standard}` : "—"}</td>
                 <td className="px-3 py-2">{i.unknown}</td>
+                <td className="px-3 py-2">{i.skipped}</td>
                 <td className="px-3 py-2">{i.opens}</td>
                 <td className="px-3 py-2">{i.clicks}</td>
                 <td className="px-3 py-2">{i.unsubscribes}</td>

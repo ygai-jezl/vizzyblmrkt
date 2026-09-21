@@ -26,6 +26,7 @@
 #   product_events.ttlAt     — ingested events, 90 days after receipt
 #   product_users.ttlAt      — deleted-user tombstones, 30 days after erasure
 #   lifecycle_counters.ttlAt — daily send/enrolment counters, 40 days
+#   lifecycle_drafts.ttlAt   — AI-line drafts, 90 days after their send
 #   rate_limits.ttl          — ingest rate-limit counters, 2 hours (control plane only)
 
 set -euo pipefail
@@ -114,6 +115,7 @@ case "$CMD" in
       ttl_on "$db" product_events ttlAt
       ttl_on "$db" product_users ttlAt
       ttl_on "$db" lifecycle_counters ttlAt
+      ttl_on "$db" lifecycle_drafts ttlAt
     done
     ttl_on "(default)" rate_limits ttl
     echo "Requested. TTL policies take a few minutes to become ACTIVE — check with: ./setup.sh verify $PROJECT"

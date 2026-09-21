@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -51,6 +51,35 @@ export interface AdminSidebarProps {
   ctx: { tenantId: string; region: string; role: string };
 }
 
+/**
+ * How many AI lines are waiting in the Approval Queue (lifecycle journeys).
+ * Polled while the admin is open; nothing is shown when lifecycle is off.
+ */
+function useApprovalCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!isLifecycleUiEnabled()) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/admin/approvals/count");
+        if (!res.ok) return;
+        const data = (await res.json()) as { count?: number };
+        if (alive && typeof data.count === "number") setCount(data.count);
+      } catch {
+        // Offline or signed out — keep the last count.
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 60_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+  return count;
+}
+
 const STATIC_GROUPS: NavGroup[] = [
   {
     title: "Command Center",
@@ -63,7 +92,6 @@ const STATIC_GROUPS: NavGroup[] = [
         label: "Approval Queue",
         icon: CheckSquare,
         matchPattern: "/admin/approvals",
-        badge: 3,
       },
     ],
   },
@@ -144,6 +172,7 @@ export function AdminSidebar({
   ctx,
 }: AdminSidebarProps) {
   const pathname = usePathname();
+  const approvalCount = useApprovalCount();
   const [collapsed, setCollapsed] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
 
@@ -189,6 +218,7 @@ export function AdminSidebar({
   const renderLink = (link: NavLink) => {
     const Icon = link.icon;
     const active = isActive(link);
+    const badge = link.href === "/admin/approvals" ? approvalCount : link.badge;
     return (
       <Link
         key={link.href}
@@ -204,9 +234,9 @@ export function AdminSidebar({
       >
         <Icon size={18} className="shrink-0" />
         {!collapsed && <span className="flex-1 truncate">{link.label}</span>}
-        {!collapsed && link.badge ? (
+        {!collapsed && badge ? (
           <span className="rounded-full bg-neutral-200 px-1.5 text-xs font-medium tabular-nums text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200">
-            {link.badge}
+            {badge}
           </span>
         ) : null}
       </Link>

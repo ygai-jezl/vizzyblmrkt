@@ -563,6 +563,13 @@ env:
     value: live
     availability:
       - RUNTIME
+  # Per-person AI lines for lifecycle emails (prepared ~12 h ahead, reviewed in
+  # the Approval Queue, standard version on fallback). OFF in prod until M3 is
+  # verified here.
+  - variable: LIFECYCLE_AI_DRAFTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

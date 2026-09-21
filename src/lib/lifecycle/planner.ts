@@ -140,6 +140,16 @@ export function afterSend(state: WalkState, d: Extract<Decision, { kind: "send" 
   };
 }
 
+/** An email that was deliberately not sent (e.g. staff skipped it): move on without it. */
+export function afterSkip(state: WalkState, d: Extract<Decision, { kind: "send" }>): WalkState {
+  return {
+    ...state,
+    cursor: d.nextCursor,
+    windowExemptUntilMs: null,
+    sent: [...state.sent, { poolId: d.pool.id, itemId: d.item.id, status: "skipped" }],
+  };
+}
+
 /** The first node after the trigger — where a new enrolment starts. */
 export function entryCursor(graph: LifecycleGraph): string | null {
   const trigger = findTrigger(graph);

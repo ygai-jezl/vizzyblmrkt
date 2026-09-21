@@ -93,6 +93,40 @@ export async function generateText(prompt: string): Promise<string | null> {
 }
 
 /**
+ * Generate text within a hard deadline — ONE attempt, aborted client-side when
+ * the deadline passes. Null on timeout, missing config or any error, so callers
+ * fall back to deterministic content. `json` asks for a JSON response.
+ */
+export async function generateTextWithDeadline(
+  prompt: string,
+  opts: { timeoutMs: number; json?: boolean; temperature?: number },
+): Promise<string | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  const signal = AbortSignal.timeout(opts.timeoutMs);
+  try {
+    const res = await Promise.race([
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: {
+          abortSignal: signal,
+          ...(opts.json ? { responseMimeType: "application/json" } : {}),
+          ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+        },
+      }),
+      new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+      }),
+    ]);
+    return res.text ?? null;
+  } catch (err) {
+    console.warn(`[gemini] generateTextWithDeadline failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    return null;
+  }
+}
+
+/**
  * Stream text token-by-token from a prompt. Yields incremental text chunks (the SDK's
  * `generateContentStream`). The ONLY streaming generation in the app — used by the eBook
  * studio to render a chapter as it's written. Yields nothing when Gemini is unconfigured

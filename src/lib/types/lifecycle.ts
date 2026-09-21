@@ -262,10 +262,12 @@ export const SentItemSchema = z.object({
   poolId: z.string(),
   itemId: z.string(),
   at: z.string(),
-  /** `unknown` = the provider's answer was ambiguous; never resent. */
+  /** `unknown` = the provider's answer was ambiguous; never resent. `skipped` = never sent (and never retried). */
   status: z.enum(["sent", "unknown", "skipped"]),
   mode: DeliveryMode,
   reason: z.string().max(120).nullable().optional(),
+  /** For AI-line items: whether the reviewed AI line went out, or the standard version. */
+  version: z.enum(["standard", "ai", "fallback"]).optional(),
 });
 export type SentItem = z.infer<typeof SentItemSchema>;
 
@@ -343,3 +345,94 @@ export const LifecycleCounterSchema = z.object({
   ttlAt: z.unknown().optional(),
 });
 export type LifecycleCounter = z.infer<typeof LifecycleCounterSchema>;
+
+// ---- AI lines + approvals (M3) --------------------------------------------------------------
+
+/**
+ * pending → (prepared) awaiting_approval → approved | use_fallback | skipped
+ * → used (consumed at send). `superseded`: the person's path changed, so this
+ * email won't be the one they get.
+ */
+export const AiDraftStatus = z.enum([
+  "pending",
+  "awaiting_approval",
+  "approved",
+  "use_fallback",
+  "skipped",
+  "superseded",
+  "used",
+]);
+export type AiDraftStatus = z.infer<typeof AiDraftStatus>;
+
+/** Why the standard (non-AI) version went out instead of the AI line. */
+export const FallbackReason = z.enum([
+  "no_draft",
+  "no_decision",
+  "staff_choice",
+  "insight_stale",
+  "validation_failed",
+  "generation_failed",
+  "no_insight",
+  "draft_cap",
+  "superseded",
+  "ai_off",
+  "changed_during_send",
+  "render_failed",
+]);
+export type FallbackReason = z.infer<typeof FallbackReason>;
+
+/**
+ * A per-person AI line for one upcoming `ai_line` email, prepared ~12 h ahead
+ * and reviewed by staff. Id = `lcd_<sha256(enrolmentId:poolId:itemId)>`, so the
+ * runner finds it directly at send time. No PII goes to the model: the line is
+ * written from the product's insight + facts only.
+ */
+export const AiDraftSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  enrolmentId: z.string(),
+  journeyId: z.string(),
+  versionId: z.string(),
+  connectionId: z.string(),
+  productUserId: z.string(),
+  externalUserId: z.string(),
+  nodeId: z.string(),
+  poolId: z.string(),
+  itemId: z.string(),
+  itemLabel: z.string().max(120),
+  status: AiDraftStatus,
+  requireApproval: z.boolean().default(false),
+  /** When the email is expected to go out. */
+  sendAt: z.string(),
+  /** When to write the line (sendAt − 12 h, or now). */
+  prepareAt: z.string(),
+  /** Staff decisions close here (sendAt − 15 min). */
+  approvalDeadline: z.string(),
+  prepareLeaseUntil: z.string().nullable().optional(),
+  insightId: z.string().max(64).nullable().optional(),
+  insightSentence: z.string().max(300).nullable().optional(),
+  aiLine: z.string().max(400).nullable().optional(),
+  subjectVariant: z.string().max(120).nullable().optional(),
+  standardSubject: z.string().max(200).nullable().optional(),
+  factsSnapshot: z
+    .array(z.object({ id: z.string().max(64), label: z.string().max(120), display: z.string().max(200) }))
+    .max(20)
+    .default([]),
+  /** Names the validator accepts (facts, product, brand, glossary). */
+  allowedTerms: z.array(z.string().max(200)).max(200).default([]),
+  /** Extra names staff vouched for when editing. */
+  attestedTerms: z.array(z.string().max(120)).max(20).default([]),
+  validationIssues: z.array(z.string().max(200)).max(20).default([]),
+  previewHtml: z.string().max(200_000).nullable().optional(),
+  fallbackReason: FallbackReason.nullable().optional(),
+  /** Bumped on every change; a decision must name the version it saw. */
+  draftVersion: z.number().int().min(1),
+  decidedBy: z.string().max(254).nullable().optional(),
+  decidedAt: z.string().nullable().optional(),
+  usedAt: z.string().nullable().optional(),
+  usedVersion: z.enum(["ai", "fallback", "skip"]).nullable().optional(),
+  ttlAt: z.unknown().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type AiDraft = z.infer<typeof AiDraftSchema>;

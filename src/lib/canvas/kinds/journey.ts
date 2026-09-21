@@ -1,4 +1,6 @@
-import type { Campaign } from "@/lib/types/campaign";
+import { z } from "zod";
+import { forTenant } from "@/lib/tenant";
+import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 import { draftCopy } from "@/lib/agents/creative";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { JourneyGraphSchema, type JourneyGraph } from "@/lib/types/journey";
@@ -59,21 +61,38 @@ async function fillContentWithAgent3(
   return { ...graph, nodes };
 }
 
+/** The journey kind's request: its scope is a launch (legacy top-level `campaignId`, or `scope`). */
+const JourneyInput = z.object({
+  campaignId: z.string().min(1).optional(),
+  scope: z.object({ campaignId: z.string().min(1) }).optional(),
+  graph: z.unknown(),
+});
+
+function summaryFor(status: string, warnings: string[]): string {
+  const base =
+    `I built the email journey and saved it as a ${status}. ` +
+    `Open the Journey Canvas to review the copy, then click Activate when you're happy — ` +
+    `I won't send anything to your subscribers until you do.`;
+  return warnings.length === 0 ? base : `${base} Heads up: ${warnings.join("; ")}.`;
+}
+
 export const journeyCanvasKind: CanvasKind = {
   kind: "journey",
   label: "email journey",
 
-  async authorDraft({
-    ctx,
-    campaign,
-    campaignId,
-    rawGraph,
-    brief,
-  }: CanvasAuthorArgs): Promise<CanvasAuthorOutcome> {
-    const parsed = JourneyGraphSchema.safeParse(rawGraph);
+  async authorDraft({ ctx, input, brief }: CanvasAuthorArgs): Promise<CanvasAuthorOutcome> {
+    const req = JourneyInput.safeParse(input);
+    const campaignId = req.success ? (req.data.scope?.campaignId ?? req.data.campaignId) : undefined;
+    if (!req.success || !campaignId) return { ok: false, status: 400, error: "invalid_input" };
+    // The token's tenant scope: a wrong/cross-tenant id can only miss → 404.
+    const campaign = await forTenant(ctx).campaigns.getById(campaignId);
+    if (!campaign) return { ok: false, status: 404, error: "campaign_not_found" };
+
+    const parsed = JourneyGraphSchema.safeParse(req.data.graph);
     if (!parsed.success) {
       return {
         ok: false,
+        status: 422,
         error: "invalid_graph",
         issues: parsed.error.issues.map(
           (i) => `${i.path.join(".") || "(root)"}: ${i.message}`,
@@ -97,6 +116,7 @@ export const journeyCanvasKind: CanvasKind = {
     if (!recheck.success) {
       return {
         ok: false,
+        status: 422,
         error: "invalid_graph",
         issues: recheck.error.issues.map(
           (i) => `${i.path.join(".") || "(root)"}: ${i.message}`,
@@ -114,13 +134,26 @@ export const journeyCanvasKind: CanvasKind = {
     const saved = await upsertJourneyDraft(ctx, campaignId, filled, {
       refuseIfActive: true,
     });
-    if (!saved.ok) return { ok: false, error: saved.error };
+    if (!saved.ok) {
+      return { ok: false, status: saved.error === "journey_active" ? 409 : 404, error: saved.error };
+    }
 
+    const url = `/admin/launches/${campaignId}/journey`;
     return {
       ok: true,
-      journeyId: saved.journey.id,
+      id: saved.journey.id,
       status: saved.journey.status,
+      url,
+      summary: summaryFor(saved.journey.status, warnings),
       warnings,
+      card: {
+        kind: "journey",
+        id: saved.journey.id,
+        title: `${resolveProductName(campaign) || "Launch"} — email journey`,
+        url,
+        stats: [{ label: "emails", value: filled.nodes.filter((n) => n.type === "email").length }],
+        warnings: warnings.length,
+      },
     };
   },
 };

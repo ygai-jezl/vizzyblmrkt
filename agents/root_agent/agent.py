@@ -26,6 +26,7 @@ from .callbacks.context_envelope import apply_context_envelope
 from .context.brand_context import build_dynamic_instruction
 from .model_config import DEFAULT_MODEL
 from .sub_agents.campaign_ops.agent import campaign_ops_agent
+from .sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
 
 root_agent = LlmAgent(
@@ -41,7 +42,7 @@ root_agent = LlmAgent(
     # retrieve_knowledge grounds answers on the launch's ingested docs/site/repos
     # (RAG). More marketing FunctionTools land alongside it.
     tools=[retrieve_knowledge],
-    # campaign_ops authors email journeys on the canvas (saves drafts). More
-    # specialists (creative, analytics) land alongside it.
-    sub_agents=[campaign_ops_agent],
+    # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
+    # connected-product lifecycle journeys. Both save drafts only.
+    sub_agents=[campaign_ops_agent, lifecycle_ops_agent],
 )

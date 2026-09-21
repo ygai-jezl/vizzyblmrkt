@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Pause, Play, Rocket, Save } from "lucide-react";
+import { ArrowLeft, MessageSquare, Pause, Play, Rocket, Save, Sparkles } from "lucide-react";
 import type { LifecycleDraft, LifecycleGraph, LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Tabs, inputClass } from "../connect/ui";
@@ -13,6 +13,8 @@ import { DeliveryPanel } from "./DeliveryPanel";
 import { EnrolmentsPanel } from "./EnrolmentsPanel";
 import { TimelinePreview } from "./TimelinePreview";
 import { AnalyticsPanel } from "./AnalyticsPanel";
+import { GeneratePanel } from "./GeneratePanel";
+import { LifecycleChatPanel } from "./LifecycleChatPanel";
 import { fieldOptions, issueText, type GraphIssue, type JourneyDetail } from "./model";
 
 /**
@@ -44,6 +46,9 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
   const [name, setName] = useState("");
+  const [chatOpen, setChatOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [staleFromChat, setStaleFromChat] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<JourneyDetail>(`/api/admin/lifecycle/journeys/${journeyId}`);
@@ -53,8 +58,23 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
     setIssues(r.data.issues);
     setName(r.data.journey.name);
     setDirty(false);
+    setStaleFromChat(false);
     setCanvasKey((k) => k + 1);
   }, [journeyId]);
+
+  // Vizzy saved a new draft of THIS journey: reload it, unless there are unsaved edits here.
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+  const onChatSaved = useCallback(
+    (card: { id: string }) => {
+      if (card.id !== journeyId) return;
+      if (dirtyRef.current) setStaleFromChat(true);
+      else void load();
+    },
+    [journeyId, load],
+  );
 
   useEffect(() => {
     void load();
@@ -186,6 +206,14 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
         </div>
         {canEdit ? (
           <div className="flex flex-wrap gap-2">
+            {detail.features.chatAuthoring ? (
+              <Button onClick={() => setChatOpen(!chatOpen)}>
+                <MessageSquare size={14} /> {chatOpen ? "Hide Vizzy" : "Ask Vizzy"}
+              </Button>
+            ) : null}
+            <Button disabled={busy !== null || !connection} onClick={() => setGenerating(true)}>
+              <Sparkles size={14} /> Generate
+            </Button>
             <Button disabled={!dirty || busy !== null} onClick={() => void save()}>
               <Save size={14} /> {busy === "save" ? "Saving…" : "Save draft"}
             </Button>
@@ -209,6 +237,26 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
       </div>
 
       {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+      {staleFromChat ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          Vizzy saved a new version of this draft. Reloading shows it (your unsaved edits here will be lost).
+          <Button onClick={() => void load()}>Reload</Button>
+        </div>
+      ) : null}
+      {generating ? (
+        <GeneratePanel
+          journeyId={journey.id}
+          onCancel={() => setGenerating(false)}
+          onDone={(notes) => {
+            setGenerating(false);
+            setMsg({
+              tone: notes.length ? "info" : "ok",
+              text: notes.length ? `Draft rebuilt — ${notes.join("; ")}.` : "Draft rebuilt with fresh copy. Review it, then publish.",
+            });
+            void load();
+          }}
+        />
+      ) : null}
       {issues.length > 0 ? (
         <details className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" open={issues.length <= 4}>
           <summary className="cursor-pointer font-medium">
@@ -229,6 +277,9 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
       ) : null}
 
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
+
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 space-y-4">
 
       {tab === "canvas" ? (
         <LifecycleCanvas
@@ -293,6 +344,16 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
         />
       ) : null}
       {tab === "results" ? <AnalyticsPanel journeyId={journey.id} /> : null}
+        </div>
+        {chatOpen && connection ? (
+          <LifecycleChatPanel
+            connectionId={connection.id}
+            journeyId={journey.id}
+            onClose={() => setChatOpen(false)}
+            onDraftSaved={onChatSaved}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

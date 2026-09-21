@@ -35,3 +35,8 @@ export function lifecycleModeCeiling(): "test" | "shadow" | "live" {
 export function isLifecycleAiDraftsEnabled(): boolean {
   return process.env.LIFECYCLE_AI_DRAFTS_ENABLED === "true";
 }
+
+/** Server flag — Vizzy can draft and edit lifecycle journeys from the chat (drafts only). */
+export function isLifecycleChatAuthoringEnabled(): boolean {
+  return process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED === "true";
+}

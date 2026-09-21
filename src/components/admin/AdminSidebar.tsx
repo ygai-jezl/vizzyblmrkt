@@ -20,11 +20,13 @@ import {
   ChevronRight,
   ChevronDown,
   SwatchBook,
+  Plug,
   type LucideIcon,
 } from "lucide-react";
 import { BrandSwitcher, type BrandOption } from "./BrandSwitcher";
 import { LogoutButton } from "./LogoutButton";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
+import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 
 interface NavLink {
   href: string;
@@ -88,6 +90,16 @@ const STATIC_GROUPS: NavGroup[] = [
         : []),
     ],
   },
+  // Lifecycle journeys — connected products (Journeys + Approvals join later).
+  // Hidden unless the client flag is on (NEXT_PUBLIC_* is inlined at build).
+  ...(isLifecycleUiEnabled()
+    ? [
+        {
+          title: "Lifecycle",
+          items: [{ href: "/admin/products", label: "Products", icon: Plug, matchPattern: "/admin/products" }],
+        } as NavGroup,
+      ]
+    : []),
   // "Active Launches" is rendered separately (dynamic list).
   {
     title: "Data Engine",

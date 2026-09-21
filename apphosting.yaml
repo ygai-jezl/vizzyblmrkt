@@ -534,3 +534,25 @@ env:
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app/api/webhooks/mandrill
     availability:
       - RUNTIME
+  # Lifecycle journeys — connected products (Products page, sandbox, admin APIs)
+  # and the public ingest API (/api/v1/events). ENABLED on dev; OFF in prod until
+  # verified here and promoted (overridden in apphosting.prod.yaml).
+  - variable: LIFECYCLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: LIFECYCLE_INGEST_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Root key that seals connection secrets (AES-GCM). Created in dev with
+  #   infra/lifecycle/setup.sh secret vizzybl-marketing-dev
+  - variable: CONNECT_SECRET_ENC_KEY
+    secret: connect-secret-enc-key
+    availability:
+      - RUNTIME

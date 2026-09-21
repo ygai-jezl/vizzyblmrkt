@@ -1,0 +1,19 @@
+{
+  "name": "@yougrow/node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Send your product's user events to YouGrow lifecycle journeys, and answer its signed context and webhook requests.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./server": { "types": "./dist/server.d.ts", "default": "./dist/server.js" }
+  },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=18" },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "description": "Signing vectors for the YouGrow product-connection protocol. signature = 'v1=' + hex(HMAC-SHA256(secret, direction + ':' + timestamp + '.' + body)). Generated with openssl, independently of both the server and the SDK; both test suites must reproduce them exactly.",
+  "vectors": [
+    {
+      "secret": "ygs_test_secret_one",
+      "direction": "events",
+      "timestamp": 1758455000,
+      "body": "{\"batch\":[{\"type\":\"identify\",\"messageId\":\"m1\",\"userId\":\"u1\",\"timestamp\":\"2026-09-21T10:00:00Z\",\"traits\":{\"email\":\"alex@acme.test\"}}]}",
+      "signature": "v1=d4bdf726960d10a135b3493f4074b3d3d3773a23ec49955d6efb720bcd2ef914"
+    },
+    {
+      "secret": "ygs_test_secret_one",
+      "direction": "context",
+      "timestamp": 1758455000,
+      "body": "{\"userId\":\"u1\",\"purpose\":\"test\",\"requestId\":\"r1\"}",
+      "signature": "v1=e1a7333f2260eca2a3090412afc5ae981a86bbf8428f7c32928e3eb8664956c4"
+    },
+    {
+      "secret": "ygs_test_secret_two",
+      "direction": "webhook",
+      "timestamp": 1758455123,
+      "body": "{\"id\":\"wh_1\",\"type\":\"email_preferences.updated\",\"createdAt\":\"2026-09-21T10:00:00Z\",\"data\":{\"userId\":\"u1\",\"category\":\"onboarding\",\"subscribed\":false}}",
+      "signature": "v1=941128263f5811cbf17d32282380b25b100fbeb0d123f6b55db50c7b70938054"
+    },
+    {
+      "secret": "ygs_test_secret_two",
+      "direction": "events",
+      "timestamp": 1758455123,
+      "body": "{\"batch\":[{\"type\":\"track\",\"messageId\":\"m2\",\"userId\":\"ü-用户\",\"timestamp\":\"2026-09-21T10:00:00+01:00\",\"event\":\"user.signed_up\"}]}",
+      "signature": "v1=fadcda4cd874e1ad19b1f7059cca902b54afdfe9032c10dcfdffa75cc450b317"
+    },
+    {
+      "secret": "ygs_test_secret_one",
+      "direction": "events",
+      "timestamp": 1758455000,
+      "body": "",
+      "signature": "v1=aae9033d246c64b2e62a630910f59e35531cfb71d5b1a4da90a1002323979eae"
+    }
+  ]
+}

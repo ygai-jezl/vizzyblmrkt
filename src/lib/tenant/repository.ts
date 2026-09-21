@@ -27,6 +27,9 @@ import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandFont } from "@/lib/types/brandFont";
 import type { BrandAsset } from "@/lib/types/brandAsset";
+import type { ProductConnection } from "@/lib/types/productConnection";
+import type { ProductUser } from "@/lib/types/productUser";
+import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -343,6 +346,14 @@ export interface TenantRepositories {
    *  `brand/{tenantId}/{category}s/...` and are served by the public /api/brand-asset proxy;
    *  also fed into image generation as visual references. */
   brandAssets: TenantCollection<BrandAsset>;
+  /** Lifecycle: the tenant's connected products (keys, endpoints, catalog). */
+  productConnections: TenantCollection<ProductConnection>;
+  /** Lifecycle: the connected products' end users, built from ingested events. */
+  productUsers: TenantCollection<ProductUser>;
+  /** Lifecycle: the ingested identify/track log (idempotency gate + debugger). */
+  productEvents: TenantCollection<ProductEvent>;
+  /** Lifecycle: per-connection observed catalog + recent rejections. */
+  connectionDiagnostics: TenantCollection<ConnectionDiagnostics>;
 }
 
 /**
@@ -418,5 +429,20 @@ export function forTenant(
     // with the workspaces/content that reference them, like logos.
     brandFonts: new TenantCollection<BrandFont>(regionalDb, "brand_fonts", t),
     brandAssets: new TenantCollection<BrandAsset>(regionalDb, "brand_assets", t),
+    // Lifecycle: connected products and their end users' PII/events → regional DB,
+    // like signups. The control-plane `connection_keys` lookup (no PII) lives in
+    // src/lib/tenant/connectionKeys.ts.
+    productConnections: new TenantCollection<ProductConnection>(
+      regionalDb,
+      "product_connections",
+      t,
+    ),
+    productUsers: new TenantCollection<ProductUser>(regionalDb, "product_users", t),
+    productEvents: new TenantCollection<ProductEvent>(regionalDb, "product_events", t),
+    connectionDiagnostics: new TenantCollection<ConnectionDiagnostics>(
+      regionalDb,
+      "connection_diagnostics",
+      t,
+    ),
   };
 }

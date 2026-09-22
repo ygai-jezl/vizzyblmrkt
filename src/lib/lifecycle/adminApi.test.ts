@@ -12,6 +12,10 @@ import {
   stopEnrolment,
 } from "./adminApi";
 import { enrolmentDocId } from "./enrol";
+import { createConnection } from "@/lib/connect/keys";
+import { __resetIngestCaches } from "@/lib/connect/ingestHttp";
+import { productUserDocId } from "@/lib/connect/profile";
+import { SANDBOX_CATALOG } from "@/lib/connect/sandbox";
 import { processEnrolment } from "./runner";
 import { CONNECTION_ID, T0, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
 
@@ -127,5 +131,36 @@ describe("lifecycle admin API", () => {
     expect((await getJourneyDetail(other, journey.id, db)).status).toBe(404);
     expect((await enrolByHand(other, journey.id, { userId: "alex" }, db)).status).toBe(404);
     expect((await journeyAnalytics(other, journey.id, db)).status).toBe(404);
+  });
+
+  it("enrols a Sandbox test user the Sandbox hasn't sent yet, via the real ingest path", async () => {
+    process.env.CONNECT_SECRET_ENC_KEY = "unit-test-connect-root-key-rotate-me";
+    process.env.LIFECYCLE_INGEST_ENABLED = "true";
+    __resetIngestCaches();
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { connection } = await createConnection(
+      ctx,
+      {
+        name: "Sandbox",
+        kind: "sandbox",
+        catalog: SANDBOX_CATALOG,
+        sandboxUsers: [{ userId: "sandbox_alex", email: "jez@sandbox.test", firstName: "Alex", timezone: "Europe/London", steps: {}, facts: [], insights: [] }],
+      },
+      db,
+    );
+    const { journey } = await publishOnboarding(db, { mode: "test", testUserIds: ["sandbox_alex"], connectionId: connection.id });
+
+    // Not a product user yet: nothing has been sent from the Sandbox.
+    expect(await forTenant(ctx, db).productUsers.getById(productUserDocId(connection.id, "sandbox_alex"))).toBeNull();
+
+    const r = await enrolByHand(ctx, journey.id, { userId: "sandbox_alex" }, db, T0);
+    expect(r.status).toBe(201);
+    expect(await forTenant(ctx, db).productUsers.getById(productUserDocId(connection.id, "sandbox_alex"))).toMatchObject({
+      email: "jez@sandbox.test",
+    });
+    // Anyone who isn't one of the Sandbox's test users is still refused.
+    expect(await enrolByHand(ctx, journey.id, { userId: "stranger" }, db, T0)).toMatchObject({ status: 404, body: { error: "user_not_found" } });
+    delete process.env.LIFECYCLE_INGEST_ENABLED;
   });
 });

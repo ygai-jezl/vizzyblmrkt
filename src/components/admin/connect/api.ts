@@ -85,6 +85,8 @@ const MESSAGES: Record<string, string> = {
   user_not_found: "We haven't received this user from the product yet. The product must send an identify (or sign-up) event for them first.",
   sandbox_send_failed: "The Sandbox couldn't send this test user — check its test users in Products.",
   already_enrolled: "That user is already in this journey.",
+  invalid_document: "That isn't a journey file this version of the platform can read.",
+  document_too_large: "That journey file is too large.",
   not_a_test_recipient: "In test mode only listed test users can be enrolled.",
   enrolment_cap: "Today's enrolment cap for this journey is reached.",
   user_deleted: "That user has been deleted.",

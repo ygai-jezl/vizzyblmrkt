@@ -86,6 +86,18 @@ const eslintConfig = [
     },
   },
   {
+    // A standalone, READ-ONLY ops diagnostic run by hand with the operator's own
+    // credentials (`npx tsx scripts/diagnose-journey.ts <email>`). It deliberately
+    // imports nothing from src/ and reads across tenants and projects to trace
+    // one recipient, so it can't go through forTenant(ctx). Scoped to this one
+    // file: every other script still goes through the tenant layer.
+    files: ["scripts/diagnose-journey.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
+      "no-restricted-imports": "off",
+    },
+  },
+  {
     // infra/** holds standalone Cloud Functions (CommonJS, own runtime); agents/**
     // is the Python ADK agent + its .venv (bundled JS); workers/** is the isolated
     // knowledge-scraper Cloud Run Job package (own build + node_modules, and the

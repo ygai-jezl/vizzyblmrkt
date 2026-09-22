@@ -12,6 +12,7 @@ import {
   type BrandVoice,
   type EmailSenderConfig,
   type GitConnection,
+  type GitSelectedRepo,
   type SocialConnection,
   type Region,
   type LearnedChannelPatterns,
@@ -164,6 +165,23 @@ export async function setTenantGitConnection(
     .update({
       [`gitConnections.${provider}`]: conn,
       updatedAt: new Date().toISOString(),
+    });
+}
+
+/** Replace the repos a tenant's git connection may be used for. */
+export async function setTenantGitRepos(
+  id: string,
+  provider: "github" | "gitlab",
+  repos: GitSelectedRepo[],
+): Promise<void> {
+  const now = new Date().toISOString();
+  await getDb()
+    .collection("tenants")
+    .doc(id)
+    .update({
+      [`gitConnections.${provider}.repos`]: repos,
+      [`gitConnections.${provider}.reposUpdatedAt`]: now,
+      updatedAt: now,
     });
 }
 

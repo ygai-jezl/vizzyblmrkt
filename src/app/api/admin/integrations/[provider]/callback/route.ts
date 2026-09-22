@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { PROVIDERS, isGitProvider, oauthOrigin, grantedScopes } from "@/lib/integrations/providers";
 import { verifyState, encryptToken } from "@/lib/integrations/crypto";
-import { setTenantGitConnection } from "@/lib/tenant";
+import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
+import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,9 @@ function back(origin: string, params: Record<string, string>): NextResponse {
  * OAuth callback: provider redirects here with code+state. CSRF is the signed,
  * tenant-bound state (no sameOriginGuard — this hop is cross-site by nature). On
  * success: exchange code → token, fetch the account handle, encrypt + store, then
- * redirect back to the connections page.
+ * redirect back to the connections page. With repo selection on, a new connection
+ * starts with NO repos chosen and the page opens the repo picker (`select=`), so the
+ * token isn't usable until the admin picks which repos across their orgs to use.
  */
 export async function GET(
   req: Request,
@@ -94,6 +97,11 @@ export async function GET(
       /* handle is best-effort */
     }
 
+    const repoSelection = isGitRepoSelectionEnabled();
+    // A reconnect keeps the repos already chosen; a first connect starts with none.
+    const priorRepos = repoSelection
+      ? (await getTenantById(ctx.tenantId))?.gitConnections?.[provider]?.repos
+      : undefined;
     await setTenantGitConnection(ctx.tenantId, provider, {
       provider,
       enc: encryptToken(tok.access_token),
@@ -101,8 +109,13 @@ export async function GET(
       scope: tok.scope ?? cfg.scope,
       connectedBy: ctx.userId,
       connectedAt: new Date().toISOString(),
+      ...(repoSelection ? { repos: priorRepos ?? [] } : {}),
     });
-    return back(origin, { status: "ok", provider });
+    return back(origin, {
+      status: "ok",
+      provider,
+      ...(repoSelection && !priorRepos?.length ? { select: provider } : {}),
+    });
   } catch {
     return back(origin, { status: "error", reason: "exception", provider });
   }

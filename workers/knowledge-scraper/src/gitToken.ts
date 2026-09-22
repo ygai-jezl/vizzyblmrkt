@@ -32,18 +32,63 @@ function decryptToken(blob: { ct: string; iv: string; tag: string }): string | n
   }
 }
 
+/**
+ * Normalized repo path (lowercased, no `.git`), or null. MUST match
+ * repoPathFromUrl in src/lib/integrations/repos.ts.
+ */
+export function repoPathFromUrl(provider: "github" | "gitlab", raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== (provider === "github" ? "github.com" : "gitlab.com")) return null;
+  let path = u.pathname.split("/-/")[0] ?? "";
+  path = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "").toLowerCase();
+  const parts = path.split("/").filter(Boolean);
+  if (provider === "github" ? parts.length !== 2 : parts.length < 2) return null;
+  return parts.join("/");
+}
+
+/**
+ * Whether the connection's token may be used for this repo. `repos` undefined =
+ * legacy connection (any repo); otherwise only the repos the admin selected.
+ */
+export function isRepoSelected(
+  provider: "github" | "gitlab",
+  repos: { fullPath?: string }[] | undefined,
+  sourceUri: string,
+): boolean {
+  if (!Array.isArray(repos)) return true;
+  const path = repoPathFromUrl(provider, sourceUri);
+  return path !== null && repos.some((r) => r.fullPath === path);
+}
+
 export async function fetchGitToken(
   tenantId: string,
   provider: "github" | "gitlab",
+  sourceUri: string,
 ): Promise<string | undefined> {
   // 1. Per-tenant OAuth connection (encrypted) on the control-plane tenant doc.
   try {
     const snap = await getDb("(default)").collection("tenants").doc(tenantId).get();
     const conns = (snap.data()?.gitConnections ?? {}) as Record<
       string,
-      { enc?: { ct: string; iv: string; tag: string } } | undefined
+      | { enc?: { ct: string; iv: string; tag: string }; repos?: { fullPath?: string }[] }
+      | undefined
     >;
-    const enc = conns[provider]?.enc;
+    const conn = conns[provider];
+    const enc = conn?.enc;
+    if (enc && !isRepoSelected(provider, conn.repos, sourceUri)) {
+      // The admin didn't select this repo on the connection: clone without the
+      // token (public repos still work) and never fall back to the static secret.
+      console.warn(
+        `[gitToken] tenant=${tenantId} ${provider} repo not selected on the connection — cloning unauthenticated.`,
+      );
+      return undefined;
+    }
     if (enc) {
       const tok = decryptToken(enc);
       if (tok) return tok;

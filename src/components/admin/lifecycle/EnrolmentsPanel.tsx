@@ -7,6 +7,12 @@ import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
 import { nodeLabel, type EnrolmentRow } from "./model";
 
+const RUN_NOW_MESSAGES: Record<string, string> = {
+  draft_prepared: "Prepared the personalised version of the next email — review it in Approvals, then press Run now again to send.",
+  draft_fallback: "The personalised version couldn't be prepared, so the next email will use the standard wording. Press Run now again to send it.",
+  sent: "Sent.",
+};
+
 /** Who's in the journey, where each person is up to, and what they've been sent. */
 export function EnrolmentsPanel({
   journey,
@@ -128,7 +134,7 @@ export function EnrolmentsPanel({
                               <Button
                                 disabled={e.mode === "live" || busy === `run:${e.id}`}
                                 title={e.mode === "live" ? "Only for test and shadow enrolments" : undefined}
-                                onClick={() => void act(`run:${e.id}`, `/api/admin/lifecycle/enrolments/${e.id}/run-now`, undefined, (d) => `Ran: ${String(d.outcome)}`)}
+                                onClick={() => void act(`run:${e.id}`, `/api/admin/lifecycle/enrolments/${e.id}/run-now`, undefined, (d) => RUN_NOW_MESSAGES[String(d.outcome)] ?? `Ran: ${String(d.outcome)}`)}
                               >
                                 <Play size={14} /> Run next step now
                               </Button>

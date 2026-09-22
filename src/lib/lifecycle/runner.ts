@@ -35,7 +35,7 @@ import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut"
 import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
 import { draftDocId, scheduleDraft, supersedeDrafts } from "./drafts";
 import { decideSendVersion, type SendVersion } from "./decide";
-import { prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
+import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
 
 /**
  * The lifecycle RUNNER. Each due enrolment is one queue item, processed by the
@@ -873,12 +873,20 @@ export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<Lifecycle
  * "Run next step now" (admin): skip the current wait and send window for ONE
  * enrolment, then process it — the next email goes out now. Only for enrolments that can't reach a real user
  * unexpectedly — test or shadow mode, never live.
+ *
+ * If the next email has a personalised draft still waiting to be prepared
+ * (normally ~12 h before its send), the first press prepares it instead, so it
+ * reaches the Approval Queue; the next press sends, using the approved line if
+ * staff approved it and the standard version otherwise.
  */
 export async function runEnrolmentNow(
   ctx: TenantContext,
   enrolmentId: string,
   deps: RunnerDeps = {},
-): Promise<{ ok: true; outcome: EnrolmentRunOutcome } | { ok: false; error: "not_found" | "not_active" | "live" | "busy" }> {
+): Promise<
+  | { ok: true; outcome: EnrolmentRunOutcome | "draft_prepared" | "draft_fallback" }
+  | { ok: false; error: "not_found" | "not_active" | "live" | "busy" }
+> {
   const clock = deps.now ?? Date.now;
   const repo = forTenant(ctx, deps.db);
   const enrolment = await repo.lifecycleEnrolments.getById(enrolmentId);
@@ -887,6 +895,23 @@ export async function runEnrolmentNow(
   const journey = await repo.lifecycleJourneys.getById(enrolment.journeyId);
   if (!journey) return { ok: false, error: "not_found" };
   if (lowestMode(enrolment.mode, journey.deliveryMode, lifecycleModeCeiling()) === "live") return { ok: false, error: "live" };
+
+  if (isLifecycleAiDraftsEnabled()) {
+    const pending = await repo.lifecycleDrafts.find({
+      where: [
+        ["enrolmentId", "==", enrolmentId],
+        ["status", "==", "pending"],
+      ],
+      limit: 1,
+    });
+    if (pending[0]) {
+      const r = await prepareDraft(ctx, pending[0].id, { db: deps.db, now: deps.now, generate: deps.generate, fetchContext: deps.fetchContext });
+      if (r === "busy") return { ok: false, error: "busy" };
+      if (r === "prepared") return { ok: true, outcome: "draft_prepared" };
+      if (r === "fallback") return { ok: true, outcome: "draft_fallback" };
+      // superseded: the prediction changed — carry on and send what's next now.
+    }
+  }
 
   const nowMs = clock();
   const version = await repo.lifecycleVersions.getById(enrolment.versionId);

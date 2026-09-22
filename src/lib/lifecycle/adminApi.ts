@@ -5,6 +5,7 @@ import type { LifecycleEnrolment, LifecycleJourney } from "@/lib/types/lifecycle
 import { ConsentBasis } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
 import { productUserDocId } from "@/lib/connect/profile";
+import { fireSandboxEvent } from "@/lib/connect/sandbox";
 import { validateLifecycleDraft } from "./graph";
 import { planTimeline } from "./planner";
 import { personalOffsetMinutes, resolveTimezone } from "./sendWindow";
@@ -169,7 +170,13 @@ export async function listEnrolments(
 
 const EnrolInput = z.object({ userId: z.string().trim().min(1).max(256) });
 
-/** Enrol one existing product user by hand (their own product user id). */
+/**
+ * Enrol one existing product user by hand (their own product user id). A
+ * Sandbox's test user who hasn't been sent to us yet is sent first — through
+ * the real signed ingest path, as the Sandbox's "Signed up" would — so the
+ * demo can start from the journey page. A real product's user must already
+ * have arrived from the product.
+ */
 export async function enrolByHand(
   ctx: TenantContext,
   journeyId: string,
@@ -183,12 +190,23 @@ export async function enrolByHand(
   if (!journey) return fail(404, "not_found");
   if (journey.status !== "active" || !journey.publishedVersion) return fail(409, "journey_not_active");
   const repo = forTenant(ctx, db);
-  const [version, user] = await Promise.all([
+  const userDocId = productUserDocId(journey.connectionId, parsed.data.userId);
+  const [version, found] = await Promise.all([
     repo.lifecycleVersions.getById(versionDocId(journey.id, journey.publishedVersion)),
-    repo.productUsers.getById(productUserDocId(journey.connectionId, parsed.data.userId)),
+    repo.productUsers.getById(userDocId),
   ]);
   if (!version) return fail(409, "version_missing");
-  if (!user) return fail(404, "user_not_found");
+  let user = found;
+  if (!user) {
+    const conn = await repo.productConnections.getById(journey.connectionId);
+    const isSandboxUser = conn?.kind === "sandbox" && conn.sandbox?.users.some((u) => u.userId === parsed.data.userId);
+    if (!conn || !isSandboxUser) return fail(404, "user_not_found");
+    // The ingest handler only needs a URL to build the Request; no origin is trusted.
+    const sent = await fireSandboxEvent(ctx, conn, parsed.data.userId, { kind: "identify" }, { db, nowMs, origin: "https://sandbox.internal" });
+    if (sent.status !== 202) return fail(409, "sandbox_send_failed", JSON.stringify(sent.body).slice(0, 200));
+    user = await repo.productUsers.getById(userDocId);
+    if (!user) return fail(404, "user_not_found");
+  }
   const r = await enrolUser(
     ctx,
     { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString() },

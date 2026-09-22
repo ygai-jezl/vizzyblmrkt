@@ -138,10 +138,21 @@ env:
   # Transactional email. Provider precedence: Mandrill → Resend → log. REQUIRED
   # before any campaign sets usesSignupVerification=true (else verification-
   # required signups get a 503). EMAIL_FROM must be a verified sending domain.
-  # - variable: MANDRILL_API_KEY
-  #   secret: mandrill-api-key
-  #   availability:
-  #     - RUNTIME
+  # Dev sends for real (lifecycle test mode only reaches allow-listed addresses:
+  # the operator's own sign-in address or a verified sending domain). Create the
+  # secret first — a missing secret fails the build:
+  #   firebase apphosting:secrets:set mandrill-api-key --project dev
+  # prod overrides both of these in apphosting.prod.yaml with its own values.
+  - variable: MANDRILL_API_KEY
+    secret: mandrill-api-key
+    availability:
+      - RUNTIME
+  # Sender must be a Mandrill-verified domain (vizzybl.ai: DKIM+SPF valid).
+  # yougrow.ai is NOT verified — don't send from it until its DKIM is published.
+  - variable: EMAIL_FROM
+    value: Vizzybl (dev) <noreply@vizzybl.ai>
+    availability:
+      - RUNTIME
   # - variable: RESEND_API_KEY
   #   secret: resend-api-key
   #   availability:
@@ -522,9 +533,9 @@ env:
   # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). KEY is the
   # per-webhook signing key from the Mandrill dashboard; URL must match the
   # registered public URL byte-for-byte (it is part of the HMAC signature). NOTE:
-  # dev does NOT send via Mandrill by default (MANDRILL_API_KEY above is commented
-  # → emails are logged), so no opens/clicks arrive here until a dev Mandrill key +
-  # a dev webhook (pointing at this URL, signed by this secret) are set up.
+  # dev now sends via Mandrill (MANDRILL_API_KEY above), but engagement events
+  # only arrive once a dev webhook — pointing at this URL, signed by this secret
+  # — is registered in the Mandrill dashboard.
   - variable: MANDRILL_WEBHOOK_KEY
     secret: mandrill-webhook-key
     availability:

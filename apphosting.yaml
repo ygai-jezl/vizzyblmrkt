@@ -555,6 +555,20 @@ env:
     secret: connect-secret-enc-key
     availability:
       - RUNTIME
+  # Requests the platform sends TO products (context pulls, webhooks) carry an
+  # ES256 JWT signed with this Cloud KMS key (HSM, never exported) — not the
+  # connection secret. Public keys: <CONNECT_ISSUER>/.well-known/jwks.json.
+  # A resource name, not a secret. Created per project with
+  #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-dev
+  # prod overrides both in apphosting.prod.yaml.
+  - variable: CONNECT_SIGNING_KMS_KEY
+    value: projects/vizzybl-marketing-dev/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
+    availability:
+      - RUNTIME
+  - variable: CONNECT_ISSUER
+    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
+    availability:
+      - RUNTIME
   # Lifecycle runner: the highest delivery mode dev may use (prod: test), and the
   # Cloud Scheduler tick's shared secret. Created in dev with
   #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-dev

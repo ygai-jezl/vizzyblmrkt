@@ -514,6 +514,19 @@ env:
     value: https://yougrow.ai
     availability:
       - RUNTIME
+  # Outbound request signing must use PROD's key and name prod as issuer
+  # (apphosting.yaml points both at dev). Without these overrides prod would try
+  # to sign with dev's key — which prod can't use — and every context pull and
+  # webhook would fail closed. Create the key with:
+  #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-prod
+  - variable: CONNECT_SIGNING_KMS_KEY
+    value: projects/vizzybl-marketing-prod/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
+    availability:
+      - RUNTIME
+  - variable: CONNECT_ISSUER
+    value: https://yougrow.ai
+    availability:
+      - RUNTIME
   # The highest delivery mode prod may use: test until the vizzybl.ai launch (M7).
   - variable: LIFECYCLE_MODE_CEILING
     value: test

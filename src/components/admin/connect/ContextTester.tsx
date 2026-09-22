@@ -25,6 +25,7 @@ interface ContextFail {
 
 const HELP: Record<string, string> = {
   not_configured: "No context endpoint is set up (or it's disabled) — add one in Settings.",
+  signing_unavailable: "The platform couldn't sign the request (its signing key is unavailable), so nothing was sent. Try again shortly.",
   blocked_url: "The endpoint URL isn't allowed: it must be public https on port 443, with no redirects.",
   timeout: "Your endpoint didn't answer within the timeout.",
   too_large: "The response was over 64 KB.",

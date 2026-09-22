@@ -5,6 +5,9 @@
 #
 #   ./setup.sh secret        <project>  # create connect-secret-enc-key + grant the runtime SA (REVERSIBLE)
 #   ./setup.sh worker-secret <project>  # create lifecycle-worker-secret + grant the runtime SA (REVERSIBLE)
+#   ./setup.sh signing-key   <project>  # create the KMS key that signs requests TO products + grant sign/view only
+#   ./setup.sh rotate-signing-key <project>  # add a key version (published now, signs after 24 h)
+#   ./setup.sh retire-signing-key <project> <version>  # disable an old version once the new one signs (REVERSIBLE: enable)
 #   ./setup.sh ttl           <project>  # Firestore TTL policies on every database (REVERSIBLE)
 #   ./setup.sh scheduler     <project>  # create/refresh the 2-minute lifecycle tick (REVERSIBLE)
 #   ./setup.sh run           <project>  # trigger the tick once now (smoke test)
@@ -13,9 +16,10 @@
 #   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
 #
 # Order of operations (per environment):
-#   1) ./setup.sh secret <project> && ./setup.sh worker-secret <project>
-#      (apphosting.yaml references both and prod inherits them: a secret must
-#      exist, with App Hosting access, before any rollout — or the build fails)
+#   1) ./setup.sh secret <project> && ./setup.sh worker-secret <project> && ./setup.sh signing-key <project>
+#      (apphosting.yaml references both secrets and prod inherits them: a secret
+#      must exist, with App Hosting access, before any rollout — or the build
+#      fails. Without the signing key, context pulls and webhooks fail closed.)
 #   2) deploy
 #   3) firebase deploy --only firestore:indexes --project <dev|prod>   (wait for READY)
 #   4) ./setup.sh ttl <project>
@@ -41,6 +45,15 @@ BACKEND="$PROJECT"
 # Every database in firebase.json (control plane + regional data planes).
 DATABASES=("(default)" "signups-eu" "signups-asia")
 
+# Signs platform → product requests (context pulls, webhooks) as ES256 JWTs; the
+# public keys are served at /.well-known/jwks.json. HSM-backed, non-exportable.
+# Cloud KMS never rotates asymmetric keys itself: rotate by hand, yearly or on
+# suspicion (rotate-signing-key, then retire-signing-key a few days later).
+KMS_LOCATION="us-central1"
+KEYRING="yougrow-connect"
+SIGNING_KEY="outbound-signing"
+SIGNING_KEY_NAME="projects/${PROJECT}/locations/${KMS_LOCATION}/keyRings/${KEYRING}/cryptoKeys/${SIGNING_KEY}"
+
 JOB_NAME="lifecycle-tick"
 LOCATION="us-central1"   # Scheduler region: an HTTP trigger only, carries no PII.
 SCHEDULE="*/2 * * * *"
@@ -58,6 +71,14 @@ URI="${TARGET_HOST}/api/admin/lifecycle/tick"
 grant_backend() { # <secret>
   echo "==> Granting App Hosting backend '$BACKEND' access to $1"
   firebase apphosting:secrets:grantaccess "$1" --backend "$BACKEND" --project "$PROJECT" --non-interactive
+}
+
+# The service account the App Hosting backend runs as (its runtime identity).
+runtime_sa() {
+  local sa
+  sa="$(gcloud apphosting backends describe "$BACKEND" --location=us-central1 --project="$PROJECT" \
+    --format='value(serviceAccount)' 2>/dev/null || true)"
+  echo "${sa:-firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com}"
 }
 
 ttl_on() { # <database> <collection-group> <field>
@@ -90,6 +111,38 @@ case "$CMD" in
     fi
     grant_backend "$WORKER_SECRET_NAME"
     echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.yaml (prod inherits it)."
+    ;;
+  signing-key)
+    if ! gcloud kms keyrings describe "$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT" >/dev/null 2>&1; then
+      echo "==> Creating key ring $KEYRING ($KMS_LOCATION)"
+      gcloud kms keyrings create "$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT"
+    fi
+    if gcloud kms keys describe "$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT" >/dev/null 2>&1; then
+      echo "==> Key $SIGNING_KEY already exists (not rotating it)"
+    else
+      echo "==> Creating $SIGNING_KEY (EC_SIGN_P256_SHA256, HSM)"
+      gcloud kms keys create "$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT" \
+        --purpose=asymmetric-signing --default-algorithm=ec-sign-p256-sha256 --protection-level=hsm
+    fi
+    sa="$(runtime_sa)"
+    # Least privilege, on this key only: sign, read public keys, list versions.
+    # No encrypt/decrypt, no admin, nothing project-wide.
+    for role in roles/cloudkms.signer roles/cloudkms.publicKeyViewer roles/cloudkms.viewer; do
+      echo "==> Granting $role on $SIGNING_KEY to $sa"
+      gcloud kms keys add-iam-policy-binding "$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" \
+        --project="$PROJECT" --member="serviceAccount:${sa}" --role="$role" --condition=None >/dev/null
+    done
+    echo "Done. Set CONNECT_SIGNING_KMS_KEY=${SIGNING_KEY_NAME}"
+    ;;
+  rotate-signing-key)
+    echo "==> Adding a version to $SIGNING_KEY. It is published in the JWKS now and starts signing after 24 h."
+    gcloud kms keys versions create --key="$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT"
+    echo "After it signs (24 h+), wait a few days, then: ./setup.sh retire-signing-key $PROJECT <old-version>"
+    ;;
+  retire-signing-key)
+    version="${3:?usage: ./setup.sh retire-signing-key <project> <version>}"
+    echo "==> Disabling $SIGNING_KEY version $version (drops out of the JWKS; re-enable to undo)"
+    gcloud kms keys versions disable "$version" --key="$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT"
     ;;
   scheduler)
     # The header must match what the app validates; the value is read from Secret
@@ -126,6 +179,13 @@ case "$CMD" in
     echo "Requested. TTL policies take a few minutes to become ACTIVE — check with: ./setup.sh verify $PROJECT"
     ;;
   verify)
+    echo "==> Signing key versions ($SIGNING_KEY)"
+    gcloud kms keys versions list --key="$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" \
+      --project="$PROJECT" --format="table(name.basename(),state,algorithm,protectionLevel,createTime)" 2>/dev/null \
+      || echo "    (not created — run: ./setup.sh signing-key $PROJECT)"
+    echo "==> Published keys: ${TARGET_HOST}/.well-known/jwks.json"
+    curl -fsS "${TARGET_HOST}/.well-known/jwks.json" 2>/dev/null | head -c 600 || echo "    (not reachable)"
+    echo
     for name in "$SECRET_NAME" "$WORKER_SECRET_NAME"; do
       echo "==> Secret binding: $name"
       gcloud secrets get-iam-policy "$name" --project="$PROJECT" --format="table(bindings.role,bindings.members)" || true
@@ -140,6 +200,6 @@ case "$CMD" in
     done
     ;;
   *)
-    sed -n '2,32p' "$0"
+    sed -n '2,35p' "$0"
     ;;
 esac

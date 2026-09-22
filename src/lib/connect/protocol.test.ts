@@ -54,10 +54,6 @@ describe("verifySignature", () => {
     expect(verifySignature({ ...base, secrets: ["ygs_other"] })).toEqual({ ok: false, reason: "bad_signature" });
   });
 
-  it("refuses a signature captured in another direction", () => {
-    expect(verifySignature({ ...base, direction: "context" })).toEqual({ ok: false, reason: "bad_signature" });
-  });
-
   it("enforces the ±5 minute window both ways", () => {
     expect(verifySignature({ ...base, nowMs: nowMs + 301_000 })).toEqual({ ok: false, reason: "stale_timestamp" });
     expect(verifySignature({ ...base, nowMs: nowMs - 301_000 })).toEqual({ ok: false, reason: "stale_timestamp" });
@@ -80,12 +76,12 @@ describe("verifySignature", () => {
   });
 
   it("round-trips through signedHeaders", () => {
-    const h = signedHeaders("ygk_k", secret, "webhook", body, nowMs);
+    const h = signedHeaders("ygk_k", secret, "events", body, nowMs);
     expect(h[HEADER_KEY_ID]).toBe("ygk_k");
     expect(
       verifySignature({
         secrets: [secret],
-        direction: "webhook",
+        direction: "events",
         timestamp: h[HEADER_TIMESTAMP]!,
         signature: h[HEADER_SIGNATURE]!,
         rawBody: body,

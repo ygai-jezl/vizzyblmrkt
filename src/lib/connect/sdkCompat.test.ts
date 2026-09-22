@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { YouGrow } from "../../../sdk/node/src/index";
-import { contextResponse, verifyRequest } from "../../../sdk/node/src/server";
+import { contextResponse, createVerifier } from "../../../sdk/node/src/server";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { createConnection } from "./keys";
 import { handleIngestRequest, __resetIngestCaches } from "./ingestHttp";
 import { fetchProductContext } from "./contextClient";
+import { sendConnectionWebhook } from "./webhookClient";
+import { outboundIssuer, publishedJwks } from "./outboundSigner";
 import { productUserDocId } from "./profile";
 
 /** The published SDK and the platform must agree byte-for-byte. */
@@ -45,19 +47,20 @@ describe("SDK ↔ platform compatibility", () => {
     });
   });
 
-  it("a product built on the SDK's server helpers answers the platform's context pull", async () => {
+  it("a product built on the SDK's verifier answers the platform's context pull", async () => {
     const db = new FakeFirestore();
-    const { connection, secret } = await createConnection(ctx, { name: "Acme", kind: "custom" }, db);
+    const { connection } = await createConnection(ctx, { name: "Acme", kind: "custom" }, db);
     const conn = {
       ...connection,
       contextEndpoint: { url: "https://api.acme.test/yougrow/context", enabled: true, timeoutMs: 5000 },
       linkDomains: ["acme.test"],
     };
+    const verifier = createVerifier({ keyId: conn.keyId, issuer: outboundIssuer(), jwks: { keys: await publishedJwks() } });
 
     const r = await fetchProductContext(conn, { userId: "u1", purpose: "send" }, {
       fetchImpl: async (_url, init) => {
         const rawBody = String(init?.body);
-        const v = verifyRequest({ headers: new Headers(init?.headers), rawBody, secret, direction: "context" });
+        const v = await verifier.verify({ headers: new Headers(init?.headers), rawBody, direction: "context" });
         if (!v.ok) return new Response("unauthorised", { status: 401 });
         return new Response(
           contextResponse({
@@ -76,5 +79,28 @@ describe("SDK ↔ platform compatibility", () => {
       label: "Add your brand",
       url: "https://app.acme.test/brand",
     });
+  });
+
+  it("the SDK's verifier accepts the platform's webhooks, and only for its own connection", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await createConnection(ctx, { name: "Acme", kind: "custom" }, db);
+    const { connection: other } = await createConnection(ctx, { name: "Other", kind: "custom" }, db);
+    const conn = { ...connection, webhookEndpoint: { url: "https://api.acme.test/yougrow/webhook", enabled: true } };
+    const keys = { keys: await publishedJwks() };
+    const mine = createVerifier({ keyId: conn.keyId, issuer: outboundIssuer(), jwks: keys });
+    const theirs = createVerifier({ keyId: other.keyId, issuer: outboundIssuer(), jwks: keys });
+    const seen: string[] = [];
+
+    const r = await sendConnectionWebhook(conn, { type: "connection.test", data: {} }, {
+      fetchImpl: async (_url, init) => {
+        const input = { headers: new Headers(init?.headers), rawBody: String(init?.body), direction: "webhook" as const };
+        const a = await mine.verify(input);
+        const b = await theirs.verify(input);
+        seen.push(a.ok ? "ok" : a.reason, b.ok ? "ok" : b.reason);
+        return new Response(null, { status: a.ok ? 204 : 401 });
+      },
+    });
+    expect(r).toEqual({ ok: true, status: 204 });
+    expect(seen).toEqual(["ok", "wrong_audience"]);
   });
 });

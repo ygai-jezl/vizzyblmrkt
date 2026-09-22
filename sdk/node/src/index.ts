@@ -14,7 +14,7 @@ import { HEADERS, sign } from "./signing.js";
  * message carries a messageId, so a retried or duplicated send is harmless.
  */
 
-export { HEADERS, sign, verify, type Direction, type VerifyResult } from "./signing.js";
+export { HEADERS, sign, type Direction } from "./signing.js";
 
 export type ConsentBasis = "consent" | "soft_opt_in" | "corporate_subscriber" | "none";
 export type TraitValue = string | number | boolean | null;

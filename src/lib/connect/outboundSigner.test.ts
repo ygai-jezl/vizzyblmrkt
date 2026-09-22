@@ -163,6 +163,16 @@ describe("configuration", () => {
     expect(() => outboundIssuer()).toThrow(/issuer_not_https/);
   });
 
+  it("allows an ephemeral key against the emulator (the smoke test's production build)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("CONNECT_SIGNING_KMS_KEY", "");
+    vi.stubEnv("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080");
+    vi.stubEnv("CONNECT_ISSUER", "http://localhost:3099");
+    expect(outboundIssuer()).toBe("http://localhost:3099");
+    const h = await signOutboundRequest({ audience: "ygk_c", direction: "context", jti: "j", rawBody: "{}", nowMs: NOW });
+    expect(h.authorization).toMatch(/^Bearer /);
+  });
+
   it("rejects a malformed KMS key name", () => {
     vi.stubEnv("CONNECT_SIGNING_KMS_KEY", "my-key");
     expect(() => signingKeySource()).toThrow(/bad_kms_key_name/);

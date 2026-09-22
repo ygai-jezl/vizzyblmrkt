@@ -12,6 +12,18 @@ export GOOGLE_CLOUD_PROJECT=demo-vizzybl
 # deterministic (a real MANDRILL_API_KEY in .env.local would otherwise be used).
 export MANDRILL_API_KEY=""
 export RESEND_API_KEY=""
+# Connected-product lifecycle (§11): flags on, test-mode ceiling, and throwaway
+# keys — emulator-only values, never used anywhere else. Requests the platform
+# sends to a product are signed with an ephemeral key here (no Cloud KMS against
+# the emulator); CONNECT_ISSUER is where its public keys are served.
+export LIFECYCLE_ENABLED=true
+export NEXT_PUBLIC_LIFECYCLE_ENABLED=true
+export LIFECYCLE_INGEST_ENABLED=true
+export LIFECYCLE_MODE_CEILING=test
+export CONNECT_SECRET_ENC_KEY="smoke-only-connect-key-not-a-real-secret"
+export UNSUBSCRIBE_SIGNING_KEY="smoke-only-unsub-key-not-a-real-secret"
+export LIFECYCLE_WORKER_SECRET="smoke-only-worker-secret"
+export CONNECT_ISSUER="http://localhost:$PORT"
 
 npx next start -p "$PORT" >/tmp/next-smoke.log 2>&1 &
 NEXT_PID=$!
@@ -268,6 +280,139 @@ node -e '
   if (status !== "done" || !sent) process.exit(1);
   console.log("offboarding email sent ✓");
 ' || { echo "BUG: offboarding lifecycle job not sent"; head -c 400 /tmp/job.json; echo; fail=1; }
+
+
+# --- Connected-product lifecycle: connect → events → context → send (§11) ------
+echo "--- lifecycle: create a Sandbox connection (expect 201 + secret shown once) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/conn.json -w "%{http_code}" -X POST "$BASE/api/admin/connections" \
+  -H 'content-type: application/json' -d '{"name":"Smoke Sandbox","kind":"sandbox"}')
+echo "HTTP $code"; [ "$code" = "201" ] || { head -c 300 /tmp/conn.json; echo; fail=1; }
+CONN_ID=$(node -e 'console.log(require("/tmp/conn.json").connection.id)' 2>/dev/null)
+KEY_ID=$(node -e 'console.log(require("/tmp/conn.json").connection.keyId)' 2>/dev/null)
+SECRET=$(node -e 'console.log(require("/tmp/conn.json").secret)' 2>/dev/null); export SECRET
+SBX_USER=$(node -e 'console.log(require("/tmp/conn.json").connection.sandbox.users[0].userId)' 2>/dev/null)
+[ -n "$CONN_ID" ] && [ -n "$SECRET" ] && echo "connection $CONN_ID, test user $SBX_USER ✓" || fail=1
+
+echo "--- lifecycle: the secret is never returned again ---"
+curl -s -b /tmp/cj.txt -o /tmp/conn_get.json "$BASE/api/admin/connections/$CONN_ID"
+if grep -q '"secret"' /tmp/conn_get.json; then echo "BUG: secret re-exposed"; fail=1; else echo "secret shown once ✓"; fi
+
+# The product signs its events with the connection secret (HMAC, direction "events").
+sign_and_post() { # <body-json-file> → /tmp/ingest.json
+  node -e '
+    const { createHmac } = require("node:crypto");
+    const body = require("node:fs").readFileSync(process.argv[1], "utf8").trim();
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = createHmac("sha256", process.env.SECRET).update(`events:${ts}.${body}`).digest("hex");
+    console.log(JSON.stringify({ ts, sig, body }));
+  ' "$1" > /tmp/signed.json
+  TS=$(node -e 'console.log(require("/tmp/signed.json").ts)')
+  SIG=$(node -e 'console.log(require("/tmp/signed.json").sig)')
+  node -e 'process.stdout.write(require("/tmp/signed.json").body)' > /tmp/ingest_body.json
+  curl -s -o /tmp/ingest.json -w "%{http_code}" -X POST "$BASE/api/v1/events" \
+    -H 'content-type: application/json' \
+    -H "x-yougrow-key-id: $KEY_ID" -H "x-yougrow-timestamp: $TS" -H "x-yougrow-signature: v1=$SIG" \
+    --data-binary @/tmp/ingest_body.json
+}
+
+echo "--- lifecycle: unsigned events are refused (expect 401) ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/v1/events" \
+  -H 'content-type: application/json' -d '{"batch":[]}')
+echo "HTTP $code"; [ "$code" = "401" ] || fail=1
+
+echo "--- lifecycle: signed sign-up events (expect 202 accepted:2) ---"
+node -e '
+  const u = process.argv[1];
+  const now = new Date().toISOString();
+  console.log(JSON.stringify({ batch: [
+    { type: "identify", messageId: "smoke-id-1", userId: u, timestamp: now,
+      traits: { email: process.argv[2], firstName: "Smoke", timezone: "Europe/London" },
+      consent: { basis: "consent" } },
+    { type: "track", messageId: "smoke-tr-1", userId: u, timestamp: now, event: "user.signed_up" },
+  ] }));
+' "$SBX_USER" "admin@yougrow.ai" > /tmp/events.json
+code=$(sign_and_post /tmp/events.json)
+echo "HTTP $code"; cat /tmp/ingest.json; echo
+{ [ "$code" = "202" ] && grep -q '"accepted":2' /tmp/ingest.json; } || fail=1
+
+echo "--- lifecycle: the same messageIds again are duplicates, not new users ---"
+code=$(sign_and_post /tmp/events.json)
+grep -q '"duplicates":2' /tmp/ingest.json && echo "idempotent ✓" || { echo "BUG: replay not deduplicated"; cat /tmp/ingest.json; fail=1; }
+
+echo "--- lifecycle: context pull — the platform signs, the sandbox verifies (expect ok) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/ctx.json -w "%{http_code}" -X POST "$BASE/api/admin/connections/$CONN_ID/test-context" \
+  -H 'content-type: application/json' -d "{\"userId\":\"$SBX_USER\"}")
+echo "HTTP $code"; head -c 200 /tmp/ctx.json; echo
+{ [ "$code" = "200" ] && grep -q '"steps"' /tmp/ctx.json; } || { echo "BUG: context pull failed"; fail=1; }
+
+echo "--- lifecycle: the platform's public keys are published ---"
+curl -s -o /tmp/jwks.json -w "jwks HTTP %{http_code}\n" "$BASE/.well-known/jwks.json"
+node -e '
+  const j = require("/tmp/jwks.json");
+  if (!Array.isArray(j.keys) || !j.keys.length) { console.error("no keys published"); process.exit(1); }
+  const k = j.keys[0];
+  if (k.kty !== "EC" || k.crv !== "P-256" || k.alg !== "ES256" || !k.kid || k.d) process.exit(1);
+  console.log("jwks publishes " + j.keys.length + " public key(s) ✓");
+' || { echo "BUG: jwks wrong"; head -c 300 /tmp/jwks.json; echo; fail=1; }
+
+echo "--- lifecycle: create a journey from the onboarding template (expect 201) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/journey.json -w "%{http_code}" -X POST "$BASE/api/admin/lifecycle/journeys" \
+  -H 'content-type: application/json' -d "{\"name\":\"Smoke onboarding\",\"connectionId\":\"$CONN_ID\"}")
+echo "HTTP $code"; [ "$code" = "201" ] || { head -c 300 /tmp/journey.json; echo; fail=1; }
+JID=$(node -e 'const j=require("/tmp/journey.json"); console.log((j.journey||j).id)' 2>/dev/null)
+[ -n "$JID" ] && echo "journey $JID ✓" || fail=1
+
+echo "--- lifecycle: test mode only, then publish (expect a version) ---"
+curl -s -b /tmp/cj.txt -o /tmp/patch.json -w "patch HTTP %{http_code}\n" -X PATCH "$BASE/api/admin/lifecycle/journeys/$JID" \
+  -H 'content-type: application/json' -d '{"deliveryMode":"test"}'
+code=$(curl -s -b /tmp/cj.txt -o /tmp/publish.json -w "%{http_code}" -X POST "$BASE/api/admin/lifecycle/journeys/$JID/publish")
+echo "HTTP $code"; head -c 200 /tmp/publish.json; echo
+{ [ "$code" = "200" ] && grep -q '"version"' /tmp/publish.json; } || { echo "BUG: publish failed"; fail=1; }
+
+echo "--- lifecycle: enrol the test user by hand (expect 201) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/enrol.json -w "%{http_code}" -X POST "$BASE/api/admin/lifecycle/journeys/$JID/enrolments" \
+  -H 'content-type: application/json' -d "{\"userId\":\"$SBX_USER\"}")
+echo "HTTP $code"; cat /tmp/enrol.json; echo
+[ "$code" = "201" ] || fail=1
+ENR_ID=$(node -e 'console.log(require("/tmp/enrol.json").enrolmentId || "")' 2>/dev/null)
+
+echo "--- lifecycle: the tick without the worker secret is refused ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/admin/lifecycle/tick" -H 'x-worker-secret: wrong')
+echo "HTTP $code"; case "$code" in 401|403|404) ;; *) echo "BUG: tick accepted a bad secret"; fail=1;; esac
+
+echo "--- lifecycle: run the enrolment's next step now (the welcome email) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/runnow.json -w "%{http_code}" -X POST "$BASE/api/admin/lifecycle/enrolments/$ENR_ID/run-now")
+echo "HTTP $code"; cat /tmp/runnow.json; echo
+[ "$code" = "200" ] || fail=1
+
+echo "--- lifecycle: the scheduler tick runs with the worker secret ---"
+code=$(curl -s -o /tmp/tick.json -w "%{http_code}" -X POST "$BASE/api/admin/lifecycle/tick" \
+  -H "x-worker-secret: $LIFECYCLE_WORKER_SECRET")
+echo "HTTP $code"; cat /tmp/tick.json; echo
+{ [ "$code" = "200" ] && grep -q '"ok":true' /tmp/tick.json; } || fail=1
+
+echo "--- lifecycle: the enrolment advanced and a send was logged ---"
+curl -s -b /tmp/cj.txt -o /tmp/enrolments.json "$BASE/api/admin/lifecycle/journeys/$JID/enrolments"
+node -e '
+  const e = (require("/tmp/enrolments.json").enrolments || [])[0];
+  if (!e) { console.error("no enrolment"); process.exit(1); }
+  console.log("enrolment status=" + e.status + " sentItems=" + JSON.stringify(e.sentItems || []) + " cursor=" + e.cursor);
+  if (!(e.sentItems || []).length) { console.error("nothing sent"); process.exit(1); }
+  console.log("lifecycle send recorded ✓");
+' || { echo "BUG: enrolment did not advance / nothing sent"; head -c 600 /tmp/enrolments.json; echo; fail=1; }
+
+echo "--- lifecycle: a signed webhook reaches the sandbox receiver (platform → product) ---"
+code=$(curl -s -b /tmp/cj.txt -o /tmp/testwh.json -w "%{http_code}" -X POST "$BASE/api/admin/connections/$CONN_ID/test-webhook")
+echo "HTTP $code"; head -c 200 /tmp/testwh.json; echo
+[ "$code" = "200" ] || fail=1
+curl -s -b /tmp/cj.txt -o /tmp/conn_after.json "$BASE/api/admin/connections/$CONN_ID"
+node -e '
+  const c = require("/tmp/conn_after.json").connection;
+  const inbox = (c.sandbox && c.sandbox.webhookInbox) || [];
+  console.log("webhook inbox: " + inbox.length + (inbox[0] ? " (" + inbox[0].type + ")" : ""));
+  if (!inbox.length) process.exit(1);
+  console.log("signed webhook verified by the sandbox ✓");
+' || { echo "BUG: the sandbox did not accept the signed webhook"; fail=1; }
 
 echo "==== SMOKE $([ $fail -eq 0 ] && echo PASS || echo FAIL) ===="
 exit $fail

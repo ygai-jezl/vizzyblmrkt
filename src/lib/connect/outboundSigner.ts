@@ -26,10 +26,11 @@ import { HEADER_KEY_ID } from "./protocol";
  * new key before they ever meet it. Disable the old version once the new one
  * is signing; it drops out of the JWKS.
  *
- * Outside production (local dev, tests) with no KMS key configured, an
- * EPHEMERAL in-memory key signs instead — generated per process, never stored,
- * and never available where NODE_ENV is production (dev and prod App Hosting
- * both run production builds, so both must use KMS).
+ * With no KMS key configured, an EPHEMERAL in-memory key signs instead —
+ * generated per process, never stored, and only outside production or against
+ * the Firestore emulator (the smoke test runs a production build there). A
+ * deployed backend never sets FIRESTORE_EMULATOR_HOST, so dev and prod must
+ * both use KMS or fail closed.
  */
 
 export const KMS_KEY_ENV = "CONNECT_SIGNING_KMS_KEY";
@@ -184,6 +185,14 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
+/**
+ * Where an ephemeral key may sign: anywhere but a deployed backend. The
+ * emulator host is set by `firebase emulators:exec` and never in App Hosting.
+ */
+function allowEphemeralKeys(): boolean {
+  return !isProduction() || Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+}
+
 export function signingKeySource(): SigningKeySource {
   if (override) return override;
   const key = process.env[KMS_KEY_ENV]?.trim();
@@ -194,7 +203,7 @@ export function signingKeySource(): SigningKeySource {
     if (configured?.key !== key) configured = { key, source: kmsKeySource(key) };
     return configured.source;
   }
-  if (isProduction()) throw new OutboundSigningUnavailable("kms_key_unconfigured");
+  if (!allowEphemeralKeys()) throw new OutboundSigningUnavailable("kms_key_unconfigured");
   ephemeral ??= ephemeralKeySource();
   return ephemeral;
 }
@@ -206,10 +215,10 @@ export function signingKeySource(): SigningKeySource {
 export function outboundIssuer(): string {
   const v = process.env[ISSUER_ENV]?.trim().replace(/\/+$/, "");
   if (v) {
-    if (isProduction() && !v.startsWith("https://")) throw new OutboundSigningUnavailable("issuer_not_https");
+    if (!allowEphemeralKeys() && !v.startsWith("https://")) throw new OutboundSigningUnavailable("issuer_not_https");
     return v;
   }
-  if (isProduction()) throw new OutboundSigningUnavailable("issuer_unconfigured");
+  if (!allowEphemeralKeys()) throw new OutboundSigningUnavailable("issuer_unconfigured");
   return "http://localhost:3000";
 }
 

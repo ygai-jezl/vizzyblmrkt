@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { YouGrow, YouGrowError } from "../src/index.js";
-import { verify } from "../src/signing.js";
+import { sign } from "../src/signing.js";
 
 const SECRET = "ygs_client_test_secret";
 
@@ -34,15 +34,7 @@ describe("YouGrow client", () => {
     expect(result).toEqual({ accepted: 2, duplicates: 0, rejected: [] });
     const { headers, body } = calls[0]!;
     expect(headers["x-yougrow-key-id"]).toBe("ygk_test");
-    expect(
-      verify({
-        secrets: [SECRET],
-        direction: "events",
-        timestamp: headers["x-yougrow-timestamp"],
-        signature: headers["x-yougrow-signature"],
-        rawBody: body,
-      }),
-    ).toEqual({ ok: true });
+    expect(headers["x-yougrow-signature"]).toBe(sign(SECRET, "events", Number(headers["x-yougrow-timestamp"]), body));
     const batch = (JSON.parse(body) as { batch: Array<Record<string, unknown>> }).batch;
     expect(batch[1]).toMatchObject({ type: "track", timestamp: "2026-09-21T10:00:00.000Z" });
   });

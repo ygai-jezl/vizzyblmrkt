@@ -14,7 +14,7 @@ export function KeyReveal({ keyId, secret }: { keyId: string; secret: string }) 
         once — if you lose it, rotate it from Settings.
       </Banner>
       <CopyField label="Key id (X-YouGrow-Key-Id)" value={keyId} />
-      <CopyField label="Secret (signs every request — keep it server-side)" value={secret} />
+      <CopyField label="Secret (signs the events you send — keep it server-side)" value={secret} />
     </div>
   );
 }

@@ -17,9 +17,11 @@ import {
 } from "@/lib/types/productConnection";
 
 /**
- * Connection credentials: a PUBLIC key id (routes a request to its tenant) and a
- * SECRET that HMAC-signs every request in both directions (ingest, context,
- * webhook). The secret is shown to the operator exactly once, then kept only
+ * Connection credentials: a PUBLIC key id (routes a request to its tenant, and is
+ * the audience of the platform's outbound JWTs) and a SECRET that HMAC-signs the
+ * events a product sends in. The platform's own requests to the product are NOT
+ * signed with it (outboundToken.ts), so this store can't be used to forge them.
+ * The secret is shown to the operator exactly once, then kept only
  * sealed (AES-256-GCM, AAD bound to `${tenantId}:${connectionId}`) under its own
  * root key, CONNECT_SECRET_ENC_KEY — never shared with git/social token keys.
  */
@@ -89,7 +91,7 @@ export function connectionSecrets(conn: ProductConnection, nowMs = Date.now()): 
   return out;
 }
 
-/** The current secret only — what the platform signs its own outbound calls with. */
+/** The current secret only — what the sandbox signs the events it fires with. */
 export function currentSecret(conn: ProductConnection): string | null {
   return conn.secretEnc ? box.open(conn.secretEnc, secretAad(conn.tenantId, conn.id)) : null;
 }

@@ -4,12 +4,11 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { assertSafeHttpsUrl, readBytesCapped, safeFetch } from "@/lib/security/ssrf";
 import { registrableDomain } from "@/lib/domains/registrableDomain";
-import { currentSecret } from "./keys";
 import { handleSandboxContextRequest } from "./sandbox";
+import { signOutboundRequest } from "./outboundSigner";
 import {
   ContextResponseSchema,
   LIMITS,
-  signedHeaders,
   zodReason,
   type ContextPurpose,
   type ProductContext,
@@ -18,8 +17,9 @@ import {
 /**
  * Pull fresh context (onboarding steps, facts, insight candidates) for one user
  * from a connected product — the "context pull" half of the connection. The
- * request is signed (direction "context"); the product verifies it like the
- * sandbox reference endpoint does.
+ * request carries a platform-signed JWT (direction "context", audience = the
+ * connection's key id — see outboundToken.ts); the product verifies it against
+ * our published keys, like the sandbox reference endpoint does.
  *
  * A real product's URL is tenant-supplied, so it goes through the SSRF-safe fetch:
  * https on port 443 only, a connect-time public-IP check, NO redirects, a ≤5 s
@@ -31,6 +31,7 @@ import {
 
 export type ContextError =
   | "not_configured"
+  | "signing_unavailable"
   | "blocked_url"
   | "timeout"
   | "network"
@@ -91,17 +92,18 @@ export async function fetchProductContext(
   const endpoint = connection.contextEndpoint;
   if (!endpoint?.enabled || !endpoint.url) return done({ ok: false as const, error: "not_configured" as const });
 
-  let secret: string | null;
-  try {
-    secret = currentSecret(connection);
-  } catch {
-    secret = null;
-  }
-  if (!secret) return done({ ok: false as const, error: "not_configured" as const });
+  if (connection.status === "revoked") return done({ ok: false as const, error: "not_configured" as const });
 
   const nowMs = deps.nowMs ?? Date.now();
-  const body = JSON.stringify({ ...input, requestId: randomUUID() });
-  const init = { method: "POST", headers: signedHeaders(connection.keyId, secret, "context", body, nowMs), body };
+  const requestId = randomUUID();
+  const body = JSON.stringify({ ...input, requestId });
+  let headers: Record<string, string>;
+  try {
+    headers = await signOutboundRequest({ audience: connection.keyId, direction: "context", jti: requestId, rawBody: body, nowMs });
+  } catch (err) {
+    return done({ ok: false as const, error: "signing_unavailable" as const, detail: err instanceof Error ? err.message.slice(0, 200) : undefined });
+  }
+  const init = { method: "POST", headers, body };
 
   let res: Response;
   try {

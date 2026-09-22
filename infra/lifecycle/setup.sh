@@ -113,6 +113,7 @@ case "$CMD" in
     echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.yaml (prod inherits it)."
     ;;
   signing-key)
+    gcloud services enable cloudkms.googleapis.com --project="$PROJECT"
     if ! gcloud kms keyrings describe "$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT" >/dev/null 2>&1; then
       echo "==> Creating key ring $KEYRING ($KMS_LOCATION)"
       gcloud kms keyrings create "$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT"

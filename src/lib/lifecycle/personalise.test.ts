@@ -5,7 +5,7 @@ import { suppressEmailCategory } from "@/lib/email/suppression";
 import type { ProductContext } from "@/lib/connect/protocol";
 import type { AiDraft } from "@/lib/types/lifecycle";
 import { enrolUser, enrolmentDocId } from "./enrol";
-import { processEnrolment } from "./runner";
+import { processEnrolment, runEnrolmentNow } from "./runner";
 import { prepareDueDrafts } from "./prepare";
 import { countWaitingApprovals, decideApproval, listApprovals, type ApprovalView } from "./approvals";
 import { AI_LINE_MARKER, draftDocId } from "./drafts";
@@ -135,6 +135,21 @@ describe("AI lines: booking, preparing, approving, sending", () => {
     expect(e.sentItems[1]).toMatchObject({ itemId: "r1", status: "sent", version: "ai" });
     expect(e.usedInsightIds).toEqual(["i_sov"]);
     expect(await w.draft()).toMatchObject({ status: "used", usedVersion: "ai" });
+  });
+
+  it("Run now prepares a waiting draft first, then sends the approved line", async () => {
+    const w = await world();
+    const sendAt = await booked(w);
+    const early = sendAt - 30 * HOUR; // long before its usual prepare time
+    expect(await runEnrolmentNow(ctx, w.enrolmentId, { ...w.deps, now: () => early })).toEqual({ ok: true, outcome: "draft_prepared" });
+    const d = await w.draft();
+    expect(d).toMatchObject({ status: "awaiting_approval", aiLine: LINE });
+    expect(w.sent).toHaveLength(1); // nothing sent by the first press
+
+    expect((await decideApproval(ctx, d.id, { action: "approve", draftVersion: d.draftVersion }, w.db, early)).status).toBe(200);
+    expect(await runEnrolmentNow(ctx, w.enrolmentId, { ...w.deps, now: () => early })).toEqual({ ok: true, outcome: "sent" });
+    expect(w.sent[1]!.html).toContain("strong start");
+    expect((await w.enrolment()).sentItems[1]).toMatchObject({ itemId: "r1", version: "ai" });
   });
 
   it("without a decision the standard version sends (no_decision)", async () => {

@@ -22,9 +22,10 @@ env:
       - BUILD
       - RUNTIME
 
-  # Public Firebase web config (NOT secrets — shipped in the client bundle).
+  # Public Firebase web config (ships in the client bundle). The API key lives in
+  # Secret Manager only to keep it out of this public repo — it is not a secret.
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyD_DhhchXkLC5qux5o0bL4wEHusANTIGGo
+    secret: firebase-web-api-key
     availability:
       - BUILD
       - RUNTIME
@@ -511,6 +512,19 @@ env:
   # sets this to the dev backend's URL for dev; without this override prod
   # emails would link to dev, where the tokens don't verify.)
   - variable: EMAIL_LINK_ORIGIN
+    value: https://yougrow.ai
+    availability:
+      - RUNTIME
+  # Outbound request signing must use PROD's key and name prod as issuer
+  # (apphosting.yaml points both at dev). Without these overrides prod would try
+  # to sign with dev's key — which prod can't use — and every context pull and
+  # webhook would fail closed. Create the key with:
+  #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-prod
+  - variable: CONNECT_SIGNING_KMS_KEY
+    value: projects/vizzybl-marketing-prod/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
+    availability:
+      - RUNTIME
+  - variable: CONNECT_ISSUER
     value: https://yougrow.ai
     availability:
       - RUNTIME

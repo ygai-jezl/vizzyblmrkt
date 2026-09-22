@@ -1,4 +1,4 @@
-import { HEADERS, verify, type VerifyResult } from "./signing.js";
+import { tokenFromAuthorization, tokenKid, verifyJwt, type Jwk, type JwtFailure, type RequestDirection, type YouGrowClaims } from "./jwt.js";
 
 /**
  * Helpers for the two endpoints YouGrow calls on YOUR server:
@@ -8,8 +8,25 @@ import { HEADERS, verify, type VerifyResult } from "./signing.js";
  *  - the webhook endpoint (direction "webhook"): YouGrow tells you about
  *    preference changes, e.g. an unsubscribe.
  *
- * Always verify the signature against the RAW body, before parsing it.
+ * Every such request carries `Authorization: Bearer <JWT>` signed with
+ * YouGrow's private key. Your secret is NOT involved — you verify against
+ * YouGrow's public keys, so nothing you store can be used to forge YouGrow.
+ * Always verify against the RAW body, before parsing it.
+ *
+ *   const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
+ *   const v = await verifier.verify({ headers: req.headers, rawBody, direction: "context" });
+ *   if (!v.ok) return res.status(401).end();
  */
+
+export type { Jwk, RequestDirection, YouGrowClaims } from "./jwt.js";
+
+export const DEFAULT_ISSUER = "https://yougrow.ai";
+const JWKS_PATH = "/.well-known/jwks.json";
+const MIN_CACHE_MS = 60_000;
+const MAX_CACHE_MS = 24 * 3600_000;
+const DEFAULT_CACHE_MS = 3600_000;
+/** An unknown kid refetches the keys at most this often. */
+const REFETCH_COOLDOWN_MS = 60_000;
 
 type HeaderBag = Headers | Record<string, string | string[] | undefined>;
 
@@ -20,22 +37,92 @@ function header(h: HeaderBag, name: string): string | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 }
 
-/** Verify a request YouGrow sent you. Accepts Node or Fetch-style headers. */
-export function verifyRequest(input: {
-  headers: HeaderBag;
-  rawBody: string;
-  secret: string | string[];
-  direction: "context" | "webhook";
-  nowMs?: number;
-}): VerifyResult {
-  return verify({
-    secrets: Array.isArray(input.secret) ? input.secret : [input.secret],
-    direction: input.direction,
-    timestamp: header(input.headers, HEADERS.timestamp),
-    signature: header(input.headers, HEADERS.signature),
-    rawBody: input.rawBody,
-    nowMs: input.nowMs,
-  });
+export type VerifyResult =
+  | { ok: true; claims: YouGrowClaims }
+  | { ok: false; reason: JwtFailure | "keys_unavailable" };
+
+export interface VerifierOptions {
+  /** Your connection's key id — the token's audience. */
+  keyId: string;
+  /** YouGrow's origin. Defaults to https://yougrow.ai; use the dev origin for staging. */
+  issuer?: string;
+  /** Pin the key set instead of fetching it (tests, air-gapped setups). */
+  jwks?: { keys: Jwk[] };
+  fetch?: typeof fetch;
+}
+
+export interface Verifier {
+  verify(input: { headers: HeaderBag; rawBody: string; direction: RequestDirection; nowMs?: number }): Promise<VerifyResult>;
+}
+
+function cacheMs(cacheControl: string | null): number {
+  const m = /max-age=(\d+)/.exec(cacheControl ?? "");
+  const ms = m ? Number(m[1]) * 1000 : DEFAULT_CACHE_MS;
+  return Math.min(MAX_CACHE_MS, Math.max(MIN_CACHE_MS, ms));
+}
+
+/**
+ * A verifier for one connection. It fetches YouGrow's public keys once, caches
+ * them as long as their Cache-Control allows, and refetches early (rate-limited)
+ * when a token names a key it hasn't seen — so YouGrow's key rotations need no
+ * change on your side. If a refresh fails it keeps using the keys it has.
+ */
+export function createVerifier(opts: VerifierOptions): Verifier {
+  const issuer = (opts.issuer ?? DEFAULT_ISSUER).replace(/\/+$/, "");
+  if (!opts.jwks && !/^https:\/\//.test(issuer) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(issuer)) {
+    throw new Error("createVerifier: issuer must be https");
+  }
+  if (!opts.keyId) throw new Error("createVerifier: keyId is required");
+  const doFetch = opts.fetch ?? globalThis.fetch;
+  let keys: Jwk[] | null = opts.jwks?.keys ?? null;
+  let expiresAt = opts.jwks ? Number.POSITIVE_INFINITY : 0;
+  let lastFetchAt = Number.NEGATIVE_INFINITY;
+  let inflight: Promise<void> | null = null;
+
+  async function refresh(now: number): Promise<void> {
+    if (opts.jwks) return;
+    inflight ??= (async () => {
+      lastFetchAt = now;
+      try {
+        const res = await doFetch(`${issuer}${JWKS_PATH}`, { signal: AbortSignal.timeout(5000), redirect: "error" });
+        if (!res.ok) return;
+        const body = (await res.json()) as { keys?: unknown };
+        if (!Array.isArray(body.keys)) return;
+        keys = body.keys as Jwk[];
+        expiresAt = Date.now() + cacheMs(res.headers.get("cache-control"));
+      } catch {
+        // Keep the keys we have (if any); the next request tries again.
+      } finally {
+        inflight = null;
+      }
+    })();
+    await inflight;
+  }
+
+  return {
+    async verify(input) {
+      const token = tokenFromAuthorization(header(input.headers, "authorization"));
+      const now = Date.now();
+      const sinceFetch = now - lastFetchAt;
+      if (token && (keys ? now >= expiresAt && sinceFetch >= REFETCH_COOLDOWN_MS : sinceFetch >= 5000)) {
+        await refresh(now);
+      }
+      const kid = token ? tokenKid(token) : null;
+      if (token && kid && keys && !keys.some((k) => k.kid === kid) && Date.now() - lastFetchAt >= REFETCH_COOLDOWN_MS) {
+        await refresh(now);
+      }
+      if (token && !keys) return { ok: false, reason: "keys_unavailable" };
+      return verifyJwt({
+        token,
+        keys: keys ?? [],
+        issuer,
+        audience: opts.keyId,
+        direction: input.direction,
+        rawBody: input.rawBody,
+        nowMs: input.nowMs,
+      });
+    },
+  };
 }
 
 export interface ContextStep {

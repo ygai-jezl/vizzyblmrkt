@@ -120,12 +120,13 @@ export async function publishOnboarding(
     shadowInbox?: string | null;
     caps?: { sendsPerDay: number; enrolmentsPerDay: number };
     nowMs?: number;
+    connectionId?: string;
   } = {},
 ): Promise<{ journey: LifecycleJourney; version: LifecycleVersion }> {
   const nowMs = opts.nowMs ?? T0 - 3600_000;
   const created = await createLifecycleJourney(
     ctx,
-    { name: "Onboarding", connectionId: CONNECTION_ID, template: "product_onboarding" },
+    { name: "Onboarding", connectionId: opts.connectionId ?? CONNECTION_ID, template: "product_onboarding" },
     { db, nowMs },
   );
   if (!created.ok) throw new Error(`create failed: ${created.error}`);

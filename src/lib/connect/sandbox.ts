@@ -7,19 +7,17 @@ import type {
   SandboxUser,
 } from "@/lib/types/productConnection";
 import { readRequestTextCapped } from "@/lib/http/readBody";
-import { connectionSecrets, currentSecret } from "./keys";
+import { currentSecret } from "./keys";
 import { handleIngestRequest } from "./ingestHttp";
+import { outboundIssuer, publishedJwks } from "./outboundSigner";
+import { bearerToken, verifyOutboundToken, type OutboundDirection } from "./outboundToken";
 import {
   ContextRequestSchema,
   HEADER_KEY_ID,
-  HEADER_SIGNATURE,
-  HEADER_TIMESTAMP,
   WebhookPayloadSchema,
   signedHeaders,
-  verifySignature,
   zodReason,
   type ProductContext,
-  type SignDirection,
 } from "./protocol";
 
 /**
@@ -28,7 +26,8 @@ import {
  * proven before any real product writes integration code.
  *
  * It behaves like a real integration: its context and webhook endpoints verify
- * the platform's signatures exactly as a product would (the same handlers back
+ * the platform's signed JWT against the published keys exactly as a product
+ * would (the same handlers back
  * the public /api/sandbox/* reference routes), and "fire event" signs a batch and
  * runs it through the real ingest handler. The platform calls these IN-PROCESS
  * (a signed Request handed straight to the handler) — the same verification code
@@ -143,7 +142,7 @@ function json(status: number, body: unknown): Response {
 async function verifyInbound(
   req: Request,
   connectionId: string,
-  direction: SignDirection,
+  direction: OutboundDirection,
   deps: { db?: FirestoreLike; nowMs?: number },
 ): Promise<{ ok: true; raw: string; ctx: TenantContext; conn: ProductConnection } | { ok: false; res: Response }> {
   const nowMs = deps.nowMs ?? Date.now();
@@ -156,11 +155,20 @@ async function verifyInbound(
   if (!conn || conn.kind !== "sandbox" || conn.status === "revoked") {
     return { ok: false, res: json(404, { error: "not_found" }) };
   }
-  const verified = verifySignature({
-    secrets: connectionSecrets(conn, nowMs),
+  let jwks;
+  let issuer: string;
+  try {
+    jwks = await publishedJwks();
+    issuer = outboundIssuer();
+  } catch {
+    return { ok: false, res: json(503, { error: "keys_unavailable" }) };
+  }
+  const verified = verifyOutboundToken({
+    token: bearerToken(req.headers.get("authorization")),
+    jwks,
+    issuer,
+    audience: conn.keyId,
     direction,
-    timestamp: req.headers.get(HEADER_TIMESTAMP),
-    signature: req.headers.get(HEADER_SIGNATURE),
     rawBody: raw,
     nowMs,
   });

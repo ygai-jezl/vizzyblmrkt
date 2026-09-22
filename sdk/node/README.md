@@ -50,16 +50,24 @@ milestones.
 
 ## Answer context requests
 
-Before an email, YouGrow sends your context endpoint a signed `POST` about one
-user. Verify the signature against the raw body, then reply:
+Before an email, YouGrow sends your context endpoint a `POST` about one user.
+It carries `Authorization: Bearer <JWT>`, signed with **YouGrow's** private key.
+You verify it against YouGrow's published public keys. Your secret isn't
+involved, so nothing you store can be used to forge a request from YouGrow.
 
 ```ts
-import { verifyRequest, contextResponse } from "@yougrow/node/server";
+import { createVerifier, contextResponse } from "@yougrow/node/server";
+
+// Once, at startup. keyId is the token's audience: tokens for other connections fail.
+const verifier = createVerifier({
+  keyId: process.env.YOUGROW_KEY_ID!,
+  // issuer: "https://<dev origin>"  // staging only; defaults to https://yougrow.ai
+});
 
 app.post("/yougrow/context", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body.toString("utf8");
-  const ok = verifyRequest({ headers: req.headers, rawBody, secret: process.env.YOUGROW_SECRET!, direction: "context" });
-  if (!ok.ok) return res.status(401).end();
+  const v = await verifier.verify({ headers: req.headers, rawBody, direction: "context" });
+  if (!v.ok) return res.status(401).end();
 
   const { userId } = JSON.parse(rawBody);
   const u = await loadOnboardingState(userId);
@@ -75,25 +83,43 @@ app.post("/yougrow/context", express.raw({ type: "application/json" }), async (r
 });
 ```
 
+The verifier fetches `https://yougrow.ai/.well-known/jwks.json` once. It caches
+the keys for as long as their `Cache-Control` allows, and refetches early when
+a token names a key it hasn't seen. That means YouGrow can rotate its keys
+without any change on your side.
+
 Numbers about the user appear only in your facts and insight sentences. YouGrow
 never invents them.
 
 ## Webhooks
 
 YouGrow tells your webhook endpoint about preference changes, e.g. an
-unsubscribe from onboarding tips. Verify with
-`verifyRequest({ …, direction: "webhook" })`.
+unsubscribe from onboarding tips. Verify it with
+`verifier.verify({ …, direction: "webhook" })`. Webhook ids (`jti` in the
+token, `id` in the body) are unique, so you can drop duplicates.
 
 ## Without the SDK
 
-Sign the exact request body:
+**Events you send** are signed with your secret, over the exact request body:
 
 ```
 X-YouGrow-Key-Id:    <key id>
 X-YouGrow-Timestamp: <unix seconds>
-X-YouGrow-Signature: v1=<hex HMAC-SHA256(secret, "<direction>:<timestamp>.<raw body>")>
+X-YouGrow-Signature: v1=<hex HMAC-SHA256(secret, "events:<timestamp>.<raw body>")>
 ```
 
-`direction` is `events` for what you send, and `context` / `webhook` for what
-YouGrow sends you. Requests more than five minutes out are refused.
-`test/vectors.json` holds reference signatures for checking your implementation.
+Requests more than five minutes out are refused.
+
+**Requests YouGrow sends you** carry a JWT. Use any JWT library, then check:
+
+1. `alg` is `ES256` (reject anything else, including `none`). Verify the
+   signature with the key from `<issuer>/.well-known/jwks.json` whose `kid`
+   matches. Cache that file per its `Cache-Control`.
+2. `iss` is `https://yougrow.ai`, and `aud` is your key id.
+3. `dir` is `context` or `webhook`, matching the endpoint that received it.
+4. `exp` hasn't passed, allowing about 60 s of clock skew. `exp − iat` is at
+   most 300.
+5. `body_sha256` is the base64url SHA-256 of the raw body you received.
+
+`test/vectors.json` holds reference signatures and tokens for checking your
+implementation.

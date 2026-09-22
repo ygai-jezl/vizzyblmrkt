@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { assertSafeHttpsUrl, safeFetch } from "@/lib/security/ssrf";
-import { currentSecret } from "./keys";
 import { handleSandboxWebhookRequest } from "./sandbox";
-import { signedHeaders, type WebhookPayload } from "./protocol";
+import { signOutboundRequest } from "./outboundSigner";
+import type { WebhookPayload } from "./protocol";
 
 /**
- * Send one signed webhook (direction "webhook") to a connected product — e.g.
+ * Send one signed webhook (a platform-signed JWT, direction "webhook" — see
+ * outboundToken.ts) to a connected product — e.g.
  * "this user unsubscribed from onboarding tips", so the product can mirror it.
  * Same transport rules as the context client: SSRF-safe, https:443, no redirects,
  * 5 s; a sandbox is delivered in-process to its reference receiver. Delivery
@@ -23,13 +24,7 @@ export async function sendConnectionWebhook(
 ): Promise<WebhookResult> {
   const endpoint = connection.webhookEndpoint;
   if (!endpoint?.enabled || !endpoint.url) return { ok: false, error: "not_configured" };
-  let secret: string | null;
-  try {
-    secret = currentSecret(connection);
-  } catch {
-    secret = null;
-  }
-  if (!secret) return { ok: false, error: "not_configured" };
+  if (connection.status === "revoked") return { ok: false, error: "not_configured" };
 
   const nowMs = deps.nowMs ?? Date.now();
   const payload: WebhookPayload = {
@@ -39,7 +34,13 @@ export async function sendConnectionWebhook(
     data: event.data,
   };
   const body = JSON.stringify(payload);
-  const init = { method: "POST", headers: signedHeaders(connection.keyId, secret, "webhook", body, nowMs), body };
+  let headers: Record<string, string>;
+  try {
+    headers = await signOutboundRequest({ audience: connection.keyId, direction: "webhook", jti: payload.id, rawBody: body, nowMs });
+  } catch {
+    return { ok: false, error: "signing_unavailable" };
+  }
+  const init = { method: "POST", headers, body };
 
   try {
     let res: Response;

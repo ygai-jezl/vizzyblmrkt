@@ -101,7 +101,7 @@ export function ConnectionSettings({
 
       <Section
         title="Endpoints"
-        description={sandbox ? "A sandbox's endpoints point at its built-in reference implementation." : "Signed requests from the platform to your product. Public https on port 443 only; no redirects."}
+        description={sandbox ? "A sandbox's endpoints point at its built-in reference implementation." : "Requests from the platform to your product, each carrying a JWT signed with our key (verify it against /.well-known/jwks.json, audience = your key id). Public https on port 443 only; no redirects."}
       >
         <Field label="Context endpoint (POST, signed)" hint="Returns the user's onboarding steps, facts and insight sentences.">
           <input className={inputClass} disabled={disabled || sandbox} value={ctxUrl} placeholder="https://api.yourproduct.com/yougrow/context" onChange={(e) => setCtxUrl(e.target.value)} />

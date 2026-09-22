@@ -10,23 +10,28 @@ import {
 /**
  * The product-connection wire protocol — ONE module shared by the ingest API,
  * the context client and the webhook sender. The Node SDK (sdk/node) implements
- * the same signing independently; both are pinned by the shared test vectors in
+ * the same checks independently; both are pinned by the shared test vectors in
  * sdk/node/test/vectors.json.
  *
- * Every request in every direction carries:
+ * Product → platform (events) is signed with the connection's SECRET:
  *   X-YouGrow-Key-Id:    the connection's public key id
  *   X-YouGrow-Timestamp: unix seconds
- *   X-YouGrow-Signature: v1=<hex HMAC-SHA256(secret, `${direction}:${timestamp}.${rawBody}`)>
- * The direction prefix (events | context | webhook) means a signature captured
- * in one direction can never be replayed in another. The timestamp bounds replay
- * to ±5 minutes, and ingest messageIds make an in-window replay a no-op.
+ *   X-YouGrow-Signature: v1=<hex HMAC-SHA256(secret, `events:${timestamp}.${rawBody}`)>
+ * The timestamp bounds replay to ±5 minutes, and ingest messageIds make an
+ * in-window replay a no-op.
+ *
+ * Platform → product (context pulls, webhooks) is NOT signed with that secret:
+ * it carries a JWT signed with the platform's own KMS key, verified against our
+ * published JWKS (outboundToken.ts). So the secrets we store can only ever
+ * authenticate events INTO the platform — never requests to a product.
  */
 
 export const HEADER_KEY_ID = "x-yougrow-key-id";
 export const HEADER_TIMESTAMP = "x-yougrow-timestamp";
 export const HEADER_SIGNATURE = "x-yougrow-signature";
 
-export type SignDirection = "events" | "context" | "webhook";
+/** HMAC signing covers product → platform only (see above). */
+export type SignDirection = "events";
 
 /** Accepted clock skew between signer and verifier. */
 export const SIGNATURE_TOLERANCE_SEC = 300;

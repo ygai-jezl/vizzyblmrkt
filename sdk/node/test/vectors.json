@@ -1,5 +1,5 @@
 {
-  "description": "Signing vectors for the YouGrow product-connection protocol. signature = 'v1=' + hex(HMAC-SHA256(secret, direction + ':' + timestamp + '.' + body)). Generated with openssl, independently of both the server and the SDK; both test suites must reproduce them exactly.",
+  "description": "Signing vectors for the YouGrow product-connection protocol. 'vectors': product -> platform events, signature = 'v1=' + hex(HMAC-SHA256(secret, 'events:' + timestamp + '.' + body)), generated with openssl. 'outbound': platform -> product ES256 JWTs (context pulls, webhooks), signed once with a throwaway P-256 key whose private half was discarded; only the public JWK is kept. Both the server and the SDK test suites must accept every outbound token at nowMs and reject the listed tamperings.",
   "vectors": [
     {
       "secret": "ygs_test_secret_one",
@@ -7,20 +7,6 @@
       "timestamp": 1758455000,
       "body": "{\"batch\":[{\"type\":\"identify\",\"messageId\":\"m1\",\"userId\":\"u1\",\"timestamp\":\"2026-09-21T10:00:00Z\",\"traits\":{\"email\":\"alex@acme.test\"}}]}",
       "signature": "v1=d4bdf726960d10a135b3493f4074b3d3d3773a23ec49955d6efb720bcd2ef914"
-    },
-    {
-      "secret": "ygs_test_secret_one",
-      "direction": "context",
-      "timestamp": 1758455000,
-      "body": "{\"userId\":\"u1\",\"purpose\":\"test\",\"requestId\":\"r1\"}",
-      "signature": "v1=e1a7333f2260eca2a3090412afc5ae981a86bbf8428f7c32928e3eb8664956c4"
-    },
-    {
-      "secret": "ygs_test_secret_two",
-      "direction": "webhook",
-      "timestamp": 1758455123,
-      "body": "{\"id\":\"wh_1\",\"type\":\"email_preferences.updated\",\"createdAt\":\"2026-09-21T10:00:00Z\",\"data\":{\"userId\":\"u1\",\"category\":\"onboarding\",\"subscribed\":false}}",
-      "signature": "v1=941128263f5811cbf17d32282380b25b100fbeb0d123f6b55db50c7b70938054"
     },
     {
       "secret": "ygs_test_secret_two",
@@ -36,5 +22,48 @@
       "body": "",
       "signature": "v1=aae9033d246c64b2e62a630910f59e35531cfb71d5b1a4da90a1002323979eae"
     }
-  ]
+  ],
+  "outbound": {
+    "issuer": "https://yougrow.ai",
+    "audience": "ygk_vectorsvectorsvectors0",
+    "nowMs": 1758455060000,
+    "jwks": {
+      "keys": [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "x": "-QAJ7DPGd56eA18mz_P75umV_83b9gcmDJeh1CRhlZc",
+          "y": "N8BGeFW7xO2eAGQKykRfbc2j-M-F-uz52LgY2zmkpoY",
+          "kid": "5xivU6qt3oe7kdhSXWNXkkRwxoB3J-N4Mn1OGMN2KH4",
+          "alg": "ES256",
+          "use": "sig"
+        }
+      ]
+    },
+    "tokens": [
+      {
+        "direction": "context",
+        "body": "{\"userId\":\"u1\",\"purpose\":\"test\",\"requestId\":\"r1\"}",
+        "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjV4aXZVNnF0M29lN2tkaFNYV05Ya2tSd3hvQjNKLU40TW4xT0dNTjJLSDQifQ.eyJpc3MiOiJodHRwczovL3lvdWdyb3cuYWkiLCJhdWQiOiJ5Z2tfdmVjdG9yc3ZlY3RvcnN2ZWN0b3JzMCIsImlhdCI6MTc1ODQ1NTAwMCwiZXhwIjoxNzU4NDU1MzAwLCJqdGkiOiJyMSIsImRpciI6ImNvbnRleHQiLCJib2R5X3NoYTI1NiI6InZpMzRxQ0FaMGhHSFNrZ2lhbzZxUGlDYW5RdWJjZFhDX1FraU40RHpfM0EifQ.bvJgcsxbVfjbdGOqwVpVUmQy4Pcchh0lErXTIRFbQYRVFi2imw_SzEzyFvVEPRVILl1mFYnL4fQNyCMkjW_gTg"
+      },
+      {
+        "direction": "webhook",
+        "body": "{\"id\":\"wh_1\",\"type\":\"email_preferences.updated\",\"createdAt\":\"2026-09-21T10:00:00Z\",\"data\":{\"userId\":\"u1\",\"category\":\"onboarding\",\"subscribed\":false}}",
+        "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjV4aXZVNnF0M29lN2tkaFNYV05Ya2tSd3hvQjNKLU40TW4xT0dNTjJLSDQifQ.eyJpc3MiOiJodHRwczovL3lvdWdyb3cuYWkiLCJhdWQiOiJ5Z2tfdmVjdG9yc3ZlY3RvcnN2ZWN0b3JzMCIsImlhdCI6MTc1ODQ1NTAwMCwiZXhwIjoxNzU4NDU1MzAwLCJqdGkiOiJ3aF8xIiwiZGlyIjoid2ViaG9vayIsImJvZHlfc2hhMjU2IjoiNjdCLWRsN1hXQTRmRkZyU3VLSkNsZGViWjJQZUJlUEZUbTlDdE5UR1pjWSJ9.DmVqL1DHK8kzNpeHmgJ3pUIQPLBkWoIVkSze88eEe2uYaapz2igRBGA6fXVPLALLi1j1vrJgUOtC9F7AHxAuRw"
+      }
+    ],
+    "der": {
+      "message": "kms-der-vector",
+      "der": "MEYCIQDWzM6yGiXD+ByzGupa6bgWJSjRcyPZKgs9iLoIaIVs8QIhAO4ufgQ9yvfciUelapmJ4N6eM7HWIDmAsYwn3DjRKE3X",
+      "publicJwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "-QAJ7DPGd56eA18mz_P75umV_83b9gcmDJeh1CRhlZc",
+        "y": "N8BGeFW7xO2eAGQKykRfbc2j-M-F-uz52LgY2zmkpoY",
+        "kid": "5xivU6qt3oe7kdhSXWNXkkRwxoB3J-N4Mn1OGMN2KH4",
+        "alg": "ES256",
+        "use": "sig"
+      }
+    }
+  }
 }

@@ -1,13 +1,17 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import { createHmac } from "node:crypto";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
-import { createConnection } from "./keys";
+import { createConnection, currentSecret } from "./keys";
+import { handleSandboxContextRequest } from "./sandbox";
 import { fetchProductContext, isAllowedLink } from "./contextClient";
 import { __resetIngestCaches } from "./ingestHttp";
 import { createProductConnection, fireSandbox } from "./adminApi";
-import { HEADER_SIGNATURE, HEADER_TIMESTAMP, verifySignature } from "./protocol";
+import { outboundIssuer, publishedJwks } from "./outboundSigner";
+import { bearerToken, verifyOutboundToken } from "./outboundToken";
+import { verifySignature } from "./protocol";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", email: "jez@yougrow.test", role: "admin" };
 const NOW = Date.parse("2026-09-21T12:00:00Z");
@@ -95,7 +99,9 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
   it("signs the request, validates the reply and drops links off the allowed domains", async () => {
     const db = new FakeFirestore();
     const { conn, secret } = await custom(db);
+    const jwks = await publishedJwks();
     let signatureOk = false;
+    let secretWorks = true;
     const r = await fetchProductContext(
       conn,
       { userId: "u1", purpose: "send" },
@@ -104,11 +110,23 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
         fetchImpl: async (_url, init) => {
           const headers = new Headers(init?.headers);
           signatureOk =
+            verifyOutboundToken({
+              token: bearerToken(headers.get("authorization")),
+              jwks,
+              issuer: outboundIssuer(),
+              audience: conn.keyId,
+              direction: "context",
+              rawBody: String(init?.body),
+              nowMs: NOW,
+            }).ok === true;
+          // The connection secret authenticates events IN only: nothing on an
+          // outbound request is derived from it.
+          secretWorks =
             verifySignature({
               secrets: [secret],
-              direction: "context",
-              timestamp: headers.get(HEADER_TIMESTAMP),
-              signature: headers.get(HEADER_SIGNATURE),
+              direction: "events",
+              timestamp: headers.get("x-yougrow-timestamp"),
+              signature: headers.get("x-yougrow-signature"),
               rawBody: String(init?.body),
               nowMs: NOW,
             }).ok === true;
@@ -118,6 +136,7 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
     );
 
     expect(signatureOk).toBe(true);
+    expect(secretWorks).toBe(false);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.context.steps[0]!.url).toBe("https://app.acme.test/brand");
@@ -166,6 +185,49 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
       contextEndpoint: { url: "https://api.acme.test/ctx", enabled: false, timeoutMs: 5000 },
     });
     expect(await fetchProductContext(off, { userId: "u1", purpose: "send" })).toMatchObject({ error: "not_configured" });
+    const { conn: revoked } = await custom(db, { status: "revoked" });
+    expect(await fetchProductContext(revoked, { userId: "u1", purpose: "send" })).toMatchObject({ error: "not_configured" });
+  });
+
+  it("sends nothing when the platform can't sign (production without its KMS key)", async () => {
+    const db = new FakeFirestore();
+    const { conn } = await custom(db);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("CONNECT_SIGNING_KMS_KEY", "");
+    let called = false;
+    const r = await fetchProductContext(conn, { userId: "u1", purpose: "send" }, {
+      fetchImpl: async () => {
+        called = true;
+        return new Response("{}");
+      },
+    });
+    vi.unstubAllEnvs();
+    expect(r).toMatchObject({ ok: false, error: "signing_unavailable" });
+    expect(called).toBe(false);
+  });
+});
+
+describe("sandbox reference endpoints", () => {
+  it("refuse a request signed only with the connection secret (the old scheme)", async () => {
+    const db = new FakeFirestore();
+    const conn = await sandbox(db);
+    const secret = currentSecret(conn)!;
+    const body = JSON.stringify({ userId: "sandbox_alex", purpose: "test", requestId: "r1" });
+    const res = await handleSandboxContextRequest(
+      new Request("https://yougrow.test/api/sandbox/context/x", {
+        method: "POST",
+        headers: {
+          "x-yougrow-key-id": conn.keyId,
+          "x-yougrow-timestamp": String(Math.floor(NOW / 1000)),
+          "x-yougrow-signature": `v1=${createHmac("sha256", secret).update(`context:${Math.floor(NOW / 1000)}.${body}`).digest("hex")}`,
+        },
+        body,
+      }),
+      conn.id,
+      { db, nowMs: NOW },
+    );
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "missing_token" });
   });
 });
 

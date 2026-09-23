@@ -43,6 +43,12 @@ export async function GET(
   }
   const code = sp.get("code");
   const stateRaw = sp.get("state");
+  // A customer changed the GitHub App's repositories on GitHub, which sends them
+  // back here without our state. Nothing to store — the installation id is
+  // unchanged and GitHub enforces the new repo list — so confirm, write nothing.
+  if (provider === "github" && githubAppConfig() && sp.get("setup_action") === "update" && !stateRaw) {
+    return back(origin, { status: "ok", provider, updated: "1" });
+  }
   if (!code || !stateRaw) return back(origin, { status: "error", reason: "missing_code", provider });
 
   const state = verifyState(stateRaw);

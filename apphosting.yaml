@@ -623,6 +623,8 @@ env:
   # Read-only GitHub access (the YouGrow GitHub App: Contents read + Metadata read
   # only). Until these are set, GitHub connects through the legacy OAuth app,
   # whose `repo` scope can also write. To enable, per project:
+  #   (prod is set up — see apphosting.prod.yaml. For dev: register a separate
+  #   dev app with `node infra/github-app/create-app.mjs --env dev`, or by hand:)
   #   1. Register a GitHub App (Settings → Developer settings → GitHub Apps):
   #      permissions Contents: Read-only, Metadata: Read-only, nothing else; no
   #      webhook; "Request user authorization (OAuth) during installation" ON;

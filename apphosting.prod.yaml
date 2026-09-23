@@ -52,6 +52,33 @@ env:
     value: https://yougrow.ai
     availability:
       - RUNTIME
+  # READ-ONLY GitHub access: the "YouGrowApp" GitHub App (github.com/apps/yougrowapp)
+  # — Contents: read + Metadata: read only, no webhook (verified with GitHub's
+  # /app API). With these set, "Connect GitHub" installs the app and every clone
+  # uses a one-hour, down-scoped installation token; the classic OAuth app (which
+  # can also write) is no longer offered. The ID, slug and Client ID are public;
+  # the client secret and private key are in prod's Secret Manager with the App
+  # Hosting grant triple (the key also for the knowledge-scraper Job).
+  - variable: GITHUB_APP_ID
+    value: "5051486"
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_SLUG
+    value: yougrowapp
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_ID
+    value: Iv23liQxQAxjm40mxwhj
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_SECRET
+    secret: github-app-client-secret
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_PRIVATE_KEY
+    secret: github-app-private-key
+    availability:
+      - RUNTIME
 
   # reCAPTCHA Enterprise (score-based) — public site key + server assessment.
   - variable: RECAPTCHA_ENABLED

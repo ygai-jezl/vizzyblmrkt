@@ -70,6 +70,11 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
   const [msg, setMsg] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
 
   const latest = analyses?.[0] ?? null;
+  /** GitHub repos this product was analysed from before — pre-ticked for a re-run. */
+  const previousUrls = useMemo(
+    () => (analyses === null ? null : analyses.flatMap((a) => a.repos.filter((r) => r.provider === "github").map((r) => r.url)).slice(0, 3)),
+    [analyses],
+  );
   const map = latest?.map ?? null;
   const items = useMemo(() => (map ? itemsOf(map) : null), [map]);
 
@@ -173,7 +178,14 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
           </Link>
           .
         </p>
-        <GitHubRepoChooser selected={picked} onChange={setPicked} max={3 - repos.filter((r) => r.url.trim()).length} canEdit={canEdit} />
+        <GitHubRepoChooser
+          selected={picked}
+          onChange={setPicked}
+          max={3 - repos.filter((r) => r.url.trim()).length}
+          canEdit={canEdit}
+          productName={connection.name}
+          previousUrls={previousUrls}
+        />
         {canEdit ? (
           <div className="space-y-2">
             {repos.map((r, i) => (

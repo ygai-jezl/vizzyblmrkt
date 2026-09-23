@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { suggestRepos } from "@/lib/integrations/suggestRepos";
 import { ExternalLink, Github, Lock, ShieldCheck } from "lucide-react";
 import { Banner, Button } from "./ui";
 
@@ -31,13 +32,28 @@ export function GitHubRepoChooser({
   onChange,
   max,
   canEdit,
+  productName,
+  previousUrls,
 }: {
   selected: string[];
   onChange: (urls: string[]) => void;
   max: number;
   canEdit: boolean;
+  /** Used to pre-tick the repo that matches the product. */
+  productName: string;
+  /** Repos this product was analysed from last time — pre-ticked first. null while loading. */
+  previousUrls: string[] | null;
 }) {
   const [info, setInfo] = useState<Installation | null>(null);
+  const suggested = useRef(false);
+
+  // Pre-tick once, when the repo list first arrives and nothing is ticked yet.
+  useEffect(() => {
+    if (suggested.current || previousUrls === null || !info?.repos?.length || selected.length > 0) return;
+    suggested.current = true;
+    const pick = suggestRepos(info.repos, productName, previousUrls, max);
+    if (pick.length) onChange(pick);
+  }, [info, selected.length, productName, previousUrls, max, onChange]);
 
   const load = useCallback(async () => {
     try {
@@ -125,7 +141,9 @@ export function GitHubRepoChooser({
         <p className="text-sm text-neutral-500">The app can&apos;t see any repositories yet — add some on GitHub, then come back here.</p>
       ) : (
         <>
-          <p className="text-xs text-neutral-500">Choose up to {max} — for example your web app and your backend.</p>
+          <p className="text-xs text-neutral-500">
+            Choose up to {max} — for example your web app and your backend.{selected.length ? " We've ticked the likely one — change it if needed." : ""}
+          </p>
           <ul className="grid gap-1 sm:grid-cols-2">
             {repos.map((r) => (
               <li key={r.url}>

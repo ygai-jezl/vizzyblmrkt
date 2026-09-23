@@ -584,6 +584,18 @@ env:
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
+  # Google Analytics — OFF in prod until verified on dev (see apphosting.yaml).
+  # The measurement ID is inherited; prod never sends debug_mode.
+  - variable: NEXT_PUBLIC_GA_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_GA_DEBUG_MODE
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # "Growth Path" admin navigation + theme switch — ON in prod (owner decision,
   # 2026-09-24). To switch off quickly, set these back to "false" (they're
   # NEXT_PUBLIC_*, so a new rollout is needed).

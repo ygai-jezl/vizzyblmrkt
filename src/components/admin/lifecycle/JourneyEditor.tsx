@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, MessageSquare, Pause, Play, Rocket, Save, Sparkles } from "lucide-react";
+import { ArrowLeft, Copy, Download, MessageSquare, Pause, Play, Rocket, Save, Sparkles } from "lucide-react";
 import type { LifecycleDraft, LifecycleGraph, LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Tabs, inputClass } from "../connect/ui";
@@ -14,6 +14,7 @@ import { EnrolmentsPanel } from "./EnrolmentsPanel";
 import { TimelinePreview } from "./TimelinePreview";
 import { AnalyticsPanel } from "./AnalyticsPanel";
 import { GeneratePanel } from "./GeneratePanel";
+import { CopyJourneyPanel } from "./CopyJourneyPanel";
 import { LifecycleChatPanel } from "./LifecycleChatPanel";
 import { fieldOptions, issueText, type GraphIssue, type JourneyDetail } from "./model";
 
@@ -48,6 +49,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const [name, setName] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [staleFromChat, setStaleFromChat] = useState(false);
 
   const load = useCallback(async () => {
@@ -229,6 +231,17 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
                 <Play size={14} /> Resume
               </Button>
             ) : null}
+            <Button disabled={busy !== null} onClick={() => setCopying(!copying)}>
+              <Copy size={14} /> Copy to…
+            </Button>
+            <a
+              className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+              href={`/api/admin/lifecycle/journeys/${journey.id}/export?which=${journey.publishedVersion ? "published" : "draft"}`}
+              download
+              title="Download this journey as a file you can import into another product or account"
+            >
+              <Download size={14} /> Download
+            </a>
             <Button tone="danger" disabled={busy !== null} onClick={() => void setStatus("archived")}>
               Archive
             </Button>
@@ -242,6 +255,15 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           Vizzy saved a new version of this draft. Reloading shows it (your unsaved edits here will be lost).
           <Button onClick={() => void load()}>Reload</Button>
         </div>
+      ) : null}
+      {copying ? (
+        <CopyJourneyPanel
+          journeyId={journey.id}
+          journeyName={journey.name}
+          connectionId={journey.connectionId}
+          published={Boolean(journey.publishedVersion)}
+          onCancel={() => setCopying(false)}
+        />
       ) : null}
       {generating ? (
         <GeneratePanel

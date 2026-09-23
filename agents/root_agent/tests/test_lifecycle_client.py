@@ -85,3 +85,33 @@ def test_unavailable_is_explained(monkeypatch):
     _capture(monkeypatch, 503, {"error": "unavailable"})
     out = lc.get_context(STATE)
     assert out["status"] == "error" and "isn't switched on" in out["message"]
+
+
+def test_learn_from_repo_posts_repos_for_the_page_product(monkeypatch):
+    calls = _capture(monkeypatch, status=202, body={"analysis": {"id": "ra_1", "status": "queued"}})
+    r = lc.learn_from_repo(STATE, "", ["github.com/acme/web", {"url": "github.com/acme/api", "ref": "dev"}], "main")
+    assert r["status"] == "started" and r["analysis"]["id"] == "ra_1"
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"] == "https://app.example.com/api/agent/lifecycle/connections/pcn_page/learn"
+    assert calls[0]["payload"] == {"repos": [{"url": "github.com/acme/web", "ref": "main"}, {"url": "github.com/acme/api", "ref": "dev"}]}
+    assert calls[0]["token"] == "tok"
+
+
+def test_learn_from_repo_asks_for_what_it_needs(monkeypatch):
+    _capture(monkeypatch)
+    assert lc.learn_from_repo({"ctxToken": "tok"}, "", ["github.com/a/b"], None)["status"] == "needs_connection"
+    assert lc.learn_from_repo(STATE, "pcn_1", [], None)["status"] == "needs_repo"
+    assert lc.build_learn_payload(["a", "b", "c", "d"], None)["repos"][-1]["url"] == "c"  # at most 3
+
+
+def test_learn_from_repo_explains_refusals(monkeypatch):
+    _capture(monkeypatch, status=403, body={"error": "forbidden"})
+    r = lc.learn_from_repo(STATE, "pcn_1", ["github.com/a/b"], None)
+    assert r["status"] == "error" and "admin" in r["message"]
+
+
+def test_get_repo_analysis_reads_the_summary(monkeypatch):
+    calls = _capture(monkeypatch, body={"analysis": {"status": "done", "map": {"facts": []}}})
+    r = lc.get_repo_analysis(STATE, "pcn_9")
+    assert r["status"] == "success" and r["analysis"]["status"] == "done"
+    assert calls[0]["method"] == "GET" and calls[0]["url"].endswith("/connections/pcn_9/learn")

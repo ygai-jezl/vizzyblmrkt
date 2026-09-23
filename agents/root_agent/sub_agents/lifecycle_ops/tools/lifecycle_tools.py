@@ -105,3 +105,40 @@ def save_lifecycle_graph(
         A status dict to relay, with any issues to fix.
     """
     return client.save_graph(_state(tool_context), connection_id, journey_id, graph, pools, settings, brief, name)
+
+
+def learn_product_from_repo(
+    tool_context: ToolContext,
+    repos: Optional[list] = None,
+    connection_id: str = "",
+    branch: Optional[str] = None,
+) -> dict:
+    """Start a READ-ONLY analysis of the product's code to propose its catalog.
+
+    Reads the connected GitHub/GitLab repositories (we never change them) and
+    proposes the product's onboarding steps and how each is done, the events it
+    can send, traits, facts and glossary — each backed by code. It runs in the
+    background for a few minutes. It does NOT change the catalog: a person reviews
+    the results and chooses what to keep on the product's "Learn from repo" tab.
+
+    Args:
+        repos: Up to 3 repository URLs, e.g. ["github.com/acme/web"] (or
+            [{"url": ..., "ref": "main"}]). Ask the operator if you don't know them.
+        connection_id: The connected product. If empty, the product of the page
+            the operator is on is used.
+        branch: Optional branch for every repo (default branch otherwise).
+    """
+    return client.learn_from_repo(_state(tool_context), connection_id, repos, branch)
+
+
+def get_repo_analysis(tool_context: ToolContext, connection_id: str = "") -> dict:
+    """Check the latest repo analysis for a product: its status and what it found.
+
+    Returns the proposed onboarding steps (with how each completes and whether it
+    can be detected on the server), events, traits, facts, glossary, the
+    integration hooks and gaps found in the code, and whether each item is backed
+    by verified code. No code is included. Point the operator to `reviewUrl` to
+    review and accept items — you can't accept them yourself.
+    """
+    return client.get_repo_analysis(_state(tool_context), connection_id)
+

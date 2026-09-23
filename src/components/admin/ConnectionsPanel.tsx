@@ -9,6 +9,10 @@ interface ProviderStatus {
   connected: boolean;
   accountLogin: string | null;
   connectedAt: string | null;
+  /** Git only: this connection can read but never change code. */
+  readOnly?: boolean;
+  /** GitHub only: a classic (read/write) connection that can switch to the read-only app. */
+  upgradeAvailable?: boolean;
 }
 
 const PROVIDER_IDS = ["github", "gitlab", "x", "linkedin", "linkedin_org"] as const;
@@ -74,8 +78,9 @@ export function ConnectionsPanel() {
       <div>
         <h2 className="text-sm font-semibold">Connections</h2>
         <p className="text-sm text-neutral-500">
-          Connect GitHub or GitLab so knowledge ingestion can clone your private repositories, and
-          connect X so Distribute can publish scheduled posts on your behalf. Tokens are stored
+          Connect GitHub or GitLab so we can read your private repositories — for your knowledge base, and to learn
+          how your product works. We only ever read your code; we never change it. Connect X or
+          LinkedIn so Distribute can publish scheduled posts on your behalf. Any tokens are stored
           encrypted, never in plaintext.
         </p>
       </div>
@@ -111,6 +116,15 @@ export function ConnectionsPanel() {
                 ) : s.connected ? (
                   <span className="text-xs text-green-600 dark:text-green-400">
                     Connected{s.accountLogin ? ` as ${s.accountLogin}` : ""}.
+                    {s.readOnly ? <span className="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-green-800 dark:bg-green-950 dark:text-green-300">Read-only</span> : null}
+                    {s.upgradeAvailable ? (
+                      <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                        This older connection can also write to your repos. Switch to read-only access — we only ever read your code.{" "}
+                        <button type="button" className="underline" onClick={() => connect(p)}>
+                          Switch now
+                        </button>
+                      </span>
+                    ) : null}
                   </span>
                 ) : (
                   <span className="text-xs text-neutral-500">Not connected.</span>

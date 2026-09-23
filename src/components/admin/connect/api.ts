@@ -71,6 +71,18 @@ const MESSAGES: Record<string, string> = {
   duplicate_user_id: "Two test users share the same user id.",
   connect_enc_key_unconfigured: "Connection secrets aren't configured in this environment yet.",
   network: "Couldn't reach the server.",
+  // Learn from repo
+  invalid_repo_url: "That isn't a GitHub or GitLab repository address (e.g. github.com/your-org/your-app).",
+  analysis_in_progress: "An analysis of this product is already running.",
+  analysis_daily_cap: "You've reached today's limit for repo analyses. Try again tomorrow.",
+  rate_limited: "Too many requests — try again in a minute.",
+  job_not_configured: "Repo analysis isn't set up in this environment yet.",
+  job_dispatch_failed: "Couldn't start the analysis — try again shortly.",
+  no_map: "That analysis has no results to add.",
+  invalid_app_origin: "Your app's address must start with https://.",
+  catalog_invalid: "Those items don't fit the catalog (too many, or an invalid id).",
+  no_readable_files: "We couldn't find source files in that repository (or couldn't read it — check the connected account can access it).",
+  analysis_not_queued: "That analysis had already started.",
   // Lifecycle journeys
   connection_not_found: "That product connection doesn't exist.",
   connection_unavailable: "The journey's product connection is revoked.",

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getAdminContext } from "@/lib/auth/session";
 import { PROVIDERS, isGitProvider, isProviderConfigured, oauthOrigin } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured, signState } from "@/lib/integrations/crypto";
+import { githubAppConfig, installUrl } from "@/lib/integrations/githubApp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,12 @@ export async function GET(
     return NextResponse.json({ error: "unknown_provider" }, { status: 400 });
   }
   const cfg = PROVIDERS[provider];
+  // GitHub: install the read-only YouGrow GitHub App when it's set up.
+  const app = provider === "github" ? githubAppConfig() : null;
+  if (app) {
+    const state = signState({ t: ctx.tenantId, p: provider, n: randomUUID(), ts: Date.now() });
+    return NextResponse.redirect(installUrl(app, state));
+  }
   if (!isProviderConfigured(provider) || !isGitCryptoConfigured()) {
     return NextResponse.json({ error: "provider_not_configured" }, { status: 503 });
   }

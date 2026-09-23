@@ -80,7 +80,11 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
         catalog: {
           events: c.catalog.events.map((e) => ({ name: e.name, label: e.label, description: e.description })),
           traits: c.catalog.traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })),
-          onboardingSteps: [...c.catalog.onboardingSteps].sort((a, b) => a.order - b.order).map((s) => ({ id: s.id, label: s.label, url: s.url ?? null })),
+          onboardingSteps: [...c.catalog.onboardingSteps]
+            .sort((a, b) => a.order - b.order)
+            .map((s) => ({ id: s.id, label: s.label, url: s.url ?? null, completion: s.completion ?? "" })),
+          // What the product can report per user: branch on `fact.<id>`, ground insights in them.
+          facts: (c.catalog.facts ?? []).map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description })),
           glossary: c.catalog.glossary,
         },
         contextConfigured: Boolean(c.contextEndpoint?.enabled),

@@ -146,6 +146,12 @@ export async function fetchProductContext(
     }
     return s;
   });
+  // Facts the catalog doesn't describe still work (branching treats them as
+  // text), but the product and the catalog have drifted — say so.
+  const knownFacts = new Set((connection.catalog.facts ?? []).map((f) => f.id));
+  if (knownFacts.size > 0) {
+    for (const f of context.facts) if (!knownFacts.has(f.id)) warnings.push(`unknown_fact:${f.id}`);
+  }
   let nextStep = context.nextStep ?? null;
   if (nextStep?.url && !isAllowedLink(nextStep.url, connection.linkDomains)) {
     warnings.push(`link_dropped:next:${nextStep.id}`);

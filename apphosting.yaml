@@ -573,6 +573,13 @@ env:
   # A resource name, not a secret. Created per project with
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-dev
   # prod overrides both in apphosting.prod.yaml.
+  # Public developer docs (/developers): how to send events, build the context
+  # endpoint, receive webhooks and verify our requests. Off in prod until the
+  # owner opens them (apphosting.prod.yaml).
+  - variable: DEVELOPERS_DOCS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: CONNECT_SIGNING_KMS_KEY
     value: projects/vizzybl-marketing-dev/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
     availability:
@@ -604,6 +611,37 @@ env:
     secret: lifecycle-worker-secret
     availability:
       - RUNTIME
+  # Read-only GitHub access (the YouGrow GitHub App: Contents read + Metadata read
+  # only). Until these are set, GitHub connects through the legacy OAuth app,
+  # whose `repo` scope can also write. To enable, per project:
+  #   1. Register a GitHub App (Settings → Developer settings → GitHub Apps):
+  #      permissions Contents: Read-only, Metadata: Read-only, nothing else; no
+  #      webhook; "Request user authorization (OAuth) during installation" ON;
+  #      Callback URL <origin>/api/admin/integrations/github/callback.
+  #   2. firebase apphosting:secrets:set github-app-client-secret --project <alias>
+  #      firebase apphosting:secrets:set github-app-private-key  --project <alias>
+  #   3. Uncomment below (values are public), grant access, redeploy the Job with
+  #      GITHUB_APP_ID=… so clones can mint tokens.
+  # - variable: GITHUB_APP_ID
+  #   value: "<app id>"
+  #   availability:
+  #     - RUNTIME
+  # - variable: GITHUB_APP_SLUG
+  #   value: <app slug>
+  #   availability:
+  #     - RUNTIME
+  # - variable: GITHUB_APP_CLIENT_ID
+  #   value: <client id>
+  #   availability:
+  #     - RUNTIME
+  # - variable: GITHUB_APP_CLIENT_SECRET
+  #   secret: github-app-client-secret
+  #   availability:
+  #     - RUNTIME
+  # - variable: GITHUB_APP_PRIVATE_KEY
+  #   secret: github-app-private-key
+  #   availability:
+  #     - RUNTIME
   # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
   # one-click header). Without it, emails carry no unsubscribe link and lifecycle
   # marketing sends are held. Created in dev with a random value (separate from prod's).

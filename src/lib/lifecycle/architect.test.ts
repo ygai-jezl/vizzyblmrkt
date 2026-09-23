@@ -11,6 +11,7 @@ const catalog: ConnectionCatalog = {
     { id: "create_brand", label: "Add your brand", url: "https://app.example.com/brand", order: 0 },
     { id: "run_audit", label: "Run an audit", url: null, order: 1 },
   ],
+  facts: [],
   glossary: [{ term: "AI answers", definition: "What assistants say about you." }],
 };
 const connection = { name: "Vizzybl", catalog };

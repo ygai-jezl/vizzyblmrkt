@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
+import { isGitHubAppConfigured } from "@/lib/integrations/githubApp";
 import { isXConfigured } from "@/lib/social/x/oauth";
 import { isLinkedInConfigured, isLinkedInCMConfigured } from "@/lib/social/linkedin/oauth";
 import { isSocialCryptoConfigured } from "@/lib/social/crypto";
@@ -20,19 +21,25 @@ export async function GET(req: Request) {
 
   const tenant = await getTenantById(ctx.tenantId);
   const conns = (tenant?.gitConnections ?? {}) as Partial<
-    Record<GitProvider, { accountLogin?: string | null; connectedAt?: string | null }>
+    Record<GitProvider, { accountLogin?: string | null; connectedAt?: string | null; kind?: "oauth" | "app" }>
   >;
   const cryptoOk = isGitCryptoConfigured();
+  const githubApp = isGitHubAppConfigured();
 
   const providers: Record<string, unknown> = {};
   (Object.keys(PROVIDERS) as GitProvider[]).forEach((p) => {
     const c = conns[p];
+    const appMode = p === "github" && githubApp;
     providers[p] = {
       label: PROVIDERS[p].label,
-      configured: isProviderConfigured(p) && cryptoOk,
+      configured: appMode || (isProviderConfigured(p) && cryptoOk),
       connected: Boolean(c),
       accountLogin: c?.accountLogin ?? null,
       connectedAt: c?.connectedAt ?? null,
+      // GitLab's read_repository scope and the GitHub App are read-only; classic GitHub OAuth isn't.
+      readOnly: p === "gitlab" || c?.kind === "app",
+      // A classic GitHub connection can be replaced with the read-only app.
+      upgradeAvailable: appMode && Boolean(c) && c?.kind !== "app",
     };
   });
   // Social (Distribute publishing) connections — X + LinkedIn; IG later.

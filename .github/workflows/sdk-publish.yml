@@ -1,17 +1,21 @@
 name: Publish SDK to npm
 
-# Publishes sdk/node as @yougrowai/node when a tag like `sdk-node-v0.1.1` is
+# STAGES sdk/node as @yougrowai/node when a tag like `sdk-node-v0.1.1` is
 # pushed. Uses npm trusted publishing (OIDC): npm trusts THIS workflow in THIS
 # repo, so no npm token exists anywhere, and every version gets a provenance
 # attestation linking it to the commit it was built from.
 #
+# Staged, not published: the version only goes live when a maintainer approves
+# it on npm with 2FA (npmjs.com → the package → Staged, or `npm stage approve
+# <id>`). So even a compromised workflow or repo can't release on its own.
+#
 # One-off setup (npmjs.com → @yougrowai/node → Settings → Trusted publisher):
 #   GitHub Actions · owner ygai-jezl · repo vizzyblmrkt · workflow sdk-publish.yml · environment npm
-# Then add yourself as a required reviewer on the `npm` environment
-# (GitHub → Settings → Environments), so every publish waits for your approval.
+#   Allowed actions: stage only — leave "publish directly" OFF.
 #
 # Release: bump sdk/node/package.json "version" on dev, promote to main, then
 #   git tag sdk-node-v<version> <main commit> && git push <remote> sdk-node-v<version>
+# and approve the staged version on npm.
 
 on:
   push:
@@ -48,7 +52,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - name: npm 11.5.1+ (trusted publishing)
+      - name: npm 11 with trusted publishing and staging
         run: npm install -g npm@11
 
       - name: Install dependencies
@@ -61,6 +65,6 @@ jobs:
         working-directory: sdk/node
         run: npm pack --dry-run
 
-      - name: Publish
+      - name: Stage for approval on npm
         working-directory: sdk/node
-        run: npm publish
+        run: npm stage publish

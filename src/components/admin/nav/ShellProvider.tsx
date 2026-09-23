@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
 import { launchInView, vizzyPageLabel } from "@/lib/nav/vizzy";
 import { useDashboardChat, type UseDashboardChatReturn } from "../chat/useDashboardChat";
@@ -43,7 +44,7 @@ function focusHomeChat() {
  */
 export function ShellProvider({ names, children }: { names: CrumbNames; children: ReactNode }) {
   const pathname = usePathname() ?? "/admin";
-  const page = vizzyPageLabel(breadcrumbsFor(pathname, names));
+  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled() }));
   const chat = useDashboardChat({ context: { page, campaignId: launchInView(pathname) } });
   const [vizzyOpen, setVizzyOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);

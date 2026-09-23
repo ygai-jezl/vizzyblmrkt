@@ -3,15 +3,64 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { FlaskConical, Plug, Plus } from "lucide-react";
+import { ENVIRONMENT_LABEL, groupProducts, type ProductGroup } from "@/lib/connect/environments";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { api, errorText, timeAgo, type PublicConnection } from "./api";
 import { SetupWizard } from "./SetupWizard";
 import { Badge, Banner, Button } from "./ui";
+
+const PHASE3 = isNavV2Phase3Enabled();
+
+function ConnectionRow({ c, label }: { c: PublicConnection; label: string }) {
+  return (
+    <Link
+      href={`/admin/products/${c.id}`}
+      className="flex items-center justify-between gap-3 rounded-md px-3 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-900"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block truncate text-xs text-neutral-500">
+          Last event {timeAgo(c.health?.lastEventAt)} · {c.catalog.onboardingSteps.length} onboarding steps
+        </span>
+      </span>
+      <Badge tone={c.status === "active" ? "green" : c.status === "paused" ? "amber" : "red"}>{c.status}</Badge>
+    </Link>
+  );
+}
+
+/** Nav v2 phase 3: a product with its staging and production connections together. */
+function ProductCard({ group, onConnect }: { group: ProductGroup<PublicConnection>; onConnect?: (env: "production" | "staging") => void }) {
+  const rows = [
+    ...group.staging.map((c) => ({ c, label: ENVIRONMENT_LABEL.staging })),
+    ...group.production.map((c) => ({ c, label: ENVIRONMENT_LABEL.production })),
+    ...group.other.map((c) => ({ c, label: c.name })),
+  ];
+  const missing = group.staging.length && !group.production.length ? "production" : group.production.length && !group.staging.length ? "staging" : null;
+  return (
+    <li className="space-y-1 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+      <p className="px-3 pt-1 text-sm font-semibold">{group.product}</p>
+      {rows.map(({ c, label }) => (
+        <ConnectionRow key={c.id} c={c} label={label} />
+      ))}
+      {missing && onConnect ? (
+        <button
+          type="button"
+          onClick={() => onConnect(missing)}
+          className="mx-3 mb-1 text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
+        >
+          + Connect {ENVIRONMENT_LABEL[missing]}
+        </button>
+      ) : null}
+    </li>
+  );
+}
 
 /** Products: the tenant's connected products and sandboxes. */
 export function ProductsHome({ canEdit }: { canEdit: boolean }) {
   const [connections, setConnections] = useState<PublicConnection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wizard, setWizard] = useState<"custom" | "sandbox" | null>(null);
+  const [preset, setPreset] = useState<{ name: string; environment: "staging" | "production" } | null>(null);
 
   const load = useCallback(async () => {
     const r = await api<{ connections: PublicConnection[] }>("/api/admin/connections");
@@ -57,7 +106,47 @@ export function ProductsHome({ canEdit }: { canEdit: boolean }) {
         </div>
       ) : null}
 
-      {connections && connections.length > 0 ? (
+      {PHASE3 && connections && connections.length > 0 ? (
+        (() => {
+          const { products, sandboxes } = groupProducts(connections);
+          return (
+            <div className="space-y-4">
+              {products.length ? (
+                <ul className="grid gap-3 sm:grid-cols-2">
+                  {products.map((g) => (
+                    <ProductCard
+                      key={g.key}
+                      group={g}
+                      onConnect={
+                        canEdit
+                          ? (environment) => {
+                              setPreset({ name: g.product, environment });
+                              setWizard("custom");
+                            }
+                          : undefined
+                      }
+                    />
+                  ))}
+                </ul>
+              ) : null}
+              {sandboxes.length ? (
+                <div className="space-y-2">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Sandboxes</h2>
+                  <ul className="grid gap-3 sm:grid-cols-2">
+                    {sandboxes.map((c) => (
+                      <li key={c.id} className="rounded-lg border border-neutral-200 p-1 dark:border-neutral-800">
+                        <ConnectionRow c={c} label={c.name} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          );
+        })()
+      ) : null}
+
+      {!PHASE3 && connections && connections.length > 0 ? (
         <ul className="grid gap-3 sm:grid-cols-2">
           {connections.map((c) => (
             <li key={c.id}>
@@ -87,7 +176,11 @@ export function ProductsHome({ canEdit }: { canEdit: boolean }) {
       <SetupWizard
         open={wizard !== null}
         kind={wizard ?? "custom"}
-        onClose={() => setWizard(null)}
+        preset={preset}
+        onClose={() => {
+          setWizard(null);
+          setPreset(null);
+        }}
         onCreated={() => void load()}
       />
     </div>

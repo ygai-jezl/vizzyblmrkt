@@ -688,3 +688,13 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Nav v2 phase 3, "one home per noun": Brand (guidelines included), Settings
+  # (General · Sending · Integrations), Audience across sources, one Journeys list
+  # for both engines, a launch Emails tab, Products setup + environments, and
+  # Content's Overview with Programme naming. Needs phase 2. ENABLED on dev; OFF in
+  # prod until verified here and promoted (apphosting.prod.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

@@ -6,6 +6,9 @@ import { Modal } from "@/components/admin/email/Modal";
 import { api, errorText, type PublicConnection } from "./api";
 import { KeyReveal } from "./KeyReveal";
 import { Banner, Button, Field, Section, inputClass } from "./ui";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+
+const PHASE3 = isNavV2Phase3Enabled();
 
 const BASES = ["consent", "soft_opt_in", "corporate_subscriber"] as const;
 
@@ -22,6 +25,7 @@ export function ConnectionSettings({
   const router = useRouter();
   const sandbox = connection.kind === "sandbox";
   const [name, setName] = useState(connection.name);
+  const [environment, setEnvironment] = useState(connection.environment ?? "");
   const [ctxUrl, setCtxUrl] = useState(connection.contextEndpoint?.url ?? "");
   const [ctxOn, setCtxOn] = useState(connection.contextEndpoint?.enabled ?? false);
   const [timeoutMs, setTimeoutMs] = useState(connection.contextEndpoint?.timeoutMs ?? 5000);
@@ -64,6 +68,7 @@ export function ConnectionSettings({
   function save() {
     const body: Record<string, unknown> = {
       name,
+      ...(PHASE3 && !sandbox ? { environment: environment || null } : {}),
       linkDomains: domains.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean),
       consentPolicy: { verifyCorporateDomain: verifyCorp, marketingBases: bases },
     };
@@ -97,6 +102,20 @@ export function ConnectionSettings({
         <Field label="Name">
           <input className={inputClass} disabled={disabled} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
+        {PHASE3 && !sandbox ? (
+          <Field label="Environment" hint="Staging and production copies of the same product are shown together on Products.">
+            <select
+              className={inputClass}
+              disabled={disabled}
+              value={environment}
+              onChange={(e) => setEnvironment(e.target.value as "staging" | "production" | "")}
+            >
+              <option value="">Not set</option>
+              <option value="staging">Staging</option>
+              <option value="production">Production</option>
+            </select>
+          </Field>
+        ) : null}
         <div className="flex items-center gap-2 text-sm">
           Status: <strong>{connection.status}</strong>
           {connection.status !== "revoked" && canEdit ? (

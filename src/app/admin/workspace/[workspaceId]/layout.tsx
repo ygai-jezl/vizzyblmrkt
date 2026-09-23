@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { WorkspaceTabs } from "@/components/admin/workspace/WorkspaceTabs";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export default async function WorkspaceLayout({
       <div className="flex items-baseline justify-between gap-4">
         <div>
           <Link href="/admin/workspace" className="text-xs text-neutral-500 hover:underline">
-            ← Workspaces
+            {isNavV2Phase3Enabled() ? "← Content" : "← Workspaces"}
           </Link>
           <h1 className="text-xl font-semibold">{workspace.name}</h1>
         </div>

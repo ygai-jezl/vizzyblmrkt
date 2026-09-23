@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import Link from "next/link";
 import type { IdeaItem } from "@/lib/types/ideaItem";
 import type { Template } from "@/lib/types/template";
@@ -139,7 +140,7 @@ export function IdeaCard({
             href={`/admin/workspace/${workspaceId}/templatize`}
             className="text-xs text-violet-600 underline dark:text-violet-400"
           >
-            Open in Templatize →
+            {isNavV2Phase3Enabled() ? "Open in Templates →" : "Open in Templatize →"}
           </Link>
         </div>
       ) : null}

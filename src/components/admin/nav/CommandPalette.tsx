@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
 import { useThemePortalContainer } from "./AdminThemeRoot";
 import { useShell } from "./ShellProvider";
@@ -54,7 +55,8 @@ const KEYWORDS: Partial<Record<NavKey, string[]>> = {
 };
 
 const lifecycle = isLifecycleUiEnabled();
-const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true }).flatMap((s) => s.items);
+const PHASE3 = isNavV2Phase3Enabled();
+const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3 }).flatMap((s) => s.items);
 
 const ITEM =
   "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-shell-ink data-[selected=true]:bg-shell-active";
@@ -126,7 +128,7 @@ export function CommandPalette({
       {/* Radix needs a title for screen readers; the input's placeholder says the rest. */}
       <Dialog.Title className="sr-only">Search or jump to</Dialog.Title>
       <Dialog.Description className="sr-only">
-        Type to find a page, launch, workspace, journey or product, or to ask Vizzy.
+        Type to find a page, launch, {PHASE3 ? "programme" : "workspace"}, journey or product, or to ask Vizzy.
       </Dialog.Description>
       <div className="flex items-center gap-2 border-b border-shell-line px-4">
         <Search size={16} aria-hidden className="shrink-0 text-shell-faint" />
@@ -264,9 +266,13 @@ export function CommandPalette({
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
             New launch
           </Command.Item>
-          <Command.Item value="create new content workspace" onSelect={() => go("/admin/workspace")} className={ITEM}>
+          <Command.Item
+            value={PHASE3 ? "create new content programme workspace" : "create new content workspace"}
+            onSelect={() => go("/admin/workspace")}
+            className={ITEM}
+          >
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
-            New content workspace
+            {PHASE3 ? "New programme" : "New content workspace"}
           </Command.Item>
           {lifecycle ? (
             <Command.Item value="create new journey" onSelect={() => go("/admin/lifecycle")} className={ITEM}>

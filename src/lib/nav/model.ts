@@ -39,13 +39,22 @@ export interface NavFlags {
   lifecycle: boolean;
   /** Show Review. Defaults to `lifecycle`; nav v2 phase 2 turns it on everywhere. */
   review?: boolean;
-  /** Brand Kit UI; when off, Brand opens the brand guidelines under Settings. */
+  /** Brand Kit UI; when off, Brand opens the brand guidelines. */
   brandKit: boolean;
+  /**
+   * Nav v2 phase 3, one home per noun: Journeys lists waitlist journeys too (so it
+   * shows without lifecycle), Settings opens on General, brand guidelines live
+   * under Brand, and the AI image library and content steering belong to Content
+   * and Insights.
+   */
+  phase3?: boolean;
 }
 
 export function buildNav(flags: NavFlags): NavSection[] {
   const lifecycleOnly = <T>(items: T[]): T[] => (flags.lifecycle ? items : []);
   const showReview = flags.review ?? flags.lifecycle;
+  const p3 = !!flags.phase3;
+  const journeys: NavItem = { key: "journeys", href: "/admin/lifecycle", label: "Journeys", match: ["/admin/lifecycle"] };
   return [
     {
       key: "start",
@@ -61,11 +70,16 @@ export function buildNav(flags: NavFlags): NavSection[] {
       title: "Grow",
       items: [
         { key: "launches", href: "/admin/launches", label: "Launches", match: ["/admin/launches"] },
-        { key: "content", href: "/admin/workspace", label: "Content", match: ["/admin/workspace"] },
+        {
+          key: "content",
+          href: "/admin/workspace",
+          label: "Content",
+          match: p3 ? ["/admin/workspace", "/admin/brand-kit/images"] : ["/admin/workspace"],
+        },
         ...lifecycleOnly<NavItem>([
           { key: "products", href: "/admin/products", label: "Products", match: ["/admin/products"] },
-          { key: "journeys", href: "/admin/lifecycle", label: "Journeys", match: ["/admin/lifecycle"] },
         ]),
+        ...(flags.lifecycle || p3 ? [journeys] : []),
       ],
     },
     {
@@ -73,7 +87,12 @@ export function buildNav(flags: NavFlags): NavSection[] {
       title: "Understand",
       items: [
         { key: "audience", href: "/admin/crm", label: "Audience", match: ["/admin/crm"] },
-        { key: "insights", href: "/admin/analytics", label: "Insights", match: ["/admin/analytics"] },
+        {
+          key: "insights",
+          href: "/admin/analytics",
+          label: "Insights",
+          match: p3 ? ["/admin/analytics", "/admin/brand-kit/steering"] : ["/admin/analytics"],
+        },
       ],
     },
     {
@@ -81,11 +100,11 @@ export function buildNav(flags: NavFlags): NavSection[] {
       items: [
         {
           key: "brand",
-          href: flags.brandKit ? "/admin/brand-kit" : "/admin/account/brand",
+          href: flags.brandKit ? "/admin/brand-kit" : p3 ? "/admin/brand-kit/guidelines" : "/admin/account/brand",
           label: "Brand",
           match: ["/admin/brand-kit", "/admin/account/brand"],
         },
-        { key: "settings", href: "/admin/account", label: "Settings", match: ["/admin/account"] },
+        { key: "settings", href: p3 ? "/admin/account/settings" : "/admin/account", label: "Settings", match: ["/admin/account"] },
       ],
     },
   ];
@@ -220,11 +239,26 @@ function titleCase(slug: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : slug;
 }
 
-export function breadcrumbsFor(pathname: string, names: CrumbNames): Crumb[] {
+/** Phase-3 names: the launch Emails tab, Programme pipeline tabs, Settings tabs. */
+const LAUNCH_TABS_V3: Record<string, string> = { ...LAUNCH_TABS, widget: "Page & widget", emails: "Emails" };
+const PROGRAMME_TABS: Record<string, string> = {
+  templatize: "Templates",
+  create: "Drafts",
+  distribute: "Calendar",
+  settings: "Settings",
+};
+const ACCOUNT_TABS_V3: Record<string, string> = {
+  settings: "General",
+  connections: "Integrations",
+  billing: "Billing",
+};
+
+export function breadcrumbsFor(pathname: string, names: CrumbNames, opts: { phase3?: boolean } = {}): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] !== "admin") return [];
   const [, area, id, ...rest] = segments;
   if (!area) return [{ label: "Home" }];
+  const p3 = !!opts.phase3;
 
   switch (area) {
     case "launches": {
@@ -232,19 +266,40 @@ export function breadcrumbsFor(pathname: string, names: CrumbNames): Crumb[] {
       const root: Crumb = { label: "Launches", href: "/admin/launches" };
       if (id === "new") return [root, { label: "New launch" }];
       const tab = rest[0];
-      return [
-        root,
-        { label: names.launches[id] ?? "Launch", href: `/admin/launches/${id}` },
-        { label: tab ? (LAUNCH_TABS[tab] ?? titleCase(tab)) : "Overview" },
-      ];
+      const launch: Crumb = { label: names.launches[id] ?? "Launch", href: `/admin/launches/${id}` };
+      if (p3 && (tab === "journey" || tab === "broadcasts")) {
+        // Both live under the launch's Emails tab.
+        return [
+          root,
+          launch,
+          { label: "Emails", href: `/admin/launches/${id}/emails` },
+          { label: tab === "journey" ? "Welcome & nurture" : "Broadcasts" },
+        ];
+      }
+      const tabs = p3 ? LAUNCH_TABS_V3 : LAUNCH_TABS;
+      return [root, launch, { label: tab ? (tabs[tab] ?? titleCase(tab)) : "Overview" }];
     }
     case "workspace": {
       if (!id) return [{ label: "Content" }];
       const root: Crumb = { label: "Content", href: "/admin/workspace" };
-      const workspace = names.workspaces[id] ?? "Workspace";
+      const workspace = names.workspaces[id] ?? (p3 ? "Programme" : "Workspace");
       const [tab, sub, leaf] = rest;
       if (!tab) return [root, { label: workspace }];
       const ws: Crumb = { label: workspace, href: `/admin/workspace/${id}` };
+      if (p3) {
+        // The pipeline tabs: Ideas · Templates · Drafts · Calendar, with Knowledge apart.
+        if (tab === "curate") return [root, ws, { label: sub === "grounding" ? "Knowledge" : "Ideas" }];
+        if (tab === "weekly") {
+          return [root, ws, { label: "Calendar", href: `/admin/workspace/${id}/distribute` }, { label: "Weekly newsletter" }];
+        }
+        const label = PROGRAMME_TABS[tab] ?? titleCase(tab);
+        if (!sub) return [root, ws, { label }];
+        const tabCrumb: Crumb = { label, href: `/admin/workspace/${id}/${tab}` };
+        if (tab === "create" && leaf === "ebook") {
+          return [root, ws, tabCrumb, { label: "Draft", href: `/admin/workspace/${id}/create/${sub}` }, { label: "eBook" }];
+        }
+        return [root, ws, tabCrumb, { label: tab === "create" ? "Draft" : titleCase(sub) }];
+      }
       const tabLabel = WORKSPACE_TABS[tab] ?? titleCase(tab);
       if (!sub) return [root, ws, { label: tabLabel }];
       const tabCrumb: Crumb = { label: tabLabel, href: `/admin/workspace/${id}/${tab}` };
@@ -255,10 +310,20 @@ export function breadcrumbsFor(pathname: string, names: CrumbNames): Crumb[] {
       return [root, ws, tabCrumb, { label: tab === "create" ? "Workflow" : titleCase(sub) }];
     }
     case "brand-kit":
+      if (p3 && id === "images") return [{ label: "Content", href: "/admin/workspace" }, { label: "Library" }];
+      if (p3 && id === "steering") return [{ label: "Insights", href: "/admin/analytics" }, { label: "What's working" }];
+      if (p3 && id === "guidelines") return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Guidelines" }];
       return id
         ? [{ label: "Brand", href: "/admin/brand-kit" }, { label: BRAND_KIT_PAGES[id] ?? titleCase(id) }]
         : [{ label: "Brand" }];
     case "account":
+      if (p3) {
+        if (id === "brand") return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Guidelines" }];
+        return [
+          { label: "Settings", href: "/admin/account/settings" },
+          { label: id ? (ACCOUNT_TABS_V3[id] ?? titleCase(id)) : "Sending" },
+        ];
+      }
       return [
         { label: "Settings", href: "/admin/account" },
         { label: id ? (ACCOUNT_TABS[id] ?? titleCase(id)) : "Domains" },

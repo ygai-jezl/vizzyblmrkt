@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isBrandKitEnabled, BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { listImageAssets } from "@/lib/admin/brandKit";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import { ImagesGallery } from "@/components/admin/brand-kit/ImagesGallery";
@@ -32,16 +33,17 @@ export default async function BrandKitImagesPage() {
   return (
     <div className="space-y-5">
       <div>
+        {/* Nav v2 phase 3: the image library is Content's (it's output, not a brand input). */}
         <Link
-          href={BRAND_KIT_ROUTE}
+          href={isNavV2Phase3Enabled() ? "/admin/workspace" : BRAND_KIT_ROUTE}
           className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
-          <ChevronLeft size={14} /> Brand Kit
+          <ChevronLeft size={14} /> {isNavV2Phase3Enabled() ? "Content" : "Brand Kit"}
         </Link>
-        <h1 className="mt-1 text-lg font-semibold">Images</h1>
+        <h1 className="mt-1 text-lg font-semibold">{isNavV2Phase3Enabled() ? "Library" : "Images"}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Every AI-generated image across your workspaces. Click one to view its details or
-          customise it into a new image.
+          Every AI-generated image across your {isNavV2Phase3Enabled() ? "programmes" : "workspaces"}. Click one to view its
+          details or customise it into a new image.
         </p>
       </div>
       <ImagesGallery initialImages={images} initialCursor={cursor} />

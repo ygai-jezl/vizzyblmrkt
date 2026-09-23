@@ -9,6 +9,8 @@
  * Content still current. Stages 3–4 exist only where lifecycle journeys do.
  */
 
+import { programmeWord } from "./terms";
+
 export type StageKey = "launch" | "grow" | "product" | "retain";
 export type StageStatus = "done" | "current" | "next";
 
@@ -111,7 +113,7 @@ function growStage(s: GrowthSignals): Omit<StageView, "status"> {
           ? `${plural(s.postsScheduled, "post")} scheduled`
           : "No posts scheduled yet",
     steps: [
-      { label: "Start a content workspace", done: s.workspaces > 0, href: "/admin/workspace" },
+      { label: `Start a content ${programmeWord().one}`, done: s.workspaces > 0, href: "/admin/workspace" },
       { label: "Schedule your first post", done: s.postsScheduled > 0, href: wsHref("distribute") },
       { label: "Send a newsletter to your waitlist", done: s.newslettersSent > 0, href: wsHref("weekly") },
     ],

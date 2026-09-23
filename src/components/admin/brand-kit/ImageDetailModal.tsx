@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { ImageOff, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Modal } from "@/components/admin/email/Modal";
 import type { ImageAsset } from "@/lib/types/imageAsset";
@@ -120,7 +121,7 @@ export function ImageDetailModal({
             <Field label="Aspect" value={asset.aspect} />
             <Field label="Style" value={asset.style} />
             <Field label="Channel" value={asset.channel} />
-            <Field label="Workspace" value={asset.workspaceId} />
+            <Field label={isNavV2Phase3Enabled() ? "Programme" : "Workspace"} value={asset.workspaceId} />
           </div>
           <Field label="Prompt" value={asset.prompt} />
           {asset.brief && asset.brief !== asset.prompt ? (

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isContentSteeringEnabled, BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { getSteeringState, type ChannelSteeringState } from "@/lib/distribute/feedback/steeringState";
 import { ContentSteering } from "@/components/admin/brand-kit/ContentSteering";
 
@@ -28,13 +29,14 @@ export default async function ContentSteeringPage() {
   return (
     <div className="space-y-5">
       <div>
+        {/* Nav v2 phase 3: what the post results are teaching the AI belongs with Insights. */}
         <Link
-          href={BRAND_KIT_ROUTE}
+          href={isNavV2Phase3Enabled() ? "/admin/analytics" : BRAND_KIT_ROUTE}
           className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
-          <ChevronLeft size={14} /> Brand Kit
+          <ChevronLeft size={14} /> {isNavV2Phase3Enabled() ? "Insights" : "Brand Kit"}
         </Link>
-        <h1 className="mt-1 text-lg font-semibold">Content Steering</h1>
+        <h1 className="mt-1 text-lg font-semibold">{isNavV2Phase3Enabled() ? "What's working" : "Content Steering"}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           How your post performance is teaching the AI what works. Each channel below shows the
           current learned guidance, why it changed, and the proven posts behind it — and lets you

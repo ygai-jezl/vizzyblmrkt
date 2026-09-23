@@ -163,6 +163,16 @@ export const EmailSenderConfigSchema = z.object({
 });
 export type EmailSenderConfig = z.infer<typeof EmailSenderConfigSchema>;
 
+/** One repo an admin selected on a git connection (lowercased `fullPath` is the key). */
+export const GitSelectedRepoSchema = z.object({
+  fullPath: z.string().min(3).max(512),
+  owner: z.string().max(255),
+  private: z.boolean(),
+  defaultBranch: z.string().max(255).nullable(),
+  webUrl: z.string().url(),
+});
+export type GitSelectedRepo = z.infer<typeof GitSelectedRepoSchema>;
+
 /**
  * A per-tenant OAuth connection to a git host (GitHub/GitLab), used to clone
  * PRIVATE repos during knowledge ingestion. The access token is stored ENCRYPTED
@@ -186,6 +196,13 @@ export const GitConnectionSchema = z.object({
   /** Firebase UID of the admin who connected. */
   connectedBy: z.string().optional(),
   connectedAt: z.string(),
+  /**
+   * The repos (across the account's orgs/groups) this connection may be used for.
+   * undefined = legacy connection (any repo); [] = none chosen yet (token unused).
+   * See src/lib/integrations/repos.ts.
+   */
+  repos: z.array(GitSelectedRepoSchema).max(200).optional(),
+  reposUpdatedAt: z.string().optional(),
 });
 export type GitConnection = z.infer<typeof GitConnectionSchema>;
 

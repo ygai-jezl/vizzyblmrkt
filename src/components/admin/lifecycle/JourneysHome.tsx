@@ -36,6 +36,7 @@ export function JourneysHome({ canEdit }: { canEdit: boolean }) {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "Post-signup onboarding", connectionId: "", template: "product_onboarding" });
   const [busy, setBusy] = useState(false);
+  const [importDoc, setImportDoc] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     const r = await api<{ journeys: JourneySummary[]; connections: ConnectionOption[] }>("/api/admin/lifecycle/journeys");
@@ -52,10 +53,34 @@ export function JourneysHome({ canEdit }: { canEdit: boolean }) {
 
   const create = async () => {
     setBusy(true);
+    if (form.template === "import") {
+      const r = await api<{ journeyId: string }>("/api/admin/lifecycle/journeys/import", {
+        method: "POST",
+        body: JSON.stringify({ connectionId: form.connectionId, name: form.name, document: importDoc }),
+      });
+      setBusy(false);
+      if (!r.ok) return setError(errorText(r.data));
+      return router.push(`/admin/lifecycle/${r.data.journeyId}`);
+    }
     const r = await api<{ journey: { id: string } }>("/api/admin/lifecycle/journeys", { method: "POST", body: JSON.stringify(form) });
     setBusy(false);
     if (!r.ok) return setError(errorText(r.data));
     router.push(`/admin/lifecycle/${r.data.journey.id}`);
+  };
+
+  /** Read a downloaded journey file (…journey.json) in the browser; the server validates it. */
+  const pickFile = async (file: File | undefined) => {
+    setImportDoc(null);
+    if (!file) return;
+    if (file.size > 512 * 1024) return setError("That file is too large to be a journey.");
+    try {
+      const doc = JSON.parse(await file.text()) as { name?: unknown };
+      setImportDoc(doc);
+      if (typeof doc.name === "string") setForm((f) => ({ ...f, name: doc.name as string }));
+      setError(null);
+    } catch {
+      setError("That file isn't a journey file (it isn't valid JSON).");
+    }
   };
 
   const selected = connections.find((c) => c.id === form.connectionId);
@@ -108,14 +133,24 @@ export function JourneysHome({ canEdit }: { canEdit: boolean }) {
               <select className={inputClass} value={form.template} onChange={(e) => setForm({ ...form, template: e.target.value })}>
                 <option value="product_onboarding">7-day onboarding (splits on progress)</option>
                 <option value="blank">Blank canvas</option>
+                <option value="import">Import a journey file</option>
               </select>
             </Field>
           </div>
+          {form.template === "import" ? (
+            <Field label="Journey file" hint="A .journey.json downloaded from any journey (yours or another account's). It becomes a draft on this product.">
+              <input type="file" accept="application/json,.json" className="text-sm" onChange={(e) => void pickFile(e.target.files?.[0])} />
+            </Field>
+          ) : null}
           {form.template === "product_onboarding" && selected && selected.stepCount === 0 ? (
             <Banner tone="info">This product has no onboarding steps in its catalog yet — add them on its Products page so the journey can split on progress.</Banner>
           ) : null}
           <div className="flex gap-2">
-            <Button tone="primary" disabled={busy || !form.name.trim() || !form.connectionId} onClick={() => void create()}>
+            <Button
+              tone="primary"
+              disabled={busy || !form.name.trim() || !form.connectionId || (form.template === "import" && !importDoc)}
+              onClick={() => void create()}
+            >
               {busy ? "Creating…" : "Create draft"}
             </Button>
             <Button onClick={() => setCreating(false)}>Cancel</Button>

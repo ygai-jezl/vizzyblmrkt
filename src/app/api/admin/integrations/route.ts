@@ -5,6 +5,8 @@ import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
 import { isGitHubAppConfigured } from "@/lib/integrations/githubApp";
+import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
+import type { GitConnection } from "@/lib/types/tenant";
 import { isXConfigured } from "@/lib/social/x/oauth";
 import { isLinkedInConfigured, isLinkedInCMConfigured } from "@/lib/social/linkedin/oauth";
 import { isSocialCryptoConfigured } from "@/lib/social/crypto";
@@ -20,11 +22,10 @@ export async function GET(req: Request) {
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const tenant = await getTenantById(ctx.tenantId);
-  const conns = (tenant?.gitConnections ?? {}) as Partial<
-    Record<GitProvider, { accountLogin?: string | null; connectedAt?: string | null; kind?: "oauth" | "app" }>
-  >;
+  const conns = (tenant?.gitConnections ?? {}) as Partial<Record<GitProvider, GitConnection>>;
   const cryptoOk = isGitCryptoConfigured();
   const githubApp = isGitHubAppConfigured();
+  const repoSelection = isGitRepoSelectionEnabled();
 
   const providers: Record<string, unknown> = {};
   (Object.keys(PROVIDERS) as GitProvider[]).forEach((p) => {
@@ -40,6 +41,14 @@ export async function GET(req: Request) {
       readOnly: p === "gitlab" || c?.kind === "app",
       // A classic GitHub connection can be replaced with the read-only app.
       upgradeAvailable: appMode && Boolean(c) && c?.kind !== "app",
+      // Repo selection: null = legacy "any repo"; otherwise the chosen repos. A GitHub
+      // App connection's repos are chosen on GitHub's install screen instead.
+      ...(repoSelection && c?.kind !== "app"
+        ? {
+            repoSelection: true,
+            selectedRepos: c?.repos ? c.repos.map((r) => ({ fullPath: r.fullPath, webUrl: r.webUrl })) : null,
+          }
+        : {}),
     };
   });
   // Social (Distribute publishing) connections — X + LinkedIn; IG later.

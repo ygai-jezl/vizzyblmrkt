@@ -73,7 +73,8 @@ export async function runProductMap(env: ProductMapEnv = readProductMapEnv(), de
     if (repos.length === 0) throw new Error("no_repos");
     const files: RepoFile[] = [];
     for (const repo of repos) {
-      const token = await (deps.token ?? fetchGitToken)(env.tenantId, repo.provider);
+      // Only repos the admin selected on the connection get its token (PR #24).
+      const token = await (deps.token ?? fetchGitToken)(env.tenantId, repo.provider, repo.url);
       const { files: got } = await (deps.collect ?? cloneAndCollect)({
         source: repo.provider,
         sourceUri: repo.url,

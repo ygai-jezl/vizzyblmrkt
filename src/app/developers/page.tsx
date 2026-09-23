@@ -80,10 +80,13 @@ export default function DevelopersHome() {
 
       <H2 id="sdk">The Node SDK</H2>
       <P>
-        <C>@yougrowai/node</C> handles signing, batching and retries for events, and verifies our requests for your
-        endpoints. It&apos;s pre-release (not yet on npm); every part of the protocol is documented here, so any
-        language works.
+        <a className="underline" href="https://www.npmjs.com/package/@yougrowai/node" target="_blank" rel="noreferrer">
+          <C>@yougrowai/node</C>
+        </a>{" "}
+        handles signing, batching and retries for events, and verifies our requests for your endpoints. Node 18 or later,
+        no dependencies. Every part of the protocol is documented here too, so any language works.
       </P>
+      <Code title="Install">{`npm install @yougrowai/node`}</Code>
       <Code title="Node">{`import { YouGrow } from "@yougrowai/node";
 import { createVerifier, contextResponse } from "@yougrowai/node/server";
 

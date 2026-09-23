@@ -584,21 +584,23 @@ env:
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
-  # "Growth Path" admin navigation + theme switch — OFF in prod until verified on
-  # dev (see apphosting.yaml). Off = the admin looks and behaves exactly as before.
+  # "Growth Path" admin navigation + theme switch — ON in prod (owner decision,
+  # 2026-09-24). To switch off quickly, set these back to "false" (they're
+  # NEXT_PUBLIC_*, so a new rollout is needed).
   - variable: NEXT_PUBLIC_NAV_V2_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
-  # Nav v2 phase 2 — OFF in prod until verified on dev (see apphosting.yaml).
+  # Nav v2 phase 2 — ON in prod (owner decision, 2026-09-24). Its two Firestore
+  # indexes (signups and email_events by createdAt ASC) are deployed to prod.
   - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

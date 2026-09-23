@@ -163,6 +163,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     "## Ground rules",
     `- Server-side only. Read credentials from environment variables: \`YOUGROW_KEY_ID\` (public, value \`${p.keyId}\`) and \`YOUGROW_SECRET\` (secret — it's in our secret manager; never commit, log or send it to a browser).`,
     `- Follow the docs: ${p.origin}/developers/events, ${p.origin}/developers/context-endpoint, ${p.origin}/developers/webhooks, ${p.origin}/developers/security.`,
+    "- On a Node server, use our SDK (`npm install @yougrowai/node`) — it signs, batches and retries events and verifies our requests. Otherwise sign requests as the docs show.",
     "- Give every event a unique `messageId` — deterministic where you can, so retries and repeats are harmless.",
     "- Never let a YouGrow call break our own flows: send events asynchronously, and catch and log failures.",
     "- Add tests for each part, and keep changes small and reviewable.",
@@ -179,7 +180,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     if (t.id === "context") {
       if (p.steps.length) push(`Return \`steps\` with these ids: ${p.steps.map((s) => `\`${s.id}\``).join(", ")}, and \`nextStep\` = the first not done.`);
       if (p.facts.length) push("Return these `facts` (ids must match exactly):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
-      push("Verify our request first: `Authorization: Bearer <JWT>`, ES256, keys at `" + p.origin + "/.well-known/jwks.json`, audience = `YOUGROW_KEY_ID`, direction `context`, and the body hash — the Node SDK's `createVerifier` does all of this.");
+      push("Verify our request first: `Authorization: Bearer <JWT>`, ES256, keys at `" + p.origin + "/.well-known/jwks.json`, audience = `YOUGROW_KEY_ID`, direction `context`, and the body hash — in Node, `createVerifier` from `@yougrowai/node/server` does all of this.");
     }
   });
   if (p.events.length) {

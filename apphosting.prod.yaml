@@ -483,6 +483,16 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
+  # Git repo selection — after connecting GitHub/GitLab the admin picks WHICH repos
+  # (personal + every org/group they belong to) the connection may be used for;
+  # the knowledge-scraper Job only attaches the token for selected repos. Also adds
+  # GitLab's read_api scope (needed to list projects). Needs the Job redeployed
+  # (workers/knowledge-scraper/deploy.sh) with the matching gitToken.ts. OFF in prod until
+  # smoke-tested on dev.
+  - variable: GIT_REPO_SELECTION_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Lifecycle journeys — ON in prod (owner decision, 2026-09-21): Products,
   # Journeys, the Approval Queue, the ingest API, AI lines and chat authoring.
   # LIFECYCLE_MODE_CEILING below stays `test` until the vizzybl.ai launch (M7),

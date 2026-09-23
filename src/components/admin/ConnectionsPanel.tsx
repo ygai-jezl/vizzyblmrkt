@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { GitRepoPicker } from "./GitRepoPicker";
 
 interface ProviderStatus {
   label: string;
@@ -9,6 +10,20 @@ interface ProviderStatus {
   connected: boolean;
   accountLogin: string | null;
   connectedAt: string | null;
+  /** Present on github/gitlab when repo selection is enabled. */
+  repoSelection?: boolean;
+  /** null = legacy connection (any repo). */
+  selectedRepos?: { fullPath: string; webUrl: string }[] | null;
+}
+
+const GIT_IDS = new Set(["github", "gitlab"]);
+
+function repoSummary(s: ProviderStatus): string {
+  const r = s.selectedRepos;
+  if (!r) return "All accessible repositories (choose to restrict).";
+  if (r.length === 0) return "No repositories selected yet — choose which to use.";
+  const shown = r.slice(0, 3).map((x) => x.fullPath).join(", ");
+  return `${r.length} repositor${r.length === 1 ? "y" : "ies"}: ${shown}${r.length > 3 ? ", …" : ""}`;
 }
 
 const PROVIDER_IDS = ["github", "gitlab", "x", "linkedin", "linkedin_org"] as const;
@@ -18,6 +33,12 @@ export function ConnectionsPanel() {
   const sp = useSearchParams();
   const [providers, setProviders] = useState<Record<string, ProviderStatus> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Which git provider's repo picker is open. Opens automatically after a fresh
+  // connect (the callback adds ?select=<provider>).
+  const [picking, setPicking] = useState<string | null>(() => {
+    const sel = sp.get("select");
+    return sel && GIT_IDS.has(sel) ? sel : null;
+  });
 
   const load = useCallback(async () => {
     try {
@@ -98,41 +119,63 @@ export function ConnectionsPanel() {
           return (
             <div
               key={p}
-              className="flex items-center justify-between gap-3 rounded-md border border-neutral-300 p-3 dark:border-neutral-700"
+              className="space-y-3 rounded-md border border-neutral-300 p-3 dark:border-neutral-700"
             >
-              <div>
-                <div className="text-sm font-medium">{s?.label ?? p}</div>
-                {!s ? (
-                  <span className="text-xs text-neutral-400">Loading…</span>
-                ) : !s.configured ? (
-                  <span className="text-xs text-neutral-400">
-                    OAuth app not configured in this environment.
-                  </span>
-                ) : s.connected ? (
-                  <span className="text-xs text-green-600 dark:text-green-400">
-                    Connected{s.accountLogin ? ` as ${s.accountLogin}` : ""}.
-                  </span>
-                ) : (
-                  <span className="text-xs text-neutral-500">Not connected.</span>
-                )}
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">{s?.label ?? p}</div>
+                  {!s ? (
+                    <span className="text-xs text-neutral-400">Loading…</span>
+                  ) : !s.configured ? (
+                    <span className="text-xs text-neutral-400">
+                      OAuth app not configured in this environment.
+                    </span>
+                  ) : s.connected ? (
+                    <span className="text-xs text-green-600 dark:text-green-400">
+                      Connected{s.accountLogin ? ` as ${s.accountLogin}` : ""}.
+                    </span>
+                  ) : (
+                    <span className="text-xs text-neutral-500">Not connected.</span>
+                  )}
+                  {s?.connected && s.repoSelection ? (
+                    <div className="text-xs text-neutral-500">
+                      {repoSummary(s)}{" "}
+                      <button
+                        type="button"
+                        onClick={() => setPicking(picking === p ? null : p)}
+                        className="text-violet-600 underline dark:text-violet-400"
+                      >
+                        {s.selectedRepos?.length ? "Manage" : "Choose repositories"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {s?.configured ? (
+                  s.connected ? (
+                    <button
+                      onClick={() => disconnect(p)}
+                      disabled={busy === p}
+                      className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+                    >
+                      {busy === p ? "…" : "Disconnect"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => connect(p)}
+                      className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white dark:border-white dark:bg-white dark:text-neutral-900"
+                    >
+                      Connect
+                    </button>
+                  )
+                ) : null}
               </div>
-              {s?.configured ? (
-                s.connected ? (
-                  <button
-                    onClick={() => disconnect(p)}
-                    disabled={busy === p}
-                    className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
-                  >
-                    {busy === p ? "…" : "Disconnect"}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => connect(p)}
-                    className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                  >
-                    Connect
-                  </button>
-                )
+              {picking === p && s?.connected && s.repoSelection && GIT_IDS.has(p) ? (
+                <GitRepoPicker
+                  provider={p as "github" | "gitlab"}
+                  label={s.label}
+                  onSaved={load}
+                  onClose={() => setPicking(null)}
+                />
               ) : null}
             </div>
           );

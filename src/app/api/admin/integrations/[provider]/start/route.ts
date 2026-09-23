@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getAdminContext } from "@/lib/auth/session";
-import { PROVIDERS, isGitProvider, isProviderConfigured, oauthOrigin } from "@/lib/integrations/providers";
+import {
+  PROVIDERS,
+  authorizeScope,
+  isGitProvider,
+  isProviderConfigured,
+  oauthOrigin,
+} from "@/lib/integrations/providers";
+import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 import { isGitCryptoConfigured, signState } from "@/lib/integrations/crypto";
 
 export const runtime = "nodejs";
@@ -32,7 +39,7 @@ export async function GET(
   const url = new URL(cfg.authorizeUrl);
   url.searchParams.set("client_id", cfg.clientId()!);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", cfg.scope);
+  url.searchParams.set("scope", authorizeScope(provider, isGitRepoSelectionEnabled()));
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
   return NextResponse.redirect(url.toString());

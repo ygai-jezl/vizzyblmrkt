@@ -452,6 +452,15 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
+  # Git repo selection — after connecting GitHub/GitLab the admin picks WHICH repos
+  # (personal + every org/group they belong to) the connection may be used for;
+  # the knowledge-scraper Job only attaches the token for selected repos. Also adds
+  # GitLab's read_api scope (needed to list projects). Needs the Job redeployed
+  # (workers/knowledge-scraper/deploy.sh) with the matching gitToken.ts. ON in dev for smoke.
+  - variable: GIT_REPO_SELECTION_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
 
   # Agent 3 (Creative Director) — Gemini on Vertex AI. By default (no key) it uses
   # the runtime service account via ADC (needs the Vertex AI API enabled + the SA

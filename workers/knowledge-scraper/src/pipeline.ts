@@ -32,7 +32,7 @@ async function collectChunks(env: JobEnv): Promise<{ chunks: PreparedChunk[]; pa
       sourceUri: env.sourceUri,
       ref: env.ref,
       includeGlobs: env.includeGlobs,
-      token: await fetchGitToken(env.tenantId, env.source),
+      token: await fetchGitToken(env.tenantId, env.source, env.sourceUri),
     });
     for (const f of files) {
       const uri = blobUrl(env.sourceUri, env.ref, f.path);

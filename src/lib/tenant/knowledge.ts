@@ -124,6 +124,10 @@ export async function listKnowledgeChunks(
 /**
  * Delete an owner's knowledge chunks (all, or just one ticket's). CALLER MUST
  * have verified ownership first. Returns the count deleted.
+ *
+ * Pages through refs only (`select()` with no fields) so memory stays flat: a
+ * full `get()` pulled every chunk's embedding + content and OOM'd the 512 MiB
+ * instance on large sources.
  */
 export async function deleteOwnerKnowledge(
   ctx: TenantContext,
@@ -131,14 +135,18 @@ export async function deleteOwnerKnowledge(
   ownerId: string,
   opts: { ticketId?: string } = {},
 ): Promise<number> {
+  const PAGE = 400;
   const col = rawChunksCollection(ctx, ownerKind, ownerId);
   const base = opts.ticketId ? col.where("ticketId", "==", opts.ticketId) : col;
-  const snap = await base.get();
-  const docs = snap.docs;
-  for (let i = 0; i < docs.length; i += 400) {
+  let deleted = 0;
+  for (;;) {
+    const snap = await base.select().limit(PAGE).get();
+    if (snap.empty) break;
     const batch = col.firestore.batch();
-    for (const d of docs.slice(i, i + 400)) batch.delete(d.ref);
+    for (const d of snap.docs) batch.delete(d.ref);
     await batch.commit();
+    deleted += snap.size;
+    if (snap.size < PAGE) break;
   }
-  return docs.length;
+  return deleted;
 }

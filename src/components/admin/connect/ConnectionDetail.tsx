@@ -12,9 +12,15 @@ import { LearnFromRepo } from "./LearnFromRepo";
 import { IntegrationGuide } from "./IntegrationGuide";
 import { SandboxPanel } from "./SandboxPanel";
 import { ConnectionSettings } from "./ConnectionSettings";
+import { SetupPanel } from "./SetupPanel";
 import { Badge, Banner, Tabs } from "./ui";
+import { ENVIRONMENT_LABEL, environmentOf } from "@/lib/connect/environments";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
-type Tab = "sandbox" | "events" | "users" | "test" | "learn" | "catalog" | "guide" | "settings";
+type Tab = "setup" | "sandbox" | "events" | "users" | "test" | "learn" | "catalog" | "guide" | "settings";
+
+// Nav v2 phase 3: a Setup checklist opens real products (sandboxes keep their own tab).
+const PHASE3 = isNavV2Phase3Enabled();
 
 /** One connected product: debugger, users, context test, catalog, settings. */
 export function ConnectionDetail({ connectionId, canEdit }: { connectionId: string; canEdit: boolean }) {
@@ -33,9 +39,10 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     setDiagnostics(r.data.diagnostics);
     // ?tab=learn (etc.) opens a tab directly — e.g. from the setup wizard.
     const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
-    const valid: Tab[] = ["sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
-    const fromUrl = valid.find((v) => v === asked) ?? null;
-    setTab((t) => t ?? fromUrl ?? (r.data.connection.kind === "sandbox" ? "sandbox" : "events"));
+    const valid: Tab[] = ["setup", "sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
+    const fromUrl = valid.find((v) => v === asked && (v !== "setup" || PHASE3)) ?? null;
+    const fallback: Tab = r.data.connection.kind === "sandbox" ? "sandbox" : PHASE3 ? "setup" : "events";
+    setTab((t) => t ?? fromUrl ?? fallback);
   }, [connectionId]);
 
   useEffect(() => {
@@ -46,6 +53,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
   if (!connection || !tab) return <p className="text-sm text-neutral-500">Loading…</p>;
 
   const tabs: Array<{ id: Tab; label: string }> = [
+    ...(PHASE3 && connection.kind === "custom" ? [{ id: "setup" as const, label: "Setup" }] : []),
     ...(connection.kind === "sandbox" ? [{ id: "sandbox" as const, label: "Sandbox" }] : []),
     { id: "events", label: "Events" },
     { id: "users", label: "Users" },
@@ -56,6 +64,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     { id: "settings", label: "Settings" },
   ];
   const h = connection.health ?? {};
+  const env = PHASE3 && connection.kind === "custom" ? environmentOf(connection) : null;
 
   return (
     <div className="space-y-4">
@@ -65,6 +74,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-semibold">{connection.name}</h1>
         {connection.kind === "sandbox" ? <Badge tone="amber">Sandbox</Badge> : null}
+        {env ? <Badge tone={env === "production" ? "green" : "neutral"}>{ENVIRONMENT_LABEL[env]}</Badge> : null}
         <Badge tone={connection.status === "active" ? "green" : connection.status === "paused" ? "amber" : "red"}>
           {connection.status}
         </Badge>
@@ -80,6 +90,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
 
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
+      {tab === "setup" ? <SetupPanel connection={connection} onOpenTab={setTab} /> : null}
       {tab === "sandbox" ? <SandboxPanel connection={connection} canEdit={canEdit} onChanged={() => void load()} /> : null}
       {tab === "events" ? <EventDebugger connectionId={connection.id} /> : null}
       {tab === "users" ? <UsersTable connection={connection} canEdit={canEdit} /> : null}

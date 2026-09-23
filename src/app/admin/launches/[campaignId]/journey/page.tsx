@@ -1,6 +1,7 @@
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { JourneyCanvas } from "@/components/admin/journey/JourneyCanvas";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { Journey } from "@/lib/types/journey";
 
 export const dynamic = "force-dynamic";
@@ -31,10 +32,11 @@ export default async function LaunchJourneyPage({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold">Journey</h2>
+        <h2 className="text-sm font-semibold">{isNavV2Phase3Enabled() ? "Welcome & nurture" : "Journey"}</h2>
         <p className="text-sm text-neutral-500">
-          Automated email sequence for this launch. Build it on the canvas, then
-          activate.
+          {isNavV2Phase3Enabled()
+            ? "The automated emails everyone who joins this launch receives. Build them on the canvas, then publish."
+            : "Automated email sequence for this launch. Build it on the canvas, then activate."}
         </p>
       </div>
       <JourneyCanvas

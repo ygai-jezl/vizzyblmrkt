@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { PaletteColor, PaletteGroup, PaletteSource } from "@/lib/types/tenant";
 import { isBrandColorsUiEnabled, isBrandKitLogosUiEnabled } from "@/lib/content/brandKit";
 import { HEX6, mergeColors } from "@/lib/content/create/colorPalette";
+import { place } from "@/lib/nav/places";
 
 /**
  * The Brand Kit "Colours" card (Account → Brand). Two persisted zones — the primary flat
@@ -86,9 +87,9 @@ export function BrandColours({ palette, palettes, pdfPath, onChange }: BrandColo
           [source]: { source, label: data.label ?? SOURCE_LABEL[source], colors: data.candidates! },
         }));
       } else if (data.error === "no_primary_domain") {
-        setMsg("Set your Primary Domain in Account → Domains, then try again.");
+        setMsg(`Set your Primary Domain in ${place("sending").label}, then try again.`);
       } else if (data.error === "no_logo") {
-        setMsg("Upload a logo in Brand Kit → Logos first.");
+        setMsg(`Upload a logo in ${place("logos").label} first.`);
       } else {
         setMsg("Couldn’t find colours from that source — try another, or add them manually.");
       }

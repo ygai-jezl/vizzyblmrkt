@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { programmeWord } from "@/lib/nav/terms";
 
 /**
  * "Add exit" toolbar control for the Journey Canvas. Opens a popover that lazily
@@ -175,7 +176,7 @@ export function AddExitControl({
                 }}
                 className={LINK}
               >
-                <span className="underline">Click here to create a workspace</span>, then create
+                <span className="underline">Click here to create a {programmeWord().one}</span>, then create
                 an Email sequence. We&apos;ll save this journey first.
               </button>
             ) : null}

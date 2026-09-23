@@ -11,6 +11,7 @@ import {
   Sparkles,
   BarChart3,
   Compass,
+  FileText,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -138,7 +139,23 @@ function CategoryCard({ category }: { category: Category }) {
   );
 }
 
-export function CategoryGrid() {
+/** Nav v2 phase 3: the guidelines PDF (was Account → Brand) is a Brand category. */
+const GUIDELINES: Category = { key: "guidelines", label: "Guidelines", icon: FileText, href: "/admin/brand-kit/guidelines" };
+/** Outputs, not brand inputs: phase 3 files them under Content (Library) and Insights. */
+const MOVED = new Set(["images", "content-steering"]);
+
+export function CategoryGrid({ phase3 = false }: { phase3?: boolean }) {
+  if (phase3) {
+    // Only what works: no "Soon" tiles, no placeholder "New category".
+    const live = [GUIDELINES, ...CATEGORIES.filter((c) => c.href && !MOVED.has(c.key))];
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {live.map((c) => (
+          <CategoryCard key={c.key} category={c} />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {CATEGORIES.map((c) => (

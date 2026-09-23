@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 /**
  * Sub-tab strip for a launch workspace. Reuses the "border pill" style from the
@@ -11,22 +12,33 @@ import { usePathname } from "next/navigation";
 export function LaunchTabs({ campaignId }: { campaignId: string }) {
   const pathname = usePathname();
   const base = `/admin/launches/${campaignId}`;
-  const tabs = [
-    { href: base, label: "Overview", exact: true },
-    { href: `${base}/signups`, label: "Signups", exact: false },
-    { href: `${base}/analytics`, label: "Analytics", exact: false },
-    { href: `${base}/broadcasts`, label: "Broadcasts", exact: false },
-    { href: `${base}/journey`, label: "Journey", exact: false },
-    { href: `${base}/widget`, label: "Embed & Design", exact: false },
-    { href: `${base}/settings`, label: "Settings", exact: false },
-  ];
+  // Nav v2 phase 3: the page and widget together, and one Emails tab that also
+  // lights up on the journey and broadcasts it links to.
+  const tabs: Array<{ href: string; label: string; exact: boolean; also?: string[] }> = isNavV2Phase3Enabled()
+    ? [
+        { href: base, label: "Overview", exact: true },
+        { href: `${base}/widget`, label: "Page & widget", exact: false },
+        { href: `${base}/signups`, label: "Signups", exact: false },
+        { href: `${base}/emails`, label: "Emails", exact: false, also: [`${base}/journey`, `${base}/broadcasts`] },
+        { href: `${base}/analytics`, label: "Analytics", exact: false },
+        { href: `${base}/settings`, label: "Settings", exact: false },
+      ]
+    : [
+        { href: base, label: "Overview", exact: true },
+        { href: `${base}/signups`, label: "Signups", exact: false },
+        { href: `${base}/analytics`, label: "Analytics", exact: false },
+        { href: `${base}/broadcasts`, label: "Broadcasts", exact: false },
+        { href: `${base}/journey`, label: "Journey", exact: false },
+        { href: `${base}/widget`, label: "Embed & Design", exact: false },
+        { href: `${base}/settings`, label: "Settings", exact: false },
+      ];
 
   return (
     <div className="flex flex-wrap gap-2 text-sm">
       {tabs.map((t) => {
         const active = t.exact
           ? pathname === t.href
-          : (pathname?.startsWith(t.href) ?? false);
+          : [t.href, ...(t.also ?? [])].some((h) => pathname?.startsWith(h) ?? false);
         return (
           <Link
             key={t.href}

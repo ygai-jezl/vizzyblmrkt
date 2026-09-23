@@ -58,6 +58,23 @@ describe("connections admin API", () => {
     expect(connection).not.toHaveProperty("secretEnc");
   });
 
+  it("records a custom product's environment, which can be changed later", async () => {
+    const db = new FakeFirestore();
+    const r = await createProductConnection(ctxA, { name: "App", kind: "custom", environment: "staging" }, { origin, db });
+    const { connection } = r.body as { connection: { id: string; environment: string | null } };
+    expect(connection.environment).toBe("staging");
+    const p = await patchConnection(ctxA, connection.id, { environment: "production" }, db);
+    expect(p.status).toBe(200);
+    expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.environment).toBe("production");
+    expect((await patchConnection(ctxA, connection.id, { environment: "qa" }, db)).status).toBe(400);
+  });
+
+  it("sandboxes have no environment", async () => {
+    const db = new FakeFirestore();
+    const r = await createProductConnection(ctxA, { name: "Sandbox", kind: "sandbox", environment: "production" }, { origin, db });
+    expect((r.body as { connection: { environment: string | null } }).connection.environment).toBeNull();
+  });
+
   it("never lists sealed secrets", async () => {
     const db = new FakeFirestore();
     await create(db, "custom");

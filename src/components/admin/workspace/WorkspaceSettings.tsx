@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { CONTENT_MATRIX_TOPICS } from "@/lib/content/contentMatrix";
 
 interface Workspace {
@@ -14,9 +15,15 @@ interface Workspace {
 export function WorkspaceSettings({
   workspaceId,
   initial,
+  programme = false,
+  brandVoiceActive = false,
 }: {
   workspaceId: string;
   initial: { topics: string[]; defaultTags: string[]; brandVoice: string; audience: string };
+  /** Nav v2 phase 3 wording ("programme"). */
+  programme?: boolean;
+  /** The brand's own voice is set, so it is used instead of this one. */
+  brandVoiceActive?: boolean;
 }) {
   const [topics, setTopics] = useState<string[]>(initial.topics);
   const [tags, setTags] = useState<string[]>(initial.defaultTags);
@@ -59,10 +66,10 @@ export function WorkspaceSettings({
   return (
     <div className="max-w-2xl space-y-6">
       <div>
-        <h2 className="text-sm font-semibold">Workspace Settings</h2>
+        <h2 className="text-sm font-semibold">{programme ? "Programme settings" : "Workspace Settings"}</h2>
         <p className="text-sm text-neutral-500">
-          Define what this workspace is about. Later, these drive how content is created from your
-          grounding data.
+          Define what this {programme ? "programme" : "workspace"} is about. Later, these drive how content is created
+          from your {programme ? "knowledge" : "grounding data"}.
         </p>
       </div>
 
@@ -124,10 +131,20 @@ export function WorkspaceSettings({
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-sm font-medium">Brand voice</h3>
-        <p className="text-xs text-neutral-500">
-          How your content should sound — informs templatize + deconstruct.
-        </p>
+        <h3 className="text-sm font-medium">{programme ? "Voice" : "Brand voice"}</h3>
+        {brandVoiceActive ? (
+          <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+            Your brand voice is in use for this programme&rsquo;s content.{" "}
+            <Link href="/admin/brand-kit/voice" className="font-medium underline underline-offset-2">
+              Edit it in Brand
+            </Link>
+            . The text below only applies if the brand voice is cleared.
+          </p>
+        ) : (
+          <p className="text-xs text-neutral-500">
+            How your content should sound — informs templatize + deconstruct.
+          </p>
+        )}
         <textarea
           value={brandVoice}
           onChange={(e) => {

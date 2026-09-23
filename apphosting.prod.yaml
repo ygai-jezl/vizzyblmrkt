@@ -604,3 +604,9 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Nav v2 phase 3 — OFF in prod until verified on dev (see apphosting.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

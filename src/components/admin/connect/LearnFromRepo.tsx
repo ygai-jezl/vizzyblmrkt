@@ -11,6 +11,7 @@ import { GitHubRepoChooser } from "./GitHubRepoChooser";
 import { CopyAgentPrompt } from "./CopyAgentPrompt";
 import { IntegrationTasks } from "./IntegrationTasks";
 import { buildIntegrationTasks } from "@/lib/connect/integrationTasks";
+import { place } from "@/lib/nav/places";
 
 /**
  * "Learn from your repo": we read the product's code (read-only — clone, read,
@@ -184,8 +185,8 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
           <ShieldCheck size={14} className="mt-px shrink-0" />
           Read-only: we clone, read and delete the copy — we never change your code, and we keep only short excerpts as evidence
           (secrets are removed). GitLab connects in{" "}
-          <Link className="underline" href="/admin/account/connections">
-            Account → Connections
+          <Link className="underline" href={place("integrations").href}>
+            {place("integrations").label}
           </Link>
           .
         </p>

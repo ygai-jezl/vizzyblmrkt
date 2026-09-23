@@ -6,6 +6,8 @@ import type { CampaignSettings } from "@/lib/admin/campaignSettings";
 import { buildSettingsPayload, type UiQuestion } from "@/lib/admin/campaignSettingsPayload";
 import type { EmailSenderConfig } from "@/lib/types/tenant";
 import { LOCALES, isLiveSupportedLocale, languageName } from "@/lib/i18n/locale";
+import { place } from "@/lib/nav/places";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label: string }[] = [
   { value: "EMAIL", label: "Email only" },
@@ -779,8 +781,8 @@ function SenderDefaultNote({ senderConfig }: { senderConfig: EmailSenderConfig }
       ) : (
         <>No account default sender set yet. </>
       )}
-      <a href="/admin/account" className="underline">
-        Manage in Account Settings
+      <a href={place("sending").href} className="underline">
+        Manage in {isNavV2Phase3Enabled() ? place("sending").label : "Account Settings"}
       </a>
       .
     </p>
@@ -814,8 +816,8 @@ function SenderAddressField({
       {verifiedDomains.length === 0 ? (
         <p className="text-sm text-neutral-500">
           Add &amp; verify a sending domain in{" "}
-          <a href="/admin/account" className="underline">
-            Account Settings
+          <a href={place("sending").href} className="underline">
+            {isNavV2Phase3Enabled() ? place("sending").label : "Account Settings"}
           </a>{" "}
           to send from your own address.
         </p>

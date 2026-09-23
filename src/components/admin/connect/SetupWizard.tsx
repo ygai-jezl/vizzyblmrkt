@@ -7,6 +7,9 @@ import { api, errorText, type PublicConnection } from "./api";
 import { KeyReveal } from "./KeyReveal";
 import { EventDebugger } from "./EventDebugger";
 import { Banner, Button, Field, inputClass } from "./ui";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+
+const PHASE3 = isNavV2Phase3Enabled();
 
 type Step = "name" | "keys" | "learn" | "install" | "listen";
 
@@ -18,17 +21,21 @@ type Step = "name" | "keys" | "learn" | "install" | "listen";
 export function SetupWizard({
   open,
   kind,
+  preset = null,
   onClose,
   onCreated,
 }: {
   open: boolean;
   kind: "custom" | "sandbox";
+  /** Connecting another environment of an existing product (nav v2 phase 3). */
+  preset?: { name: string; environment: "staging" | "production" } | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("name");
   const [name, setName] = useState("");
+  const [environment, setEnvironment] = useState<"staging" | "production" | "">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ connection: PublicConnection; secret: string } | null>(null);
@@ -37,19 +44,22 @@ export function SetupWizard({
   useEffect(() => {
     if (open) {
       setStep("name");
-      setName(kind === "sandbox" ? "Sandbox" : "");
+      setName(kind === "sandbox" ? "Sandbox" : (preset?.name ?? ""));
+      setEnvironment(preset?.environment ?? "");
       setError(null);
       setCreated(null);
       setStored(false);
     }
-  }, [open, kind]);
+  }, [open, kind, preset]);
 
   async function create() {
     setBusy(true);
     setError(null);
     const r = await api<{ connection: PublicConnection; secret: string }>("/api/admin/connections", {
       method: "POST",
-      body: JSON.stringify({ name, kind }),
+      body: JSON.stringify(
+        PHASE3 && kind === "custom" ? { name, kind, environment: environment || null } : { name, kind },
+      ),
     });
     setBusy(false);
     if (!r.ok) return setError(errorText(r.data));
@@ -88,6 +98,22 @@ export function SetupWizard({
                 autoFocus
               />
             </Field>
+            {PHASE3 && kind === "custom" ? (
+              <Field
+                label="Which copy of your product is this?"
+                hint="Connect staging first to test journeys safely, then production — journeys move across with “Promote to Production”."
+              >
+                <select
+                  className={inputClass}
+                  value={environment}
+                  onChange={(e) => setEnvironment(e.target.value as "staging" | "production" | "")}
+                >
+                  <option value="">Not sure yet</option>
+                  <option value="staging">Staging</option>
+                  <option value="production">Production</option>
+                </select>
+              </Field>
+            ) : null}
             <div className="flex justify-end">
               <Button tone="primary" disabled={busy || !name.trim()} onClick={create}>
                 {busy ? "Creating…" : "Create"}

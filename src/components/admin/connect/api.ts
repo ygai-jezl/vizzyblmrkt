@@ -12,6 +12,8 @@ export interface PublicConnection {
   name: string;
   kind: "custom" | "sandbox";
   status: "active" | "paused" | "revoked";
+  /** Staging or production copy (nav v2 phase 3); absent on older connections. */
+  environment?: "staging" | "production" | null;
   keyId: string;
   secretPrefix: string;
   rotating: boolean;

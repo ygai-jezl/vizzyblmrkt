@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 /**
  * Tab strip for the global Account Settings area. Mirrors {@link LaunchTabs}'
@@ -10,13 +11,21 @@ import { usePathname } from "next/navigation";
  */
 export function AccountTabs() {
   const pathname = usePathname();
-  const tabs = [
-    { href: "/admin/account", label: "Domains", exact: true },
-    { href: "/admin/account/brand", label: "Brand", exact: false },
-    { href: "/admin/account/settings", label: "Settings", exact: false },
-    { href: "/admin/account/connections", label: "Connections", exact: false },
-    { href: "/admin/account/billing", label: "Billing", exact: false },
-  ];
+  // Nav v2 phase 3: General first; the guidelines moved to Brand; Billing stays
+  // hidden until there is something to bill (no "Coming soon" tabs).
+  const tabs = isNavV2Phase3Enabled()
+    ? [
+        { href: "/admin/account/settings", label: "General", exact: false },
+        { href: "/admin/account", label: "Sending", exact: true },
+        { href: "/admin/account/connections", label: "Integrations", exact: false },
+      ]
+    : [
+        { href: "/admin/account", label: "Domains", exact: true },
+        { href: "/admin/account/brand", label: "Brand", exact: false },
+        { href: "/admin/account/settings", label: "Settings", exact: false },
+        { href: "/admin/account/connections", label: "Connections", exact: false },
+        { href: "/admin/account/billing", label: "Billing", exact: false },
+      ];
 
   return (
     <div className="flex flex-wrap gap-2 text-sm">

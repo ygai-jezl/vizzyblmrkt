@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { useRouter } from "next/navigation";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
@@ -133,7 +134,7 @@ export function DistributeClient({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">Distribute</h2>
+          <h2 className="text-lg font-semibold">{isNavV2Phase3Enabled() ? "Calendar" : "Distribute"}</h2>
           <p className="text-sm text-neutral-500">
             Schedule approved content onto a queue; the worker releases each item at its time.
             Times shown in UTC.
@@ -175,7 +176,7 @@ export function DistributeClient({
         <h3 className="text-sm font-medium">Ready to schedule</h3>
         {scoredSchedulable.length === 0 ? (
           <p className="mt-1 text-xs text-neutral-500">
-            No approved, un-scheduled items. Generate + approve nodes in Create first.
+            No approved, un-scheduled items. Generate + approve nodes in {isNavV2Phase3Enabled() ? "Drafts" : "Create"} first.
           </p>
         ) : (
           <ul className="mt-2 divide-y divide-neutral-200 dark:divide-neutral-800">

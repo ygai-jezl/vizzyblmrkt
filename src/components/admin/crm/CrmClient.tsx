@@ -7,6 +7,7 @@ import type { EngagedContact } from "@/lib/types/engagedContact";
 import { ContactsView } from "./ContactsView";
 import { CompaniesView } from "./CompaniesView";
 import { EngagedView } from "./EngagedView";
+import { ProductUsersView } from "./ProductUsersView";
 
 const pill = (active: boolean) =>
   `rounded-md border px-3 py-1 ${
@@ -24,6 +25,8 @@ export function CrmClient({
   initialEngaged = [],
   engagedCursor = null,
   initialQuery,
+  initialLaunch = null,
+  audience = null,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -34,14 +37,23 @@ export function CrmClient({
   engagedCursor?: string | null;
   /** The contacts search the page arrived with (?q=). */
   initialQuery?: string;
+  /** Nav v2 phase 3: people from one launch (?launch=). */
+  initialLaunch?: { id: string; name: string } | null;
+  /** Nav v2 phase 3: Audience is the one home for people — signups and product users. */
+  audience?: { productUsers: boolean } | null;
 }) {
-  const [tab, setTab] = useState<"contacts" | "companies" | "engaged">("contacts");
+  const [tab, setTab] = useState<"contacts" | "product" | "companies" | "engaged">("contacts");
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2 text-sm">
         <button className={pill(tab === "contacts")} onClick={() => setTab("contacts")}>
-          Contacts
+          {audience ? "Signups" : "Contacts"}
         </button>
+        {audience?.productUsers ? (
+          <button className={pill(tab === "product")} onClick={() => setTab("product")}>
+            Product users
+          </button>
+        ) : null}
         <button className={pill(tab === "companies")} onClick={() => setTab("companies")}>
           Companies
         </button>
@@ -55,7 +67,10 @@ export function CrmClient({
           initialRows={initialContacts}
           initialCursor={contactsCursor}
           initialQuery={initialQuery}
+          initialLaunch={initialLaunch}
         />
+      ) : tab === "product" ? (
+        <ProductUsersView />
       ) : tab === "companies" ? (
         <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} />
       ) : (

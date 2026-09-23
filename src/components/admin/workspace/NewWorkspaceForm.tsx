@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { programmeWord } from "@/lib/nav/terms";
 import { useRouter } from "next/navigation";
 
 /** Inline "create workspace" form. POSTs /api/admin/workspace then navigates in. */
@@ -31,10 +33,11 @@ export function NewWorkspaceForm() {
         error?: string;
       };
       if (!res.ok || !data.workspace) {
-        setError(data.error ?? "Could not create the workspace. Please try again.");
+        setError(data.error ?? `Could not create the ${programmeWord().one}. Please try again.`);
         return;
       }
-      router.push(`/admin/workspace/${data.workspace.id}/curate`);
+      // Nav v2 phase 3: a new programme opens on its Overview.
+      router.push(isNavV2Phase3Enabled() ? `/admin/workspace/${data.workspace.id}` : `/admin/workspace/${data.workspace.id}/curate`);
     } finally {
       setBusy(false);
     }
@@ -46,7 +49,7 @@ export function NewWorkspaceForm() {
         onClick={() => setOpen(true)}
         className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-2 text-sm text-white hover:opacity-90 dark:border-white dark:bg-white dark:text-neutral-900"
       >
-        + New workspace
+        + New {programmeWord().one}
       </button>
     );
   }
@@ -57,7 +60,7 @@ export function NewWorkspaceForm() {
       className="space-y-3 rounded-md border border-neutral-300 p-4 dark:border-neutral-700"
     >
       <div className="space-y-1">
-        <label className="block text-sm font-medium">Workspace name</label>
+        <label className="block text-sm font-medium">{programmeWord().One} name</label>
         <input
           autoFocus
           value={name}
@@ -82,7 +85,7 @@ export function NewWorkspaceForm() {
           disabled={busy || !name.trim()}
           className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:border-white dark:bg-white dark:text-neutral-900"
         >
-          {busy ? "Creating…" : "Create workspace"}
+          {busy ? "Creating…" : `Create ${programmeWord().one}`}
         </button>
         <button
           type="button"

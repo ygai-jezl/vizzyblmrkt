@@ -4,6 +4,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import {
   ConnectionCatalogSchema,
   ConsentPolicySchema,
+  ProductEnvironment,
   SandboxUserSchema,
   type ProductConnection,
 } from "@/lib/types/productConnection";
@@ -60,6 +61,7 @@ export async function listConnections(ctx: TenantContext, db?: FirestoreLike): P
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(120),
   kind: z.enum(["custom", "sandbox"]),
+  environment: ProductEnvironment.nullable().optional(),
 });
 
 /**
@@ -74,13 +76,14 @@ export async function createProductConnection(
 ): Promise<ApiResult> {
   const parsed = CreateInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
-  const { name, kind } = parsed.data;
+  const { name, kind, environment } = parsed.data;
   const sandbox = kind === "sandbox";
   const { connection, secret } = await createConnection(
     ctx,
     {
       name,
       kind,
+      environment,
       catalog: sandbox ? SANDBOX_CATALOG : undefined,
       sandboxUsers: sandbox && ctx.email ? [defaultSandboxUser(ctx.email)] : [],
       createdBy: ctx.userId ?? null,
@@ -117,6 +120,7 @@ const PatchInput = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     status: z.enum(["active", "paused"]).optional(),
+    environment: ProductEnvironment.nullable().optional(),
     contextEndpoint: EndpointInput.nullable().optional(),
     webhookEndpoint: EndpointInput.omit({ timeoutMs: true }).nullable().optional(),
     linkDomains: z.array(z.string().min(1).max(253)).max(20).optional(),
@@ -171,6 +175,7 @@ export async function patchConnection(
   const patch: Partial<ProductConnection> = {
     ...(p.name !== undefined ? { name: p.name } : {}),
     ...(p.status !== undefined ? { status: p.status } : {}),
+    ...(p.environment !== undefined && conn.kind === "custom" ? { environment: p.environment } : {}),
     ...(p.contextEndpoint !== undefined
       ? {
           contextEndpoint: p.contextEndpoint

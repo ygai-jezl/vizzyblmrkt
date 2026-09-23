@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { programmeWord } from "@/lib/nav/terms";
 import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
 import { SEQUENCE_BLUEPRINTS } from "@/lib/content/create/sequenceBlueprints";
@@ -272,10 +273,10 @@ export function CreateWizard({
                 </div>
               </Field>
             ) : null}
-            <Field label="Authority topics" hint="From your workspace Settings — the angles to ground + organize around.">
+            <Field label="Authority topics" hint={`From your ${programmeWord().one} Settings — the angles to ground + organize around.`}>
               {topics.length === 0 ? (
                 <p className="text-xs text-neutral-500">
-                  No authority topics yet — add some in the workspace Settings tab. You can still
+                  No authority topics yet — add some in the {programmeWord().one} Settings tab. You can still
                   continue (grounding will be global).
                 </p>
               ) : (
@@ -328,7 +329,7 @@ export function CreateWizard({
                   checked={groundingScope === "global"}
                   onChange={() => setGroundingScope("global")}
                   label="Global"
-                  hint="All workspace knowledge"
+                  hint={`All ${programmeWord().one} knowledge`}
                 />
                 <Radio
                   checked={groundingScope === "scoped"}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CreateWizard } from "./CreateWizard";
@@ -50,7 +51,7 @@ export function CreatePanel({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Create</h2>
+          <h2 className="text-lg font-semibold">{isNavV2Phase3Enabled() ? "Drafts" : "Create"}</h2>
           <p className="text-sm text-neutral-500">
             Describe your goal — an agent builds a hub-and-spoke content workflow on a canvas,
             grounded in your knowledge base.

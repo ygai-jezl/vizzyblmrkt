@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+
+const PHASE3 = isNavV2Phase3Enabled();
 
 /**
  * Archive (close) or restore a launch — the reversible, non-destructive
@@ -15,10 +18,13 @@ export function ArchiveLaunchSection({
   campaignId,
   campaignName,
   archived,
+  journeyPaused = false,
 }: {
   campaignId: string;
   campaignName: string;
   archived: boolean;
+  /** The launch's welcome journey is paused (archiving pauses it; restoring doesn't resume it). */
+  journeyPaused?: boolean;
 }) {
   const router = useRouter();
   const [reason, setReason] = useState("");
@@ -27,6 +33,35 @@ export function ArchiveLaunchSection({
 
   const action = archived ? "restore" : "archive";
   const busy = status === "working";
+  const [resume, setResume] = useState<"idle" | "working" | "done">("idle");
+
+  /** Nav v2 phase 3: after a restore, turn the paused welcome emails back on in one step. */
+  async function resumeJourney() {
+    setResume("working");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/campaigns/${campaignId}/journey/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+      if (!res.ok) {
+        setError(
+          data.error === "journey_invalid"
+            ? `The journey can't be published yet${data.reason ? `: ${data.reason}` : ""}. Fix it on the Journey page.`
+            : "Couldn't turn the emails back on — please try again.",
+        );
+        setResume("idle");
+        return;
+      }
+      setResume("done");
+      router.refresh();
+    } catch {
+      setError("Network error — please try again.");
+      setResume("idle");
+    }
+  }
 
   async function onSubmit() {
     if (busy) return;
@@ -60,6 +95,26 @@ export function ArchiveLaunchSection({
   }
 
   return (
+    <>
+    {PHASE3 && !archived && journeyPaused && resume !== "done" ? (
+      <section className="mt-8 space-y-3 rounded-md border border-neutral-200 p-5 dark:border-neutral-800">
+        <div>
+          <h2 className="text-sm font-semibold">Welcome emails are paused</h2>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+            {campaignName}&rsquo;s welcome &amp; nurture journey isn&rsquo;t sending. Turn it back on to email new and waiting
+            signups again.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void resumeJourney()}
+          disabled={resume === "working"}
+          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900"
+        >
+          {resume === "working" ? "Turning on…" : "Turn welcome emails back on"}
+        </button>
+      </section>
+    ) : null}
     <section className="mt-8 space-y-4 rounded-md border border-amber-300 bg-amber-50/40 p-5 dark:border-amber-900/70 dark:bg-amber-950/20">
       {archived ? (
         <div>
@@ -69,9 +124,15 @@ export function ArchiveLaunchSection({
           <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/80">
             <span className="font-medium">{campaignName}</span> is archived — its
             public waitlist is closed to new signups. Restoring reopens signups
-            immediately. Note: paused email journeys are{" "}
-            <span className="font-medium">not</span> resumed automatically —
-            re-activate them from the Journey page.
+            immediately.{" "}
+            {PHASE3 ? (
+              "If its welcome emails were paused, you can turn them back on here once it's restored."
+            ) : (
+              <>
+                Note: paused email journeys are <span className="font-medium">not</span> resumed automatically —
+                re-activate them from the Journey page.
+              </>
+            )}
           </p>
         </div>
       ) : (
@@ -121,5 +182,6 @@ export function ArchiveLaunchSection({
             : "Archive launch"}
       </button>
     </section>
+    </>
   );
 }

@@ -5,6 +5,9 @@ import { CheckCircle2, Circle, Info } from "lucide-react";
 import type { GuideStatus, IntegrationGuide as Guide } from "@/lib/connect/integrationGuide";
 import { api, errorText, type PublicConnection } from "./api";
 import { Badge, Banner, Section } from "./ui";
+import { CopyAgentPrompt } from "./CopyAgentPrompt";
+import { IntegrationTasks } from "./IntegrationTasks";
+import { CodeText } from "./CodeText";
 
 /**
  * What this product's developers need to build, with their own ids — from the
@@ -63,11 +66,28 @@ export function IntegrationGuide({ connection }: { connection: PublicConnection 
         ) : null}
       </Section>
 
+      <CopyAgentPrompt connectionId={connection.id} prompt={guide.agentPrompt} />
+
+      <Section
+        title="What to build, in priority order"
+        description="Only the first is required for journeys to run. The rest make the emails personal, or keep them compliant — each says what happens if it's skipped."
+      >
+        <IntegrationTasks tasks={guide.tasks} />
+      </Section>
+
       {guide.warnings.length > 0 ? (
         <Banner tone="info">
-          <span className="font-medium">Found in your code:</span> {guide.warnings.join(" · ")}
+          <span className="font-medium">Gaps we noticed in your code:</span>{" "}
+          {guide.warnings.map((w, i) => (
+            <span key={i}>
+              {i ? " · " : ""}
+              <CodeText text={w} />
+            </span>
+          ))}
         </Banner>
       ) : null}
+
+      <h3 className="pt-2 text-sm font-semibold">Reference: the exact details</h3>
 
       <Section title="1. Identify each user at sign-up" description="An identify message with these traits, alongside user.signed_up.">
         <ul className="space-y-1 text-sm">
@@ -128,17 +148,6 @@ export function IntegrationGuide({ connection }: { connection: PublicConnection 
         </ul>
       </Section>
 
-      {guide.notes.length > 0 ? (
-        <Section title="Also from your code">
-          <ul className="space-y-1 text-sm">
-            {guide.notes.map((n, i) => (
-              <li key={i}>
-                <Badge>{n.kind}</Badge> {n.text}
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
     </div>
   );
 }

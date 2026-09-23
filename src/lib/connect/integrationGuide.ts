@@ -2,6 +2,7 @@ import type { ProductConnection } from "@/lib/types/productConnection";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ProductMap } from "./productMapSchema";
 import { RESERVED_EVENTS } from "./protocol";
+import { buildAgentPrompt, buildIntegrationTasks, type IntegrationTask } from "./integrationTasks";
 
 /**
  * The per-connection INTEGRATION GUIDE: exactly what this customer's developers
@@ -35,6 +36,10 @@ export interface IntegrationGuide {
     exitRules: string[];
   };
   notes: Array<{ kind: string; text: string }>;
+  /** Their side, as a prioritised to-do list with what happens if skipped. */
+  tasks: IntegrationTask[];
+  /** Ready to paste into a coding agent in their repo. No secrets. */
+  agentPrompt: string;
   warnings: string[];
   fromRepo: boolean;
 }
@@ -48,6 +53,7 @@ export function buildIntegrationGuide(input: {
   /** The latest analysis with a map (accepted or not) — adds what we learned from the code. */
   analysis?: Pick<RepoAnalysis, "map"> | null;
   origin: string;
+  productName?: string;
 }): IntegrationGuide {
   const { connection, origin } = input;
   const map = input.analysis?.map ?? null;
@@ -97,6 +103,25 @@ export function buildIntegrationGuide(input: {
     .filter((x) => ["signup", "consent", "other"].includes(x.kind))
     .map((x) => ({ kind: x.kind, text: x.description }));
 
+  const tasks = buildIntegrationTasks({ map, health: connection.health ?? null, contextEnabled: Boolean(connection.contextEndpoint?.enabled) });
+  // Steps for the prompt: the accepted catalog, or — before anything's accepted — what the code suggested.
+  const promptSteps = steps.length
+    ? steps.map((s) => ({ id: s.id, label: s.label, completion: s.completion ?? "", how: detection.get(s.id) ?? null }))
+    : (map?.onboardingSteps ?? []).map((s) => ({ id: s.id, label: s.label, completion: s.completion, how: s.detection }));
+  const promptFacts = (cat.facts ?? []).length
+    ? (cat.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source }))
+    : (map?.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source }));
+  const agentPrompt = buildAgentPrompt({
+    productName: input.productName ?? "our product",
+    keyId: connection.keyId,
+    origin,
+    tasks,
+    steps: promptSteps,
+    facts: promptFacts,
+    events: events.map((e) => ({ name: e.properties ? `${e.name} ${JSON.stringify(e.properties)}` : e.name, when: e.when })),
+    warnings: map?.warnings ?? [],
+  });
+
   return {
     keyId: connection.keyId,
     eventsUrl: `${origin}/api/v1/events`,
@@ -110,6 +135,8 @@ export function buildIntegrationGuide(input: {
       exitRules: mapHooks(map, "exit_rule"),
     },
     notes,
+    tasks,
+    agentPrompt,
     warnings: map?.warnings ?? [],
     fromRepo: Boolean(map),
   };

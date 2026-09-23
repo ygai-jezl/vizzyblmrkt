@@ -8,6 +8,9 @@ import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { api, errorText, timeAgo, type PublicConnection } from "./api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "./ui";
 import { GitHubRepoChooser } from "./GitHubRepoChooser";
+import { CopyAgentPrompt } from "./CopyAgentPrompt";
+import { IntegrationTasks } from "./IntegrationTasks";
+import { buildIntegrationTasks } from "@/lib/connect/integrationTasks";
 
 /**
  * "Learn from your repo": we read the product's code (read-only — clone, read,
@@ -296,17 +299,13 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
             </Section>
           ))}
 
-          {map.hooks.length > 0 ? (
-            <Section title="For your developers" description="What your side of the integration needs to handle. These go into your integration guide, not the catalog.">
-              <ul className="space-y-1 text-sm">
-                {map.hooks.map((h, i) => (
-                  <li key={i}>
-                    <Badge>{h.kind.replace("_", " ")}</Badge> {h.description}
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          ) : null}
+          <Section
+            title="What your developers need to do"
+            description="Your side of the integration, in priority order, with where each piece goes in your code. Only sign-ups are required for journeys to run; the rest make emails personal or keep them compliant. The full detail is on the Integration guide tab."
+          >
+            <CopyAgentPrompt connectionId={connection.id} />
+            <IntegrationTasks tasks={buildIntegrationTasks({ map, health: null, contextEnabled: false })} showDone={false} />
+          </Section>
 
           {canEdit ? (
             <Section title="Add to the catalog" description="Existing catalog entries with the same id are replaced; everything else is added.">

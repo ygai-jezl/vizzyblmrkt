@@ -53,7 +53,9 @@ export default function DevelopersHome() {
           about a minute (<Link className="underline" href="/developers/connect-your-code">how connecting works</Link>). We
           read your code and propose your catalog: your onboarding steps and how each is done, the events you can send,
           and the facts you can report. You review and keep what&apos;s right. Your connection&apos;s{" "}
-          <strong>Integration guide</strong> then lists exactly what to build.
+          <strong>Integration guide</strong> then lists exactly what to build, in priority order and pointing at your own
+          files — with a <strong>Copy prompt</strong> button that hands the whole job to your coding agent (Claude Code,
+          Cursor, …).
         </li>
         <li>
           Send <C>identify</C> and <C>user.signed_up</C> when someone signs up, and{" "}

@@ -1,10 +1,14 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  // Nav v2: settings live on each launch (with Archive / Delete, which this lacks).
+  if (isNavV2Enabled()) redirect("/admin/launches");
   const ctx = await requireAdminContext();
 
   const campaigns = await forTenant(ctx).campaigns.find({

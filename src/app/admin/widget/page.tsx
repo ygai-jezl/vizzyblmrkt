@@ -1,14 +1,18 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { platformOrigin } from "@/lib/platform/origin";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { WidgetBuilder } from "@/components/admin/WidgetBuilder";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
 export default async function WidgetPage() {
+  // Nav v2: each launch has its own Embed & Design tab; pick the launch first.
+  if (isNavV2Enabled()) redirect("/admin/launches");
   const ctx = await requireAdminContext();
   const origin = originFromHeaders(await headers());
   const embedOrigin = platformOrigin() || origin;

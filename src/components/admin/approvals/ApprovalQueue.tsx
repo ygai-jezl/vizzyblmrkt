@@ -6,6 +6,7 @@ import { validateAiLine, validateAiSubject } from "@/lib/lifecycle/insightValida
 import { escapeHtml } from "@/lib/email/emailRender";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Tabs, inputClass } from "../connect/ui";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 /**
  * The Approval Queue: per-person AI lines for lifecycle emails, written ahead
@@ -85,7 +86,7 @@ export function ApprovalQueue({ canEdit }: { canEdit: boolean }) {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-lg font-semibold">Approval Queue</h1>
+        <h1 className="text-lg font-semibold">{isNavV2Enabled() ? "Review" : "Approval Queue"}</h1>
         <p className="max-w-3xl text-sm text-neutral-500 dark:text-neutral-400">
           Personal lines for upcoming lifecycle emails, written from each person&rsquo;s own results. Numbers only ever
           come from your product&rsquo;s insight; the AI line can&rsquo;t add any. Anything you don&rsquo;t decide in time goes

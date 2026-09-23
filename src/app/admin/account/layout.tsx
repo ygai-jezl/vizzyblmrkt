@@ -1,5 +1,6 @@
 import { requireAdminContext } from "@/lib/auth/session";
 import { AccountTabs } from "@/components/admin/AccountTabs";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export default async function AccountLayout({
     <div className="space-y-6">
       <div className="space-y-1">
         <p className="text-xs uppercase tracking-wide text-neutral-400">Account</p>
-        <h1 className="text-xl font-semibold">Account settings</h1>
+        <h1 className="text-xl font-semibold">{isNavV2Enabled() ? "Settings" : "Account settings"}</h1>
         <p className="text-sm text-neutral-500">
           Global settings for your account, reused across all of your launches.
         </p>

@@ -10,6 +10,16 @@ const config: Config = {
     // here or they're silently purged from the build.
     "./src/lib/**/*.{ts,tsx}",
   ],
+  // Dark mode follows the OS (as Tailwind's default `media` did) unless an
+  // ancestor carries data-theme="light" | "dark" — the admin theme switch sets
+  // that on the admin shell (src/components/admin/nav/AdminThemeRoot.tsx).
+  darkMode: [
+    "variant",
+    [
+      "@media (prefers-color-scheme: dark) { &:not([data-theme=light] *) }",
+      "&:is([data-theme=dark] *)",
+    ],
+  ],
   theme: {
     extend: {
       // Marketing homepage design tokens: Vizzybl-website dark surfaces with a

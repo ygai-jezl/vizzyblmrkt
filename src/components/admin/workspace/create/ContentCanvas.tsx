@@ -15,6 +15,7 @@ import {
   type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type { ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import {
@@ -96,6 +97,8 @@ export function ContentCanvas({
    *  the header of newly-seeded email layouts (see EmailLayoutEditor). */
   primaryLogoUrl?: string | null;
 }) {
+  // React Flow has its own theming; follow the admin theme switch (System = OS).
+  const colorMode = useAdminColorMode();
   const router = useRouter();
   const planId = initial.id;
 
@@ -616,7 +619,7 @@ export function ContentCanvas({
           nodeTypes={nodeTypes}
           onNodeClick={(_, n) => setSelectedId(n.id)}
           onPaneClick={() => setSelectedId(null)}
-          colorMode="system"
+          colorMode={colorMode}
           proOptions={{ hideAttribution: true }}
           fitView
         >

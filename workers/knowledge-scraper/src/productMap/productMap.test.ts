@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { redactSecrets } from "./redact";
 import { RepoReader } from "./reader";
-import { verifyEvidence, verifyProductMap } from "./verify";
+import { evidenceKind, verifyEvidence, verifyProductMap } from "./verify";
 import { analyseRepo, ANALYSIS_PASSES, GENERAL_PASS, runTool, trimHistory, TOOLS, type Content, type ModelClient, type Part } from "./analyst";
 import { parseProductMapLenient } from "./schema";
 import { runProductMap } from "./run";
@@ -83,6 +83,27 @@ describe("evidence verification", () => {
     expect(verifyEvidence({ path: "src/missing.ts", excerpt: 'a.status === "completed"', verified: false }, r).verified).toBe(false);
     expect(verifyEvidence({ path: "src/auth/onUserCreated.ts", excerpt: "tier", verified: false }, r).verified).toBe(false);
   });
+  it("labels where evidence came from — only source code proves a step, event or fact is built", () => {
+    expect(evidenceKind("src/app/api/tenants/create/route.ts")).toBe("source");
+    expect(evidenceKind("docs/plans/agency-partnership-program.md")).toBe("docs");
+    expect(evidenceKind("README.md")).toBe("docs");
+    expect(evidenceKind("src/__tests__/onboarding/brandCta.test.tsx")).toBe("test");
+    expect(evidenceKind("app/models_test.go")).toBe("test");
+
+    const rd = new RepoReader([
+      { repo: "web", path: "docs/plans/onboarding.md", text: "Step one: create your brand in the wizard." },
+      { repo: "web", path: "README.md", text: "Share of voice is how often AI mentions you." },
+    ]);
+    const { map } = parseProductMapLenient({
+      onboardingSteps: [{ id: "create_brand", label: "Create brand", evidence: [{ path: "docs/plans/onboarding.md", excerpt: "create your brand in the wizard" }] }],
+      glossary: [{ term: "Share of voice", evidence: [{ path: "README.md", excerpt: "how often AI mentions you" }] }],
+    });
+    const checked = verifyProductMap(map, rd);
+    expect(checked.map.onboardingSteps[0]!.evidence[0]).toMatchObject({ verified: true, kind: "docs" });
+    // The plan-backed step doesn't count as proven; the README-backed glossary term does.
+    expect(checked.stats).toMatchObject({ items: 2, verifiedItems: 1 });
+  });
+
   it("a model can't mark its own evidence verified", () => {
     const { map } = parseProductMapLenient({
       traits: [{ key: "tier", type: "string", evidence: [{ path: "x.ts", excerpt: "made up entirely", verified: true }] }],

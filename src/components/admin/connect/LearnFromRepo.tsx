@@ -49,8 +49,16 @@ function itemsOf(map: ProductMap): Record<SectionId, Item[]> {
   };
 }
 
-/** Ticked by default: backed by verified code evidence and not low confidence. */
-const trusted = (i: Item) => i.confidence !== "low" && i.evidence.some((e) => e.verified);
+/**
+ * Backed by code that runs: verified evidence from a source file. Plans, docs and
+ * tests describe intentions or checks, not what's built — except for glossary
+ * terms, where docs are a fine source. (Older maps have no kind: trust verified.)
+ */
+const provenBy = (e: Evidence, docsCount: boolean) => e.verified && (!e.kind || e.kind === "source" || (docsCount && e.kind === "docs"));
+const proven = (i: Item, section: SectionId) => i.evidence.some((e) => provenBy(e, section === "glossary"));
+
+/** Ticked by default: proven by code and not low confidence. */
+const trusted = (i: Item, section: SectionId) => i.confidence !== "low" && proven(i, section);
 
 const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
   { id: "steps", title: "Onboarding steps", description: "What getting started means in your product, and how each step counts as done." },
@@ -101,7 +109,7 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
   // Pre-tick the trustworthy items whenever a new map arrives.
   useEffect(() => {
     if (!items) return;
-    const pick = (s: SectionId) => new Set(items[s].filter(trusted).map((i) => i.key));
+    const pick = (s: SectionId) => new Set(items[s].filter((i) => trusted(i, s)).map((i) => i.key));
     setSelected({ steps: pick("steps"), events: pick("events"), traits: pick("traits"), facts: pick("facts"), glossary: pick("glossary") });
   }, [items]);
 
@@ -259,7 +267,11 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
                               <Badge key={b}>{b}</Badge>
                             ))}
                             <Badge tone={it.confidence === "high" ? "green" : it.confidence === "low" ? "red" : "amber"}>{it.confidence}</Badge>
-                            {verified === 0 ? <Badge tone="red">no verified code</Badge> : null}
+                            {verified === 0 ? (
+                              <Badge tone="red">no verified code</Badge>
+                            ) : !proven(it, s.id) ? (
+                              <Badge tone="amber">docs/tests only — not proof it&apos;s built</Badge>
+                            ) : null}
                           </div>
                           {it.detail ? <p className="text-sm text-neutral-600 dark:text-neutral-400">{it.detail}</p> : null}
                           {it.evidence.length > 0 ? (
@@ -283,6 +295,7 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
                                         <span>{ev.path}</span>
                                       )}
                                       {ev.verified ? <Badge tone="green">found in file</Badge> : <Badge tone="red">not found</Badge>}
+                                      {ev.kind && ev.kind !== "source" ? <Badge>{ev.kind}</Badge> : null}
                                     </div>
                                     <pre className="mt-1 whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{ev.excerpt}</pre>
                                   </li>

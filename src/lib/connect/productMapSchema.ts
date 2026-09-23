@@ -23,6 +23,12 @@ export const EvidenceSchema = z.object({
   excerpt: text(240).min(1),
   /** Set by the job: the excerpt was found in that file. */
   verified: z.boolean().default(false),
+  /**
+   * Set by the job from the path: source (code that runs), docs (docs, plans,
+   * READMEs — intentions that may not be built) or test. Only source proves a
+   * step, event, trait, fact or hook exists.
+   */
+  kind: z.enum(["source", "docs", "test"]).optional(),
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
@@ -119,6 +125,7 @@ function prepItem(x: unknown): unknown {
       if (!e || typeof e !== "object") return e;
       const ev = { ...(e as Record<string, unknown>) };
       delete ev.verified;
+      delete ev.kind;
       if (typeof ev.excerpt === "string") ev.excerpt = ev.excerpt.trim().slice(0, 240);
       if (typeof ev.line === "string" && /^\d+$/.test(ev.line)) ev.line = Number(ev.line);
       return ev;

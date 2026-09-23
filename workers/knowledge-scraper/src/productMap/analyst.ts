@@ -183,6 +183,7 @@ HOW TO WORK: you're given a directory overview. Use search with specific pattern
 
 RECORD AS YOU GO: as soon as you have evidence for items, call record_findings for that section. Older tool results are trimmed from the conversation to save space — anything not recorded is lost. Finish with submit_product_map (summary + warnings).
 
+EVIDENCE MUST COME FROM CODE THAT RUNS — not tests, docs, READMEs or plans (plans describe intentions that may never have been built; use them only to know where to look). Glossary terms may cite docs.
 EVIDENCE: every item needs 1–3 evidence entries: {"path": exact path as listed, "line": line number, "excerpt": text copied EXACTLY from read_file or search output (without the "123: " line-number prefix), at most 200 characters}. Evidence is checked automatically; invented or paraphrased excerpts are flagged. Give "confidence": "high" | "medium" | "low". Don't record an item you have no evidence for.
 
 ITEM FORMATS for record_findings:

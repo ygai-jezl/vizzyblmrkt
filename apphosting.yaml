@@ -620,39 +620,35 @@ env:
     secret: lifecycle-worker-secret
     availability:
       - RUNTIME
-  # Read-only GitHub access (the YouGrow GitHub App: Contents read + Metadata read
-  # only). Until these are set, GitHub connects through the legacy OAuth app,
-  # whose `repo` scope can also write. To enable, per project:
-  #   (prod is set up — see apphosting.prod.yaml. For dev: register a separate
-  #   dev app with `node infra/github-app/create-app.mjs --env dev`, or by hand:)
-  #   1. Register a GitHub App (Settings → Developer settings → GitHub Apps):
-  #      permissions Contents: Read-only, Metadata: Read-only, nothing else; no
-  #      webhook; "Request user authorization (OAuth) during installation" ON;
-  #      Callback URL <origin>/api/admin/integrations/github/callback.
-  #   2. firebase apphosting:secrets:set github-app-client-secret --project <alias>
-  #      firebase apphosting:secrets:set github-app-private-key  --project <alias>
-  #   3. Uncomment below (values are public), grant access, redeploy the Job with
-  #      GITHUB_APP_ID=… so clones can mint tokens.
-  # - variable: GITHUB_APP_ID
-  #   value: "<app id>"
-  #   availability:
-  #     - RUNTIME
-  # - variable: GITHUB_APP_SLUG
-  #   value: <app slug>
-  #   availability:
-  #     - RUNTIME
-  # - variable: GITHUB_APP_CLIENT_ID
-  #   value: <client id>
-  #   availability:
-  #     - RUNTIME
-  # - variable: GITHUB_APP_CLIENT_SECRET
-  #   secret: github-app-client-secret
-  #   availability:
-  #     - RUNTIME
-  # - variable: GITHUB_APP_PRIVATE_KEY
-  #   secret: github-app-private-key
-  #   availability:
-  #     - RUNTIME
+  # READ-ONLY GitHub access: the "YouGrow (dev)" GitHub App (github.com/apps/yougrow-dev)
+  # — Contents: read + Metadata: read only, no webhook (verified with GitHub's /app
+  # API). "Connect GitHub" installs the app on the repos the customer chooses; every
+  # clone mints a one-hour, down-scoped installation token. The classic OAuth app
+  # (which can also write) is no longer offered once this is set. ID, slug and
+  # Client ID are public; the client secret and private key are in dev Secret
+  # Manager with the App Hosting grants (the key also for the knowledge-scraper Job).
+  # prod overrides all five with its own app ("YouGrowApp") in apphosting.prod.yaml.
+  # Register another environment's app with: node infra/github-app/create-app.mjs --env <env>
+  - variable: GITHUB_APP_ID
+    value: "5051547"
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_SLUG
+    value: yougrow-dev
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_ID
+    value: Iv23lise0Uy9XrPjrb7Z
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_SECRET
+    secret: github-app-client-secret
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_PRIVATE_KEY
+    secret: github-app-private-key
+    availability:
+      - RUNTIME
   # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
   # one-click header). Without it, emails carry no unsubscribe link and lifecycle
   # marketing sends are held. Created in dev with a random value (separate from prod's).

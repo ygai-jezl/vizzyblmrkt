@@ -49,10 +49,11 @@ export default function DevelopersHome() {
           the browser).
         </li>
         <li>
-          Optional but recommended: open <strong>Learn from repo</strong> on the connection. We read your code
-          (read-only — we never change it) and propose your catalog: your onboarding steps and how each is done, the
-          events you can send, and the facts you can report. You review and keep what&apos;s right. Your
-          connection&apos;s <strong>Integration guide</strong> then lists exactly what to build.
+          Recommended: open <strong>Learn from repo</strong> on the connection and connect GitHub or GitLab — read-only,
+          about a minute (<Link className="underline" href="/developers/connect-your-code">how connecting works</Link>). We
+          read your code and propose your catalog: your onboarding steps and how each is done, the events you can send,
+          and the facts you can report. You review and keep what&apos;s right. Your connection&apos;s{" "}
+          <strong>Integration guide</strong> then lists exactly what to build.
         </li>
         <li>
           Send <C>identify</C> and <C>user.signed_up</C> when someone signs up, and{" "}

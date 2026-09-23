@@ -7,6 +7,7 @@ import type { ProductMap } from "@/lib/connect/productMapSchema";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { api, errorText, timeAgo, type PublicConnection } from "./api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "./ui";
+import { GitHubRepoChooser } from "./GitHubRepoChooser";
 
 /**
  * "Learn from your repo": we read the product's code (read-only — clone, read,
@@ -58,7 +59,10 @@ const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
 
 export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection: PublicConnection; canEdit: boolean; onAccepted: () => void }) {
   const [analyses, setAnalyses] = useState<RepoAnalysis[] | null>(null);
-  const [repos, setRepos] = useState<Array<{ url: string; ref: string }>>([{ url: "", ref: "" }]);
+  /** Repos ticked from the read-only GitHub app's list. */
+  const [picked, setPicked] = useState<string[]>([]);
+  /** Other repositories by address (GitLab, or a public repo). */
+  const [repos, setRepos] = useState<Array<{ url: string; ref: string }>>([]);
   const [selected, setSelected] = useState<Record<SectionId, Set<string>>>({ steps: new Set(), events: new Set(), traits: new Set(), facts: new Set(), glossary: new Set() });
   const [open, setOpen] = useState<string | null>(null);
   const [origin, setOrigin] = useState(connection.linkDomains[0] ? `https://${connection.linkDomains[0]}` : "");
@@ -96,7 +100,12 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
   const start = async () => {
     setBusy(true);
     setMsg(null);
-    const body = { repos: repos.filter((r) => r.url.trim()).map((r) => ({ url: r.url.trim(), ref: r.ref.trim() || null })) };
+    const body = {
+      repos: [
+        ...picked.map((url) => ({ url, ref: null })),
+        ...repos.filter((r) => r.url.trim()).map((r) => ({ url: r.url.trim(), ref: r.ref.trim() || null })),
+      ].slice(0, 3),
+    };
     const r = await api(`/api/admin/connections/${connection.id}/learn`, { method: "POST", body: JSON.stringify(body) });
     setBusy(false);
     if (!r.ok) return setMsg({ tone: "err", text: errorText(r.data) });
@@ -158,28 +167,33 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
         <p className="flex items-start gap-1.5 text-xs text-neutral-500">
           <ShieldCheck size={14} className="mt-px shrink-0" />
           Read-only: we clone, read and delete the copy — we never change your code, and we keep only short excerpts as evidence
-          (secrets are removed). Private repos use the GitHub or GitLab account connected in{" "}
+          (secrets are removed). GitLab connects in{" "}
           <Link className="underline" href="/admin/account/connections">
             Account → Connections
           </Link>
           .
         </p>
+        <GitHubRepoChooser selected={picked} onChange={setPicked} max={3 - repos.filter((r) => r.url.trim()).length} canEdit={canEdit} />
         {canEdit ? (
           <div className="space-y-2">
             {repos.map((r, i) => (
               <div key={i} className="grid gap-2 sm:grid-cols-[3fr_1fr_auto]">
                 <input className={inputClass} value={r.url} placeholder="github.com/your-org/your-app" onChange={(e) => setRepos(repos.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} />
                 <input className={inputClass} value={r.ref} placeholder="branch (default)" onChange={(e) => setRepos(repos.map((x, j) => (j === i ? { ...x, ref: e.target.value } : x)))} />
-                <Button disabled={repos.length === 1} aria-label="Remove repo" onClick={() => setRepos(repos.filter((_, j) => j !== i))}>
+                <Button aria-label="Remove repo" onClick={() => setRepos(repos.filter((_, j) => j !== i))}>
                   <Trash2 size={14} />
                 </Button>
               </div>
             ))}
             <div className="flex flex-wrap gap-2">
-              <Button disabled={repos.length >= 3} onClick={() => setRepos([...repos, { url: "", ref: "" }])}>
-                <Plus size={14} /> Another repo
+              <Button disabled={picked.length + repos.length >= 3} onClick={() => setRepos([...repos, { url: "", ref: "" }])}>
+                <Plus size={14} /> {repos.length ? "Another address" : "Add a repository by address (GitLab or public)"}
               </Button>
-              <Button tone="primary" disabled={busy || !repos.some((r) => r.url.trim()) || (latest !== null && RUNNING.has(latest.status))} onClick={() => void start()}>
+              <Button
+                tone="primary"
+                disabled={busy || (picked.length === 0 && !repos.some((r) => r.url.trim())) || (latest !== null && RUNNING.has(latest.status))}
+                onClick={() => void start()}
+              >
                 <GitBranch size={14} /> {latest && RUNNING.has(latest.status) ? "Reading your code…" : "Learn from repo"}
               </Button>
             </div>

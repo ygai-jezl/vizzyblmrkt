@@ -49,6 +49,11 @@ export async function GET(
   if (provider === "github" && githubAppConfig() && sp.get("setup_action") === "update" && !stateRaw) {
     return back(origin, { status: "ok", provider, updated: "1" });
   }
+  // An organisation MEMBER (not an owner) asked their org to install the app.
+  // GitHub has notified the owners; there's no installation to store yet.
+  if (provider === "github" && githubAppConfig() && sp.get("setup_action") === "request") {
+    return back(origin, { status: "requested", provider });
+  }
   if (!code || !stateRaw) return back(origin, { status: "error", reason: "missing_code", provider });
 
   const state = verifyState(stateRaw);
@@ -82,6 +87,9 @@ export async function GET(
       return back(origin, { status: "error", reason: "exception", provider });
     }
   }
+  // With the read-only app configured, GitHub never falls back to the classic
+  // OAuth app (which can also write).
+  if (app) return back(origin, { status: "error", reason: "no_installation", provider });
 
   try {
     const tokRes = await fetch(cfg.tokenUrl, {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, createVerify } from "node:crypto";
-import { appJwt, githubAppConfig, installUrl, mintInstallationToken, verifyUserInstallation } from "./githubApp";
+import { appJwt, githubAppConfig, installUrl, listInstallationRepos, manageInstallationUrl, mintInstallationToken, verifyUserInstallation } from "./githubApp";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const pem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -59,4 +59,37 @@ describe("GitHub App (read-only)", () => {
     expect(await verifyUserInstallation({ ...input, installationId: 99 }, cfg, installs({ contents: "read" }).f)).toEqual({ ok: false, reason: "installation_not_yours" });
     expect(await verifyUserInstallation(input, cfg, installs({ contents: "write" }).f)).toEqual({ ok: false, reason: "app_not_read_only" });
   });
+
+  it("lists exactly the repositories the customer chose, with a read-only token", async () => {
+    const { f, calls } = fakeFetch((url) =>
+      url.endsWith("/access_tokens")
+        ? { status: 201, body: { token: "ghs_x" } }
+        : {
+            status: 200,
+            body: {
+              total_count: 2,
+              repositories: [
+                { full_name: "vizzybl-ai/vizzybl", html_url: "https://github.com/vizzybl-ai/vizzybl", default_branch: "main", private: true },
+                { full_name: "vizzybl-ai/docs", html_url: "https://github.com/vizzybl-ai/docs", default_branch: "main", private: false },
+                { full_name: "evil/x", html_url: "https://evil.example/x" },
+              ],
+            },
+          },
+    );
+    const r = await listInstallationRepos(77, cfg, f);
+    expect(r).toEqual({
+      truncated: false,
+      repos: [
+        { fullName: "vizzybl-ai/docs", url: "https://github.com/vizzybl-ai/docs", defaultBranch: "main", private: false },
+        { fullName: "vizzybl-ai/vizzybl", url: "https://github.com/vizzybl-ai/vizzybl", defaultBranch: "main", private: true },
+      ],
+    });
+    expect(calls[1]!.url).toContain("/installation/repositories");
+    expect(new Headers(calls[1]!.init?.headers).get("authorization")).toBe("Bearer ghs_x");
+  });
+
+  it("links to GitHub's own page for adding or removing repositories", () => {
+    expect(manageInstallationUrl(cfg)).toBe("https://github.com/apps/yougrow-connect/installations/new");
+  });
 });
+

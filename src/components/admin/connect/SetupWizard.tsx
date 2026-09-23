@@ -8,11 +8,11 @@ import { KeyReveal } from "./KeyReveal";
 import { EventDebugger } from "./EventDebugger";
 import { Banner, Button, Field, inputClass } from "./ui";
 
-type Step = "name" | "keys" | "install" | "listen";
+type Step = "name" | "keys" | "learn" | "install" | "listen";
 
 /**
  * Connect a product, or create a Sandbox, in a few steps:
- *   name → keys (shown once) → install snippet → wait for the first event.
+ *   name → keys (shown once) → learn from your repo (recommended) → install snippet → wait for the first event.
  * A sandbox skips install/listen: it can fire its own events.
  */
 export function SetupWizard({
@@ -111,10 +111,29 @@ export function SetupWizard({
                   Open the sandbox
                 </Button>
               ) : (
-                <Button tone="primary" disabled={!stored} onClick={() => setStep("install")}>
-                  Next: install
+                <Button tone="primary" disabled={!stored} onClick={() => setStep("learn")}>
+                  Next
                 </Button>
               )}
+            </div>
+          </>
+        ) : null}
+
+        {step === "learn" && created ? (
+          <>
+            <div className="space-y-2 text-sm">
+              <p className="font-medium">Recommended: let YouGrow learn your product from its code</p>
+              <p className="text-neutral-600 dark:text-neutral-400">
+                Connect GitHub (read-only — about a minute) and we&apos;ll propose your onboarding steps and how each is
+                done, the events to send and the facts you can report, with the code each came from. You review what we
+                keep, and your Integration guide then lists exactly what to build.
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button onClick={() => setStep("install")}>Skip — show the install snippet</Button>
+              <Button tone="primary" onClick={() => router.push(`/admin/products/${created.connection.id}?tab=learn`)}>
+                Learn from my repo
+              </Button>
             </div>
           </>
         ) : null}

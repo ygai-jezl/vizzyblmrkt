@@ -128,3 +128,49 @@ export async function verifyUserInstallation(
   if (Object.values(perms).some((level) => WRITE_LEVELS.has(level))) return { ok: false, reason: "app_not_read_only" };
   return { ok: true, accountLogin: inst.account?.login ?? null, repositorySelection: inst.repository_selection ?? null };
 }
+
+/** Where a customer adds or removes repositories (GitHub lists their installs with "Configure"). */
+export function manageInstallationUrl(cfg: Pick<GitHubAppConfig, "slug">): string {
+  return `https://github.com/apps/${cfg.slug}/installations/new`;
+}
+
+export interface InstallationRepo {
+  /** owner/name */
+  fullName: string;
+  url: string;
+  defaultBranch: string | null;
+  private: boolean;
+}
+
+const MAX_REPO_PAGES = 5;
+
+/** The repositories this installation can read — exactly what the customer chose on GitHub. */
+export async function listInstallationRepos(
+  installationId: number,
+  cfg: Pick<GitHubAppConfig, "appId" | "privateKey">,
+  fetchImpl: Fetch = fetch,
+): Promise<{ repos: InstallationRepo[]; truncated: boolean }> {
+  const { token } = await mintInstallationToken(installationId, cfg, fetchImpl);
+  const repos: InstallationRepo[] = [];
+  let truncated = false;
+  for (let page = 1; page <= MAX_REPO_PAGES; page += 1) {
+    const res = await fetchImpl(`${API}/installation/repositories?per_page=100&page=${page}`, {
+      headers: { ...API_HEADERS, Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`github_app_repos_failed:${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as {
+      total_count?: number;
+      repositories?: Array<{ full_name?: string; html_url?: string; default_branch?: string; private?: boolean }>;
+    };
+    for (const r of data.repositories ?? []) {
+      if (typeof r.full_name === "string" && typeof r.html_url === "string" && r.html_url.startsWith("https://github.com/")) {
+        repos.push({ fullName: r.full_name, url: r.html_url, defaultBranch: r.default_branch ?? null, private: Boolean(r.private) });
+      }
+    }
+    if ((data.repositories ?? []).length < 100) break;
+    if (page === MAX_REPO_PAGES) truncated = (data.total_count ?? 0) > repos.length;
+  }
+  repos.sort((a, b) => a.fullName.localeCompare(b.fullName));
+  return { repos, truncated };
+}

@@ -9,6 +9,7 @@ export const metadata = { title: "Developers — YouGrow" };
 
 const NAV = [
   { href: "/developers", label: "Overview" },
+  { href: "/developers/connect-your-code", label: "Connecting your code" },
   { href: "/developers/events", label: "Sending events" },
   { href: "/developers/context-endpoint", label: "Context endpoint" },
   { href: "/developers/webhooks", label: "Webhooks" },

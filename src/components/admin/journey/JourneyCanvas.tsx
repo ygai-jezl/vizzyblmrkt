@@ -15,6 +15,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type {
   Journey,
   JourneyStatus,
@@ -86,6 +87,8 @@ export function JourneyCanvas({
   initial: Journey;
   questions?: Question[];
 }) {
+  // React Flow has its own theming; follow the admin theme switch (System = OS).
+  const colorMode = useAdminColorMode();
   const router = useRouter();
   const seeded = useMemo(() => seedGraph(initial), [initial]);
   const [nodes, setNodes, onNodesChange] = useNodesState(seeded.nodes);
@@ -362,7 +365,7 @@ export function JourneyCanvas({
           }}
           onNodeClick={(_, n) => setSelectedId(n.id)}
           onPaneClick={deselectAndSave}
-          colorMode="system"
+          colorMode={colorMode}
           proOptions={{ hideAttribution: true }}
           fitView
         >

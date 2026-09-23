@@ -15,6 +15,7 @@ import {
 import type { EmailTemplate } from "@/lib/types/emailTemplate";
 import { wrap, renderEmailLayout } from "@/lib/email/emailRender";
 import { Modal } from "@/components/admin/email/Modal";
+import { ADMIN_THEME_ROOT_ID } from "@/lib/theme";
 import { imageModelOverride, type ImageModelSlug } from "@/lib/content/create/imageModels";
 import { seedLayoutFromNode, defaultBlock, newBlockId } from "./seedLayout";
 import { PRESET_EMAIL_TEMPLATES } from "./presetTemplates";
@@ -408,7 +409,7 @@ export function EmailLayoutEditor({
         </button>
       </div>
 
-      {/* Modals are portalled to <body> so their z-50 escapes this z-30 overlay's
+      {/* Modals are portalled out (to the admin shell, else <body>) so their z-50 escapes this z-30 overlay's
           stacking context (otherwise the z-40 inspector would paint over them). */}
       {createPortal(
         <>
@@ -481,7 +482,8 @@ export function EmailLayoutEditor({
         </div>
       </Modal>
         </>,
-        document.body,
+        // Inside the admin shell when there is one, so an explicit theme choice applies.
+        document.getElementById(ADMIN_THEME_ROOT_ID) ?? document.body,
       )}
     </div>
   );

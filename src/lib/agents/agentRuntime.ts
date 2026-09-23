@@ -78,6 +78,8 @@ export function contextEnvelope(
     /** The lifecycle page the operator is on (Vizzy edits THIS journey / product). */
     connectionId?: string | null;
     journeyId?: string | null;
+    /** The admin page in view (breadcrumb text), so Vizzy knows what "this" means. */
+    page?: string | null;
   },
 ): string {
   const payload: Record<string, unknown> = {
@@ -90,6 +92,7 @@ export function contextEnvelope(
   if (extras?.campaignId) payload.campaignId = extras.campaignId;
   if (extras?.connectionId) payload.connectionId = extras.connectionId;
   if (extras?.journeyId) payload.journeyId = extras.journeyId;
+  if (extras?.page) payload.page = extras.page;
   // Operator content language for the root agent. Omitted for English so the
   // common-case envelope is unchanged; the Python side no-ops on "en" anyway.
   if (extras?.locale && extras.locale !== "en") payload.locale = extras.locale;

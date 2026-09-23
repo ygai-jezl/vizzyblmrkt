@@ -24,6 +24,7 @@ import { lifecycleSender } from "./policy";
 import { isLifecycleAiDraftsEnabled, isLifecycleChatAuthoringEnabled, lifecycleModeCeiling } from "./flags";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectLifecycleDraft } from "./architect";
+import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type ExportWhich } from "./transfer";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 
 /**
@@ -468,4 +469,18 @@ export async function generateJourneyDraft(
   const saved = await saveLifecycleDraft(ctx, journeyId, built.draft, { db: deps.db, authoredBy: "human" });
   if (!saved.ok) return fail(saved.status, saved.error, saved.detail);
   return ok({ journey: saved.value.journey, issues: saved.value.issues, notes: built.notes });
+}
+
+// ---- Moving journeys between products and accounts ------------------------------------------
+
+export async function exportJourney(ctx: TenantContext, id: string, which: ExportWhich, db?: FirestoreLike): Promise<ApiResult> {
+  return fromService(await exportJourneyDocument(ctx, id, { which, db }), (v) => v);
+}
+
+export async function importJourney(ctx: TenantContext, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
+  return fromService(await importJourneyDocument(ctx, input, { db }), (v) => v, 201);
+}
+
+export async function duplicateJourneyTo(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
+  return fromService(await duplicateJourney(ctx, id, input, { db }), (v) => v, 201);
 }

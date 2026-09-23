@@ -17,6 +17,9 @@ export interface ProviderConfig {
   scope: string;
   /** The single scope that MUST be granted for a private clone to work. */
   requiredScope: string;
+  /** Extra scope needed to LIST the account's repos (repo selection), if `scope`
+   *  doesn't already cover it. */
+  listScope?: string;
   /** Field on the user API response that holds the account handle. */
   loginField: string;
   clientId: () => string | undefined;
@@ -44,6 +47,8 @@ export const PROVIDERS: Record<GitProvider, ProviderConfig> = {
     userApiUrl: "https://gitlab.com/api/v4/user",
     scope: "read_repository read_user",
     requiredScope: "read_repository",
+    // read_repository/read_user don't cover GET /projects.
+    listScope: "read_api",
     loginField: "username",
     clientId: () => process.env.GITLAB_OAUTH_CLIENT_ID,
     clientSecret: () => process.env.GITLAB_OAUTH_CLIENT_SECRET,
@@ -67,6 +72,12 @@ export function oauthOrigin(headers: Headers): string {
   const pinned = (process.env.GIT_OAUTH_ORIGIN ?? "").replace(/\/+$/, "");
   if (pinned) return pinned;
   return originFromHeaders(headers);
+}
+
+/** Scopes to request at authorize time (+ the listing scope when repo selection is on). */
+export function authorizeScope(p: GitProvider, repoSelection: boolean): string {
+  const c = PROVIDERS[p];
+  return repoSelection && c.listScope ? `${c.scope} ${c.listScope}` : c.scope;
 }
 
 /** Parse a provider scope string (space- or comma-separated) into a set. */

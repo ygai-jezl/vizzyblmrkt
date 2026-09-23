@@ -163,6 +163,16 @@ export const EmailSenderConfigSchema = z.object({
 });
 export type EmailSenderConfig = z.infer<typeof EmailSenderConfigSchema>;
 
+/** One repo an admin selected on a git connection (lowercased `fullPath` is the key). */
+export const GitSelectedRepoSchema = z.object({
+  fullPath: z.string().min(3).max(512),
+  owner: z.string().max(255),
+  private: z.boolean(),
+  defaultBranch: z.string().max(255).nullable(),
+  webUrl: z.string().url(),
+});
+export type GitSelectedRepo = z.infer<typeof GitSelectedRepoSchema>;
+
 /**
  * A per-tenant OAuth connection to a git host (GitHub/GitLab), used to clone
  * PRIVATE repos during knowledge ingestion. The access token is stored ENCRYPTED
@@ -171,14 +181,28 @@ export type EmailSenderConfig = z.infer<typeof EmailSenderConfigSchema>;
  */
 export const GitConnectionSchema = z.object({
   provider: z.enum(["github", "gitlab"]),
-  /** Encrypted access token (ciphertext / iv / GCM tag), all base64. */
-  enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }),
+  /**
+   * oauth (legacy): an encrypted user token. app: a GitHub App installation —
+   * read-only by construction; no token is stored, one is minted per clone.
+   */
+  kind: z.enum(["oauth", "app"]).optional(),
+  /** GitHub App installation id (kind "app"). Not a secret. */
+  installationId: z.number().int().positive().optional(),
+  /** Encrypted access token (ciphertext / iv / GCM tag), all base64. Absent for kind "app". */
+  enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }).optional(),
   /** The connected account handle (for display). */
   accountLogin: z.string().optional(),
   scope: z.string().optional(),
   /** Firebase UID of the admin who connected. */
   connectedBy: z.string().optional(),
   connectedAt: z.string(),
+  /**
+   * The repos (across the account's orgs/groups) this connection may be used for.
+   * undefined = legacy connection (any repo); [] = none chosen yet (token unused).
+   * See src/lib/integrations/repos.ts.
+   */
+  repos: z.array(GitSelectedRepoSchema).max(200).optional(),
+  reposUpdatedAt: z.string().optional(),
 });
 export type GitConnection = z.infer<typeof GitConnectionSchema>;
 

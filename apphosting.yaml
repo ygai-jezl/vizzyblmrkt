@@ -452,6 +452,15 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
+  # Git repo selection — after connecting GitHub/GitLab the admin picks WHICH repos
+  # (personal + every org/group they belong to) the connection may be used for;
+  # the knowledge-scraper Job only attaches the token for selected repos. Also adds
+  # GitLab's read_api scope (needed to list projects). Needs the Job redeployed
+  # (workers/knowledge-scraper/deploy.sh) with the matching gitToken.ts. ON in dev for smoke.
+  - variable: GIT_REPO_SELECTION_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
 
   # Agent 3 (Creative Director) — Gemini on Vertex AI. By default (no key) it uses
   # the runtime service account via ADC (needs the Vertex AI API enabled + the SA
@@ -573,6 +582,13 @@ env:
   # A resource name, not a secret. Created per project with
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-dev
   # prod overrides both in apphosting.prod.yaml.
+  # Public developer docs (/developers): how to send events, build the context
+  # endpoint, receive webhooks and verify our requests. Off in prod until the
+  # owner opens them (apphosting.prod.yaml).
+  - variable: DEVELOPERS_DOCS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: CONNECT_SIGNING_KMS_KEY
     value: projects/vizzybl-marketing-dev/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
     availability:
@@ -604,6 +620,35 @@ env:
     secret: lifecycle-worker-secret
     availability:
       - RUNTIME
+  # READ-ONLY GitHub access: the "YouGrow (dev)" GitHub App (github.com/apps/yougrow-dev)
+  # — Contents: read + Metadata: read only, no webhook (verified with GitHub's /app
+  # API). "Connect GitHub" installs the app on the repos the customer chooses; every
+  # clone mints a one-hour, down-scoped installation token. The classic OAuth app
+  # (which can also write) is no longer offered once this is set. ID, slug and
+  # Client ID are public; the client secret and private key are in dev Secret
+  # Manager with the App Hosting grants (the key also for the knowledge-scraper Job).
+  # prod overrides all five with its own app ("YouGrowApp") in apphosting.prod.yaml.
+  # Register another environment's app with: node infra/github-app/create-app.mjs --env <env>
+  - variable: GITHUB_APP_ID
+    value: "5051547"
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_SLUG
+    value: yougrow-dev
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_ID
+    value: Iv23lise0Uy9XrPjrb7Z
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_SECRET
+    secret: github-app-client-secret
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_PRIVATE_KEY
+    secret: github-app-private-key
+    availability:
+      - RUNTIME
   # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
   # one-click header). Without it, emails carry no unsubscribe link and lifecycle
   # marketing sends are held. Created in dev with a random value (separate from prod's).
@@ -618,4 +663,28 @@ env:
   - variable: EMAIL_LINK_ORIGIN
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
     availability:
+      - RUNTIME
+  # "Growth Path" admin navigation (nav v2): the new sidebar, the header with
+  # breadcrumbs, the Launches list, and redirects from the old unlinked pages.
+  # The theme switch (System / Light / Dark) lives in that header, so it needs
+  # nav v2 too. ENABLED on dev; OFF in prod until verified here and promoted
+  # (overridden in apphosting.prod.yaml). NEXT_PUBLIC_*: build + runtime.
+  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Nav v2 phase 2, "always a next step": the Home growth path and real metrics,
+  # the sidebar progress dots, one Review queue for every decision, the Ask Vizzy
+  # panel (⌘J), ⌘K search and the shell palette. Needs nav v2. ENABLED on dev;
+  # OFF in prod until verified here and promoted (apphosting.prod.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
+    value: "true"
+    availability:
+      - BUILD
       - RUNTIME

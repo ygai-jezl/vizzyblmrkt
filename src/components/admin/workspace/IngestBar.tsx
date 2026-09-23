@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CONTENT_MATRIX_TOPICS } from "@/lib/content/contentMatrix";
-import { GitConnectHint } from "./GitConnectHint";
+import { GitConnectHint, gitRepoDatalistId } from "./GitConnectHint";
 
 const SOURCE_TYPES = [
   { id: "docs_url", label: "Docs / page" },
@@ -65,7 +65,11 @@ export function IngestBar({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        status?: string;
+        warning?: string;
+      };
       if (!res.ok) {
         setNote(ERRORS[data.error ?? ""] ?? "Couldn't ingest that source.");
         return;
@@ -74,6 +78,11 @@ export function IngestBar({
         setNote("That source is already ingested.");
         await onIngested();
         return;
+      }
+      if (data.warning === "repo_not_selected") {
+        setNote(
+          "That repo isn't selected on your connection, so it's ingested without access — this only works if it's public.",
+        );
       }
       setUrl("");
       setGitRef("");
@@ -105,6 +114,7 @@ export function IngestBar({
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
+          list={isRepo ? gitRepoDatalistId(source as "github" | "gitlab") : undefined}
           placeholder="https://… (docs page, site, or repo URL)"
           className="min-w-[16rem] flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         />

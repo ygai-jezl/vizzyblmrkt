@@ -3,6 +3,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { computeHybridAnalytics } from "@/lib/analytics/analytics";
 import { CampaignAnalyticsView } from "@/components/admin/CampaignAnalyticsView";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export default async function AnalyticsPage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">Analytics</h1>
+        <h1 className="text-xl font-semibold">{isNavV2Enabled() ? "Insights" : "Analytics"}</h1>
         {campaigns.length > 1 ? (
           <div className="flex gap-2 text-sm">
             {campaigns.map((c) => (

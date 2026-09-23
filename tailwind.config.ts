@@ -10,6 +10,16 @@ const config: Config = {
     // here or they're silently purged from the build.
     "./src/lib/**/*.{ts,tsx}",
   ],
+  // Dark mode follows the OS (as Tailwind's default `media` did) unless an
+  // ancestor carries data-theme="light" | "dark" — the admin theme switch sets
+  // that on the admin shell (src/components/admin/nav/AdminThemeRoot.tsx).
+  darkMode: [
+    "variant",
+    [
+      "@media (prefers-color-scheme: dark) { &:not([data-theme=light] *) }",
+      "&:is([data-theme=dark] *)",
+    ],
+  ],
   theme: {
     extend: {
       // Marketing homepage design tokens: Vizzybl-website dark surfaces with a
@@ -17,6 +27,22 @@ const config: Config = {
       // Tailwind's built-in palettes (blue/sky/cyan/emerald, whose shades supply the
       // accents/gradients directly). Additive — used only by src/components/marketing/*.
       colors: {
+        // Admin shell palette (nav v2) — CSS variables in globals.css (.yg-shell), so
+        // one class covers light, dark and the phase-2 palette. No opacity modifiers.
+        shell: {
+          page: "var(--yg-page)",
+          side: "var(--yg-side)",
+          card: "var(--yg-card)",
+          raised: "var(--yg-raised)",
+          line: "var(--yg-line)",
+          hover: "var(--yg-hover)",
+          active: "var(--yg-active)",
+          ink: "var(--yg-ink)",
+          muted: "var(--yg-muted)",
+          faint: "var(--yg-faint)",
+          accent: "var(--yg-accent)",
+          "accent-soft": "var(--yg-accent-soft)",
+        },
         brand: {
           bg: "#0a0a0f",
           surface: "#141419",

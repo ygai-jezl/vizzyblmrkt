@@ -60,3 +60,6 @@ serviceAccount*.json
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# SDK build output (built by `npm pack` / the publish workflow)
+sdk/node/dist/

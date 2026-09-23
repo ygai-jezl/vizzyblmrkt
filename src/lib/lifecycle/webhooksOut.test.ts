@@ -75,7 +75,10 @@ describe("drainConnectionWebhooks", () => {
     };
     expect(await drainConnectionWebhooks(ctxA, { db, now: () => NOW, send })).toEqual({ delivered: 1, failed: 0, expired: 0 });
     expect(await drainConnectionWebhooks(ctxA, { db, now: () => NOW + 3600_000, send })).toEqual({ delivered: 0, failed: 0, expired: 0 });
-    expect(calls).toEqual([{ type: "email_preferences.updated", data: input.data }]);
+    const [queued] = await forTenant(ctxA, db).lifecycleWebhooks.find();
+    expect(calls).toEqual([
+      { id: queued!.id.replace(/^whq_/, "wh_"), createdAt: new Date(NOW).toISOString(), type: "email_preferences.updated", data: input.data },
+    ]);
     const [w] = await forTenant(ctxA, db).lifecycleWebhooks.find();
     expect(w).toMatchObject({ status: "done", attempts: 1 });
   });
@@ -85,7 +88,11 @@ describe("drainConnectionWebhooks", () => {
     seedConnection(db);
     await enqueueConnectionWebhook(ctxA, input, db, NOW);
     let ok = false;
-    const send = async () => (ok ? { ok: true as const, status: 200 } : { ok: false as const, error: "http_503" });
+    const ids: string[] = [];
+    const send = async (_c: unknown, event: { id?: string }) => {
+      ids.push(event.id ?? "");
+      return ok ? { ok: true as const, status: 200 } : { ok: false as const, error: "http_503" };
+    };
     expect(await drainConnectionWebhooks(ctxA, { db, now: () => NOW, send })).toMatchObject({ failed: 1 });
     let [w] = await forTenant(ctxA, db).lifecycleWebhooks.find();
     expect(w).toMatchObject({ status: "pending", attempts: 1, lastError: "http_503", nextAttemptAt: new Date(NOW + webhookBackoffMs(1)).toISOString() });
@@ -95,6 +102,10 @@ describe("drainConnectionWebhooks", () => {
     expect(await drainConnectionWebhooks(ctxA, { db, now: () => NOW + 61_000, send })).toMatchObject({ delivered: 1 });
     [w] = await forTenant(ctxA, db).lifecycleWebhooks.find();
     expect(w).toMatchObject({ status: "done", attempts: 2 });
+    // A retry carries the same id, so the product can drop one it already handled.
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toMatch(/^wh_[0-9a-f]{32}$/);
+    expect(ids[1]).toBe(ids[0]);
   });
 
   it("drops a webhook past its expiry, or whose connection is gone", async () => {

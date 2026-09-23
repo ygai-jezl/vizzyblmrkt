@@ -28,6 +28,7 @@ import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandFont } from "@/lib/types/brandFont";
 import type { BrandAsset } from "@/lib/types/brandAsset";
 import type { ProductConnection } from "@/lib/types/productConnection";
+import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
 import type {
@@ -356,6 +357,8 @@ export interface TenantRepositories {
   brandAssets: TenantCollection<BrandAsset>;
   /** Lifecycle: the tenant's connected products (keys, endpoints, catalog). */
   productConnections: TenantCollection<ProductConnection>;
+  /** Lifecycle: "Learn from your repo" runs — a product map proposed from the customer's code (read-only). */
+  repoAnalyses: TenantCollection<RepoAnalysis>;
   /** Lifecycle: the connected products' end users, built from ingested events. */
   productUsers: TenantCollection<ProductUser>;
   /** Lifecycle: the ingested identify/track log (idempotency gate + debugger). */
@@ -456,6 +459,7 @@ export function forTenant(
       "product_connections",
       t,
     ),
+    repoAnalyses: new TenantCollection<RepoAnalysis>(regionalDb, "repo_analyses", t),
     productUsers: new TenantCollection<ProductUser>(regionalDb, "product_users", t),
     productEvents: new TenantCollection<ProductEvent>(regionalDb, "product_events", t),
     connectionDiagnostics: new TenantCollection<ConnectionDiagnostics>(

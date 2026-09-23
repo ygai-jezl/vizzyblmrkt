@@ -80,9 +80,17 @@ export function ContextTester({ connection, canEdit }: { connection: PublicConne
       {result?.ok ? (
         <div className="space-y-3">
           <Banner tone="ok">Valid context in {result.latencyMs} ms.</Banner>
-          {result.warnings.length > 0 ? (
+          {result.warnings.some((w) => w.startsWith("link_dropped")) ? (
             <Banner tone="info">
-              Links outside your allowed link domains were removed: {result.warnings.join(", ")}
+              Links outside your allowed link domains were removed:{" "}
+              {result.warnings.filter((w) => w.startsWith("link_dropped")).join(", ")}
+            </Banner>
+          ) : null}
+          {result.warnings.some((w) => w.startsWith("unknown_fact:")) ? (
+            <Banner tone="info">
+              Your endpoint returned facts that aren&apos;t in the catalog:{" "}
+              {result.warnings.filter((w) => w.startsWith("unknown_fact:")).map((w) => w.slice(13)).join(", ")}. They still
+              work, but add them to the catalog (Facts) so journeys and Vizzy know what they mean.
             </Banner>
           ) : null}
           <div className="grid gap-3 md:grid-cols-2">

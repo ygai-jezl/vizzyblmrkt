@@ -1,7 +1,9 @@
+import { redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { fetchAdminSignupRows } from "@/lib/admin/signups";
 import { SignupsTable } from "@/components/admin/SignupsTable";
 import { SignupsTabs } from "@/components/admin/SignupsTabs";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,8 @@ export default async function SignupsPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
+  // Nav v2: everyone across every launch lives in Audience (the CRM).
+  if (isNavV2Enabled()) redirect("/admin/crm");
   const ctx = await requireAdminContext();
   const sp = await searchParams;
   const mode = sp.status === "offboarded" ? "offboarded" : "active";

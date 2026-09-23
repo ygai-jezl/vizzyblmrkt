@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { forTenant, verifyOwner } from "@/lib/tenant";
+import { forTenant, getTenantById, verifyOwner } from "@/lib/tenant";
 import { KnowledgeChunkSource, KnowledgeOwnerKind } from "@/lib/types/knowledgeBase";
 import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
 import { normalizeTags } from "@/lib/knowledge/tags";
 import { enqueueIngestionTicket } from "@/lib/knowledge/tickets";
 import { triggerIngestionJob, isIngestionJobConfigured } from "@/lib/knowledge/runJob";
 import { validateIngestUrl } from "@/lib/knowledge/url";
+import { isGitRepoSelectionEnabled, isRepoSelected } from "@/lib/integrations/repos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +76,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "owner_not_found" }, { status: 404 });
   }
 
+  // A repo that isn't selected on the tenant's git connection is cloned WITHOUT the
+  // token (the worker enforces it), so it only works if public — say so up front.
+  let warning: "repo_not_selected" | undefined;
+  if ((source === "github" || source === "gitlab") && isGitRepoSelectionEnabled()) {
+    const conn = (await getTenantById(ctx.tenantId))?.gitConnections?.[source];
+    if (conn && !isRepoSelected(source, conn.repos, url.url)) warning = "repo_not_selected";
+  }
+
   const enq = await enqueueIngestionTicket(ctx, {
     ownerKind,
     ownerId,
@@ -94,7 +103,7 @@ export async function POST(req: Request) {
 
   if (!isIngestionJobConfigured()) {
     return NextResponse.json(
-      { ticketId: enq.ticketId, status: "pending", jobTriggered: false },
+      { ticketId: enq.ticketId, status: "pending", jobTriggered: false, warning },
       { status: 202 },
     );
   }
@@ -124,7 +133,7 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(
-    { ticketId: enq.ticketId, status: "pending", jobTriggered: true },
+    { ticketId: enq.ticketId, status: "pending", jobTriggered: true, warning },
     { status: 202 },
   );
 }

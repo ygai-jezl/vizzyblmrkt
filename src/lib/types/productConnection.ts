@@ -68,8 +68,30 @@ export const OnboardingStepSchema = z.object({
   /** Deep link into the product that completes the step. */
   url: z.string().max(2000).nullable().optional(),
   order: z.number().int().min(0).max(100),
+  /** How the product decides the step is done (plain words, for people and the AI). */
+  completion: z.string().max(500).optional(),
 });
 export type OnboardingStep = z.infer<typeof OnboardingStepSchema>;
+
+/** Fact ids match the `id` of facts the product returns from its context endpoint. */
+export const FACT_ID_RE = /^[a-z][a-z0-9_]{0,63}$/;
+export const FactType = z.enum(["number", "string", "boolean"]);
+
+/**
+ * A number (or value) the product can report about one user — the raw material
+ * for insights and for branching ("share of voice below 10%"). Values arrive
+ * per user from the context endpoint; the catalog says what exists and means.
+ */
+export const CatalogFactSchema = z.object({
+  id: z.string().regex(FACT_ID_RE),
+  label: z.string().min(1).max(120),
+  type: FactType.default("number"),
+  unit: z.string().max(20).nullable().optional(),
+  description: z.string().max(500).default(""),
+  /** Where the product gets it (plain words), e.g. "daily visibility snapshot". */
+  source: z.string().max(200).default(""),
+});
+export type CatalogFact = z.infer<typeof CatalogFactSchema>;
 
 export const GlossaryEntrySchema = z.object({
   term: z.string().min(1).max(80),
@@ -81,6 +103,7 @@ export const ConnectionCatalogSchema = z.object({
   events: z.array(CatalogEventSchema).max(100).default([]),
   traits: z.array(CatalogTraitSchema).max(100).default([]),
   onboardingSteps: z.array(OnboardingStepSchema).max(20).default([]),
+  facts: z.array(CatalogFactSchema).max(50).default([]),
   glossary: z.array(GlossaryEntrySchema).max(100).default([]),
 });
 export type ConnectionCatalog = z.infer<typeof ConnectionCatalogSchema>;

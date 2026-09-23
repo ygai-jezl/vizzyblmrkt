@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev --port 3002",
@@ -21,6 +21,9 @@
     "@google-cloud/bigquery": "^7.9.4",
     "@google-cloud/run": "^3.3.0",
     "@google/genai": "^2.8.0",
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-dropdown-menu": "^2.1.24",
+    "@radix-ui/react-toggle-group": "^1.1.19",
     "@tiptap/extension-link": "^2.27.2",
     "@tiptap/extension-table": "^2.27.2",
     "@tiptap/extension-table-cell": "^2.27.2",
@@ -31,6 +34,7 @@
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "@xyflow/react": "^12.11.0",
+    "cmdk": "^1.1.1",
     "firebase": "^10.13.0",
     "firebase-admin": "^13.6.0",
     "google-auth-library": "^9.15.0",
@@ -44,7 +48,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^20",
+    "@types/node": "^24",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.24",
@@ -55,6 +59,15 @@
     "tsx": "^4.19.2",
     "typescript": "^5.6.0",
     "vitest": "^2.1.8"
+  },
+  "allowScripts": {
+    "@google/genai": false,
+    "esbuild": false,
+    "@firebase/util": false,
+    "protobufjs": false,
+    "sharp": false,
+    "unrs-resolver": false,
+    "fsevents": false
   },
   "overrides": {
     "uuid": "^11.1.1",

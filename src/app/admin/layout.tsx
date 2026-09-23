@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAdminContextWithHome } from "@/lib/auth/session";
 import {
@@ -9,6 +10,14 @@ import {
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { SessionKeeper } from "@/components/admin/SessionKeeper";
 import type { BrandOption } from "@/components/admin/BrandSwitcher";
+import { AdminThemeRoot } from "@/components/admin/nav/AdminThemeRoot";
+import { AdminHeader } from "@/components/admin/nav/AdminHeader";
+import { SidebarV2 } from "@/components/admin/nav/SidebarV2";
+import { ShellProvider } from "@/components/admin/nav/ShellProvider";
+import { VizzyPanel } from "@/components/admin/nav/VizzyPanel";
+import { CommandPalette } from "@/components/admin/nav/CommandPalette";
+import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
+import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +33,18 @@ export default async function AdminLayout({
   // requireAdminContext() returns only token claims (ids), so read the tenant
   // record for the brand, the campaigns to list as launches, and the user's
   // brand memberships to populate the brand switcher.
-  const [tenant, campaigns, memberships] = await Promise.all([
+  const navV2 = isNavV2Enabled();
+  const [tenant, campaigns, memberships, workspaces] = await Promise.all([
     getTenantById(ctx.tenantId),
     forTenant(ctx).campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 50 }),
     // The switcher is non-essential chrome: a registry blip or a legacy/unparseable
     // membership doc must NOT take down the whole admin shell, so degrade to no
     // memberships (the home brand is still added below).
     ctx.userId ? getTenantsForUser(ctx.userId).catch(() => []) : Promise.resolve([]),
+    // Nav v2 breadcrumbs name workspaces; like the switcher, never fatal.
+    navV2
+      ? forTenant(ctx).workspaces.find({ where: [], limit: 200 }).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   const brand = {
@@ -84,6 +98,61 @@ export default async function AdminLayout({
     .filter((c) => !!c.archivedAt)
     .map((c) => ({ id: c.id, name: c.waitlistName }));
 
+  const sidebarCtx = {
+    tenantId: ctx.tenantId,
+    region: ctx.region,
+    role: ctx.role ?? "member",
+  };
+
+  if (navV2) {
+    // Server-side read of an explicit theme choice, so the first paint is already
+    // right. System (no cookie) leaves `dark:` following the OS, as before.
+    const theme = isThemeSwitchEnabled()
+      ? parseThemePreference((await cookies()).get(THEME_COOKIE)?.value)
+      : "system";
+    const crumbNames = {
+      launches: Object.fromEntries([...launches, ...archivedLaunches].map((l) => [l.id, l.name])),
+      workspaces: Object.fromEntries(workspaces.map((w) => [w.id, w.name])),
+    };
+    const phase2 = isNavV2Phase2Enabled();
+    const shell = (
+      <>
+        <SessionKeeper />
+        <SidebarV2
+          brands={brands}
+          launches={launches}
+          archivedLaunches={archivedLaunches}
+          ctx={sidebarCtx}
+          email={ctx.email}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <AdminHeader names={crumbNames} />
+          <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
+        </div>
+        {phase2 ? <VizzyPanel /> : null}
+        {phase2 ? (
+          <CommandPalette
+            launches={launches}
+            archivedLaunches={archivedLaunches}
+            workspaces={workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }))}
+          />
+        ) : null}
+      </>
+    );
+    return (
+      <AdminThemeRoot initial={theme}>
+        {/* Keyed by brand: switching brand starts a fresh Vizzy conversation. */}
+        {phase2 ? (
+          <ShellProvider key={ctx.tenantId} names={crumbNames}>
+            {shell}
+          </ShellProvider>
+        ) : (
+          shell
+        )}
+      </AdminThemeRoot>
+    );
+  }
+
   return (
     <div className="flex min-h-screen">
       <SessionKeeper />
@@ -91,11 +160,7 @@ export default async function AdminLayout({
         brands={brands}
         launches={launches}
         archivedLaunches={archivedLaunches}
-        ctx={{
-          tenantId: ctx.tenantId,
-          region: ctx.region,
-          role: ctx.role ?? "member",
-        }}
+        ctx={sidebarCtx}
       />
       <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
     </div>

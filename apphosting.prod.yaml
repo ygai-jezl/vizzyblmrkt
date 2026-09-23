@@ -52,6 +52,33 @@ env:
     value: https://yougrow.ai
     availability:
       - RUNTIME
+  # READ-ONLY GitHub access: the "YouGrowApp" GitHub App (github.com/apps/yougrowapp)
+  # — Contents: read + Metadata: read only, no webhook (verified with GitHub's
+  # /app API). With these set, "Connect GitHub" installs the app and every clone
+  # uses a one-hour, down-scoped installation token; the classic OAuth app (which
+  # can also write) is no longer offered. The ID, slug and Client ID are public;
+  # the client secret and private key are in prod's Secret Manager with the App
+  # Hosting grant triple (the key also for the knowledge-scraper Job).
+  - variable: GITHUB_APP_ID
+    value: "5051486"
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_SLUG
+    value: yougrowapp
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_ID
+    value: Iv23liQxQAxjm40mxwhj
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_CLIENT_SECRET
+    secret: github-app-client-secret
+    availability:
+      - RUNTIME
+  - variable: GITHUB_APP_PRIVATE_KEY
+    secret: github-app-private-key
+    availability:
+      - RUNTIME
 
   # reCAPTCHA Enterprise (score-based) — public site key + server assessment.
   - variable: RECAPTCHA_ENABLED
@@ -483,6 +510,16 @@ env:
     secret: gitlab-oauth-client-secret
     availability:
       - RUNTIME
+  # Git repo selection — after connecting GitHub/GitLab the admin picks WHICH repos
+  # (personal + every org/group they belong to) the connection may be used for;
+  # the knowledge-scraper Job only attaches the token for selected repos. Also adds
+  # GitLab's read_api scope (needed to list projects). Needs the Job redeployed
+  # (workers/knowledge-scraper/deploy.sh) with the matching gitToken.ts. OFF in prod until
+  # smoke-tested on dev.
+  - variable: GIT_REPO_SELECTION_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Lifecycle journeys — ON in prod (owner decision, 2026-09-21): Products,
   # Journeys, the Approval Queue, the ingest API, AI lines and chat authoring.
   # LIFECYCLE_MODE_CEILING below stays `test` until the vizzybl.ai launch (M7),
@@ -520,6 +557,11 @@ env:
   # to sign with dev's key — which prod can't use — and every context pull and
   # webhook would fail closed. Create the key with:
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-prod
+  # The /developers docs stay off in prod until the owner opens them.
+  - variable: DEVELOPERS_DOCS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: CONNECT_SIGNING_KMS_KEY
     value: projects/vizzybl-marketing-prod/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
     availability:
@@ -542,3 +584,21 @@ env:
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
+  # "Growth Path" admin navigation + theme switch — OFF in prod until verified on
+  # dev (see apphosting.yaml). Off = the admin looks and behaves exactly as before.
+  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Nav v2 phase 2 — OFF in prod until verified on dev (see apphosting.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

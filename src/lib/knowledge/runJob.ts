@@ -86,3 +86,37 @@ export async function triggerIngestionJob(
   const c = runner ?? (client() as unknown as JobRunner);
   await c.runJob(request);
 }
+
+// ---- "Learn from your repo" (same Job image, JOB_KIND=product_map) -------------------
+
+export interface ProductMapJobVars {
+  analysisId: string;
+  tenantId: string;
+  region: Region;
+}
+
+/** Build the runJob request for a repo analysis (pure — unit-tested). */
+export function buildProductMapRunRequest(vars: ProductMapJobVars): ReturnType<typeof buildRunJobRequest> {
+  return {
+    name: ingestionJobResourceName(),
+    overrides: {
+      containerOverrides: [
+        {
+          env: [
+            { name: "JOB_KIND", value: "product_map" },
+            { name: "ANALYSIS_ID", value: vars.analysisId },
+            { name: "TENANT_ID", value: vars.tenantId },
+            { name: "REGION", value: vars.region },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+export async function triggerProductMapJob(vars: ProductMapJobVars, runner?: JobRunner): Promise<void> {
+  if (!isIngestionJobConfigured()) throw new Error("product_map_job_not_configured");
+  const c = runner ?? (client() as unknown as JobRunner);
+  await c.runJob(buildProductMapRunRequest(vars));
+}
+

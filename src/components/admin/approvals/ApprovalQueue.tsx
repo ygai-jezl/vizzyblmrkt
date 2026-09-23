@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Check, Eye, RefreshCw, SkipForward, Undo2 } from "lucide-react";
 import { validateAiLine, validateAiSubject } from "@/lib/lifecycle/insightValidator";
 import { escapeHtml } from "@/lib/email/emailRender";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Tabs, inputClass } from "../connect/ui";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 /**
  * The Approval Queue: per-person AI lines for lifecycle emails, written ahead
@@ -66,7 +68,11 @@ function when(iso: string): string {
   return ms >= 0 ? `in ${rel} (${local})` : `${rel} ago`;
 }
 
-export function ApprovalQueue({ canEdit }: { canEdit: boolean }) {
+/**
+ * `embedded`: shown as the AI-lines section of the nav v2 Review page, which
+ * supplies the heading and explanation, so the queue's own are left out.
+ */
+export function ApprovalQueue({ canEdit, embedded = false }: { canEdit: boolean; embedded?: boolean }) {
   const [tab, setTab] = useState<"waiting" | "decided">("waiting");
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
@@ -84,8 +90,8 @@ export function ApprovalQueue({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold">Approval Queue</h1>
+      <div hidden={embedded}>
+        <h1 className="text-lg font-semibold">{isNavV2Enabled() ? "Review" : "Approval Queue"}</h1>
         <p className="max-w-3xl text-sm text-neutral-500 dark:text-neutral-400">
           Personal lines for upcoming lifecycle emails, written from each person&rsquo;s own results. Numbers only ever
           come from your product&rsquo;s insight; the AI line can&rsquo;t add any. Anything you don&rsquo;t decide in time goes
@@ -205,7 +211,13 @@ function DraftCard({
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="text-sm font-semibold">
-            {draft.itemLabel} <span className="font-normal text-neutral-500">· {draft.journeyName ?? "journey"}</span>
+            {draft.itemLabel}{" "}
+            <span className="font-normal text-neutral-500">
+              ·{" "}
+              <Link href={`/admin/lifecycle/${draft.journeyId}`} className="hover:underline">
+                {draft.journeyName ?? "journey"}
+              </Link>
+            </span>
           </div>
           <div className="text-xs text-neutral-500">
             To {draft.user?.email ?? draft.externalUserId} · sends {when(draft.sendAt)}

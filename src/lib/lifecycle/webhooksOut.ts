@@ -117,7 +117,9 @@ export async function drainConnectionWebhooks(
       result.expired += 1;
       continue;
     }
-    const res = await (deps.send ?? sendConnectionWebhook)(connection, { type: w.type, data: w.data }, { db: deps.db, nowMs });
+    // The same id on every attempt, so the product can drop a retry it already handled.
+    const event = { id: w.id.replace(/^whq_/, "wh_"), createdAt: w.createdAt, type: w.type, data: w.data };
+    const res = await (deps.send ?? sendConnectionWebhook)(connection, event, { db: deps.db, nowMs });
     if (res.ok) {
       await repo.lifecycleWebhooks.update(w.id, { status: "done", lastError: null });
       result.delivered += 1;

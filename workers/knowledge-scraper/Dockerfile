@@ -1,17 +1,18 @@
 # Knowledge-scraper Cloud Run Job. Multi-stage: compile TS, then a lean runtime
 # image that includes `git` (shallow repo clones), CA certs (HTTPS fetch), and a
 # headless Chromium (Playwright) for rendering JavaScript-rendered (SPA) pages.
+# Node 24 LTS on Debian 13 (trixie); `npm ci` installs exactly the audited lockfile.
 
-FROM node:20-slim AS build
+FROM node:24-trixie-slim AS build
 WORKDIR /app
 # We only need types to compile; don't pull Chromium into the throwaway build image.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY package*.json tsconfig.json ./
-RUN npm install
+RUN npm ci
 COPY src ./src
 RUN npm run build
 
-FROM node:20-slim
+FROM node:24-trixie-slim
 WORKDIR /app
 ENV NODE_ENV=production
 # Browsers live in a world-readable shared path so the non-root `node` user can run
@@ -22,7 +23,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm install --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 # Install Chromium + its OS dependencies (needs root + apt; before USER node).
 RUN apt-get update \
   && npx playwright install --with-deps chromium \

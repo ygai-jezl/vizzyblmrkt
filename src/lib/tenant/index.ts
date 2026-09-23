@@ -71,6 +71,7 @@ export {
   logDomainGrant,
   setTenantGitConnection,
   deleteTenantGitConnection,
+  setTenantGitRepos,
   setTenantSocialConnection,
   deleteTenantSocialConnection,
   setSocialSubscription,

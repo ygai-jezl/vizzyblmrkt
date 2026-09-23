@@ -1,8 +1,16 @@
 {
-  "name": "@yougrow/node",
+  "name": "@yougrowai/node",
   "version": "0.1.0",
-  "private": true,
   "description": "Send your product's user events to YouGrow lifecycle journeys, and answer its signed context and webhook requests.",
+  "license": "MIT",
+  "author": "YouGrow.AI Limited",
+  "homepage": "https://github.com/ygai-jezl/vizzyblmrkt/tree/main/sdk/node#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ygai-jezl/vizzyblmrkt.git",
+    "directory": "sdk/node"
+  },
+  "keywords": ["yougrow", "lifecycle-email", "onboarding", "events", "webhooks", "jwks"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,10 +18,12 @@
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./server": { "types": "./dist/server.d.ts", "default": "./dist/server.js" }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "test/vectors.json", "README.md", "LICENSE"],
   "engines": { "node": ">=18" },
   "sideEffects": false,
+  "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "prepack": "npm run build"
   }
 }

@@ -33,7 +33,23 @@ export function ConnectionSettings({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [newSecret, setNewSecret] = useState<string | null>(null);
+  const [hookMsg, setHookMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const disabled = !canEdit || connection.status === "revoked";
+  const hookSaved = Boolean(connection.webhookEndpoint?.enabled && connection.webhookEndpoint.url);
+
+  /** Send one signed connection.test to the SAVED webhook URL and say what came back. */
+  async function testWebhook() {
+    setHookMsg(null);
+    const r = await api<{ ok: boolean; status?: number; error?: string }>(`/api/admin/connections/${connection.id}/test-webhook`, { method: "POST" });
+    if (r.ok && r.data.ok) return setHookMsg({ tone: "ok", text: `Delivered — your endpoint replied ${r.data.status ?? 200}.` });
+    const err = r.data?.error ?? "";
+    const text = err.startsWith("http_")
+      ? `Your endpoint replied ${err.slice(5)} — it should verify the request and reply 2xx.`
+      : err === "not_configured"
+        ? "Save a webhook URL with Enabled ticked first."
+        : errorText(r.data);
+    setHookMsg({ tone: "err", text });
+  }
 
   async function patch(body: Record<string, unknown>, okText: string) {
     setBusy(true);
@@ -120,9 +136,14 @@ export function ConnectionSettings({
         <Field label="Webhook endpoint (POST, signed)" hint="Receives preference changes, e.g. an unsubscribe, so your product can mirror them.">
           <input className={inputClass} disabled={disabled || sandbox} value={hookUrl} placeholder="https://api.yourproduct.com/yougrow/webhook" onChange={(e) => setHookUrl(e.target.value)} />
         </Field>
-        <label className="flex items-center gap-1.5 text-sm">
-          <input type="checkbox" disabled={disabled || sandbox} checked={hookOn} onChange={(e) => setHookOn(e.target.checked)} /> Enabled
-        </label>
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" disabled={disabled || sandbox} checked={hookOn} onChange={(e) => setHookOn(e.target.checked)} /> Enabled
+          </label>
+          {!sandbox && !disabled && hookSaved ? <Button onClick={() => void testWebhook()}>Test webhook</Button> : null}
+          <a className="text-xs text-neutral-500 underline" href="/developers/webhooks" target="_blank" rel="noreferrer">What to build</a>
+        </div>
+        {hookMsg ? <Banner tone={hookMsg.tone}>{hookMsg.text}</Banner> : null}
         <Field label="Allowed link domains" hint="Step links your product returns must be https on one of these domains; others are dropped.">
           <input className={inputClass} disabled={disabled} value={domains} placeholder="yourproduct.com" onChange={(e) => setDomains(e.target.value)} />
         </Field>

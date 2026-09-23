@@ -10,7 +10,7 @@ import { createHmac } from "node:crypto";
  *
  * Requests YouGrow sends YOU (context pulls, webhooks) are not signed with your
  * secret: they carry a JWT signed with YouGrow's own key. Verify those with
- * `createVerifier` from "@yougrow/node/server".
+ * `createVerifier` from "@yougrowai/node/server".
  */
 
 export type Direction = "events";

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { HEADERS, sign } from "./signing.js";
 
 /**
- * @yougrow/node — send your product's user events to YouGrow lifecycle journeys.
+ * @yougrowai/node — send your product's user events to YouGrow lifecycle journeys.
  *
  *   const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET! });
  *   yg.identify({ userId: user.id, traits: { email: user.email }, consent: { basis: "soft_opt_in" } });

@@ -7,6 +7,10 @@ import type { ProductMap } from "@/lib/connect/productMapSchema";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { api, errorText, timeAgo, type PublicConnection } from "./api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "./ui";
+import { GitHubRepoChooser } from "./GitHubRepoChooser";
+import { CopyAgentPrompt } from "./CopyAgentPrompt";
+import { IntegrationTasks } from "./IntegrationTasks";
+import { buildIntegrationTasks } from "@/lib/connect/integrationTasks";
 
 /**
  * "Learn from your repo": we read the product's code (read-only — clone, read,
@@ -45,8 +49,16 @@ function itemsOf(map: ProductMap): Record<SectionId, Item[]> {
   };
 }
 
-/** Ticked by default: backed by verified code evidence and not low confidence. */
-const trusted = (i: Item) => i.confidence !== "low" && i.evidence.some((e) => e.verified);
+/**
+ * Backed by code that runs: verified evidence from a source file. Plans, docs and
+ * tests describe intentions or checks, not what's built — except for glossary
+ * terms, where docs are a fine source. (Older maps have no kind: trust verified.)
+ */
+const provenBy = (e: Evidence, docsCount: boolean) => e.verified && (!e.kind || e.kind === "source" || (docsCount && e.kind === "docs"));
+const proven = (i: Item, section: SectionId) => i.evidence.some((e) => provenBy(e, section === "glossary"));
+
+/** Ticked by default: proven by code and not low confidence. */
+const trusted = (i: Item, section: SectionId) => i.confidence !== "low" && proven(i, section);
 
 const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
   { id: "steps", title: "Onboarding steps", description: "What getting started means in your product, and how each step counts as done." },
@@ -58,7 +70,10 @@ const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
 
 export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection: PublicConnection; canEdit: boolean; onAccepted: () => void }) {
   const [analyses, setAnalyses] = useState<RepoAnalysis[] | null>(null);
-  const [repos, setRepos] = useState<Array<{ url: string; ref: string }>>([{ url: "", ref: "" }]);
+  /** Repos ticked from the read-only GitHub app's list. */
+  const [picked, setPicked] = useState<string[]>([]);
+  /** Other repositories by address (GitLab, or a public repo). */
+  const [repos, setRepos] = useState<Array<{ url: string; ref: string }>>([]);
   const [selected, setSelected] = useState<Record<SectionId, Set<string>>>({ steps: new Set(), events: new Set(), traits: new Set(), facts: new Set(), glossary: new Set() });
   const [open, setOpen] = useState<string | null>(null);
   const [origin, setOrigin] = useState(connection.linkDomains[0] ? `https://${connection.linkDomains[0]}` : "");
@@ -66,6 +81,11 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
   const [msg, setMsg] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
 
   const latest = analyses?.[0] ?? null;
+  /** GitHub repos this product was analysed from before — pre-ticked for a re-run. */
+  const previousUrls = useMemo(
+    () => (analyses === null ? null : analyses.flatMap((a) => a.repos.filter((r) => r.provider === "github").map((r) => r.url)).slice(0, 3)),
+    [analyses],
+  );
   const map = latest?.map ?? null;
   const items = useMemo(() => (map ? itemsOf(map) : null), [map]);
 
@@ -89,14 +109,19 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
   // Pre-tick the trustworthy items whenever a new map arrives.
   useEffect(() => {
     if (!items) return;
-    const pick = (s: SectionId) => new Set(items[s].filter(trusted).map((i) => i.key));
+    const pick = (s: SectionId) => new Set(items[s].filter((i) => trusted(i, s)).map((i) => i.key));
     setSelected({ steps: pick("steps"), events: pick("events"), traits: pick("traits"), facts: pick("facts"), glossary: pick("glossary") });
   }, [items]);
 
   const start = async () => {
     setBusy(true);
     setMsg(null);
-    const body = { repos: repos.filter((r) => r.url.trim()).map((r) => ({ url: r.url.trim(), ref: r.ref.trim() || null })) };
+    const body = {
+      repos: [
+        ...picked.map((url) => ({ url, ref: null })),
+        ...repos.filter((r) => r.url.trim()).map((r) => ({ url: r.url.trim(), ref: r.ref.trim() || null })),
+      ].slice(0, 3),
+    };
     const r = await api(`/api/admin/connections/${connection.id}/learn`, { method: "POST", body: JSON.stringify(body) });
     setBusy(false);
     if (!r.ok) return setMsg({ tone: "err", text: errorText(r.data) });
@@ -158,28 +183,40 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
         <p className="flex items-start gap-1.5 text-xs text-neutral-500">
           <ShieldCheck size={14} className="mt-px shrink-0" />
           Read-only: we clone, read and delete the copy — we never change your code, and we keep only short excerpts as evidence
-          (secrets are removed). Private repos use the GitHub or GitLab account connected in{" "}
+          (secrets are removed). GitLab connects in{" "}
           <Link className="underline" href="/admin/account/connections">
             Account → Connections
           </Link>
           .
         </p>
+        <GitHubRepoChooser
+          selected={picked}
+          onChange={setPicked}
+          max={3 - repos.filter((r) => r.url.trim()).length}
+          canEdit={canEdit}
+          productName={connection.name}
+          previousUrls={previousUrls}
+        />
         {canEdit ? (
           <div className="space-y-2">
             {repos.map((r, i) => (
               <div key={i} className="grid gap-2 sm:grid-cols-[3fr_1fr_auto]">
                 <input className={inputClass} value={r.url} placeholder="github.com/your-org/your-app" onChange={(e) => setRepos(repos.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} />
                 <input className={inputClass} value={r.ref} placeholder="branch (default)" onChange={(e) => setRepos(repos.map((x, j) => (j === i ? { ...x, ref: e.target.value } : x)))} />
-                <Button disabled={repos.length === 1} aria-label="Remove repo" onClick={() => setRepos(repos.filter((_, j) => j !== i))}>
+                <Button aria-label="Remove repo" onClick={() => setRepos(repos.filter((_, j) => j !== i))}>
                   <Trash2 size={14} />
                 </Button>
               </div>
             ))}
             <div className="flex flex-wrap gap-2">
-              <Button disabled={repos.length >= 3} onClick={() => setRepos([...repos, { url: "", ref: "" }])}>
-                <Plus size={14} /> Another repo
+              <Button disabled={picked.length + repos.length >= 3} onClick={() => setRepos([...repos, { url: "", ref: "" }])}>
+                <Plus size={14} /> {repos.length ? "Another address" : "Add a repository by address (GitLab or public)"}
               </Button>
-              <Button tone="primary" disabled={busy || !repos.some((r) => r.url.trim()) || (latest !== null && RUNNING.has(latest.status))} onClick={() => void start()}>
+              <Button
+                tone="primary"
+                disabled={busy || (picked.length === 0 && !repos.some((r) => r.url.trim())) || (latest !== null && RUNNING.has(latest.status))}
+                onClick={() => void start()}
+              >
                 <GitBranch size={14} /> {latest && RUNNING.has(latest.status) ? "Reading your code…" : "Learn from repo"}
               </Button>
             </div>
@@ -230,7 +267,11 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
                               <Badge key={b}>{b}</Badge>
                             ))}
                             <Badge tone={it.confidence === "high" ? "green" : it.confidence === "low" ? "red" : "amber"}>{it.confidence}</Badge>
-                            {verified === 0 ? <Badge tone="red">no verified code</Badge> : null}
+                            {verified === 0 ? (
+                              <Badge tone="red">no verified code</Badge>
+                            ) : !proven(it, s.id) ? (
+                              <Badge tone="amber">docs/tests only — not proof it&apos;s built</Badge>
+                            ) : null}
                           </div>
                           {it.detail ? <p className="text-sm text-neutral-600 dark:text-neutral-400">{it.detail}</p> : null}
                           {it.evidence.length > 0 ? (
@@ -254,6 +295,7 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
                                         <span>{ev.path}</span>
                                       )}
                                       {ev.verified ? <Badge tone="green">found in file</Badge> : <Badge tone="red">not found</Badge>}
+                                      {ev.kind && ev.kind !== "source" ? <Badge>{ev.kind}</Badge> : null}
                                     </div>
                                     <pre className="mt-1 whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{ev.excerpt}</pre>
                                   </li>
@@ -270,17 +312,13 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
             </Section>
           ))}
 
-          {map.hooks.length > 0 ? (
-            <Section title="For your developers" description="What your side of the integration needs to handle. These go into your integration guide, not the catalog.">
-              <ul className="space-y-1 text-sm">
-                {map.hooks.map((h, i) => (
-                  <li key={i}>
-                    <Badge>{h.kind.replace("_", " ")}</Badge> {h.description}
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          ) : null}
+          <Section
+            title="What your developers need to do"
+            description="Your side of the integration, in priority order, with where each piece goes in your code. Only sign-ups are required for journeys to run; the rest make emails personal or keep them compliant. The full detail is on the Integration guide tab."
+          >
+            <CopyAgentPrompt connectionId={connection.id} />
+            <IntegrationTasks tasks={buildIntegrationTasks({ map, health: null, contextEnabled: false })} showDone={false} />
+          </Section>
 
           {canEdit ? (
             <Section title="Add to the catalog" description="Existing catalog entries with the same id are replaced; everything else is added.">

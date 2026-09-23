@@ -19,7 +19,8 @@ export type WebhookResult = { ok: true; status: number } | { ok: false; error: s
 
 export async function sendConnectionWebhook(
   connection: ProductConnection,
-  event: { type: WebhookPayload["type"]; data: Record<string, unknown> },
+  /** `id`/`createdAt` come from the queued webhook, so every retry carries the same id. */
+  event: { id?: string; createdAt?: string; type: WebhookPayload["type"]; data: Record<string, unknown> },
   deps: { fetchImpl?: typeof safeFetch; db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<WebhookResult> {
   const endpoint = connection.webhookEndpoint;
@@ -28,9 +29,9 @@ export async function sendConnectionWebhook(
 
   const nowMs = deps.nowMs ?? Date.now();
   const payload: WebhookPayload = {
-    id: `wh_${randomUUID()}`,
+    id: event.id ?? `wh_${randomUUID()}`,
     type: event.type,
-    createdAt: new Date(nowMs).toISOString(),
+    createdAt: event.createdAt ?? new Date(nowMs).toISOString(),
     data: event.data,
   };
   const body = JSON.stringify(payload);

@@ -16,3 +16,9 @@ export function docsOrigin(): string {
     return "https://yougrow.ai";
   }
 }
+
+/** This environment's GitHub App page (public), when the app is configured. */
+export function githubAppPublicUrl(): string | null {
+  const slug = process.env.GITHUB_APP_SLUG?.trim();
+  return slug && /^[a-z0-9-]{1,100}$/.test(slug) ? `https://github.com/apps/${slug}` : null;
+}

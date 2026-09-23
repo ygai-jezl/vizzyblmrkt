@@ -49,10 +49,13 @@ export default function DevelopersHome() {
           the browser).
         </li>
         <li>
-          Optional but recommended: open <strong>Learn from repo</strong> on the connection. We read your code
-          (read-only — we never change it) and propose your catalog: your onboarding steps and how each is done, the
-          events you can send, and the facts you can report. You review and keep what&apos;s right. Your
-          connection&apos;s <strong>Integration guide</strong> then lists exactly what to build.
+          Recommended: open <strong>Learn from repo</strong> on the connection and connect GitHub or GitLab — read-only,
+          about a minute (<Link className="underline" href="/developers/connect-your-code">how connecting works</Link>). We
+          read your code and propose your catalog: your onboarding steps and how each is done, the events you can send,
+          and the facts you can report. You review and keep what&apos;s right. Your connection&apos;s{" "}
+          <strong>Integration guide</strong> then lists exactly what to build, in priority order and pointing at your own
+          files — with a <strong>Copy prompt</strong> button that hands the whole job to your coding agent (Claude Code,
+          Cursor, …).
         </li>
         <li>
           Send <C>identify</C> and <C>user.signed_up</C> when someone signs up, and{" "}
@@ -77,12 +80,12 @@ export default function DevelopersHome() {
 
       <H2 id="sdk">The Node SDK</H2>
       <P>
-        <C>@yougrow/node</C> handles signing, batching and retries for events, and verifies our requests for your
+        <C>@yougrowai/node</C> handles signing, batching and retries for events, and verifies our requests for your
         endpoints. It&apos;s pre-release (not yet on npm); every part of the protocol is documented here, so any
         language works.
       </P>
-      <Code title="Node">{`import { YouGrow } from "@yougrow/node";
-import { createVerifier, contextResponse } from "@yougrow/node/server";
+      <Code title="Node">{`import { YouGrow } from "@yougrowai/node";
+import { createVerifier, contextResponse } from "@yougrowai/node/server";
 
 const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET! });
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });`}</Code>

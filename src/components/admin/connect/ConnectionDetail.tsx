@@ -31,7 +31,11 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     setError(null);
     setConnection(r.data.connection);
     setDiagnostics(r.data.diagnostics);
-    setTab((t) => t ?? (r.data.connection.kind === "sandbox" ? "sandbox" : "events"));
+    // ?tab=learn (etc.) opens a tab directly — e.g. from the setup wizard.
+    const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
+    const valid: Tab[] = ["sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
+    const fromUrl = valid.find((v) => v === asked) ?? null;
+    setTab((t) => t ?? fromUrl ?? (r.data.connection.kind === "sandbox" ? "sandbox" : "events"));
   }, [connectionId]);
 
   useEffect(() => {

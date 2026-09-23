@@ -14,6 +14,10 @@ interface ProviderStatus {
   readOnly?: boolean;
   /** GitHub only: a classic (read/write) connection that can switch to the read-only app. */
   upgradeAvailable?: boolean;
+  /** GitHub only: connecting installs the read-only YouGrow app. */
+  appInstall?: boolean;
+  /** GitHub only: GitHub's page for adding or removing the app's repositories. */
+  manageUrl?: string | null;
   /** Present on github/gitlab when repo selection is enabled. */
   repoSelection?: boolean;
   /** null = legacy connection (any repo). */
@@ -31,6 +35,17 @@ function repoSummary(s: ProviderStatus): string {
 }
 
 const PROVIDER_IDS = ["github", "gitlab", "x", "linkedin", "linkedin_org"] as const;
+
+/** Why a connection attempt failed, in plain words. */
+const CONNECT_ERRORS: Record<string, string> = {
+  installation_not_yours: "That GitHub installation isn't one your account can access. Install the app from here, signed in as a member of that account.",
+  app_not_read_only: "That GitHub installation has more than read access, so we refused it. Reinstall the YouGrow app from here.",
+  no_installation: "GitHub didn't finish installing the app. Try Connect again, and choose where to install it.",
+  token_exchange_failed: "GitHub didn't confirm the connection. Please try again.",
+  bad_state: "That connection attempt expired or came from another session. Please start again from here.",
+  state_expired: "That connection attempt expired. Please start again from here.",
+  access_denied: "The connection was cancelled on GitHub.",
+};
 
 /** Manage per-tenant GitHub/GitLab OAuth connections (for ingesting private repos). */
 export function ConnectionsPanel() {
@@ -87,12 +102,18 @@ export function ConnectionsPanel() {
   const status = sp.get("status");
   const bannerProvider = sp.get("provider") ?? "";
   const bannerLabel = providers?.[bannerProvider]?.label ?? bannerProvider;
+  const reason = sp.get("reason") ?? "error";
   const banner =
     status === "ok"
-      ? { tone: "ok", msg: `Connected ${bannerLabel}.` }
-      : status === "error"
-        ? { tone: "err", msg: `Couldn't connect (${sp.get("reason") ?? "error"}).` }
-        : null;
+      ? { tone: "ok", msg: sp.get("updated") ? `Your ${bannerLabel} repositories were updated.` : `Connected ${bannerLabel}.` }
+      : status === "requested"
+        ? {
+            tone: "ok",
+            msg: "Request sent — GitHub has asked your organisation's owners to approve the YouGrow app. Once they do, connect again here to finish.",
+          }
+        : status === "error"
+          ? { tone: "err", msg: CONNECT_ERRORS[reason] ?? `Couldn't connect (${reason}).` }
+          : null;
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -139,6 +160,11 @@ export function ConnectionsPanel() {
                     <span className="text-xs text-green-600 dark:text-green-400">
                       Connected{s.accountLogin ? ` as ${s.accountLogin}` : ""}.
                       {s.readOnly ? <span className="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-green-800 dark:bg-green-950 dark:text-green-300">Read-only</span> : null}
+                    {s.manageUrl && !s.upgradeAvailable ? (
+                      <a className="ml-2 text-neutral-500 underline" href={s.manageUrl} target="_blank" rel="noreferrer">
+                        Add or remove repositories on GitHub
+                      </a>
+                    ) : null}
                       {s.upgradeAvailable ? (
                         <span className="mt-1 block text-amber-700 dark:text-amber-400">
                           This older connection can also write to your repos. Switch to read-only access — we only ever read your code.{" "}
@@ -178,7 +204,7 @@ export function ConnectionsPanel() {
                       onClick={() => connect(p)}
                       className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white dark:border-white dark:bg-white dark:text-neutral-900"
                     >
-                      Connect
+                      {s.appInstall ? "Install on GitHub (read-only)" : "Connect"}
                     </button>
                   )
                 ) : null}

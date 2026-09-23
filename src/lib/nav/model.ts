@@ -35,22 +35,25 @@ export interface NavSection {
 }
 
 export interface NavFlags {
-  /** Lifecycle UI: Review (approvals), Products and Journeys. */
+  /** Lifecycle UI: Products and Journeys (and Review, unless `review` says otherwise). */
   lifecycle: boolean;
+  /** Show Review. Defaults to `lifecycle`; nav v2 phase 2 turns it on everywhere. */
+  review?: boolean;
   /** Brand Kit UI; when off, Brand opens the brand guidelines under Settings. */
   brandKit: boolean;
 }
 
 export function buildNav(flags: NavFlags): NavSection[] {
   const lifecycleOnly = <T>(items: T[]): T[] => (flags.lifecycle ? items : []);
+  const showReview = flags.review ?? flags.lifecycle;
   return [
     {
       key: "start",
       items: [
         { key: "home", href: "/admin", label: "Home" },
-        ...lifecycleOnly<NavItem>([
-          { key: "review", href: "/admin/approvals", label: "Review", match: ["/admin/approvals"] },
-        ]),
+        ...(showReview
+          ? [{ key: "review", href: "/admin/approvals", label: "Review", match: ["/admin/approvals"] } as NavItem]
+          : []),
       ],
     },
     {

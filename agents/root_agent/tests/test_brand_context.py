@@ -39,3 +39,17 @@ def test_locale_and_brand_block_compose():
     assert "RESPOND IN Japanese" in out
     assert "## Current Brand Context" in out
     assert "Acme" in out
+
+
+def test_page_context_is_appended():
+    out = build_dynamic_instruction(_ctx({"page": "Launches › Fernlight Beta › Signups"}))
+    assert out.startswith(ROOT_SYSTEM_INSTRUCTION)
+    assert out.endswith(
+        "They are looking at this page of the YouGrow admin: Launches › Fernlight Beta › Signups. "
+        'When they say "this" or "here", assume they mean what is on that page.'
+    )
+
+
+def test_blank_or_odd_page_adds_nothing():
+    assert build_dynamic_instruction(_ctx({"page": "   "})) == ROOT_SYSTEM_INSTRUCTION
+    assert build_dynamic_instruction(_ctx({"page": 42})) == ROOT_SYSTEM_INSTRUCTION

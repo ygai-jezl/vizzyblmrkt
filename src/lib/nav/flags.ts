@@ -14,3 +14,12 @@ export function isNavV2Enabled(): boolean {
 export function isThemeSwitchEnabled(): boolean {
   return isNavV2Enabled() && process.env.NEXT_PUBLIC_THEME_SWITCH_ENABLED === "true";
 }
+
+/**
+ * Nav v2 phase 2, "always a next step": the Home growth path and real metrics,
+ * the sidebar progress dots, one Review queue for every decision, the Ask Vizzy
+ * panel (⌘J), ⌘K search, and the shell palette. Needs nav v2.
+ */
+export function isNavV2Phase2Enabled(): boolean {
+  return isNavV2Enabled() && process.env.NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED === "true";
+}

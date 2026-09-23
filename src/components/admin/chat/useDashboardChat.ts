@@ -36,7 +36,14 @@ export interface ChatExchange {
 
 export interface DashboardChatOptions {
   /** The page the operator is chatting from (e.g. a lifecycle journey). */
-  context?: { connectionId?: string | null; journeyId?: string | null };
+  context?: {
+    connectionId?: string | null;
+    journeyId?: string | null;
+    /** The launch in view (the Ask Vizzy panel on a launch page). */
+    campaignId?: string | null;
+    /** Where the operator is, as its breadcrumb, e.g. "Launches › Beta › Signups". */
+    page?: string | null;
+  };
   /** Called when an agent saves a canvas draft during a turn. */
   onCanvasSaved?: (card: CanvasCardData) => void;
 }
@@ -133,6 +140,8 @@ export function useDashboardChat(options: DashboardChatOptions = {}): UseDashboa
             mode,
             connectionId: optionsRef.current.context?.connectionId ?? null,
             journeyId: optionsRef.current.context?.journeyId ?? null,
+            campaignId: optionsRef.current.context?.campaignId ?? null,
+            page: optionsRef.current.context?.page ?? null,
           }),
         });
         if (!response.ok || !response.body) {

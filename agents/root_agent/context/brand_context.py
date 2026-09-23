@@ -65,4 +65,25 @@ def build_dynamic_instruction(ctx: "ReadonlyContext") -> str:
     if directive:
         # Prepend so the language constraint is the first thing the model reads.
         instruction = f"{directive}\n\n{instruction}"
+
+    # The admin page the operator is chatting from (the Ask Vizzy panel sends its
+    # breadcrumb in the [ctx:] envelope, e.g. "Launches › Beta › Signups"). Appended
+    # so "this launch" / "here" resolve to what is on screen.
+    page_block = _format_page_block(state.get("page") if state else None)
+    if page_block:
+        instruction = f"{instruction}\n\n{page_block}"
     return instruction
+
+
+def _format_page_block(page: Any) -> str:
+    """One line naming the admin page in view, or "" when there is none."""
+    if not isinstance(page, str):
+        return ""
+    page = " ".join(page.split())[:160]
+    if not page:
+        return ""
+    return (
+        "## Where the admin is\n"
+        f"They are looking at this page of the YouGrow admin: {page}. "
+        'When they say "this" or "here", assume they mean what is on that page.'
+    )

@@ -2,7 +2,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { listCompanies, listContacts, listEngagedContacts } from "@/lib/admin/crm";
 import type { ListResult } from "@/lib/admin/crm";
 import { CrmClient } from "@/components/admin/crm/CrmClient";
-import { isNavV2Enabled } from "@/lib/nav/flags";
+import { isNavV2Enabled, isNavV2Phase2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -25,11 +25,13 @@ async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListRes
  * company intelligence (Agent 1) and per-contact email history. Server-renders
  * the first page of each tab; the client owns search/filter/pagination.
  */
-export default async function CrmPage() {
+export default async function CrmPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const ctx = await requireAdminContext();
+  // Nav v2 phase 2: ⌘K "Search people" arrives with ?q=, pre-filtering Contacts.
+  const q = isNavV2Phase2Enabled() ? ((await searchParams).q ?? "").trim().slice(0, 200) : "";
   const [companies, contacts, engaged] = await Promise.all([
     tab("companies", listCompanies(ctx, {})),
-    tab("contacts", listContacts(ctx, {})),
+    tab("contacts", listContacts(ctx, q ? { q } : {})),
     tab("engaged", listEngagedContacts(ctx, {})),
   ]);
 
@@ -49,6 +51,7 @@ export default async function CrmPage() {
         companiesCursor={companies.nextCursor}
         initialEngaged={engaged.items}
         engagedCursor={engaged.nextCursor}
+        initialQuery={q}
       />
     </div>
   );

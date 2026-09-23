@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { ChatPill } from "./ChatPill";
 import { MessageThread } from "./MessageThread";
 import { useDashboardChat } from "./useDashboardChat";
+import { useShell } from "../nav/ShellProvider";
 
 /**
  * The dashboard's centerpiece: a Gemini-style chat that is the root/orchestrator
@@ -11,8 +12,12 @@ import { useDashboardChat } from "./useDashboardChat";
  * transcript, with the input pill floating (sticky) at the bottom of the column.
  * Owns all chat state via useDashboardChat.
  */
-export function DashboardChat({ userName }: { userName?: string }) {
-  const chat = useDashboardChat();
+export function DashboardChat({ userName, intro = "full" }: { userName?: string; intro?: "full" | "compact" }) {
+  // Inside the nav v2 phase 2 shell, Home and the Ask Vizzy panel share one
+  // conversation, so a chat started here carries on beside any other page.
+  const shell = useShell();
+  const local = useDashboardChat();
+  const chat = shell?.chat ?? local;
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasMessages = chat.exchange.length > 0;
 
@@ -31,6 +36,12 @@ export function DashboardChat({ userName }: { userName?: string }) {
           currentThought={chat.currentThought}
           toolStatus={chat.toolStatus}
         />
+      ) : intro === "compact" ? (
+        <div className="flex flex-1 flex-col justify-end pb-2 text-center">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Ask Vizzy anything, or tell it what to do next. It drafts; you publish.
+          </p>
+        </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <h1 className="text-3xl font-medium text-neutral-700 dark:text-neutral-200 sm:text-4xl">

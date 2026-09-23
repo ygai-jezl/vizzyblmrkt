@@ -23,6 +23,7 @@ export function CrmClient({
   companiesCursor,
   initialEngaged = [],
   engagedCursor = null,
+  initialQuery,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -31,6 +32,8 @@ export function CrmClient({
   companiesCursor: string | null;
   initialEngaged?: EngagedContact[];
   engagedCursor?: string | null;
+  /** The contacts search the page arrived with (?q=). */
+  initialQuery?: string;
 }) {
   const [tab, setTab] = useState<"contacts" | "companies" | "engaged">("contacts");
   return (
@@ -47,7 +50,12 @@ export function CrmClient({
         </button>
       </div>
       {tab === "contacts" ? (
-        <ContactsView isAdmin={isAdmin} initialRows={initialContacts} initialCursor={contactsCursor} />
+        <ContactsView
+          isAdmin={isAdmin}
+          initialRows={initialContacts}
+          initialCursor={contactsCursor}
+          initialQuery={initialQuery}
+        />
       ) : tab === "companies" ? (
         <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} />
       ) : (

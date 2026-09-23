@@ -1,6 +1,7 @@
 import { DashboardCards } from "@/components/admin/DashboardCards";
 import { DashboardChat } from "@/components/admin/chat/DashboardChat";
-import { isNavV2Enabled } from "@/lib/nav/flags";
+import { HomeV2 } from "@/components/admin/home/HomeV2";
+import { isNavV2Enabled, isNavV2Phase2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
  * front-end (Phase 1: UI + stubbed streaming; live ADK agent lands in Phase 2).
  */
 export default function AdminHome() {
+  // Nav v2 phase 2: the growth path, real metrics and Review, above Vizzy.
+  if (isNavV2Phase2Enabled()) return <HomeV2 />;
   return (
     // min-h keeps the chat at the bottom of the screen: 3rem of <main> padding,
     // plus the 3rem nav v2 header when that is on.

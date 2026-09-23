@@ -20,3 +20,96 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
 }
+
+/* Admin shell palette (nav v2): the sidebar, header, Vizzy panel, ⌘K and Home /
+   Review components use these through Tailwind's `shell-*` colours. The defaults
+   reproduce the phase-1 neutral look; with nav v2 phase 2 the admin shell carries
+   data-palette="v2" and switches to the agreed palette — zinc greys in light, the
+   marketing site's own dark surfaces in dark. Theme follows data-theme when the
+   admin has chosen one, else the OS (the same rule as Tailwind's `dark:`). */
+.yg-shell {
+  --yg-page: Canvas;
+  --yg-side: #ffffff;
+  --yg-card: #ffffff;
+  --yg-raised: #ffffff;
+  --yg-line: #e5e5e5;
+  --yg-hover: #fafafa;
+  --yg-active: #f5f5f5;
+  --yg-ink: #171717;
+  --yg-muted: #525252;
+  --yg-faint: #737373;
+  --yg-accent: #2563eb;
+  --yg-accent-soft: #eff6ff;
+}
+@media (prefers-color-scheme: dark) {
+  .yg-shell:not([data-theme="light"]) {
+    --yg-side: #0a0a0a;
+    --yg-card: #0a0a0a;
+    --yg-raised: #171717;
+    --yg-line: #262626;
+    --yg-hover: #171717;
+    --yg-active: #262626;
+    --yg-ink: #f5f5f5;
+    --yg-muted: #a3a3a3;
+    --yg-faint: #737373;
+    --yg-accent: #60a5fa;
+    --yg-accent-soft: #172554;
+  }
+}
+.yg-shell[data-theme="dark"] {
+  --yg-side: #0a0a0a;
+  --yg-card: #0a0a0a;
+  --yg-raised: #171717;
+  --yg-line: #262626;
+  --yg-hover: #171717;
+  --yg-active: #262626;
+  --yg-ink: #f5f5f5;
+  --yg-muted: #a3a3a3;
+  --yg-faint: #737373;
+  --yg-accent: #60a5fa;
+  --yg-accent-soft: #172554;
+}
+.yg-shell[data-palette="v2"] {
+  --yg-page: #ffffff;
+  --yg-side: #fafafa;
+  --yg-card: #ffffff;
+  --yg-raised: #ffffff;
+  --yg-line: #e4e4e7;
+  --yg-hover: #f4f4f5;
+  --yg-active: #ececef;
+  --yg-ink: #18181b;
+  --yg-muted: #52525b;
+  --yg-faint: #71717a;
+  --yg-accent: #2563eb;
+  --yg-accent-soft: #eef3ff;
+}
+@media (prefers-color-scheme: dark) {
+  .yg-shell[data-palette="v2"]:not([data-theme="light"]) {
+    --yg-page: #0a0a0f;
+    --yg-side: #0d0d13;
+    --yg-card: #141419;
+    --yg-raised: #1e1e28;
+    --yg-line: #2a2a38;
+    --yg-hover: #16161e;
+    --yg-active: #1e1e28;
+    --yg-ink: #ededf2;
+    --yg-muted: #a0a0b8;
+    --yg-faint: #8a8aa3;
+    --yg-accent: #60a5fa;
+    --yg-accent-soft: #15203a;
+  }
+}
+.yg-shell[data-palette="v2"][data-theme="dark"] {
+  --yg-page: #0a0a0f;
+  --yg-side: #0d0d13;
+  --yg-card: #141419;
+  --yg-raised: #1e1e28;
+  --yg-line: #2a2a38;
+  --yg-hover: #16161e;
+  --yg-active: #1e1e28;
+  --yg-ink: #ededf2;
+  --yg-muted: #a0a0b8;
+  --yg-faint: #8a8aa3;
+  --yg-accent: #60a5fa;
+  --yg-accent-soft: #15203a;
+}

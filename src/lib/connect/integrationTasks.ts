@@ -91,6 +91,10 @@ const HOOK_TASK: Record<string, TaskId> = {
 };
 
 type Evidence = { path: string; line?: number | null; verified: boolean };
+
+/** Tests, docs and plans are fine as evidence, but the wrong place to send a developer. */
+const NOT_SOURCE = /(^|\/)(__tests__|__mocks__|tests?|spec|docs?|plans?|examples?)\/|\.(test|spec|stories)\.[cm]?[jt]sx?$|\.(md|mdx|txt|rst)$/i;
+
 function files(items: Array<{ evidence: Evidence[] }>): IntegrationTask["files"] {
   const seen = new Set<string>();
   const out: IntegrationTask["files"] = [];
@@ -103,7 +107,9 @@ function files(items: Array<{ evidence: Evidence[] }>): IntegrationTask["files"]
       out.push({ path: e.path, line: e.line ?? null });
     }
   }
-  return out.slice(0, 5);
+  // Point at real source first; fall back to docs/tests only if that's all there is.
+  const source = out.filter((f) => !NOT_SOURCE.test(f.path));
+  return (source.length ? source : out).slice(0, 5);
 }
 
 export function buildIntegrationTasks(input: {

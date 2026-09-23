@@ -44,6 +44,26 @@ describe("integration tasks", () => {
     expect(t.context!.files[0]!.path).toBe("functions/src/brand/scheduledSnapshot.ts");
   });
 
+  it("points developers at source files rather than docs or tests", () => {
+    const m = ProductMapSchema.parse({
+      onboardingSteps: [
+        {
+          id: "create_brand",
+          label: "Create your brand",
+          evidence: [
+            { path: "docs/plans/onboarding.md", line: 3, excerpt: "create brand step", verified: true },
+            { path: "src/__tests__/onboarding/brand.test.tsx", line: 9, excerpt: "create brand", verified: true },
+            { path: "src/app/api/tenants/create/route.ts", line: 40, excerpt: "setDoc(brand)", verified: true },
+          ],
+        },
+      ],
+      hooks: [{ kind: "signup", description: "x", evidence: [{ path: "docs/auth.md", line: 1, excerpt: "signup flow", verified: true }] }],
+    });
+    const t = Object.fromEntries(buildIntegrationTasks({ map: m, health: null, contextEnabled: false }).map((x) => [x.id, x]));
+    expect(t.steps!.files).toEqual([{ path: "src/app/api/tenants/create/route.ts", line: 40 }]);
+    expect(t.signup!.files).toEqual([{ path: "docs/auth.md", line: 1 }]); // nothing better — keep it
+  });
+
   it("marks what's already working", () => {
     const tasks = buildIntegrationTasks({ map, health: { lastEventAt: "2026-09-23T10:00:00Z", lastContextOkAt: "2026-09-23T10:01:00Z" }, contextEnabled: true });
     expect(tasks.filter((t) => t.status === "done").map((t) => t.id)).toEqual(["signup", "context"]);

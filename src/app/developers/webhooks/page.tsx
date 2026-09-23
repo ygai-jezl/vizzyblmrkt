@@ -98,7 +98,7 @@ X-YouGrow-Key-Id: <your key id>
 
       <H2 id="example">A complete example (Node)</H2>
       <Code title="Express">{`import express from "express";
-import { createVerifier } from "@yougrow/node/server";
+import { createVerifier } from "@yougrowai/node/server";
 
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
 const app = express();
@@ -147,8 +147,8 @@ app.post("/yougrow/webhook", express.raw({ type: "application/json", limit: "16k
           same value twice is harmless anyway.
         </li>
         <li>
-          Your connection shows the last delivery error, and <strong>Test webhook</strong> shows exactly what your server
-          replied.
+          <strong>Test webhook</strong> in your connection&apos;s Settings sends one straight away and shows what your
+          server replied.
         </li>
       </UL>
       <Note>

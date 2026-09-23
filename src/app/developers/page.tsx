@@ -80,12 +80,12 @@ export default function DevelopersHome() {
 
       <H2 id="sdk">The Node SDK</H2>
       <P>
-        <C>@yougrow/node</C> handles signing, batching and retries for events, and verifies our requests for your
+        <C>@yougrowai/node</C> handles signing, batching and retries for events, and verifies our requests for your
         endpoints. It&apos;s pre-release (not yet on npm); every part of the protocol is documented here, so any
         language works.
       </P>
-      <Code title="Node">{`import { YouGrow } from "@yougrow/node";
-import { createVerifier, contextResponse } from "@yougrow/node/server";
+      <Code title="Node">{`import { YouGrow } from "@yougrowai/node";
+import { createVerifier, contextResponse } from "@yougrowai/node/server";
 
 const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET! });
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });`}</Code>

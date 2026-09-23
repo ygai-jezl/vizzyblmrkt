@@ -69,7 +69,7 @@ X-YouGrow-Signature: v1=<signature>`}</Code>
         ]}
       />
       <H3>With the Node SDK</H3>
-      <Code>{`import { createVerifier } from "@yougrow/node/server";
+      <Code>{`import { createVerifier } from "@yougrowai/node/server";
 
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
 const v = await verifier.verify({ headers: req.headers, rawBody, direction: "context" });

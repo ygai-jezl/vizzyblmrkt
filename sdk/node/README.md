@@ -1,16 +1,24 @@
-# @yougrow/node
+# @yougrowai/node
 
 Connect your product to YouGrow lifecycle journeys. Your server sends YouGrow
 what your users do (sign-ups, onboarding steps). YouGrow then asks your server
 for fresh context just before it emails someone.
 
-> Status: pre-release (not yet on npm). The wire protocol is stable. The same
-> signing works from any language; see "Without the SDK" below.
+```sh
+npm install @yougrowai/node
+```
+
+Node 18 or later, no dependencies. Server-side only: your secret must never
+reach a browser or app bundle.
+
+> Status: 0.x. The wire protocol is stable; the SDK's API may still change
+> before 1.0. The same signing works from any language; see "Without the SDK"
+> below.
 
 ## Send events
 
 ```ts
-import { YouGrow } from "@yougrow/node";
+import { YouGrow } from "@yougrowai/node";
 
 const yg = new YouGrow({
   keyId: process.env.YOUGROW_KEY_ID!,   // from Products → your connection
@@ -56,7 +64,7 @@ You verify it against YouGrow's published public keys. Your secret isn't
 involved, so nothing you store can be used to forge a request from YouGrow.
 
 ```ts
-import { createVerifier, contextResponse } from "@yougrow/node/server";
+import { createVerifier, contextResponse } from "@yougrowai/node/server";
 
 // Once, at startup. keyId is the token's audience: tokens for other connections fail.
 const verifier = createVerifier({
@@ -121,5 +129,12 @@ Requests more than five minutes out are refused.
    most 300.
 5. `body_sha256` is the base64url SHA-256 of the raw body you received.
 
-`test/vectors.json` holds reference signatures and tokens for checking your
-implementation.
+`test/vectors.json` (included in this package) holds reference signatures and
+tokens for checking your own implementation.
+
+## Credentials
+
+Create a connection in YouGrow (**Products → Connect a product**) to get a key
+id and a secret. Store them in your server's environment or secret manager as
+`YOUGROW_KEY_ID` and `YOUGROW_SECRET`. Use a separate connection, with its own
+key and secret, for each environment (e.g. staging and production).

@@ -1,0 +1,66 @@
+name: Publish SDK to npm
+
+# Publishes sdk/node as @yougrowai/node when a tag like `sdk-node-v0.1.1` is
+# pushed. Uses npm trusted publishing (OIDC): npm trusts THIS workflow in THIS
+# repo, so no npm token exists anywhere, and every version gets a provenance
+# attestation linking it to the commit it was built from.
+#
+# One-off setup (npmjs.com → @yougrowai/node → Settings → Trusted publisher):
+#   GitHub Actions · owner ygai-jezl · repo vizzyblmrkt · workflow sdk-publish.yml · environment npm
+# Then add yourself as a required reviewer on the `npm` environment
+# (GitHub → Settings → Environments), so every publish waits for your approval.
+#
+# Release: bump sdk/node/package.json "version" on dev, promote to main, then
+#   git tag sdk-node-v<version> <main commit> && git push <remote> sdk-node-v<version>
+
+on:
+  push:
+    tags: ["sdk-node-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # lets npm verify this workflow — nothing else can publish
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Only released code (the tag must be on main)
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Tag matches the package version
+        run: |
+          v="$(node -p "require('./sdk/node/package.json').version")"
+          if [ "sdk-node-v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match sdk/node/package.json version $v"; exit 1
+          fi
+
+      # No dependency cache in a publishing job: nothing from other runs goes into the package.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: npm 11.5.1+ (trusted publishing)
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: SDK tests
+        run: npx vitest run sdk
+
+      - name: Package contents
+        working-directory: sdk/node
+        run: npm pack --dry-run
+
+      - name: Publish
+        working-directory: sdk/node
+        run: npm publish

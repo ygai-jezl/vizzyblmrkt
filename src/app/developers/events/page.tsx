@@ -83,10 +83,10 @@ def send_events(batch):
 
       <H3>Or the Node SDK</H3>
       <P>
-        <C>@yougrow/node</C> adds batching, retries and helpers. It&apos;s pre-release (not yet on npm); the helper above does
+        <C>@yougrowai/node</C> adds batching, retries and helpers. It&apos;s pre-release (not yet on npm); the helper above does
         the same job in any codebase today.
       </P>
-      <Code>{`import { YouGrow } from "@yougrow/node";
+      <Code>{`import { YouGrow } from "@yougrowai/node";
 const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET! });`}</Code>
 
       <H2 id="signups">1. Send sign-ups — required</H2>

@@ -168,7 +168,7 @@ X-YouGrow-Key-Id: <your key id>
 
       <H2 id="example">A complete example (Node)</H2>
       <Code title="Express">{`import express from "express";
-import { createVerifier, contextResponse } from "@yougrow/node/server";
+import { createVerifier, contextResponse } from "@yougrowai/node/server";
 
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
 const app = express();

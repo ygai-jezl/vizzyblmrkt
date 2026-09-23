@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev --port 3002",
@@ -44,7 +44,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^20",
+    "@types/node": "^24",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.24",
@@ -55,6 +55,15 @@
     "tsx": "^4.19.2",
     "typescript": "^5.6.0",
     "vitest": "^2.1.8"
+  },
+  "allowScripts": {
+    "@google/genai": false,
+    "esbuild": false,
+    "@firebase/util": false,
+    "protobufjs": false,
+    "sharp": false,
+    "unrs-resolver": false,
+    "fsevents": false
   },
   "overrides": {
     "uuid": "^11.1.1",

@@ -27,7 +27,7 @@ export function ThemeSwitch() {
         if (value) theme.setPreference(value as ThemePreference);
       }}
       aria-label="Theme"
-      className="inline-flex shrink-0 gap-0.5 rounded-lg border border-neutral-200 bg-neutral-50 p-0.5 dark:border-neutral-800 dark:bg-neutral-900"
+      className="inline-flex shrink-0 gap-0.5 rounded-lg border border-shell-line bg-shell-active p-0.5"
     >
       {OPTIONS.map(({ value, label, Icon }) => (
         <ToggleGroup.Item
@@ -35,7 +35,7 @@ export function ThemeSwitch() {
           value={value}
           aria-label={label}
           title={label}
-          className="grid h-6 w-7 place-items-center rounded-md text-neutral-500 outline-none transition-colors hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500 data-[state=on]:bg-white data-[state=on]:text-neutral-900 data-[state=on]:shadow-sm dark:text-neutral-400 dark:hover:text-neutral-100 dark:data-[state=on]:bg-neutral-700 dark:data-[state=on]:text-neutral-100"
+          className="grid h-6 w-7 place-items-center rounded-md text-shell-muted outline-none transition-colors hover:text-shell-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500 data-[state=on]:bg-shell-side data-[state=on]:text-shell-ink data-[state=on]:shadow-sm"
         >
           <Icon size={14} aria-hidden />
         </ToggleGroup.Item>

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
 import { ADMIN_THEME_ROOT_ID, themeCookie, type ThemePreference } from "@/lib/theme";
 
 interface AdminTheme {
@@ -28,8 +29,9 @@ export function AdminThemeRoot({ initial, children }: { initial: ThemePreference
       <div
         id={ADMIN_THEME_ROOT_ID}
         data-theme={explicit}
+        data-palette={isNavV2Phase2Enabled() ? "v2" : undefined}
         style={explicit ? { colorScheme: explicit } : undefined}
-        className="flex min-h-screen"
+        className="yg-shell flex min-h-screen bg-shell-page"
       >
         {children}
       </div>

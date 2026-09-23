@@ -7,10 +7,11 @@ import {
   resolvePins,
   togglePin,
   type CrumbNames,
+  type NavFlags,
 } from "./model";
 
-const ALL_ON = { lifecycle: true, brandKit: true };
-const allItems = (flags = ALL_ON) => buildNav(flags).flatMap((s) => s.items);
+const ALL_ON: NavFlags = { lifecycle: true, brandKit: true };
+const allItems = (flags: NavFlags = ALL_ON) => buildNav(flags).flatMap((s) => s.items);
 
 describe("buildNav", () => {
   it("lists Grow in the order a customer reaches it", () => {
@@ -24,6 +25,12 @@ describe("buildNav", () => {
     expect(labels).not.toContain("Products");
     expect(labels).not.toContain("Journeys");
     expect(labels).toContain("Launches");
+  });
+
+  it("phase 2 shows Review even where lifecycle is off", () => {
+    const labels = allItems({ lifecycle: false, brandKit: true, review: true }).map((i) => i.label);
+    expect(labels).toContain("Review");
+    expect(labels).not.toContain("Journeys");
   });
 
   it("sends Brand to the guidelines page when the Brand Kit UI is off", () => {

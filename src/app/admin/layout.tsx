@@ -13,7 +13,10 @@ import type { BrandOption } from "@/components/admin/BrandSwitcher";
 import { AdminThemeRoot } from "@/components/admin/nav/AdminThemeRoot";
 import { AdminHeader } from "@/components/admin/nav/AdminHeader";
 import { SidebarV2 } from "@/components/admin/nav/SidebarV2";
-import { isNavV2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
+import { ShellProvider } from "@/components/admin/nav/ShellProvider";
+import { VizzyPanel } from "@/components/admin/nav/VizzyPanel";
+import { CommandPalette } from "@/components/admin/nav/CommandPalette";
+import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
@@ -111,8 +114,9 @@ export default async function AdminLayout({
       launches: Object.fromEntries([...launches, ...archivedLaunches].map((l) => [l.id, l.name])),
       workspaces: Object.fromEntries(workspaces.map((w) => [w.id, w.name])),
     };
-    return (
-      <AdminThemeRoot initial={theme}>
+    const phase2 = isNavV2Phase2Enabled();
+    const shell = (
+      <>
         <SessionKeeper />
         <SidebarV2
           brands={brands}
@@ -125,6 +129,26 @@ export default async function AdminLayout({
           <AdminHeader names={crumbNames} />
           <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
         </div>
+        {phase2 ? <VizzyPanel /> : null}
+        {phase2 ? (
+          <CommandPalette
+            launches={launches}
+            archivedLaunches={archivedLaunches}
+            workspaces={workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }))}
+          />
+        ) : null}
+      </>
+    );
+    return (
+      <AdminThemeRoot initial={theme}>
+        {/* Keyed by brand: switching brand starts a fresh Vizzy conversation. */}
+        {phase2 ? (
+          <ShellProvider key={ctx.tenantId} names={crumbNames}>
+            {shell}
+          </ShellProvider>
+        ) : (
+          shell
+        )}
       </AdminThemeRoot>
     );
   }

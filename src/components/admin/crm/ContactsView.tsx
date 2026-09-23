@@ -19,14 +19,17 @@ export function ContactsView({
   isAdmin,
   initialRows,
   initialCursor,
+  initialQuery = "",
 }: {
   isAdmin: boolean;
   initialRows: Contact[];
   initialCursor: string | null;
+  /** A search the rows were already filtered by (⌘K "Search people"). */
+  initialQuery?: string;
 }) {
   const [rows, setRows] = useState<Contact[]>(initialRows);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [corporate, setCorporate] = useState(false);
   const [enriched, setEnriched] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);

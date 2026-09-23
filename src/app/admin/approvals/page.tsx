@@ -2,6 +2,8 @@ import { StubPage } from "@/components/admin/StubPage";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { ApprovalQueue } from "@/components/admin/approvals/ApprovalQueue";
+import { ReviewHub } from "@/components/admin/review/ReviewHub";
+import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,8 @@ export const dynamic = "force-dynamic";
  * lifecycle journeys (flag-gated); other agents' proposals join later.
  */
 export default async function ApprovalQueuePage() {
+  // Nav v2 phase 2: Review holds every waiting decision, not just AI lines.
+  if (isNavV2Phase2Enabled()) return <ReviewHub />;
   const ctx = await requireAdminContext();
   if (!isLifecycleEnabled()) {
     return (

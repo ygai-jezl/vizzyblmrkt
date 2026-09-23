@@ -679,3 +679,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Nav v2 phase 2, "always a next step": the Home growth path and real metrics,
+  # the sidebar progress dots, one Review queue for every decision, the Ask Vizzy
+  # panel (⌘J), ⌘K search and the shell palette. Needs nav v2. ENABLED on dev;
+  # OFF in prod until verified here and promoted (apphosting.prod.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

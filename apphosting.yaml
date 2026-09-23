@@ -664,3 +664,18 @@ env:
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
     availability:
       - RUNTIME
+  # "Growth Path" admin navigation (nav v2): the new sidebar, the header with
+  # breadcrumbs, the Launches list, and redirects from the old unlinked pages.
+  # The theme switch (System / Light / Dark) lives in that header, so it needs
+  # nav v2 too. ENABLED on dev; OFF in prod until verified here and promoted
+  # (overridden in apphosting.prod.yaml). NEXT_PUBLIC_*: build + runtime.
+  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

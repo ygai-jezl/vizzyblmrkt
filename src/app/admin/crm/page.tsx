@@ -2,6 +2,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { listCompanies, listContacts, listEngagedContacts } from "@/lib/admin/crm";
 import type { ListResult } from "@/lib/admin/crm";
 import { CrmClient } from "@/components/admin/crm/CrmClient";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export default async function CrmPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-lg font-semibold">Unified CRM</h1>
+        <h1 className="text-lg font-semibold">{isNavV2Enabled() ? "Audience" : "Unified CRM"}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Every contact across all launches, with company intelligence and email history.
         </p>

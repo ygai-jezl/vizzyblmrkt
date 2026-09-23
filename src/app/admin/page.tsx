@@ -1,5 +1,6 @@
 import { DashboardCards } from "@/components/admin/DashboardCards";
 import { DashboardChat } from "@/components/admin/chat/DashboardChat";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,13 @@ export const dynamic = "force-dynamic";
  */
 export default function AdminHome() {
   return (
-    <div className="flex min-h-[calc(100vh-3rem)] flex-col gap-6">
+    // min-h keeps the chat at the bottom of the screen: 3rem of <main> padding,
+    // plus the 3rem nav v2 header when that is on.
+    <div
+      className={`flex flex-col gap-6 ${
+        isNavV2Enabled() ? "min-h-[calc(100vh-6rem)]" : "min-h-[calc(100vh-3rem)]"
+      }`}
+    >
       <DashboardCards />
       <DashboardChat />
     </div>

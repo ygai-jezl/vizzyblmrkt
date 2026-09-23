@@ -5,9 +5,10 @@ import { signOut } from "firebase/auth";
 import { LogOut } from "lucide-react";
 import { getClientAuth } from "@/lib/auth/firebaseClient";
 
-export function LogoutButton({ variant = "link" }: { variant?: "link" | "icon" }) {
+/** Clears the server session and Firebase sign-in, then goes to /login. */
+export function useSignOut(): () => Promise<void> {
   const router = useRouter();
-  async function logout() {
+  return async function logout() {
     await fetch("/api/auth/session", { method: "DELETE" });
     try {
       await signOut(getClientAuth());
@@ -16,7 +17,11 @@ export function LogoutButton({ variant = "link" }: { variant?: "link" | "icon" }
     }
     router.push("/login");
     router.refresh();
-  }
+  };
+}
+
+export function LogoutButton({ variant = "link" }: { variant?: "link" | "icon" }) {
+  const logout = useSignOut();
 
   if (variant === "icon") {
     return (

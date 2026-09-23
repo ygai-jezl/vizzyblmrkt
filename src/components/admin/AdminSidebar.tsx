@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { BrandSwitcher, type BrandOption } from "./BrandSwitcher";
 import { LogoutButton } from "./LogoutButton";
+import { useApprovalCount } from "./nav/useApprovalCount";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 
@@ -49,35 +50,6 @@ export interface AdminSidebarProps {
   /** Archived (closed) launches — rendered in a separate, collapsed section. */
   archivedLaunches: Array<{ id: string; name: string }>;
   ctx: { tenantId: string; region: string; role: string };
-}
-
-/**
- * How many AI lines are waiting in the Approval Queue (lifecycle journeys).
- * Polled while the admin is open; nothing is shown when lifecycle is off.
- */
-function useApprovalCount(): number {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!isLifecycleUiEnabled()) return;
-    let alive = true;
-    const load = async () => {
-      try {
-        const res = await fetch("/api/admin/approvals/count");
-        if (!res.ok) return;
-        const data = (await res.json()) as { count?: number };
-        if (alive && typeof data.count === "number") setCount(data.count);
-      } catch {
-        // Offline or signed out — keep the last count.
-      }
-    };
-    void load();
-    const timer = setInterval(() => void load(), 60_000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, []);
-  return count;
 }
 
 const STATIC_GROUPS: NavGroup[] = [

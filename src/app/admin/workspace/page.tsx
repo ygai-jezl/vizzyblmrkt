@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { NewWorkspaceForm } from "@/components/admin/workspace/NewWorkspaceForm";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function WorkspaceListPage() {
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Workspaces</h1>
+        <h1 className="text-xl font-semibold">{isNavV2Enabled() ? "Content" : "Workspaces"}</h1>
         <p className="text-sm text-neutral-500">
           Content production spaces. Each workspace has its own grounded knowledge base
           (Curate → Templatize → Create → Distribute).

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signInWithPopup } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
 import { mintSession, safeNextPath } from "@/lib/auth/clientSession";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function LoginPage() {
       const next = safeNextPath(
         new URLSearchParams(window.location.search).get("next"),
       );
-      router.push(next ?? "/admin/signups");
+      router.push(next ?? (isNavV2Enabled() ? "/admin" : "/admin/signups"));
       router.refresh();
     } catch {
       setError("Sign-in failed. Please try again.");

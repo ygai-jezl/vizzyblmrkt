@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
+import { isNavV2Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,10 @@ export default async function CampaignSettingsPage({
 }: {
   params: Promise<{ campaignId: string }>;
 }) {
-  const ctx = await requireAdminContext();
   const { campaignId } = await params;
+  // Nav v2: the launch's own Settings tab (with Archive / Delete).
+  if (isNavV2Enabled()) redirect(`/admin/launches/${encodeURIComponent(campaignId)}/settings`);
+  const ctx = await requireAdminContext();
 
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) notFound();

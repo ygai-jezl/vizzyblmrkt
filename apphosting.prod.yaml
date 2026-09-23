@@ -584,3 +584,15 @@ env:
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
+  # "Growth Path" admin navigation + theme switch — OFF in prod until verified on
+  # dev (see apphosting.yaml). Off = the admin looks and behaves exactly as before.
+  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

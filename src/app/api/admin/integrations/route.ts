@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
+import { isGitHubAppConfigured } from "@/lib/integrations/githubApp";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 import type { GitConnection } from "@/lib/types/tenant";
 import { isXConfigured } from "@/lib/social/x/oauth";
@@ -23,19 +24,26 @@ export async function GET(req: Request) {
   const tenant = await getTenantById(ctx.tenantId);
   const conns = (tenant?.gitConnections ?? {}) as Partial<Record<GitProvider, GitConnection>>;
   const cryptoOk = isGitCryptoConfigured();
+  const githubApp = isGitHubAppConfigured();
   const repoSelection = isGitRepoSelectionEnabled();
 
   const providers: Record<string, unknown> = {};
   (Object.keys(PROVIDERS) as GitProvider[]).forEach((p) => {
     const c = conns[p];
+    const appMode = p === "github" && githubApp;
     providers[p] = {
       label: PROVIDERS[p].label,
-      configured: isProviderConfigured(p) && cryptoOk,
+      configured: appMode || (isProviderConfigured(p) && cryptoOk),
       connected: Boolean(c),
       accountLogin: c?.accountLogin ?? null,
       connectedAt: c?.connectedAt ?? null,
-      // Repo selection: null = legacy "any repo"; otherwise the chosen repos.
-      ...(repoSelection
+      // GitLab's read_repository scope and the GitHub App are read-only; classic GitHub OAuth isn't.
+      readOnly: p === "gitlab" || c?.kind === "app",
+      // A classic GitHub connection can be replaced with the read-only app.
+      upgradeAvailable: appMode && Boolean(c) && c?.kind !== "app",
+      // Repo selection: null = legacy "any repo"; otherwise the chosen repos. A GitHub
+      // App connection's repos are chosen on GitHub's install screen instead.
+      ...(repoSelection && c?.kind !== "app"
         ? {
             repoSelection: true,
             selectedRepos: c?.repos ? c.repos.map((r) => ({ fullPath: r.fullPath, webUrl: r.webUrl })) : null,

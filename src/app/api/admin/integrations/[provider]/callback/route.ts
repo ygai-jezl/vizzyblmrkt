@@ -4,6 +4,7 @@ import { PROVIDERS, isGitProvider, oauthOrigin, grantedScopes } from "@/lib/inte
 import { verifyState, encryptToken } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
+import { githubAppConfig, verifyUserInstallation } from "@/lib/integrations/githubApp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +54,29 @@ export async function GET(
   }
 
   const redirectUri = `${origin}/api/admin/integrations/${provider}/callback`;
+
+  // GitHub App installation (read-only): store the installation, never a token.
+  const app = provider === "github" ? githubAppConfig() : null;
+  const installationId = Number(sp.get("installation_id"));
+  if (app && Number.isInteger(installationId) && installationId > 0) {
+    try {
+      const v = await verifyUserInstallation({ code, installationId, redirectUri }, app);
+      if (!v.ok) return back(origin, { status: "error", reason: v.reason, provider });
+      await setTenantGitConnection(ctx.tenantId, provider, {
+        provider,
+        kind: "app",
+        installationId,
+        accountLogin: v.accountLogin ?? undefined,
+        scope: "contents:read",
+        connectedBy: ctx.userId,
+        connectedAt: new Date().toISOString(),
+      });
+      return back(origin, { status: "ok", provider });
+    } catch {
+      return back(origin, { status: "error", reason: "exception", provider });
+    }
+  }
+
   try {
     const tokRes = await fetch(cfg.tokenUrl, {
       method: "POST",
@@ -104,6 +128,7 @@ export async function GET(
       : undefined;
     await setTenantGitConnection(ctx.tenantId, provider, {
       provider,
+      kind: "oauth",
       enc: encryptToken(tok.access_token),
       accountLogin,
       scope: tok.scope ?? cfg.scope,

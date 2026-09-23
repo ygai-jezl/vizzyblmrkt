@@ -35,3 +35,11 @@ def test_drafts_only_and_catalog_only():
     assert '"default"' in LIFECYCLE_OPS_INSTRUCTION  # conditions need a default edge
     for token in ("{{block.checklist}}", "{{block.next_step}}", "{{block.insight}}", "{{user.first_name|there}}"):
         assert token in LIFECYCLE_OPS_INSTRUCTION
+
+
+def test_repo_learning_is_read_only_and_human_accepted():
+    text = LIFECYCLE_OPS_INSTRUCTION
+    assert "learn_product_from_repo" in text and "get_repo_analysis" in text
+    assert "only READS the code" in text
+    assert "never say or imply we change it" in text
+    assert "cannot accept items into the catalog yourself" in text

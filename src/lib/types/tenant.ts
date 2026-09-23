@@ -181,8 +181,15 @@ export type GitSelectedRepo = z.infer<typeof GitSelectedRepoSchema>;
  */
 export const GitConnectionSchema = z.object({
   provider: z.enum(["github", "gitlab"]),
-  /** Encrypted access token (ciphertext / iv / GCM tag), all base64. */
-  enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }),
+  /**
+   * oauth (legacy): an encrypted user token. app: a GitHub App installation —
+   * read-only by construction; no token is stored, one is minted per clone.
+   */
+  kind: z.enum(["oauth", "app"]).optional(),
+  /** GitHub App installation id (kind "app"). Not a secret. */
+  installationId: z.number().int().positive().optional(),
+  /** Encrypted access token (ciphertext / iv / GCM tag), all base64. Absent for kind "app". */
+  enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }).optional(),
   /** The connected account handle (for display). */
   accountLogin: z.string().optional(),
   scope: z.string().optional(),

@@ -57,9 +57,14 @@ export const SANDBOX_CATALOG: ConnectionCatalog = {
     { key: "jobRole", type: "string", label: "Job role", description: "" },
   ],
   onboardingSteps: [
-    { id: "create_brand", label: "Add your brand", url: "https://app.example.com/brand/new", order: 0 },
-    { id: "run_audit", label: "Run your first audit", url: "https://app.example.com/audits/new", order: 1 },
-    { id: "monitor_prompts", label: "Monitor your first prompts", url: "https://app.example.com/prompts", order: 2 },
+    { id: "create_brand", label: "Add your brand", url: "https://app.example.com/brand/new", order: 0, completion: "The brand has a name and a domain." },
+    { id: "run_audit", label: "Run your first audit", url: "https://app.example.com/audits/new", order: 1, completion: "An audit has finished." },
+    { id: "monitor_prompts", label: "Monitor your first prompts", url: "https://app.example.com/prompts", order: 2, completion: "At least one prompt is being monitored." },
+  ],
+  facts: [
+    { id: "share_of_voice", label: "Share of voice", type: "number", unit: "%", description: "How often AI answers mention the brand.", source: "Daily visibility snapshot" },
+    { id: "competitors_named", label: "Competitors named instead of you", type: "number", unit: null, description: "", source: "Latest prompt results" },
+    { id: "engines_checked", label: "AI engines checked", type: "number", unit: null, description: "", source: "Latest prompt results" },
   ],
   glossary: [
     { term: "Share of voice", definition: "How often AI answers mention your brand, compared with competitors." },

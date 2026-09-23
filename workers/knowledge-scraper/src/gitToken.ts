@@ -1,4 +1,4 @@
-import { createDecipheriv, createHash, createHmac } from "node:crypto";
+import { createDecipheriv, createHash, createHmac, createSign } from "node:crypto";
 import { getDb } from "./firestore";
 
 /**
@@ -30,6 +30,48 @@ function decryptToken(blob: { ct: string; iv: string; tag: string }): string | n
   } catch {
     return null;
   }
+}
+
+/**
+ * GitHub App (read-only) connections store only an installation id. Mint a
+ * one-hour installation token, down-scoped to contents:read, signed with the
+ * app's private key (GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY on this Job).
+ * Mirrors src/lib/integrations/githubApp.ts — the worker can't import @/lib.
+ */
+export async function mintGitHubAppToken(
+  installationId: number,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | undefined> {
+  const appId = env.GITHUB_APP_ID?.trim();
+  const key = env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n").trim();
+  if (!appId || !key) {
+    console.warn("[gitToken] GitHub App connection but GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY aren't set on this Job.");
+    return undefined;
+  }
+  const b64 = (b: Buffer | string) => Buffer.from(b).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const body = b64(JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId }));
+  const jwt = `${head}.${body}.${b64(createSign("RSA-SHA256").update(`${head}.${body}`).sign(key))}`;
+  const res = await fetchImpl(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "YouGrow-Connect",
+      Authorization: `Bearer ${jwt}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ permissions: { contents: "read", metadata: "read" } }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as { token?: string };
+  if (!res.ok || !data.token) {
+    console.warn(`[gitToken] GitHub App token request failed (${res.status}).`);
+    return undefined;
+  }
+  return data.token;
 }
 
 /**
@@ -76,19 +118,29 @@ export async function fetchGitToken(
     const snap = await getDb("(default)").collection("tenants").doc(tenantId).get();
     const conns = (snap.data()?.gitConnections ?? {}) as Record<
       string,
-      | { enc?: { ct: string; iv: string; tag: string }; repos?: { fullPath?: string }[] }
+      | {
+          kind?: string;
+          installationId?: number;
+          enc?: { ct: string; iv: string; tag: string };
+          repos?: { fullPath?: string }[];
+        }
       | undefined
     >;
     const conn = conns[provider];
-    const enc = conn?.enc;
-    if (enc && !isRepoSelected(provider, conn.repos, sourceUri)) {
-      // The admin didn't select this repo on the connection: clone without the
+    if (conn && (conn.enc || conn.kind === "app") && !isRepoSelected(provider, conn.repos, sourceUri)) {
+      // The admin didn't select this repo on the connection: clone without a
       // token (public repos still work) and never fall back to the static secret.
       console.warn(
         `[gitToken] tenant=${tenantId} ${provider} repo not selected on the connection — cloning unauthenticated.`,
       );
       return undefined;
     }
+    // Read-only GitHub App: mint a one-hour installation token (it can only
+    // reach the repos the customer installed the app on).
+    if (provider === "github" && conn?.kind === "app" && typeof conn.installationId === "number") {
+      return await mintGitHubAppToken(conn.installationId);
+    }
+    const enc = conn?.enc;
     if (enc) {
       const tok = decryptToken(enc);
       if (tok) return tok;

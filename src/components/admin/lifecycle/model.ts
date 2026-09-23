@@ -58,7 +58,7 @@ export interface FieldOption {
 
 const RESERVED_EVENTS = ["user.signed_up", "onboarding.step_completed", "onboarding.completed", "email_preferences.updated"];
 
-/** Every condition field this connection's catalog supports. `fact.*` is free-form. */
+/** Every condition field this connection's catalog supports. Uncatalogued `fact.*` ids are free-form strings. */
 export function fieldOptions(catalog: ConnectionCatalog | undefined): FieldOption[] {
   const out: FieldOption[] = [
     { value: "onboarding.complete", label: "Onboarding complete", group: "Onboarding", kind: "boolean" },
@@ -75,6 +75,9 @@ export function fieldOptions(catalog: ConnectionCatalog | undefined): FieldOptio
       group: "Traits",
       kind: t.type === "number" ? "number" : t.type === "boolean" ? "boolean" : "string",
     });
+  }
+  for (const f of catalog?.facts ?? []) {
+    out.push({ value: `fact.${f.id}`, label: f.unit ? `${f.label} (${f.unit})` : f.label, group: "Facts", kind: f.type });
   }
   const events = new Set([...RESERVED_EVENTS, ...(catalog?.events ?? []).map((e) => e.name)]);
   for (const e of events) out.push({ value: `milestone.${e}`, label: `Has done: ${e}`, group: "Events", kind: "boolean" });

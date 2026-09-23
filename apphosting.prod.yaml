@@ -530,6 +530,11 @@ env:
   # to sign with dev's key — which prod can't use — and every context pull and
   # webhook would fail closed. Create the key with:
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-prod
+  # The /developers docs stay off in prod until the owner opens them.
+  - variable: DEVELOPERS_DOCS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: CONNECT_SIGNING_KMS_KEY
     value: projects/vizzybl-marketing-prod/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
     availability:

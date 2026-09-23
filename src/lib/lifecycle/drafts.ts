@@ -118,6 +118,7 @@ export function allowedTermsFor(a: {
   add(a.brand);
   for (const g of a.connection.catalog.glossary) add(g.term);
   for (const s of a.connection.catalog.onboardingSteps) add(s.label);
+  for (const f of a.connection.catalog.facts ?? []) add(f.label);
   for (const f of a.context?.facts ?? []) {
     add(f.label);
     if (typeof f.display === "string") add(f.display);

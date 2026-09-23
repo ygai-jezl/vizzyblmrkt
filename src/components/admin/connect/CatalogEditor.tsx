@@ -21,7 +21,8 @@ export function CatalogEditor({
   canEdit: boolean;
   onSaved: () => void;
 }) {
-  const [cat, setCat] = useState<ConnectionCatalog>(connection.catalog);
+  // Catalogs saved before facts existed have none.
+  const [cat, setCat] = useState<ConnectionCatalog>({ ...connection.catalog, facts: connection.catalog.facts ?? [] });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
@@ -69,6 +70,9 @@ export function CatalogEditor({
                 onClick={() => update("onboardingSteps", cat.onboardingSteps.filter((x) => x !== s).map((x, j) => ({ ...x, order: j })))}>
                 <Trash2 size={14} />
               </Button>
+              <input className={`${inputClass} sm:col-span-4`} disabled={disabled} value={s.completion ?? ""}
+                placeholder="How your product decides it's done — e.g. an audit has finished"
+                onChange={(e) => update("onboardingSteps", cat.onboardingSteps.map((x) => (x === s ? { ...x, completion: e.target.value.slice(0, 500) } : x)))} />
             </div>
           ))}
         <Button disabled={disabled || cat.onboardingSteps.length >= 20}
@@ -130,6 +134,35 @@ export function CatalogEditor({
             ))}
           </div>
         ) : null}
+      </Section>
+
+      <Section
+        title="Facts"
+        description="Numbers (or values) your context endpoint can return about each user — the raw material for insights, and fields journeys can branch on. Ids must match the facts your endpoint returns."
+      >
+        {cat.facts.map((f, i) => (
+          <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_auto]">
+            <input className={`${inputClass} font-mono`} disabled={disabled} value={f.id} placeholder="share_of_voice"
+              onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, id: e.target.value } : x)))} />
+            <input className={inputClass} disabled={disabled} value={f.label} placeholder="Share of voice"
+              onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, label: e.target.value } : x)))} />
+            <select className={inputClass} disabled={disabled} value={f.type}
+              onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, type: e.target.value as typeof f.type } : x)))}>
+              {["number", "string", "boolean"].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+            </select>
+            <input className={inputClass} disabled={disabled} value={f.unit ?? ""} placeholder="%"
+              onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, unit: e.target.value || null } : x)))} />
+            <input className={inputClass} disabled={disabled} value={f.source} placeholder="Where it comes from"
+              onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, source: e.target.value } : x)))} />
+            <Button tone="danger" disabled={disabled} aria-label="Remove fact" onClick={() => update("facts", cat.facts.filter((x) => x !== f))}>
+              <Trash2 size={14} />
+            </Button>
+          </div>
+        ))}
+        <Button disabled={disabled || cat.facts.length >= 50}
+          onClick={() => update("facts", [...cat.facts, { id: "", label: "", type: "number", unit: null, description: "", source: "" }])}>
+          <Plus size={14} /> Add fact
+        </Button>
       </Section>
 
       <Section title="Glossary" description="Terms the AI may use when writing about your product.">

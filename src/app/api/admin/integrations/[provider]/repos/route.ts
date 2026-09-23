@@ -36,6 +36,8 @@ async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
 
   const conn = (await getTenantById(ctx.tenantId))?.gitConnections?.[rawProvider];
   if (!conn) return fail("not_connected", 409);
+  // A read-only GitHub App connection: the repos are chosen on GitHub's install screen.
+  if (conn.kind === "app" || !conn.enc) return fail("managed_on_github", 409);
   let token: string;
   try {
     token = decryptToken(conn.enc);

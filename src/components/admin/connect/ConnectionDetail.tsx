@@ -8,11 +8,13 @@ import { EventDebugger } from "./EventDebugger";
 import { UsersTable } from "./UsersTable";
 import { ContextTester } from "./ContextTester";
 import { CatalogEditor } from "./CatalogEditor";
+import { LearnFromRepo } from "./LearnFromRepo";
+import { IntegrationGuide } from "./IntegrationGuide";
 import { SandboxPanel } from "./SandboxPanel";
 import { ConnectionSettings } from "./ConnectionSettings";
 import { Badge, Banner, Tabs } from "./ui";
 
-type Tab = "sandbox" | "events" | "users" | "test" | "catalog" | "settings";
+type Tab = "sandbox" | "events" | "users" | "test" | "learn" | "catalog" | "guide" | "settings";
 
 /** One connected product: debugger, users, context test, catalog, settings. */
 export function ConnectionDetail({ connectionId, canEdit }: { connectionId: string; canEdit: boolean }) {
@@ -44,7 +46,9 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     { id: "events", label: "Events" },
     { id: "users", label: "Users" },
     { id: "test", label: "Test connection" },
+    ...(connection.kind === "custom" ? [{ id: "learn" as const, label: "Learn from repo" }] : []),
     { id: "catalog", label: "Catalog" },
+    ...(connection.kind === "custom" ? [{ id: "guide" as const, label: "Integration guide" }] : []),
     { id: "settings", label: "Settings" },
   ];
   const h = connection.health ?? {};
@@ -76,9 +80,20 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
       {tab === "events" ? <EventDebugger connectionId={connection.id} /> : null}
       {tab === "users" ? <UsersTable connection={connection} canEdit={canEdit} /> : null}
       {tab === "test" ? <ContextTester connection={connection} canEdit={canEdit} /> : null}
+      {tab === "learn" ? (
+        <LearnFromRepo
+          connection={connection}
+          canEdit={canEdit}
+          onAccepted={() => {
+            void load();
+            setTab("catalog");
+          }}
+        />
+      ) : null}
       {tab === "catalog" ? (
         <CatalogEditor connection={connection} diagnostics={diagnostics} canEdit={canEdit} onSaved={() => void load()} />
       ) : null}
+      {tab === "guide" ? <IntegrationGuide connection={connection} /> : null}
       {tab === "settings" ? <ConnectionSettings connection={connection} canEdit={canEdit} onSaved={() => void load()} /> : null}
     </div>
   );

@@ -4,6 +4,7 @@
 # Usage:
 #   PROJECT=vizzybl-marketing-dev bash workers/knowledge-scraper/deploy.sh
 #   PROJECT=vizzybl-marketing-prod REGION=us-central1 bash workers/knowledge-scraper/deploy.sh
+#   GITHUB_APP_ID=123456 PROJECT=… bash workers/knowledge-scraper/deploy.sh   # with the read-only GitHub App
 #
 # Prereqs (one-time per project — see README.md "Provisioning"):
 #   - Artifact Registry repo `knowledge-scraper` exists (created here if missing).
@@ -31,13 +32,16 @@ echo "==> Building + pushing image ${IMAGE}"
 gcloud builds submit "${HERE}" --project="${PROJECT}" --tag="${IMAGE}"
 
 # Secrets for private repo clones (optional). Wire them only if they exist.
+# github-app-private-key: signs one-hour, read-only installation tokens for
+# tenants connected through the YouGrow GitHub App (pass GITHUB_APP_ID too).
 # GIT_TOKEN_ENC_KEY decrypts per-tenant OAuth tokens stored on the tenant doc
 # (preferred path); GIT_TOKEN_GITHUB/GITLAB are the legacy static fallback.
 SECRET_FLAGS=()
 for pair in \
   "GIT_TOKEN_ENC_KEY=git-token-enc-key" \
   "GIT_TOKEN_GITHUB=git-token-github" \
-  "GIT_TOKEN_GITLAB=git-token-gitlab"; do
+  "GIT_TOKEN_GITLAB=git-token-gitlab" \
+  "GITHUB_APP_PRIVATE_KEY=github-app-private-key"; do
   env_name="${pair%%=*}"; secret_name="${pair##*=}"
   if gcloud secrets describe "${secret_name}" --project="${PROJECT}" >/dev/null 2>&1; then
     SECRET_FLAGS+=("--set-secrets=${env_name}=${secret_name}:latest")
@@ -53,7 +57,8 @@ DEPLOY_ARGS=(
   --max-retries=1
   --cpu=2
   --memory=4Gi
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}"
+  # The GitHub App id is public; set it with GITHUB_APP_ID=… when the app exists.
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}${GITHUB_APP_ID:+,GITHUB_APP_ID=${GITHUB_APP_ID}}"
 )
 [[ -n "${JOB_SA:-}" ]] && DEPLOY_ARGS+=(--service-account="${JOB_SA}")
 # Guard the array expansion: under macOS bash 3.2 + `set -u`, "${EMPTY[@]}"

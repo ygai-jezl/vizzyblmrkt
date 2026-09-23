@@ -20,6 +20,8 @@ from .tools.lifecycle_tools import (
     draft_lifecycle_journey,
     get_lifecycle_context,
     get_lifecycle_journey,
+    get_repo_analysis,
+    learn_product_from_repo,
     save_lifecycle_graph,
 )
 from ...model_config import DEFAULT_MODEL
@@ -35,5 +37,12 @@ lifecycle_ops_agent = LlmAgent(
         "onboarding progress, lifecycle email or a journey page under Lifecycle."
     ),
     instruction=build_lifecycle_ops_instruction,
-    tools=[get_lifecycle_context, draft_lifecycle_journey, get_lifecycle_journey, save_lifecycle_graph],
+    tools=[
+        get_lifecycle_context,
+        draft_lifecycle_journey,
+        get_lifecycle_journey,
+        save_lifecycle_graph,
+        learn_product_from_repo,
+        get_repo_analysis,
+    ],
 )

@@ -21,6 +21,7 @@ import urllib.request
 CANVAS_PATH = "/api/agent/canvas"
 CONTEXT_PATH = "/api/agent/lifecycle/context"
 JOURNEY_PATH = "/api/agent/lifecycle/journeys/"
+CONNECTIONS_PATH = "/api/agent/lifecycle/connections/"
 _TIMEOUT_SECONDS = 120  # drafting writes ~10 emails with the model
 
 
@@ -67,6 +68,12 @@ _ERRORS = {
     "invalid_input": "The request was missing something",
     "canvas_auth_unconfigured": "Journey authoring isn't enabled in this environment yet.",
     "unauthorized": "My session to the app expired — please send your message again.",
+    "forbidden": "Only an admin of this account can start a repo analysis.",
+    "invalid_repo_url": "That isn't a GitHub or GitLab repository address (e.g. github.com/your-org/your-app)",
+    "analysis_in_progress": "An analysis of this product is already running — I can check on it",
+    "analysis_daily_cap": "This account has reached today's limit for repo analyses",
+    "job_not_configured": "Repo analysis isn't set up in this environment yet",
+    "not_found": "I couldn't find that connected product in this account.",
 }
 
 
@@ -190,3 +197,65 @@ def save_graph(state: "dict | None", connection_id: str, journey_id: "str | None
     payload = build_graph_payload(connection, resolved_journey, graph, pools, settings, brief, name)
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
     return parse_author_response(status_code, body_text)
+
+
+def _connection_or_ask(state: "dict | None", connection_id: str) -> "str | dict":
+    connection = _resolve_connection(state, connection_id)
+    if not connection:
+        return {"status": "needs_connection", "message": "Which connected product should I look at?"}
+    return connection
+
+
+def build_learn_payload(repos: "list | None", branch: "str | None") -> dict:
+    """[{"url", "ref"?}] from repo URLs (strings or dicts); a shared branch applies to all."""
+    out = []
+    for r in (repos or [])[:3]:
+        if isinstance(r, str):
+            url, ref = r, None
+        elif isinstance(r, dict):
+            url, ref = str(r.get("url") or ""), r.get("ref")
+        else:
+            continue
+        if url.strip():
+            out.append({"url": url.strip(), "ref": ref or branch or None})
+    return {"repos": out}
+
+
+def learn_from_repo(state: "dict | None", connection_id: str, repos: "list | None", branch: "str | None") -> dict:
+    connection = _connection_or_ask(state, connection_id)
+    if isinstance(connection, dict):
+        return connection
+    payload = build_learn_payload(repos, branch)
+    if not payload["repos"]:
+        return {"status": "needs_repo", "message": "Which repository should I read? (e.g. github.com/your-org/your-app)"}
+    got = _base_and_token(state)
+    if isinstance(got, dict):
+        return got
+    base, token = got
+    url = base + CONNECTIONS_PATH + urllib.parse.quote(connection, safe="") + "/learn"
+    status_code, body_text = _request("POST", url, token, payload)
+    body = _json(body_text)
+    if 200 <= status_code < 300:
+        return {
+            "status": "started",
+            "analysis": body.get("analysis"),
+            "message": "Started reading the code (read-only). It usually takes a few minutes; I can check on it, and the results are reviewed on the product's Learn from repo tab.",
+        }
+    return error_result(status_code, body)
+
+
+def get_repo_analysis(state: "dict | None", connection_id: str) -> dict:
+    connection = _connection_or_ask(state, connection_id)
+    if isinstance(connection, dict):
+        return connection
+    got = _base_and_token(state)
+    if isinstance(got, dict):
+        return got
+    base, token = got
+    url = base + CONNECTIONS_PATH + urllib.parse.quote(connection, safe="") + "/learn"
+    status_code, body_text = _request("GET", url, token)
+    body = _json(body_text)
+    if 200 <= status_code < 300:
+        return {"status": "success", **body}
+    return error_result(status_code, body)
+

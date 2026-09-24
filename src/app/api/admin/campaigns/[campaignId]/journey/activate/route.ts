@@ -22,6 +22,8 @@ export async function POST(
   if (blocked) return blocked;
   const ctx = await getAdminContext();
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Publishing and pausing start and stop real email: admins only, as in lifecycle.
+  if (ctx.role !== "admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { campaignId } = await params;
   const parsed = ActionSchema.safeParse(await req.json().catch(() => null));
@@ -31,7 +33,7 @@ export async function POST(
 
   const result = await setJourneyState(ctx, campaignId, parsed.data.action);
   if (!result.ok) {
-    const status = result.error === "journey_not_found" ? 404 : 422;
+    const status = result.error === "journey_not_found" ? 404 : result.error === "launch_archived" ? 409 : 422;
     return NextResponse.json(
       { error: result.error, ...(result.reason ? { reason: result.reason } : {}) },
       { status },

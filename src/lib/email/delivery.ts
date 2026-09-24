@@ -44,6 +44,8 @@ import {
 import { processContactEnrichJob } from "@/lib/crm/enrichWorker";
 import { processContactEraseJob } from "@/lib/crm/eraseWorker";
 import { markInviteFailed, processInviteJob } from "@/lib/invites/send";
+import type { EndedReason, HeldReason } from "@/lib/types/emailJob";
+import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
 
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
@@ -70,7 +72,7 @@ export interface DrainOptions {
  * recipient would permanently block re-enrollment of a deleted-then-re-added
  * contact (same email → same signup id → same key). Dropping prevents that.
  */
-type JobOutcome = "done" | "drop" | "hold";
+type JobOutcome = "done" | "drop" | "hold" | `held:${HeldReason}` | `ended:${EndedReason}`;
 
 /** How long a held job waits before it's looked at again (e.g. invites while switched off). */
 const HOLD_MS = 30 * 60_000;
@@ -188,6 +190,32 @@ export async function processEmailJobs(
           attempts: Math.max(0, attempts - 1),
           claimedAt: null,
         });
+        continue;
+      }
+      if (outcome.startsWith("held:")) {
+        // Its journey is paused (or its launch archived): park the step as "held",
+        // which the worker never claims, without spending an attempt. Resuming the
+        // journey releases it (lib/journey/hold.ts) with its schedule intact.
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: "held",
+          heldReason: outcome.slice("held:".length) as HeldReason,
+          heldAt: new Date().toISOString(),
+          attempts: Math.max(0, attempts - 1),
+          claimedAt: null,
+        });
+        continue;
+      }
+      if (outcome.startsWith("ended:")) {
+        // The person leaves the journey without this step (e.g. its email was
+        // removed while paused). Kept as "done" so its dedupe key still blocks a
+        // re-enrolment at this step.
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: "done",
+          endedReason: outcome.slice("ended:".length) as EndedReason,
+          processedAt: new Date().toISOString(),
+          lastError: null,
+        });
+        done += 1;
         continue;
       }
       if (outcome === "drop") {
@@ -518,13 +546,20 @@ async function processJourneyStepJob(
 
   const journey = await forTenant(ctx, db).journeys.getById(journeyId);
   if (!journey) throw new Error("journey_not_found");
-  if (journey.status !== "active") return "done"; // paused/draft → stop the chain
+  // Engine move D1: with WAITLIST_JOURNEY_HOLD_ON_PAUSE on, a paused/draft journey
+  // (or an archived launch, below) HOLDS the step instead of ending the person's
+  // sequence. Off = the original behaviour: the step is marked done, nothing more.
+  const holdOnPause = isHoldOnPauseEnabled();
+  if (!holdOnPause && journey.status !== "active") return "done"; // paused/draft → stop the chain
 
   const node = journey.graph.nodes.find((n) => n.id === nodeId);
   if (
     !node ||
     (node.type !== "email" && node.type !== "condition" && node.type !== "exit")
   ) {
+    // Its step was removed (e.g. edited while paused): the person leaves the
+    // journey rather than failing three times and being stranded.
+    if (holdOnPause) return "ended:step_removed";
     throw new Error("journey_node_not_found");
   }
 
@@ -542,6 +577,12 @@ async function processJourneyStepJob(
 
   const campaign = await forTenant(ctx, db).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
+  if (holdOnPause) {
+    // Gone, unverified and unsubscribed people were dropped above; everyone else
+    // waits while the launch is archived or the journey isn't live.
+    if (campaign.archivedAt) return "held:launch_archived";
+    if (journey.status !== "active") return journey.status === "draft" ? "held:journey_draft" : "held:journey_paused";
+  }
   // Belt-and-braces: archiving a launch pauses its journey (which already stops
   // the chain above via the status guard), but if a journey is somehow active on
   // an archived launch, halt the step here too.
@@ -761,11 +802,13 @@ export async function cancelScheduledBroadcast(
 export async function activateJourney(
   ctx: TenantContext,
   journey: Journey,
+  db?: FirestoreLike,
 ): Promise<{ enqueued: number }> {
   const first = firstStep(journey);
   if (!first) return { enqueued: 0 };
 
-  const subs = await forTenant(ctx).signups.find({
+  const repo = forTenant(ctx, db);
+  const subs = await repo.signups.find({
     where: [
       ["campaignId", "==", journey.campaignId],
       ["status", "==", "verified_active"],
@@ -775,17 +818,36 @@ export async function activateJourney(
   let enqueued = 0;
   for (const s of subs) {
     if (!s.email) continue;
+    // Someone the lifecycle engine emails never gets the original engine's journey.
+    if (s.journeyEngine === "lifecycle") continue;
     const when = new Date(Date.now() + first.delayHours * 3600_000).toISOString();
-    const r = await enqueueEmailJob(ctx, {
-      type: "journey_step",
-      campaignId: journey.campaignId,
-      dedupeKey: `journey:${journey.id}:${first.nodeId}:${s.id}`,
-      payload: { journeyId: journey.id, nodeId: first.nodeId, signupId: s.id },
-      scheduledAt: when,
-    });
-    if (r === "enqueued") enqueued += 1;
+    const r = await enqueueEmailJob(
+      ctx,
+      {
+        type: "journey_step",
+        campaignId: journey.campaignId,
+        dedupeKey: `journey:${journey.id}:${first.nodeId}:${s.id}`,
+        payload: { journeyId: journey.id, nodeId: first.nodeId, signupId: s.id },
+        scheduledAt: when,
+      },
+      db,
+    );
+    if (r === "enqueued") {
+      enqueued += 1;
+      await stampJourneyEngine(ctx, s.id, db);
+    }
   }
   return { enqueued };
+}
+
+/**
+ * Record, once, that the original engine emails this person (engine move D1), so
+ * the lifecycle engine never enrols them too. Transactional; never overwrites.
+ */
+export async function stampJourneyEngine(ctx: TenantContext, signupId: string, db?: FirestoreLike): Promise<void> {
+  await forTenant(ctx, db)
+    .signups.claim(signupId, (cur) => (cur.journeyEngine ? null : { journeyEngine: "legacy" as const }))
+    .catch((err) => console.warn(`[journey] engine stamp failed for ${ctx.tenantId}/${signupId}:`, err));
 }
 
 /**
@@ -824,7 +886,11 @@ export async function enrollSignupInActiveJourney(
   const journey = await forTenant(ctx, db).journeys.getById(
     `journey_${campaignId}`,
   );
-  if (!journey || journey.status !== "active") return "skipped";
+  // A paused journey still takes new signups when holds are on (engine move D1):
+  // their welcome waits and goes out when the journey is turned back on.
+  const takesSignups =
+    journey?.status === "active" || (journey?.status === "paused" && isHoldOnPauseEnabled());
+  if (!journey || !takesSignups) return "skipped";
   const first = firstStep(journey);
   if (!first) return "skipped";
   const when = new Date(Date.now() + first.delayHours * 3600_000).toISOString();

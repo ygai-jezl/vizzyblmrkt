@@ -3,15 +3,16 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import { JourneyGraphSchema, JourneyStatus } from "@/lib/types/journey";
+import { JourneyGraphSchema } from "@/lib/types/journey";
 import { journeyIdFor, upsertJourneyDraft } from "@/lib/journey/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Saving never changes a journey's status: that goes through Publish/Pause
+// (activate/route.ts), which validates, enrols and releases held steps.
 const SaveJourneySchema = z.object({
   graph: JourneyGraphSchema,
-  status: JourneyStatus.optional(),
 });
 
 type RouteParams = { params: Promise<{ campaignId: string }> };
@@ -45,7 +46,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { campaignId } = await params;
-  const parsed = SaveJourneySchema.safeParse(await req.json().catch(() => null));
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (body && "status" in body) {
+    return NextResponse.json(
+      { error: "status_not_allowed", message: "Use Publish or Pause to change a journey's status." },
+      { status: 400 },
+    );
+  }
+  const parsed = SaveJourneySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       {
@@ -59,9 +67,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     );
   }
 
-  const saved = await upsertJourneyDraft(ctx, campaignId, parsed.data.graph, {
-    status: parsed.data.status,
-  });
+  const saved = await upsertJourneyDraft(ctx, campaignId, parsed.data.graph);
   if (!saved.ok) {
     return NextResponse.json({ error: saved.error }, { status: 404 });
   }

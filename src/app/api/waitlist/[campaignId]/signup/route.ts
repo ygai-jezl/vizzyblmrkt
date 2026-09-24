@@ -20,7 +20,7 @@ import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
 import { syncSignupToAudience } from "@/lib/mailchimp";
-import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
+import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
 import { recordSignupContact } from "@/lib/crm/contactService";
 import { resolveVisitorLocale } from "@/lib/i18n/locale";
 import { resolveProductName } from "@/lib/types/campaign";
@@ -210,7 +210,7 @@ export async function POST(
     // Enrol immediately-active (no-verification) signups into the journey too —
     // verification campaigns enrol on the verify step instead.
     try {
-      await enrollSignupInActiveJourney(ctx, campaign.id, result.signup);
+      await enrolSignupInWaitlistJourney(ctx, campaign.id, result.signup);
     } catch (err) {
       console.warn(
         `[journey] enrollment on signup failed for ${campaign.id}:`,

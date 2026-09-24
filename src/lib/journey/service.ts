@@ -1,11 +1,13 @@
 import type { TenantContext } from "@/lib/tenant";
 import { forTenant } from "@/lib/tenant";
+import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Journey, JourneyGraph, JourneyStatus } from "@/lib/types/journey";
 import {
   activateJourney,
   processEmailJobs,
   validateJourneyGraph,
 } from "@/lib/email/delivery";
+import { releaseHeldJourneySteps, type ReleaseSummary } from "./hold";
 
 /**
  * Journey persistence service — the single source of truth for saving and
@@ -77,9 +79,11 @@ export type SetJourneyStateResult =
       ok: true;
       status: JourneyStatus;
       enqueued?: number;
+      /** People who were waiting while it was paused (engine move D1). */
+      held?: ReleaseSummary;
       result?: { processed: number; done: number; failed: number };
     }
-  | { ok: false; error: "journey_not_found" | "journey_invalid"; reason?: string };
+  | { ok: false; error: "journey_not_found" | "journey_invalid" | "launch_archived"; reason?: string };
 
 /**
  * Activate the journey (enqueue the first step for every verified subscriber,
@@ -91,8 +95,9 @@ export async function setJourneyState(
   ctx: TenantContext,
   campaignId: string,
   action: "activate" | "pause",
+  db?: FirestoreLike,
 ): Promise<SetJourneyStateResult> {
-  const repo = forTenant(ctx);
+  const repo = forTenant(ctx, db);
   const id = journeyIdFor(campaignId);
 
   const journey = await repo.journeys.getById(id);
@@ -104,6 +109,11 @@ export async function setJourneyState(
     return { ok: true, status: "paused" };
   }
 
+  // An archived launch's steps can't send: publishing would enrol everyone and
+  // then stop each first email. Restore the launch first (engine move D1).
+  const campaign = await repo.campaigns.getById(campaignId);
+  if (campaign?.archivedAt) return { ok: false, error: "launch_archived" };
+
   // Refuse to activate an empty/half-wired journey: it would flip to "active",
   // enqueue nobody, and silently send nothing — the worst kind of failure.
   const valid = validateJourneyGraph(journey.graph);
@@ -112,8 +122,10 @@ export async function setJourneyState(
   }
 
   await repo.journeys.update(id, { status: "active", updatedAt: now });
-  const fresh = await repo.journeys.getById(id);
-  const { enqueued } = await activateJourney(ctx, fresh!);
-  const result = await processEmailJobs(ctx);
-  return { ok: true, status: "active", enqueued, result };
+  const fresh = (await repo.journeys.getById(id))!;
+  // People who waited while it was paused carry on first, then anyone new joins.
+  const held = await releaseHeldJourneySteps(ctx, fresh, { db });
+  const { enqueued } = await activateJourney(ctx, fresh, db);
+  const result = await processEmailJobs(ctx, 25, db);
+  return { ok: true, status: "active", enqueued, held, result };
 }

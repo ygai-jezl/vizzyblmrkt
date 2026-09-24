@@ -27,8 +27,19 @@ export const EmailJobStatus = z.enum([
   "processing",
   "done",
   "failed",
+  // Waitlist journey step waiting while its journey is paused or its launch is
+  // archived (engine move D1). The worker never claims it; resuming releases it.
+  "held",
 ]);
 export type EmailJobStatus = z.infer<typeof EmailJobStatus>;
+
+/** Why a waitlist journey step is held. */
+export const HeldReason = z.enum(["journey_paused", "journey_draft", "launch_archived"]);
+export type HeldReason = z.infer<typeof HeldReason>;
+
+/** Why a waitlist journey step ended without sending (the person left the journey). */
+export const EndedReason = z.enum(["hold_expired", "step_removed"]);
+export type EndedReason = z.infer<typeof EndedReason>;
 
 export const EmailJobSchema = z.object({
   id: z.string(),
@@ -56,6 +67,11 @@ export const EmailJobSchema = z.object({
   /** Journey steps: which A/B arm this recipient was allocated ("control" or a
    *  variant id). Deterministic per (node, recipient); see lib/journey/allocation.ts. */
   variantId: z.string().nullable().optional(),
+  /** Held journey steps: why, and since when (the 90-day limit counts from here). */
+  heldReason: HeldReason.nullable().optional(),
+  heldAt: z.string().nullable().optional(),
+  /** Set when a step ended without sending because the person left the journey. */
+  endedReason: EndedReason.nullable().optional(),
   /** Job-type-specific payload (broadcastId, or journeyId+nodeId+signupId). */
   payload: z.record(z.string(), z.unknown()),
   lastError: z.string().nullable().optional(),

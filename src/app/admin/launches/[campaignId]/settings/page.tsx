@@ -8,6 +8,8 @@ import { ArchiveLaunchSection } from "@/components/admin/ArchiveLaunchSection";
 import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
 import { journeyIdFor } from "@/lib/journey/service";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
+import { countHeldJourneySteps } from "@/lib/journey/hold";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,10 @@ export default async function LaunchSettingsPage({
     isNavV2Phase3Enabled() ? forTenant(ctx).journeys.getById(journeyIdFor(campaignId)).catch(() => null) : null,
   ]);
   const journeyPaused = journey?.status === "paused";
+  // Engine move D1: how many people are waiting part-way through the paused journey.
+  const holdOnPause = isHoldOnPauseEnabled();
+  const waiting =
+    journeyPaused && holdOnPause ? await countHeldJourneySteps(ctx, campaignId).catch(() => null) : null;
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -47,6 +53,8 @@ export default async function LaunchSettingsPage({
             campaignName={campaign.waitlistName}
             archived={!!campaign.archivedAt}
             journeyPaused={journeyPaused}
+            waiting={waiting}
+            holdOnPause={holdOnPause}
           />
           <DeleteLaunchSection
             campaignId={campaign.id}

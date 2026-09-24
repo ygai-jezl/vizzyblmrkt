@@ -760,3 +760,12 @@ env:
     secret: invite-link-signing-key
     availability:
       - RUNTIME
+  # Engine move D1: a paused waitlist journey (or an archived launch) HOLDS each
+  # person's next email instead of ending their sequence; new signups join a paused
+  # journey and wait; turning it back on releases them. Off = the original
+  # behaviour (the step is marked done and the person gets nothing more).
+  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  - variable: WAITLIST_JOURNEY_HOLD_ON_PAUSE
+    value: "true"
+    availability:
+      - RUNTIME

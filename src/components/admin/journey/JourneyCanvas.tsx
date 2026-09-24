@@ -19,6 +19,34 @@ import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 const PHASE3 = isNavV2Phase3Enabled();
+
+type PublishResponse = {
+  enqueued?: number;
+  held?: { released: number; expired: number; stepRemoved: number };
+};
+
+/** "Published — 12 people will get the first email. 3 waiting people get their next one." */
+function publishedMessage(data: PublishResponse): string {
+  const n = data.enqueued ?? 0;
+  const released = data.held?.released ?? 0;
+  const left = (data.held?.expired ?? 0) + (data.held?.stepRemoved ?? 0);
+  const parts = [
+    PHASE3
+      ? `Published — ${n} ${n === 1 ? "person" : "people"} will get the first email.`
+      : `Activated — ${n} recipient(s) enqueued.`,
+  ];
+  if (released) parts.push(`${released} waiting ${released === 1 ? "person gets" : "people get"} their next email.`);
+  if (left) parts.push(`${left} left the journey (paused over 90 days, or their email was removed).`);
+  return parts.join(" ");
+}
+
+/** Why Publish/Pause was refused, in words the operator can act on. */
+function publishError(data: { error?: string; reason?: string }): string {
+  if (data.error === "forbidden") return "Only admins can publish or pause a journey.";
+  if (data.error === "launch_archived") return "This launch is archived. Restore it in Settings, then publish.";
+  if (data.error === "journey_invalid") return `Can't publish yet${data.reason ? `: ${data.reason}` : ""}.`;
+  return "Action failed.";
+}
 import type {
   Journey,
   JourneyStatus,
@@ -274,16 +302,10 @@ export function JourneyCanvas({
     setBusy(false);
     if (res.ok) {
       setStatus(data.status as JourneyStatus);
-      setMsg(
-        action === "activate"
-          ? PHASE3
-            ? `Published — ${data.enqueued ?? 0} ${data.enqueued === 1 ? "person" : "people"} will get the first email.`
-            : `Activated — ${data.enqueued ?? 0} recipient(s) enqueued.`
-          : "Paused.",
-      );
+      setMsg(action === "activate" ? publishedMessage(data) : "Paused.");
       router.refresh();
     } else {
-      setMsg("Action failed.");
+      setMsg(publishError(data));
     }
   }
 

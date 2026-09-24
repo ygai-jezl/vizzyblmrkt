@@ -653,3 +653,9 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Engine move D1 (hold instead of drop on pause) — OFF in prod until verified on
+  # dev (see apphosting.yaml).
+  - variable: WAITLIST_JOURNEY_HOLD_ON_PAUSE
+    value: "false"
+    availability:
+      - RUNTIME

@@ -14,6 +14,8 @@ import type { WaitlistJourneyRow } from "@/lib/journey/waitlistJourneyRows";
 export interface WelcomeJourneyInsight extends WaitlistJourneyRow {
   /** People with a step still to come. */
   inProgress: number | null;
+  /** People waiting while the journey is paused or the launch archived (engine move D1). */
+  waiting: number | null;
 }
 
 export interface LifecycleJourneyInsight {
@@ -45,12 +47,14 @@ export async function loadJourneyInsights(
     rows
       .filter((r) => r.status !== "not_started" && !r.archived)
       .slice(0, 30)
-      .map(async (r) => ({
-        ...r,
-        inProgress: await repos.emailJobs
-          .count([["campaignId", "==", r.campaignId], ["type", "==", "journey_step"], ["status", "==", "pending"]])
-          .catch(() => null),
-      })),
+      .map(async (r) => {
+        const steps = (status: string) =>
+          repos.emailJobs
+            .count([["campaignId", "==", r.campaignId], ["type", "==", "journey_step"], ["status", "==", status]])
+            .catch(() => null);
+        const [inProgress, waiting] = await Promise.all([steps("pending"), steps("held")]);
+        return { ...r, inProgress, waiting };
+      }),
   );
   const lifecycle = await Promise.all(
     journeys

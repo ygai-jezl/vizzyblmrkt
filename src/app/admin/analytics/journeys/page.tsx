@@ -19,6 +19,7 @@ export default async function InsightsJourneysPage() {
   const ctx = await requireAdminContext();
   const lifecycle = isLifecycleEnabled();
   const j = await loadJourneyInsights(ctx, { lifecycle });
+  const anyWaiting = j.welcome.some((w) => (w.waiting ?? 0) > 0);
   return (
     <div className="space-y-6">
       <Card title="Welcome journeys" note="one per launch">
@@ -32,6 +33,7 @@ export default async function InsightsJourneysPage() {
                 <th className={TH}>Status</th>
                 <th className={`${TH} text-right`}>Emails</th>
                 <th className={`${TH} text-right`}>People part-way</th>
+                {anyWaiting ? <th className={`${TH} text-right`}>Waiting (paused)</th> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-900">
@@ -45,6 +47,7 @@ export default async function InsightsJourneysPage() {
                   <td className={TD}>{WAITLIST_STATUS_LABEL[w.status]}</td>
                   <td className={`${TD} text-right tabular-nums`}>{w.emails}</td>
                   <td className={`${TD} text-right tabular-nums`}>{n(w.inProgress)}</td>
+                  {anyWaiting ? <td className={`${TD} text-right tabular-nums`}>{n(w.waiting)}</td> : null}
                 </tr>
               ))}
             </tbody>

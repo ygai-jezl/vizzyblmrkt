@@ -6,6 +6,7 @@ import { ConsentBasis } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
 import { productUserDocId } from "@/lib/connect/profile";
 import { fireSandboxEvent } from "@/lib/connect/sandbox";
+import { environmentOf, productNameOf } from "@/lib/connect/environments";
 import { validateLifecycleDraft } from "./graph";
 import { planTimeline } from "./planner";
 import { personalOffsetMinutes, resolveTimezone } from "./sendWindow";
@@ -75,7 +76,15 @@ export async function listJourneys(ctx: TenantContext, opts: { connectionId?: st
       })),
     connections: connections
       .filter((c) => c.status !== "revoked")
-      .map((c) => ({ id: c.id, name: c.name, kind: c.kind, stepCount: c.catalog.onboardingSteps.length })),
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        kind: c.kind,
+        stepCount: c.catalog.onboardingSteps.length,
+        // Lets "Copy to…" offer "Promote to Production" between a product's environments.
+        environment: c.kind === "custom" ? environmentOf(c) : null,
+        product: productNameOf(c),
+      })),
   });
 }
 

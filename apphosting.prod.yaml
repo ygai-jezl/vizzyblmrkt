@@ -584,21 +584,70 @@ env:
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
-  # "Growth Path" admin navigation + theme switch — OFF in prod until verified on
-  # dev (see apphosting.yaml). Off = the admin looks and behaves exactly as before.
-  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+  # Google Analytics — OFF in prod until verified on dev (see apphosting.yaml).
+  # The measurement ID is inherited; prod never sends debug_mode.
+  - variable: NEXT_PUBLIC_GA_ENABLED
     value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_GA_DEBUG_MODE
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # "Growth Path" admin navigation + theme switch — ON in prod (owner decision,
+  # 2026-09-24). To switch off quickly, set these back to "false" (they're
+  # NEXT_PUBLIC_*, so a new rollout is needed).
+  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
-  # Nav v2 phase 2 — OFF in prod until verified on dev (see apphosting.yaml).
+  # Nav v2 phase 2 — ON in prod (owner decision, 2026-09-24). Its two Firestore
+  # indexes (signups and email_events by createdAt ASC) are deployed to prod.
   - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
-    value: "false"
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Nav v2 phase 3 — ON in prod (owner decision, 2026-09-24). No indexes or agent
+  # changes needed.
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Nav v2 phase 4 and its parts — ON in prod (owner decision, 2026-09-24). The
+  # invite-link-signing-key secret (inherited from apphosting.yaml) exists in this
+  # project with App Hosting access. Each part can be switched off on its own by
+  # setting it back to "false" (NEXT_PUBLIC_* need a new rollout). Invite links
+  # already sent keep working with INVITES_ENABLED off.
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CONTENT_CHAT_AUTHORING_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: INVITES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INVITES_ENABLED
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

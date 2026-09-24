@@ -58,6 +58,44 @@ describe("connections admin API", () => {
     expect(connection).not.toHaveProperty("secretEnc");
   });
 
+  it("records a custom product's environment, which can be changed later", async () => {
+    const db = new FakeFirestore();
+    const r = await createProductConnection(ctxA, { name: "App", kind: "custom", environment: "staging" }, { origin, db });
+    const { connection } = r.body as { connection: { id: string; environment: string | null } };
+    expect(connection.environment).toBe("staging");
+    const p = await patchConnection(ctxA, connection.id, { environment: "production" }, db);
+    expect(p.status).toBe(200);
+    expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.environment).toBe("production");
+    expect((await patchConnection(ctxA, connection.id, { environment: "qa" }, db)).status).toBe(400);
+  });
+
+  it("saves an invite sign-up link only on an allowed link domain", async () => {
+    const db = new FakeFirestore();
+    const r = await createProductConnection(ctxA, { name: "App", kind: "custom", environment: "production" }, { origin, db });
+    const { connection } = r.body as { connection: { id: string } };
+    const denied = await patchConnection(ctxA, connection.id, { signupUrl: "https://app.fernlight.test/signup" }, db);
+    expect(denied).toMatchObject({ status: 400, body: { error: "signup_url_domain_not_allowed", detail: "fernlight.test" } });
+    expect((await patchConnection(ctxA, connection.id, { signupUrl: "http://app.fernlight.test/x" }, db)).status).toBe(400);
+    const saved = await patchConnection(
+      ctxA,
+      connection.id,
+      { linkDomains: ["fernlight.test"], signupUrl: "https://app.fernlight.test/signup" },
+      db,
+    );
+    expect(saved.status).toBe(200);
+    expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.signupUrl).toBe(
+      "https://app.fernlight.test/signup",
+    );
+    expect((await patchConnection(ctxA, connection.id, { signupUrl: null }, db)).status).toBe(200);
+    expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.signupUrl).toBeNull();
+  });
+
+  it("sandboxes have no environment", async () => {
+    const db = new FakeFirestore();
+    const r = await createProductConnection(ctxA, { name: "Sandbox", kind: "sandbox", environment: "production" }, { origin, db });
+    expect((r.body as { connection: { environment: string | null } }).connection.environment).toBeNull();
+  });
+
   it("never lists sealed secrets", async () => {
     const db = new FakeFirestore();
     await create(db, "custom");

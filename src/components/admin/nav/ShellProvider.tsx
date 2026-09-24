@@ -1,9 +1,10 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { isInsightsHubEnabled, isNavV2Phase3Enabled, isNavV2Phase4Enabled } from "@/lib/nav/flags";
 import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
-import { launchInView, vizzyPageLabel } from "@/lib/nav/vizzy";
+import { launchInView, programmeInView, vizzyPageLabel } from "@/lib/nav/vizzy";
 import { useDashboardChat, type UseDashboardChatReturn } from "../chat/useDashboardChat";
 
 interface Shell {
@@ -43,8 +44,20 @@ function focusHomeChat() {
  */
 export function ShellProvider({ names, children }: { names: CrumbNames; children: ReactNode }) {
   const pathname = usePathname() ?? "/admin";
-  const page = vizzyPageLabel(breadcrumbsFor(pathname, names));
-  const chat = useDashboardChat({ context: { page, campaignId: launchInView(pathname) } });
+  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled() }));
+  const router = useRouter();
+  const chat = useDashboardChat({
+    context: {
+      page,
+      campaignId: launchInView(pathname),
+      // Nav v2 phase 4: the programme / plan in view, for Vizzy's content tools.
+      ...(isNavV2Phase4Enabled() ? programmeInView(pathname) : {}),
+    },
+    // When Vizzy saves a draft of the page you're on, show its version.
+    onCanvasSaved: (card) => {
+      if (card.url.split("?")[0] === pathname) router.refresh();
+    },
+  });
   const [vizzyOpen, setVizzyOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { sendMessage } = chat;

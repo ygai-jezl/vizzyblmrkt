@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { BrandVoice } from "@/lib/types/tenant";
+import { place } from "@/lib/nav/places";
 
 /**
  * Brand Kit → Brand voice. Author the tenant-GLOBAL brand voice (Summary / Do / Don't /
@@ -96,7 +97,7 @@ export function BrandVoiceEditor() {
         apply(data.brandVoice);
         setMsg("Drafted from your website — review, edit, then Save.");
       } else if (data.error === "no_primary_domain") {
-        setMsg("Set your Primary Domain in Account → Domains first, then generate.");
+        setMsg(`Set your Primary Domain in ${place("sending").label} first, then generate.`);
       } else {
         setMsg("Couldn't generate a brand voice — try again or write it manually.");
       }

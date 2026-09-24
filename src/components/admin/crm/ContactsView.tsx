@@ -2,6 +2,10 @@
 
 import { useCallback, useState } from "react";
 import type { Contact } from "@/lib/types/contact";
+import { INVITE_STAGE_LABEL, type InviteStage } from "@/lib/invites/inviteStage";
+
+/** Nav v2 phase 4: the contacts API adds each row's furthest invite stage when invites are on. */
+const inviteStageOf = (c: Contact): InviteStage | null => (c as Contact & { invite?: InviteStage | null }).invite ?? null;
 import { ContactDetail } from "./ContactDetail";
 
 const chip = (active: boolean) =>
@@ -20,13 +24,19 @@ export function ContactsView({
   initialRows,
   initialCursor,
   initialQuery = "",
+  initialLaunch = null,
 }: {
   isAdmin: boolean;
   initialRows: Contact[];
   initialCursor: string | null;
   /** A search the rows were already filtered by (⌘K "Search people"). */
   initialQuery?: string;
+  /** Nav v2 phase 3: the rows are one launch's signups (?launch=). */
+  initialLaunch?: { id: string; name: string } | null;
 }) {
+  // The API applies one primary filter and a search wins over the launch, so a
+  // search clears the launch filter rather than pretending to combine them.
+  const [launch, setLaunch] = useState(initialLaunch);
   const [rows, setRows] = useState<Contact[]>(initialRows);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [q, setQ] = useState(initialQuery);
@@ -36,10 +46,18 @@ export function ContactsView({
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(
-    async (opts: { reset: boolean; q: string; corporate: boolean; enriched: boolean; cursor: string | null }) => {
+    async (opts: {
+      reset: boolean;
+      q: string;
+      corporate: boolean;
+      enriched: boolean;
+      cursor: string | null;
+      campaignId?: string | null;
+    }) => {
       setLoading(true);
       const p = new URLSearchParams();
       if (opts.q) p.set("q", opts.q);
+      else if (opts.campaignId) p.set("campaignId", opts.campaignId);
       if (opts.corporate) p.set("corporate", "1");
       if (opts.enriched) p.set("enriched", "1");
       if (!opts.reset && opts.cursor) p.set("cursor", opts.cursor);
@@ -62,7 +80,9 @@ export function ContactsView({
     setQ(nq);
     setCorporate(nc);
     setEnriched(ne);
-    void load({ reset: true, q: nq, corporate: nc, enriched: ne, cursor: null });
+    const campaignId = nq ? null : (launch?.id ?? null);
+    if (nq && launch) setLaunch(null);
+    void load({ reset: true, q: nq, corporate: nc, enriched: ne, cursor: null, campaignId });
   }
 
   // Client-side refinement: the API applies one primary filter; narrow the rest here.
@@ -87,6 +107,15 @@ export function ContactsView({
             className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-1.5 text-sm dark:border-neutral-700"
           />
         </form>
+        {launch ? (
+          <a
+            href="/admin/crm"
+            className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300"
+            title="Show everyone"
+          >
+            Launch: {launch.name} <span aria-hidden>×</span>
+          </a>
+        ) : null}
         <button className={chip(corporate)} onClick={() => applyFilters({ corporate: !corporate })}>
           Corporate
         </button>
@@ -118,6 +147,11 @@ export function ContactsView({
                       unverified
                     </span>
                   ) : null}
+                  {inviteStageOf(c) ? (
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                      {INVITE_STAGE_LABEL[inviteStageOf(c)!]}
+                    </span>
+                  ) : null}
                   {c.isCorporateDomain ? (
                     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
                       {c.enrichment.status === "enriched" ? "enriched" : "corporate"}
@@ -138,7 +172,7 @@ export function ContactsView({
       {cursor ? (
         <button
           disabled={loading}
-          onClick={() => load({ reset: false, q, corporate, enriched, cursor })}
+          onClick={() => load({ reset: false, q, corporate, enriched, cursor, campaignId: q ? null : (launch?.id ?? null) })}
           className="w-full rounded-md border border-neutral-300 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900"
         >
           {loading ? "Loading…" : "Load more"}

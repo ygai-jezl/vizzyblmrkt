@@ -29,6 +29,9 @@ export type ProductConnectionKind = z.infer<typeof ProductConnectionKind>;
 export const ProductConnectionStatus = z.enum(["active", "paused", "revoked"]);
 export type ProductConnectionStatus = z.infer<typeof ProductConnectionStatus>;
 
+/** Which copy of the product a connection is (see src/lib/connect/environments.ts). */
+export const ProductEnvironment = z.enum(["staging", "production"]);
+
 /**
  * The legal basis the PRODUCT asserts for emailing a user (UK PECR framing).
  * `corporate_subscriber` = a business address; `soft_opt_in` = an existing
@@ -183,6 +186,11 @@ export const ProductConnectionSchema = z.object({
   name: z.string().min(1).max(120),
   kind: ProductConnectionKind,
   status: ProductConnectionStatus,
+  /**
+   * Staging or production copy of the product. Absent on connections made before
+   * environments existed — those are inferred from their name ("App (staging)").
+   */
+  environment: ProductEnvironment.nullable().optional(),
   /** Public key id sent as X-YouGrow-Key-Id; routes ingest via connection_keys. */
   keyId: z.string(),
   /** The HMAC secret, sealed with AAD `${tenantId}:${id}`. Null once revoked. */
@@ -196,6 +204,11 @@ export const ProductConnectionSchema = z.object({
   webhookEndpoint: WebhookEndpointSchema.nullable().optional(),
   /** Registrable domains that product-supplied links (step URLs) may point at. */
   linkDomains: z.array(z.string().max(253)).max(20).default([]),
+  /**
+   * Where invited waitlist members sign up (nav v2 phase 4 invites). https only,
+   * and on one of `linkDomains`. Invite links redirect here with `yg_invite=<code>`.
+   */
+  signupUrl: z.string().url().max(2000).nullable().optional(),
   catalog: ConnectionCatalogSchema,
   consentPolicy: ConsentPolicySchema,
   defaults: z.object({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import { IngestBar } from "./IngestBar";
 import { SourceCard } from "./SourceCard";
@@ -66,10 +67,10 @@ export function CuratePanel({
     <div className="space-y-6">
       <section className="space-y-2">
         <div>
-          <h2 className="text-sm font-semibold">Idea Vault</h2>
+          <h2 className="text-sm font-semibold">{isNavV2Phase3Enabled() ? "Knowledge" : "Idea Vault"}</h2>
           <p className="text-xs text-neutral-500">
             Ingest grounding sources (docs, sites, repos). Each is vectorized and tagged so any
-            draft in this workspace can ground on it.
+            draft in this {isNavV2Phase3Enabled() ? "programme" : "workspace"} can ground on it.
           </p>
         </div>
         <IngestBar workspaceId={workspaceId} onIngested={refresh} />

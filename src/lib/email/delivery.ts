@@ -43,6 +43,7 @@ import {
 } from "./templates";
 import { processContactEnrichJob } from "@/lib/crm/enrichWorker";
 import { processContactEraseJob } from "@/lib/crm/eraseWorker";
+import { markInviteFailed, processInviteJob } from "@/lib/invites/send";
 
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
@@ -69,7 +70,10 @@ export interface DrainOptions {
  * recipient would permanently block re-enrollment of a deleted-then-re-added
  * contact (same email → same signup id → same key). Dropping prevents that.
  */
-type JobOutcome = "done" | "drop";
+type JobOutcome = "done" | "drop" | "hold";
+
+/** How long a held job waits before it's looked at again (e.g. invites while switched off). */
+const HOLD_MS = 30 * 60_000;
 
 /**
  * Drain due jobs from the queue. Idempotent + best-effort: a failed job retries
@@ -167,10 +171,24 @@ export async function processEmailJobs(
         case "contact_erase":
           outcome = await processContactEraseJob(ctx, job, db);
           break;
+        case "invite":
+          outcome = await processInviteJob(ctx, job, db);
+          break;
         default: {
           const _exhaustive: never = job.type;
           throw new Error(`unknown job type: ${String(_exhaustive)}`);
         }
+      }
+      if (outcome === "hold") {
+        // Not now (e.g. invites switched off): put it back, later, without spending
+        // an attempt, so a queued invite waits rather than failing or being dropped.
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: "pending",
+          scheduledAt: new Date(Date.now() + HOLD_MS).toISOString(),
+          attempts: Math.max(0, attempts - 1),
+          claimedAt: null,
+        });
+        continue;
       }
       if (outcome === "drop") {
         // Recipient gone/unverified: DELETE the job rather than tombstone it.
@@ -193,6 +211,7 @@ export async function processEmailJobs(
         lastError: msg,
         processedAt: exhausted ? new Date().toISOString() : null,
       });
+      if (exhausted && job.type === "invite") await markInviteFailed(ctx, job, msg, db);
       if (exhausted && job.type === "broadcast") {
         const bid = String(job.payload.broadcastId ?? "");
         if (bid) {

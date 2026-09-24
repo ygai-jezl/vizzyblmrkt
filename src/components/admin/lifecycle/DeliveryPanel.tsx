@@ -6,6 +6,7 @@ import type { DeliveryMode, LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
 import type { JourneyDetail } from "./model";
+import { place } from "@/lib/nav/places";
 
 /**
  * Who actually gets the emails: test (listed test users only), shadow (real
@@ -97,8 +98,8 @@ export function DeliveryPanel({
         {mode === "live" && !detail.sender.verified ? (
           <Banner tone="err">
             Live needs the From address on a verified sending domain. Set one in{" "}
-            <Link className="underline" href="/admin/account">
-              Account → Domains
+            <Link className="underline" href={place("sending").href}>
+              {place("sending").label}
             </Link>{" "}
             or on the Settings tab.
           </Banner>
@@ -106,8 +107,8 @@ export function DeliveryPanel({
         {mode === "live" && !detail.postalAddress ? (
           <Banner tone="err">
             Add your postal address in{" "}
-            <Link className="underline" href="/admin/account">
-              Account → Domains
+            <Link className="underline" href={place("sending").href}>
+              {place("sending").label}
             </Link>{" "}
             — marketing emails are held without one.
           </Banner>

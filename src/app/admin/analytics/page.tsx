@@ -3,7 +3,10 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { computeHybridAnalytics } from "@/lib/analytics/analytics";
 import { CampaignAnalyticsView } from "@/components/admin/CampaignAnalyticsView";
-import { isNavV2Enabled } from "@/lib/nav/flags";
+import { isInsightsHubEnabled, isNavV2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { redirect } from "next/navigation";
+import { InsightsOverviewSection } from "@/components/admin/insights/InsightsOverviewSection";
+import { isContentSteeringUiEnabled } from "@/lib/content/brandKit";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +15,14 @@ export default async function AnalyticsPage({
 }: {
   searchParams: Promise<{ campaign?: string }>;
 }) {
-  const ctx = await requireAdminContext();
   const sp = await searchParams;
+  // Nav v2 phase 4: this page is the Insights Overview; a launch's analytics moved
+  // to the Launches tab (old ?campaign= links still land there).
+  if (isInsightsHubEnabled()) {
+    if (sp.campaign) redirect(`/admin/analytics/launches?campaign=${encodeURIComponent(sp.campaign)}`);
+    return <InsightsOverviewSection />;
+  }
+  const ctx = await requireAdminContext();
 
   const campaigns = await forTenant(ctx).campaigns.find({
     orderBy: [["createdAt", "desc"]],
@@ -30,7 +39,15 @@ export default async function AnalyticsPage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">{isNavV2Enabled() ? "Insights" : "Analytics"}</h1>
+        <div>
+          <h1 className="text-xl font-semibold">{isNavV2Enabled() ? "Insights" : "Analytics"}</h1>
+          {/* Nav v2 phase 3: content steering is an insight, so it lives here now. */}
+          {isNavV2Phase3Enabled() && isContentSteeringUiEnabled() ? (
+            <Link href="/admin/brand-kit/steering" className="text-sm font-medium text-blue-700 hover:underline dark:text-blue-300">
+              What&rsquo;s working in your content →
+            </Link>
+          ) : null}
+        </div>
         {campaigns.length > 1 ? (
           <div className="flex gap-2 text-sm">
             {campaigns.map((c) => (

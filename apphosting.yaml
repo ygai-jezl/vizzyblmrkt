@@ -664,6 +664,27 @@ env:
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
     availability:
       - RUNTIME
+  # Google Analytics 4 (gtag.js) on the public site: /, /login and /developers
+  # (src/lib/analytics/googleAnalytics.ts). The measurement ID is public (it's in
+  # every tagged page), not a secret. ENABLED on dev with debug_mode, so dev hits
+  # show in GA DebugView and the "Developer traffic" data filter keeps them out of
+  # reports; OFF in prod until verified here and promoted (apphosting.prod.yaml).
+  # NEXT_PUBLIC_*: build + runtime.
+  - variable: NEXT_PUBLIC_GA_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_GA_MEASUREMENT_ID
+    value: G-EX03YZN6BY
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_GA_DEBUG_MODE
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
   # "Growth Path" admin navigation (nav v2): the new sidebar, the header with
   # breadcrumbs, the Launches list, and redirects from the old unlinked pages.
   # The theme switch (System / Light / Dark) lives in that header, so it needs
@@ -687,4 +708,55 @@ env:
     value: "true"
     availability:
       - BUILD
+      - RUNTIME
+  # Nav v2 phase 3, "one home per noun": Brand (guidelines included), Settings
+  # (General · Sending · Integrations), Audience across sources, one Journeys list
+  # for both engines, a launch Emails tab, Products setup + environments, and
+  # Content's Overview with Programme naming. Needs phase 2. ENABLED on dev; OFF in
+  # prod until verified here and promoted (apphosting.prod.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Nav v2 phase 4, "close the loop": the launch Overview checklist, the new
+  # breadcrumbs and ⌘K items, and the programme in view sent to Vizzy. Needs phase
+  # 3. The parts below have their own flags too. ENABLED on dev; OFF in prod until
+  # verified here and promoted (apphosting.prod.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The Insights hub (Overview · Launches · Email · Content · Journeys). Needs phase 4.
+  - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy drafts content plans from chat (the content_plan canvas kind and
+  # /api/agent/content/*). Off = the agent's content tools say they're unavailable.
+  - variable: CONTENT_CHAT_AUTHORING_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # "Invite your waitlist": the invite APIs, sending (invite jobs are held while
+  # off), attribution on ingest and Vizzy-drafted waves (server), plus the invite
+  # UI (client; needs phase 4). Invite links (/invite/…) keep working either way.
+  - variable: INVITES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INVITES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Signs invite links (HMAC-SHA256 with a purpose prefix; its own key, separate from
+  # the unsubscribe and canvas keys). Create it per project with
+  # `bash infra/invites/setup.sh secret <project>` BEFORE this file reaches that
+  # project: prod inherits this entry, and a missing secret fails the build.
+  - variable: INVITE_LINK_SIGNING_KEY
+    secret: invite-link-signing-key
+    availability:
       - RUNTIME

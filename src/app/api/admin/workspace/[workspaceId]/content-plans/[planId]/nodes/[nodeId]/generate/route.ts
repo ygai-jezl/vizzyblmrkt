@@ -2,14 +2,8 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
-import {
-  getContentPlan,
-  getTemplate,
-  updateContentPlan,
-  updateContentPlanNode,
-} from "@/lib/tenant/workspaceContent";
-import { generateNode } from "@/lib/content/create/generateNode";
+import { getContentPlan } from "@/lib/tenant/workspaceContent";
+import { fillPlanNode } from "@/lib/content/create/fillPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,62 +28,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!ws) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  const node = plan.graph.nodes.find((n) => n.id === nodeId);
-  if (!node) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
-
-  // If the operator chose a template for this node, fill ITS skeleton (else compose).
-  // Only honor a template native to this node's channel — a stale/mismatched pick (e.g.
-  // a LinkedIn template left on a node after switching it to X) falls back to composing.
-  let skeletonBody: string | null = null;
-  if (node.templateId) {
-    const tpl = await getTemplate(ctx, workspaceId, node.templateId);
-    skeletonBody = tpl && tpl.channel === node.channel ? tpl.body : null;
-  }
-
-  const patch = await generateNode({
-    ctx,
-    workspaceId,
-    plan,
-    node,
-    brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
-    audience: ws.audience ?? null,
-    skeletonBody,
-  });
-
-  // The persist re-validates the merged node via ContentNodeSchema.parse (throwing).
-  // Guard it so a schema-invalid patch returns 422, not an uncaught 500.
-  let updated;
-  try {
-    updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
-      body: patch.body,
-      placeholderValues: patch.placeholderValues,
-      status: patch.status,
-      warnings: patch.warnings,
-      format: patch.format,
-      // Email nodes carry subject/preview/variants (+ a reconciled layout); other node
-      // types omit them so we don't overwrite with undefined.
-      ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
-      ...(patch.previewText !== undefined ? { previewText: patch.previewText } : {}),
-      ...(patch.subjectVariants !== undefined ? { subjectVariants: patch.subjectVariants } : {}),
-      ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
-    });
-  } catch {
-    return NextResponse.json({ error: "invalid_node" }, { status: 422 });
-  }
-  if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
-
-  // Flip to "ready" once nothing is left empty/generating. Read FRESH state after the
-  // node transaction committed (not the pre-update snapshot) so concurrent per-node
-  // generates can't all act on a stale count and leave the plan stuck in "generating".
-  const fresh = await getContentPlan(ctx, workspaceId, planId);
-  if (fresh && (fresh.status === "generating" || fresh.status === "draft")) {
-    const remaining = fresh.graph.nodes.filter(
-      (n) => n.status === "empty" || n.status === "generating",
-    );
-    if (remaining.length === 0) {
-      await updateContentPlan(ctx, workspaceId, planId, { status: "ready" });
-    }
-  }
-
-  return NextResponse.json({ node: updated });
+  const r = await fillPlanNode(ctx, { workspace: ws, plan, nodeId });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ node: r.node });
 }

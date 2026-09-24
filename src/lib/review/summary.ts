@@ -9,6 +9,8 @@ import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
+import type { InviteWave } from "@/lib/types/invite";
+import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -120,6 +122,40 @@ export function agentLaunchJourneyItem(
   };
 }
 
+/** An invite wave Vizzy drafted that nobody has sent yet (nav v2 phase 4). */
+export function agentInviteWaveItem(
+  w: Pick<InviteWave, "id" | "campaignId" | "status" | "authoredBy" | "size">,
+  launchName: string | undefined,
+): ReviewItem | null {
+  if (w.authoredBy !== "agent" || w.status !== "draft") return null;
+  return {
+    id: `wave:${w.id}`,
+    kind: "agent_draft",
+    title: `Invite ${w.size.toLocaleString("en-GB")} ${w.size === 1 ? "person" : "people"} from ${launchName ?? "a launch"}`,
+    detail: "Waitlist invite drafted by Vizzy · not sent",
+    href: `/admin/launches/${w.campaignId}/invites?wave=${w.id}`,
+    action: "Open",
+  };
+}
+
+/** A content plan Vizzy drafted that nobody has approved any of yet (nav v2 phase 4). */
+export function agentContentPlanItem(
+  workspace: { id: string; name: string },
+  plan: Pick<ContentPlan, "id" | "name" | "graph" | "status" | "authoredBy">,
+): ReviewItem | null {
+  if (plan.authoredBy !== "agent" || plan.status === "archived" || plan.status === "scheduled") return null;
+  if (plan.graph?.nodes?.some((n) => n.status === "approved")) return null;
+  const hubWritten = plan.graph?.nodes?.some((n) => n.type === "hub" && n.status === "generated");
+  return {
+    id: `plan:${workspace.id}:${plan.id}`,
+    kind: "agent_draft",
+    title: `“${plan.name}”`,
+    detail: `${workspace.name} · content plan drafted by Vizzy${hubWritten ? " · approve the hub to continue" : ""}`,
+    href: `/admin/workspace/${workspace.id}/create/${plan.id}`,
+    action: "Open",
+  };
+}
+
 /** A hub-and-spoke plan whose hub is written but not approved (its spokes wait on it). */
 export function contentHubItem(
   workspace: { id: string; name: string },
@@ -211,7 +247,8 @@ export async function loadContentHubItems(ctx: TenantContext, workspaces: Array<
   const perWorkspace = await Promise.all(
     workspaces.slice(0, 20).map(async (ws) => {
       const plans = await soft(`plans in ${ws.id}`, listContentPlans(ctx, ws.id, 100), [] as ContentPlan[]);
-      return plans.map((p) => contentHubItem(ws, p)).filter((i): i is ReviewItem => !!i);
+      // A plan Vizzy drafted shows once, as its draft (which says to approve the hub).
+      return plans.map((p) => agentContentPlanItem(ws, p) ?? contentHubItem(ws, p)).filter((i): i is ReviewItem => !!i);
     }),
   );
   return perWorkspace.flat();
@@ -223,7 +260,8 @@ export async function loadReview(
   db?: FirestoreLike,
 ): Promise<Review> {
   const repos = forTenant(ctx, db);
-  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts] = await Promise.all([
+  const invites = isInvitesUiEnabled() && isInvitesEnabled();
+  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves] = await Promise.all([
     opts.lifecycle ? soft("ai lines", countWaitingApprovals(ctx, db), 0) : 0,
     opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : [],
     opts.lifecycle
@@ -243,6 +281,19 @@ export async function loadReview(
       }),
       [],
     ),
+    invites
+      ? soft(
+          "invite waves",
+          repos.inviteWaves.find({
+            where: [
+              ["status", "==", "draft"],
+              ["authoredBy", "==", "agent"],
+            ],
+            limit: 50,
+          }),
+          [],
+        )
+      : [],
   ]);
 
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
@@ -260,6 +311,7 @@ export async function loadReview(
     ...connections.map(connectionItem),
     ...agentJourneys.map(agentJourneyItem),
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
+    ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);

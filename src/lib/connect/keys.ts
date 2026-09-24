@@ -99,6 +99,7 @@ export function currentSecret(conn: ProductConnection): string | null {
 export interface CreateConnectionInput {
   name: string;
   kind: ProductConnectionKind;
+  environment?: "staging" | "production" | null;
   catalog?: Partial<ConnectionCatalog>;
   sandboxUsers?: SandboxUser[];
   createdBy?: string | null;
@@ -122,6 +123,7 @@ export async function createConnection(
   const connection = await forTenant(ctx, db).productConnections.create(id, {
     name: input.name.trim(),
     kind: input.kind,
+    environment: input.kind === "custom" ? (input.environment ?? null) : null,
     status: "active",
     keyId,
     secretEnc: sealSecret(ctx.tenantId, id, secret),

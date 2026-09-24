@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { programmeWord } from "@/lib/nav/terms";
 import type { Node } from "@xyflow/react";
 import { EmailComposer, type EmailComposerValue } from "@/components/admin/email/EmailComposer";
 import type {
@@ -311,7 +312,7 @@ function ExitEditor({
           onClick={() => void onCreateWorkspace()}
           className="text-left text-xs text-sky-700 underline dark:text-sky-400"
         >
-          Click here to create a workspace, then create an Email sequence (saves
+          Click here to create a {programmeWord().one}, then create an Email sequence (saves
           this journey first).
         </button>
       ) : null}

@@ -5,15 +5,19 @@ import { usePathname } from "next/navigation";
 import { Sparkles, X } from "lucide-react";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { activeNavKey, buildNav } from "@/lib/nav/model";
 import { vizzySuggestions } from "@/lib/nav/vizzy";
 import { ChatPill } from "../chat/ChatPill";
 import { MessageThread } from "../chat/MessageThread";
 import { isHome, useShell } from "./ShellProvider";
 
-const ITEMS = buildNav({ lifecycle: isLifecycleUiEnabled(), brandKit: isBrandKitUiEnabled(), review: true }).flatMap(
-  (s) => s.items,
-);
+const ITEMS = buildNav({
+  lifecycle: isLifecycleUiEnabled(),
+  brandKit: isBrandKitUiEnabled(),
+  review: true,
+  phase3: isNavV2Phase3Enabled(),
+}).flatMap((s) => s.items);
 
 /**
  * Ask Vizzy beside any page (⌘J). It carries the same conversation as Home and

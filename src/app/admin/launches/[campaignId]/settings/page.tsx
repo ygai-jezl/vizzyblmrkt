@@ -6,6 +6,8 @@ import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
 import { ArchiveLaunchSection } from "@/components/admin/ArchiveLaunchSection";
 import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
+import { journeyIdFor } from "@/lib/journey/service";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,11 @@ export default async function LaunchSettingsPage({
   const { campaignId } = await params;
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) notFound();
-  const senderConfig = await getSenderConfig(ctx.tenantId);
+  const [senderConfig, journey] = await Promise.all([
+    getSenderConfig(ctx.tenantId),
+    isNavV2Phase3Enabled() ? forTenant(ctx).journeys.getById(journeyIdFor(campaignId)).catch(() => null) : null,
+  ]);
+  const journeyPaused = journey?.status === "paused";
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -40,6 +46,7 @@ export default async function LaunchSettingsPage({
             campaignId={campaign.id}
             campaignName={campaign.waitlistName}
             archived={!!campaign.archivedAt}
+            journeyPaused={journeyPaused}
           />
           <DeleteLaunchSection
             campaignId={campaign.id}

@@ -25,7 +25,7 @@ import {
 import { BrandSwitcher, type BrandOption } from "../BrandSwitcher";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
-import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
+import { isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { STAGE_NAV_KEY, type StageKey, type StageStatus } from "@/lib/nav/growth";
 import { activeNavKey, buildNav, resolvePins, type LaunchRef, type NavItem, type NavKey } from "@/lib/nav/model";
 import { usePinnedLaunchIds } from "./pins";
@@ -53,6 +53,7 @@ const SECTIONS = buildNav({
   brandKit: isBrandKitUiEnabled(),
   // Phase 2's Review also holds failed posts, Vizzy drafts and content sign-off.
   review: isLifecycleUiEnabled() || PHASE2,
+  phase3: isNavV2Phase3Enabled(),
 });
 const ALL_ITEMS = SECTIONS.flatMap((s) => s.items);
 

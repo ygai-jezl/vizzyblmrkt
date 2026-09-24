@@ -1,5 +1,6 @@
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
+import type { Signup } from "@/lib/types/signup";
 import { effectiveReferralWeight } from "./scoring";
 
 /**
@@ -22,6 +23,20 @@ export async function computeRanks(
   campaignId: string,
   db?: FirestoreLike,
 ): Promise<Map<string, number>> {
+  const ranks = new Map<string, number>();
+  (await rankedSignups(ctx, campaignId, db)).forEach((s, i) => ranks.set(s.id, i + 1));
+  return ranks;
+}
+
+/**
+ * Every verified signup in a campaign, best rank first (the order computeRanks
+ * numbers). Invites (nav v2 phase 4) take "the top N" from this list.
+ */
+export async function rankedSignups(
+  ctx: TenantContext,
+  campaignId: string,
+  db?: FirestoreLike,
+): Promise<Signup[]> {
   const rows = await forTenant(ctx, db).signups.find({
     where: [
       ["campaignId", "==", campaignId],
@@ -40,7 +55,5 @@ export async function computeRanks(
     if (wa !== wb) return wb - wa;
     return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
   });
-  const ranks = new Map<string, number>();
-  rows.forEach((s, i) => ranks.set(s.id, i + 1));
-  return ranks;
+  return rows;
 }

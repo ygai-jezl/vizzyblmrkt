@@ -10,6 +10,7 @@ import {
   ChartLine,
   House,
   Inbox,
+  MailPlus,
   PenLine,
   Plus,
   Rocket,
@@ -22,7 +23,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
+import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
+import { isInsightsHubEnabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
 import { useThemePortalContainer } from "./AdminThemeRoot";
 import { useShell } from "./ShellProvider";
@@ -48,13 +51,17 @@ const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   products: ["connections", "app", "sandbox"],
   journeys: ["lifecycle", "emails", "onboarding"],
   audience: ["crm", "people", "contacts", "signups"],
-  insights: ["analytics", "metrics"],
+  insights: isInsightsHubEnabled()
+    ? ["analytics", "metrics", "reports", "funnel", "attribution", "sources"]
+    : ["analytics", "metrics"],
   brand: ["voice", "logo", "colours", "brand kit"],
   settings: ["account", "domains", "integrations", "billing"],
 };
 
 const lifecycle = isLifecycleUiEnabled();
-const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true }).flatMap((s) => s.items);
+const PHASE3 = isNavV2Phase3Enabled();
+const INVITES = isInvitesUiEnabled();
+const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3 }).flatMap((s) => s.items);
 
 const ITEM =
   "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-shell-ink data-[selected=true]:bg-shell-active";
@@ -126,7 +133,7 @@ export function CommandPalette({
       {/* Radix needs a title for screen readers; the input's placeholder says the rest. */}
       <Dialog.Title className="sr-only">Search or jump to</Dialog.Title>
       <Dialog.Description className="sr-only">
-        Type to find a page, launch, workspace, journey or product, or to ask Vizzy.
+        Type to find a page, launch, {PHASE3 ? "programme" : "workspace"}, journey or product, or to ask Vizzy.
       </Dialog.Description>
       <div className="flex items-center gap-2 border-b border-shell-line px-4">
         <Search size={16} aria-hidden className="shrink-0 text-shell-faint" />
@@ -264,14 +271,30 @@ export function CommandPalette({
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
             New launch
           </Command.Item>
-          <Command.Item value="create new content workspace" onSelect={() => go("/admin/workspace")} className={ITEM}>
+          <Command.Item
+            value={PHASE3 ? "create new content programme workspace" : "create new content workspace"}
+            onSelect={() => go("/admin/workspace")}
+            className={ITEM}
+          >
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
-            New content workspace
+            {PHASE3 ? "New programme" : "New content workspace"}
           </Command.Item>
           {lifecycle ? (
             <Command.Item value="create new journey" onSelect={() => go("/admin/lifecycle")} className={ITEM}>
               <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
               New journey
+            </Command.Item>
+          ) : null}
+          {INVITES && launches[0] ? (
+            <Command.Item
+              value={`invite your waitlist to the product ${launches[0].name}`}
+              keywords={["invite", "wave", "product", "funnel"]}
+              onSelect={() => go(`/admin/launches/${launches[0]!.id}/invites`)}
+              className={ITEM}
+            >
+              <MailPlus size={16} aria-hidden className="shrink-0 text-shell-muted" />
+              Invite your waitlist
+              <span className="ml-auto truncate text-xs text-shell-faint">{launches[0].name}</span>
             </Command.Item>
           ) : null}
         </Command.Group>

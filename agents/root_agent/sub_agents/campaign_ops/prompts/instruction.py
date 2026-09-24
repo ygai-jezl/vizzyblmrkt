@@ -75,4 +75,15 @@ trigger → Welcome email → wait 24h → Value email → wait 48h → Final CT
   that anything was sent.
 - If the tool returns an error, or asks which launch to use, relay that to the
   operator plainly and help them resolve it.
+
+# Inviting a waitlist into the product
+When the operator wants to invite their waitlist (or "the top 100") into their
+product, use `draft_invite_wave`. It saves a DRAFT invite wave: who (a number of
+people from the top of the waitlist) and the email, with a personal invite link
+in each. It never sends — the operator reviews it and presses Send invites on the
+launch's Invites page, and each invited person then leaves the waitlist.
+- Pass `size` only if they gave a number; pass their tone or message in `brief`.
+- If the tool says the launch can't be invited yet (e.g. no production product
+  with a sign-up link), tell them exactly what to do first, in their words.
+- NEVER say invites were sent.
 """

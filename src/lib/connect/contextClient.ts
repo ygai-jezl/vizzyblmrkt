@@ -3,7 +3,7 @@ import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { assertSafeHttpsUrl, readBytesCapped, safeFetch } from "@/lib/security/ssrf";
-import { registrableDomain } from "@/lib/domains/registrableDomain";
+import { isAllowedLink } from "./links";
 import { handleSandboxContextRequest } from "./sandbox";
 import { signOutboundRequest } from "./outboundSigner";
 import {
@@ -13,6 +13,9 @@ import {
   type ContextPurpose,
   type ProductContext,
 } from "./protocol";
+
+/** Re-exported for existing callers; the pure version lives in ./links (client-safe). */
+export { isAllowedLink } from "./links";
 
 /**
  * Pull fresh context (onboarding steps, facts, insight candidates) for one user
@@ -58,19 +61,6 @@ export interface ContextClientDeps {
   nowMs?: number;
 }
 
-/** True when `url` is https and on one of the allowed registrable domains. */
-export function isAllowedLink(url: string, linkDomains: string[]): boolean {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return false;
-  }
-  if (u.protocol !== "https:") return false;
-  const host = registrableDomain(u.hostname);
-  if (!host) return false;
-  return linkDomains.some((d) => registrableDomain(d) === host);
-}
 
 function classify(err: unknown): ContextError {
   const name = err instanceof Error ? err.name : "";

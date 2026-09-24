@@ -42,7 +42,8 @@ const nextConfig: NextConfig = {
       // Baseline CSP. A full nonce-based default-src/script-src policy lands in
       // Phase 1. No connect-src directive → the wss://generativelanguage.googleapis.com
       // Live connection is permitted; add connect-src for *.googleapis.com if a
-      // stricter CSP is introduced.
+      // stricter CSP is introduced — plus www.googletagmanager.com (script-src)
+      // and *.google-analytics.com (connect-src) for Google Analytics.
       {
         key: "Content-Security-Policy",
         value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
@@ -115,6 +116,13 @@ const nextConfig: NextConfig = {
             value: "frame-ancestors *; object-src 'none'; base-uri 'self'",
           },
         ],
+      },
+      {
+        // Invite links (/invite/<signed token>, nav v2 phase 4) redirect to the
+        // customer's product: send no Referer at all. Listed last so it overrides
+        // the catch-all's Referrer-Policy (the last matching rule wins per key).
+        source: "/invite/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
     ];
   },

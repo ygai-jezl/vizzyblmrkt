@@ -1,4 +1,5 @@
 import type { ProductConnection } from "@/lib/types/productConnection";
+import { isInvitesEnabled } from "@/lib/invites/flags";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ProductMap } from "./productMapSchema";
 import { RESERVED_EVENTS } from "./protocol";
@@ -103,7 +104,12 @@ export function buildIntegrationGuide(input: {
     .filter((x) => ["signup", "consent", "other"].includes(x.kind))
     .map((x) => ({ kind: x.kind, text: x.description }));
 
-  const tasks = buildIntegrationTasks({ map, health: connection.health ?? null, contextEnabled: Boolean(connection.contextEndpoint?.enabled) });
+  const tasks = buildIntegrationTasks({
+    map,
+    health: connection.health ?? null,
+    contextEnabled: Boolean(connection.contextEndpoint?.enabled),
+    invites: isInvitesEnabled(),
+  });
   // Steps for the prompt: the accepted catalog, or — before anything's accepted — what the code suggested.
   const promptSteps = steps.length
     ? steps.map((s) => ({ id: s.id, label: s.label, completion: s.completion ?? "", how: detection.get(s.id) ?? null }))

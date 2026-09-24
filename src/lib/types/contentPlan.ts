@@ -302,6 +302,12 @@ export const ContentPlanSchema = z.object({
   /** eBook only — the book being authored in the studio BEFORE it's finalized onto the
    *  canvas hub node. Null for newsletter/blog/sequence plans and until the ToC exists. */
   ebookDraft: EbookDocSchema.nullable().optional(),
+  /** Who made the plan: a person, or Vizzy from chat (nav v2 phase 4). Absent = a person. */
+  authoredBy: z.enum(["human", "agent"]).optional(),
+  /** Bumped on each Vizzy save; the canvas remounts on a change so it shows Vizzy's version. */
+  agentRevision: z.number().int().nonnegative().optional(),
+  /** What the operator asked Vizzy for, kept for the record. */
+  agentBrief: z.string().max(4000).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

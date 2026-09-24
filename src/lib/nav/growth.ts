@@ -9,6 +9,8 @@
  * Content still current. Stages 3–4 exist only where lifecycle journeys do.
  */
 
+import { programmeWord } from "./terms";
+
 export type StageKey = "launch" | "grow" | "product" | "retain";
 export type StageStatus = "done" | "current" | "next";
 
@@ -45,6 +47,8 @@ export interface GrowthSignals {
   journeyPublished: boolean;
   /** A lifecycle journey is active in live mode. */
   journeyLive: boolean;
+  /** Waitlist members invited into the product (nav v2 phase 4); absent while invites are off. */
+  invited?: number | null;
 }
 
 export interface NextStep {
@@ -111,7 +115,7 @@ function growStage(s: GrowthSignals): Omit<StageView, "status"> {
           ? `${plural(s.postsScheduled, "post")} scheduled`
           : "No posts scheduled yet",
     steps: [
-      { label: "Start a content workspace", done: s.workspaces > 0, href: "/admin/workspace" },
+      { label: `Start a content ${programmeWord().one}`, done: s.workspaces > 0, href: "/admin/workspace" },
       { label: "Schedule your first post", done: s.postsScheduled > 0, href: wsHref("distribute") },
       { label: "Send a newsletter to your waitlist", done: s.newslettersSent > 0, href: wsHref("weekly") },
     ],
@@ -129,6 +133,16 @@ function productStage(s: GrowthSignals): Omit<StageView, "status"> {
       { label: "Connect your product", done: s.products > 0, href: "/admin/products" },
       { label: "Learn it from your repo", done: s.catalogReady, href: productHref("?tab=learn") },
       { label: "Receive your first event", done: s.eventsReceived, href: productHref() },
+      // Nav v2 phase 4: bring the waitlist in. A step only — the stage's done rule is unchanged.
+      ...(s.invited != null
+        ? [
+            {
+              label: "Invite your waitlist",
+              done: s.invited > 0,
+              href: s.firstLaunchId ? `/admin/launches/${s.firstLaunchId}/invites` : "/admin/launches",
+            },
+          ]
+        : []),
     ],
   };
 }

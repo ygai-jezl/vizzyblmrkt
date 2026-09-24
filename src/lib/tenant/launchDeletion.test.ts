@@ -42,6 +42,19 @@ function seedLaunch(db: FakeFirestore, tenantId: string, campaignId: string) {
 }
 
 describe("deleteLaunch", () => {
+  it("also purges the launch's invites and invite waves, and counts them", async () => {
+    const db = new FakeFirestore();
+    seedLaunch(db, "ten_A", "camp1");
+    db.seed("invites", "inv_1", { tenantId: "ten_A", campaignId: "camp1", signupId: "camp1-su1" });
+    db.seed("invite_waves", "wav_1", { tenantId: "ten_A", campaignId: "camp1" });
+    db.seed("invites", "inv_keep", { tenantId: "ten_A", campaignId: "camp2", signupId: "x" });
+    const result = await deleteLaunch(ctxAdmin, "camp1", { reason: "cleanup" }, db, new FakeAuditSink());
+    expect(result.deleted).toMatchObject({ invites: 1, inviteWaves: 1 });
+    expect(db.raw("invites", "inv_1")).toBeUndefined();
+    expect(db.raw("invite_waves", "wav_1")).toBeUndefined();
+    expect(db.raw("invites", "inv_keep")).toBeDefined();
+  });
+
   it("purges all of the launch's collections and leaves an audit trail", async () => {
     const db = new FakeFirestore();
     seedLaunch(db, "ten_A", "camp1");

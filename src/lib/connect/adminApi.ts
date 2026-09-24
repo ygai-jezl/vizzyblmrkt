@@ -4,11 +4,13 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import {
   ConnectionCatalogSchema,
   ConsentPolicySchema,
+  ProductEnvironment,
   SandboxUserSchema,
   type ProductConnection,
 } from "@/lib/types/productConnection";
 import { assertSafeHttpsUrl } from "@/lib/security/ssrf";
 import { normalizeHost, registrableDomain } from "@/lib/domains/registrableDomain";
+import { isAllowedLink, linkDomainOf } from "./links";
 import { createConnection, revokeConnection, rotateConnectionSecret } from "./keys";
 import { invalidateConnectionCaches } from "./ingestHttp";
 import { fetchProductContext, recordContextHealth, type ContextClientDeps } from "./contextClient";
@@ -60,6 +62,7 @@ export async function listConnections(ctx: TenantContext, db?: FirestoreLike): P
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(120),
   kind: z.enum(["custom", "sandbox"]),
+  environment: ProductEnvironment.nullable().optional(),
 });
 
 /**
@@ -74,13 +77,14 @@ export async function createProductConnection(
 ): Promise<ApiResult> {
   const parsed = CreateInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
-  const { name, kind } = parsed.data;
+  const { name, kind, environment } = parsed.data;
   const sandbox = kind === "sandbox";
   const { connection, secret } = await createConnection(
     ctx,
     {
       name,
       kind,
+      environment,
       catalog: sandbox ? SANDBOX_CATALOG : undefined,
       sandboxUsers: sandbox && ctx.email ? [defaultSandboxUser(ctx.email)] : [],
       createdBy: ctx.userId ?? null,
@@ -117,9 +121,11 @@ const PatchInput = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     status: z.enum(["active", "paused"]).optional(),
+    environment: ProductEnvironment.nullable().optional(),
     contextEndpoint: EndpointInput.nullable().optional(),
     webhookEndpoint: EndpointInput.omit({ timeoutMs: true }).nullable().optional(),
     linkDomains: z.array(z.string().min(1).max(253)).max(20).optional(),
+    signupUrl: z.string().trim().max(2000).nullable().optional(),
     catalog: ConnectionCatalogSchema.optional(),
     consentPolicy: ConsentPolicySchema.optional(),
     defaults: z.object({ timezone: z.string().max(64), locale: z.string().max(16) }).optional(),
@@ -168,9 +174,26 @@ export async function patchConnection(
     }
   }
 
+  // Where invited waitlist members sign up (nav v2 phase 4): https, on one of the
+  // connection's allowed link domains (the saved ones, or those in this patch).
+  let signupUrl: string | null | undefined;
+  if (p.signupUrl !== undefined && conn.kind === "custom") {
+    if (p.signupUrl === null || p.signupUrl === "") {
+      signupUrl = null;
+    } else {
+      const domain = linkDomainOf(p.signupUrl);
+      if (!domain) return fail(400, "invalid_signup_url");
+      if (!isAllowedLink(p.signupUrl, linkDomains ?? conn.linkDomains ?? [])) {
+        return fail(400, "signup_url_domain_not_allowed", domain);
+      }
+      signupUrl = p.signupUrl;
+    }
+  }
+
   const patch: Partial<ProductConnection> = {
     ...(p.name !== undefined ? { name: p.name } : {}),
     ...(p.status !== undefined ? { status: p.status } : {}),
+    ...(p.environment !== undefined && conn.kind === "custom" ? { environment: p.environment } : {}),
     ...(p.contextEndpoint !== undefined
       ? {
           contextEndpoint: p.contextEndpoint
@@ -180,6 +203,7 @@ export async function patchConnection(
       : {}),
     ...(p.webhookEndpoint !== undefined ? { webhookEndpoint: p.webhookEndpoint } : {}),
     ...(linkDomains ? { linkDomains } : {}),
+    ...(signupUrl !== undefined ? { signupUrl } : {}),
     ...(p.catalog ? { catalog: p.catalog } : {}),
     ...(p.consentPolicy ? { consentPolicy: p.consentPolicy } : {}),
     ...(p.defaults ? { defaults: p.defaults } : {}),

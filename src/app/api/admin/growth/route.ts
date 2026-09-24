@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
@@ -16,7 +17,9 @@ export async function GET(req: Request) {
   const ctx = await getAdminContext();
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const growth = computeGrowth(await loadGrowthSignals(ctx, { lifecycle: isLifecycleEnabled() }));
+  const growth = computeGrowth(
+    await loadGrowthSignals(ctx, { lifecycle: isLifecycleEnabled(), invites: isInvitesUiEnabled() && isInvitesEnabled() }),
+  );
   return NextResponse.json(
     {
       stages: growth.stages.map((s) => ({ key: s.key, status: s.status })),

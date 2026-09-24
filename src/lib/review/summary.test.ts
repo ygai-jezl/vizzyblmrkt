@@ -4,6 +4,8 @@ import type { TenantContext } from "@/lib/tenant/types";
 import {
   agentJourneyItem,
   agentLaunchJourneyItem,
+  agentInviteWaveItem,
+  agentContentPlanItem,
   connectionItem,
   contentHubItem,
   countReview,
@@ -89,6 +91,43 @@ describe("per-source rules", () => {
       "3 failures in a row · timeout",
     );
     expect(connectionItem({ ...c, kind: "sandbox", health: { consecutiveContextFailures: 9 } } as never)).toBeNull();
+  });
+});
+
+describe("invite waves in Review (nav v2 phase 4)", () => {
+  it("lists a wave Vizzy drafted until someone sends it", () => {
+    const w = { id: "wav_1", campaignId: "beta", status: "draft", authoredBy: "agent", size: 120 } as const;
+    expect(agentInviteWaveItem(w, "Fernlight Beta")).toMatchObject({
+      kind: "agent_draft",
+      title: "Invite 120 people from Fernlight Beta",
+      href: "/admin/launches/beta/invites?wave=wav_1",
+    });
+    expect(agentInviteWaveItem({ ...w, status: "sent" }, "Fernlight Beta")).toBeNull();
+    expect(agentInviteWaveItem({ ...w, authoredBy: "human" }, "Fernlight Beta")).toBeNull();
+  });
+});
+
+describe("content plans from Vizzy (nav v2 phase 4)", () => {
+  const ws = { id: "ws1", name: "The Weekly Plate" };
+  const plan = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "p1",
+      name: "Five 15-minute dinners",
+      status: "generating",
+      authoredBy: "agent",
+      graph: { nodes: [{ id: "hub", type: "hub", status: "generated", body: "x" }], edges: [] },
+      ...over,
+    }) as never;
+
+  it("lists an agent's plan until a person approves any of it", () => {
+    expect(agentContentPlanItem(ws, plan())).toMatchObject({
+      kind: "agent_draft",
+      detail: "The Weekly Plate · content plan drafted by Vizzy · approve the hub to continue",
+      href: "/admin/workspace/ws1/create/p1",
+    });
+    expect(agentContentPlanItem(ws, plan({ authoredBy: "human" }))).toBeNull();
+    expect(agentContentPlanItem(ws, plan({ graph: { nodes: [{ id: "hub", type: "hub", status: "approved" }], edges: [] } }))).toBeNull();
+    expect(agentContentPlanItem(ws, plan({ status: "scheduled" }))).toBeNull();
   });
 });
 

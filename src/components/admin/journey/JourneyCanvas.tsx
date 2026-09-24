@@ -16,6 +16,9 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+
+const PHASE3 = isNavV2Phase3Enabled();
 import type {
   Journey,
   JourneyStatus,
@@ -256,7 +259,7 @@ export function JourneyCanvas({
     const saved = await save(); // run the latest graph
     if (!saved) {
       setBusy(false);
-      setMsg("Save failed — not activated.");
+      setMsg(PHASE3 ? "Save failed — not published." : "Save failed — not activated.");
       return;
     }
     const res = await fetch(
@@ -273,7 +276,9 @@ export function JourneyCanvas({
       setStatus(data.status as JourneyStatus);
       setMsg(
         action === "activate"
-          ? `Activated — ${data.enqueued ?? 0} recipient(s) enqueued.`
+          ? PHASE3
+            ? `Published — ${data.enqueued ?? 0} ${data.enqueued === 1 ? "person" : "people"} will get the first email.`
+            : `Activated — ${data.enqueued ?? 0} recipient(s) enqueued.`
           : "Paused.",
       );
       router.refresh();
@@ -336,7 +341,7 @@ export function JourneyCanvas({
             disabled={busy}
             className="rounded-md bg-neutral-900 px-3 py-1 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900"
           >
-            Activate
+            {PHASE3 ? "Publish" : "Activate"}
           </button>
         )}
         <span

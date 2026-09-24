@@ -45,6 +45,9 @@ const Body = z.object({
   // the [ctx:{…}] envelope).
   connectionId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
   journeyId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
+  // The content programme / plan in view (nav v2 phase 4) — for Vizzy's content tools.
+  workspaceId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
+  planId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
   // The admin page in view, as its breadcrumb. Brace- and bracket-free because it
   // rides inside the `[ctx:{...}]` envelope, which the agent parses non-greedily.
   page: z.string().max(160).regex(/^[^{}[\]\\"]*$/).nullish(),
@@ -66,7 +69,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
-  const { message, sessionId, mode, campaignId, connectionId, journeyId, page } = parsed.data;
+  const { message, sessionId, mode, campaignId, connectionId, journeyId, workspaceId, planId, page } = parsed.data;
 
   if (!isAgentRuntimeConfigured()) {
     return new Response(unconfiguredStream(), { headers: SSE_HEADERS });
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const locale = normalizeLocale(tenant?.defaultLocale) ?? "en";
   const text =
-    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, page }) + message;
+    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, workspaceId, planId, page }) + message;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

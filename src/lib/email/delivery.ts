@@ -606,7 +606,7 @@ async function processJourneyStepJob(
   // Rank is needed by email merge-vars AND rank-based conditions; cache per run.
   let ranks = rankCache.get(journey.campaignId);
   if (!ranks) {
-    ranks = await computeRanks(ctx, journey.campaignId);
+    ranks = await computeRanks(ctx, journey.campaignId, db);
     rankCache.set(journey.campaignId, ranks);
   }
   const rank = ranks.get(signup.id);
@@ -621,7 +621,8 @@ async function processJourneyStepJob(
     return "done";
   }
 
-  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  // (Tests inject one fake database for everything; production passes none.)
+  const tenant = await getTenantById(ctx.tenantId, db).catch(() => null);
   const sender = resolveSender(tenant, campaign);
 
   // Which A/B arm this recipient gets ("control" or a variant id). Deterministic

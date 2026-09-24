@@ -1,4 +1,4 @@
-import { getDb } from "./firestore";
+import { getDb, isAlreadyExists } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TENANT_FIELD } from "./repository";
 import { TenantIsolationError } from "./errors";
@@ -48,7 +48,7 @@ export async function claimLifecycleSend(
   const counterRef = store.collection("lifecycle_counters").doc(args.counter.id);
   const draftRef = args.draft ? store.collection("lifecycle_drafts").doc(args.draft.id) : null;
 
-  return store.runTransaction(async (txn): Promise<SendClaimOutcome> => {
+  const attempt = () => store.runTransaction(async (txn): Promise<SendClaimOutcome> => {
     const [enrolmentSnap, counterSnap] = [await txn.get(enrolmentRef), await txn.get(counterRef)];
     const draftSnap = draftRef ? await txn.get(draftRef) : null;
     if (!enrolmentSnap.exists) return "lost_lease";
@@ -104,4 +104,11 @@ export async function claimLifecycleSend(
     }
     return "claimed";
   });
+  try {
+    return await attempt();
+  } catch (err) {
+    // Two sends racing to create the day's counter: the loser runs again and sees it.
+    if (isAlreadyExists(err)) return attempt();
+    throw err;
+  }
 }

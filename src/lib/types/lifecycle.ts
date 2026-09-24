@@ -242,7 +242,8 @@ export type LifecycleJourneyStatus = z.infer<typeof LifecycleJourneyStatus>;
 
 export const LifecycleDraftSchema = z.object({
   graph: LifecycleGraphSchema,
-  pools: z.array(ContentPoolSchema).max(20),
+  /** Up to 60: a waitlist journey moved from the original engine has one pool per email. */
+  pools: z.array(ContentPoolSchema).max(60),
   settings: LifecycleSettingsSchema,
 });
 export type LifecycleDraft = z.infer<typeof LifecycleDraftSchema>;

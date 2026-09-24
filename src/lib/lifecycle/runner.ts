@@ -35,7 +35,7 @@ import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
 import { draftDocId, scheduleDraft, supersedeDrafts } from "./drafts";
 import { decideSendVersion, type SendVersion } from "./decide";
 import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
-import { drainWaitlistTenant } from "./waitlist/runner";
+import { runWaitlistTick } from "./waitlist/tick";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import {
   cursorOf,
@@ -639,7 +639,7 @@ export interface LifecycleTickResult {
   webhooks: WebhookDrainResult;
   drafts: PrepareResult;
   /** Waitlist journeys (engine move), when their engine is on. */
-  waitlist?: { due: number; outcomes: Partial<Record<EnrolmentRunOutcome, number>>; deferred: number };
+  waitlist?: { due: number; outcomes: Partial<Record<EnrolmentRunOutcome, number>>; deferred: number; backfilled: number; retired: number };
 }
 
 /**
@@ -662,7 +662,7 @@ export async function runLifecycleTick(
     outcomes: {},
     webhooks: { delivered: 0, failed: 0, expired: 0 },
     drafts: { prepared: 0, fallback: 0, superseded: 0 },
-    ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0 } } : {}),
+    ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
   };
   for (const t of tenants) {
     if (clock() >= deadline) {
@@ -691,9 +691,11 @@ export async function runLifecycleTick(
     // Waitlist journeys: their own queue, after the tenant's product journeys.
     if (waitlist && total.waitlist) {
       try {
-        const w = await drainWaitlistTenant(ctx, deps, deadline);
+        const w = await runWaitlistTick(ctx, deps, deadline);
         total.waitlist.due += w.due;
         total.waitlist.deferred += w.deferred;
+        total.waitlist.backfilled += w.backfilled;
+        total.waitlist.retired += w.retired;
         for (const [k, v] of Object.entries(w.outcomes)) {
           const key = k as EnrolmentRunOutcome;
           total.waitlist.outcomes[key] = (total.waitlist.outcomes[key] ?? 0) + (v ?? 0);

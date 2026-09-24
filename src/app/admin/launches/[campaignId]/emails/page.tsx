@@ -4,6 +4,7 @@ import { Mail, Megaphone, Newspaper, Route, Send } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { loadWelcomeJourney } from "@/lib/journey/launchJourneyLoad";
+import { countFinishingOnOriginal } from "@/lib/lifecycle/waitlist/engineSwitch";
 import { launchEmails, percent, type SentSummary } from "@/lib/journey/launchEmails";
 import { WAITLIST_STATUS_LABEL } from "@/lib/journey/waitlistJourneys";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
@@ -83,6 +84,11 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
     showInvites ? loadFunnel(ctx, { campaignId }).catch(() => null) : null,
   ]);
   const emails = launchEmails(welcome.view, broadcasts);
+  // Engine move: people still finishing on the original engine after the switch.
+  const finishing =
+    welcome.view.engine === "lifecycle" && welcome.legacy && !welcome.legacy.retiredAt
+      ? await countFinishingOnOriginal(ctx, campaignId).catch(() => 0)
+      : 0;
   const base = `/admin/launches/${campaignId}`;
   const names = new Map(workspaces.map((w) => [w.id, w.name]));
   const source = emails.newsletters.workspaceIds[0];
@@ -114,9 +120,10 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
             </span>
           }
           line={
-            emails.journey.emails
+            (emails.journey.emails
               ? `Automated · ${emails.journey.emails} email${emails.journey.emails === 1 ? "" : "s"} for everyone who joins`
-              : "Automated emails for everyone who joins. Not set up yet."
+              : "Automated emails for everyone who joins. Not set up yet.") +
+            (finishing ? ` · ${finishing.toLocaleString("en-GB")} ${finishing === 1 ? "person" : "people"} finishing on the original engine` : "")
           }
           action={
             <Link href={emails.journey.href} className={BUTTON}>

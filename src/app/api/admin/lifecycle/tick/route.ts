@@ -5,7 +5,7 @@ import { workerSecretMatches } from "@/lib/http/workerSecret";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { drainLifecycleTenant, runLifecycleTick } from "@/lib/lifecycle/runner";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
-import { drainWaitlistTenant } from "@/lib/lifecycle/waitlist/runner";
+import { runWaitlistTick } from "@/lib/lifecycle/waitlist/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +39,6 @@ export async function POST(req: Request) {
   const admin = await getAdminContext();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const result = product ? await drainLifecycleTenant(admin) : {};
-  const waitlistResult = waitlist ? await drainWaitlistTenant(admin) : null;
+  const waitlistResult = waitlist ? await runWaitlistTick(admin) : null;
   return NextResponse.json({ ok: true, mode: "tenant", ...result, ...(waitlistResult ? { waitlist: waitlistResult } : {}) });
 }

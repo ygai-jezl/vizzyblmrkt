@@ -56,6 +56,8 @@ export function ArchiveLaunchSection({
         error?: string;
         reason?: string;
         held?: { released: number; expired: number; stepRemoved: number };
+        /** A launch on the lifecycle engine (engine move): people who waited there. */
+        moved?: { released: number; expired: number };
       };
       if (!res.ok) {
         setError(
@@ -68,7 +70,7 @@ export function ArchiveLaunchSection({
         setResume("idle");
         return;
       }
-      const released = data.held?.released ?? 0;
+      const released = (data.held?.released ?? 0) + (data.moved?.released ?? 0);
       setResumed(
         released
           ? `Welcome emails are back on. ${released} waiting ${released === 1 ? "person gets" : "people get"} their next email.`

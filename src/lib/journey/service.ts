@@ -171,7 +171,7 @@ async function setMovedLaunchState(
     if (r.ok) movedRelease = r.value.released;
   }
   let held: ReleaseSummary | undefined;
-  if (original?.status === "paused") {
+  if (original?.status === "paused" && !original.retiredAt) {
     await repo.journeys.update(original.id, { status: "active", updatedAt: now });
     held = await releaseHeldJourneySteps(ctx, { ...original, status: "active" }, { db });
   }

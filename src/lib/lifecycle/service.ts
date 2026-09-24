@@ -20,7 +20,7 @@ import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { versionDocId } from "./enrol";
 import { isOwnOrVerifiedAddress, lifecycleSender } from "./policy";
 import { waitlistJourneyId } from "./waitlist/ids";
-import { releaseHeldWaitlistEnrolments, type WaitlistReleaseSummary } from "./waitlist/enrol";
+import { backfillWaitlistJourney, releaseHeldWaitlistEnrolments, type WaitlistReleaseSummary } from "./waitlist/enrol";
 
 /**
  * Lifecycle journeys: create, edit the draft, publish immutable versions, and
@@ -243,7 +243,17 @@ export async function saveLifecycleDraft(
 export async function publishLifecycleJourney(
   ctx: TenantContext,
   journeyId: string,
-  deps: { db?: FirestoreLike; nowMs?: number; tenant?: Tenant | null } = {},
+  deps: {
+    db?: FirestoreLike;
+    nowMs?: number;
+    tenant?: Tenant | null;
+    /**
+     * Waitlist journeys: on the FIRST publish of a launch that never ran on the
+     * original engine, enrol its existing verified signups (resumably; the tick
+     * finishes a big list). `false` (the engine switch) never backfills.
+     */
+    backfill?: boolean;
+  } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; version: LifecycleVersion }>> {
   const repo = forTenant(ctx, deps.db);
   const journey = await repo.lifecycleJourneys.getById(journeyId);
@@ -297,7 +307,23 @@ export async function publishLifecycleJourney(
     updatedAt: now,
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
-  return ok({ journey: { ...journey, ...patch }, version });
+  const published = { ...journey, ...patch };
+  if (audience?.kind === "waitlist" && journey.publishedVersion === null && deps.backfill !== false) {
+    const campaign = await repo.campaigns.getById(audience.campaignId);
+    const original = await repo.journeys.getById(`journey_${audience.campaignId}`);
+    const neverRan = !original || original.status === "draft";
+    if (campaign?.waitlistEngine === "lifecycle" && neverRan) {
+      const backfill = { status: "running" as const, cursor: null, enrolled: 0, updatedAt: now };
+      await repo.lifecycleJourneys.update(journey.id, { backfill });
+      // A first pass now; the tick carries on with a big list.
+      await backfillWaitlistJourney(
+        ctx,
+        { journey: { ...published, backfill }, version, campaign },
+        { db: deps.db, deadlineAt: Date.now() + 15_000 },
+      ).catch((err) => console.warn(`[lifecycle] backfill ${ctx.tenantId}/${journey.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`));
+    }
+  }
+  return ok({ journey: published, version });
 }
 
 /**

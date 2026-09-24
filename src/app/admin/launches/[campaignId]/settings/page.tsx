@@ -6,6 +6,8 @@ import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
 import { ArchiveLaunchSection } from "@/components/admin/ArchiveLaunchSection";
 import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
+import { EngineSection } from "@/components/admin/EngineSection";
+import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { loadWelcomeJourney } from "@/lib/journey/launchJourneyLoad";
 import { countHeldWaitlistEnrolments } from "@/lib/lifecycle/waitlist/enrol";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
@@ -57,6 +59,7 @@ export default async function LaunchSettingsPage({
       />
       {ctx.role === "admin" ? (
         <>
+          {isWaitlistEngineUiEnabled() ? <EngineSection campaignId={campaign.id} /> : null}
           <ArchiveLaunchSection
             campaignId={campaign.id}
             campaignName={campaign.waitlistName}

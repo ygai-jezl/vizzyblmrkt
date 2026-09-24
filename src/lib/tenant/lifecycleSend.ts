@@ -1,4 +1,4 @@
-import { getDb } from "./firestore";
+import { getDb, isAlreadyExists } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TENANT_FIELD } from "./repository";
 import { TenantIsolationError } from "./errors";
@@ -23,6 +23,8 @@ import type { FirestoreLike, TenantContext } from "./types";
 export type SendClaimOutcome = "claimed" | "capped" | "lost_lease" | "declined";
 
 export interface SendClaimArgs {
+  /** Where the enrolment lives: product journeys (the default) or waitlist journeys. */
+  collection?: "lifecycle_enrolments" | "waitlist_enrolments";
   enrolmentId: string;
   leaseId: string;
   pendingSend: { nodeId: string; poolId: string; itemId: string; at: string };
@@ -41,17 +43,18 @@ export async function claimLifecycleSend(
   db?: FirestoreLike,
 ): Promise<SendClaimOutcome> {
   const store = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
-  const enrolmentRef = store.collection("lifecycle_enrolments").doc(args.enrolmentId);
+  const enrolments = args.collection ?? "lifecycle_enrolments";
+  const enrolmentRef = store.collection(enrolments).doc(args.enrolmentId);
   const counterRef = store.collection("lifecycle_counters").doc(args.counter.id);
   const draftRef = args.draft ? store.collection("lifecycle_drafts").doc(args.draft.id) : null;
 
-  return store.runTransaction(async (txn): Promise<SendClaimOutcome> => {
+  const attempt = () => store.runTransaction(async (txn): Promise<SendClaimOutcome> => {
     const [enrolmentSnap, counterSnap] = [await txn.get(enrolmentRef), await txn.get(counterRef)];
     const draftSnap = draftRef ? await txn.get(draftRef) : null;
     if (!enrolmentSnap.exists) return "lost_lease";
     const enrolment = enrolmentSnap.data() ?? {};
     if (enrolment[TENANT_FIELD] !== ctx.tenantId) {
-      throw new TenantIsolationError(`lifecycle_enrolments/${args.enrolmentId} belongs to another tenant`);
+      throw new TenantIsolationError(`${enrolments}/${args.enrolmentId} belongs to another tenant`);
     }
     if (enrolment.leaseId !== args.leaseId || enrolment.status !== "active" || enrolment.pendingSend) {
       return "lost_lease";
@@ -101,4 +104,11 @@ export async function claimLifecycleSend(
     }
     return "claimed";
   });
+  try {
+    return await attempt();
+  } catch (err) {
+    // Two sends racing to create the day's counter: the loser runs again and sees it.
+    if (isAlreadyExists(err)) return attempt();
+    throw err;
+  }
 }

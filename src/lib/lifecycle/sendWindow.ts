@@ -9,6 +9,9 @@ import type { SendPolicy, WaitConfig } from "@/lib/types/lifecycle";
  * email is sendable from that minute for WINDOW_GRACE_MS (one runner tick of
  * slack plus margin). Nothing is ever sent late: a missed window (an outage, a
  * paused journey) rolls to the recipient's next window.
+ *
+ * An `anytime` policy (waitlist journeys, like the original engine) has no
+ * window: every moment is sendable.
  */
 
 export const WINDOW_GRACE_MS = 30 * 60_000;
@@ -127,6 +130,7 @@ function slotOn(key: string, tz: string, policy: SendPolicy, offsetMin: number):
 
 /** Whether `nowMs` is inside the recipient's send slot today. */
 export function isInSendWindow(nowMs: number, tz: string, policy: SendPolicy, offsetMin: number): boolean {
+  if (policy.anytime) return true;
   const key = localDateKey(nowMs, tz);
   if (!policy.days.includes(weekdayOfKey(key))) return false;
   const slot = slotOn(key, tz, policy, offsetMin);
@@ -147,6 +151,11 @@ export function nextWindowAt(
 ): number {
   const startKey = localDateKey(fromMs, tz);
   const blocked = opts.afterLocalDateOfMs != null ? localDateKey(opts.afterLocalDateOfMs, tz) : null;
+  if (policy.anytime) {
+    // No window: now, or local midnight starting the first day after the blocked one.
+    if (!blocked || startKey > blocked) return fromMs;
+    return Math.max(fromMs, wallTimeToUtc(addDaysToKey(blocked, 1), 0, 0, tz));
+  }
   for (let i = 0; i <= 15; i += 1) {
     const key = addDaysToKey(startKey, i);
     if (blocked && key <= blocked) continue;
@@ -159,9 +168,10 @@ export function nextWindowAt(
 
 /**
  * When the step after a wait node may run. The earliest moment is the latest of:
- * the previous email + minHours, enrolment + sinceEnrolHours, and now. Within the
- * wait's windowExemptHours of enrolment it runs at that moment (the welcome);
- * otherwise at the recipient's next send slot (on a later local day, if asked).
+ * the previous email + minHours (or, with `after: "previous_step"`, reaching the
+ * wait + minHours), enrolment + sinceEnrolHours, and now. Within the wait's
+ * windowExemptHours of enrolment it runs at that moment (the welcome); otherwise
+ * at the recipient's next send slot (on a later local day, if asked).
  */
 export function scheduleAfterWait(a: {
   wait: WaitConfig;
@@ -172,7 +182,7 @@ export function scheduleAfterWait(a: {
   policy: SendPolicy;
   offsetMin: number;
 }): { runAtMs: number; windowExemptUntilMs: number | null } {
-  const base = a.lastSentMs ?? a.anchorMs;
+  const base = a.wait.after === "previous_step" ? a.nowMs : (a.lastSentMs ?? a.anchorMs);
   const notBefore = Math.max(
     base + a.wait.minHours * HOUR_MS,
     a.anchorMs + (a.wait.sinceEnrolHours ?? 0) * HOUR_MS,

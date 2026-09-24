@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import { deleteLaunch } from "./launchDeletion";
 import { TenantIsolationError } from "./errors";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import type { AuditObjectSink } from "./auditSink";
 import type { TenantContext, FirestoreLike, CollectionLike } from "./types";
 
@@ -53,6 +54,24 @@ describe("deleteLaunch", () => {
     expect(db.raw("invites", "inv_1")).toBeUndefined();
     expect(db.raw("invite_waves", "wav_1")).toBeUndefined();
     expect(db.raw("invites", "inv_keep")).toBeDefined();
+  });
+
+  it("also purges the launch's waitlist journey on the lifecycle engine, its versions, counters and enrolments", async () => {
+    const db = new FakeFirestore();
+    seedLaunch(db, "ten_A", "camp1");
+    const jid = waitlistJourneyId("camp1");
+    db.seed("lifecycle_journeys", jid, { tenantId: "ten_A", audience: { kind: "waitlist", campaignId: "camp1" } });
+    db.seed("lifecycle_versions", `${jid}_v1`, { tenantId: "ten_A", journeyId: jid });
+    db.seed("lifecycle_counters", `${jid}_20260921`, { tenantId: "ten_A", journeyId: jid });
+    db.seed("waitlist_enrolments", "enr_1", { tenantId: "ten_A", campaignId: "camp1", journeyId: jid, signupId: "camp1-su1" });
+    db.seed("waitlist_enrolments", "enr_keep", { tenantId: "ten_A", campaignId: "camp2", journeyId: "other", signupId: "x" });
+    const result = await deleteLaunch(ctxAdmin, "camp1", {}, db, new FakeAuditSink());
+    expect(result.deleted).toMatchObject({ waitlistJourneys: 1, waitlistEnrolments: 1 });
+    expect(db.raw("lifecycle_journeys", jid)).toBeUndefined();
+    expect(db.raw("lifecycle_versions", `${jid}_v1`)).toBeUndefined();
+    expect(db.raw("lifecycle_counters", `${jid}_20260921`)).toBeUndefined();
+    expect(db.raw("waitlist_enrolments", "enr_1")).toBeUndefined();
+    expect(db.raw("waitlist_enrolments", "enr_keep")).toBeDefined();
   });
 
   it("purges all of the launch's collections and leaves an audit trail", async () => {

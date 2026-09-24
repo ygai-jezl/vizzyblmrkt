@@ -107,7 +107,7 @@ function resolveTarget(region: Region): QueryTarget | null {
 async function runQuery<T = Record<string, unknown>>(
   target: QueryTarget,
   sql: string,
-  params: Record<string, string>,
+  params: Record<string, string | string[]>,
 ): Promise<T[] | null> {
   const client = await getClient(target.project);
   if (!client) return null;
@@ -340,27 +340,34 @@ const ZERO: RawEngagement = { sent: 0, opened: 0, clicked: 0, failed: 0, unsubsc
  * empty result returns a zero-filled breakdown (NOT null) — that's a real "0
  * events" answer, distinct from "BigQuery unavailable".
  */
+/**
+ * Per-node / per-arm tallies for one sequence. A launch's welcome sequence can
+ * span both journey engines (engine move), so it takes every journey id the
+ * sequence has used and counts them as one.
+ */
 export async function computeBqEmailBreakdown(
   ctx: TenantContext,
-  journeyId: string,
+  journeyIds: string | string[],
 ): Promise<BqEmailBreakdown | null> {
   const target = resolveTarget(ctx.region);
   if (!target) return null;
 
-  const params = { tenant_id: ctx.tenantId, journey_id: journeyId };
+  const ids = Array.isArray(journeyIds) ? journeyIds : [journeyIds];
+  if (ids.length === 0) return null;
+  const params = { tenant_id: ctx.tenantId, journey_ids: ids };
   const table = fqtn(target.project, target.dataset, "email_events_latest");
 
   const tallySql = `
     SELECT node_id, variant_id, type, COUNT(*) AS count
     FROM ${table}
-    WHERE tenant_id = @tenant_id AND journey_id = @journey_id
+    WHERE tenant_id = @tenant_id AND journey_id IN UNNEST(@journey_ids)
     GROUP BY node_id, variant_id, type
   `;
   // Distinct enrolled recipients (send events) across the whole sequence.
   const enrolledSql = `
     SELECT COUNT(DISTINCT signup_id) AS enrolled
     FROM ${table}
-    WHERE tenant_id = @tenant_id AND journey_id = @journey_id AND type = 'send'
+    WHERE tenant_id = @tenant_id AND journey_id IN UNNEST(@journey_ids) AND type = 'send'
   `;
 
   const [tallyRows, enrolledRows] = await Promise.all([

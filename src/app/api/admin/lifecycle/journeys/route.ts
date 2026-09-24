@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** Lifecycle journeys (optionally for one connection), plus the connections to build on. */
 export async function GET(req: Request) {
-  const gate = await lifecycleAdmin(req, { mutate: false });
+  const gate = await lifecycleAdmin(req, { mutate: false, journeys: true });
   if (!gate.ok) return gate.response;
   const connectionId = new URL(req.url).searchParams.get("connectionId") ?? undefined;
   return respond(await listJourneys(gate.ctx, { connectionId }));
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
 
 /** New journey from a template (a draft — nothing sends until it's published). */
 export async function POST(req: Request) {
-  const gate = await lifecycleAdmin(req, { mutate: true });
+  const gate = await lifecycleAdmin(req, { mutate: true, journeys: true });
   if (!gate.ok) return gate.response;
   return respond(await createJourney(gate.ctx, await readJson(req)));
 }

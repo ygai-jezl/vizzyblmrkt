@@ -653,3 +653,28 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Engine move (D1–D5) — ON in prod (owner decision, 2026-09-24), after dev
+  # verification: holds instead of drops on pause; the lifecycle engine for waitlist
+  # journeys, open to every tenant (new launches start on it; existing launches move
+  # one at a time from their Settings › Email engine); and its screens. Needs the
+  # waitlist_enrolments indexes (deployed to prod 2026-09-24). Emergency brake: set
+  # WAITLIST_ENGINE_ENABLED back to "false" — everyone on the new engine waits, and
+  # nobody is dropped. WAITLIST_LEGACY_EDITOR (D6) stays unset until every launch has
+  # moved and drained, plus 30 days.
+  - variable: WAITLIST_JOURNEY_HOLD_ON_PAUSE
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: WAITLIST_ENGINE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: WAITLIST_ENGINE_PILOT_TENANTS
+    value: "*"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

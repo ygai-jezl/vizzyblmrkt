@@ -1,11 +1,13 @@
 import { DEFAULT_BRANCH } from "@/lib/journey/conditions";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
-import type { ConnectionCatalog } from "@/lib/types/productConnection";
+import { ConnectionCatalogSchema, type ConnectionCatalog } from "@/lib/types/productConnection";
 import type {
   ContentPool,
+  JourneyAudience,
   LifecycleCondition,
   LifecycleGraph,
   LifecycleNode,
+  LifecycleSettings,
 } from "@/lib/types/lifecycle";
 
 /**
@@ -15,6 +17,10 @@ import type {
  * no two waits in a row, and every condition field known to the connection's
  * catalog — otherwise a recipient could silently dead-end. Drafts may be
  * incomplete; publishing is refused until the issues are fixed.
+ *
+ * Waitlist journeys (engine move) read only `signup.*` and `enrolment.*`
+ * fields, and may use A/B pools, weekly exits, waits over 60 days and no hard
+ * stop; product journeys may not.
  */
 
 export function nodeMap(graph: LifecycleGraph): Map<string, LifecycleNode> {
@@ -47,6 +53,12 @@ export interface GraphIssue {
 }
 
 const RESERVED = new Set<string>(Object.values(RESERVED_EVENTS));
+/** A product journey's longest wait (its hard stop is at most 60 days). */
+const PRODUCT_MAX_WAIT_HOURS = 24 * 60;
+/** What a waitlist journey is validated against: it has no product. */
+export const NO_CATALOG: ConnectionCatalog = ConnectionCatalogSchema.parse({});
+
+type AudienceKind = JourneyAudience["kind"];
 
 /** Why a condition field isn't valid for this catalog, or null when it is. */
 export function fieldProblem(field: string, catalog: ConnectionCatalog): string | null {
@@ -67,19 +79,34 @@ function checkConditions(
   catalog: ConnectionCatalog,
   nodeId: string,
   issues: GraphIssue[],
+  audience: AudienceKind,
 ): void {
   for (const c of conds) {
+    const family = c.field.slice(0, c.field.indexOf("."));
+    if (audience === "waitlist" && family !== "signup" && family !== "enrolment") {
+      issues.push({ code: "field_not_for_waitlist", nodeId, detail: c.field });
+      continue;
+    }
+    if (audience === "product" && family === "signup") {
+      issues.push({ code: "field_not_for_product", nodeId, detail: c.field });
+      continue;
+    }
     const p = fieldProblem(c.field, catalog);
     if (p) issues.push({ code: "unknown_field", nodeId, detail: p });
   }
 }
 
 export function validateLifecycleDraft(
-  draft: { graph: LifecycleGraph; pools: ContentPool[] },
+  draft: { graph: LifecycleGraph; pools: ContentPool[]; settings?: LifecycleSettings },
   catalog: ConnectionCatalog,
+  opts: { audience?: AudienceKind } = {},
 ): { ok: boolean; issues: GraphIssue[] } {
   const { graph, pools } = draft;
+  const audience = opts.audience ?? "product";
   const issues: GraphIssue[] = [];
+  if (audience === "product" && draft.settings && draft.settings.sendPolicy.hardStopDays === null) {
+    issues.push({ code: "hard_stop_required" });
+  }
   const byId = new Map<string, LifecycleNode>();
   for (const n of graph.nodes) {
     if (byId.has(n.id)) issues.push({ code: "duplicate_node", nodeId: n.id });
@@ -139,6 +166,10 @@ export function validateLifecycleDraft(
         if (!n.data.wait) issues.push({ code: "wait_without_config", nodeId: n.id });
         if (o.length !== 1) issues.push({ code: "wait_leads_nowhere", nodeId: n.id });
         else if (byId.get(o[0]!.target)?.type === "wait") issues.push({ code: "consecutive_waits", nodeId: n.id });
+        const w = n.data.wait;
+        if (audience === "product" && w && Math.max(w.minHours, w.sinceEnrolHours ?? 0) > PRODUCT_MAX_WAIT_HOURS) {
+          issues.push({ code: "wait_too_long", nodeId: n.id });
+        }
         break;
       }
       case "condition": {
@@ -148,7 +179,7 @@ export function validateLifecycleDraft(
         for (const b of branches) {
           if (b.id === DEFAULT_BRANCH || ids.has(b.id)) issues.push({ code: "bad_branch_id", nodeId: n.id, detail: b.id });
           ids.add(b.id);
-          checkConditions(b.conditions, catalog, n.id, issues);
+          checkConditions(b.conditions, catalog, n.id, issues, audience);
         }
         // A DEFAULT edge is always required: anyone matching no branch — including
         // every recipient whose field is unknown (three-state) — takes it. Without
@@ -162,6 +193,7 @@ export function validateLifecycleDraft(
       }
       case "exit":
         if (o.length > 0) issues.push({ code: "exit_has_outgoing", nodeId: n.id });
+        if (audience === "product" && n.data.exitTarget) issues.push({ code: "exit_target_waitlist_only", nodeId: n.id });
         break;
       case "trigger":
         break;
@@ -173,6 +205,8 @@ export function validateLifecycleDraft(
   for (const p of pools) {
     if (seenPools.has(p.id)) issues.push({ code: "duplicate_pool", detail: p.id });
     seenPools.add(p.id);
+    if (p.abTest && audience === "product") issues.push({ code: "ab_test_waitlist_only", detail: p.id });
+    else if (p.abTest && p.items.length < 2) issues.push({ code: "ab_test_needs_variants", detail: p.id });
     const itemIds = new Set<string>();
     for (const item of p.items) {
       if (itemIds.has(item.id)) issues.push({ code: "duplicate_pool_item", detail: `${p.id}/${item.id}` });
@@ -180,7 +214,7 @@ export function validateLifecycleDraft(
       if (!item.subject.trim() || !item.body.trim()) {
         issues.push({ code: "pool_item_empty", detail: `${p.id}/${item.id}` });
       }
-      if (item.eligibility) checkConditions(item.eligibility.conditions, catalog, `${p.id}/${item.id}`, issues);
+      if (item.eligibility) checkConditions(item.eligibility.conditions, catalog, `${p.id}/${item.id}`, issues, audience);
     }
   }
   return { ok: issues.length === 0, issues };

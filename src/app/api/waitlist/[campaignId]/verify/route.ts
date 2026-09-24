@@ -8,7 +8,7 @@ import {
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import { syncSignupToAudience } from "@/lib/mailchimp";
-import { enrollSignupInActiveJourney } from "@/lib/email/delivery";
+import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
 import { recordSignupContact } from "@/lib/crm/contactService";
 
 export const runtime = "nodejs";
@@ -97,7 +97,7 @@ export async function GET(
         );
       }
       try {
-        await enrollSignupInActiveJourney(ctx, campaign.id, signup);
+        await enrolSignupInWaitlistJourney(ctx, campaign.id, signup);
       } catch (err) {
         console.warn(
           `[journey] enrollment on verify failed for ${campaign.id}:`,

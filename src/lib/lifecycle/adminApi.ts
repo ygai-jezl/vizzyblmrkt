@@ -7,7 +7,7 @@ import { zodReason } from "@/lib/connect/protocol";
 import { productUserDocId } from "@/lib/connect/profile";
 import { fireSandboxEvent } from "@/lib/connect/sandbox";
 import { environmentOf, productNameOf } from "@/lib/connect/environments";
-import { validateLifecycleDraft } from "./graph";
+import { NO_CATALOG, validateLifecycleDraft } from "./graph";
 import { planTimeline } from "./planner";
 import { personalOffsetMinutes, resolveTimezone } from "./sendWindow";
 import {
@@ -27,6 +27,10 @@ import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectLifecycleDraft } from "./architect";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type ExportWhich } from "./transfer";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
+import { resolveSender } from "@/lib/email/sender";
+import { countHeldWaitlistEnrolments } from "./waitlist/enrol";
+import { runWaitlistEnrolmentNow } from "./waitlist/runner";
+import { setJourneyState } from "@/lib/journey/service";
 
 /**
  * The Lifecycle → Journeys admin API (thin routes in src/app/api/admin/lifecycle
@@ -62,7 +66,8 @@ export async function listJourneys(ctx: TenantContext, opts: { connectionId?: st
   const names = new Map(connections.map((c) => [c.id, c.name]));
   return ok({
     journeys: journeys
-      .filter((j) => j.status !== "archived")
+      // Waitlist journeys (engine move) belong to their launch, not a product.
+      .filter((j) => j.status !== "archived" && j.audience?.kind !== "waitlist")
       .map((j) => ({
         id: j.id,
         name: j.name,
@@ -96,6 +101,30 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
   const journey = await loadJourney(ctx, id, db);
   if (!journey) return fail(404, "not_found");
   const repo = forTenant(ctx, db);
+  if (journey.audience?.kind === "waitlist") {
+    // A launch's welcome journey on the lifecycle engine (engine move): it sends
+    // from the launch's sender (with its fallback), to the launch's signups.
+    const [campaign, version, tenant, held] = await Promise.all([
+      repo.campaigns.getById(journey.audience.campaignId),
+      journey.publishedVersion ? repo.lifecycleVersions.getById(versionDocId(id, journey.publishedVersion)) : null,
+      getTenantById(ctx.tenantId, db).catch(() => null),
+      countHeldWaitlistEnrolments(ctx, id, db).catch(() => 0),
+    ]);
+    const sender = resolveSender(tenant, campaign);
+    return ok({
+      journey,
+      audience: "waitlist",
+      connection: null,
+      launch: campaign ? { id: campaign.id, name: campaign.waitlistName || campaign.id, archived: Boolean(campaign.archivedAt) } : null,
+      held,
+      version: version ? { version: version.version, publishedAt: version.publishedAt, publishedBy: version.publishedBy ?? null } : null,
+      issues: validateLifecycleDraft(journey.draft, NO_CATALOG, { audience: "waitlist" }).issues,
+      sender: { verified: true, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
+      postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
+      modeCeiling: "live",
+      features: { chatAuthoring: false, aiLines: false },
+    });
+  }
   const [connection, version, tenant] = await Promise.all([
     repo.productConnections.getById(journey.connectionId),
     journey.publishedVersion ? repo.lifecycleVersions.getById(versionDocId(id, journey.publishedVersion)) : null,
@@ -104,6 +133,8 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
   const sender = lifecycleSender(tenant, journey.draft.settings.sender);
   return ok({
     journey,
+    audience: "product",
+    launch: null,
     connection: connection
       ? {
           id: connection.id,
@@ -142,7 +173,28 @@ const StatusInput = z.object({ status: z.enum(["active", "paused", "archived"]) 
 export async function setJourneyStatus(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
   const parsed = StatusInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
-  return fromService(await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db }), (journey) => ({ journey }));
+  const journey = await loadJourney(ctx, id, db);
+  const audience = journey?.audience;
+  if (parsed.data.status === "archived" && audience?.kind === "waitlist") {
+    // A launch's welcome journey is paused (or its launch archived), never archived on its own:
+    // archiving would end everyone's sequence.
+    return fail(409, "pause_instead");
+  }
+  if (journey && audience?.kind === "waitlist" && parsed.data.status !== "archived") {
+    // A moved launch's Pause and Resume control both engines while people are still
+    // finishing on the original journey (as the launch's own controls do).
+    const campaign = await forTenant(ctx, db).campaigns.getById(audience.campaignId);
+    if (campaign?.waitlistEngine === "lifecycle") {
+      const r = await setJourneyState(ctx, audience.campaignId, parsed.data.status === "active" ? "activate" : "pause", db);
+      if (!r.ok) return fail(r.error === "journey_not_found" ? 404 : r.error === "journey_invalid" ? 422 : 409, r.error);
+      const fresh = await loadJourney(ctx, id, db);
+      return ok({ journey: fresh, ...(r.moved ? { released: r.moved } : {}) });
+    }
+  }
+  return fromService(await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db }), ({ released, ...journey }) => ({
+    journey,
+    ...(released ? { released } : {}),
+  }));
 }
 
 export async function patchJourney(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
@@ -160,6 +212,24 @@ export async function listEnrolments(
   const journey = await loadJourney(ctx, journeyId, db);
   if (!journey) return fail(404, "not_found");
   const repo = forTenant(ctx, db);
+  if (journey.audience?.kind === "waitlist") {
+    const rows = await repo.waitlistEnrolments.find({
+      where: [["journeyId", "==", journeyId]],
+      orderBy: [["createdAt", "desc"]],
+      limit: Math.min(Math.max(opts.limit ?? 100, 1), 200),
+    });
+    const signups = new Map(
+      (await Promise.all([...new Set(rows.map((r) => r.signupId))].map((sid) => repo.signups.getById(sid)))).flatMap((u) =>
+        u ? [[u.id, u] as const] : [],
+      ),
+    );
+    return ok({
+      enrolments: rows.map((e) => {
+        const u = signups.get(e.signupId);
+        return { ...e, user: u ? { email: u.email ?? null, firstName: u.firstName ?? null, status: u.status } : null };
+      }),
+    });
+  }
   const rows = await repo.lifecycleEnrolments.find({
     where: [["journeyId", "==", journeyId]],
     orderBy: [["createdAt", "desc"]],
@@ -198,6 +268,8 @@ export async function enrolByHand(
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const journey = await loadJourney(ctx, journeyId, db);
   if (!journey) return fail(404, "not_found");
+  // Waitlist journeys enrol the launch's verified signups themselves.
+  if (journey.audience?.kind === "waitlist") return fail(409, "not_for_waitlist");
   if (journey.status !== "active" || !journey.publishedVersion) return fail(409, "journey_not_active");
   const repo = forTenant(ctx, db);
   const userDocId = productUserDocId(journey.connectionId, parsed.data.userId);
@@ -228,7 +300,9 @@ export async function enrolByHand(
 }
 
 export async function runNow(ctx: TenantContext, enrolmentId: string, deps: RunnerDeps = {}): Promise<ApiResult> {
-  const r = await runEnrolmentNow(ctx, enrolmentId, deps);
+  // A waitlist journey's enrolment (engine move) lives in its own collection.
+  const waitlist = await forTenant(ctx, deps.db).waitlistEnrolments.getById(enrolmentId);
+  const r = waitlist ? await runWaitlistEnrolmentNow(ctx, enrolmentId, deps) : await runEnrolmentNow(ctx, enrolmentId, deps);
   if (r.ok) return ok({ outcome: r.outcome });
   return fail(r.error === "not_found" ? 404 : 409, r.error);
 }
@@ -242,6 +316,22 @@ export async function stopEnrolment(
 ): Promise<ApiResult> {
   const now = new Date(nowMs).toISOString();
   const repo = forTenant(ctx, db);
+  const waitlist = await repo.waitlistEnrolments.getById(enrolmentId);
+  if (waitlist) {
+    const stopped = await repo.waitlistEnrolments.claim(enrolmentId, (cur) => {
+      if (cur.status !== "active" || (cur.leaseUntil && cur.leaseUntil > now)) return null;
+      return {
+        status: "exited" as const,
+        stopReason: "stopped_by_admin",
+        cursor: null,
+        nextRunAt: null,
+        heldReason: null,
+        log: [...cur.log, { at: now, event: "stopped", detail: `by ${ctx.email ?? ctx.userId ?? "admin"}` }].slice(-40),
+        updatedAt: now,
+      };
+    });
+    return stopped ? ok({ enrolment: stopped }) : fail(409, waitlist.status === "active" ? "busy" : "not_active");
+  }
   const existing = await repo.lifecycleEnrolments.getById(enrolmentId);
   if (!existing) return fail(404, "not_found");
   const done = await repo.lifecycleEnrolments.claim(enrolmentId, (cur) => {
@@ -283,6 +373,7 @@ export async function previewJourney(
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const journey = await loadJourney(ctx, journeyId, db);
   if (!journey) return fail(404, "not_found");
+  if (journey.audience?.kind === "waitlist") return fail(409, "not_for_waitlist");
   const connection = await forTenant(ctx, db).productConnections.getById(journey.connectionId);
   if (!connection) return fail(404, "connection_not_found");
 
@@ -335,10 +426,13 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
   const journey = await loadJourney(ctx, journeyId, db);
   if (!journey) return fail(404, "not_found");
   const repo = forTenant(ctx, db);
+  const waitlist = journey.audience?.kind === "waitlist" ? journey.audience : null;
   const [enrolments, events, connection] = await Promise.all([
-    repo.lifecycleEnrolments.find({ where: [["journeyId", "==", journeyId]], limit: 2000 }),
+    waitlist
+      ? repo.waitlistEnrolments.find({ where: [["journeyId", "==", journeyId]], limit: 2000 })
+      : repo.lifecycleEnrolments.find({ where: [["journeyId", "==", journeyId]], limit: 2000 }),
     repo.emailEvents.find({ where: [["journeyId", "==", journeyId]], limit: 5000 }),
-    repo.productConnections.getById(journey.connectionId),
+    waitlist ? null : repo.productConnections.getById(journey.connectionId),
   ]);
 
   const labels = new Map<string, string>();
@@ -405,7 +499,7 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
     else if (ev.type === "spam") st.complaints += 1;
   }
 
-  // The goal: every onboarding step done within 7 days of enrolling.
+  // The goal: every onboarding step done within 7 days of enrolling (product journeys only).
   const steps = connection?.catalog.onboardingSteps ?? [];
   let eligible = 0;
   let onboarded = 0;
@@ -414,7 +508,7 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
     const users = await repo.productUsers.find({ where: [["connectionId", "==", journey.connectionId]], limit: 5000 });
     const byId = new Map(users.map((u) => [u.id, u]));
     for (const e of enrolments) {
-      const u = byId.get(e.productUserId);
+      const u = "productUserId" in e ? byId.get(e.productUserId) : undefined;
       if (!u) continue;
       eligible += 1;
       const done = steps.map((s) => u.steps[s.id]?.doneAt).filter((d): d is string => Boolean(d));
@@ -433,13 +527,15 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
   return ok({
     enrolments: { total: enrolments.length, ...byStatus, stopReasons },
     items: [...items.values()].sort((a, b) => a.poolId.localeCompare(b.poolId) || a.itemId.localeCompare(b.itemId)),
-    goal: {
-      label: "All onboarding steps done within 7 days",
-      eligible,
-      reached: onboarded,
-      rate: eligible ? onboarded / eligible : null,
-      medianHoursToOnboarded: median === null ? null : Math.round(median * 10) / 10,
-    },
+    goal: waitlist
+      ? null
+      : {
+          label: "All onboarding steps done within 7 days",
+          eligible,
+          reached: onboarded,
+          rate: eligible ? onboarded / eligible : null,
+          medianHoursToOnboarded: median === null ? null : Math.round(median * 10) / 10,
+        },
     truncated: enrolments.length >= 2000 || events.length >= 5000,
   });
 }
@@ -462,6 +558,7 @@ export async function generateJourneyDraft(
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const journey = await loadJourney(ctx, journeyId, deps.db);
   if (!journey) return fail(404, "not_found");
+  if (journey.audience?.kind === "waitlist") return fail(409, "not_for_waitlist");
   const [connection, tenant] = await Promise.all([
     forTenant(ctx, deps.db).productConnections.getById(journey.connectionId),
     getTenantById(ctx.tenantId, deps.db).catch(() => null),
@@ -491,5 +588,7 @@ export async function importJourney(ctx: TenantContext, input: unknown, db?: Fir
 }
 
 export async function duplicateJourneyTo(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
+  const journey = await loadJourney(ctx, id, db);
+  if (journey?.audience?.kind === "waitlist") return fail(409, "not_for_waitlist");
   return fromService(await duplicateJourney(ctx, id, input, { db }), (v) => v, 201);
 }

@@ -19,6 +19,34 @@ import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 const PHASE3 = isNavV2Phase3Enabled();
+
+type PublishResponse = {
+  enqueued?: number;
+  held?: { released: number; expired: number; stepRemoved: number };
+};
+
+/** "Published — 12 people will get the first email. 3 waiting people get their next one." */
+function publishedMessage(data: PublishResponse): string {
+  const n = data.enqueued ?? 0;
+  const released = data.held?.released ?? 0;
+  const left = (data.held?.expired ?? 0) + (data.held?.stepRemoved ?? 0);
+  const parts = [
+    PHASE3
+      ? `Published — ${n} ${n === 1 ? "person" : "people"} will get the first email.`
+      : `Activated — ${n} recipient(s) enqueued.`,
+  ];
+  if (released) parts.push(`${released} waiting ${released === 1 ? "person gets" : "people get"} their next email.`);
+  if (left) parts.push(`${left} left the journey (paused over 90 days, or their email was removed).`);
+  return parts.join(" ");
+}
+
+/** Why Publish/Pause was refused, in words the operator can act on. */
+function publishError(data: { error?: string; reason?: string }): string {
+  if (data.error === "forbidden") return "Only admins can publish or pause a journey.";
+  if (data.error === "launch_archived") return "This launch is archived. Restore it in Settings, then publish.";
+  if (data.error === "journey_invalid") return `Can't publish yet${data.reason ? `: ${data.reason}` : ""}.`;
+  return "Action failed.";
+}
 import type {
   Journey,
   JourneyStatus,
@@ -85,10 +113,16 @@ export function JourneyCanvas({
   campaignId,
   initial,
   questions = [],
+  readOnly = false,
 }: {
   campaignId: string;
   initial: Journey;
   questions?: Question[];
+  /**
+   * Engine move D6: the original editor is read-only — the journey can be
+   * paused and resumed, but not edited or published for the first time.
+   */
+  readOnly?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -247,6 +281,7 @@ export function JourneyCanvas({
   async function deselectAndSave() {
     if (!selectedId) return;
     setSelectedId(null);
+    if (readOnly) return;
     setBusy(true);
     const ok = await save();
     setBusy(false);
@@ -274,22 +309,24 @@ export function JourneyCanvas({
     setBusy(false);
     if (res.ok) {
       setStatus(data.status as JourneyStatus);
-      setMsg(
-        action === "activate"
-          ? PHASE3
-            ? `Published — ${data.enqueued ?? 0} ${data.enqueued === 1 ? "person" : "people"} will get the first email.`
-            : `Activated — ${data.enqueued ?? 0} recipient(s) enqueued.`
-          : "Paused.",
-      );
+      setMsg(action === "activate" ? publishedMessage(data) : "Paused.");
       router.refresh();
     } else {
-      setMsg("Action failed.");
+      setMsg(publishError(data));
     }
   }
 
   return (
     <div className="space-y-3">
+      {readOnly ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          This editor is read-only: welcome emails are now built in the new journey editor. Move this launch to the new engine
+          in its <a className="underline" href={`/admin/launches/${campaignId}/settings`}>Settings</a> to edit them.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
+        {readOnly ? null : (
+        <>
         <button
           type="button"
           onClick={() => addNode("email")}
@@ -325,6 +362,8 @@ export function JourneyCanvas({
         >
           Save
         </button>
+        </>
+        )}
         {status === "active" ? (
           <button
             type="button"
@@ -334,14 +373,14 @@ export function JourneyCanvas({
           >
             Pause
           </button>
-        ) : (
+        ) : readOnly && status === "draft" ? null : (
           <button
             type="button"
             onClick={() => setActive("activate")}
             disabled={busy}
             className="rounded-md bg-neutral-900 px-3 py-1 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900"
           >
-            {PHASE3 ? "Publish" : "Activate"}
+            {readOnly ? "Resume" : PHASE3 ? "Publish" : "Activate"}
           </button>
         )}
         <span
@@ -361,9 +400,12 @@ export function JourneyCanvas({
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
+          onNodesChange={readOnly ? undefined : onNodesChange}
+          onEdgesChange={readOnly ? undefined : onEdgesChange}
+          onConnect={readOnly ? undefined : onConnect}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          deleteKeyCode={readOnly ? null : undefined}
           nodeTypes={nodeTypes}
           onInit={(inst) => {
             rf.current = inst;
@@ -379,7 +421,7 @@ export function JourneyCanvas({
         </ReactFlow>
       </div>
 
-      {selected ? (
+      {selected && !readOnly ? (
         <NodeInspector
           node={selected}
           campaignId={campaignId}

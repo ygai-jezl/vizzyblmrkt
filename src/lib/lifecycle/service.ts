@@ -5,18 +5,22 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import {
   DeliveryMode,
+  isWaitlistJourney,
   LifecycleDraftSchema,
   LifecycleSettingsSchema,
+  SendPolicySchema,
   type LifecycleDraft,
   type LifecycleJourney,
   type LifecycleVersion,
 } from "@/lib/types/lifecycle";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
-import { validateLifecycleDraft, type GraphIssue } from "./graph";
+import { NO_CATALOG, validateLifecycleDraft, type GraphIssue } from "./graph";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { versionDocId } from "./enrol";
 import { isOwnOrVerifiedAddress, lifecycleSender } from "./policy";
+import { waitlistJourneyId } from "./waitlist/ids";
+import { backfillWaitlistJourney, releaseHeldWaitlistEnrolments, type WaitlistReleaseSummary } from "./waitlist/enrol";
 
 /**
  * Lifecycle journeys: create, edit the draft, publish immutable versions, and
@@ -56,6 +60,84 @@ function blankDraft(): LifecycleDraft {
 
 async function loadConnection(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ProductConnection | null> {
   return forTenant(ctx, db).productConnections.getById(id);
+}
+
+/**
+ * Validate a draft for its journey's audience: a product journey against its
+ * connection's catalog, a waitlist journey against its launch (signup fields).
+ * `error` when the product or the launch is gone.
+ */
+async function validateForAudience(
+  ctx: TenantContext,
+  journey: LifecycleJourney,
+  draft: LifecycleDraft,
+  db?: FirestoreLike,
+): Promise<{ ok: boolean; issues: GraphIssue[]; error?: "connection_not_found" | "launch_not_found" }> {
+  if (journey.audience?.kind === "waitlist") {
+    const campaign = await forTenant(ctx, db).campaigns.getById(journey.audience.campaignId);
+    if (!campaign) return { ok: false, issues: [], error: "launch_not_found" };
+    return validateLifecycleDraft(draft, NO_CATALOG, { audience: "waitlist" });
+  }
+  const connection = await loadConnection(ctx, journey.connectionId, db);
+  if (!connection) return { ok: false, issues: [], error: "connection_not_found" };
+  return validateLifecycleDraft(draft, connection.catalog);
+}
+
+/**
+ * A new waitlist journey's settings: any time of day (like the original
+ * engine), no hard stop, opens and clicks tracked.
+ */
+export function waitlistSettings(): LifecycleDraft["settings"] {
+  return LifecycleSettingsSchema.parse({
+    trigger: { event: "signup.verified", maxEventAgeHours: 72 },
+    sendPolicy: SendPolicySchema.parse({ anytime: true, hardStopDays: null }),
+    category: { key: "waitlist", label: "Launch updates" },
+    tracking: { opens: true, clicks: true },
+  });
+}
+
+/**
+ * Create a launch's waitlist journey (engine move D2): one per launch, with a
+ * fixed id. Starts as a draft; publishing is a separate, human action.
+ */
+export async function createWaitlistJourney(
+  ctx: TenantContext,
+  a: { campaignId: string; name?: string; draft?: LifecycleDraft },
+  deps: { db?: FirestoreLike; nowMs?: number; authoredBy?: "human" | "agent" } = {},
+): Promise<ServiceResult<{ journey: LifecycleJourney; issues: GraphIssue[] }>> {
+  const repo = forTenant(ctx, deps.db);
+  const campaign = await repo.campaigns.getById(a.campaignId);
+  if (!campaign) return fail(404, "launch_not_found");
+  const draft = a.draft ?? { ...blankDraft(), settings: waitlistSettings() };
+  const parsed = LifecycleDraftSchema.safeParse(draft);
+  if (!parsed.success) return fail(400, "invalid_draft", zodReason(parsed.error));
+  const now = new Date(deps.nowMs ?? Date.now()).toISOString();
+  let journey: LifecycleJourney;
+  try {
+    journey = await repo.lifecycleJourneys.create(waitlistJourneyId(campaign.id), {
+      name: (a.name ?? `${campaign.waitlistName || campaign.id} welcome emails`).slice(0, 120),
+      connectionId: "",
+      audience: { kind: "waitlist", campaignId: campaign.id },
+      workspaceId: null,
+      status: "draft",
+      // Publishing a waitlist journey sends for real, as it always has.
+      deliveryMode: "live",
+      draft: parsed.data,
+      publishedVersion: null,
+      liveSince: null,
+      testRecipients: { userIds: [], emails: [] },
+      shadowInbox: ctx.email ?? null,
+      caps: { sendsPerDay: 10_000, enrolmentsPerDay: 10_000 },
+      authoredBy: deps.authoredBy ?? "human",
+      createdBy: ctx.userId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (err) {
+    if (err instanceof TenantIsolationError) return fail(409, "journey_exists");
+    throw err;
+  }
+  return ok({ journey, issues: validateLifecycleDraft(parsed.data, NO_CATALOG, { audience: "waitlist" }).issues });
 }
 
 export async function getLifecycleJourney(
@@ -140,8 +222,8 @@ export async function saveLifecycleDraft(
   const repo = forTenant(ctx, deps.db);
   const journey = await repo.lifecycleJourneys.getById(journeyId);
   if (!journey || journey.status === "archived") return fail(404, "not_found");
-  const connection = await loadConnection(ctx, journey.connectionId, deps.db);
-  if (!connection) return fail(404, "connection_not_found");
+  const checked = await validateForAudience(ctx, journey, parsed.data, deps.db);
+  if (checked.error) return fail(404, checked.error);
 
   const updatedAt = new Date(deps.nowMs ?? Date.now()).toISOString();
   const patch = {
@@ -150,10 +232,7 @@ export async function saveLifecycleDraft(
     ...(deps.authoredBy === "agent" ? { authoredBy: "agent" as const } : {}),
   };
   await repo.lifecycleJourneys.update(journeyId, patch);
-  return ok({
-    journey: { ...journey, ...patch },
-    issues: validateLifecycleDraft(parsed.data, connection.catalog).issues,
-  });
+  return ok({ journey: { ...journey, ...patch }, issues: checked.issues });
 }
 
 /**
@@ -164,20 +243,40 @@ export async function saveLifecycleDraft(
 export async function publishLifecycleJourney(
   ctx: TenantContext,
   journeyId: string,
-  deps: { db?: FirestoreLike; nowMs?: number; tenant?: Tenant | null } = {},
+  deps: {
+    db?: FirestoreLike;
+    nowMs?: number;
+    tenant?: Tenant | null;
+    /**
+     * Waitlist journeys: on the FIRST publish of a launch that never ran on the
+     * original engine, enrol its existing verified signups (resumably; the tick
+     * finishes a big list). `false` (the engine switch) never backfills.
+     */
+    backfill?: boolean;
+  } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; version: LifecycleVersion }>> {
   const repo = forTenant(ctx, deps.db);
   const journey = await repo.lifecycleJourneys.getById(journeyId);
   if (!journey || journey.status === "archived") return fail(404, "not_found");
-  const connection = await loadConnection(ctx, journey.connectionId, deps.db);
-  if (!connection || connection.status === "revoked") return fail(409, "connection_unavailable");
+  const audience = journey.audience;
+  const waitlist = audience?.kind === "waitlist";
+  if (audience?.kind === "waitlist") {
+    const campaign = await repo.campaigns.getById(audience.campaignId);
+    if (!campaign) return fail(404, "launch_not_found");
+    if (campaign.archivedAt) return fail(409, "launch_archived");
+  } else {
+    const connection = await loadConnection(ctx, journey.connectionId, deps.db);
+    if (!connection || connection.status === "revoked") return fail(409, "connection_unavailable");
+  }
 
   const draft = LifecycleDraftSchema.safeParse(journey.draft);
   if (!draft.success) return fail(422, "invalid_draft", zodReason(draft.error));
-  const { ok: valid, issues } = validateLifecycleDraft(draft.data, connection.catalog);
+  const { ok: valid, issues } = await validateForAudience(ctx, journey, draft.data, deps.db);
   if (!valid) return fail(422, "invalid_journey", issues);
 
-  if (journey.deliveryMode === "live") {
+  // Waitlist journeys send from the launch's sender as they always have (its
+  // fallback included); product journeys need a verified domain to go live.
+  if (!waitlist && journey.deliveryMode === "live") {
     const tenant = deps.tenant !== undefined ? deps.tenant : await getTenantById(ctx.tenantId, deps.db).catch(() => null);
     if (!lifecycleSender(tenant, draft.data.settings.sender).verified) return fail(409, "sender_unverified");
   }
@@ -208,23 +307,54 @@ export async function publishLifecycleJourney(
     updatedAt: now,
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
-  return ok({ journey: { ...journey, ...patch }, version });
+  const published = { ...journey, ...patch };
+  if (audience?.kind === "waitlist" && journey.publishedVersion === null && deps.backfill !== false) {
+    const campaign = await repo.campaigns.getById(audience.campaignId);
+    const original = await repo.journeys.getById(`journey_${audience.campaignId}`);
+    const neverRan = !original || original.status === "draft";
+    if (campaign?.waitlistEngine === "lifecycle" && neverRan) {
+      const backfill = { status: "running" as const, cursor: null, enrolled: 0, updatedAt: now };
+      await repo.lifecycleJourneys.update(journey.id, { backfill });
+      // A first pass now; the tick carries on with a big list.
+      await backfillWaitlistJourney(
+        ctx,
+        { journey: { ...published, backfill }, version, campaign },
+        { db: deps.db, deadlineAt: Date.now() + 15_000 },
+      ).catch((err) => console.warn(`[lifecycle] backfill ${ctx.tenantId}/${journey.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`));
+    }
+  }
+  return ok({ journey: published, version });
 }
 
-/** Pause, resume or archive. Activating needs a published version. */
+/**
+ * Pause, resume or archive. Activating needs a published version. Resuming a
+ * waitlist journey releases the people who waited while it was paused (paced),
+ * and is refused while its launch is archived.
+ */
 export async function setLifecycleJourneyStatus(
   ctx: TenantContext,
   journeyId: string,
   status: "active" | "paused" | "archived",
   deps: { db?: FirestoreLike; nowMs?: number } = {},
-): Promise<ServiceResult<LifecycleJourney>> {
+): Promise<ServiceResult<LifecycleJourney & { released?: WaitlistReleaseSummary }>> {
   const repo = forTenant(ctx, deps.db);
   const journey = await repo.lifecycleJourneys.getById(journeyId);
   if (!journey || journey.status === "archived") return fail(404, "not_found");
   if (status === "active" && !journey.publishedVersion) return fail(409, "not_published");
-  const patch = { status, updatedAt: new Date(deps.nowMs ?? Date.now()).toISOString() };
+  if (status === "active" && journey.audience?.kind === "waitlist") {
+    const campaign = await repo.campaigns.getById(journey.audience.campaignId);
+    if (!campaign) return fail(404, "launch_not_found");
+    if (campaign.archivedAt) return fail(409, "launch_archived");
+  }
+  const nowMs = deps.nowMs ?? Date.now();
+  const patch = { status, updatedAt: new Date(nowMs).toISOString() };
   await repo.lifecycleJourneys.update(journeyId, patch);
-  return ok({ ...journey, ...patch });
+  const next = { ...journey, ...patch };
+  if (status === "active" && isWaitlistJourney(journey)) {
+    const released = await releaseHeldWaitlistEnrolments(ctx, next, { now: nowMs, db: deps.db });
+    return ok({ ...next, released });
+  }
+  return ok(next);
 }
 
 export const DeliveryInput = z.object({
@@ -268,7 +398,8 @@ export async function updateLifecycleDelivery(
     return fail(400, "shadow_inbox_not_allowed");
   }
   if (next.deliveryMode === "shadow" && !next.shadowInbox) return fail(400, "shadow_inbox_required");
-  if (next.deliveryMode === "live" && parsed.data.deliveryMode === "live") {
+  // Waitlist journeys send from the launch's sender, with its fallback, as they always have.
+  if (next.deliveryMode === "live" && parsed.data.deliveryMode === "live" && !isWaitlistJourney(journey)) {
     const version = journey.publishedVersion
       ? await repo.lifecycleVersions.getById(versionDocId(journey.id, journey.publishedVersion))
       : null;

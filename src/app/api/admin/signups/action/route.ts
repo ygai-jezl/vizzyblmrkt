@@ -93,10 +93,14 @@ export async function POST(req: Request) {
         // from the CRM contact + recompute status (PII erasure stays the explicit
         // GDPR contact_erase path), and drop them from the external marketing sync.
         await repo.delete(id);
-        // Their invite (nav v2 phase 4), if any, goes with them.
+        // Their invite (nav v2 phase 4), if any, goes with them, and their progress
+        // through a waitlist journey on the lifecycle engine (engine move).
         await forTenant(ctx).invites
           .deleteWhere([["signupId", "==", id]])
           .catch((e) => console.warn(`invite delete ${id}:`, e));
+        await forTenant(ctx).waitlistEnrolments
+          .deleteWhere([["signupId", "==", id]])
+          .catch((e) => console.warn(`waitlist enrolment delete ${id}:`, e));
         await recordSignupContactStatus(ctx, existing, { remove: true }).catch((e) =>
           console.warn(`contact delete sync ${id}:`, e),
         );

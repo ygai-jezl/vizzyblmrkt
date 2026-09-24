@@ -1,13 +1,19 @@
 import { z } from "zod";
-import { ConditionOperator } from "./journey";
+import { CONDITION_FIELD_KEYS, ConditionOperator } from "./journey";
 import { EmailLayoutSchema } from "./emailLayout";
 
 /**
  * Lifecycle journeys — branching email sequences for a CONNECTED PRODUCT's users
  * (e.g. vizzybl.ai's post-signup onboarding), run by the lifecycle runner
- * (src/lib/lifecycle/runner.ts). Separate from the waitlist Journey engine: the
- * recipient is a product user, conditions read the product's catalog (steps,
- * traits, facts), and sends follow a per-recipient local-time send window.
+ * (src/lib/lifecycle/runner.ts): the recipient is a product user, conditions read
+ * the product's catalog (steps, traits, facts), and sends follow a per-recipient
+ * local-time send window.
+ *
+ * Engine move (D2): a journey's AUDIENCE can instead be a launch's WAITLIST —
+ * the recipients are its verified signups, conditions read the signup
+ * (`signup.*`, the same fields as the original waitlist engine), and it can send
+ * at any time (see src/lib/lifecycle/waitlist/). Journeys without an `audience`
+ * are product journeys.
  *
  * A journey holds an editable DRAFT; publishing snapshots it into an immutable
  * `lifecycle_versions` doc. Enrolments run on the version they started on, so
@@ -20,14 +26,22 @@ import { EmailLayoutSchema } from "./emailLayout";
  * Fields a lifecycle condition can read. Prefixed families are checked against
  * the connection's catalog when publishing (trait/step/milestone); fact.* is
  * whatever the product's context endpoint returns (unknown when absent).
+ * `signup.*` (waitlist journeys only) are the original waitlist engine's fields
+ * (src/lib/journey/conditions.ts), read the same way.
  */
-export const LIFECYCLE_FIELD_RE =
-  /^(?:(?:trait|step|fact|milestone)\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}|onboarding\.(?:complete|steps_done|steps_remaining)|consent\.basis|enrolment\.(?:emails_sent|days_since_enrol))$/;
+export const LIFECYCLE_FIELD_RE = new RegExp(
+  "^(?:(?:trait|step|fact|milestone)\\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}" +
+    "|onboarding\\.(?:complete|steps_done|steps_remaining)|consent\\.basis" +
+    "|enrolment\\.(?:emails_sent|days_since_enrol)" +
+    `|signup\\.(?:${CONDITION_FIELD_KEYS.join("|")}))$`,
+);
 
 export const LifecycleConditionSchema = z.object({
   field: z.string().regex(LIFECYCLE_FIELD_RE),
   operator: ConditionOperator,
   value: z.union([z.number(), z.string(), z.boolean()]).optional(),
+  /** `signup.surveyAnswer` only: which survey question it reads. */
+  questionValue: z.string().max(200).optional(),
 });
 export type LifecycleCondition = z.infer<typeof LifecycleConditionSchema>;
 
@@ -77,6 +91,8 @@ export const PoolItemSchema = z.object({
   eligibility: EligibilitySchema.optional(),
   /** `ai_line`: a per-user AI sentence goes through the approvals queue (M3). */
   personalization: z.enum(["none", "ai_line"]).default("none"),
+  /** Waitlist journeys: the image above the body (the original engine's hero image). */
+  heroImageUrl: z.string().max(2048).nullable().optional(),
 });
 export type PoolItem = z.infer<typeof PoolItemSchema>;
 
@@ -89,16 +105,33 @@ export const ContentPoolSchema = z.object({
   id: z.string().regex(SLUG),
   label: z.string().min(1).max(120),
   items: z.array(PoolItemSchema).min(1).max(10),
+  /**
+   * Waitlist journeys: an A/B test. The first item is the control and the rest
+   * are challengers; `splitPercent` of people enter the test (spread evenly over
+   * the challengers) and everyone else gets the control — the original engine's
+   * allocation (src/lib/journey/allocation.ts), so a person gets the same arm on
+   * either engine. A promoted winner lives on the journey (`abWinners`).
+   */
+  abTest: z.object({ splitPercent: z.number().int().min(1).max(100) }).optional(),
 });
 export type ContentPool = z.infer<typeof ContentPoolSchema>;
 
 // ---- Graph -------------------------------------------------------------------------------
 
+/** Waits can be up to two years (the original waitlist engine had no limit). */
+export const MAX_WAIT_HOURS = 24 * 730;
+
 export const WaitConfigSchema = z.object({
   /** At least this long after the previous email (or enrolment, before the first). */
-  minHours: z.number().min(0).max(24 * 60),
+  minHours: z.number().min(0).max(MAX_WAIT_HOURS),
   /** And at least this long after enrolment. */
-  sinceEnrolHours: z.number().min(0).max(24 * 60).optional(),
+  sinceEnrolHours: z.number().min(0).max(MAX_WAIT_HOURS).optional(),
+  /**
+   * What `minHours` counts from: the previous email (the default) or the moment
+   * the person reached this wait (`previous_step`, the original waitlist
+   * engine's timing — a wait after a condition counts from the condition).
+   */
+  after: z.enum(["previous_email", "previous_step"]).optional(),
   /** Land on a later LOCAL day than the previous email. */
   differentLocalDay: z.boolean().optional(),
   /** Within this many hours of enrolment, send immediately (the welcome) instead of waiting for the window. */
@@ -117,6 +150,8 @@ export const LifecycleNodeDataSchema = z.object({
   wait: WaitConfigSchema.optional(),
   /** condition: ordered branches; first match wins, else the "default" edge. */
   branches: z.array(LifecycleBranchSchema).max(10).optional(),
+  /** exit (waitlist journeys): `weekly` hands the person to the launch's weekly newsletter. */
+  exitTarget: z.enum(["weekly"]).optional(),
 });
 export type LifecycleNodeData = z.infer<typeof LifecycleNodeDataSchema>;
 
@@ -151,8 +186,13 @@ export const SendPolicySchema = z.object({
   startMinute: z.number().int().min(0).max(59).default(0),
   /** Sends spread over this many minutes after the start (stable per user). */
   windowMinutes: z.number().int().min(15).max(720).default(90),
-  /** Nothing sends after this many days from enrolment. */
-  hardStopDays: z.number().int().min(1).max(60).default(12),
+  /**
+   * Send at any time of day, on any day: no window (waitlist journeys, like the
+   * original engine). `days`/`startHour`/`windowMinutes` are then ignored.
+   */
+  anytime: z.boolean().optional(),
+  /** Nothing sends after this many days from enrolment. Null = no limit (waitlist journeys only). */
+  hardStopDays: z.number().int().min(1).max(60).nullable().default(12),
   /** Used when neither the user nor the connection has a valid timezone. */
   fallbackTimezone: z.string().max(64).default("Europe/London"),
 }).refine((p) => p.startHour * 60 + p.startMinute + p.windowMinutes <= 24 * 60, {
@@ -202,16 +242,29 @@ export type LifecycleJourneyStatus = z.infer<typeof LifecycleJourneyStatus>;
 
 export const LifecycleDraftSchema = z.object({
   graph: LifecycleGraphSchema,
-  pools: z.array(ContentPoolSchema).max(20),
+  /** Up to 60: a waitlist journey moved from the original engine has one pool per email. */
+  pools: z.array(ContentPoolSchema).max(60),
   settings: LifecycleSettingsSchema,
 });
 export type LifecycleDraft = z.infer<typeof LifecycleDraftSchema>;
+
+/**
+ * Who a journey emails: a connected product's users, or a launch's waitlist.
+ * Journeys stored without one are product journeys (see `journeyAudience`).
+ */
+export const JourneyAudienceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("product"), connectionId: z.string() }),
+  z.object({ kind: z.literal("waitlist"), campaignId: z.string() }),
+]);
+export type JourneyAudience = z.infer<typeof JourneyAudienceSchema>;
 
 export const LifecycleJourneySchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   name: z.string().min(1).max(120),
+  /** The product connection; "" for waitlist journeys. */
   connectionId: z.string(),
+  audience: JourneyAudienceSchema.optional(),
   workspaceId: z.string().nullable().optional(),
   status: LifecycleJourneyStatus,
   deliveryMode: DeliveryMode,
@@ -232,11 +285,40 @@ export const LifecycleJourneySchema = z.object({
     })
     .default({ sendsPerDay: 200, enrolmentsPerDay: 500 }),
   authoredBy: z.enum(["human", "agent"]).default("human"),
+  /**
+   * Waitlist journeys: A/B winners promoted after publishing, by pool id. A
+   * promoted pool sends its winner to everyone, whatever the version says —
+   * promotion doesn't need a new version.
+   */
+  abWinners: z.record(z.string(), z.string()).optional(),
+  /**
+   * Waitlist journeys: enrolling the launch's existing signups on the first
+   * publish (a launch that never ran on the original engine). Resumable: the
+   * cursor is the last signup id enrolled.
+   */
+  backfill: z
+    .object({
+      status: z.enum(["running", "done"]),
+      cursor: z.string().nullable(),
+      enrolled: z.number().int().nonnegative(),
+      updatedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
   createdBy: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type LifecycleJourney = z.infer<typeof LifecycleJourneySchema>;
+
+/** A journey's audience; journeys stored before audiences existed are product journeys. */
+export function journeyAudience(j: Pick<LifecycleJourney, "audience" | "connectionId">): JourneyAudience {
+  return j.audience ?? { kind: "product", connectionId: j.connectionId };
+}
+
+export function isWaitlistJourney(j: Pick<LifecycleJourney, "audience">): boolean {
+  return j.audience?.kind === "waitlist";
+}
 
 /** An immutable published snapshot; id = `${journeyId}_v${version}`. */
 export const LifecycleVersionSchema = z.object({
@@ -271,19 +353,12 @@ export const SentItemSchema = z.object({
 });
 export type SentItem = z.infer<typeof SentItemSchema>;
 
-/**
- * One product user's progress through one journey — also the runner's queue
- * item (`nextRunAt` + lease). Id = `enr_<sha256(journeyId:productUserId)>`, so a
- * user enters a journey at most once.
- */
-export const LifecycleEnrolmentSchema = z.object({
+/** What every enrolment carries, whatever its audience — the runner's queue item. */
+const EnrolmentRuntimeSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   journeyId: z.string(),
   versionId: z.string(),
-  connectionId: z.string(),
-  productUserId: z.string(),
-  externalUserId: z.string(),
   mode: DeliveryMode,
   status: EnrolmentStatus,
   stopReason: z.string().max(120).nullable().optional(),
@@ -316,7 +391,40 @@ export const LifecycleEnrolmentSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export type EnrolmentRuntime = z.infer<typeof EnrolmentRuntimeSchema>;
+
+/**
+ * One product user's progress through one journey — also the runner's queue
+ * item (`nextRunAt` + lease). Id = `enr_<sha256(journeyId:productUserId)>`, so a
+ * user enters a journey at most once.
+ */
+export const LifecycleEnrolmentSchema = EnrolmentRuntimeSchema.extend({
+  connectionId: z.string(),
+  productUserId: z.string(),
+  externalUserId: z.string(),
+});
 export type LifecycleEnrolment = z.infer<typeof LifecycleEnrolmentSchema>;
+
+/** Why a waitlist enrolment is parked out of the queue (`nextRunAt` null). */
+export const WaitlistHeldReason = z.enum(["journey_paused", "launch_archived"]);
+export type WaitlistHeldReason = z.infer<typeof WaitlistHeldReason>;
+
+/**
+ * One waitlist signup's progress through a launch's waitlist journey, in its own
+ * collection (`waitlist_enrolments`) with its own due queue, so a big waitlist
+ * never slows product journeys down. Id = `enr_<sha256(journeyId\nsignupId)>`,
+ * so a person enters a journey at most once.
+ */
+export const WaitlistEnrolmentSchema = EnrolmentRuntimeSchema.extend({
+  campaignId: z.string(),
+  signupId: z.string(),
+  /** Parked while the journey is paused or the launch archived; released on resume. */
+  heldReason: WaitlistHeldReason.nullable().optional(),
+  heldAt: z.string().nullable().optional(),
+  /** A shadow rehearsal's enrolment: never stamps the person, deleted at the switch. */
+  rehearsal: z.boolean().optional(),
+});
+export type WaitlistEnrolment = z.infer<typeof WaitlistEnrolmentSchema>;
 
 /** A signed webhook waiting to be delivered to the product (retried with backoff). */
 export const LifecycleWebhookSchema = z.object({

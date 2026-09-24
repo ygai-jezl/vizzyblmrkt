@@ -19,7 +19,7 @@ export type RecoverDecision =
   | "enqueued"
   | "duplicate"
   | "would_enqueue"
-  | "skip_recipient" // gone / not verified_active / no email / no campaign
+  | "skip_recipient" // gone / not verified_active / no email / no campaign / on the lifecycle engine
   | "skip_exists" // successor already present
   | "skip_not_condition"
   | "still_no_next"; // even the fixed graph routes nowhere (shouldn't happen)
@@ -92,7 +92,7 @@ export async function recoverDeadEnds(
     }
 
     const signup = await repo.signups.getById(signupId);
-    if (!signup || signup.status !== "verified_active" || !signup.email || !campaign) {
+    if (!signup || signup.status !== "verified_active" || !signup.email || !campaign || signup.journeyEngine === "lifecycle") {
       items.push({ signupId, nodeId, decision: "skip_recipient" });
       continue;
     }

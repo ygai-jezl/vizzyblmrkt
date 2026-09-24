@@ -227,6 +227,17 @@ export const CampaignSchema = z.object({
   // would drop the key and silently fail the clear). Treat presence as the
   // archived test everywhere: `!!campaign.archivedAt`.
   archivedAt: z.string().nullable().optional(),
+  // Engine move: which journey engine emails this launch's NEW signups. Absent =
+  // the original waitlist engine. "rehearsal" = a shadow run on the lifecycle
+  // engine (only the operator's inbox gets its mail; the original still sends).
+  // After a switch to "lifecycle", people already part-way through finish on the
+  // original engine; `waitlistEngineHistory` records every switch.
+  waitlistEngine: z.enum(["legacy", "rehearsal", "lifecycle"]).optional(),
+  waitlistEngineSince: z.string().nullable().optional(),
+  waitlistEngineHistory: z
+    .array(z.object({ engine: z.enum(["legacy", "rehearsal", "lifecycle"]), at: z.string(), by: z.string().nullable() }))
+    .max(50)
+    .optional(),
 });
 
 export type Campaign = z.infer<typeof CampaignSchema>;

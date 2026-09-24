@@ -9,6 +9,7 @@ import {
 } from "./audit";
 import { gcsAuditSink, type AuditObjectSink } from "./auditSink";
 import { TenantIsolationError } from "./errors";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import type { FirestoreLike, TenantContext } from "./types";
 
 export interface DeleteLaunchResult {
@@ -111,6 +112,17 @@ export async function deleteLaunch(
     const inviteWaves = await repo.inviteWaves.deleteWhere(where);
     if (invites) deleted.invites = invites;
     if (inviteWaves) deleted.inviteWaves = inviteWaves;
+    // The launch's waitlist journey on the lifecycle engine (engine move): its
+    // enrolments, versions and counters, then the journey itself.
+    const waitlistEnrolments = await repo.waitlistEnrolments.deleteWhere(where);
+    const waitlistJourney = waitlistJourneyId(campaignId);
+    await repo.lifecycleVersions.deleteWhere([["journeyId", "==", waitlistJourney]]);
+    await repo.lifecycleCounters.deleteWhere([["journeyId", "==", waitlistJourney]]);
+    if (await repo.lifecycleJourneys.getById(waitlistJourney)) {
+      await repo.lifecycleJourneys.delete(waitlistJourney);
+      deleted.waitlistJourneys = 1;
+    }
+    if (waitlistEnrolments) deleted.waitlistEnrolments = waitlistEnrolments;
     await repo.campaigns.delete(campaignId);
     deleted.campaigns = 1;
   } catch (err) {

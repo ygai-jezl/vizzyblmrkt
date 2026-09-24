@@ -181,6 +181,12 @@ export const JourneySchema = z.object({
   campaignId: z.string(),
   status: JourneyStatus,
   graph: JourneyGraphSchema,
+  /**
+   * Engine move: set once the launch has moved to the lifecycle engine and
+   * nobody is left part-way through this journey. A retired journey sends
+   * nothing and isn't turned back on with the launch's welcome emails.
+   */
+  retiredAt: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

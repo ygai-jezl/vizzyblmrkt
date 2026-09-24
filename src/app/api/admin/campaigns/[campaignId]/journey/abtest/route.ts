@@ -28,6 +28,8 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (blocked) return blocked;
   const ctx = await getAdminContext();
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Promoting a winner changes what everyone is sent: admins only.
+  if (ctx.role !== "admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { campaignId } = await params;
   const parsed = PromoteSchema.safeParse(await req.json().catch(() => null));

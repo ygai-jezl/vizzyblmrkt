@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { computeCampaignAnalytics } from "@/lib/analytics/analytics";
 import { forTenant } from "@/lib/tenant";
-import { journeyIdFor } from "@/lib/journey/service";
+import { loadWelcomeJourney } from "@/lib/journey/launchJourneyLoad";
 import { launchEmails } from "@/lib/journey/launchEmails";
 import { isNavV2Phase4Enabled } from "@/lib/nav/flags";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
@@ -55,9 +55,9 @@ export default async function LaunchOverviewPage({
 async function loadChecklist(ctx: Awaited<ReturnType<typeof requireAdminContext>>, campaignId: string, signups: number) {
   const repos = forTenant(ctx);
   const invitesOn = isInvitesUiEnabled() && isInvitesEnabled();
-  const [campaign, journey, broadcasts, inviteSetup, funnel] = await Promise.all([
-    repos.campaigns.getById(campaignId).catch(() => null),
-    repos.journeys.getById(journeyIdFor(campaignId)).catch(() => null),
+  const campaign = await repos.campaigns.getById(campaignId).catch(() => null);
+  const [welcome, broadcasts, inviteSetup, funnel] = await Promise.all([
+    loadWelcomeJourney(ctx, campaign ?? { id: campaignId }).then((w) => w.view),
     repos.broadcasts.find({ where: [["campaignId", "==", campaignId]] }).catch(() => []),
     invitesOn ? loadInviteSetup(ctx, campaignId).catch(() => null) : null,
     invitesOn ? loadFunnel(ctx, { campaignId }).catch(() => null) : null,
@@ -66,9 +66,9 @@ async function loadChecklist(ctx: Awaited<ReturnType<typeof requireAdminContext>
     campaignId,
     signups,
     embeddedAt: campaign?.waitlistUrlLocation ?? null,
-    welcomeLive: journey?.status === "active",
+    welcomeLive: welcome.status === "active",
     spotsPerReferral: campaign?.spotsToMoveUponReferral ?? 0,
-    newslettersSent: launchEmails(journey, broadcasts).newsletters.sent,
+    newslettersSent: launchEmails(welcome, broadcasts).newsletters.sent,
     invites: inviteSetup
       ? {
           lockText: inviteSetup.lock ? INVITE_LOCK_TEXT[inviteSetup.lock] : null,

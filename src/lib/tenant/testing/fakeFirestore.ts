@@ -244,6 +244,8 @@ export class FakeFirestore implements FirestoreLike {
    * abort/retry path (proves exactly-once). Cleared after it fires once.
    */
   onBeforeCommit?: () => Promise<void> | void;
+  /** Commits are serialised, so a commit's conflict check and its writes are atomic (as in Firestore). */
+  private commitChain: Promise<void> = Promise.resolve();
 
   collection(name: string): CollectionLike {
     return new FakeCollection(this.mapFor(name), name, this);
@@ -296,13 +298,21 @@ export class FakeFirestore implements FirestoreLike {
         this.onBeforeCommit = undefined;
         await hook();
       }
-      const conflicted = [...reads].some(([key, v]) => this.versionOf(key) !== v);
-      if (conflicted) {
-        lastConflict = Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
-        continue; // re-run the function against fresh state
+      let release!: () => void;
+      const previous = this.commitChain;
+      this.commitChain = new Promise<void>((r) => (release = r));
+      await previous;
+      try {
+        const conflicted = [...reads].some(([key, v]) => this.versionOf(key) !== v);
+        if (conflicted) {
+          lastConflict = Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
+          continue; // re-run the function against fresh state
+        }
+        for (const apply of writes) await apply();
+        return result;
+      } finally {
+        release();
       }
-      for (const apply of writes) await apply();
-      return result;
     }
     throw lastConflict ?? Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
   }

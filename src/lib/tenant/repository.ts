@@ -36,6 +36,7 @@ import type {
   LifecycleJourney,
   LifecycleVersion,
   LifecycleEnrolment,
+  WaitlistEnrolment,
   LifecycleWebhook,
   LifecycleCounter,
 } from "@/lib/types/lifecycle";
@@ -371,6 +372,8 @@ export interface TenantRepositories {
   lifecycleVersions: TenantCollection<LifecycleVersion>;
   /** Per-user journey progress — also the lifecycle runner's queue. */
   lifecycleEnrolments: TenantCollection<LifecycleEnrolment>;
+  /** Waitlist journeys on the lifecycle engine: per-signup progress, in its own queue. */
+  waitlistEnrolments: TenantCollection<WaitlistEnrolment>;
   /** Signed webhooks awaiting delivery to connected products. */
   lifecycleWebhooks: TenantCollection<LifecycleWebhook>;
   /** Exact daily send counters per journey. */
@@ -476,6 +479,7 @@ export function forTenant(
     lifecycleJourneys: new TenantCollection<LifecycleJourney>(regionalDb, "lifecycle_journeys", t),
     lifecycleVersions: new TenantCollection<LifecycleVersion>(regionalDb, "lifecycle_versions", t),
     lifecycleEnrolments: new TenantCollection<LifecycleEnrolment>(regionalDb, "lifecycle_enrolments", t),
+    waitlistEnrolments: new TenantCollection<WaitlistEnrolment>(regionalDb, "waitlist_enrolments", t),
     lifecycleWebhooks: new TenantCollection<LifecycleWebhook>(regionalDb, "lifecycle_webhooks", t),
     lifecycleCounters: new TenantCollection<LifecycleCounter>(regionalDb, "lifecycle_counters", t),
     lifecycleDrafts: new TenantCollection<AiDraft>(regionalDb, "lifecycle_drafts", t),

@@ -19,6 +19,11 @@ import { createSign } from "node:crypto";
  * it for a user token and confirm the installation is in /user/installations —
  * so nobody can attach an installation id they don't have access to. The user
  * token is used once and discarded.
+ *
+ * With linking on (GITHUB_APP_LINK_ENABLED), Connect starts at GitHub's authorize
+ * page instead, so an app ALREADY installed on the customer's account or org can
+ * be linked — GitHub's install page only offers "Configure" for those, which
+ * never returns a code.
  */
 
 export interface GitHubAppConfig {
@@ -51,9 +56,27 @@ export function isGitHubAppConfigured(): boolean {
   return githubAppConfig() !== null;
 }
 
+/** Connect links existing installs (authorize first) and manage links open the install's own page. */
+export function isGitHubAppLinkEnabled(): boolean {
+  return process.env.GITHUB_APP_LINK_ENABLED === "true";
+}
+
 /** Where the customer installs the app (choosing which repos). `state` round-trips to our callback. */
 export function installUrl(cfg: Pick<GitHubAppConfig, "slug">, state: string): string {
   const u = new URL(`https://github.com/apps/${cfg.slug}/installations/new`);
+  u.searchParams.set("state", state);
+  return u.toString();
+}
+
+/**
+ * GitHub's "Authorize YouGrow" page. It only proves who's connecting — the app's
+ * permissions stay read-only — and returns a code we use to list the installs
+ * this person can use. GitHub skips the prompt for someone who already authorised.
+ */
+export function authorizeUrl(cfg: Pick<GitHubAppConfig, "clientId">, redirectUri: string, state: string): string {
+  const u = new URL("https://github.com/login/oauth/authorize");
+  u.searchParams.set("client_id", cfg.clientId);
+  u.searchParams.set("redirect_uri", redirectUri);
   u.searchParams.set("state", state);
   return u.toString();
 }
@@ -90,15 +113,29 @@ export async function mintInstallationToken(
 
 const WRITE_LEVELS = new Set(["write", "admin"]);
 
+export type GitHubAccountType = "User" | "Organization";
+
+const accountType = (t: unknown): GitHubAccountType | null => (t === "User" || t === "Organization" ? t : null);
+
+/** One install of this app that the signed-in GitHub user can access. */
+export interface UserInstallation {
+  installationId: number;
+  accountLogin: string | null;
+  accountType: GitHubAccountType | null;
+  repositorySelection: string | null;
+  /** false if the install grants anything beyond reading — we refuse those. */
+  readOnly: boolean;
+}
+
 /**
- * Confirm `installationId` belongs to the user who just authorised, and that it
- * grants nothing beyond reading. Returns the account it's installed on.
+ * Exchange the one-time code for a user token and list the installs of this app
+ * that user can access. The token only proves who's connecting; it's never stored.
  */
-export async function verifyUserInstallation(
-  input: { code: string; installationId: number; redirectUri: string },
+export async function listUserInstallations(
+  input: { code: string; redirectUri: string },
   cfg: Pick<GitHubAppConfig, "clientId" | "clientSecret">,
   fetchImpl: Fetch = fetch,
-): Promise<{ ok: true; accountLogin: string | null; repositorySelection: string | null } | { ok: false; reason: string }> {
+): Promise<{ ok: true; installations: UserInstallation[] } | { ok: false; reason: string }> {
   const tokRes = await fetchImpl("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -119,14 +156,46 @@ export async function verifyUserInstallation(
     signal: AbortSignal.timeout(10_000),
   });
   const data = (await res.json().catch(() => ({}))) as {
-    installations?: Array<{ id: number; account?: { login?: string } | null; permissions?: Record<string, string>; repository_selection?: string }>;
+    installations?: Array<{
+      id?: number;
+      account?: { login?: string; type?: string } | null;
+      permissions?: Record<string, string>;
+      repository_selection?: string;
+    }>;
   };
   if (!res.ok) return { ok: false, reason: "installations_lookup_failed" };
-  const inst = (data.installations ?? []).find((i) => i.id === input.installationId);
+  const installations: UserInstallation[] = [];
+  for (const i of data.installations ?? []) {
+    if (typeof i.id !== "number" || !Number.isInteger(i.id) || i.id <= 0) continue;
+    installations.push({
+      installationId: i.id,
+      accountLogin: typeof i.account?.login === "string" ? i.account.login : null,
+      accountType: accountType(i.account?.type),
+      repositorySelection: i.repository_selection ?? null,
+      readOnly: !Object.values(i.permissions ?? {}).some((level) => WRITE_LEVELS.has(level)),
+    });
+  }
+  return { ok: true, installations };
+}
+
+/**
+ * Confirm `installationId` belongs to the user who just authorised, and that it
+ * grants nothing beyond reading. Returns the account it's installed on.
+ */
+export async function verifyUserInstallation(
+  input: { code: string; installationId: number; redirectUri: string },
+  cfg: Pick<GitHubAppConfig, "clientId" | "clientSecret">,
+  fetchImpl: Fetch = fetch,
+): Promise<
+  | { ok: true; accountLogin: string | null; accountType: GitHubAccountType | null; repositorySelection: string | null }
+  | { ok: false; reason: string }
+> {
+  const r = await listUserInstallations(input, cfg, fetchImpl);
+  if (!r.ok) return r;
+  const inst = r.installations.find((i) => i.installationId === input.installationId);
   if (!inst) return { ok: false, reason: "installation_not_yours" };
-  const perms = inst.permissions ?? {};
-  if (Object.values(perms).some((level) => WRITE_LEVELS.has(level))) return { ok: false, reason: "app_not_read_only" };
-  return { ok: true, accountLogin: inst.account?.login ?? null, repositorySelection: inst.repository_selection ?? null };
+  if (!inst.readOnly) return { ok: false, reason: "app_not_read_only" };
+  return { ok: true, accountLogin: inst.accountLogin, accountType: inst.accountType, repositorySelection: inst.repositorySelection };
 }
 
 /** Where a customer adds or removes repositories (GitHub lists their installs with "Configure"). */

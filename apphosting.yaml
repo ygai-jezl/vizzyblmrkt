@@ -649,6 +649,15 @@ env:
     secret: github-app-private-key
     availability:
       - RUNTIME
+  # Connect asks GitHub who's connecting first (authorize), so an app already
+  # installed on the customer's account or org can be linked (GitHub's install
+  # page only offers "Configure" for those, which never returns to us). Also sends
+  # "Add or remove repositories" to the install's own settings page. Off in prod
+  # until verified in dev.
+  - variable: GITHUB_APP_LINK_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
   # one-click header). Without it, emails carry no unsubscribe link and lifecycle
   # marketing sends are held. Created in dev with a random value (separate from prod's).

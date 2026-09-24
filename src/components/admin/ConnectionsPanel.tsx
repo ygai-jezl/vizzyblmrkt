@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { GitRepoPicker } from "./GitRepoPicker";
+import { GitHubAccountChooser, type ChooseResult } from "./connect/GitHubAccountChooser";
 
 interface ProviderStatus {
   label: string;
@@ -50,6 +51,8 @@ const CONNECT_ERRORS: Record<string, string> = {
 /** Manage per-tenant GitHub/GitLab OAuth connections (for ingesting private repos). */
 export function ConnectionsPanel() {
   const sp = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [providers, setProviders] = useState<Record<string, ProviderStatus> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // Which git provider's repo picker is open. Opens automatically after a fresh
@@ -86,6 +89,21 @@ export function ConnectionsPanel() {
   function connect(p: string) {
     window.open(`/api/admin/integrations/${p}/start`, "git-oauth", "width=920,height=820");
   }
+
+  // "Which GitHub account?" finished: show the result in the usual banner.
+  const chosen = useCallback(
+    (r: ChooseResult | null) => {
+      const q = !r
+        ? ""
+        : r.ok
+          ? "?status=ok&provider=github"
+          : `?status=error&reason=${encodeURIComponent(r.reason)}&provider=github`;
+      router.replace(`${pathname}${q}`);
+      void load();
+    },
+    [router, pathname, load],
+  );
+  const chooseToken = sp.get("choose") === "github" ? sp.get("c") : null;
 
   async function disconnect(p: string) {
     const label = providers?.[p]?.label ?? p;
@@ -138,6 +156,8 @@ export function ConnectionsPanel() {
           {banner.msg}
         </p>
       ) : null}
+
+      {chooseToken ? <GitHubAccountChooser token={chooseToken} onDone={chosen} /> : null}
 
       <div className="space-y-2">
         {PROVIDER_IDS.map((p) => {
@@ -204,7 +224,7 @@ export function ConnectionsPanel() {
                       onClick={() => connect(p)}
                       className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white dark:border-white dark:bg-white dark:text-neutral-900"
                     >
-                      {s.appInstall ? "Install on GitHub (read-only)" : "Connect"}
+                      {s.appInstall ? "Connect GitHub (read-only)" : "Connect"}
                     </button>
                   )
                 ) : null}

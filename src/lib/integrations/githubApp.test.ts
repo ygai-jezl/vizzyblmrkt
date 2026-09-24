@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, createVerify } from "node:crypto";
-import { appJwt, githubAppConfig, installUrl, listInstallationRepos, manageInstallationUrl, mintInstallationToken, verifyUserInstallation } from "./githubApp";
+import {
+  appJwt,
+  authorizeUrl,
+  githubAppConfig,
+  installUrl,
+  listInstallationRepos,
+  listUserInstallations,
+  manageInstallationUrl,
+  mintInstallationToken,
+  verifyUserInstallation,
+} from "./githubApp";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const pem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -48,12 +58,20 @@ describe("GitHub App (read-only)", () => {
       fakeFetch((url) =>
         url.includes("login/oauth")
           ? { status: 200, body: { access_token: "ghu_user" } }
-          : { status: 200, body: { installations: [{ id: 77, account: { login: "acme" }, permissions: perms, repository_selection: "selected" }] } },
+          : {
+              status: 200,
+              body: { installations: [{ id: 77, account: { login: "acme", type: "Organization" }, permissions: perms, repository_selection: "selected" }] },
+            },
       );
     const input = { code: "c", installationId: 77, redirectUri: "https://yougrow.test/cb" };
 
     const ok = installs({ contents: "read", metadata: "read" });
-    expect(await verifyUserInstallation(input, cfg, ok.f)).toEqual({ ok: true, accountLogin: "acme", repositorySelection: "selected" });
+    expect(await verifyUserInstallation(input, cfg, ok.f)).toEqual({
+      ok: true,
+      accountLogin: "acme",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
     expect(ok.calls[1]!.url).toContain("/user/installations");
 
     expect(await verifyUserInstallation({ ...input, installationId: 99 }, cfg, installs({ contents: "read" }).f)).toEqual({ ok: false, reason: "installation_not_yours" });
@@ -90,6 +108,51 @@ describe("GitHub App (read-only)", () => {
 
   it("links to GitHub's own page for adding or removing repositories", () => {
     expect(manageInstallationUrl(cfg)).toBe("https://github.com/apps/yougrow-connect/installations/new");
+  });
+
+  it("sends people to authorise the app, carrying the signed state back to our callback", () => {
+    const u = new URL(authorizeUrl(cfg, "https://yougrow.test/api/admin/integrations/github/callback", "st.ate"));
+    expect(u.origin + u.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(Object.fromEntries(u.searchParams)).toEqual({
+      client_id: "Iv1.test",
+      redirect_uri: "https://yougrow.test/api/admin/integrations/github/callback",
+      state: "st.ate",
+    });
+  });
+
+  it("lists the installs a user can access, marking any that could write", async () => {
+    const { f, calls } = fakeFetch((url) =>
+      url.includes("login/oauth")
+        ? { status: 200, body: { access_token: "ghu_user" } }
+        : {
+            status: 200,
+            body: {
+              installations: [
+                { id: 1, account: { login: "acme", type: "Organization" }, permissions: { contents: "read" }, repository_selection: "selected" },
+                { id: 2, account: { login: "jo", type: "User" }, permissions: { contents: "write" }, repository_selection: "all" },
+                { id: -3, account: { login: "bad" } },
+                { account: { login: "no-id" } },
+              ],
+            },
+          },
+    );
+    expect(await listUserInstallations({ code: "c", redirectUri: "https://yougrow.test/cb" }, cfg, f)).toEqual({
+      ok: true,
+      installations: [
+        { installationId: 1, accountLogin: "acme", accountType: "Organization", repositorySelection: "selected", readOnly: true },
+        { installationId: 2, accountLogin: "jo", accountType: "User", repositorySelection: "all", readOnly: false },
+      ],
+    });
+    // The user token only asks GitHub who's connecting.
+    expect(new Headers(calls[1]!.init?.headers).get("authorization")).toBe("Bearer ghu_user");
+  });
+
+  it("reports a failed code exchange or lookup instead of listing nothing", async () => {
+    const input = { code: "c", redirectUri: "https://yougrow.test/cb" };
+    const noToken = fakeFetch(() => ({ status: 400, body: { error: "bad_verification_code" } }));
+    expect(await listUserInstallations(input, cfg, noToken.f)).toEqual({ ok: false, reason: "token_exchange_failed" });
+    const lookupFails = fakeFetch((url) => (url.includes("login/oauth") ? { status: 200, body: { access_token: "t" } } : { status: 502, body: {} }));
+    expect(await listUserInstallations(input, cfg, lookupFails.f)).toEqual({ ok: false, reason: "installations_lookup_failed" });
   });
 });
 

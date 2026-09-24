@@ -4,7 +4,14 @@ import { PROVIDERS, isGitProvider, oauthOrigin, grantedScopes } from "@/lib/inte
 import { verifyState, encryptToken } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
-import { githubAppConfig, verifyUserInstallation } from "@/lib/integrations/githubApp";
+import {
+  githubAppConfig,
+  installUrl,
+  isGitHubAppLinkEnabled,
+  listUserInstallations,
+  verifyUserInstallation,
+} from "@/lib/integrations/githubApp";
+import { chooseToken, connectState, saveAppConnection } from "@/lib/integrations/githubAppLink";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,45 +50,60 @@ export async function GET(
   }
   const code = sp.get("code");
   const stateRaw = sp.get("state");
+  const redirectUri = `${origin}/api/admin/integrations/${provider}/callback`;
+  const app = provider === "github" ? githubAppConfig() : null;
+  const linking = app && isGitHubAppLinkEnabled() ? app : null;
+  const installationId = Number(sp.get("installation_id"));
+  const hasInstallation = Number.isInteger(installationId) && installationId > 0;
+
+  // An organisation MEMBER (not an owner) asked their org to install the app.
+  // GitHub has notified the owners; there's no installation to store yet.
+  if (app && sp.get("setup_action") === "request") {
+    return back(origin, { status: "requested", provider });
+  }
   // A customer changed the GitHub App's repositories on GitHub, which sends them
   // back here without our state. Nothing to store — the installation id is
   // unchanged and GitHub enforces the new repo list — so confirm, write nothing.
-  if (provider === "github" && githubAppConfig() && sp.get("setup_action") === "update" && !stateRaw) {
+  if (app && sp.get("setup_action") === "update" && !stateRaw) {
     return back(origin, { status: "ok", provider, updated: "1" });
-  }
-  // An organisation MEMBER (not an owner) asked their org to install the app.
-  // GitHub has notified the owners; there's no installation to store yet.
-  if (provider === "github" && githubAppConfig() && sp.get("setup_action") === "request") {
-    return back(origin, { status: "requested", provider });
   }
   if (!code || !stateRaw) return back(origin, { status: "error", reason: "missing_code", provider });
 
   const state = verifyState(stateRaw);
-  if (!state || state.t !== ctx.tenantId || state.p !== provider) {
+  // A "choose" token only lists installs to pick from; it never stands in for OAuth state.
+  if (!state || state.t !== ctx.tenantId || state.p !== provider || state.m === "choose") {
     return back(origin, { status: "error", reason: "bad_state", provider });
   }
   if (typeof state.ts !== "number" || Date.now() - state.ts > STATE_MAX_AGE_MS) {
     return back(origin, { status: "error", reason: "state_expired", provider });
   }
 
-  const redirectUri = `${origin}/api/admin/integrations/${provider}/callback`;
+  // The person authorised the app on GitHub: find the installs they can use.
+  if (linking && state.m === "link" && !hasInstallation) {
+    try {
+      const r = await listUserInstallations({ code, redirectUri }, linking);
+      if (!r.ok) return back(origin, { status: "error", reason: r.reason, provider });
+      const usable = r.installations.filter((i) => i.readOnly);
+      // Not installed anywhere they can reach yet: on to GitHub's install page.
+      if (usable.length === 0) return NextResponse.redirect(installUrl(linking, connectState(ctx.tenantId, "install")));
+      // Always ask, even with one: nothing is linked without a click (a crafted
+      // link can't attach an install to whichever workspace is open), and someone
+      // whose personal account already has the app can still install it on their
+      // organisation. An install GitHub just told us about goes first.
+      const hint = typeof state.i === "number" ? state.i : null;
+      usable.sort((a, b) => Number(b.installationId === hint) - Number(a.installationId === hint));
+      return back(origin, { choose: provider, c: chooseToken(ctx.tenantId, usable) });
+    } catch {
+      return back(origin, { status: "error", reason: "exception", provider });
+    }
+  }
 
   // GitHub App installation (read-only): store the installation, never a token.
-  const app = provider === "github" ? githubAppConfig() : null;
-  const installationId = Number(sp.get("installation_id"));
-  if (app && Number.isInteger(installationId) && installationId > 0) {
+  if (app && hasInstallation) {
     try {
       const v = await verifyUserInstallation({ code, installationId, redirectUri }, app);
       if (!v.ok) return back(origin, { status: "error", reason: v.reason, provider });
-      await setTenantGitConnection(ctx.tenantId, provider, {
-        provider,
-        kind: "app",
-        installationId,
-        accountLogin: v.accountLogin ?? undefined,
-        scope: "contents:read",
-        connectedBy: ctx.userId,
-        connectedAt: new Date().toISOString(),
-      });
+      await saveAppConnection(ctx.tenantId, ctx.userId, { installationId, accountLogin: v.accountLogin, accountType: v.accountType });
       return back(origin, { status: "ok", provider });
     } catch {
       return back(origin, { status: "error", reason: "exception", provider });

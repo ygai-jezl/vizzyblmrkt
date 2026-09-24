@@ -584,10 +584,12 @@ env:
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
-  # Google Analytics — OFF in prod until verified on dev (see apphosting.yaml).
-  # The measurement ID is inherited; prod never sends debug_mode.
+  # Google Analytics — ON in prod (owner decision, 2026-09-24): `/`, `/login` and
+  # `/developers` only, with Consent Mode v2 (denied by default in the EEA, UK and
+  # Switzerland, so cookieless pings there). The measurement ID is inherited; prod
+  # never sends debug_mode. To switch off, set this back to "false" and roll out.
   - variable: NEXT_PUBLIC_GA_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

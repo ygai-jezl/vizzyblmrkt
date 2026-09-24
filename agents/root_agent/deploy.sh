@@ -12,8 +12,8 @@
 # each run under their own SA from a single command.
 #
 # Prereqs (one-time):
-#   python3.13 -m venv ../.venv                          # venv OUTSIDE the package
-#   ../.venv/bin/pip install "google-adk[a2a]==2.2.0"    # match requirements.txt
+#   python3.12 -m venv ../.venv                               # venv OUTSIDE the package (agents/.venv)
+#   ../.venv/bin/pip install -r ../requirements-deploy.txt    # adk CLI + Vertex SDK, pinned
 #   gcloud auth application-default login                 # ADC — the deploy uses it
 #
 # Notes:
@@ -44,6 +44,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/../.venv"
 if [ -x "$VENV/bin/python" ]; then
   ADK=("$VENV/bin/python" "$VENV/bin/adk")   # run adk via the venv python (its own shebang is stale)
+elif [ -d "$VENV" ]; then
+  # A venv copied from another path, or whose Python was uninstalled, has no
+  # interpreter: say so instead of silently using whatever adk is on PATH.
+  echo "agents/.venv has no working Python. Recreate it:" >&2
+  echo "  rm -rf agents/.venv && python3.12 -m venv agents/.venv && agents/.venv/bin/pip install -r agents/requirements-deploy.txt" >&2
+  exit 1
 else
   ADK=(adk)
 fi
@@ -119,14 +125,21 @@ else
 fi
 echo
 
+# adk prints "Deploy failed: …" but still exits 0, so check what it printed.
+DEPLOY_LOG="$(mktemp)"
+trap 'rm -f "$DEPLOY_LOG"' EXIT
 "${ADK[@]}" deploy agent_engine \
   --project="$PROJECT" \
   --region="$REGION" \
   --display_name="$DISPLAY_NAME" \
   "${PIN_FLAG[@]}" \
-  "$SCRIPT_DIR"
+  "$SCRIPT_DIR" 2>&1 | tee "$DEPLOY_LOG"
 
 echo
+if ! grep -q "Deployed to Agent Platform" "$DEPLOY_LOG"; then
+  echo "Deploy FAILED (see the output above): the engine was not updated." >&2
+  exit 1
+fi
 if [ -z "$RESOURCE_ID" ]; then
   echo "NEW engine created. Copy the reasoningEngines/<ID> tail above into"
   echo "ROOT_AGENT_RESOURCE_ID (apphosting{,.prod}.yaml) AND this script's per-project"

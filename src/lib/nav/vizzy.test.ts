@@ -58,3 +58,23 @@ describe("invite starters (nav v2 phase 4)", () => {
   });
 });
 
+
+describe("Insights starter (phase 4 follow-up)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("appears only while the Insights hub (and so Vizzy's Insights tool) is on", () => {
+    expect(vizzySuggestions("insights")).not.toContain("Which content brings signups?");
+    for (const [k, v] of Object.entries({
+      NEXT_PUBLIC_NAV_V2_ENABLED: "true",
+      NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED: "true",
+      NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED: "true",
+      NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED: "true",
+      NEXT_PUBLIC_INSIGHTS_HUB_ENABLED: "true",
+    })) vi.stubEnv(k, v);
+    expect(vizzySuggestions("insights")).toEqual([
+      "What drove signups this week?",
+      "Which email has the best click rate?",
+      "Which content brings signups?",
+    ]);
+    expect(vizzySuggestions("launches")).not.toContain("Which content brings signups?");
+  });
+});

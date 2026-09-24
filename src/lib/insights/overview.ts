@@ -51,6 +51,13 @@ export interface SignupSources {
   sampled: boolean;
 }
 
+/** Where the source numbers come from, said plainly (the page and Vizzy use the same words). */
+export function sourcesNote(s: SignupSources): string {
+  if (s.basis === "none") return "not available right now";
+  const base = "last 30 days · estimated from UTM tags and referring sites";
+  return s.sampled ? `${base} · newest 5,000 signups` : base;
+}
+
 export interface InsightsOverview {
   tiles: Tile[];
   weeks: WeekPoint[];

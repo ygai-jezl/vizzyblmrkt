@@ -8,6 +8,12 @@ import {
   pluralCategory,
   pluralText,
 } from "./messages";
+import en from "./messages/en.json";
+import fr from "./messages/fr.json";
+import es from "./messages/es.json";
+import de from "./messages/de.json";
+import ja from "./messages/ja.json";
+import ar from "./messages/ar.json";
 
 describe("formatMessage", () => {
   it("interpolates single-brace {placeholders}", () => {
@@ -163,5 +169,25 @@ describe("pluralCategory + pluralText", () => {
     };
     expect(pluralText(messages, "en", 1, "t")).toBe("1 item");
     expect(pluralText(messages, "en", 5, "t")).toBe("5 items");
+  });
+});
+
+describe("translated catalogs", () => {
+  const tokens = (text: string) => [...text.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map((m) => m[1]).sort();
+  const source = en as Record<string, string>;
+
+  it.each(Object.entries({ fr, es, de, ja, ar }))("%s keeps every {{merge_token}} of the English message", (_, catalog) => {
+    for (const [key, text] of Object.entries(catalog as Record<string, string>)) {
+      if (source[key] === undefined) continue;
+      expect(tokens(text), key).toEqual(tokens(source[key]!));
+    }
+  });
+
+  it("has the invite email in every language, with its link", () => {
+    for (const locale of ["fr", "es", "de", "ja", "ar"]) {
+      expect(getMessage(locale, "email.invite.body"), locale).not.toBe(getMessage("en", "email.invite.body"));
+      expect(getMessage(locale, "email.invite.body"), locale).toContain("{{invite_link}}");
+      expect(getMessage(locale, "email.invite.cta"), locale).toContain("{{product_name}}");
+    }
   });
 });

@@ -29,6 +29,7 @@ from .sub_agents.campaign_ops.agent import campaign_ops_agent
 from .sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
 from .sub_agents.content_ops.agent import content_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
+from .tools.insights_summary import get_insights_summary
 
 root_agent = LlmAgent(
     name="vizzybl_marketing_root",
@@ -41,8 +42,9 @@ root_agent = LlmAgent(
     # Order matters: strip the [ctx:] envelope first, then the [mode:] directive.
     before_model_callback=[apply_context_envelope, apply_chat_mode],
     # retrieve_knowledge grounds answers on the launch's ingested docs/site/repos
-    # (RAG). More marketing FunctionTools land alongside it.
-    tools=[retrieve_knowledge],
+    # (RAG); get_insights_summary answers "how are we doing?" from the Insights
+    # numbers (aggregates only). More marketing FunctionTools land alongside them.
+    tools=[retrieve_knowledge, get_insights_summary],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
     # connected-product lifecycle journeys. Both save drafts only.
     sub_agents=[campaign_ops_agent, lifecycle_ops_agent, content_ops_agent],

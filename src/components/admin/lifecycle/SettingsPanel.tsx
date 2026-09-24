@@ -98,7 +98,7 @@ export function SettingsPanel({
             <input className={inputClass} type="number" min={15} max={720} disabled={readOnly} value={p.windowMinutes} onChange={(e) => setPolicy({ windowMinutes: Math.min(720, Math.max(15, Number(e.target.value) || 15)) })} />
           </Field>
           <Field label="Stop after (days)">
-            <input className={inputClass} type="number" min={1} max={60} disabled={readOnly} value={p.hardStopDays} onChange={(e) => setPolicy({ hardStopDays: Math.min(60, Math.max(1, Number(e.target.value) || 1)) })} />
+            <input className={inputClass} type="number" min={1} max={60} disabled={readOnly} value={p.hardStopDays ?? ""} onChange={(e) => setPolicy({ hardStopDays: Math.min(60, Math.max(1, Number(e.target.value) || 1)) })} />
           </Field>
           <Field label="Timezone if unknown">
             <input className={inputClass} disabled={readOnly} value={p.fallbackTimezone} onChange={(e) => setPolicy({ fallbackTimezone: e.target.value.slice(0, 64) })} />

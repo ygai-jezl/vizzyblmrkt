@@ -142,7 +142,10 @@ const StatusInput = z.object({ status: z.enum(["active", "paused", "archived"]) 
 export async function setJourneyStatus(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
   const parsed = StatusInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
-  return fromService(await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db }), (journey) => ({ journey }));
+  return fromService(await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db }), ({ released, ...journey }) => ({
+    journey,
+    ...(released ? { released } : {}),
+  }));
 }
 
 export async function patchJourney(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {

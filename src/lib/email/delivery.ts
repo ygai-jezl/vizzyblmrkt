@@ -575,6 +575,10 @@ async function processJourneyStepJob(
   // (free the dedupe key) rather than tombstone, matching the guards above.
   if (await isSuppressed(ctx, signup.email, db)) return "drop";
 
+  // One engine per person (engine move): someone the lifecycle engine now emails
+  // leaves this journey rather than getting both engines' emails.
+  if (signup.journeyEngine === "lifecycle") return "ended:other_engine";
+
   const campaign = await forTenant(ctx, db).campaigns.getById(journey.campaignId);
   if (!campaign) throw new Error("campaign_not_found");
   if (holdOnPause) {

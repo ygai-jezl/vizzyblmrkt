@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { JourneyGraph } from "@/lib/types/journey";
 import { activateJourney, enrollSignupInActiveJourney, processEmailJobs } from "./delivery";
@@ -73,6 +74,19 @@ function dueStep(db: FakeFirestore, nodeId = "email2", signupId = "s1") {
 
 beforeEach(() => vi.stubEnv("WAITLIST_JOURNEY_HOLD_ON_PAUSE", "true"));
 afterEach(() => vi.unstubAllEnvs());
+
+describe("one engine per person (engine move)", () => {
+  it("ends the step of someone the lifecycle engine now emails, whatever the hold flag", async () => {
+    for (const hold of ["true", "false"]) {
+      vi.stubEnv("WAITLIST_JOURNEY_HOLD_ON_PAUSE", hold);
+      const db = world({ journey: "active" });
+      await forTenant(ctx, db).signups.update("s1", { journeyEngine: "lifecycle" });
+      const id = dueStep(db);
+      await processEmailJobs(ctx, 10, db);
+      expect(db.raw("email_jobs", id)).toMatchObject({ status: "done", endedReason: "other_engine" });
+    }
+  });
+});
 
 describe("holding waitlist journey steps (engine move D1)", () => {
   it("holds the next step of a paused journey instead of ending the sequence", async () => {

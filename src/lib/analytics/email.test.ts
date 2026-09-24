@@ -10,6 +10,7 @@ import {
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailEvent } from "@/lib/types/emailEvent";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 
 const ctx: TenantContext = { tenantId: "t1", region: "us", source: "system" };
 
@@ -171,6 +172,40 @@ describe("computeEmailAnalytics + breakdown (fake Firestore)", () => {
     expect(varA.openRate).toBeCloseTo(1.0); // 2/2
     expect(control.unsubscribed).toBe(1);
     expect(varA.unsubscribed).toBe(1);
+  });
+
+  it("counts a launch's sends on both journey engines as one sequence (engine move)", async () => {
+    const db = new FakeFirestore();
+    seedJourney(db);
+    const moved = waitlistJourneyId("c1");
+    seedEvents(db, [
+      { signupId: "s1", variantId: "control", type: "send" },
+      { signupId: "s1", variantId: "control", type: "open" },
+      // After the launch moved: the same email (node and arm ids kept) from the lifecycle engine.
+      { signupId: "s2", variantId: "var_a", type: "send", journeyId: moved, recipientKind: "signup" },
+      { signupId: "s2", variantId: "var_a", type: "open", journeyId: moved, recipientKind: "signup" },
+    ]);
+    const a = await computeEmailAnalytics(ctx, "c1", db);
+    expect(a.sequences).toHaveLength(1);
+    expect(a.sequences[0]).toMatchObject({ id: "journey_c1", enrolled: 2, sent: 2, opened: 2 });
+    const { nodes } = await computeSequenceEmailBreakdown(ctx, "journey_c1", db);
+    const node = nodes.find((n) => n.nodeId === "email1")!;
+    expect(node.sent).toBe(2);
+    expect(node.arms.find((x) => x.variantId === "var_a")!.sent).toBe(1);
+  });
+
+  it("shows a launch's sequence when only its lifecycle-engine journey exists", async () => {
+    const db = new FakeFirestore();
+    db.seed("lifecycle_journeys", waitlistJourneyId("c1"), {
+      tenantId: "t1",
+      name: "Welcome",
+      connectionId: "",
+      audience: { kind: "waitlist", campaignId: "c1" },
+      draft: { graph: { nodes: [{ id: "email1", type: "email", position: { x: 0, y: 0 }, data: {} }], edges: [] }, pools: [], settings: {} },
+    });
+    seedEvents(db, [{ signupId: "s9", type: "send", journeyId: waitlistJourneyId("c1") }]);
+    const a = await computeEmailAnalytics(ctx, "c1", db);
+    expect(a.sequences).toMatchObject([{ name: "Email sequence (1 email)", sent: 1, enrolled: 1 }]);
   });
 
   it("includes sent broadcasts as rows and marks unsynced stats pending", async () => {

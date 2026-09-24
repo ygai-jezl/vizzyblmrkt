@@ -38,7 +38,7 @@ export const HeldReason = z.enum(["journey_paused", "journey_draft", "launch_arc
 export type HeldReason = z.infer<typeof HeldReason>;
 
 /** Why a waitlist journey step ended without sending (the person left the journey). */
-export const EndedReason = z.enum(["hold_expired", "step_removed"]);
+export const EndedReason = z.enum(["hold_expired", "step_removed", "other_engine"]);
 export type EndedReason = z.infer<typeof EndedReason>;
 
 export const EmailJobSchema = z.object({

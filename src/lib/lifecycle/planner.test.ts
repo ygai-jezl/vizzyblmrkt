@@ -65,7 +65,7 @@ describe("the product onboarding template", () => {
           expect(localDateKey(s[1]!.atMs, tz) > localDateKey(s[0]!.atMs, tz)).toBe(true);
           expect(s[1]!.atMs - s[0]!.atMs).toBeGreaterThanOrEqual(12 * H);
           for (let i = 2; i < s.length; i += 1) expect(s[i]!.atMs - s[i - 1]!.atMs).toBeGreaterThanOrEqual(40 * H);
-          expect(s.at(-1)!.atMs - a).toBeLessThanOrEqual(policy.hardStopDays * 24 * H);
+          expect(s.at(-1)!.atMs - a).toBeLessThanOrEqual(policy.hardStopDays! * 24 * H);
         }
       }
     }

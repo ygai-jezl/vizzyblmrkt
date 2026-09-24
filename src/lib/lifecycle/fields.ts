@@ -1,4 +1,5 @@
-import { applyOperator, DEFAULT_BRANCH } from "@/lib/journey/conditions";
+import { applyOperator, DEFAULT_BRANCH, evaluateCondition, type ConditionContext } from "@/lib/journey/conditions";
+import type { ConditionFieldKey } from "@/lib/types/journey";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductContext } from "@/lib/connect/protocol";
@@ -13,6 +14,11 @@ import type { Eligibility, LifecycleBranch, LifecycleCondition } from "@/lib/typ
  * matches ANY operator — not even `is_false`. So "unknown" always falls through
  * to a condition's default branch, which authors make the safe lane (e.g. a
  * reminder rather than education about data the user may not have).
+ *
+ * The exception is `signup.*` (waitlist journeys): those fields are read by the
+ * original waitlist engine's own evaluator, so they keep its TWO-STATE logic
+ * (a missing value is "hasn't" — `is_false` matches it) and a moved journey
+ * routes people exactly as before.
  */
 
 export type FieldValue = string | number | boolean | undefined;
@@ -25,6 +31,8 @@ export interface RecipientContext {
   emailsSent: number;
   enrolledAtMs: number;
   nowMs: number;
+  /** Waitlist journeys: the signup, its launch and its rank, for `signup.*` fields. */
+  waitlist?: ConditionContext;
 }
 
 /** The onboarding checklist: the product's live view if it sent one, else the catalog + stored steps. */
@@ -77,6 +85,14 @@ export function resolveField(field: string, rc: RecipientContext): FieldValue {
 }
 
 export function evaluateLifecycleCondition(cond: LifecycleCondition, rc: RecipientContext): boolean {
+  if (cond.field.startsWith("signup.")) {
+    if (!rc.waitlist) return false;
+    const key = cond.field.slice("signup.".length) as ConditionFieldKey;
+    return evaluateCondition(
+      { field: key, operator: cond.operator, value: cond.value, questionValue: cond.questionValue },
+      rc.waitlist,
+    );
+  }
   const actual = resolveField(cond.field, rc);
   if (actual === undefined) return false; // unknown never matches
   return applyOperator(actual, cond.operator, cond.value);

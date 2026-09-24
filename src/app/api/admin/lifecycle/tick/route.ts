@@ -4,6 +4,8 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { workerSecretMatches } from "@/lib/http/workerSecret";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { drainLifecycleTenant, runLifecycleTick } from "@/lib/lifecycle/runner";
+import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { drainWaitlistTenant } from "@/lib/lifecycle/waitlist/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,18 +15,22 @@ export const dynamic = "force-dynamic";
  *  - Cloud Scheduler, every 2 minutes, with `X-Worker-Secret:
  *    $LIFECYCLE_WORKER_SECRET` — fans out across every tenant and region;
  *  - a signed-in admin — runs their own tenant only.
- * While LIFECYCLE_ENABLED is off the scheduler gets a no-op 200 (so it doesn't
- * alarm on a dark deploy) and everyone else a 404.
+ * Product journeys run while LIFECYCLE_ENABLED is on, and waitlist journeys
+ * (engine move) while WAITLIST_ENGINE_ENABLED is on. With both off the
+ * scheduler gets a no-op 200 (so it doesn't alarm on a dark deploy) and
+ * everyone else a 404.
  */
 export async function POST(req: Request) {
   const machine = workerSecretMatches(req.headers.get("x-worker-secret"), process.env.LIFECYCLE_WORKER_SECRET);
-  if (!isLifecycleEnabled()) {
+  const product = isLifecycleEnabled();
+  const waitlist = isWaitlistEngineEnabled();
+  if (!product && !waitlist) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   if (machine) {
-    const result = await runLifecycleTick();
+    const result = await runLifecycleTick({}, { product, waitlist });
     return NextResponse.json({ ok: true, mode: "all_tenants", ...result });
   }
 
@@ -32,6 +38,7 @@ export async function POST(req: Request) {
   if (blocked) return blocked;
   const admin = await getAdminContext();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const result = await drainLifecycleTenant(admin);
-  return NextResponse.json({ ok: true, mode: "tenant", ...result });
+  const result = product ? await drainLifecycleTenant(admin) : {};
+  const waitlistResult = waitlist ? await drainWaitlistTenant(admin) : null;
+  return NextResponse.json({ ok: true, mode: "tenant", ...result, ...(waitlistResult ? { waitlist: waitlistResult } : {}) });
 }

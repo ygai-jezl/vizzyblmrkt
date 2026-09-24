@@ -769,3 +769,17 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Engine move D2: waitlist journeys on the lifecycle engine. WAITLIST_ENGINE_ENABLED
+  # is its kill switch (off: everyone in a moved journey is held where they are,
+  # never dropped; new signups still join and wait). WAITLIST_ENGINE_PILOT_TENANTS
+  # lists the tenants whose launches may move (comma-separated ids, or "*").
+  # Needs the waitlist_enrolments indexes (firestore.indexes.json) deployed first.
+  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  - variable: WAITLIST_ENGINE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: WAITLIST_ENGINE_PILOT_TENANTS
+    value: "*"
+    availability:
+      - RUNTIME

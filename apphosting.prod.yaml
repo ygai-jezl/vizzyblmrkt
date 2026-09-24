@@ -659,3 +659,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Engine move D2 (waitlist journeys on the lifecycle engine) — OFF in prod until
+  # verified on dev (see apphosting.yaml). The pilot starts with the owner's tenant.
+  - variable: WAITLIST_ENGINE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: WAITLIST_ENGINE_PILOT_TENANTS
+    value: ""
+    availability:
+      - RUNTIME

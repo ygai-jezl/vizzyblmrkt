@@ -85,11 +85,12 @@ export async function recoverPausedJourney(
       emailSteps.has(String(j.payload.nodeId ?? "")) &&
       latest.get(String(j.payload.signupId ?? "")) === j.createdAt,
   );
-  // Only people who'd still be emailed (unsubscribes are re-checked at send time).
+  // Only people who'd still be emailed (unsubscribes are re-checked at send time),
+  // and never anyone the lifecycle engine now emails.
   const stranded: EmailJob[] = [];
   for (const j of candidates) {
     const signup = await repo.signups.getById(String(j.payload.signupId ?? ""));
-    if (signup?.status === "verified_active" && signup.email) stranded.push(j);
+    if (signup?.status === "verified_active" && signup.email && signup.journeyEngine !== "lifecycle") stranded.push(j);
   }
   stranded.sort((a, b) => strandedAt(a).localeCompare(strandedAt(b)));
   report.emailSteps = stranded.length;

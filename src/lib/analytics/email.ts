@@ -2,7 +2,9 @@ import { forTenant } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailEvent } from "@/lib/types/emailEvent";
 import type { Journey } from "@/lib/types/journey";
+import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import { journeyIdFor } from "@/lib/journey/service";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { CONTROL } from "@/lib/journey/allocation";
 import { computeBqEmailBreakdown, type RawEngagement } from "./bigquery";
 
@@ -112,9 +114,52 @@ export function engagementFromRaw(raw: RawEngagement): EngagementCounts {
   };
 }
 
-function sequenceName(journey: Journey): string {
-  const emails = journey.graph.nodes.filter((n) => n.type === "email").length;
+function sequenceName(journey: Journey | null, moved: LifecycleJourney | null): string {
+  const nodes = journey ? journey.graph.nodes : (moved?.draft.graph.nodes ?? []);
+  const emails = nodes.filter((n) => n.type === "email").length;
   return emails === 1 ? "Email sequence (1 email)" : `Email sequence (${emails} emails)`;
+}
+
+/**
+ * A launch's welcome sequence, on either journey engine (engine move): the
+ * original engine's journey and the launch's waitlist journey on the lifecycle
+ * engine. Moved journeys keep their email and variant ids, so their events
+ * count as one sequence.
+ */
+async function launchSequence(
+  ctx: TenantContext,
+  campaignId: string,
+  db?: FirestoreLike,
+): Promise<{ journeyId: string; journeyIds: string[]; journey: Journey | null; moved: LifecycleJourney | null }> {
+  const journeyId = journeyIdFor(campaignId);
+  const movedId = waitlistJourneyId(campaignId);
+  const repo = forTenant(ctx, db);
+  const [journey, moved] = await Promise.all([
+    repo.journeys.getById(journeyId),
+    repo.lifecycleJourneys.getById(movedId).catch(() => null),
+  ]);
+  return { journeyId, journeyIds: [journeyId, movedId], journey, moved };
+}
+
+/** Events for every journey id of one sequence, up to the read cap in total. */
+async function sequenceEvents(
+  ctx: TenantContext,
+  journeyIds: string[],
+  db?: FirestoreLike,
+): Promise<{ events: EmailEvent[]; truncated: boolean }> {
+  const rows: EmailEvent[] = [];
+  for (const id of journeyIds) {
+    // Equality-only (tenantId + journeyId) — no composite index required.
+    rows.push(
+      ...(await forTenant(ctx, db).emailEvents.find({
+        where: [["journeyId", "==", id]],
+        limit: READ_CAP + 1 - rows.length,
+      })),
+    );
+    if (rows.length > READ_CAP) break;
+  }
+  const truncated = rows.length > READ_CAP;
+  return { events: truncated ? rows.slice(0, READ_CAP) : rows, truncated };
 }
 
 export async function computeEmailAnalytics(
@@ -122,19 +167,14 @@ export async function computeEmailAnalytics(
   campaignId: string,
   db?: FirestoreLike,
 ): Promise<EmailAnalytics> {
-  const journeyId = journeyIdFor(campaignId);
-  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
+  const { journeyId, journeyIds, journey, moved } = await launchSequence(ctx, campaignId, db);
 
   const sequences: SequenceRow[] = [];
   let truncated = false;
-  if (journey) {
-    // Equality-only (tenantId + journeyId) — no composite index required.
-    const rows = await forTenant(ctx, db).emailEvents.find({
-      where: [["journeyId", "==", journeyId]],
-      limit: READ_CAP + 1,
-    });
-    truncated = rows.length > READ_CAP;
-    const events = truncated ? rows.slice(0, READ_CAP) : rows;
+  if (journey || moved) {
+    const read = await sequenceEvents(ctx, journeyIds, db);
+    truncated = read.truncated;
+    const events = read.events;
     const counts = aggregateEvents(events);
     const enrolled = new Set(
       events.filter((e) => e.type === "send").map((e) => e.signupId),
@@ -142,7 +182,7 @@ export async function computeEmailAnalytics(
     sequences.push({
       kind: "sequence",
       id: journeyId,
-      name: sequenceName(journey),
+      name: sequenceName(journey, moved),
       enrolled,
       ...counts,
     });
@@ -239,12 +279,8 @@ export async function computeSequenceEmailBreakdown(
   const journey = await forTenant(ctx, db).journeys.getById(journeyId);
   if (!journey) return { nodes: [], truncated: false };
 
-  const rows = await forTenant(ctx, db).emailEvents.find({
-    where: [["journeyId", "==", journeyId]],
-    limit: READ_CAP + 1,
-  });
-  const truncated = rows.length > READ_CAP;
-  const events = truncated ? rows.slice(0, READ_CAP) : rows;
+  // Including the launch's sends from the lifecycle engine once it has moved.
+  const { events, truncated } = await sequenceEvents(ctx, [journeyId, waitlistJourneyId(journey.campaignId)], db);
 
   const byNode = new Map<string, EmailEvent[]>();
   for (const e of events) {
@@ -293,17 +329,16 @@ export async function computeHybridEmailAnalytics(
   campaignId: string,
   db?: FirestoreLike,
 ): Promise<EmailAnalytics> {
-  const journeyId = journeyIdFor(campaignId);
-  const bq = await computeBqEmailBreakdown(ctx, journeyId).catch(() => null);
+  const { journeyId, journeyIds, journey, moved } = await launchSequence(ctx, campaignId, db);
+  const bq = await computeBqEmailBreakdown(ctx, journeyIds).catch(() => null);
   if (!bq) return computeEmailAnalytics(ctx, campaignId, db);
 
-  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
   const sequences: SequenceRow[] = [];
-  if (journey) {
+  if (journey || moved) {
     sequences.push({
       kind: "sequence",
       id: journeyId,
-      name: sequenceName(journey),
+      name: sequenceName(journey, moved),
       enrolled: bq.sequence.enrolled,
       ...engagementFromRaw(bq.sequence),
     });
@@ -325,11 +360,10 @@ export async function computeHybridSequenceBreakdown(
   journeyId: string,
   db?: FirestoreLike,
 ): Promise<{ nodes: NodeBreakdown[]; truncated: boolean }> {
-  const bq = await computeBqEmailBreakdown(ctx, journeyId).catch(() => null);
-  if (!bq) return computeSequenceEmailBreakdown(ctx, journeyId, db);
-
   const journey = await forTenant(ctx, db).journeys.getById(journeyId);
   if (!journey) return { nodes: [], truncated: false };
+  const bq = await computeBqEmailBreakdown(ctx, [journeyId, waitlistJourneyId(journey.campaignId)]).catch(() => null);
+  if (!bq) return computeSequenceEmailBreakdown(ctx, journeyId, db);
 
   const byNode = new Map(bq.nodes.map((n) => [n.nodeId, n]));
   const nodes: NodeBreakdown[] = journey.graph.nodes

@@ -30,6 +30,7 @@ import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { resolveSender } from "@/lib/email/sender";
 import { countHeldWaitlistEnrolments } from "./waitlist/enrol";
 import { runWaitlistEnrolmentNow } from "./waitlist/runner";
+import { setJourneyState } from "@/lib/journey/service";
 
 /**
  * The Lifecycle → Journeys admin API (thin routes in src/app/api/admin/lifecycle
@@ -172,11 +173,23 @@ const StatusInput = z.object({ status: z.enum(["active", "paused", "archived"]) 
 export async function setJourneyStatus(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
   const parsed = StatusInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
-  if (parsed.data.status === "archived") {
+  const journey = await loadJourney(ctx, id, db);
+  const audience = journey?.audience;
+  if (parsed.data.status === "archived" && audience?.kind === "waitlist") {
     // A launch's welcome journey is paused (or its launch archived), never archived on its own:
     // archiving would end everyone's sequence.
-    const journey = await loadJourney(ctx, id, db);
-    if (journey?.audience?.kind === "waitlist") return fail(409, "pause_instead");
+    return fail(409, "pause_instead");
+  }
+  if (journey && audience?.kind === "waitlist" && parsed.data.status !== "archived") {
+    // A moved launch's Pause and Resume control both engines while people are still
+    // finishing on the original journey (as the launch's own controls do).
+    const campaign = await forTenant(ctx, db).campaigns.getById(audience.campaignId);
+    if (campaign?.waitlistEngine === "lifecycle") {
+      const r = await setJourneyState(ctx, audience.campaignId, parsed.data.status === "active" ? "activate" : "pause", db);
+      if (!r.ok) return fail(r.error === "journey_not_found" ? 404 : r.error === "journey_invalid" ? 422 : 409, r.error);
+      const fresh = await loadJourney(ctx, id, db);
+      return ok({ journey: fresh, ...(r.moved ? { released: r.moved } : {}) });
+    }
   }
   return fromService(await setLifecycleJourneyStatus(ctx, id, parsed.data.status, { db }), ({ released, ...journey }) => ({
     journey,

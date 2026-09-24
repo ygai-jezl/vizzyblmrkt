@@ -55,6 +55,44 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("GitHub App callback — an install GitHub reports outside our flow", () => {
+  const appConn = { provider: "github", kind: "app", installationId: 111, connectedAt: "2026-09-24T00:00:00Z" };
+
+  it.each([
+    ["not connected", {}],
+    ["already connected", { github: appConn }],
+  ])("%s: confirms who's connecting, then asks — nothing is saved on GitHub's word alone", async (_label, gitConnections) => {
+    tenant.getTenantById.mockResolvedValue({ gitConnections });
+    const to = location(await call({ code: "unbound", installation_id: "222", setup_action: "install" }));
+    expect(to.origin + to.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(to.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/api/admin/integrations/github/callback`);
+    expect(verifyState(to.searchParams.get("state")!)).toMatchObject({ t: "ten_A", m: "link", i: 222 });
+    // The code that arrived without our state is never exchanged.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tenant.setTenantGitConnection).not.toHaveBeenCalled();
+  });
+
+  it("repositories changed on GitHub while connected: confirms, saves nothing", async () => {
+    tenant.getTenantById.mockResolvedValue({ gitConnections: { github: appConn } });
+    const to = location(await call({ installation_id: "111", setup_action: "update" }));
+    expect(to.pathname).toBe("/admin/account/connections");
+    expect(Object.fromEntries(to.searchParams)).toEqual({ status: "ok", provider: "github", updated: "1" });
+    expect(tenant.setTenantGitConnection).not.toHaveBeenCalled();
+  });
+
+  it("'Configure' then Save while not connected: asks, with that install first", async () => {
+    const to = location(await call({ installation_id: "222", setup_action: "update", state: connectState("ten_A", "install") }));
+    expect(to.pathname).toBe("/login/oauth/authorize");
+    expect(verifyState(to.searchParams.get("state")!)).toMatchObject({ m: "link", i: 222 });
+  });
+
+  it("with linking off, still refuses it as before", async () => {
+    process.env.GITHUB_APP_LINK_ENABLED = "false";
+    const to = location(await call({ code: "unbound", installation_id: "222", setup_action: "install" }));
+    expect(Object.fromEntries(to.searchParams)).toEqual({ status: "error", reason: "missing_code", provider: "github" });
+  });
+});
+
 describe("GitHub App callback — after the person authorises", () => {
   it("lists the install GitHub named first, and saves nothing until a click", async () => {
     installs = [org(111), org(222)];

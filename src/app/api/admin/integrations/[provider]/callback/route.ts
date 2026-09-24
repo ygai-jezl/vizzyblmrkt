@@ -5,6 +5,7 @@ import { verifyState, encryptToken } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 import {
+  authorizeUrl,
   githubAppConfig,
   installUrl,
   isGitHubAppLinkEnabled,
@@ -60,6 +61,18 @@ export async function GET(
   // GitHub has notified the owners; there's no installation to store yet.
   if (app && sp.get("setup_action") === "request") {
     return back(origin, { status: "requested", provider });
+  }
+  // GitHub came back with an install, but not through our signed flow: it was
+  // installed or changed on GitHub itself, so we can't tell who started it.
+  // Nothing is saved from this request. Changes to repositories are confirmed;
+  // otherwise the person goes through GitHub's authorize page with fresh state
+  // (no prompt if they've authorised before) to "Which GitHub account?", with
+  // this install first if they can access it.
+  if (linking && hasInstallation && (!code || !stateRaw)) {
+    const conn = (await getTenantById(ctx.tenantId))?.gitConnections?.github;
+    // Never switch an existing connection because of a change made on GitHub.
+    if (sp.get("setup_action") === "update" && conn) return back(origin, { status: "ok", provider, updated: "1" });
+    return NextResponse.redirect(authorizeUrl(linking, redirectUri, connectState(ctx.tenantId, "link", installationId)));
   }
   // A customer changed the GitHub App's repositories on GitHub, which sends them
   // back here without our state. Nothing to store — the installation id is

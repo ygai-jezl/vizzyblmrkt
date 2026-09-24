@@ -46,6 +46,11 @@ const CONNECT_ERRORS: Record<string, string> = {
   bad_state: "That connection attempt expired or came from another session. Please start again from here.",
   state_expired: "That connection attempt expired. Please start again from here.",
   access_denied: "The connection was cancelled on GitHub.",
+  missing_code: "You were sent back before the connection finished. Press Connect again to finish.",
+  installations_lookup_failed: "We couldn't check where the YouGrow app is installed on GitHub. Please try again.",
+  choice_expired: "That choice expired. Press Connect GitHub to start again.",
+  not_a_choice: "That GitHub account wasn't one of the choices. Press Connect GitHub to start again.",
+  exception: "Something went wrong while connecting. Please try again.",
 };
 
 /** Manage per-tenant GitHub/GitLab OAuth connections (for ingesting private repos). */

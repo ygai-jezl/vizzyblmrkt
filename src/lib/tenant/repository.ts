@@ -39,6 +39,7 @@ import type {
   LifecycleWebhook,
   LifecycleCounter,
 } from "@/lib/types/lifecycle";
+import type { Invite, InviteWave } from "@/lib/types/invite";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -376,6 +377,9 @@ export interface TenantRepositories {
   lifecycleCounters: TenantCollection<LifecycleCounter>;
   /** Lifecycle: per-person AI lines awaiting (or past) staff approval. */
   lifecycleDrafts: TenantCollection<AiDraft>;
+  /** Invite your waitlist (nav v2 phase 4): one invite per person per launch, and the waves that send them. */
+  invites: TenantCollection<Invite>;
+  inviteWaves: TenantCollection<InviteWave>;
 }
 
 /**
@@ -475,5 +479,9 @@ export function forTenant(
     lifecycleWebhooks: new TenantCollection<LifecycleWebhook>(regionalDb, "lifecycle_webhooks", t),
     lifecycleCounters: new TenantCollection<LifecycleCounter>(regionalDb, "lifecycle_counters", t),
     lifecycleDrafts: new TenantCollection<AiDraft>(regionalDb, "lifecycle_drafts", t),
+    // Invites tie a signup to a product sign-up (marketing PII-adjacent: an email
+    // hash, no address) → regional DB, like signups.
+    invites: new TenantCollection<Invite>(regionalDb, "invites", t),
+    inviteWaves: new TenantCollection<InviteWave>(regionalDb, "invite_waves", t),
   };
 }

@@ -61,6 +61,13 @@ export const ProductUserSchema = z.object({
     .record(z.string(), z.object({ subscribed: z.boolean(), at: z.string() }))
     .default({}),
   status: ProductUserStatus,
+  /**
+   * Set once, the first time the user finishes onboarding (an `onboarding.completed`
+   * event, or every catalog step done), and never unset except on deletion. Lets
+   * Insights and invites count activated users with an equality query.
+   */
+  activated: z.boolean().optional(),
+  activatedAt: z.string().nullable().optional(),
   /** Firestore TTL (a Date) — set only on tombstones. */
   ttlAt: z.unknown().optional(),
   firstSeenAt: z.string(),

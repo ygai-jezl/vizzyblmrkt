@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  activationAt,
   applyMessage,
   effectiveBasis,
   productEventDocId,
@@ -182,3 +183,59 @@ describe("ids and time", () => {
     expect(toUtcIso("2026-09-21T10:00:00+01:00")).toBe("2026-09-21T09:00:00.000Z");
   });
 });
+
+describe("activation", () => {
+  const withSteps = {
+    ...(connection as object),
+    catalog: { onboardingSteps: [{ id: "connect_site" }, { id: "first_report" }] },
+  } as unknown as Parameters<typeof applyMessage>[2]["connection"];
+
+  function runWith(conn: typeof withSteps, msgs: IngestMessage[]): ProductUser | null {
+    let cur: ProductUser | null = null;
+    for (const m of msgs) {
+      const r = applyMessage(cur, m, { connection: conn, nowMs: NOW });
+      if ("reject" in r) throw new Error(r.reject);
+      if (r.next) cur = { id: "pu_1", tenantId: "ten_A", ...r.next } as ProductUser;
+    }
+    return cur;
+  }
+
+  it("activates at the first onboarding.completed and never un-activates", () => {
+    const u = run([
+      identify("2026-09-21T09:00:00.000Z", { email: "a@acme.test" }),
+      track("2026-09-21T10:00:00.000Z", "onboarding.completed"),
+      track("2026-09-21T11:00:00.000Z", "onboarding.completed"),
+    ])!;
+    expect(u.activated).toBe(true);
+    expect(u.activatedAt).toBe("2026-09-21T10:00:00.000Z");
+  });
+
+  it("activates when every catalog step is done, at the last step's time", () => {
+    const step = (ts: string, id: string) => track(ts, "onboarding.step_completed", { step: id });
+    const half = runWith(withSteps, [step("2026-09-21T09:00:00.000Z", "connect_site")])!;
+    expect(half.activated).toBeUndefined();
+    const all = runWith(withSteps, [
+      step("2026-09-21T09:00:00.000Z", "connect_site"),
+      step("2026-09-21T10:30:00.000Z", "first_report"),
+    ])!;
+    expect(all).toMatchObject({ activated: true, activatedAt: "2026-09-21T10:30:00.000Z" });
+  });
+
+  it("needs a catalog step list for the steps rule, and takes the earlier of the two rules", () => {
+    const steps = { connect_site: { doneAt: "2026-09-21T10:00:00.000Z" } };
+    expect(activationAt({ steps, milestones: {} }, [])).toBeNull();
+    expect(
+      activationAt(
+        { steps, milestones: { "onboarding.completed": { firstAt: "2026-09-21T08:00:00.000Z", lastAt: "x", count: 1 } } },
+        [{ id: "connect_site" }],
+      ),
+    ).toBe("2026-09-21T08:00:00.000Z");
+  });
+
+  it("a tombstone clears activation", () => {
+    const u = run([track("2026-09-21T10:00:00.000Z", "onboarding.completed")])!;
+    const del = applyMessage(u, track("2026-09-21T11:00:00.000Z", "user.deleted"), { connection, nowMs: NOW });
+    expect("next" in del && del.next).toMatchObject({ status: "deleted", activated: false, activatedAt: null });
+  });
+});
+

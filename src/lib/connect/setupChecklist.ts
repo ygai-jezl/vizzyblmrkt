@@ -17,6 +17,8 @@ export interface SetupInput {
   journeys: Array<{ status: string; deliveryMode: string; publishedVersion: number | null }>;
   /** For staging: the production connection of the same product, and whether it has a journey. */
   production: { id: string; hasJourney: boolean } | null;
+  /** Nav v2 phase 4, when invites are on: this product's sign-up link and invite numbers. */
+  invites?: { hasSignupUrl: boolean; invited: number; signedUp: number } | null;
 }
 
 export interface SetupStep {
@@ -83,6 +85,22 @@ export function setupSteps(input: SetupInput): SetupStep[] {
       done: live,
       href: "/admin/lifecycle",
     });
+    // Invite the waitlist in (production only; staging promotes instead).
+    if (custom && input.invites) {
+      const { hasSignupUrl, invited, signedUp } = input.invites;
+      steps.push({
+        id: "invite",
+        label: "Invite your waitlist",
+        detail:
+          invited > 0
+            ? `${invited.toLocaleString("en-GB")} invited · ${signedUp.toLocaleString("en-GB")} signed up.`
+            : hasSignupUrl
+              ? "Invite people from a launch's waitlist into your product."
+              : "Add your app's sign-up link in Settings, then invite from a launch.",
+        done: invited > 0,
+        ...(hasSignupUrl ? { href: "/admin/launches" } : { tab: "settings" as const }),
+      });
+    }
   }
   return steps;
 }

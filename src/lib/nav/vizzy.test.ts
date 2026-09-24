@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { launchInView, vizzyPageLabel, vizzySuggestions } from "./vizzy";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { launchInView, vizzyPageLabel, vizzySuggestions, programmeInView, homePrompts } from "./vizzy";
 
 describe("vizzyPageLabel", () => {
   it("joins the breadcrumb", () => {
@@ -29,3 +29,32 @@ describe("vizzySuggestions", () => {
     expect(vizzySuggestions(null)).toEqual(vizzySuggestions("home"));
   });
 });
+
+describe("programmeInView (nav v2 phase 4)", () => {
+  it("reads the programme, and the plan on a plan's page", () => {
+    expect(programmeInView("/admin/workspace/weekly-plate-a1b2c3/curate/idea-board")).toEqual({ workspaceId: "weekly-plate-a1b2c3", planId: null });
+    expect(programmeInView("/admin/workspace/ws1/create/8e1ad6e8-afb0-4f3b-bb62-5102b5bcd7b2")).toEqual({
+      workspaceId: "ws1",
+      planId: "8e1ad6e8-afb0-4f3b-bb62-5102b5bcd7b2",
+    });
+    expect(programmeInView("/admin/workspace")).toEqual({ workspaceId: null, planId: null });
+    expect(programmeInView("/admin/launches/beta")).toEqual({ workspaceId: null, planId: null });
+  });
+});
+
+describe("invite starters (nav v2 phase 4)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("appear only while invites are on", () => {
+    expect(vizzySuggestions("launches")).not.toContain("Draft an invite wave for my top 100");
+    for (const [k, v] of Object.entries({
+      NEXT_PUBLIC_NAV_V2_ENABLED: "true",
+      NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED: "true",
+      NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED: "true",
+      NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED: "true",
+      NEXT_PUBLIC_INVITES_ENABLED: "true",
+    })) vi.stubEnv(k, v);
+    expect(vizzySuggestions("launches")).toContain("Draft an invite wave for my top 100");
+    expect(homePrompts("product")).toContain("Invite my waitlist to the product");
+  });
+});
+

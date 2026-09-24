@@ -19,7 +19,7 @@ export function LaunchTabs({ campaignId }: { campaignId: string }) {
         { href: base, label: "Overview", exact: true },
         { href: `${base}/widget`, label: "Page & widget", exact: false },
         { href: `${base}/signups`, label: "Signups", exact: false },
-        { href: `${base}/emails`, label: "Emails", exact: false, also: [`${base}/journey`, `${base}/broadcasts`] },
+        { href: `${base}/emails`, label: "Emails", exact: false, also: [`${base}/journey`, `${base}/broadcasts`, `${base}/invites`] },
         { href: `${base}/analytics`, label: "Analytics", exact: false },
         { href: `${base}/settings`, label: "Settings", exact: false },
       ]
@@ -43,6 +43,7 @@ export function LaunchTabs({ campaignId }: { campaignId: string }) {
           <Link
             key={t.href}
             href={t.href}
+            aria-current={active ? "page" : undefined}
             className={`rounded-md border px-3 py-1 ${
               active
                 ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"

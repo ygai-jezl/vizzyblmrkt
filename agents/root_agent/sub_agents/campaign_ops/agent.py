@@ -17,6 +17,7 @@ from google.adk.agents import LlmAgent
 
 from .instruction_builder import build_campaign_ops_instruction
 from .tools.build_journey import build_email_journey
+from .tools.invite_wave import draft_invite_wave
 from ...model_config import DEFAULT_MODEL
 from ...tools.retrieve_knowledge import retrieve_knowledge
 
@@ -27,11 +28,12 @@ campaign_ops_agent = LlmAgent(
         "Campaign Ops Agent: authors multi-step email journeys on the Journey "
         "Canvas and saves them as drafts for human review. Delegate here when the "
         "operator wants to build, set up, or design an email journey / sign-up "
-        "sequence / welcome series / onboarding drip for a launch."
+        "sequence / welcome series / onboarding drip for a launch, or to invite a "
+        "launch's waitlist into their product (drafts an invite wave)."
     ),
     # Callable instruction: prepends the operator language directive each turn.
     instruction=build_campaign_ops_instruction,
     # retrieve_knowledge grounds copy on the launch's ingested docs/site/repos
     # before authoring; build_email_journey persists the draft.
-    tools=[build_email_journey, retrieve_knowledge],
+    tools=[build_email_journey, draft_invite_wave, retrieve_knowledge],
 )

@@ -66,6 +66,30 @@ function stripUndefined(data: Doc): Doc {
   );
 }
 
+/**
+ * update() semantics, like Firestore's: a key with dots is a FIELD PATH ("graph.nodes"
+ * replaces the nested `nodes` of `graph`, leaving its siblings alone); other keys
+ * replace the top-level field. (set() never interprets dots, in Firestore or here.)
+ */
+function applyUpdate(cur: Doc, data: Doc): Doc {
+  const next: Doc = { ...cur };
+  for (const [key, value] of Object.entries(data)) {
+    if (!key.includes(".")) {
+      next[key] = value;
+      continue;
+    }
+    const parts = key.split(".");
+    let obj: Doc = next;
+    for (const part of parts.slice(0, -1)) {
+      const child = obj[part];
+      obj[part] = child && typeof child === "object" && !Array.isArray(child) ? { ...(child as Doc) } : {};
+      obj = obj[part] as Doc;
+    }
+    obj[parts[parts.length - 1]!] = value;
+  }
+  return next;
+}
+
 class FakeQuery implements QueryLike {
   constructor(
     protected store: Map<string, Doc>,
@@ -196,7 +220,7 @@ class FakeCollection extends FakeQuery implements CollectionLike {
       async update(data: Doc) {
         const cur = store.get(docId);
         if (!cur) throw new Error(`update() on missing doc ${docId}`);
-        store.set(docId, stripUndefined({ ...cur, ...data }));
+        store.set(docId, stripUndefined(applyUpdate(cur, data)));
         bump();
       },
       async delete() {

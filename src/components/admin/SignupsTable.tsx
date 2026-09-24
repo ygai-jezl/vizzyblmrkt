@@ -9,6 +9,8 @@ export interface AdminSignupRow {
   firstName: string | null;
   lastName: string | null;
   status: string;
+  /** Left the waitlist through an invite into the product (nav v2 phase 4). */
+  invited?: boolean;
   amountReferred: number;
   /** 1-based queue position; only set in a per-launch view, null when unranked. */
   rank?: number;
@@ -19,6 +21,7 @@ const STATUS_STYLES: Record<string, string> = {
   verified_active: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
   unverified: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
   offboarded: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+  invited: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
 };
 
 /**
@@ -209,10 +212,10 @@ export function SignupsTable({
                 <td className="px-3 py-2">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      STATUS_STYLES[r.status] ?? "bg-neutral-100 text-neutral-600"
+                      STATUS_STYLES[r.invited ? "invited" : r.status] ?? "bg-neutral-100 text-neutral-600"
                     }`}
                   >
-                    {r.status}
+                    {r.invited ? "invited" : r.status}
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{r.amountReferred}</td>

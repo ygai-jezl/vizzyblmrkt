@@ -622,3 +622,29 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Nav v2 phase 4 and its parts — OFF in prod until verified on dev (see
+  # apphosting.yaml). The invite-link-signing-key secret is inherited from
+  # apphosting.yaml and must exist in this project before promotion.
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CONTENT_CHAT_AUTHORING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: INVITES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INVITES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

@@ -69,6 +69,8 @@ export default async function ContentPlanPage({
         ← All workflows
       </Link>
       <ContentCanvas
+        // Remount only when Vizzy saves a new version (nav v2 phase 4), never on the operator's own saves.
+        key={plan.agentRevision ?? 0}
         workspaceId={workspaceId}
         initial={plan}
         templates={templateOptions}

@@ -6,7 +6,7 @@ import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { removeSignupFromAudience } from "@/lib/mailchimp";
 import { recordSignupContactStatus } from "@/lib/crm/contactService";
-import { enqueueEmailJob } from "@/lib/email/jobs";
+import { offboardSignup } from "@/lib/waitlist/offboard";
 import { effectiveReferralWeight } from "@/lib/waitlist/scoring";
 
 export const runtime = "nodejs";
@@ -86,27 +86,17 @@ export async function POST(req: Request) {
       }
 
       if (body.action === "offboard") {
-        await repo.update(id, { status: "offboarded", removedDate: now });
-        // Reflect on the CRM contact — RETAIN it, just flag offboarded. Awaited
-        // (fast Firestore write) but never fails the offboard.
-        await recordSignupContactStatus(ctx, { ...existing, status: "offboarded" }).catch(
-          (e) => console.warn(`contact offboard sync ${id}:`, e),
-        );
-        // Notify them — async (per-campaign toggle decided in the worker), so a
-        // bulk offboard never blocks on email sends. Idempotent via dedupeKey.
-        if (existing.email) {
-          await enqueueEmailJob(ctx, {
-            type: "lifecycle",
-            campaignId: existing.campaignId,
-            dedupeKey: `offboard:${id}`,
-            payload: { signupId: id },
-          }).catch((e) => console.warn(`offboard email enqueue ${id}:`, e));
-        }
+        // Status + removedDate, the CRM contact flag, and the offboarding email.
+        await offboardSignup(ctx, existing, { reason: "manual", notify: true, now });
       } else {
         // delete = operational purge (spam/test). Remove this campaign's link
         // from the CRM contact + recompute status (PII erasure stays the explicit
         // GDPR contact_erase path), and drop them from the external marketing sync.
         await repo.delete(id);
+        // Their invite (nav v2 phase 4), if any, goes with them.
+        await forTenant(ctx).invites
+          .deleteWhere([["signupId", "==", id]])
+          .catch((e) => console.warn(`invite delete ${id}:`, e));
         await recordSignupContactStatus(ctx, existing, { remove: true }).catch((e) =>
           console.warn(`contact delete sync ${id}:`, e),
         );

@@ -17,6 +17,8 @@ export const EmailJobType = z.enum([
   // so the CRM needs no polling job here.
   "contact_enrich", // payload: { companyId, domain, sampleEmail?, campaignId }
   "contact_erase", // payload: { contactId } — GDPR Art.17 cascade
+  // Invite your waitlist (nav v2 phase 4): one per person. payload: { inviteId }.
+  "invite",
 ]);
 export type EmailJobType = z.infer<typeof EmailJobType>;
 

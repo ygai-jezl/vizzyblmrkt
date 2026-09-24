@@ -2,10 +2,14 @@ import type { TenantContext } from "@/lib/tenant";
 
 /**
  * Canvas authoring — the reusable abstraction that lets an agent build a visual
- * "canvas" and save it as a DRAFT for human review. Two kinds today:
+ * "canvas" and save it as a DRAFT for human review. Kinds:
  *  - `journey`: a launch's email Journey Canvas (scope: a campaign);
  *  - `lifecycle`: a connected product's lifecycle journey (scope: a product
- *    connection, and optionally the journey being edited).
+ *    connection, and optionally the journey being edited);
+ *  - `content_plan`: a content programme's plan (scope: a programme, and
+ *    optionally the plan being edited) — nav v2 phase 4;
+ *  - `invite_wave`: an invite of a launch's waitlist into the product (scope: a
+ *    launch, and optionally the draft wave) — nav v2 phase 4.
  * Each kind owns its request shape, scope loading, content fill, validation,
  * persistence and the words it says back, behind one `authorDraft`, so the
  * agent endpoint stays generic.
@@ -16,7 +20,9 @@ import type { TenantContext } from "@/lib/tenant";
 /** Where a draft lives. The kind resolves it from the request (never trusts tenant ids in it). */
 export type CanvasScope =
   | { kind: "journey"; campaignId: string }
-  | { kind: "lifecycle"; connectionId: string; journeyId?: string | null };
+  | { kind: "lifecycle"; connectionId: string; journeyId?: string | null }
+  | { kind: "content_plan"; workspaceId: string; planId?: string | null }
+  | { kind: "invite_wave"; campaignId: string; waveId?: string | null };
 
 /** What the chat shows for a saved draft (a card with an "Open canvas" link). */
 export interface CanvasCard {

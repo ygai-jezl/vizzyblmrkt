@@ -719,3 +719,44 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Nav v2 phase 4, "close the loop": the launch Overview checklist, the new
+  # breadcrumbs and ⌘K items, and the programme in view sent to Vizzy. Needs phase
+  # 3. The parts below have their own flags too. ENABLED on dev; OFF in prod until
+  # verified here and promoted (apphosting.prod.yaml).
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The Insights hub (Overview · Launches · Email · Content · Journeys). Needs phase 4.
+  - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy drafts content plans from chat (the content_plan canvas kind and
+  # /api/agent/content/*). Off = the agent's content tools say they're unavailable.
+  - variable: CONTENT_CHAT_AUTHORING_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # "Invite your waitlist": the invite APIs, sending (invite jobs are held while
+  # off), attribution on ingest and Vizzy-drafted waves (server), plus the invite
+  # UI (client; needs phase 4). Invite links (/invite/…) keep working either way.
+  - variable: INVITES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INVITES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Signs invite links (HMAC-SHA256 with a purpose prefix; its own key, separate from
+  # the unsubscribe and canvas keys). Create it per project with
+  # `bash infra/invites/setup.sh secret <project>` BEFORE this file reaches that
+  # project: prod inherits this entry, and a missing secret fails the build.
+  - variable: INVITE_LINK_SIGNING_KEY
+    secret: invite-link-signing-key
+    availability:
+      - RUNTIME

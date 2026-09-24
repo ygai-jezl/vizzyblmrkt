@@ -15,7 +15,7 @@ export interface Tile {
 
 type Signals = GrowthSignals & { lastEventAt: string | null; catalogSteps: number };
 
-const num = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-GB"));
+export const num = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-GB"));
 
 /** "4 min ago", "3 h ago", "2 days ago". */
 export function ago(iso: string | null, now: Date): string {

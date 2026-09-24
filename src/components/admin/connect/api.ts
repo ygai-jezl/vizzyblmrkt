@@ -21,6 +21,8 @@ export interface PublicConnection {
   contextEndpoint?: { url: string; enabled: boolean; timeoutMs: number } | null;
   webhookEndpoint?: { url: string; enabled: boolean } | null;
   linkDomains: string[];
+  /** Where invited waitlist members sign up (nav v2 phase 4). */
+  signupUrl?: string | null;
   catalog: ConnectionCatalog;
   consentPolicy: ConsentPolicy;
   defaults: { timezone: string; locale: string };
@@ -107,6 +109,17 @@ const MESSAGES: Record<string, string> = {
   live: "Run-now is only for test and shadow enrolments.",
   busy: "That enrolment is being processed right now — try again in a moment.",
   not_active: "That enrolment has already finished.",
+  // Invites (nav v2 phase 4)
+  invites_disabled: "Invites are switched off in this environment.",
+  invites_locked: "Invites are locked for this launch.",
+  connection_not_eligible: "That product can't receive invites — it needs to be a live production app with a sign-up link.",
+  wave_not_found: "That invite wave doesn't exist any more.",
+  wave_not_draft: "That wave has already been sent — only drafts can be changed.",
+  campaign_not_found: "That launch doesn't exist.",
+  invalid_signup_url: "The sign-up link must be a full https address.",
+  signup_url_domain_not_allowed: "The sign-up link must be on one of this product's allowed link domains.",
+  no_email_on_account: "Your account has no email address to send a test to.",
+  send_failed: "The email couldn't be sent.",
 };
 
 /** A readable message for an admin-API error body. */

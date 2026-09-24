@@ -47,6 +47,8 @@ export interface GrowthSignals {
   journeyPublished: boolean;
   /** A lifecycle journey is active in live mode. */
   journeyLive: boolean;
+  /** Waitlist members invited into the product (nav v2 phase 4); absent while invites are off. */
+  invited?: number | null;
 }
 
 export interface NextStep {
@@ -131,6 +133,16 @@ function productStage(s: GrowthSignals): Omit<StageView, "status"> {
       { label: "Connect your product", done: s.products > 0, href: "/admin/products" },
       { label: "Learn it from your repo", done: s.catalogReady, href: productHref("?tab=learn") },
       { label: "Receive your first event", done: s.eventsReceived, href: productHref() },
+      // Nav v2 phase 4: bring the waitlist in. A step only — the stage's done rule is unchanged.
+      ...(s.invited != null
+        ? [
+            {
+              label: "Invite your waitlist",
+              done: s.invited > 0,
+              href: s.firstLaunchId ? `/admin/launches/${s.firstLaunchId}/invites` : "/admin/launches",
+            },
+          ]
+        : []),
     ],
   };
 }

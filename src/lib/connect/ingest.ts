@@ -13,6 +13,8 @@ import { applyMessage, productEventDocId, productUserDocId, toUtcIso } from "./p
 import { eraseProductUserHistory } from "./erase";
 import { enrolOnEvents, type TriggerEvent } from "@/lib/lifecycle/enrol";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { isInvitesEnabled } from "@/lib/invites/flags";
+import { inviteCodeOf, recordInviteProgress, type TouchedUser } from "@/lib/invites/attribution";
 
 /**
  * Ingest one verified batch from a connected product. Each message is validated
@@ -66,6 +68,7 @@ export async function ingestBatch(
   const observedTraits = new Map<string, string>();
   const deletedUsers: string[] = [];
   const triggers: TriggerEvent[] = [];
+  const touched: TouchedUser[] = [];
 
   for (const [index, raw] of batch.entries()) {
     const reject = (reason: string) =>
@@ -131,6 +134,10 @@ export async function ingestBatch(
     if (msg.type === "track" && !isDelete && result.outcome === "applied" && result.user) {
       triggers.push({ user: result.user, event: msg.event, timestamp: msg.timestamp });
     }
+    // Invite sign-ups and activation are matched after the batch (identify or track).
+    if (!isDelete && result.outcome === "applied" && result.user) {
+      touched.push({ user: result.user, code: inviteCodeOf(msg) });
+    }
   }
 
   // Erasure cascade: a deleted user's history goes too — events, journey
@@ -151,6 +158,16 @@ export async function ingestBatch(
     await enrolOnEvents(ctx, connection, live, { db: opts.db, nowMs }).catch((err) => {
       const m = err instanceof Error ? err.message.slice(0, 200) : "error";
       console.error(`[connect] journey enrolment failed for ${ctx.tenantId}/${connection.id}: ${m}`);
+    });
+  }
+
+  // Invites (nav v2 phase 4): new sign-ups and activation from invited waitlist
+  // members. Never fails the ingest.
+  const invitees = touched.filter((t) => !deletedUsers.includes(t.user.id));
+  if (invitees.length > 0 && isInvitesEnabled()) {
+    await recordInviteProgress(ctx, connection.id, invitees, { db: opts.db, nowMs }).catch((err) => {
+      const m = err instanceof Error ? err.message.slice(0, 200) : "error";
+      console.error(`[connect] invite progress failed for ${ctx.tenantId}/${connection.id}: ${m}`);
     });
   }
 

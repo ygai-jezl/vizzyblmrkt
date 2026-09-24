@@ -7,8 +7,10 @@ import { api, errorText, type PublicConnection } from "./api";
 import { KeyReveal } from "./KeyReveal";
 import { Banner, Button, Field, Section, inputClass } from "./ui";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isInvitesUiEnabled } from "@/lib/invites/flags";
 
 const PHASE3 = isNavV2Phase3Enabled();
+const INVITES = isInvitesUiEnabled();
 
 const BASES = ["consent", "soft_opt_in", "corporate_subscriber"] as const;
 
@@ -32,6 +34,9 @@ export function ConnectionSettings({
   const [hookUrl, setHookUrl] = useState(connection.webhookEndpoint?.url ?? "");
   const [hookOn, setHookOn] = useState(connection.webhookEndpoint?.enabled ?? false);
   const [domains, setDomains] = useState(connection.linkDomains.join(", "));
+  const [signupUrl, setSignupUrl] = useState(connection.signupUrl ?? "");
+  /** Set when the sign-up link's domain isn't allowed yet: offer to add it. */
+  const [missingDomain, setMissingDomain] = useState<string | null>(null);
   const [verifyCorp, setVerifyCorp] = useState(connection.consentPolicy.verifyCorporateDomain);
   const [bases, setBases] = useState<string[]>(connection.consentPolicy.marketingBases);
   const [busy, setBusy] = useState(false);
@@ -58,18 +63,31 @@ export function ConnectionSettings({
   async function patch(body: Record<string, unknown>, okText: string) {
     setBusy(true);
     setMsg(null);
-    const r = await api(`/api/admin/connections/${connection.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    setMissingDomain(null);
+    const r = await api<{ error?: string; detail?: string }>(`/api/admin/connections/${connection.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
     setBusy(false);
-    if (!r.ok) return setMsg({ tone: "err", text: errorText(r.data) });
+    if (!r.ok) {
+      if (r.data.error === "signup_url_domain_not_allowed" && r.data.detail) setMissingDomain(r.data.detail);
+      return setMsg({ tone: "err", text: errorText(r.data) });
+    }
     setMsg({ tone: "ok", text: okText });
     onSaved();
   }
 
-  function save() {
+  function save(extraDomain?: string) {
+    const list = domains.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean);
+    if (extraDomain && !list.includes(extraDomain)) {
+      list.push(extraDomain);
+      setDomains(list.join(", "));
+    }
     const body: Record<string, unknown> = {
       name,
       ...(PHASE3 && !sandbox ? { environment: environment || null } : {}),
-      linkDomains: domains.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean),
+      linkDomains: list,
+      ...(INVITES && !sandbox ? { signupUrl: signupUrl.trim() || null } : {}),
       consentPolicy: { verifyCorporateDomain: verifyCorp, marketingBases: bases },
     };
     if (!sandbox) {
@@ -166,6 +184,28 @@ export function ConnectionSettings({
         <Field label="Allowed link domains" hint="Step links your product returns must be https on one of these domains; others are dropped.">
           <input className={inputClass} disabled={disabled} value={domains} placeholder="yourproduct.com" onChange={(e) => setDomains(e.target.value)} />
         </Field>
+        {INVITES && !sandbox ? (
+          <Field
+            label="Sign-up link"
+            hint="Where invited waitlist members sign up. Invite links send people here with yg_invite=… added. It must be https on one of the allowed link domains."
+          >
+            <input
+              className={inputClass}
+              disabled={disabled}
+              value={signupUrl}
+              placeholder="https://app.yourproduct.com/signup"
+              onChange={(e) => setSignupUrl(e.target.value)}
+            />
+          </Field>
+        ) : null}
+        {missingDomain && !disabled ? (
+          <Banner tone="info">
+            {missingDomain} isn&apos;t an allowed link domain yet.{" "}
+            <Button onClick={() => save(missingDomain)} disabled={busy}>
+              Add {missingDomain} and save
+            </Button>
+          </Banner>
+        ) : null}
       </Section>
 
       <Section title="Consent policy" description="Your product states each user's legal basis; marketing-class emails only go to these bases.">
@@ -186,7 +226,7 @@ export function ConnectionSettings({
 
       {canEdit && connection.status !== "revoked" ? (
         <div className="flex justify-end">
-          <Button tone="primary" disabled={busy} onClick={save}>
+          <Button tone="primary" disabled={busy} onClick={() => save()}>
             {busy ? "Saving…" : "Save settings"}
           </Button>
         </div>

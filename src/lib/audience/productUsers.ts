@@ -23,6 +23,8 @@ export interface AudienceProductUser {
   stepsTotal: number;
   lastSeenAt: string;
   onWaitlist: boolean;
+  /** Came in through an invite from a launch (nav v2 phase 4); set only when invites are on. */
+  invited?: boolean;
 }
 
 /** How many of the most recently seen users the tab lists (per product page has everyone). */

@@ -106,6 +106,11 @@ export async function deleteLaunch(
     deleted.broadcasts = await repo.broadcasts.deleteWhere(where);
     deleted.journeys = await repo.journeys.deleteWhere(where);
     deleted.emailJobs = await repo.emailJobs.deleteWhere(where);
+    // Invites (nav v2 phase 4) belong to the launch too; recorded only when present.
+    const invites = await repo.invites.deleteWhere(where);
+    const inviteWaves = await repo.inviteWaves.deleteWhere(where);
+    if (invites) deleted.invites = invites;
+    if (inviteWaves) deleted.inviteWaves = inviteWaves;
     await repo.campaigns.delete(campaignId);
     deleted.campaigns = 1;
   } catch (err) {

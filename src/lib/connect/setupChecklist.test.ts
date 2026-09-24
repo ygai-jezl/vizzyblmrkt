@@ -41,4 +41,21 @@ describe("setupSteps", () => {
     expect(sandbox.find((s) => s.id === "catalog")?.tab).toBe("catalog");
     expect(sandbox.find((s) => s.id === "events")?.tab).toBe("events");
   });
+
+  it("ends with inviting the waitlist on production when invites are on", () => {
+    const base = {
+      kind: "custom" as const,
+      environment: "production" as const,
+      guide: { catalog: "done" as const, eventsReceived: "done" as const, contextEndpoint: "done" as const },
+      journeys: [],
+      production: null,
+    };
+    expect(setupSteps(base).map((s) => s.id)).not.toContain("invite");
+    const noLink = setupSteps({ ...base, invites: { hasSignupUrl: false, invited: 0, signedUp: 0 } }).at(-1);
+    expect(noLink).toMatchObject({ id: "invite", done: false, tab: "settings" });
+    const sent = setupSteps({ ...base, invites: { hasSignupUrl: true, invited: 300, signedUp: 212 } }).at(-1);
+    expect(sent).toMatchObject({ id: "invite", done: true, href: "/admin/launches", detail: "300 invited · 212 signed up." });
+    expect(setupSteps({ ...base, environment: "staging", invites: { hasSignupUrl: true, invited: 0, signedUp: 0 } }).map((s) => s.id)).not.toContain("invite");
+  });
 });
+

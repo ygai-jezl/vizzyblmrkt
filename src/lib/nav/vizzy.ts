@@ -1,4 +1,5 @@
 import type { NavKey } from "./model";
+import { isInvitesUiEnabled } from "@/lib/invites/flags";
 
 /**
  * Starter questions for the Ask Vizzy panel, by the area in view. Written as the
@@ -17,8 +18,12 @@ const SUGGESTIONS: Record<NavKey, string[]> = {
   settings: ["Which integrations are connected?", "Is our sending domain set up?"],
 };
 
+/** Nav v2 phase 4: extra starters that only make sense while their feature is on. */
+const INVITE_SUGGESTION = "Draft an invite wave for my top 100";
+
 export function vizzySuggestions(key: NavKey | null): string[] {
-  return SUGGESTIONS[key ?? "home"];
+  const base = SUGGESTIONS[key ?? "home"];
+  return key === "launches" && isInvitesUiEnabled() ? [...base, INVITE_SUGGESTION] : base;
 }
 
 /** Prompts on Home, for the stage the brand is in ("first" = nothing set up yet). */
@@ -31,7 +36,8 @@ const HOME_PROMPTS: Record<"first" | "launch" | "grow" | "product" | "retain", s
 };
 
 export function homePrompts(stage: keyof typeof HOME_PROMPTS | null): string[] {
-  return HOME_PROMPTS[stage ?? "retain"];
+  const base = HOME_PROMPTS[stage ?? "retain"];
+  return stage === "product" && isInvitesUiEnabled() ? [...base, "Invite my waitlist to the product"] : base;
 }
 
 /** Characters the `[ctx:{...}]` envelope can't carry (see the chat route's `page` rule). */
@@ -47,6 +53,17 @@ export function vizzyPageLabel(crumbs: Array<{ label: string }>): string {
 }
 
 /** The launch in view on /admin/launches/[id]/…, for Vizzy's campaign context. */
+/**
+ * The content programme (and plan) in view, for Vizzy's content tools (nav v2
+ * phase 4): /admin/workspace/{programme}/… and …/create/{plan}. Ids are
+ * brace-free by construction (they ride inside the chat's [ctx:{…}] envelope).
+ */
+export function programmeInView(pathname: string): { workspaceId: string | null; planId: string | null } {
+  const m = /^\/admin\/workspace\/([A-Za-z0-9_-]+)(?:\/create\/([A-Za-z0-9_-]+))?/.exec(pathname);
+  if (!m || m[1] === "new") return { workspaceId: null, planId: null };
+  return { workspaceId: m[1]!, planId: m[2] ?? null };
+}
+
 export function launchInView(pathname: string): string | null {
   const m = /^\/admin\/launches\/([^/]+)/.exec(pathname);
   if (!m || m[1] === "new") return null;

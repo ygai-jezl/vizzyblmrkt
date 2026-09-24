@@ -253,7 +253,20 @@ const ACCOUNT_TABS_V3: Record<string, string> = {
   billing: "Billing",
 };
 
-export function breadcrumbsFor(pathname: string, names: CrumbNames, opts: { phase3?: boolean } = {}): Crumb[] {
+/** Nav v2 phase 4: the Insights hub's tabs. */
+const INSIGHTS_TABS: Record<string, string> = {
+  launches: "Launches",
+  email: "Email",
+  content: "Content",
+  journeys: "Journeys",
+  market: "Market",
+};
+
+export function breadcrumbsFor(
+  pathname: string,
+  names: CrumbNames,
+  opts: { phase3?: boolean; insights?: boolean } = {},
+): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] !== "admin") return [];
   const [, area, id, ...rest] = segments;
@@ -267,13 +280,13 @@ export function breadcrumbsFor(pathname: string, names: CrumbNames, opts: { phas
       if (id === "new") return [root, { label: "New launch" }];
       const tab = rest[0];
       const launch: Crumb = { label: names.launches[id] ?? "Launch", href: `/admin/launches/${id}` };
-      if (p3 && (tab === "journey" || tab === "broadcasts")) {
-        // Both live under the launch's Emails tab.
+      if (p3 && (tab === "journey" || tab === "broadcasts" || tab === "invites")) {
+        // All live under the launch's Emails tab.
         return [
           root,
           launch,
           { label: "Emails", href: `/admin/launches/${id}/emails` },
-          { label: tab === "journey" ? "Welcome & nurture" : "Broadcasts" },
+          { label: tab === "journey" ? "Welcome & nurture" : tab === "broadcasts" ? "Broadcasts" : "Invites" },
         ];
       }
       const tabs = p3 ? LAUNCH_TABS_V3 : LAUNCH_TABS;
@@ -334,6 +347,11 @@ export function breadcrumbsFor(pathname: string, names: CrumbNames, opts: { phas
       return id ? [{ label: "Products", href: "/admin/products" }, { label: "Product" }] : [{ label: "Products" }];
     case "brands":
       return [{ label: id === "new" ? "Add brand" : "Brands" }];
+    case "analytics": {
+      // Nav v2 phase 4: Insights › {tab}.
+      if (opts.insights && id) return [{ label: "Insights", href: "/admin/analytics" }, { label: INSIGHTS_TABS[id] ?? titleCase(id) }];
+      return [{ label: PAGES.analytics! }];
+    }
     default:
       return [{ label: PAGES[area] ?? titleCase(area) }];
   }

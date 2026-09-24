@@ -69,6 +69,9 @@ def parse_canvas_response(status_code: int, body_text: str) -> dict:
             "warnings": body.get("warnings", []),
             "message": body.get("summary")
             or "Saved the journey as a draft. Review it on the Journey Canvas.",
+            # The chat renders a card from these (an "Open canvas" link).
+            "url": body.get("url"),
+            "card": body.get("card"),
         }
     return {
         "status": "error",
@@ -130,3 +133,97 @@ def author_journey_via_canvas(
     payload = build_request_payload(resolved_campaign, brief, graph)
     status_code, body_text = _post_canvas(base + CANVAS_PATH, payload, token)
     return parse_canvas_response(status_code, body_text)
+
+
+# ---- Invite waves (nav v2 phase 4) -------------------------------------------------
+
+
+def build_invite_wave_payload(
+    campaign_id: str,
+    brief: str,
+    size: int = 0,
+    expires_in_days: int = 0,
+    wave_id: str = "",
+) -> dict:
+    """Shape the canvas request for an invite-wave draft. Zero / empty = let the server choose."""
+    scope: dict = {"campaignId": campaign_id}
+    if wave_id:
+        scope["waveId"] = wave_id
+    payload: dict = {
+        "kind": "invite_wave",
+        "action": "save_draft",
+        "scope": scope,
+        "brief": brief or "",
+    }
+    if size and size > 0:
+        payload["size"] = int(min(size, 1000))
+    if expires_in_days and expires_in_days > 0:
+        payload["expiresInDays"] = int(min(max(expires_in_days, 7), 90))
+    return payload
+
+
+def _invite_error_message(body: dict) -> str:
+    code = body.get("error")
+    issues = body.get("issues") or []
+    if code == "invites_locked":
+        reason = str(issues[0]) if issues else "the launch isn't ready for invites yet"
+        return f"I can't draft an invite for this launch yet: {reason}"
+    if code == "unavailable":
+        return "Waitlist invites aren't switched on in this environment yet."
+    if code == "campaign_not_found":
+        return "I couldn't find that launch in this account."
+    if code == "wave_not_found":
+        return "I couldn't find that invite draft — it may have been sent or deleted."
+    if code == "rate_limited":
+        return "I've drafted several invites just now. Please try again in a few minutes."
+    if code == "canvas_auth_unconfigured":
+        return "Drafting from chat isn't enabled in this environment yet."
+    return "I couldn't save the invite draft just now. Please try again."
+
+
+def parse_invite_wave_response(status_code: int, body_text: str) -> dict:
+    """Normalize the canvas response for an invite-wave draft."""
+    try:
+        body = json.loads(body_text) if body_text else {}
+    except (json.JSONDecodeError, ValueError):
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    if 200 <= status_code < 300 and body.get("ok"):
+        return {
+            "status": "success",
+            "waveId": body.get("id"),
+            "message": body.get("summary")
+            or "Saved the invite as a draft. Nothing is sent until the operator presses Send invites.",
+            "url": body.get("url"),
+            "card": body.get("card"),
+        }
+    return {
+        "status": "error",
+        "code": body.get("error", f"http_{status_code}"),
+        "message": _invite_error_message(body),
+    }
+
+
+def draft_invite_wave_via_canvas(
+    state: dict,
+    campaign_id: str,
+    brief: str,
+    size: int = 0,
+    expires_in_days: int = 0,
+    wave_id: str = "",
+) -> dict:
+    """Save an invite of a launch's waitlist into the product as a DRAFT wave."""
+    token = (state or {}).get("ctxToken")
+    resolved_campaign = campaign_id or (state or {}).get("campaignId")
+    if not token:
+        return {"status": "unavailable", "message": "Drafting invites isn't available in this session yet."}
+    if not resolved_campaign:
+        return {"status": "needs_campaign", "message": "Which launch's waitlist should I invite?"}
+    base = os.environ.get("CANVAS_CALLBACK_URL", "").rstrip("/")
+    if not base:
+        return {"status": "unavailable", "message": "Drafting invites isn't configured (no callback URL)."}
+    payload = build_invite_wave_payload(resolved_campaign, brief, size, expires_in_days, wave_id)
+    status_code, body_text = _post_canvas(base + CANVAS_PATH, payload, token)
+    return parse_invite_wave_response(status_code, body_text)
+

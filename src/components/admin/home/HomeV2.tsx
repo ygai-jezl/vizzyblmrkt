@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { ArrowRight, Check } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
@@ -161,7 +162,7 @@ export async function HomeV2() {
   const ctx = await requireAdminContext();
   const lifecycle = isLifecycleEnabled();
   const [signals, week, tenant, review] = await Promise.all([
-    loadGrowthSignals(ctx, { lifecycle }),
+    loadGrowthSignals(ctx, { lifecycle, invites: isInvitesUiEnabled() && isInvitesEnabled() }),
     loadWeekCounts(ctx, { lifecycle }),
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),

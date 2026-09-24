@@ -155,6 +155,14 @@ sendEvents([
         Sign up a test account, then open <strong>Products → your product → Events</strong>: the <C>identify</C> and{" "}
         <C>user.signed_up</C> appear within seconds. Rejected messages show their reason there too.
       </P>
+      <H3>Invited from a waitlist (optional)</H3>
+      <P>
+        When you invite your waitlist into your product, each invite link lands on your sign-up page with{" "}
+        <C>?yg_invite=…</C> added. We already match sign-ups to invites by email. If you keep that value through
+        sign-up and send it back as a trait (<C>{`traits: { yg_invite: "…" }`}</C>) or on <C>user.signed_up</C> (
+        <C>{`properties: { yg_invite: "…" }`}</C>), the match also works when someone signs up with a different
+        email. The value is an opaque code: it carries no personal data and grants nothing on its own.
+      </P>
 
       <H2 id="steps">2. Report onboarding steps — personalisation</H2>
       <H3>What</H3>

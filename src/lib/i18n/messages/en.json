@@ -20,6 +20,9 @@
 
   "email.offboard.subject": "You're off the waitlist for {{waitlist_name}} 🎉",
   "email.offboard.body": "Hi {{first_name}},\n\nGreat news — you've been moved off the {{waitlist_name}} waitlist and now have access.\n\nThanks for being an early supporter!",
+  "email.invite.subject": "You're in: {{product_name}} is ready for you",
+  "email.invite.body": "Hi {{first_name}},\n\nThanks for waiting. {{product_name}} is ready, and as one of the first on the {{waitlist_name}} list, you're invited in.\n\n{{invite_link}}\n\nYour invite link works for {{invite_expires_days}} days.",
+  "email.invite.cta": "Join {{product_name}}",
 
   "widget.common.error": "Something went wrong.",
   "widget.common.networkError": "Network error — please try again.",

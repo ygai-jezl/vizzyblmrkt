@@ -204,6 +204,11 @@ export const ProductConnectionSchema = z.object({
   webhookEndpoint: WebhookEndpointSchema.nullable().optional(),
   /** Registrable domains that product-supplied links (step URLs) may point at. */
   linkDomains: z.array(z.string().max(253)).max(20).default([]),
+  /**
+   * Where invited waitlist members sign up (nav v2 phase 4 invites). https only,
+   * and on one of `linkDomains`. Invite links redirect here with `yg_invite=<code>`.
+   */
+  signupUrl: z.string().url().max(2000).nullable().optional(),
   catalog: ConnectionCatalogSchema,
   consentPolicy: ConsentPolicySchema,
   defaults: z.object({

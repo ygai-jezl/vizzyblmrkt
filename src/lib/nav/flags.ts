@@ -33,3 +33,17 @@ export function isNavV2Phase2Enabled(): boolean {
 export function isNavV2Phase3Enabled(): boolean {
   return isNavV2Phase2Enabled() && process.env.NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED === "true";
 }
+
+/**
+ * Nav v2 phase 4, "close the loop": the launch Overview checklist, the new
+ * breadcrumbs and ⌘K items, and the programme in view sent to Vizzy. Needs
+ * phase 3. Insights, content authoring and invites each have their own flag too.
+ */
+export function isNavV2Phase4Enabled(): boolean {
+  return isNavV2Phase3Enabled() && process.env.NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED === "true";
+}
+
+/** The Insights hub (Overview · Launches · Email · Content · Journeys). Needs phase 4. Off = today's analytics page. */
+export function isInsightsHubEnabled(): boolean {
+  return isNavV2Phase4Enabled() && process.env.NEXT_PUBLIC_INSIGHTS_HUB_ENABLED === "true";
+}

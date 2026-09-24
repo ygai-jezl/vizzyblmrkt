@@ -21,4 +21,11 @@ describe("contextEnvelope page context", () => {
   it("leaves page out when there is none", () => {
     expect(parse(contextEnvelope(ctx, "t1", undefined, { page: null }))).not.toHaveProperty("page");
   });
+
+  it("carries the programme and plan in view (nav v2 phase 4)", () => {
+    const env = contextEnvelope(ctx, "t1", undefined, { workspaceId: "ws1", planId: "8e1ad6e8-afb0-4f3b-bb62-5102b5bcd7b2" });
+    expect(parse(env)).toMatchObject({ workspaceId: "ws1", planId: "8e1ad6e8-afb0-4f3b-bb62-5102b5bcd7b2" });
+    expect(parse(contextEnvelope(ctx, "t1"))).not.toHaveProperty("workspaceId");
+  });
 });
+

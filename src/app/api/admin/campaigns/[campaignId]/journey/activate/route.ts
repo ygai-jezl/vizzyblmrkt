@@ -33,7 +33,8 @@ export async function POST(
 
   const result = await setJourneyState(ctx, campaignId, parsed.data.action);
   if (!result.ok) {
-    const status = result.error === "journey_not_found" ? 404 : result.error === "launch_archived" ? 409 : 422;
+    const status =
+      result.error === "journey_not_found" ? 404 : result.error === "launch_archived" || result.error === "original_editor_retired" ? 409 : 422;
     return NextResponse.json(
       { error: result.error, ...(result.reason ? { reason: result.reason } : {}) },
       { status },

@@ -8,6 +8,7 @@ import {
   validateJourneyGraph,
 } from "@/lib/email/delivery";
 import { releaseHeldJourneySteps, type ReleaseSummary } from "./hold";
+import { legacyEditorMode } from "./flags";
 import { setLifecycleJourneyStatus } from "@/lib/lifecycle/service";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import type { WaitlistReleaseSummary } from "@/lib/lifecycle/waitlist/enrol";
@@ -88,7 +89,7 @@ export type SetJourneyStateResult =
       moved?: WaitlistReleaseSummary;
       result?: { processed: number; done: number; failed: number };
     }
-  | { ok: false; error: "journey_not_found" | "journey_invalid" | "launch_archived"; reason?: string };
+  | { ok: false; error: "journey_not_found" | "journey_invalid" | "launch_archived" | "original_editor_retired"; reason?: string };
 
 /**
  * Activate the journey (enqueue the first step for every verified subscriber,
@@ -121,6 +122,9 @@ export async function setJourneyState(
   // An archived launch's steps can't send: publishing would enrol everyone and
   // then stop each first email. Restore the launch first (engine move D1).
   if (campaignFirst?.archivedAt) return { ok: false, error: "launch_archived" };
+  // Engine move D6: once the original editor is retired, a journey that never ran
+  // can't start on it (resuming one that has run still works).
+  if (journey.status === "draft" && legacyEditorMode() !== "edit") return { ok: false, error: "original_editor_retired" };
 
   // Refuse to activate an empty/half-wired journey: it would flip to "active",
   // enqueue nobody, and silently send nothing — the worst kind of failure.

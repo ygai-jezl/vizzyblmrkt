@@ -113,10 +113,16 @@ export function JourneyCanvas({
   campaignId,
   initial,
   questions = [],
+  readOnly = false,
 }: {
   campaignId: string;
   initial: Journey;
   questions?: Question[];
+  /**
+   * Engine move D6: the original editor is read-only — the journey can be
+   * paused and resumed, but not edited or published for the first time.
+   */
+  readOnly?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -275,6 +281,7 @@ export function JourneyCanvas({
   async function deselectAndSave() {
     if (!selectedId) return;
     setSelectedId(null);
+    if (readOnly) return;
     setBusy(true);
     const ok = await save();
     setBusy(false);
@@ -311,7 +318,15 @@ export function JourneyCanvas({
 
   return (
     <div className="space-y-3">
+      {readOnly ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          This editor is read-only: welcome emails are now built in the new journey editor. Move this launch to the new engine
+          in its <a className="underline" href={`/admin/launches/${campaignId}/settings`}>Settings</a> to edit them.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
+        {readOnly ? null : (
+        <>
         <button
           type="button"
           onClick={() => addNode("email")}
@@ -347,6 +362,8 @@ export function JourneyCanvas({
         >
           Save
         </button>
+        </>
+        )}
         {status === "active" ? (
           <button
             type="button"
@@ -356,14 +373,14 @@ export function JourneyCanvas({
           >
             Pause
           </button>
-        ) : (
+        ) : readOnly && status === "draft" ? null : (
           <button
             type="button"
             onClick={() => setActive("activate")}
             disabled={busy}
             className="rounded-md bg-neutral-900 px-3 py-1 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900"
           >
-            {PHASE3 ? "Publish" : "Activate"}
+            {readOnly ? "Resume" : PHASE3 ? "Publish" : "Activate"}
           </button>
         )}
         <span
@@ -383,9 +400,12 @@ export function JourneyCanvas({
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
+          onNodesChange={readOnly ? undefined : onNodesChange}
+          onEdgesChange={readOnly ? undefined : onEdgesChange}
+          onConnect={readOnly ? undefined : onConnect}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          deleteKeyCode={readOnly ? null : undefined}
           nodeTypes={nodeTypes}
           onInit={(inst) => {
             rf.current = inst;
@@ -401,7 +421,7 @@ export function JourneyCanvas({
         </ReactFlow>
       </div>
 
-      {selected ? (
+      {selected && !readOnly ? (
         <NodeInspector
           node={selected}
           campaignId={campaignId}

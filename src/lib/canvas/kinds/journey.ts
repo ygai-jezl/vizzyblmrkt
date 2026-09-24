@@ -7,6 +7,7 @@ import { JourneyGraphSchema, type JourneyGraph } from "@/lib/types/journey";
 import { validateJourneyGraph } from "@/lib/email/delivery";
 import { appendConvergentExit } from "@/lib/journey/exit";
 import { upsertJourneyDraft } from "@/lib/journey/service";
+import { legacyEditorMode } from "@/lib/journey/flags";
 import { convertLegacyJourney } from "@/lib/lifecycle/waitlist/convert";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { createWaitlistJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
@@ -137,6 +138,8 @@ export const journeyCanvasKind: CanvasKind = {
     // A launch moved to the lifecycle engine (engine move): the same journey is
     // saved there as a DRAFT. Its live version only changes when a human publishes.
     if (campaign.waitlistEngine === "lifecycle") return saveMovedLaunchDraft(ctx, campaign, filled, warnings);
+    // Engine move D6: the original editor is retired; the launch has to move first.
+    if (legacyEditorMode() !== "edit") return { ok: false, status: 409, error: "original_editor_retired" };
 
     const saved = await upsertJourneyDraft(ctx, campaignId, filled, {
       refuseIfActive: true,

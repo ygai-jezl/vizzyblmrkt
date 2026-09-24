@@ -5,6 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { JourneyGraphSchema } from "@/lib/types/journey";
 import { journeyIdFor, upsertJourneyDraft } from "@/lib/journey/service";
+import { legacyEditorMode } from "@/lib/journey/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +47,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { campaignId } = await params;
+  // Engine move D6: the original editor is retired — welcome emails are built in the new one.
+  if (legacyEditorMode() !== "edit") {
+    return NextResponse.json(
+      { error: "original_editor_retired", message: "Welcome emails are now built in the new journey editor. Move this launch in its Settings." },
+      { status: 409 },
+    );
+  }
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (body && "status" in body) {
     return NextResponse.json(

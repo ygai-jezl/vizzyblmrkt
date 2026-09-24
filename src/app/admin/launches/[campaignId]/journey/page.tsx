@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
+import { legacyEditorMode } from "@/lib/journey/flags";
 import { forTenant } from "@/lib/tenant";
 import { JourneyCanvas } from "@/components/admin/journey/JourneyCanvas";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
@@ -25,6 +26,9 @@ export default async function LaunchJourneyPage({
     const moved = await forTenant(ctx).lifecycleJourneys.getById(waitlistJourneyId(campaignId));
     if (moved) redirect(`/admin/lifecycle/${moved.id}`);
   }
+  // Engine move D6: the original editor is retired — move the launch from its Settings.
+  const editor = legacyEditorMode();
+  if (editor === "retired") redirect(`/admin/launches/${campaignId}/settings`);
   const journey: Journey =
     existing ?? {
       id,
@@ -50,6 +54,7 @@ export default async function LaunchJourneyPage({
         campaignId={campaignId}
         initial={journey}
         questions={campaign?.questions ?? []}
+        readOnly={editor === "read_only"}
       />
     </div>
   );

@@ -195,6 +195,17 @@ describe("pausing, resuming and archiving a moved launch control both engines", 
   });
 });
 
+describe("Vizzy's welcome-journey drafts once the original editor is retired (engine move D6)", () => {
+  it("won't draft on the original engine: the launch has to move first", async () => {
+    vi.stubEnv("WAITLIST_LEGACY_EDITOR", "read_only");
+    seedLaunch(fake);
+    const graph = { nodes: [{ id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: {} }], edges: [] };
+    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, brief: "Welcome" });
+    expect(r).toMatchObject({ ok: false, status: 409, error: "original_editor_retired" });
+    expect(await forTenant(system, fake).journeys.getById(`journey_${CAMPAIGN_ID}`)).toBeNull();
+  });
+});
+
 describe("Vizzy's welcome-journey drafts for a moved launch", () => {
   it("saves a lifecycle DRAFT — the live version doesn't change until someone publishes", async () => {
     const { journey } = await moved();

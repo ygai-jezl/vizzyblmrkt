@@ -52,6 +52,17 @@ describe("journey routes (engine move D1)", () => {
     expect(service.setJourneyState).not.toHaveBeenCalled();
   });
 
+  it("once the original editor is retired (engine move D6), saving is refused and a first publish is a 409", async () => {
+    vi.stubEnv("WAITLIST_LEGACY_EDITOR", "read_only");
+    const res = await PUT(req("PUT", { graph }), params);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "original_editor_retired" });
+    expect(service.upsertJourneyDraft).not.toHaveBeenCalled();
+    service.setJourneyState.mockResolvedValue({ ok: false, error: "original_editor_retired" });
+    expect((await activate(req("POST", { action: "activate" }), params)).status).toBe(409);
+    vi.unstubAllEnvs();
+  });
+
   it("publishing an archived launch is refused with 409", async () => {
     service.setJourneyState.mockResolvedValue({ ok: false, error: "launch_archived" });
     const res = await activate(req("POST", { action: "activate" }), params);

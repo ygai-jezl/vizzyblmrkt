@@ -52,10 +52,12 @@ export function EnrolmentsPanel({
   };
 
   const canEnrol = canEdit && journey.status === "active" && journey.publishedVersion;
+  // A launch's welcome journey enrols the launch's verified signups by itself.
+  const byHand = journey.audience?.kind !== "waitlist";
 
   return (
     <div className="space-y-4">
-      {canEdit ? (
+      {canEdit && byHand ? (
         <Section
           title="Enrol someone now"
           description="Put an existing user of the product into the journey by hand, using the product's own user id. In test mode they must be a test user."

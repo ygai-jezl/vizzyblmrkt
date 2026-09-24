@@ -50,9 +50,21 @@ export async function getContactEmailHistory(
   }
   if (events.length === 0) return [];
 
-  // Resolve email-node subjects from each referenced journey graph.
+  // Resolve email subjects from each referenced journey: an original-engine graph
+  // (one subject per step), or a launch's journey on the lifecycle engine (engine
+  // move), where each step's pool holds the email and its A/B variants.
   const subjectByNode = new Map<string, string>();
+  const subjectByArm = new Map<string, string>();
   for (const jid of new Set(events.map((e) => e.journeyId))) {
+    if (jid.startsWith("lcjw_")) {
+      const moved = await repo.lifecycleJourneys.getById(jid).catch(() => null);
+      if (!moved) continue;
+      for (const node of moved.draft.graph.nodes) {
+        const pool = node.type === "email" ? moved.draft.pools.find((p) => p.id === node.data.poolId) : undefined;
+        for (const item of pool?.items ?? []) subjectByArm.set(`${jid}:${node.id}:${item.id}`, item.subject);
+      }
+      continue;
+    }
     const journey = await repo.journeys.getById(jid).catch(() => null);
     if (!journey) continue;
     for (const node of journey.graph.nodes) {
@@ -85,7 +97,10 @@ export async function getContactEmailHistory(
       signupId: first.signupId,
       variantId: first.variantId,
       campaignId: first.campaignId,
-      subject: subjectByNode.get(`${first.journeyId}:${first.nodeId}`) ?? null,
+      subject:
+        subjectByArm.get(`${first.journeyId}:${first.nodeId}:${first.variantId}`) ??
+        subjectByNode.get(`${first.journeyId}:${first.nodeId}`) ??
+        null,
       sentAt: send?.ts ?? null,
       opened: !!open,
       openedAt: open?.ts ?? null,

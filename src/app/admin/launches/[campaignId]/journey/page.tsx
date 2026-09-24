@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { forTenant } from "@/lib/tenant";
 import { JourneyCanvas } from "@/components/admin/journey/JourneyCanvas";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
@@ -18,6 +20,11 @@ export default async function LaunchJourneyPage({
     forTenant(ctx).journeys.getById(id),
     forTenant(ctx).campaigns.getById(campaignId),
   ]);
+  // A launch moved to the lifecycle engine (engine move) is edited there.
+  if (campaign?.waitlistEngine === "lifecycle") {
+    const moved = await forTenant(ctx).lifecycleJourneys.getById(waitlistJourneyId(campaignId));
+    if (moved) redirect(`/admin/lifecycle/${moved.id}`);
+  }
   const journey: Journey =
     existing ?? {
       id,

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * the default, or ?which=draft). Carries no people, recipients or account ids.
  */
 export async function GET(req: Request, { params }: { params: Promise<{ journeyId: string }> }) {
-  const gate = await lifecycleAdmin(req, { mutate: false });
+  const gate = await lifecycleAdmin(req, { mutate: false, journeys: true });
   if (!gate.ok) return gate.response;
   const which = new URL(req.url).searchParams.get("which") === "draft" ? "draft" : "published";
   const r = await exportJourney(gate.ctx, (await params).journeyId, which);

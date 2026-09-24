@@ -32,6 +32,7 @@ import {
   nextUtcMidnight,
   openRun,
   runWalkLoop,
+  withLog,
   type DeliverResult,
   type EnrolmentRunOutcome,
   type SendDecision,
@@ -408,4 +409,36 @@ export async function drainWaitlistTenant(
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, due.length) }, worker));
   return { due: due.length, outcomes, deferred };
+}
+
+/**
+ * "Run next step now" (admin) for one waitlist enrolment: only in test or shadow
+ * mode, never live. Skips what's left of the current wait and sends what's next.
+ * A person parked by a pause waits for the resume.
+ */
+export async function runWaitlistEnrolmentNow(
+  ctx: TenantContext,
+  enrolmentId: string,
+  deps: WaitlistRunnerDeps = {},
+): Promise<{ ok: true; outcome: EnrolmentRunOutcome } | { ok: false; error: "not_found" | "not_active" | "live" | "busy" }> {
+  const clock = deps.now ?? Date.now;
+  const repo = forTenant(ctx, deps.db);
+  const enrolment = await repo.waitlistEnrolments.getById(enrolmentId);
+  if (!enrolment) return { ok: false, error: "not_found" };
+  if (enrolment.status !== "active") return { ok: false, error: "not_active" };
+  const journey = await repo.lifecycleJourneys.getById(enrolment.journeyId);
+  if (!journey) return { ok: false, error: "not_found" };
+  if (lowestMode(enrolment.mode, journey.deliveryMode) === "live") return { ok: false, error: "live" };
+  const nowMs = clock();
+  const primed = await repo.waitlistEnrolments.claim(enrolmentId, (cur) => {
+    if (cur.status !== "active" || cur.heldReason) return null;
+    if (cur.leaseUntil && cur.leaseUntil > iso(nowMs)) return null;
+    return {
+      nextRunAt: iso(nowMs),
+      log: withLog(cur.log, [{ at: iso(nowMs), event: "run_now", detail: null }]),
+      updatedAt: iso(nowMs),
+    };
+  });
+  if (!primed) return { ok: false, error: "busy" };
+  return { ok: true, outcome: await processWaitlistEnrolment(ctx, enrolmentId, deps, { seed: primed }) };
 }

@@ -64,7 +64,15 @@ function rulesOf(b: JourneyBranch): JourneyCondition[] {
   return b.conditions && b.conditions.length > 0 ? b.conditions : b.condition ? [b.condition] : [];
 }
 
-export function convertLegacyJourney(journey: Pick<Journey, "graph">): { draft: LifecycleDraft | null; report: ConversionReport } {
+/**
+ * `lenient` (Vizzy's drafts for a moved launch): a draft may be unfinished, so
+ * what would block a switch — an original that wouldn't publish, an empty email,
+ * problems in the converted draft — is only noted; publishing checks it all.
+ */
+export function convertLegacyJourney(
+  journey: Pick<Journey, "graph">,
+  opts: { lenient?: boolean } = {},
+): { draft: LifecycleDraft | null; report: ConversionReport } {
   const blocking: ConversionIssue[] = [];
   const notes: ConversionIssue[] = [
     { code: "publish_to_change", message: "After the switch, edits to this journey take effect when you publish them." },
@@ -78,10 +86,11 @@ export function convertLegacyJourney(journey: Pick<Journey, "graph">): { draft: 
 
   const { graph } = journey;
   const original = validateJourneyGraph(graph);
-  if (!original.ok) {
+  if (!original.ok && !opts.lenient) {
     blocking.push({ code: "invalid_original", detail: original.reason, message: `The journey can't be published as it is (${original.reason}). Fix it first.` });
     return done(null);
   }
+  if (!original.ok) notes.push({ code: "incomplete", detail: original.reason, message: `Not ready to publish yet (${original.reason}).` });
 
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   // Connections exactly as the original engine follows them: the first one out
@@ -193,7 +202,9 @@ export function convertLegacyJourney(journey: Pick<Journey, "graph">): { draft: 
         stats.emails += 1;
         const subject = (n.data.subject ?? "").trim();
         const body = n.data.body ?? "";
-        if (!subject || !body.trim()) blocking.push({ code: "email_empty", nodeId: n.id, message: "An email has no subject or no body." });
+        if (!subject || !body.trim()) {
+          (opts.lenient ? notes : blocking).push({ code: "email_empty", nodeId: n.id, message: "An email has no subject or no body." });
+        }
         const item = (id: string, label: string, s: string, b: string, hero: string | null | undefined): PoolItem => {
           if (s.length > 200 || b.length > 20_000) blocking.push({ code: "email_too_long", nodeId: n.id, message: "An email's subject or body is too long." });
           return {
@@ -308,7 +319,11 @@ export function convertLegacyJourney(journey: Pick<Journey, "graph">): { draft: 
     return done(null);
   }
   for (const issue of validateLifecycleDraft(parsed.data, NO_CATALOG, { audience: "waitlist" }).issues) {
-    blocking.push({ code: `converted_${issue.code}`, nodeId: issue.nodeId, message: `The converted journey has a problem (${issue.code}${issue.detail ? `: ${issue.detail}` : ""}).` });
+    (opts.lenient ? notes : blocking).push({
+      code: `converted_${issue.code}`,
+      nodeId: issue.nodeId,
+      message: `The converted journey has a problem (${issue.code}${issue.detail ? `: ${issue.detail}` : ""}).`,
+    });
   }
   return done(parsed.data);
 }

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** Create a draft journey from an exported document ({ connectionId, name?, document }). */
 export async function POST(req: Request) {
-  const gate = await lifecycleAdmin(req, { mutate: true });
+  const gate = await lifecycleAdmin(req, { mutate: true, journeys: true });
   if (!gate.ok) return gate.response;
   return respond(await importJourney(gate.ctx, await readJson(req)));
 }

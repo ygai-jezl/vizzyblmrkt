@@ -28,10 +28,19 @@ export async function loadGrowthSignals(
   db?: FirestoreLike,
 ): Promise<GrowthSignals & { lastEventAt: string | null; catalogSteps: number }> {
   const repos = forTenant(ctx, db);
-  const [campaigns, liveWelcome, verified, unverified, workspaces, posts, newsletters, connections, journeys, invited] =
+  const [campaigns, liveWelcome, liveMovedWelcome, verified, unverified, workspaces, posts, newsletters, connections, journeys, invited] =
     await Promise.all([
       soft("campaigns", repos.campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 100 }), []),
       soft("launch journeys", repos.journeys.count([["status", "==", "active"]]), 0),
+      // Launches whose welcome journey moved to the lifecycle engine (engine move).
+      soft(
+        "moved launch journeys",
+        repos.lifecycleJourneys.count([
+          ["connectionId", "==", ""],
+          ["status", "==", "active"],
+        ]),
+        0,
+      ),
       soft("signups", repos.signups.count([["status", "==", "verified_active"]]), null as number | null),
       soft("signups", repos.signups.count([["status", "==", "unverified"]]), null as number | null),
       soft("workspaces", repos.workspaces.find({ where: [], limit: 200 }), []),
@@ -56,14 +65,15 @@ export async function loadGrowthSignals(
   // Sandboxes ship with a demo catalog and fake events, so only real products count.
   const products = connections.filter((c) => c.kind === "custom" && c.status !== "revoked").sort(byNewest);
   const withEvents = products.filter((c) => !!c.health?.lastEventAt);
-  const liveJourneys = journeys.filter((j) => j.status !== "archived");
+  // Product journeys only: a launch's welcome journey on the lifecycle engine doesn't count toward Retain.
+  const liveJourneys = journeys.filter((j) => j.status !== "archived" && j.audience?.kind !== "waitlist");
   const newestJourney = [...liveJourneys].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
   const lastEventAt = withEvents.map((c) => c.health!.lastEventAt!).sort().at(-1) ?? null;
 
   return {
     activeLaunches: activeLaunches.length,
     firstLaunchId: activeLaunches[0]?.id ?? null,
-    welcomeEmailLive: liveWelcome > 0,
+    welcomeEmailLive: liveWelcome + liveMovedWelcome > 0,
     signups: verified === null || unverified === null ? null : verified + unverified,
     workspaces: activeWorkspaces.length,
     firstWorkspaceId: activeWorkspaces[0]?.id ?? null,
@@ -123,10 +133,18 @@ export async function loadWeekCounts(
     opts.lifecycle
       ? soft(
           "live journeys",
-          repos.lifecycleJourneys.count([
-            ["status", "==", "active"],
-            ["deliveryMode", "==", "live"],
-          ]),
+          // Minus launches' welcome journeys (engine move): these tiles are about products.
+          Promise.all([
+            repos.lifecycleJourneys.count([
+              ["status", "==", "active"],
+              ["deliveryMode", "==", "live"],
+            ]),
+            repos.lifecycleJourneys.count([
+              ["status", "==", "active"],
+              ["deliveryMode", "==", "live"],
+              ["connectionId", "==", ""],
+            ]),
+          ]).then(([all, welcome]) => all - welcome),
           none,
         )
       : none,

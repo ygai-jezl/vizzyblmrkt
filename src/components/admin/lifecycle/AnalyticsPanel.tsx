@@ -25,7 +25,8 @@ interface Analytics {
     bounces: number;
     complaints: number;
   }>;
-  goal: { label: string; eligible: number; reached: number; rate: number | null; medianHoursToOnboarded: number | null };
+  /** Product journeys only; a launch's welcome journey has none. */
+  goal: { label: string; eligible: number; reached: number; rate: number | null; medianHoursToOnboarded: number | null } | null;
   truncated: boolean;
 }
 
@@ -64,17 +65,19 @@ export function AnalyticsPanel({ journeyId }: { journeyId: string }) {
         <Stat label="Finished" value={e.completed} />
         <Stat label="Stopped early" value={e.exited} sub={Object.entries(e.stopReasons).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join(" · ") || undefined} />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Stat
-          label={data.goal.label}
-          value={pct(data.goal.rate)}
-          sub={`${data.goal.reached} of ${data.goal.eligible} enrolled`}
-        />
-        <Stat
-          label="Median time to fully onboarded"
-          value={data.goal.medianHoursToOnboarded === null ? "—" : `${data.goal.medianHoursToOnboarded} h`}
-        />
-      </div>
+      {data.goal ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Stat
+            label={data.goal.label}
+            value={pct(data.goal.rate)}
+            sub={`${data.goal.reached} of ${data.goal.eligible} enrolled`}
+          />
+          <Stat
+            label="Median time to fully onboarded"
+            value={data.goal.medianHoursToOnboarded === null ? "—" : `${data.goal.medianHoursToOnboarded} h`}
+          />
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-sm">

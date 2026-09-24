@@ -1,6 +1,7 @@
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import type { TenantContext } from "@/lib/tenant";
 
 /**
@@ -18,8 +19,12 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-export async function lifecycleAdmin(req: Request, opts: { mutate: boolean }): Promise<AdminGate> {
-  if (!isLifecycleEnabled()) return { ok: false, response: json(503, { error: "lifecycle_disabled" }) };
+export async function lifecycleAdmin(
+  req: Request,
+  opts: { mutate: boolean; /** Journey + enrolment routes: waitlist journeys (engine move) use them too. */ journeys?: boolean },
+): Promise<AdminGate> {
+  const open = isLifecycleEnabled() || (opts.journeys === true && isWaitlistEngineUiEnabled());
+  if (!open) return { ok: false, response: json(503, { error: "lifecycle_disabled" }) };
   const blocked = sameOriginGuard(req);
   if (blocked) return { ok: false, response: blocked };
   const ctx = await getAdminContext();

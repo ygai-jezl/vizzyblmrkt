@@ -16,12 +16,14 @@ import { AnalyticsPanel } from "./AnalyticsPanel";
 import { GeneratePanel } from "./GeneratePanel";
 import { CopyJourneyPanel } from "./CopyJourneyPanel";
 import { LifecycleChatPanel } from "./LifecycleChatPanel";
-import { fieldOptions, issueText, type GraphIssue, type JourneyDetail } from "./model";
+import { fieldOptions, issueText, waitlistFieldOptions, type GraphIssue, type JourneyDetail } from "./model";
 
 /**
  * One lifecycle journey: the canvas, its content, settings and delivery, the
  * people in it, a timeline preview and results. Edits change the DRAFT only;
- * nothing reaches anyone until an admin publishes.
+ * nothing reaches anyone until an admin publishes. A launch's welcome journey
+ * (engine move) is edited here too, in its waitlist mode: signup conditions,
+ * waitlist merge tags, A/B tests and any-time sending.
  */
 
 type Tab = "canvas" | "content" | "settings" | "delivery" | "people" | "preview" | "results";
@@ -98,7 +100,11 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   }, []);
   const onGraph = useCallback((graph: LifecycleGraph) => edit({ graph }), [edit]);
 
-  const fields = useMemo(() => fieldOptions(detail?.connection?.catalog), [detail?.connection?.catalog]);
+  const waitlist = detail?.audience === "waitlist";
+  const fields = useMemo(
+    () => (waitlist ? waitlistFieldOptions() : fieldOptions(detail?.connection?.catalog)),
+    [waitlist, detail?.connection?.catalog],
+  );
   const journey = detail?.journey;
 
   const save = async (): Promise<boolean> => {
@@ -163,11 +169,16 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   }
   const readOnly = !canEdit;
   const connection = detail.connection;
+  const launch = detail.launch;
+  const tabs = waitlist ? TABS.filter((t) => t.id !== "preview") : TABS;
 
   return (
     <div className="space-y-4">
-      <Link href="/admin/lifecycle" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
-        <ArrowLeft size={14} /> Journeys
+      <Link
+        href={waitlist && launch ? `/admin/launches/${launch.id}/emails` : "/admin/lifecycle"}
+        className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+      >
+        <ArrowLeft size={14} /> {waitlist ? "Emails" : "Journeys"}
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
@@ -183,16 +194,29 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
             <h1 className="text-lg font-semibold">{journey.name}</h1>
           )}
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-neutral-500">
-            <span>
-              for{" "}
-              {connection ? (
-                <Link className="underline" href={`/admin/products/${connection.id}`}>
-                  {connection.name}
-                </Link>
-              ) : (
-                "a removed product"
-              )}
-            </span>
+            {waitlist ? (
+              <span>
+                welcome emails for{" "}
+                {launch ? (
+                  <Link className="underline" href={`/admin/launches/${launch.id}`}>
+                    {launch.name}
+                  </Link>
+                ) : (
+                  "a removed launch"
+                )}
+              </span>
+            ) : (
+              <span>
+                for{" "}
+                {connection ? (
+                  <Link className="underline" href={`/admin/products/${connection.id}`}>
+                    {connection.name}
+                  </Link>
+                ) : (
+                  "a removed product"
+                )}
+              </span>
+            )}
             <Badge tone={journey.status === "active" ? "green" : journey.status === "paused" ? "amber" : "neutral"}>{journey.status}</Badge>
             <Badge tone={journey.deliveryMode === "live" ? "green" : "amber"}>{journey.deliveryMode}</Badge>
             {detail.version ? (
@@ -213,13 +237,15 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
                 <MessageSquare size={14} /> {chatOpen ? "Hide Vizzy" : "Ask Vizzy"}
               </Button>
             ) : null}
-            <Button disabled={busy !== null || !connection} onClick={() => setGenerating(true)}>
-              <Sparkles size={14} /> Generate
-            </Button>
+            {waitlist ? null : (
+              <Button disabled={busy !== null || !connection} onClick={() => setGenerating(true)}>
+                <Sparkles size={14} /> Generate
+              </Button>
+            )}
             <Button disabled={!dirty || busy !== null} onClick={() => void save()}>
               <Save size={14} /> {busy === "save" ? "Saving…" : "Save draft"}
             </Button>
-            <Button tone="primary" disabled={busy !== null || !connection} onClick={() => void publish()}>
+            <Button tone="primary" disabled={busy !== null || (!connection && !waitlist)} onClick={() => void publish()}>
               <Rocket size={14} /> {busy === "publish" ? "Publishing…" : "Publish"}
             </Button>
             {journey.status === "active" ? (
@@ -231,9 +257,11 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
                 <Play size={14} /> Resume
               </Button>
             ) : null}
-            <Button disabled={busy !== null} onClick={() => setCopying(!copying)}>
-              <Copy size={14} /> Copy to…
-            </Button>
+            {waitlist ? null : (
+              <Button disabled={busy !== null} onClick={() => setCopying(!copying)}>
+                <Copy size={14} /> Copy to…
+              </Button>
+            )}
             <a
               className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
               href={`/api/admin/lifecycle/journeys/${journey.id}/export?which=${journey.publishedVersion ? "published" : "draft"}`}
@@ -242,14 +270,22 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
             >
               <Download size={14} /> Download
             </a>
-            <Button tone="danger" disabled={busy !== null} onClick={() => void setStatus("archived")}>
-              Archive
-            </Button>
+            {waitlist ? null : (
+              <Button tone="danger" disabled={busy !== null} onClick={() => void setStatus("archived")}>
+                Archive
+              </Button>
+            )}
           </div>
         ) : null}
       </div>
 
       {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+      {waitlist && journey.status === "paused" && detail.held ? (
+        <Banner tone="info">
+          {detail.held} {detail.held === 1 ? "person is" : "people are"} waiting while this is paused. They carry on when you resume it.
+        </Banner>
+      ) : null}
+      {waitlist && launch?.archived ? <Banner tone="info">This launch is archived, so nothing is sent until it&rsquo;s restored.</Banner> : null}
       {staleFromChat ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
           Vizzy saved a new version of this draft. Reloading shows it (your unsaved edits here will be lost).
@@ -298,7 +334,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
         </Banner>
       ) : null}
 
-      <Tabs tabs={TABS} value={tab} onChange={setTab} />
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 space-y-4">
@@ -312,6 +348,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           fields={fields}
           issues={issues}
           readOnly={readOnly}
+          waitlist={waitlist}
           onChange={onGraph}
           onEditContent={(poolId) => {
             setFocusPool(poolId);
@@ -324,7 +361,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           pools={draft.pools}
           fields={fields}
           catalog={connection?.catalog}
-          productName={connection?.name ?? "your product"}
+          productName={waitlist ? (launch?.name ?? "your launch") : (connection?.name ?? "your product")}
+          waitlist={waitlist}
           brand={detail.sender.fromName ?? draft.settings.sender.fromName ?? "Your brand"}
           postalAddress={detail.postalAddress}
           readOnly={readOnly}
@@ -339,6 +377,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           catalog={connection?.catalog}
           sender={detail.sender}
           readOnly={readOnly}
+          waitlist={waitlist && launch ? { launchId: launch.id, launchName: launch.name } : null}
           onChange={(settings) => edit({ settings })}
         />
       ) : null}
@@ -357,7 +396,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           canEdit={canEdit}
         />
       ) : null}
-      {tab === "preview" ? (
+      {tab === "preview" && !waitlist ? (
         <TimelinePreview
           journeyId={journey.id}
           catalog={connection?.catalog}

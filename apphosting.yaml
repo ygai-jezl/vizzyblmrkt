@@ -783,3 +783,11 @@ env:
     value: "*"
     availability:
       - RUNTIME
+  # Engine move D4: the screens for launches on the lifecycle engine — the
+  # lifecycle editor's welcome-journey mode and (D5) the launch's "Email engine"
+  # panel. Read at BUILD time by client components.
+  - variable: NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

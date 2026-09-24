@@ -7,6 +7,9 @@ import { JourneyGraphSchema, type JourneyGraph } from "@/lib/types/journey";
 import { validateJourneyGraph } from "@/lib/email/delivery";
 import { appendConvergentExit } from "@/lib/journey/exit";
 import { upsertJourneyDraft } from "@/lib/journey/service";
+import { convertLegacyJourney } from "@/lib/lifecycle/waitlist/convert";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
+import { createWaitlistJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -131,6 +134,10 @@ export const journeyCanvasKind: CanvasKind = {
     const valid = validateJourneyGraph(filled);
     if (!valid.ok) warnings.push(`journey_incomplete:${valid.reason}`);
 
+    // A launch moved to the lifecycle engine (engine move): the same journey is
+    // saved there as a DRAFT. Its live version only changes when a human publishes.
+    if (campaign.waitlistEngine === "lifecycle") return saveMovedLaunchDraft(ctx, campaign, filled, warnings);
+
     const saved = await upsertJourneyDraft(ctx, campaignId, filled, {
       refuseIfActive: true,
     });
@@ -157,3 +164,44 @@ export const journeyCanvasKind: CanvasKind = {
     };
   },
 };
+
+async function saveMovedLaunchDraft(
+  ctx: CanvasAuthorArgs["ctx"],
+  campaign: Campaign,
+  graph: JourneyGraph,
+  warnings: string[],
+): Promise<CanvasAuthorOutcome> {
+  const { draft, report } = convertLegacyJourney({ graph }, { lenient: true });
+  if (!draft) {
+    return { ok: false, status: 422, error: "invalid_graph", issues: report.blocking.map((b) => `${b.code}: ${b.message}`) };
+  }
+  const id = waitlistJourneyId(campaign.id);
+  const existing = await forTenant(ctx).lifecycleJourneys.getById(id);
+  const saved = existing
+    ? await saveLifecycleDraft(ctx, id, draft, { authoredBy: "agent" })
+    : await createWaitlistJourney(ctx, { campaignId: campaign.id, draft }, { authoredBy: "agent" });
+  if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
+  const journey = saved.value.journey;
+  const issues = saved.value.issues.map((i) => `${i.code}${i.nodeId ? `@${i.nodeId}` : ""}`);
+  const all = [...warnings, ...issues.map((i) => `journey_issue:${i}`)];
+  const url = `/admin/lifecycle/${journey.id}`;
+  return {
+    ok: true,
+    id: journey.id,
+    status: journey.status,
+    url,
+    summary:
+      `I drafted the welcome emails for ${resolveProductName(campaign) || "your launch"}. Open the journey to review the copy, ` +
+      `then Publish when you're happy — nothing changes for your subscribers until you do.` +
+      (all.length ? ` Heads up: ${all.join("; ")}.` : ""),
+    warnings: all,
+    card: {
+      kind: "journey",
+      id: journey.id,
+      title: `${resolveProductName(campaign) || "Launch"} — welcome emails`,
+      url,
+      stats: [{ label: "emails", value: draft.graph.nodes.filter((n) => n.type === "email").length }],
+      warnings: all.length,
+    },
+  };
+}

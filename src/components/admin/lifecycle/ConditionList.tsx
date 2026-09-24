@@ -9,6 +9,8 @@ import { Button, inputClass } from "../connect/ui";
  * Edit a list of lifecycle conditions against the connection's catalog. A
  * `fact.*` field can be typed in (facts come from the product's context, so
  * they aren't in the catalog). Unknown values never match — see fields.ts.
+ * A launch's welcome journey (`waitlist`) reads signup details instead, and a
+ * survey answer names its question.
  */
 export function ConditionList({
   conditions,
@@ -16,12 +18,14 @@ export function ConditionList({
   onChange,
   disabled,
   max = 10,
+  waitlist = false,
 }: {
   conditions: LifecycleCondition[];
   fields: FieldOption[];
   onChange: (next: LifecycleCondition[]) => void;
   disabled?: boolean;
   max?: number;
+  waitlist?: boolean;
 }) {
   const groups = [...new Set(fields.map((f) => f.group))];
   const set = (i: number, patch: Partial<LifecycleCondition>) =>
@@ -59,10 +63,22 @@ export function ConditionList({
                     ))}
                 </optgroup>
               ))}
-              <optgroup label="From the product's context">
-                <option value="__fact">Fact…</option>
-              </optgroup>
+              {!waitlist ? (
+                <optgroup label="From the product's context">
+                  <option value="__fact">Fact…</option>
+                </optgroup>
+              ) : null}
             </select>
+            {c.field === "signup.surveyAnswer" ? (
+              <input
+                className={`${inputClass} w-32`}
+                value={c.questionValue ?? ""}
+                disabled={disabled}
+                onChange={(e) => set(i, { questionValue: e.target.value.slice(0, 200) || undefined })}
+                placeholder="question"
+                aria-label="Survey question"
+              />
+            ) : null}
             {!known ? (
               <input
                 className={`${inputClass} w-36 font-mono text-xs`}
@@ -115,7 +131,9 @@ export function ConditionList({
       {conditions.length < max ? (
         <Button
           disabled={disabled}
-          onClick={() => onChange([...conditions, { field: "onboarding.complete", operator: "is_true" }])}
+          onClick={() =>
+            onChange([...conditions, waitlist ? { field: "signup.madeReferral", operator: "is_true" } : { field: "onboarding.complete", operator: "is_true" }])
+          }
         >
           <Plus size={14} /> Condition
         </Button>

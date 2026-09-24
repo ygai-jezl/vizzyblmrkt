@@ -6,7 +6,9 @@ import { Badge, Field, Section, inputClass } from "../connect/ui";
 
 /**
  * Journey settings: what starts it, when emails may go out (in each person's own
- * timezone), who they come from, and the unsubscribe category.
+ * timezone), who they come from, and the unsubscribe category. A launch's
+ * welcome journey (`waitlist`, engine move) starts when someone joins, can send
+ * at any time, has no end date by default, and sends from the launch's sender.
  */
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -18,12 +20,14 @@ export function SettingsPanel({
   sender,
   readOnly,
   onChange,
+  waitlist = null,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
-  sender: { verified: boolean; fromEmail: string | null };
+  sender: { verified: boolean; fromEmail: string | null; fromName?: string | null };
   readOnly: boolean;
   onChange: (next: LifecycleSettings) => void;
+  waitlist?: { launchId: string; launchName: string } | null;
 }) {
   const p = settings.sendPolicy;
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
@@ -31,6 +35,60 @@ export function SettingsPanel({
   const time = `${String(p.startHour).padStart(2, "0")}:${String(p.startMinute).padStart(2, "0")}`;
   const endMin = p.startHour * 60 + p.startMinute + p.windowMinutes;
   const tooLate = endMin > 24 * 60;
+
+  if (waitlist) {
+    return (
+      <div className="space-y-4">
+        <Section title="Starts when" description="Someone joins the waitlist and verifies their email. Each person enters once.">
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            Everyone on {waitlist.launchName}&rsquo;s list who joins while this journey is live gets it — and anyone who joins while it&rsquo;s paused starts when you resume it.
+          </p>
+        </Section>
+        <Section title="When emails go out" description="Welcome emails have always gone out as soon as each step is due.">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" disabled={readOnly} checked={Boolean(p.anytime)} onChange={(e) => setPolicy({ anytime: e.target.checked || undefined })} />
+            Any time of day, any day
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              disabled={readOnly}
+              checked={p.hardStopDays !== null}
+              onChange={(e) => setPolicy({ hardStopDays: e.target.checked ? 60 : null })}
+            />
+            Stop after
+            <input
+              className={`${inputClass} w-20`}
+              type="number"
+              min={1}
+              max={60}
+              disabled={readOnly || p.hardStopDays === null}
+              value={p.hardStopDays ?? ""}
+              onChange={(e) => setPolicy({ hardStopDays: Math.min(60, Math.max(1, Number(e.target.value) || 1)) })}
+            />
+            days
+          </label>
+        </Section>
+        <Section title="Sender" description="Welcome emails come from the launch's sender, set in the launch's settings (or your Domains settings).">
+          <p className="text-sm">
+            {sender.fromName ?? "Your brand"} {sender.fromEmail ? <span className="text-neutral-500">&lt;{sender.fromEmail}&gt;</span> : <span className="text-neutral-500">(the default address)</span>}
+          </p>
+        </Section>
+        <Section title="Tracking" description="On for welcome emails, as it has always been, so opens and clicks show in the launch's analytics.">
+          <div className="flex gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" disabled={readOnly} checked={settings.tracking.opens} onChange={(e) => onChange({ ...settings, tracking: { ...settings.tracking, opens: e.target.checked } })} />
+              Track opens
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" disabled={readOnly} checked={settings.tracking.clicks} onChange={(e) => onChange({ ...settings, tracking: { ...settings.tracking, clicks: e.target.checked } })} />
+              Track clicks
+            </label>
+          </div>
+        </Section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

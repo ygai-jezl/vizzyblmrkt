@@ -8,6 +8,7 @@ import {
 import { gcsAuditSink, type AuditObjectSink } from "./auditSink";
 import { TenantIsolationError } from "./errors";
 import type { FirestoreLike, TenantContext } from "./types";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 
 export type ArchiveAction = "archive" | "restore";
 
@@ -94,6 +95,12 @@ export async function setLaunchArchived(
     const journey = await repo.journeys.getById(journeyId);
     if (journey?.status === "active") {
       await repo.journeys.update(journeyId, { status: "paused", updatedAt: now });
+      journeyPaused = true;
+    }
+    // …and its welcome journey on the lifecycle engine, if it has moved (engine move).
+    const moved = await repo.lifecycleJourneys.getById(waitlistJourneyId(campaignId));
+    if (moved?.status === "active") {
+      await repo.lifecycleJourneys.update(moved.id, { status: "paused", updatedAt: now });
       journeyPaused = true;
     }
     // Cancel any scheduled (not-yet-sent) broadcasts so a closed launch never

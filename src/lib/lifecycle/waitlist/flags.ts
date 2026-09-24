@@ -26,3 +26,12 @@ export function isWaitlistEnginePilot(tenantId: string): boolean {
     .filter(Boolean)
     .includes(tenantId);
 }
+
+/**
+ * Client + server — the screens for waitlist journeys on the lifecycle engine:
+ * the lifecycle editor's waitlist mode and the launch's "Email engine" panel.
+ * Read at BUILD time in client components (NEXT_PUBLIC_).
+ */
+export function isWaitlistEngineUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED === "true";
+}

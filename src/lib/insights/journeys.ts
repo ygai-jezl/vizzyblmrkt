@@ -3,6 +3,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { counterDocId } from "@/lib/lifecycle/enrol";
 import { loadWaitlistJourneys } from "@/lib/journey/waitlistJourneys";
 import type { WaitlistJourneyRow } from "@/lib/journey/waitlistJourneyRows";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 
 /**
  * Insights › Journeys (nav v2 phase 4): both engines side by side — each launch's
@@ -52,13 +53,31 @@ export async function loadJourneyInsights(
           repos.emailJobs
             .count([["campaignId", "==", r.campaignId], ["type", "==", "journey_step"], ["status", "==", status]])
             .catch(() => null);
+        if (r.engine === "lifecycle") {
+          // Moved to the lifecycle engine (engine move): its people, plus anyone still finishing on the original.
+          const id = waitlistJourneyId(r.campaignId);
+          const enrolments = (where: Array<[string, "==", string]>) =>
+            repos.waitlistEnrolments.count([["journeyId", "==", id], ...where]).catch(() => null);
+          const counts = await Promise.all([
+            enrolments([["status", "==", "active"]]),
+            enrolments([["heldReason", "==", "journey_paused"]]),
+            enrolments([["heldReason", "==", "launch_archived"]]),
+            steps("pending"),
+            steps("held"),
+          ]);
+          if (counts.some((c) => c === null)) return { ...r, inProgress: null, waiting: null };
+          const [active, paused, archived, pending, held] = counts as number[];
+          // Parked people are still "active" enrolments: count them as waiting, not in progress.
+          return { ...r, inProgress: active! - paused! - archived! + pending!, waiting: paused! + archived! + held! };
+        }
         const [inProgress, waiting] = await Promise.all([steps("pending"), steps("held")]);
         return { ...r, inProgress, waiting };
       }),
   );
   const lifecycle = await Promise.all(
     journeys
-      .filter((j) => j.status !== "archived")
+      // Launches' welcome journeys are listed with the launches above.
+      .filter((j) => j.status !== "archived" && j.audience?.kind !== "waitlist")
       .slice(0, 30)
       .map(async (j) => {
         const n = (status: string) =>

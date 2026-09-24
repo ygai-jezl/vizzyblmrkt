@@ -669,3 +669,8 @@ env:
     value: ""
     availability:
       - RUNTIME
+  - variable: NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

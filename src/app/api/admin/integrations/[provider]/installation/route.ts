@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
-import { githubAppConfig, listInstallationRepos, manageInstallationUrl } from "@/lib/integrations/githubApp";
+import { githubAppConfig, listInstallationRepos, manageInstallationUrl, manageUrlFor } from "@/lib/integrations/githubApp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,9 +29,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ provider
     // A classic (read/write) connection from before the app — offer the switch.
     return NextResponse.json({ mode: "app", connected: true, legacy: true, accountLogin: conn.accountLogin ?? null, manageUrl });
   }
+  const installManageUrl = await manageUrlFor(conn, app);
   try {
     const { repos, truncated } = await listInstallationRepos(conn.installationId, app);
-    return NextResponse.json({ mode: "app", connected: true, accountLogin: conn.accountLogin ?? null, manageUrl, repos, truncated });
+    return NextResponse.json({ mode: "app", connected: true, accountLogin: conn.accountLogin ?? null, manageUrl: installManageUrl, repos, truncated });
   } catch {
     // Most often the customer uninstalled the app on GitHub.
     return NextResponse.json({ mode: "app", connected: true, accountLogin: conn.accountLogin ?? null, manageUrl, repos: [], error: "installation_unavailable" });

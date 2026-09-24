@@ -192,6 +192,8 @@ export const GitConnectionSchema = z.object({
   enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }).optional(),
   /** The connected account handle (for display). */
   accountLogin: z.string().optional(),
+  /** GitHub App (kind "app"): the kind of account it's installed on, to link its settings page. */
+  accountType: z.enum(["User", "Organization"]).optional(),
   scope: z.string().optional(),
   /** Firebase UID of the admin who connected. */
   connectedBy: z.string().optional(),

@@ -1,6 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { generateKeyPairSync, createVerify } from "node:crypto";
-import { appJwt, githubAppConfig, installUrl, listInstallationRepos, manageInstallationUrl, mintInstallationToken, verifyUserInstallation } from "./githubApp";
+import {
+  appJwt,
+  authorizeUrl,
+  getInstallationAccount,
+  githubAppConfig,
+  installationSettingsUrl,
+  installUrl,
+  listInstallationRepos,
+  listUserInstallations,
+  manageInstallationUrl,
+  manageUrlFor,
+  mintInstallationToken,
+  verifyUserInstallation,
+} from "./githubApp";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const pem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -48,12 +61,20 @@ describe("GitHub App (read-only)", () => {
       fakeFetch((url) =>
         url.includes("login/oauth")
           ? { status: 200, body: { access_token: "ghu_user" } }
-          : { status: 200, body: { installations: [{ id: 77, account: { login: "acme" }, permissions: perms, repository_selection: "selected" }] } },
+          : {
+              status: 200,
+              body: { installations: [{ id: 77, account: { login: "acme", type: "Organization" }, permissions: perms, repository_selection: "selected" }] },
+            },
       );
     const input = { code: "c", installationId: 77, redirectUri: "https://yougrow.test/cb" };
 
     const ok = installs({ contents: "read", metadata: "read" });
-    expect(await verifyUserInstallation(input, cfg, ok.f)).toEqual({ ok: true, accountLogin: "acme", repositorySelection: "selected" });
+    expect(await verifyUserInstallation(input, cfg, ok.f)).toEqual({
+      ok: true,
+      accountLogin: "acme",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
     expect(ok.calls[1]!.url).toContain("/user/installations");
 
     expect(await verifyUserInstallation({ ...input, installationId: 99 }, cfg, installs({ contents: "read" }).f)).toEqual({ ok: false, reason: "installation_not_yours" });
@@ -90,6 +111,96 @@ describe("GitHub App (read-only)", () => {
 
   it("links to GitHub's own page for adding or removing repositories", () => {
     expect(manageInstallationUrl(cfg)).toBe("https://github.com/apps/yougrow-connect/installations/new");
+  });
+
+  it("sends people to authorise the app, carrying the signed state back to our callback", () => {
+    const u = new URL(authorizeUrl(cfg, "https://yougrow.test/api/admin/integrations/github/callback", "st.ate"));
+    expect(u.origin + u.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(Object.fromEntries(u.searchParams)).toEqual({
+      client_id: "Iv1.test",
+      redirect_uri: "https://yougrow.test/api/admin/integrations/github/callback",
+      state: "st.ate",
+    });
+  });
+
+  it("lists the installs a user can access, marking any that could write", async () => {
+    const { f, calls } = fakeFetch((url) =>
+      url.includes("login/oauth")
+        ? { status: 200, body: { access_token: "ghu_user" } }
+        : {
+            status: 200,
+            body: {
+              installations: [
+                { id: 1, account: { login: "acme", type: "Organization" }, permissions: { contents: "read" }, repository_selection: "selected" },
+                { id: 2, account: { login: "jo", type: "User" }, permissions: { contents: "write" }, repository_selection: "all" },
+                { id: -3, account: { login: "bad" } },
+                { account: { login: "no-id" } },
+              ],
+            },
+          },
+    );
+    expect(await listUserInstallations({ code: "c", redirectUri: "https://yougrow.test/cb" }, cfg, f)).toEqual({
+      ok: true,
+      installations: [
+        { installationId: 1, accountLogin: "acme", accountType: "Organization", repositorySelection: "selected", readOnly: true },
+        { installationId: 2, accountLogin: "jo", accountType: "User", repositorySelection: "all", readOnly: false },
+      ],
+    });
+    // The user token only asks GitHub who's connecting.
+    expect(new Headers(calls[1]!.init?.headers).get("authorization")).toBe("Bearer ghu_user");
+  });
+
+  it("reports a failed code exchange or lookup instead of listing nothing", async () => {
+    const input = { code: "c", redirectUri: "https://yougrow.test/cb" };
+    const noToken = fakeFetch(() => ({ status: 400, body: { error: "bad_verification_code" } }));
+    expect(await listUserInstallations(input, cfg, noToken.f)).toEqual({ ok: false, reason: "token_exchange_failed" });
+    const lookupFails = fakeFetch((url) => (url.includes("login/oauth") ? { status: 200, body: { access_token: "t" } } : { status: 502, body: {} }));
+    expect(await listUserInstallations(input, cfg, lookupFails.f)).toEqual({ ok: false, reason: "installations_lookup_failed" });
+  });
+
+  it("links an install's own settings page, for an organisation or a personal account", () => {
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "acme-org", accountType: "Organization" })).toBe(
+      "https://github.com/organizations/acme-org/settings/installations/9",
+    );
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "jo", accountType: "User" })).toBe("https://github.com/settings/installations/9");
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "acme-org", accountType: null })).toBeNull();
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "../evil", accountType: "Organization" })).toBeNull();
+    expect(installationSettingsUrl({ installationId: 0, accountLogin: "jo", accountType: "User" })).toBeNull();
+  });
+
+  it("asks GitHub, as the app, which account an install is on", async () => {
+    const { f, calls } = fakeFetch(() => ({ status: 200, body: { account: { login: "acme-org", type: "Organization" } } }));
+    expect(await getInstallationAccount(9, cfg, f)).toEqual({ accountLogin: "acme-org", accountType: "Organization" });
+    expect(calls[0]!.url).toBe("https://api.github.com/app/installations/9");
+    expect(new Headers(calls[0]!.init?.headers).get("authorization")).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
+    expect(await getInstallationAccount(9, cfg, fakeFetch(() => ({ status: 404, body: {} })).f)).toBeNull();
+  });
+
+  describe("where 'Add or remove repositories' goes", () => {
+    afterEach(() => {
+      delete process.env.GITHUB_APP_LINK_ENABLED;
+    });
+    const appPage = "https://github.com/apps/yougrow-connect/installations/new";
+    const never = fakeFetch(() => {
+      throw new Error("no GitHub call expected");
+    });
+
+    it("stays on the app's page while linking is off", async () => {
+      expect(await manageUrlFor({ installationId: 9, accountLogin: "jo", accountType: "User" }, cfg, never.f)).toBe(appPage);
+    });
+
+    it("opens the install's own page, looking up its account only when we didn't keep it", async () => {
+      process.env.GITHUB_APP_LINK_ENABLED = "true";
+      expect(await manageUrlFor({ installationId: 9, accountLogin: "jo", accountType: "User" }, cfg, never.f)).toBe(
+        "https://github.com/settings/installations/9",
+      );
+      const lookup = fakeFetch(() => ({ status: 200, body: { account: { login: "acme-org", type: "Organization" } } }));
+      expect(await manageUrlFor({ installationId: 9, accountLogin: "acme-org" }, cfg, lookup.f)).toBe(
+        "https://github.com/organizations/acme-org/settings/installations/9",
+      );
+      // Uninstalled on GitHub: back to the app's page, where it can be installed again.
+      expect(await manageUrlFor({ installationId: 9 }, cfg, fakeFetch(() => ({ status: 404, body: {} })).f)).toBe(appPage);
+    });
   });
 });
 

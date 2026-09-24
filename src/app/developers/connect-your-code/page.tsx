@@ -1,9 +1,11 @@
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
 import { docsOrigin, githubAppPublicUrl } from "@/lib/developers/flags";
+import { isGitHubAppLinkEnabled } from "@/lib/integrations/githubApp";
 
 export default function ConnectYourCodeDocs() {
   const app = githubAppPublicUrl();
   const origin = docsOrigin();
+  const linking = isGitHubAppLinkEnabled();
   return (
     <article>
       <H1>Connecting your code</H1>
@@ -30,6 +32,12 @@ export default function ConnectYourCodeDocs() {
           In YouGrow, open <strong>Products → your product → Learn from repo</strong> and press <strong>Connect GitHub</strong>{" "}
           (or use <strong>Account → Connections</strong>).
         </li>
+        {linking ? (
+          <li>
+            GitHub asks you to <strong>authorise</strong> YouGrow. This only confirms who you are. If the YouGrow app is
+            already installed on your account or organisation, pick it from the list and you&apos;re done. Otherwise, carry on.
+          </li>
+        ) : null}
         <li>
           GitHub shows the <strong>YouGrow</strong> app{app ? (
             <>
@@ -64,12 +72,20 @@ repositories we choose — it can't push, open pull requests or change settings.
 Details: ${origin}/developers/connect-your-code`}</Code>
 
       <H3>Change which repositories YouGrow can read</H3>
-      <P>
-        In YouGrow, use <strong>Add or remove repositories on GitHub</strong> (on Learn from repo, or Account →
-        Connections). That opens GitHub&apos;s page for the app — choose <strong>Configure</strong>, change{" "}
-        <strong>Repository access</strong>, and save. The change applies immediately; YouGrow&apos;s list refreshes when
-        you come back.
-      </P>
+      {linking ? (
+        <P>
+          In YouGrow, use <strong>Add or remove repositories on GitHub</strong> (on Learn from repo, or Account →
+          Connections). That opens the app&apos;s settings page on GitHub — change <strong>Repository access</strong>{" "}
+          and save. The change applies immediately; YouGrow&apos;s list refreshes when you come back.
+        </P>
+      ) : (
+        <P>
+          In YouGrow, use <strong>Add or remove repositories on GitHub</strong> (on Learn from repo, or Account →
+          Connections). That opens GitHub&apos;s page for the app — choose <strong>Configure</strong>, change{" "}
+          <strong>Repository access</strong>, and save. The change applies immediately; YouGrow&apos;s list refreshes when
+          you come back.
+        </P>
+      )}
 
       <H3>Disconnect</H3>
       <UL>

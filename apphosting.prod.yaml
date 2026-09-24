@@ -79,6 +79,12 @@ env:
     secret: github-app-private-key
     availability:
       - RUNTIME
+  # Link an already-installed GitHub App on Connect (see apphosting.yaml). OFF
+  # until verified in dev; flip with a chore(prod) PR after a prod smoke test.
+  - variable: GITHUB_APP_LINK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # reCAPTCHA Enterprise (score-based) — public site key + server assessment.
   - variable: RECAPTCHA_ENABLED

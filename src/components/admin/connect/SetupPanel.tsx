@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { environmentOf, promotionTarget } from "@/lib/connect/environments";
 import { setupSteps, type SetupStep } from "@/lib/connect/setupChecklist";
+import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { api, errorText, type PublicConnection } from "./api";
 import { Banner, Section } from "./ui";
 
@@ -26,11 +27,15 @@ export function SetupPanel({ connection, onOpenTab }: { connection: PublicConnec
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const [guide, journeys] = await Promise.all([
+      const [guide, journeys, invites] = await Promise.all([
         api<{ guide: { status: { catalog: "done" | "todo"; eventsReceived: "done" | "todo"; contextEndpoint: "done" | "todo" } } }>(
           `/api/admin/connections/${connection.id}/guide`,
         ),
         api<JourneysResponse>("/api/admin/lifecycle/journeys"),
+        // Nav v2 phase 4: the "Invite your waitlist" step (the API answers 503 while invites are off).
+        isInvitesUiEnabled() && connection.kind === "custom"
+          ? api<{ hasSignupUrl: boolean; invited: number; signedUp: number }>(`/api/admin/connections/${connection.id}/invites`)
+          : null,
       ]);
       if (!alive) return;
       if (!guide.ok) return setError(errorText(guide.data));
@@ -45,6 +50,7 @@ export function SetupPanel({ connection, onOpenTab }: { connection: PublicConnec
           guide: guide.data.guide.status,
           journeys: all.journeys.filter((j) => j.connectionId === connection.id),
           production: prod ? { id: prod.id, hasJourney: all.journeys.some((j) => j.connectionId === prod.id) } : null,
+          invites: invites?.ok ? invites.data : null,
         }),
       );
     })();

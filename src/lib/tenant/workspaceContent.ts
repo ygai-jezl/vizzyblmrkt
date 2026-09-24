@@ -157,11 +157,11 @@ export async function listTemplates(
   ctx: TenantContext,
   workspaceId: string,
   limit = 300,
+  db?: FirestoreLike,
 ): Promise<Template[]> {
-  const snap = await workspaceDoc(ctx, workspaceId)
-    .collection(TEMPLATES)
-    .limit(Math.min(Math.max(limit, 1), 1000))
-    .get();
+  // A test's FakeFirestore backs the slash-path collection (see contentPlans()).
+  const col = db ? db.collection(`workspaces/${workspaceId}/${TEMPLATES}`) : workspaceDoc(ctx, workspaceId).collection(TEMPLATES);
+  const snap = await col.limit(Math.min(Math.max(limit, 1), 1000)).get();
   const rows: Template[] = [];
   for (const d of snap.docs) {
     const parsed = TemplateSchema.safeParse(d.data());
@@ -329,10 +329,20 @@ export type CreateContentPlanInput = Omit<
   "id" | "tenantId" | "workspaceId" | "createdAt" | "updatedAt"
 >;
 
+/**
+ * A workspace's content_plans subcollection. Slash-path ref (like updateContentPlan)
+ * so a test's FakeFirestore can back it; the real SDK reads the nested collection.
+ */
+function contentPlans(ctx: TenantContext, workspaceId: string, db?: FirestoreLike) {
+  const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
+  return database.collection(`workspaces/${workspaceId}/${CONTENT_PLANS}`);
+}
+
 export async function createContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   input: CreateContentPlanInput,
+  db?: FirestoreLike,
 ): Promise<ContentPlan> {
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -344,7 +354,7 @@ export async function createContentPlan(
     createdAt: now,
     updatedAt: now,
   });
-  await workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(id).set(plan);
+  await contentPlans(ctx, workspaceId, db).doc(id).set(plan);
   return plan;
 }
 
@@ -352,9 +362,9 @@ export async function listContentPlans(
   ctx: TenantContext,
   workspaceId: string,
   limit = 200,
+  db?: FirestoreLike,
 ): Promise<ContentPlan[]> {
-  const snap = await workspaceDoc(ctx, workspaceId)
-    .collection(CONTENT_PLANS)
+  const snap = await contentPlans(ctx, workspaceId, db)
     .limit(Math.min(Math.max(limit, 1), 500))
     .get();
   const rows: ContentPlan[] = [];
@@ -371,8 +381,9 @@ export async function getContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   planId: string,
+  db?: FirestoreLike,
 ): Promise<ContentPlan | null> {
-  const doc = await workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId).get();
+  const doc = await contentPlans(ctx, workspaceId, db).doc(planId).get();
   if (!doc.exists) return null;
   const parsed = ContentPlanSchema.safeParse(doc.data());
   if (!parsed.success) return null;
@@ -396,7 +407,7 @@ export async function updateContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   planId: string,
-  patch: Partial<Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft">>,
+  patch: Partial<Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft" | "authoredBy" | "agentRevision" | "agentBrief">>,
   // Injectable for tests (a FakeFirestore); defaults to the tenant's regional DB otherwise.
   db?: FirestoreLike,
 ): Promise<void> {
@@ -612,6 +623,7 @@ export async function deleteContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   planId: string,
+  db?: FirestoreLike,
 ): Promise<void> {
-  await workspaceDoc(ctx, workspaceId).collection(CONTENT_PLANS).doc(planId).delete();
+  await contentPlans(ctx, workspaceId, db).doc(planId).delete();
 }

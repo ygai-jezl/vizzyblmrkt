@@ -41,6 +41,9 @@ export interface DashboardChatOptions {
     journeyId?: string | null;
     /** The launch in view (the Ask Vizzy panel on a launch page). */
     campaignId?: string | null;
+    /** The content programme and plan in view (nav v2 phase 4). */
+    workspaceId?: string | null;
+    planId?: string | null;
     /** Where the operator is, as its breadcrumb, e.g. "Launches › Beta › Signups". */
     page?: string | null;
   };
@@ -141,6 +144,8 @@ export function useDashboardChat(options: DashboardChatOptions = {}): UseDashboa
             connectionId: optionsRef.current.context?.connectionId ?? null,
             journeyId: optionsRef.current.context?.journeyId ?? null,
             campaignId: optionsRef.current.context?.campaignId ?? null,
+            workspaceId: optionsRef.current.context?.workspaceId ?? null,
+            planId: optionsRef.current.context?.planId ?? null,
             page: optionsRef.current.context?.page ?? null,
           }),
         });

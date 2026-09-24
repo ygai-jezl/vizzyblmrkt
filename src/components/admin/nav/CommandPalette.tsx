@@ -10,6 +10,7 @@ import {
   ChartLine,
   House,
   Inbox,
+  MailPlus,
   PenLine,
   Plus,
   Rocket,
@@ -22,8 +23,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
+import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
-import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isInsightsHubEnabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
 import { useThemePortalContainer } from "./AdminThemeRoot";
 import { useShell } from "./ShellProvider";
@@ -49,13 +51,16 @@ const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   products: ["connections", "app", "sandbox"],
   journeys: ["lifecycle", "emails", "onboarding"],
   audience: ["crm", "people", "contacts", "signups"],
-  insights: ["analytics", "metrics"],
+  insights: isInsightsHubEnabled()
+    ? ["analytics", "metrics", "reports", "funnel", "attribution", "sources"]
+    : ["analytics", "metrics"],
   brand: ["voice", "logo", "colours", "brand kit"],
   settings: ["account", "domains", "integrations", "billing"],
 };
 
 const lifecycle = isLifecycleUiEnabled();
 const PHASE3 = isNavV2Phase3Enabled();
+const INVITES = isInvitesUiEnabled();
 const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3 }).flatMap((s) => s.items);
 
 const ITEM =
@@ -278,6 +283,18 @@ export function CommandPalette({
             <Command.Item value="create new journey" onSelect={() => go("/admin/lifecycle")} className={ITEM}>
               <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
               New journey
+            </Command.Item>
+          ) : null}
+          {INVITES && launches[0] ? (
+            <Command.Item
+              value={`invite your waitlist to the product ${launches[0].name}`}
+              keywords={["invite", "wave", "product", "funnel"]}
+              onSelect={() => go(`/admin/launches/${launches[0]!.id}/invites`)}
+              className={ITEM}
+            >
+              <MailPlus size={16} aria-hidden className="shrink-0 text-shell-muted" />
+              Invite your waitlist
+              <span className="ml-auto truncate text-xs text-shell-faint">{launches[0].name}</span>
             </Command.Item>
           ) : null}
         </Command.Group>

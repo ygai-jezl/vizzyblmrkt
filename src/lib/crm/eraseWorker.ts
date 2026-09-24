@@ -35,6 +35,8 @@ export async function processContactEraseJob(
   let messagesDeleted = 0;
   for (const sid of signupIds) {
     messagesDeleted += await repo.emailEvents.deleteWhere([["signupId", "==", sid]]);
+    // Their invites into a connected product (nav v2 phase 4) go too.
+    await repo.invites.deleteWhere([["signupId", "==", sid]]);
   }
 
   // 2. Unsubscribe/archive at the external provider (best-effort; gated for EU).

@@ -93,4 +93,11 @@ describe("prompt for the customer's coding agent", () => {
     expect(p).toContain("`YOUGROW_SECRET`");
     expect(p).not.toMatch(/ygs_[A-Za-z0-9]/);
   });
+
+  it("adds the optional invite-code task only while invites are on", () => {
+    expect(buildIntegrationTasks({ map, health: null, contextEnabled: false }).map((t) => t.id)).not.toContain("invite");
+    const withInvites = buildIntegrationTasks({ map, health: null, contextEnabled: false, invites: true });
+    expect(withInvites.at(-1)).toMatchObject({ id: "invite", severity: "recommended", status: "todo" });
+  });
 });
+

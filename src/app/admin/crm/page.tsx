@@ -5,6 +5,10 @@ import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { forTenant } from "@/lib/tenant";
+import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
+import { withInviteStages } from "@/lib/invites/audience";
+import { loadFunnel } from "@/lib/invites/funnel";
+import { LaunchFunnel } from "@/components/admin/invites/LaunchFunnel";
 
 export const dynamic = "force-dynamic";
 
@@ -36,11 +40,15 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
   const phase3 = isNavV2Phase3Enabled();
   const launchId = phase3 && !q ? (sp.launch ?? "").trim().slice(0, 200) : "";
   const launch = launchId ? await forTenant(ctx).campaigns.getById(launchId).catch(() => null) : null;
-  const [companies, contacts, engaged] = await Promise.all([
+  const invites = isInvitesUiEnabled() && isInvitesEnabled();
+  const [companies, contacts, engaged, funnel] = await Promise.all([
     tab("companies", listCompanies(ctx, {})),
     tab("contacts", listContacts(ctx, q ? { q } : launch ? { campaignId: launch.id } : {})),
     tab("engaged", listEngagedContacts(ctx, {})),
+    // Nav v2 phase 4: the growth path in numbers, for this launch or every launch.
+    invites ? loadFunnel(ctx, { campaignId: launch?.id ?? null }).catch(() => null) : null,
   ]);
+  const contactRows = invites ? await withInviteStages(ctx, contacts.items).catch(() => contacts.items) : contacts.items;
 
   return (
     <div className="space-y-5">
@@ -52,9 +60,15 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
             : "Every contact across all launches, with company intelligence and email history."}
         </p>
       </div>
+      {funnel ? (
+        <LaunchFunnel
+          funnel={funnel}
+          caption={launch ? `${launch.waitlistName}: from waitlist to activated user.` : "Every launch: from waitlist to activated user."}
+        />
+      ) : null}
       <CrmClient
         isAdmin={ctx.role === "admin"}
-        initialContacts={contacts.items}
+        initialContacts={contactRows}
         contactsCursor={contacts.nextCursor}
         initialCompanies={companies.items}
         companiesCursor={companies.nextCursor}

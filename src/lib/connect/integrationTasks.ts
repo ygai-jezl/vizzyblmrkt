@@ -10,7 +10,7 @@ import type { ProductMap } from "./productMapSchema";
  */
 
 export type TaskSeverity = "required" | "compliance" | "personalisation" | "recommended";
-export type TaskId = "signup" | "steps" | "context" | "deletion" | "preferences" | "timezone" | "exit";
+export type TaskId = "signup" | "steps" | "context" | "deletion" | "preferences" | "timezone" | "exit" | "invite";
 
 export interface IntegrationTask {
   id: TaskId;
@@ -78,6 +78,13 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
     action: "Return exit from the context endpoint for staff, invited teammates and any special accounts.",
     ifSkipped: "Staff and invited teammates get onboarding emails meant for new customers.",
   },
+  invite: {
+    severity: "recommended",
+    title: "Keep the waitlist invite code at sign-up",
+    action:
+      "Invite links land on your sign-up page with ?yg_invite=…; keep it through sign-up and send it back as a trait (yg_invite) or a user.signed_up property.",
+    ifSkipped: "Invited people who sign up with a different email aren't counted as signed up from their invite.",
+  },
 };
 
 const ORDER: TaskId[] = ["signup", "steps", "context", "deletion", "preferences", "timezone", "exit"];
@@ -116,11 +123,14 @@ export function buildIntegrationTasks(input: {
   map: ProductMap | null;
   health: { lastEventAt?: string | null; lastContextOkAt?: string | null; lastContextError?: string | null } | null;
   contextEnabled: boolean;
+  /** Nav v2 phase 4: add the optional "keep the invite code" task while waitlist invites are on. */
+  invites?: boolean;
 }): IntegrationTask[] {
   const { map } = input;
   const h = input.health ?? {};
   const hooksFor = (id: TaskId) => (map?.hooks ?? []).filter((x) => HOOK_TASK[x.kind] === id);
-  return ORDER.map((id) => {
+  const order: TaskId[] = input.invites ? [...ORDER, "invite"] : ORDER;
+  return order.map((id) => {
     const hooks = hooksFor(id);
     const sourceItems = id === "steps" ? (map?.onboardingSteps ?? []) : id === "context" ? (map?.facts ?? []) : hooks;
     const status: IntegrationTask["status"] =

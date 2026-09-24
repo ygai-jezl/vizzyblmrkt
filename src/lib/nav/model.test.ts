@@ -191,3 +191,23 @@ describe("phase 3", () => {
     expect(labels("/admin/brand-kit/guidelines")).toEqual(["Brand", "Guidelines"]);
   });
 });
+
+describe("phase 4 breadcrumbs", () => {
+  const names = { launches: { c1: "Fernlight Beta" }, workspaces: {}, journeys: {}, products: {} };
+  const labels = (path: string, insights = true) =>
+    breadcrumbsFor(path, names as never, { phase3: true, insights }).map((c) => c.label);
+
+  it("files a launch's invites under Emails", () => {
+    expect(labels("/admin/launches/c1/invites")).toEqual(["Launches", "Fernlight Beta", "Emails", "Invites"]);
+  });
+
+  it("names the Insights tab, and keeps a single crumb without the hub", () => {
+    expect(labels("/admin/analytics")).toEqual(["Insights"]);
+    expect(labels("/admin/analytics/email")).toEqual(["Insights", "Email"]);
+    expect(breadcrumbsFor("/admin/analytics/email", names as never, { phase3: true, insights: true })[0]).toMatchObject({
+      href: "/admin/analytics",
+    });
+    expect(labels("/admin/analytics/email", false)).toEqual(["Insights"]);
+  });
+});
+

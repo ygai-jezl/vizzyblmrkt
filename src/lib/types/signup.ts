@@ -85,6 +85,13 @@ export const SignupSchema = z.object({
   // Offboarding history
   removedDate: z.string().nullable().optional(),
   removedPriority: z.number().int().nullable().optional(),
+  /**
+   * Why they left the waitlist: an admin's Offboard ("manual") or an invite into
+   * the product ("invited", nav v2 phase 4). Absent on older offboards.
+   */
+  offboardReason: z.enum(["manual", "invited"]).nullable().optional(),
+  /** The invite that took them off the waitlist (invites/{inviteId}). */
+  inviteId: z.string().nullable().optional(),
 
   /**
    * When this recipient unsubscribed from the brand's marketing email (ISO 8601).

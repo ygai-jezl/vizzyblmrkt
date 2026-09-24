@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import { isPublicEmailProvider } from "@/lib/domains/registrableDomain";
-import type { ConsentBasis, ProductConnection } from "@/lib/types/productConnection";
+import type { ConnectionCatalog, ConsentBasis, ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser, TraitValue } from "@/lib/types/productUser";
 import {
   LIMITS,
@@ -192,6 +192,8 @@ export function tombstoneOf(current: ProductUser, nowMs: number): Doc {
     consent: null,
     emailPreferences: {},
     status: "deleted",
+    activated: false,
+    activatedAt: null,
     ttlAt: new Date(nowMs + TOMBSTONE_TTL_MS),
     firstSeenAt: current.firstSeenAt,
     lastSeenAt: current.lastSeenAt,
@@ -201,13 +203,36 @@ export function tombstoneOf(current: ProductUser, nowMs: number): Doc {
 }
 
 /**
+ * When a user counts as activated: their first `onboarding.completed`, or the
+ * moment every catalog onboarding step was done (the same rule as the lifecycle
+ * field `onboarding.complete`), whichever came first. Null while neither holds.
+ */
+export function activationAt(
+  doc: Pick<Doc, "milestones" | "steps">,
+  steps: ReadonlyArray<{ id: string }>,
+): string | null {
+  const completed = doc.milestones[RESERVED_EVENTS.onboardingCompleted]?.firstAt ?? null;
+  let allDone: string | null = null;
+  if (steps.length > 0 && steps.every((s) => doc.steps[s.id])) {
+    allDone = steps.reduce((latest, s) => max(latest, doc.steps[s.id]!.doneAt), "");
+  }
+  if (completed && allDone) return completed < allDone ? completed : allDone;
+  return completed ?? allDone;
+}
+
+/**
  * Compute the next profile for one message. `msg.timestamp` must already be
  * normalised to UTC (see toUtcIso).
  */
 export function applyMessage(
   current: ProductUser | null,
   msg: IngestMessage,
-  opts: { connection: Pick<ProductConnection, "id" | "consentPolicy">; nowMs: number },
+  opts: {
+    connection: Pick<ProductConnection, "id" | "consentPolicy"> & {
+      catalog?: Pick<ConnectionCatalog, "onboardingSteps">;
+    };
+    nowMs: number;
+  },
 ): ApplyResult {
   const now = new Date(opts.nowMs).toISOString();
   const ts = msg.timestamp;
@@ -284,6 +309,14 @@ export function applyMessage(
   }
 
   if (!applied) return { next: null, applied: false };
+  // Activation is recorded once and never undone (a later catalog change can't un-activate).
+  if (!doc.activated) {
+    const at = activationAt(doc, opts.connection.catalog?.onboardingSteps ?? []);
+    if (at) {
+      doc.activated = true;
+      doc.activatedAt = at;
+    }
+  }
   doc.firstSeenAt = min(doc.firstSeenAt, ts);
   doc.lastSeenAt = max(doc.lastSeenAt, ts);
   doc.updatedAt = now;

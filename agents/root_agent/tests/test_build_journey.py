@@ -39,6 +39,14 @@ def test_parse_success():
     assert out["message"] == "done"
 
 
+def test_parse_success_passes_the_card_through():
+    card = {"kind": "journey", "id": "journey_cmp_1", "title": "Welcome", "url": "/admin/launches/cmp_1/journey", "stats": [], "warnings": 0}
+    body = json.dumps({"ok": True, "journeyId": "journey_cmp_1", "status": "draft", "url": card["url"], "card": card})
+    out = cc.parse_canvas_response(200, body)
+    assert out["card"] == card
+    assert out["url"] == "/admin/launches/cmp_1/journey"
+
+
 def test_parse_journey_active_error():
     out = cc.parse_canvas_response(409, json.dumps({"error": "journey_active"}))
     assert out["status"] == "error"

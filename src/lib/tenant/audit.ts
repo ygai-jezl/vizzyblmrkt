@@ -39,6 +39,9 @@ export interface LaunchDeletionCounts {
   broadcasts: number;
   journeys: number;
   emailJobs: number;
+  /** Invites and invite waves (nav v2 phase 4); present only when any were purged. */
+  invites?: number;
+  inviteWaves?: number;
 }
 
 /**

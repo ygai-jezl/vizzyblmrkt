@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Mail, Megaphone, Newspaper, Route } from "lucide-react";
+import { Mail, Megaphone, Newspaper, Route, Send } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { journeyIdFor } from "@/lib/journey/service";
 import { launchEmails, percent, type SentSummary } from "@/lib/journey/launchEmails";
 import { WAITLIST_STATUS_LABEL } from "@/lib/journey/waitlistJourneys";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
+import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
+import { loadInviteSetup } from "@/lib/invites/waves";
+import { inviteProgressLine, loadFunnel } from "@/lib/invites/funnel";
 
 export const dynamic = "force-dynamic";
 
@@ -68,10 +72,13 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
   const ctx = await requireAdminContext();
   const { campaignId } = await params;
   const repos = forTenant(ctx);
-  const [journey, broadcasts, workspaces] = await Promise.all([
+  const showInvites = isInvitesUiEnabled() && isInvitesEnabled();
+  const [journey, broadcasts, workspaces, inviteSetup, funnel] = await Promise.all([
     repos.journeys.getById(journeyIdFor(campaignId)),
     repos.broadcasts.find({ where: [["campaignId", "==", campaignId]], orderBy: [["createdAt", "desc"]] }),
     repos.workspaces.find({ where: [], limit: 200 }).catch(() => []),
+    showInvites ? loadInviteSetup(ctx, campaignId).catch(() => null) : null,
+    showInvites ? loadFunnel(ctx, { campaignId }).catch(() => null) : null,
   ]);
   const emails = launchEmails(journey, broadcasts);
   const base = `/admin/launches/${campaignId}`;
@@ -139,6 +146,30 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
             </Link>
           }
         />
+        {inviteSetup ? (
+          <Row
+            icon={<Send size={17} aria-hidden />}
+            title="Invites into your product"
+            line={
+              inviteSetup.lock
+                ? INVITE_LOCK_TEXT[inviteSetup.lock]
+                : funnel && funnel.invited > 0
+                  ? inviteProgressLine(funnel)
+                  : "Invite people from the top of this waitlist into your product."
+            }
+            action={
+              inviteSetup.lock ? (
+                <Link href="/admin/products" className={BUTTON}>
+                  Go to Products
+                </Link>
+              ) : (
+                <Link href={`${base}/invites`} className={BUTTON}>
+                  {funnel && funnel.invited > 0 ? "Open invites" : "Invite your waitlist"}
+                </Link>
+              )
+            }
+          />
+        ) : null}
       </ul>
       <p className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
         <Mail size={13} aria-hidden /> Open and click rates for every email are on this launch&rsquo;s Analytics tab.

@@ -465,3 +465,102 @@ export async function recordWidgetView(
     return false;
   }
 }
+
+// --- tenant-wide Insights (nav v2 phase 4) ------------------------------------
+
+/** A whole number of days, 1–365 (interpolated into INTERVAL; never user input). */
+function safeDays(days: number): number {
+  return Math.min(365, Math.max(1, Math.floor(days)));
+}
+
+export interface BqSignupSources {
+  /** value = source class key (see src/lib/insights/sources.ts). */
+  classes: CountRow[];
+  /** utm_campaign values of signups that came from content. */
+  contentCampaigns: CountRow[];
+}
+
+/**
+ * Signups in the last `days`, by estimated source, across every launch. One scan
+ * of signups_latest; the CASE is built from the constant rule table in
+ * src/lib/insights/sources.ts. Null when BigQuery is unavailable.
+ */
+export async function computeBqSignupSources(
+  ctx: TenantContext,
+  opts: { days: number; caseSql: string; contentKeys: string[] },
+): Promise<BqSignupSources | null> {
+  const target = resolveTarget(ctx.region);
+  if (!target) return null;
+  const table = fqtn(target.project, target.dataset, "signups_latest");
+  const content = opts.contentKeys.filter((k) => /^[a-z_]+$/.test(k)).map((k) => `'${k}'`).join(", ") || "''";
+  const sql = `
+    SELECT src, IF(src IN (${content}), utm_campaign, NULL) AS campaign, COUNT(*) AS count
+    FROM (
+      SELECT ${opts.caseSql} AS src, utm_campaign
+      FROM ${table}
+      WHERE tenant_id = @tenant_id
+        AND created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${safeDays(opts.days)} DAY)
+        AND status IN ('verified_active', 'unverified', 'offboarded')
+    )
+    GROUP BY src, campaign
+  `;
+  const rows = await runQuery<{ src: string; campaign: string | null; count: number | string }>(target, sql, {
+    tenant_id: ctx.tenantId,
+  });
+  if (rows === null) return null;
+  const classes = new Map<string, number>();
+  const campaigns = new Map<string, number>();
+  for (const r of rows) {
+    const n = Number(r.count);
+    classes.set(r.src, (classes.get(r.src) ?? 0) + n);
+    if (r.campaign) campaigns.set(r.campaign, (campaigns.get(r.campaign) ?? 0) + n);
+  }
+  const sorted = (m: Map<string, number>) =>
+    [...m.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count);
+  return { classes: sorted(classes), contentCampaigns: sorted(campaigns).slice(0, TOP_N) };
+}
+
+export interface BqEmailStat {
+  journeyId: string;
+  nodeId: string;
+  sends: number;
+  /** Distinct people who opened / clicked that email. */
+  opens: number;
+  clicks: number;
+}
+
+/**
+ * Every email's sends, unique opens and unique clicks in the last `days`, across
+ * launch journeys, invites and lifecycle journeys (email_events_latest). Null when
+ * BigQuery is unavailable.
+ */
+export async function computeBqEmailStats(ctx: TenantContext, opts: { days: number }): Promise<BqEmailStat[] | null> {
+  const target = resolveTarget(ctx.region);
+  if (!target) return null;
+  const table = fqtn(target.project, target.dataset, "email_events_latest");
+  const sql = `
+    SELECT journey_id, node_id,
+      COUNTIF(type = 'send') AS sends,
+      COUNT(DISTINCT IF(type = 'open', signup_id, NULL)) AS opens,
+      COUNT(DISTINCT IF(type = 'click', signup_id, NULL)) AS clicks
+    FROM ${table}
+    WHERE tenant_id = @tenant_id
+      AND event_ts >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${safeDays(opts.days)} DAY)
+    GROUP BY journey_id, node_id
+  `;
+  const rows = await runQuery<{ journey_id: string; node_id: string; sends: number | string; opens: number | string; clicks: number | string }>(
+    target,
+    sql,
+    { tenant_id: ctx.tenantId },
+  );
+  if (rows === null) return null;
+  return rows
+    .filter((r) => r.journey_id)
+    .map((r) => ({
+      journeyId: r.journey_id,
+      nodeId: r.node_id ?? "",
+      sends: Number(r.sends),
+      opens: Number(r.opens),
+      clicks: Number(r.clicks),
+    }));
+}

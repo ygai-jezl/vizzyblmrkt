@@ -101,3 +101,16 @@ describe("steps", () => {
     expect(computeGrowth({ ...LAUNCHED, signups: null }).stages[0]!.summary).toBe("Live");
   });
 });
+
+describe("the invite step (nav v2 phase 4)", () => {
+  const product = (s: GrowthSignals) => computeGrowth(s).stages.find((st) => st.key === "product")!;
+  const withLifecycle = { ...LAUNCHED, lifecycle: true, products: 1, firstProductId: "pcn_1" };
+
+  it("appears in Launch product only while invites are on, and ticks off after the first invite", () => {
+    expect(product(withLifecycle).steps.map((st) => st.label)).not.toContain("Invite your waitlist");
+    const off = product({ ...withLifecycle, invited: 0 }).steps.at(-1);
+    expect(off).toMatchObject({ label: "Invite your waitlist", done: false, href: "/admin/launches/c1/invites" });
+    expect(product({ ...withLifecycle, invited: 12 }).steps.at(-1)).toMatchObject({ done: true });
+  });
+});
+

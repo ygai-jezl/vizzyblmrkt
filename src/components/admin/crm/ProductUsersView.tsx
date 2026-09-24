@@ -74,6 +74,11 @@ export function ProductUsersView() {
                         On your waitlist
                       </span>
                     ) : null}
+                    {u.invited ? (
+                      <span className="rounded-full bg-green-100 px-1.5 text-[11px] font-medium text-green-800 dark:bg-green-950 dark:text-green-300">
+                        Invited
+                      </span>
+                    ) : null}
                   </span>
                 </td>
                 <td className="px-3 py-2">

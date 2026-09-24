@@ -117,6 +117,13 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // Invite links (/invite/<signed token>, nav v2 phase 4) redirect to the
+        // customer's product: send no Referer at all. Listed last so it overrides
+        // the catch-all's Referrer-Policy (the last matching rule wins per key).
+        source: "/invite/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

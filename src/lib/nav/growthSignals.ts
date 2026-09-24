@@ -24,11 +24,11 @@ const byNewest = <T extends { createdAt?: string | null }>(a: T, b: T) =>
 
 export async function loadGrowthSignals(
   ctx: TenantContext,
-  opts: { lifecycle: boolean },
+  opts: { lifecycle: boolean; invites?: boolean },
   db?: FirestoreLike,
 ): Promise<GrowthSignals & { lastEventAt: string | null; catalogSteps: number }> {
   const repos = forTenant(ctx, db);
-  const [campaigns, liveWelcome, verified, unverified, workspaces, posts, newsletters, connections, journeys] =
+  const [campaigns, liveWelcome, verified, unverified, workspaces, posts, newsletters, connections, journeys, invited] =
     await Promise.all([
       soft("campaigns", repos.campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 100 }), []),
       soft("launch journeys", repos.journeys.count([["status", "==", "active"]]), 0),
@@ -46,6 +46,9 @@ export async function loadGrowthSignals(
       ),
       opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : Promise.resolve([]),
       opts.lifecycle ? soft("journeys", repos.lifecycleJourneys.find({ limit: 100 }), []) : Promise.resolve([]),
+      opts.lifecycle && opts.invites
+        ? soft("invites", repos.invites.count([["invited", "==", true]]), null as number | null)
+        : Promise.resolve(undefined),
     ]);
 
   const activeLaunches = campaigns.filter((c) => !c.archivedAt);
@@ -75,6 +78,7 @@ export async function loadGrowthSignals(
     firstJourneyId: newestJourney?.id ?? null,
     journeyPublished: liveJourneys.some((j) => j.publishedVersion != null),
     journeyLive: liveJourneys.some((j) => j.status === "active" && j.deliveryMode === "live" && j.publishedVersion != null),
+    ...(invited !== undefined ? { invited } : {}),
     lastEventAt,
     catalogSteps: products.reduce((n, c) => n + (c.catalog?.onboardingSteps?.length ?? 0), 0),
   };

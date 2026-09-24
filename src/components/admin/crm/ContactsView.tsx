@@ -2,6 +2,10 @@
 
 import { useCallback, useState } from "react";
 import type { Contact } from "@/lib/types/contact";
+import { INVITE_STAGE_LABEL, type InviteStage } from "@/lib/invites/inviteStage";
+
+/** Nav v2 phase 4: the contacts API adds each row's furthest invite stage when invites are on. */
+const inviteStageOf = (c: Contact): InviteStage | null => (c as Contact & { invite?: InviteStage | null }).invite ?? null;
 import { ContactDetail } from "./ContactDetail";
 
 const chip = (active: boolean) =>
@@ -141,6 +145,11 @@ export function ContactsView({
                   {!c.verified ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                       unverified
+                    </span>
+                  ) : null}
+                  {inviteStageOf(c) ? (
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                      {INVITE_STAGE_LABEL[inviteStageOf(c)!]}
                     </span>
                   ) : null}
                   {c.isCorporateDomain ? (

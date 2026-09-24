@@ -48,6 +48,8 @@ export async function fetchAdminSignupRows(
     firstName: s.firstName ?? null,
     lastName: s.lastName ?? null,
     status: s.status,
+    // Nav v2 phase 4: offboarded by an invite into the product (shown as "invited").
+    invited: s.status === "offboarded" && s.offboardReason === "invited",
     amountReferred: s.amountReferred,
     rank: ranks?.get(s.id),
     createdAt: s.createdAt,

@@ -616,35 +616,38 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # Nav v2 phase 3 — OFF in prod until verified on dev (see apphosting.yaml).
+  # Nav v2 phase 3 — ON in prod (owner decision, 2026-09-24). No indexes or agent
+  # changes needed.
   - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
-  # Nav v2 phase 4 and its parts — OFF in prod until verified on dev (see
-  # apphosting.yaml). The invite-link-signing-key secret is inherited from
-  # apphosting.yaml and must exist in this project before promotion.
+  # Nav v2 phase 4 and its parts — ON in prod (owner decision, 2026-09-24). The
+  # invite-link-signing-key secret (inherited from apphosting.yaml) exists in this
+  # project with App Hosting access. Each part can be switched off on its own by
+  # setting it back to "false" (NEXT_PUBLIC_* need a new rollout). Invite links
+  # already sent keep working with INVITES_ENABLED off.
   - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: CONTENT_CHAT_AUTHORING_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: INVITES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_INVITES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

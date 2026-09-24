@@ -4,7 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
-import { githubAppConfig, manageInstallationUrl } from "@/lib/integrations/githubApp";
+import { githubAppConfig, manageUrlFor } from "@/lib/integrations/githubApp";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 import type { GitConnection } from "@/lib/types/tenant";
 import { isXConfigured } from "@/lib/social/x/oauth";
@@ -27,6 +27,8 @@ export async function GET(req: Request) {
   const app = githubAppConfig();
   const githubApp = Boolean(app);
   const repoSelection = isGitRepoSelectionEnabled();
+  const gh = conns.github;
+  const githubManageUrl = app && gh?.kind === "app" ? await manageUrlFor(gh, app) : null;
 
   const providers: Record<string, unknown> = {};
   (Object.keys(PROVIDERS) as GitProvider[]).forEach((p) => {
@@ -43,7 +45,7 @@ export async function GET(req: Request) {
       // A classic GitHub connection can be replaced with the read-only app.
       upgradeAvailable: appMode && Boolean(c) && c?.kind !== "app",
       appInstall: appMode,
-      manageUrl: appMode && app && c?.kind === "app" ? manageInstallationUrl(app) : null,
+      manageUrl: appMode ? githubManageUrl : null,
       // Repo selection: null = legacy "any repo"; otherwise the chosen repos. A GitHub
       // App connection's repos are chosen on GitHub's install screen instead.
       ...(repoSelection && c?.kind !== "app"

@@ -1,13 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { generateKeyPairSync, createVerify } from "node:crypto";
 import {
   appJwt,
   authorizeUrl,
+  getInstallationAccount,
   githubAppConfig,
+  installationSettingsUrl,
   installUrl,
   listInstallationRepos,
   listUserInstallations,
   manageInstallationUrl,
+  manageUrlFor,
   mintInstallationToken,
   verifyUserInstallation,
 } from "./githubApp";
@@ -153,6 +156,51 @@ describe("GitHub App (read-only)", () => {
     expect(await listUserInstallations(input, cfg, noToken.f)).toEqual({ ok: false, reason: "token_exchange_failed" });
     const lookupFails = fakeFetch((url) => (url.includes("login/oauth") ? { status: 200, body: { access_token: "t" } } : { status: 502, body: {} }));
     expect(await listUserInstallations(input, cfg, lookupFails.f)).toEqual({ ok: false, reason: "installations_lookup_failed" });
+  });
+
+  it("links an install's own settings page, for an organisation or a personal account", () => {
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "acme-org", accountType: "Organization" })).toBe(
+      "https://github.com/organizations/acme-org/settings/installations/9",
+    );
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "jo", accountType: "User" })).toBe("https://github.com/settings/installations/9");
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "acme-org", accountType: null })).toBeNull();
+    expect(installationSettingsUrl({ installationId: 9, accountLogin: "../evil", accountType: "Organization" })).toBeNull();
+    expect(installationSettingsUrl({ installationId: 0, accountLogin: "jo", accountType: "User" })).toBeNull();
+  });
+
+  it("asks GitHub, as the app, which account an install is on", async () => {
+    const { f, calls } = fakeFetch(() => ({ status: 200, body: { account: { login: "acme-org", type: "Organization" } } }));
+    expect(await getInstallationAccount(9, cfg, f)).toEqual({ accountLogin: "acme-org", accountType: "Organization" });
+    expect(calls[0]!.url).toBe("https://api.github.com/app/installations/9");
+    expect(new Headers(calls[0]!.init?.headers).get("authorization")).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
+    expect(await getInstallationAccount(9, cfg, fakeFetch(() => ({ status: 404, body: {} })).f)).toBeNull();
+  });
+
+  describe("where 'Add or remove repositories' goes", () => {
+    afterEach(() => {
+      delete process.env.GITHUB_APP_LINK_ENABLED;
+    });
+    const appPage = "https://github.com/apps/yougrow-connect/installations/new";
+    const never = fakeFetch(() => {
+      throw new Error("no GitHub call expected");
+    });
+
+    it("stays on the app's page while linking is off", async () => {
+      expect(await manageUrlFor({ installationId: 9, accountLogin: "jo", accountType: "User" }, cfg, never.f)).toBe(appPage);
+    });
+
+    it("opens the install's own page, looking up its account only when we didn't keep it", async () => {
+      process.env.GITHUB_APP_LINK_ENABLED = "true";
+      expect(await manageUrlFor({ installationId: 9, accountLogin: "jo", accountType: "User" }, cfg, never.f)).toBe(
+        "https://github.com/settings/installations/9",
+      );
+      const lookup = fakeFetch(() => ({ status: 200, body: { account: { login: "acme-org", type: "Organization" } } }));
+      expect(await manageUrlFor({ installationId: 9, accountLogin: "acme-org" }, cfg, lookup.f)).toBe(
+        "https://github.com/organizations/acme-org/settings/installations/9",
+      );
+      // Uninstalled on GitHub: back to the app's page, where it can be installed again.
+      expect(await manageUrlFor({ installationId: 9 }, cfg, fakeFetch(() => ({ status: 404, body: {} })).f)).toBe(appPage);
+    });
   });
 });
 

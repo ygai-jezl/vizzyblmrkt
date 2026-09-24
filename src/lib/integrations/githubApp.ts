@@ -203,6 +203,58 @@ export function manageInstallationUrl(cfg: Pick<GitHubAppConfig, "slug">): strin
   return `https://github.com/apps/${cfg.slug}/installations/new`;
 }
 
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+/**
+ * The install's own settings page on GitHub, where its repositories are changed.
+ * Unlike the app page, it can't start a new install on another account by mistake.
+ * null when we don't know which kind of account it's on.
+ */
+export function installationSettingsUrl(i: {
+  installationId: number;
+  accountLogin?: string | null;
+  accountType?: GitHubAccountType | null;
+}): string | null {
+  if (!Number.isInteger(i.installationId) || i.installationId <= 0) return null;
+  if (i.accountType === "User") return `https://github.com/settings/installations/${i.installationId}`;
+  if (i.accountType === "Organization" && i.accountLogin && GITHUB_LOGIN.test(i.accountLogin)) {
+    return `https://github.com/organizations/${i.accountLogin}/settings/installations/${i.installationId}`;
+  }
+  return null;
+}
+
+/** Which account an install is on, asked as the app (for connections saved before we kept its type). */
+export async function getInstallationAccount(
+  installationId: number,
+  cfg: Pick<GitHubAppConfig, "appId" | "privateKey">,
+  fetchImpl: Fetch = fetch,
+): Promise<{ accountLogin: string | null; accountType: GitHubAccountType | null } | null> {
+  const res = await fetchImpl(`${API}/app/installations/${installationId}`, {
+    headers: { ...API_HEADERS, Authorization: `Bearer ${appJwt(cfg)}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) return null;
+  const d = (await res.json().catch(() => ({}))) as { account?: { login?: string; type?: string } | null };
+  return { accountLogin: typeof d.account?.login === "string" ? d.account.login : null, accountType: accountType(d.account?.type) };
+}
+
+/**
+ * Where a connection's repositories are changed: the install's own page when
+ * linking is on and we know its account, else GitHub's page for the app.
+ */
+export async function manageUrlFor(
+  conn: { installationId?: number; accountLogin?: string; accountType?: GitHubAccountType },
+  cfg: GitHubAppConfig,
+  fetchImpl: Fetch = fetch,
+): Promise<string> {
+  const fallback = manageInstallationUrl(cfg);
+  if (!isGitHubAppLinkEnabled() || !conn.installationId) return fallback;
+  const account = conn.accountType
+    ? { accountLogin: conn.accountLogin ?? null, accountType: conn.accountType }
+    : await getInstallationAccount(conn.installationId, cfg, fetchImpl).catch(() => null);
+  return (account && installationSettingsUrl({ installationId: conn.installationId, ...account })) ?? fallback;
+}
+
 export interface InstallationRepo {
   /** owner/name */
   fullName: string;

@@ -51,8 +51,19 @@ if [ -z "$PROJECT" ]; then
   exit 2
 fi
 
+# Both CLIs must be able to act on this project BEFORE anything is created, so an
+# expired login can't leave the key created but App Hosting without access to it.
+preflight() {
+  gcloud secrets list --project="$PROJECT" --limit=1 --quiet >/dev/null 2>&1 \
+    || { echo "gcloud can't reach Secret Manager in $PROJECT. Run: gcloud auth login" >&2; exit 1; }
+  firebase apphosting:backends:get "$BACKEND" --project "$PROJECT" >/dev/null 2>&1 \
+    || { echo "The Firebase CLI can't see App Hosting backend '$BACKEND' in $PROJECT." >&2
+         echo "Run: firebase login --reauth (or pass the backend id as the third argument)." >&2; exit 1; }
+}
+
 case "$CMD" in
   secret)
+    preflight
     if gcloud secrets describe "$SECRET_NAME" --project="$PROJECT" >/dev/null 2>&1; then
       echo "==> Secret $SECRET_NAME already exists in $PROJECT (not rotating it)"
     else

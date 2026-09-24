@@ -1,0 +1,16 @@
+# Local tooling for agents/root_agent/deploy.sh — NOT the deployed agent's
+# dependencies (those are agents/root_agent/requirements.txt, installed in the
+# engine's own image).
+#
+#   python3.12 -m venv agents/.venv            # any Python 3.10–3.13
+#   agents/.venv/bin/pip install -r agents/requirements-deploy.txt
+#
+# The engine's image comes from ADK's own Dockerfile template, so the local
+# Python version doesn't change what's deployed.
+google-adk[a2a]==2.2.0
+# `adk deploy agent_engine` uses the Vertex AI SDK to update the engine.
+google-cloud-aiplatform[agent_engines]==2.2.0
+# google-adk 2.2.0 needs OpenTelemetry <= 1.41.1; the Vertex SDK would pull newer.
+opentelemetry-api>=1.36,<=1.41.1
+opentelemetry-sdk>=1.36,<=1.41.1
+opentelemetry-exporter-otlp-proto-http<=1.41.1

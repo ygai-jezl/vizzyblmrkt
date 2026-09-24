@@ -1,4 +1,5 @@
 import type { NavKey } from "./model";
+import { isInsightsHubEnabled } from "./flags";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 
 /**
@@ -20,10 +21,14 @@ const SUGGESTIONS: Record<NavKey, string[]> = {
 
 /** Nav v2 phase 4: extra starters that only make sense while their feature is on. */
 const INVITE_SUGGESTION = "Draft an invite wave for my top 100";
+/** Answered from real numbers by Vizzy's get_insights_summary tool. */
+const INSIGHTS_SUGGESTION = "Which content brings signups?";
 
 export function vizzySuggestions(key: NavKey | null): string[] {
   const base = SUGGESTIONS[key ?? "home"];
-  return key === "launches" && isInvitesUiEnabled() ? [...base, INVITE_SUGGESTION] : base;
+  if (key === "launches" && isInvitesUiEnabled()) return [...base, INVITE_SUGGESTION];
+  if (key === "insights" && isInsightsHubEnabled()) return [...base, INSIGHTS_SUGGESTION];
+  return base;
 }
 
 /** Prompts on Home, for the stage the brand is in ("first" = nothing set up yet). */

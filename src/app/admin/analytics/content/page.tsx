@@ -4,8 +4,8 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { isInsightsHubEnabled } from "@/lib/nav/flags";
 import { isContentSteeringUiEnabled } from "@/lib/content/brandKit";
-import { loadSignupSources } from "@/lib/insights/overview";
-import { SourceList, sourcesNote } from "@/components/admin/insights/InsightsOverviewSection";
+import { loadSignupSources, sourcesNote } from "@/lib/insights/overview";
+import { SourceList } from "@/components/admin/insights/InsightsOverviewSection";
 import { Card } from "@/components/admin/insights/parts";
 
 export const dynamic = "force-dynamic";

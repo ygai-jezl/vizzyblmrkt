@@ -3,17 +3,10 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isContentSteeringUiEnabled } from "@/lib/content/brandKit";
-import { loadInsightsOverview, type SignupSources } from "@/lib/insights/overview";
+import { loadInsightsOverview, sourcesNote, type SignupSources } from "@/lib/insights/overview";
 import { WeeklyBars } from "@/components/admin/charts/WeeklyBars";
 import { LaunchFunnel } from "@/components/admin/invites/LaunchFunnel";
 import { Card, RoadmapCard, Tiles, pct } from "./parts";
-
-/** Where the source numbers come from, said plainly. */
-export function sourcesNote(s: SignupSources): string {
-  if (s.basis === "none") return "not available right now";
-  const base = "last 30 days · estimated from UTM tags and referring sites";
-  return s.sampled ? `${base} · newest 5,000 signups` : base;
-}
 
 /** Signups by source as labelled rows (one series: each row names itself). */
 export function SourceList({ sources }: { sources: SignupSources }) {

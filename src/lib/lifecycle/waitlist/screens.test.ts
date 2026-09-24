@@ -172,6 +172,16 @@ describe("screens that show a launch's welcome journey", () => {
 });
 
 describe("pausing, resuming and archiving a moved launch control both engines", () => {
+  it("the new editor's Pause and Resume control both engines while the original drains", async () => {
+    const { db, journey } = await moved();
+    const paused = await setJourneyStatus(ctx, journey.id, { status: "paused" }, db);
+    expect(paused).toMatchObject({ status: 200, body: { journey: { status: "paused" } } });
+    expect((await forTenant(system, db).journeys.getById(`journey_${CAMPAIGN_ID}`))!.status).toBe("paused");
+    const resumed = await setJourneyStatus(ctx, journey.id, { status: "active" }, db);
+    expect(resumed).toMatchObject({ status: 200, body: { journey: { status: "active" }, released: { released: 0, expired: 0 } } });
+    expect((await forTenant(system, db).journeys.getById(`journey_${CAMPAIGN_ID}`))!.status).toBe("active");
+  });
+
   it("pauses both, and resuming releases people on both without enrolling anyone new on the original", async () => {
     const { db, journey } = await moved();
     seedSignup(db, "newcomer"); // verified, never on the original journey

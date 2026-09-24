@@ -97,7 +97,8 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
     body: {
       connections: withStats,
       journeys: journeys
-        .filter((j) => j.status !== "archived")
+        // Launches' welcome journeys (engine move) are authored through the launch, not here.
+        .filter((j) => j.status !== "archived" && j.audience?.kind !== "waitlist")
         .map((j) => ({
           id: j.id,
           name: j.name,
@@ -118,7 +119,9 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
 export async function agentLifecycleJourney(ctx: TenantContext, journeyId: string, db?: FirestoreLike): Promise<ApiResult> {
   const repo = forTenant(ctx, db);
   const journey = await repo.lifecycleJourneys.getById(journeyId);
-  if (!journey || journey.status === "archived") return { status: 404, body: { error: "not_found" } };
+  if (!journey || journey.status === "archived" || journey.audience?.kind === "waitlist") {
+    return { status: 404, body: { error: "not_found" } };
+  }
   const connection = await repo.productConnections.getById(journey.connectionId);
   return {
     status: 200,

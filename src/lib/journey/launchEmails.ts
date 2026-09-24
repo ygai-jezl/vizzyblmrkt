@@ -1,6 +1,6 @@
 import type { Broadcast } from "@/lib/types/broadcast";
-import type { Journey } from "@/lib/types/journey";
 import type { WaitlistJourneyStatus } from "./waitlistJourneyRows";
+import type { WelcomeJourney } from "./launchJourney";
 
 /**
  * Everything a launch sends, for its Emails tab (nav v2 phase 3): the welcome &
@@ -16,7 +16,7 @@ export interface SentSummary {
 }
 
 export interface LaunchEmails {
-  journey: { status: WaitlistJourneyStatus; emails: number; updatedAt: string | null };
+  journey: { status: WaitlistJourneyStatus; emails: number; updatedAt: string | null; href: string; engine: "legacy" | "lifecycle" };
   broadcasts: SentSummary;
   newsletters: SentSummary & { workspaceIds: string[] };
 }
@@ -34,16 +34,16 @@ function summarise(list: BroadcastLike[]): SentSummary {
   };
 }
 
-export function launchEmails(
-  journey: Pick<Journey, "status" | "graph" | "updatedAt"> | null,
-  broadcasts: BroadcastLike[],
-): LaunchEmails {
+/** `journey`: the launch's welcome journey on whichever engine (see launchJourney.ts). */
+export function launchEmails(journey: WelcomeJourney, broadcasts: BroadcastLike[]): LaunchEmails {
   const weekly = broadcasts.filter((b) => b.audienceMode === "weekly");
   return {
     journey: {
-      status: journey?.status ?? "not_started",
-      emails: journey?.graph?.nodes?.filter((n) => n.type === "email").length ?? 0,
-      updatedAt: journey?.updatedAt || null,
+      status: journey.status,
+      emails: journey.emails,
+      updatedAt: journey.updatedAt,
+      href: journey.href,
+      engine: journey.engine,
     },
     broadcasts: summarise(broadcasts.filter((b) => b.audienceMode !== "weekly")),
     newsletters: {

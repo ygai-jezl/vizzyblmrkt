@@ -70,6 +70,7 @@ export function DeliveryPanel({
 
   const sandboxIds = detail.connection?.sandboxUsers ?? [];
   const capped = RANK[mode] > RANK[detail.modeCeiling];
+  const waitlist = detail.audience === "waitlist";
 
   return (
     <div className="space-y-4">
@@ -86,7 +87,9 @@ export function DeliveryPanel({
                 <input type="radio" name="mode" disabled={!canEdit} checked={mode === m.id} onChange={() => setMode(m.id)} />
                 {m.title}
               </span>
-              <span className="block text-xs text-neutral-500">{m.body}</span>
+              <span className="block text-xs text-neutral-500">
+                {waitlist && m.id === "live" ? "Real emails to everyone who joins, from the launch's sender." : m.body}
+              </span>
             </label>
           ))}
         </div>
@@ -115,11 +118,20 @@ export function DeliveryPanel({
         ) : null}
       </Section>
 
-      <Section title="Test users" description="Enrolled (and emailed) in test mode. Use the product's own user ids, or their email addresses.">
+      <Section
+        title="Test users"
+        description={
+          waitlist
+            ? "In test mode only these addresses are enrolled when they join, and they get real emails."
+            : "Enrolled (and emailed) in test mode. Use the product's own user ids, or their email addresses."
+        }
+      >
         <div className="grid gap-3 sm:grid-cols-2">
+          {waitlist ? null : (
           <Field label="User ids" hint={sandboxIds.length ? `Sandbox users: ${sandboxIds.map((u) => u.userId).join(", ")}` : "One per line."}>
             <textarea className={`${inputClass} min-h-20 font-mono text-xs`} disabled={!canEdit} value={userIds} onChange={(e) => setUserIds(e.target.value)} />
           </Field>
+          )}
           <Field label="Email addresses" hint="One per line.">
             <textarea className={`${inputClass} min-h-20 font-mono text-xs`} disabled={!canEdit} value={emails} onChange={(e) => setEmails(e.target.value)} />
           </Field>

@@ -11,7 +11,6 @@ import type {
   LifecycleSettings,
   LifecycleVersion,
   SendPolicy,
-  SentItem,
 } from "@/lib/types/lifecycle";
 import { fetchProductContext, recordContextHealth, type ContextResult } from "@/lib/connect/contextClient";
 import { sendConnectionWebhook } from "@/lib/connect/webhookClient";
@@ -23,7 +22,7 @@ import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import type { AiDraft } from "@/lib/types/lifecycle";
-import { afterSend, afterSkip, decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
+import { decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
 import { nextNodeId } from "./graph";
 import { nextWindowAt } from "./sendWindow";
 import { renderLifecycleEmail, type RenderedEmail } from "./render";
@@ -36,6 +35,22 @@ import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
 import { draftDocId, scheduleDraft, supersedeDrafts } from "./drafts";
 import { decideSendVersion, type SendVersion } from "./decide";
 import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
+import { runWaitlistTick } from "./waitlist/tick";
+import { isWaitlistEngineEnabled } from "./waitlist/flags";
+import {
+  cursorOf,
+  DAY_MS,
+  iso,
+  leaseEnrolment,
+  nextUtcMidnight,
+  openRun,
+  runWalkLoop,
+  withLog,
+  type DeliverResult,
+  type EnrolmentRunOutcome,
+} from "./enrolmentRun";
+
+export type { EnrolmentRunOutcome } from "./enrolmentRun";
 
 /**
  * The lifecycle RUNNER. Each due enrolment is one queue item, processed by the
@@ -50,11 +65,10 @@ import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } 
  * Exactly-once-or-never: a send is claimed (`pendingSend`) before the provider
  * call. If the process dies before the commit, the next run records it as
  * `unknown` and moves on — it is never resent. Ambiguous provider answers are
- * treated the same way. At most one email per enrolment per run.
+ * treated the same way. At most one email per enrolment per run. The lease,
+ * commit and walk loop are shared with waitlist journeys (./enrolmentRun.ts).
  */
 
-const DAY_MS = 86_400_000;
-const LEASE_MS = 3 * 60_000;
 export const LIFECYCLE_RUN_BUDGET_MS = 80_000;
 const CONCURRENCY = 4;
 const DUE_LIMIT = 50;
@@ -64,11 +78,6 @@ const PRODUCT_HOLD_DEFAULT_MS = 6 * 3600_000;
 const PRODUCT_HOLD_MAX_MS = DAY_MS;
 /** Minimum gap between two lifecycle emails to one user, across journeys. */
 const FREQUENCY_GAP_MS = 20 * 3600_000;
-const MAX_FAILURES = 8;
-const MAX_LOG = 40;
-
-type EnrolmentDoc = Omit<LifecycleEnrolment, "id" | "tenantId">;
-type LogEntry = LifecycleEnrolment["log"][number];
 
 export interface RunnerDeps {
   db?: FirestoreLike;
@@ -80,39 +89,6 @@ export interface RunnerDeps {
   budgetMs?: number;
   /** AI line writer for draft preparation (tests inject a stub). */
   generate?: PrepareDeps["generate"];
-}
-
-export type EnrolmentRunOutcome =
-  | "not_due"
-  | "waiting"
-  | "held"
-  | "sent"
-  | "completed"
-  | "exited"
-  | "failed"
-  | "lost_lease";
-
-const iso = (ms: number) => new Date(ms).toISOString();
-const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
-const cursorOf = (nodeId: string | null) => (nodeId ? { nodeId } : null);
-
-function withLog(log: LogEntry[], entries: LogEntry[]): LogEntry[] {
-  const out = [...log];
-  for (const e of entries) {
-    const last = out[out.length - 1];
-    // A repeated hold (paused journey, waiting for consent…) is logged once.
-    if (last && last.event === e.event && (last.detail ?? null) === (e.detail ?? null)) continue;
-    out.push(e);
-  }
-  return out.slice(-MAX_LOG);
-}
-
-function backoffMs(failures: number): number {
-  return Math.min(5 * 60_000 * 2 ** Math.max(0, failures - 1), 6 * 3600_000);
-}
-
-function nextUtcMidnight(ms: number): number {
-  return Math.floor(ms / DAY_MS) * DAY_MS + DAY_MS;
 }
 
 /** Per-tick memo of the documents many enrolments share. */
@@ -152,22 +128,6 @@ export class RunCache {
   }
 }
 
-type DeliverResult =
-  | {
-      kind: "sent";
-      status: "sent" | "unknown";
-      reason: string | null;
-      insightId: string | null;
-      atMs: number;
-      version?: "standard" | "ai" | "fallback";
-    }
-  | { kind: "skipped"; reason: string }
-  | { kind: "hold"; untilMs: number; event: string; detail?: string }
-  | { kind: "exclude"; reason: string }
-  | { kind: "exit"; reason: string }
-  | { kind: "failed"; reason: string }
-  | { kind: "lost_lease" };
-
 interface RunScope {
   ctx: TenantContext;
   deps: RunnerDeps;
@@ -200,7 +160,6 @@ export async function processEnrolment(
   const cache = opts.cache ?? new RunCache(ctx, deps.db);
   const repo = forTenant(ctx, deps.db);
   const nowMs = clock();
-  const nowIso = iso(nowMs);
 
   const seed = opts.seed ?? (await repo.lifecycleEnrolments.getById(enrolmentId));
   if (!seed || seed.status !== "active") return "not_due";
@@ -208,61 +167,22 @@ export async function processEnrolment(
   const version = await cache.version(seed.versionId);
 
   const leaseId = randomUUID();
-  const leased = await repo.lifecycleEnrolments.claim(enrolmentId, (cur) => {
-    if (cur.status !== "active" || !cur.nextRunAt || cur.nextRunAt > nowIso) return null;
-    if (cur.leaseUntil && cur.leaseUntil > nowIso) return null;
-    const patch: Partial<EnrolmentDoc> = { leaseId, leaseUntil: iso(nowMs + LEASE_MS) };
-    // A send that started but never finished: its outcome is unknown, so it is
-    // recorded as such and NEVER resent.
-    const p = cur.pendingSend;
-    if (p) {
-      patch.sentItems = [
-        ...cur.sentItems,
-        { nodeId: p.nodeId, poolId: p.poolId, itemId: p.itemId, at: p.at, status: "unknown" as const, mode: cur.mode, reason: "interrupted" },
-      ].slice(-60);
-      patch.pendingSend = null;
-      patch.lastSentAt = p.at;
-      patch.windowExemptUntil = null;
-      if (version) patch.cursor = cursorOf(nextNodeId(version.graph, p.nodeId));
-      patch.log = withLog(cur.log, [{ at: nowIso, event: "send_unknown", detail: `${p.poolId}/${p.itemId}: interrupted` }]);
-    }
-    return patch;
-  });
+  const leased = await leaseEnrolment(repo.lifecycleEnrolments, enrolmentId, { nowMs, leaseId, version });
   if (!leased) return "not_due";
 
-  const pendingLog: LogEntry[] = [];
-  const log = (event: string, detail?: string | null) =>
-    pendingLog.push({ at: nowIso, event: event.slice(0, 80), detail: detail ? detail.slice(0, 300) : null });
-
-  /** Write the run's outcome and release the lease (only if we still hold it). */
-  const commit = async (patch: Partial<EnrolmentDoc>): Promise<boolean> => {
-    const done = await repo.lifecycleEnrolments.claim(enrolmentId, (cur) => {
-      if (cur.leaseId !== leaseId) return null;
-      return { ...patch, log: withLog(cur.log, pendingLog), leaseId: null, leaseUntil: null, updatedAt: iso(clock()) };
-    });
-    return done !== null;
-  };
   const retireDrafts = () =>
     supersedeDrafts(ctx, enrolmentId, { db: deps.db, nowMs }).catch((err) => {
       console.warn(`[lifecycle] supersede drafts ${ctx.tenantId}/${enrolmentId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       return 0;
     });
-  const stop = async (reason: string, status: "exited" | "completed" = "exited"): Promise<EnrolmentRunOutcome> => {
-    log(status === "completed" ? "completed" : "stopped", status === "completed" ? null : reason);
-    const ok = await commit({
-      status,
-      stopReason: status === "completed" ? null : reason.slice(0, 120),
-      cursor: null,
-      nextRunAt: null,
-      pendingSend: null,
-    });
-    if (ok) await retireDrafts();
-    return ok ? status : "lost_lease";
-  };
-  const hold = async (untilMs: number, event: string, detail?: string): Promise<EnrolmentRunOutcome> => {
-    log(event, detail);
-    return (await commit({ nextRunAt: iso(untilMs), failures: 0 })) ? "held" : "lost_lease";
-  };
+  const run = openRun(repo.lifecycleEnrolments, enrolmentId, {
+    leaseId,
+    nowMs,
+    clock,
+    label: `${ctx.tenantId}/${enrolmentId}`,
+    onFinished: retireDrafts,
+  });
+  const { log, stop, hold } = run;
 
   try {
     if (!version) return await stop("version_missing");
@@ -278,7 +198,7 @@ export async function processEnrolment(
     const settings = version.settings;
     const policy = settings.sendPolicy;
     const anchorMs = Date.parse(leased.anchorAt);
-    if (nowMs > anchorMs + policy.hardStopDays * DAY_MS) return await stop("hard_stop");
+    if (policy.hardStopDays !== null && nowMs > anchorMs + policy.hardStopDays * DAY_MS) return await stop("hard_stop");
     if (user.emailPreferences[settings.category.key]?.subscribed === false) return await stop("unsubscribed_in_product");
     if (user.email && (await isSuppressedFor(ctx, user.email, settings.category.key, deps.db))) {
       return await stop("unsubscribed");
@@ -302,10 +222,9 @@ export async function processEnrolment(
     };
 
     const startCursor = leased.cursor?.nodeId ?? null;
-    let state: WalkState = walkStateOf(leased, nowMs);
     const excluded = new Set<string>();
     let context: ProductContext | null = null;
-    const env = (c: ProductContext | null, probe?: { used: boolean }) =>
+    const env = (state: WalkState, c: ProductContext | null, probe?: { used: boolean }) =>
       walkEnvFor({
         version,
         user,
@@ -322,8 +241,9 @@ export async function processEnrolment(
     // Walk once without context: a run that only reaches a wait needs no call
     // to the product. Anything that reads the user's state (a condition, a pool
     // pick, a send) gets ONE live context pull, then the walk is redone with it.
+    const state: WalkState = walkStateOf(leased, nowMs);
     const probe = { used: false };
-    let walk: WalkResult = decideNext(state, env(null, probe));
+    let walk: WalkResult = decideNext(state, env(state, null, probe));
     if (probe.used || walk.decision.kind === "send") {
       const res = await (deps.fetchContext ?? fetchProductContext)(
         connection,
@@ -342,146 +262,35 @@ export async function processEnrolment(
       } else {
         log("context_unavailable", res.error);
       }
-      walk = decideNext(state, env(context));
+      walk = decideNext(state, env(state, context));
     }
 
-    const sentItems: SentItem[] = [...leased.sentItems];
-    const usedInsightIds = [...leased.usedInsightIds];
-    let lastSentAt = leased.lastSentAt ?? null;
-    let sentOne = false;
-    const progress = () => ({
-      sentItems: sentItems.slice(-60),
-      usedInsightIds: usedInsightIds.slice(-60),
-      lastSentAt,
-      pendingSend: null,
-      failures: 0,
+    return await runWalkLoop(run, walk, {
+      enrolment: leased,
+      mode: scope.mode,
+      excluded,
+      clock,
+      walk: (s) => decideNext(s, env(s, context)),
+      deliver: (d, s, usedInsightIds) => deliver(scope, d, context, usedInsightIds, s),
+      onWaitBooked: async (s, runAtMs) => {
+        if (!isLifecycleAiDraftsEnabled()) return;
+        // Predict the email this booked slot will send; if it carries an AI
+        // line, book a draft so it can be written and reviewed ahead of time.
+        const ahead = decideNext({ ...s, nowMs: runAtMs }, env(s, context)).decision;
+        if (ahead.kind === "send") {
+          await scheduleDraft(
+            ctx,
+            { enrolment: leased, version, nodeId: ahead.nodeId, poolId: ahead.pool.id, item: ahead.item, sendAtMs: runAtMs },
+            { db: deps.db, nowMs },
+          ).catch((err) => {
+            console.warn(`[lifecycle] draft booking ${ctx.tenantId}/${enrolmentId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+          });
+        }
+      },
+      onFinished: retireDrafts,
     });
-
-    for (let guard = 0; guard < 12; guard += 1) {
-      for (const s of walk.skipped) log("nothing_to_send", `${s.nodeId} (${s.poolId})`);
-      const d: Decision = walk.decision;
-      state = walk.state;
-
-      if (d.kind === "run_at") {
-        const ok = await commit({
-          ...progress(),
-          cursor: cursorOf(state.cursor),
-          nextRunAt: iso(d.runAtMs),
-          windowExemptUntil: isoOrNull(state.windowExemptUntilMs),
-        });
-        if (ok && d.reason === "wait" && isLifecycleAiDraftsEnabled()) {
-          // Predict the email this booked slot will send; if it carries an AI
-          // line, book a draft so it can be written and reviewed ahead of time.
-          const ahead = decideNext({ ...state, nowMs: d.runAtMs }, env(context)).decision;
-          if (ahead.kind === "send") {
-            await scheduleDraft(
-              ctx,
-              { enrolment: leased, version, nodeId: ahead.nodeId, poolId: ahead.pool.id, item: ahead.item, sendAtMs: d.runAtMs },
-              { db: deps.db, nowMs },
-            ).catch((err) => {
-              console.warn(`[lifecycle] draft booking ${ctx.tenantId}/${enrolmentId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-            });
-          }
-        }
-        return ok ? (sentOne ? "sent" : "waiting") : "lost_lease";
-      }
-      if (d.kind === "complete" || d.kind === "exit") {
-        log(d.kind === "complete" ? "completed" : "stopped", d.kind === "exit" ? d.reason : null);
-        const ok = await commit({
-          ...progress(),
-          status: d.kind === "complete" ? "completed" : "exited",
-          stopReason: d.kind === "exit" ? d.reason : null,
-          cursor: null,
-          nextRunAt: null,
-        });
-        if (ok) await retireDrafts();
-        return ok ? (sentOne ? "sent" : d.kind === "complete" ? "completed" : "exited") : "lost_lease";
-      }
-
-      // An email is due.
-      if (sentOne) {
-        // One email per run; the next one goes on the next tick.
-        const ok = await commit({
-          ...progress(),
-          cursor: cursorOf(state.cursor),
-          nextRunAt: iso(clock() + 60_000),
-          windowExemptUntil: isoOrNull(state.windowExemptUntilMs),
-        });
-        return ok ? "sent" : "lost_lease";
-      }
-      const r = await deliver(scope, d, context, usedInsightIds, state);
-      switch (r.kind) {
-        case "lost_lease":
-          return "lost_lease";
-        case "exit":
-          return await stop(r.reason);
-        case "hold":
-          // Resume from where this run started, so conditions are re-checked
-          // against fresh context next time.
-          return await hold(r.untilMs, r.event, r.detail);
-        case "exclude":
-          excluded.add(`${d.pool.id}:${d.item.id}`);
-          log("item_skipped", `${d.item.id}: ${r.reason}`);
-          walk = decideNext(state, env(context));
-          continue;
-        case "failed": {
-          log("send_failed", r.reason);
-          const failures = leased.failures + 1;
-          if (failures >= MAX_FAILURES) return await stop("send_failed");
-          const ok = await commit({ pendingSend: null, failures, nextRunAt: iso(nowMs + backoffMs(failures)) });
-          return ok ? "failed" : "lost_lease";
-        }
-        case "skipped":
-          sentItems.push({
-            nodeId: d.nodeId,
-            poolId: d.pool.id,
-            itemId: d.item.id,
-            at: iso(clock()),
-            status: "skipped",
-            mode: scope.mode,
-            reason: r.reason,
-          });
-          log("email_skipped", `${d.item.label}: ${r.reason.replace(/_/g, " ")}`);
-          state = afterSkip(state, d);
-          walk = decideNext(state, env(context));
-          continue;
-        case "sent": {
-          sentItems.push({
-            nodeId: d.nodeId,
-            poolId: d.pool.id,
-            itemId: d.item.id,
-            at: iso(r.atMs),
-            status: r.status,
-            mode: scope.mode,
-            reason: r.reason,
-            ...(r.version ? { version: r.version } : {}),
-          });
-          if (r.insightId) usedInsightIds.push(r.insightId);
-          lastSentAt = iso(r.atMs);
-          log(r.status === "sent" ? "sent" : "send_unknown", `${d.item.label} (${scope.mode})${r.reason ? ` · ${r.reason}` : ""}`);
-          sentOne = true;
-          state = afterSend(state, d, r.atMs, r.status);
-          walk = decideNext(state, env(context));
-          continue;
-        }
-      }
-    }
-    log("stopped", "too_many_steps");
-    return (await commit({ ...progress(), status: "exited", stopReason: "too_many_steps", cursor: null, nextRunAt: null }))
-      ? "exited"
-      : "lost_lease";
   } catch (err) {
-    const m = err instanceof Error ? err.message.slice(0, 200) : "error";
-    console.error(`[lifecycle] run failed ${ctx.tenantId}/${enrolmentId}: ${m}`);
-    log("run_failed", m);
-    const failures = leased.failures + 1;
-    if (failures >= MAX_FAILURES) {
-      return (await commit({ status: "exited", stopReason: "run_failed", cursor: null, nextRunAt: null }).catch(() => false))
-        ? "exited"
-        : "lost_lease";
-    }
-    const ok = await commit({ failures, nextRunAt: iso(nowMs + backoffMs(failures)) }).catch(() => false);
-    return ok ? "failed" : "lost_lease";
+    return run.fail(err, leased.failures);
   }
 }
 
@@ -829,10 +638,21 @@ export interface LifecycleTickResult {
   outcomes: Partial<Record<EnrolmentRunOutcome, number>>;
   webhooks: WebhookDrainResult;
   drafts: PrepareResult;
+  /** Waitlist journeys (engine move), when their engine is on. */
+  waitlist?: { due: number; outcomes: Partial<Record<EnrolmentRunOutcome, number>>; deferred: number; backfilled: number; retired: number };
 }
 
-/** The scheduler's tick: every tenant, within the run budget. */
-export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<LifecycleTickResult> {
+/**
+ * The scheduler's tick: every tenant, within the run budget — product journeys
+ * (`product`, default on) and waitlist journeys (`waitlist`, default: the
+ * WAITLIST_ENGINE_ENABLED switch), each in its own queue.
+ */
+export async function runLifecycleTick(
+  deps: RunnerDeps = {},
+  audiences: { product?: boolean; waitlist?: boolean } = {},
+): Promise<LifecycleTickResult> {
+  const product = audiences.product ?? true;
+  const waitlist = audiences.waitlist ?? isWaitlistEngineEnabled();
   const clock = deps.now ?? Date.now;
   const deadline = clock() + (deps.budgetMs ?? LIFECYCLE_RUN_BUDGET_MS);
   const tenants = await (deps.listTenants ?? listAllTenants)();
@@ -842,6 +662,7 @@ export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<Lifecycle
     outcomes: {},
     webhooks: { delivered: 0, failed: 0, expired: 0 },
     drafts: { prepared: 0, fallback: 0, superseded: 0 },
+    ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
   };
   for (const t of tenants) {
     if (clock() >= deadline) {
@@ -849,21 +670,40 @@ export async function runLifecycleTick(deps: RunnerDeps = {}): Promise<Lifecycle
       continue;
     }
     const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
-    try {
-      const r = await drainLifecycleTenant(ctx, deps, deadline);
-      total.tenants += 1;
-      for (const [k, v] of Object.entries(r.outcomes)) {
-        const key = k as EnrolmentRunOutcome;
-        total.outcomes[key] = (total.outcomes[key] ?? 0) + (v ?? 0);
+    if (product) {
+      try {
+        const r = await drainLifecycleTenant(ctx, deps, deadline);
+        total.tenants += 1;
+        for (const [k, v] of Object.entries(r.outcomes)) {
+          const key = k as EnrolmentRunOutcome;
+          total.outcomes[key] = (total.outcomes[key] ?? 0) + (v ?? 0);
+        }
+        total.webhooks.delivered += r.webhooks.delivered;
+        total.webhooks.failed += r.webhooks.failed;
+        total.webhooks.expired += r.webhooks.expired;
+        total.drafts.prepared += r.drafts.prepared;
+        total.drafts.fallback += r.drafts.fallback;
+        total.drafts.superseded += r.drafts.superseded;
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) drain failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }
-      total.webhooks.delivered += r.webhooks.delivered;
-      total.webhooks.failed += r.webhooks.failed;
-      total.webhooks.expired += r.webhooks.expired;
-      total.drafts.prepared += r.drafts.prepared;
-      total.drafts.fallback += r.drafts.fallback;
-      total.drafts.superseded += r.drafts.superseded;
-    } catch (err) {
-      console.warn(`[lifecycle] tenant ${t.id} (${t.region}) drain failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    }
+    // Waitlist journeys: their own queue, after the tenant's product journeys.
+    if (waitlist && total.waitlist) {
+      try {
+        const w = await runWaitlistTick(ctx, deps, deadline);
+        total.waitlist.due += w.due;
+        total.waitlist.deferred += w.deferred;
+        total.waitlist.backfilled += w.backfilled;
+        total.waitlist.retired += w.retired;
+        for (const [k, v] of Object.entries(w.outcomes)) {
+          const key = k as EnrolmentRunOutcome;
+          total.waitlist.outcomes[key] = (total.waitlist.outcomes[key] ?? 0) + (v ?? 0);
+        }
+        if (!product) total.tenants += 1;
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) waitlist drain failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
     }
   }
   return total;

@@ -44,13 +44,25 @@ export interface WalkEnv {
   recipientAt: (nowMs: number) => RecipientContext;
   /** Pool items (`poolId:itemId`) not to pick in this walk (see pickPoolItem). */
   excluded?: ReadonlySet<string>;
+  /**
+   * Picks what an email node sends, instead of the first unsent eligible item
+   * (waitlist journeys: the person's A/B arm). Null = nothing left to send.
+   */
+  pickItem?: (a: {
+    nodeId: string;
+    pool: ContentPool;
+    sent: WalkState["sent"];
+    rc: RecipientContext;
+    excluded?: ReadonlySet<string>;
+  }) => PoolItem | null;
 }
 
 export type Decision =
   | { kind: "run_at"; runAtMs: number; reason: "wait" | "window" }
   | { kind: "send"; nodeId: string; pool: ContentPool; item: PoolItem; nextCursor: string | null }
   | { kind: "exit"; reason: string }
-  | { kind: "complete" };
+  /** `nodeId`: the exit node reached (absent when the path simply ended). */
+  | { kind: "complete"; nodeId?: string };
 
 export interface WalkResult {
   decision: Decision;
@@ -64,7 +76,7 @@ export function decideNext(start: WalkState, env: WalkEnv): WalkResult {
   const state: WalkState = { ...start, sent: [...start.sent] };
   const byId = nodeMap(env.graph);
   const skipped: WalkResult["skipped"] = [];
-  const hardStopMs = state.anchorMs + env.policy.hardStopDays * DAY_MS;
+  const hardStopMs = env.policy.hardStopDays === null ? Infinity : state.anchorMs + env.policy.hardStopDays * DAY_MS;
 
   for (let hop = 0; hop < MAX_HOPS; hop += 1) {
     if (state.nowMs > hardStopMs) return { decision: { kind: "exit", reason: "hard_stop" }, state, skipped };
@@ -77,7 +89,7 @@ export function decideNext(start: WalkState, env: WalkEnv): WalkResult {
         state.cursor = nextNodeId(env.graph, node.id);
         continue;
       case "exit":
-        return { decision: { kind: "complete" }, state, skipped };
+        return { decision: { kind: "complete", nodeId: node.id }, state, skipped };
       case "condition": {
         const handle = selectLifecycleBranch(node.data.branches, env.recipientAt(state.nowMs));
         state.cursor = nextNodeId(env.graph, node.id, handle);
@@ -115,7 +127,11 @@ export function decideNext(start: WalkState, env: WalkEnv): WalkResult {
           return { decision: { kind: "run_at", runAtMs, reason: "window" }, state, skipped };
         }
         const pool = env.pools.find((p) => p.id === node.data.poolId);
-        const item = pool ? pickPoolItem(pool, state.sent, env.recipientAt(state.nowMs), env.excluded) : null;
+        const item = !pool
+          ? null
+          : env.pickItem
+            ? env.pickItem({ nodeId: node.id, pool, sent: state.sent, rc: env.recipientAt(state.nowMs), excluded: env.excluded })
+            : pickPoolItem(pool, state.sent, env.recipientAt(state.nowMs), env.excluded);
         const after = nextNodeId(env.graph, node.id);
         if (!pool || !item) {
           skipped.push({ nodeId: node.id, poolId: node.data.poolId ?? "" });

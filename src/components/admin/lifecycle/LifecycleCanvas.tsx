@@ -72,19 +72,30 @@ function edgeLabel(nodes: RFNode[], e: Edge, fields: FieldOption[]): string | un
   return b.label || (b.conditions[0] ? conditionText(b.conditions[0], fields) : b.id);
 }
 
-const ADDABLE: Array<{ type: LifecycleNodeType; label: string; data: () => LifecycleNodeData }> = [
-  { type: "email", label: "Email", data: () => ({ label: "Email" }) },
-  { type: "wait", label: "Wait", data: () => ({ label: "Wait", wait: { minHours: 24, differentLocalDay: true } }) },
-  {
-    type: "condition",
-    label: "Split",
-    data: () => ({
+function addable(waitlist: boolean): Array<{ type: LifecycleNodeType; label: string; data: () => LifecycleNodeData }> {
+  return [
+    { type: "email", label: "Email", data: () => ({ label: "Email" }) },
+    {
+      type: "wait",
+      label: "Wait",
+      // A welcome journey sends at any time, counting from the previous step (as it always has).
+      data: () => ({ label: "Wait", wait: waitlist ? { minHours: 24, after: "previous_step" } : { minHours: 24, differentLocalDay: true } }),
+    },
+    {
+      type: "condition",
       label: "Split",
-      branches: [{ id: newId("br"), label: "Onboarding complete", match: "all", conditions: [{ field: "onboarding.complete", operator: "is_true" }] }],
-    }),
-  },
-  { type: "exit", label: "Exit", data: () => ({ label: "End" }) },
-];
+      data: () => ({
+        label: "Split",
+        branches: [
+          waitlist
+            ? { id: newId("br"), label: "Made a referral", match: "all", conditions: [{ field: "signup.madeReferral", operator: "is_true" }] }
+            : { id: newId("br"), label: "Onboarding complete", match: "all", conditions: [{ field: "onboarding.complete", operator: "is_true" }] },
+        ],
+      }),
+    },
+    { type: "exit", label: "Exit", data: () => ({ label: "End" }) },
+  ];
+}
 
 export function LifecycleCanvas({
   graph,
@@ -95,6 +106,7 @@ export function LifecycleCanvas({
   readOnly,
   onChange,
   onEditContent,
+  waitlist = false,
 }: {
   graph: LifecycleGraph;
   pools: ContentPool[];
@@ -104,7 +116,10 @@ export function LifecycleCanvas({
   readOnly: boolean;
   onChange: (graph: LifecycleGraph) => void;
   onEditContent: (poolId: string) => void;
+  /** A launch's welcome journey (engine move). */
+  waitlist?: boolean;
 }) {
+  const ADDABLE = useMemo(() => addable(waitlist), [waitlist]);
   const seeded = useMemo(() => toRf(graph), []); // eslint-disable-line react-hooks/exhaustive-deps -- seed once; remount to reload
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>(seeded.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(seeded.edges);
@@ -149,7 +164,7 @@ export function LifecycleCanvas({
     [nodes, readOnly, setEdges],
   );
 
-  const addNode = (spec: (typeof ADDABLE)[number]) => {
+  const addNode = (spec: ReturnType<typeof addable>[number]) => {
     const box = pane.current?.getBoundingClientRect();
     const position =
       rf.current && box
@@ -217,6 +232,7 @@ export function LifecycleCanvas({
               triggerEvent={triggerEvent}
               readOnly={readOnly}
               issues={issues.filter((i) => i.nodeId === selected.id)}
+              waitlist={waitlist}
               onPatch={(patch) => patchData(selected.id, patch)}
               onRemove={() => removeNode(selected.id)}
               onRemoveBranchEdges={(branchId) =>
@@ -227,12 +243,20 @@ export function LifecycleCanvas({
           ) : (
             <div className="space-y-2 text-sm text-neutral-500">
               <p className="font-medium text-neutral-700 dark:text-neutral-300">Select a step to edit it.</p>
+              {waitlist ? (
+                <p>
+                  <b>Wait</b> steps decide when the next email goes out (at any time of day). <b>Split</b> steps send
+                  people down the first branch they match, using their signup details; everyone else takes{" "}
+                  <b>Default</b>. An <b>Email</b> step sends its email, or each person&rsquo;s A/B variant.
+                </p>
+              ) : (
               <p>
                 <b>Wait</b> steps decide when the next email may go out (always inside the recipient&rsquo;s send
                 window). <b>Split</b> steps send people down the first branch they match; anyone else — including
                 people whose data is unknown — takes <b>Default</b>. An <b>Email</b> step sends the next email from its
                 content pool that the person hasn&rsquo;t had yet.
               </p>
+              )}
             </div>
           )}
         </aside>
@@ -248,6 +272,7 @@ function Inspector({
   triggerEvent,
   readOnly,
   issues,
+  waitlist,
   onPatch,
   onRemove,
   onRemoveBranchEdges,
@@ -259,6 +284,7 @@ function Inspector({
   triggerEvent: string;
   readOnly: boolean;
   issues: GraphIssue[];
+  waitlist: boolean;
   onPatch: (patch: Partial<LifecycleNodeData>) => void;
   onRemove: () => void;
   onRemoveBranchEdges: (branchId: string) => void;
@@ -289,7 +315,9 @@ function Inspector({
         </ul>
       ) : null}
 
-      {node.type === "trigger" ? (
+      {node.type === "trigger" && waitlist ? (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">People enter when they join the waitlist (once their email is verified).</p>
+      ) : node.type === "trigger" ? (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           People enter when <code className="font-mono text-xs">{triggerEvent}</code> arrives from the product. Change the
           event on the Settings tab.
@@ -318,7 +346,24 @@ function Inspector({
         </>
       ) : null}
 
-      {node.type === "wait" ? (
+      {node.type === "wait" && waitlist ? (
+        <div className="space-y-2">
+          <Field label="Wait (hours)">
+            <input className={inputClass} type="number" min={0} step="0.25" disabled={readOnly} value={d.wait?.minHours ?? 0} onChange={(e) => setWait({ minHours: num(e.target.value) ?? 0 })} />
+          </Field>
+          <Field label="Counting from">
+            <select
+              className={inputClass}
+              disabled={readOnly}
+              value={d.wait?.after ?? "previous_email"}
+              onChange={(e) => setWait({ after: e.target.value === "previous_step" ? "previous_step" : undefined })}
+            >
+              <option value="previous_step">The previous step</option>
+              <option value="previous_email">The previous email</option>
+            </select>
+          </Field>
+        </div>
+      ) : node.type === "wait" ? (
         <div className="space-y-2">
           <Field label="At least (hours) after the previous email">
             <input className={inputClass} type="number" min={0} step="0.25" disabled={readOnly} value={d.wait?.minHours ?? 0} onChange={(e) => setWait({ minHours: num(e.target.value) ?? 0 })} />
@@ -373,6 +418,7 @@ function Inspector({
                 conditions={b.conditions}
                 fields={fields}
                 disabled={readOnly}
+                waitlist={waitlist}
                 onChange={(conditions) => setBranch(i, { conditions: conditions.length ? conditions : b.conditions })}
               />
             </div>
@@ -381,15 +427,39 @@ function Inspector({
             <Button
               onClick={() =>
                 onPatch({
-                  branches: [...branches, { id: newId("br"), label: "", match: "all", conditions: [{ field: "onboarding.complete", operator: "is_true" }] }],
+                  branches: [
+                    ...branches,
+                    {
+                      id: newId("br"),
+                      label: "",
+                      match: "all",
+                      conditions: [waitlist ? { field: "signup.madeReferral", operator: "is_true" } : { field: "onboarding.complete", operator: "is_true" }],
+                    },
+                  ],
                 })
               }
             >
               <Plus size={14} /> Branch
             </Button>
           ) : null}
-          <p className="text-xs text-neutral-500">Default: everyone who matches no branch — including anyone whose data is unknown.</p>
+          <p className="text-xs text-neutral-500">
+            {waitlist
+              ? "Default: everyone who matches no branch."
+              : "Default: everyone who matches no branch — including anyone whose data is unknown."}
+          </p>
         </div>
+      ) : null}
+
+      {node.type === "exit" && waitlist ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            disabled={readOnly}
+            checked={d.exitTarget === "weekly"}
+            onChange={(e) => onPatch({ exitTarget: e.target.checked ? "weekly" : undefined })}
+          />
+          Then add them to the weekly newsletter
+        </label>
       ) : null}
     </div>
   );

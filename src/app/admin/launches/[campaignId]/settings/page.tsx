@@ -6,8 +6,13 @@ import { getSenderConfig } from "@/lib/admin/senderConfig";
 import { CampaignSettingsForm } from "@/components/admin/CampaignSettingsForm";
 import { ArchiveLaunchSection } from "@/components/admin/ArchiveLaunchSection";
 import { DeleteLaunchSection } from "@/components/admin/DeleteLaunchSection";
-import { journeyIdFor } from "@/lib/journey/service";
+import { EngineSection } from "@/components/admin/EngineSection";
+import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { loadWelcomeJourney } from "@/lib/journey/launchJourneyLoad";
+import { countHeldWaitlistEnrolments } from "@/lib/lifecycle/waitlist/enrol";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
+import { countHeldJourneySteps } from "@/lib/journey/hold";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +25,23 @@ export default async function LaunchSettingsPage({
   const { campaignId } = await params;
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) notFound();
-  const [senderConfig, journey] = await Promise.all([
+  const [senderConfig, welcome] = await Promise.all([
     getSenderConfig(ctx.tenantId),
-    isNavV2Phase3Enabled() ? forTenant(ctx).journeys.getById(journeyIdFor(campaignId)).catch(() => null) : null,
+    isNavV2Phase3Enabled() ? loadWelcomeJourney(ctx, campaign).catch(() => null) : null,
   ]);
-  const journeyPaused = journey?.status === "paused";
+  const journeyPaused = welcome?.view.status === "paused";
+  // Engine move: how many people are waiting part-way through the paused journey —
+  // on the lifecycle engine (which always holds), plus any still finishing on the original.
+  const moved = welcome?.view.engine === "lifecycle";
+  const holdOnPause = moved || isHoldOnPauseEnabled();
+  const waiting = !journeyPaused || !holdOnPause
+    ? null
+    : await Promise.all([
+        moved && welcome?.view.journeyId ? countHeldWaitlistEnrolments(ctx, welcome.view.journeyId) : 0,
+        isHoldOnPauseEnabled() ? countHeldJourneySteps(ctx, campaignId) : 0,
+      ])
+        .then(([a, b]) => a + b)
+        .catch(() => null);
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -42,11 +59,14 @@ export default async function LaunchSettingsPage({
       />
       {ctx.role === "admin" ? (
         <>
+          {isWaitlistEngineUiEnabled() ? <EngineSection campaignId={campaign.id} /> : null}
           <ArchiveLaunchSection
             campaignId={campaign.id}
             campaignName={campaign.waitlistName}
             archived={!!campaign.archivedAt}
             journeyPaused={journeyPaused}
+            waiting={waiting}
+            holdOnPause={holdOnPause}
           />
           <DeleteLaunchSection
             campaignId={campaign.id}

@@ -1,4 +1,4 @@
-import type { LifecycleEnrolment, LifecycleVersion } from "@/lib/types/lifecycle";
+import type { EnrolmentRuntime, LifecycleVersion } from "@/lib/types/lifecycle";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductContext } from "@/lib/connect/protocol";
@@ -12,7 +12,10 @@ import { buildRecipientContext } from "./recipientContext";
  * the draft preparer (to predict which email a person will get).
  */
 
-export function walkStateOf(e: LifecycleEnrolment, nowMs: number): WalkState {
+export function walkStateOf(
+  e: Pick<EnrolmentRuntime, "cursor" | "anchorAt" | "lastSentAt" | "windowExemptUntil" | "sentItems">,
+  nowMs: number,
+): WalkState {
   return {
     cursor: e.cursor?.nodeId ?? null,
     nowMs,

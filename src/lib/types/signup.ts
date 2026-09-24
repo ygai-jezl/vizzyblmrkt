@@ -92,6 +92,12 @@ export const SignupSchema = z.object({
   offboardReason: z.enum(["manual", "invited"]).nullable().optional(),
   /** The invite that took them off the waitlist (invites/{inviteId}). */
   inviteId: z.string().nullable().optional(),
+  /**
+   * Which journey engine emails this person (engine move D1). Stamped once, when
+   * they're first enrolled; the other engine never enrols them. Absent = not yet
+   * enrolled (people enrolled before D1 are recognised by their journey jobs).
+   */
+  journeyEngine: z.enum(["legacy", "lifecycle"]).nullable().optional(),
 
   /**
    * When this recipient unsubscribed from the brand's marketing email (ISO 8601).

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** Take one user out of the journey. */
 export async function POST(req: Request, { params }: { params: Promise<{ enrolmentId: string }> }) {
-  const gate = await lifecycleAdmin(req, { mutate: true });
+  const gate = await lifecycleAdmin(req, { mutate: true, journeys: true });
   if (!gate.ok) return gate.response;
   return respond(await stopEnrolment(gate.ctx, (await params).enrolmentId));
 }

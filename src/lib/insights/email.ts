@@ -3,6 +3,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { computeBqEmailStats } from "@/lib/analytics/bigquery";
 import { memo } from "./cache";
 import { emailHref, emailNames } from "./names";
+import { loadMovedJourneys } from "@/lib/journey/launchJourneyLoad";
 
 /**
  * Insights › Email (nav v2 phase 4): every automated email programme (welcome
@@ -45,10 +46,13 @@ async function programmeIds(ctx: TenantContext, opts: { lifecycle: boolean; invi
     opts.lifecycle ? repos.lifecycleJourneys.find({ limit: 50 }).catch(() => []) : [],
     opts.invites ? repos.inviteWaves.find({ where: [["status", "==", "sent"]], limit: 50 }).catch(() => []) : [],
   ]);
+  const moved = await loadMovedJourneys(ctx, db);
   return [
     ...journeys.filter((j) => j.status !== "draft").map((j) => j.id),
     ...[...new Set(waves.map((w) => `invite_${w.campaignId}`))],
-    ...lifecycle.filter((j) => j.status !== "archived" && j.publishedVersion != null).map((j) => j.id),
+    ...lifecycle.filter((j) => j.status !== "archived" && j.publishedVersion != null && j.audience?.kind !== "waitlist").map((j) => j.id),
+    // Launches' welcome journeys on the lifecycle engine (engine move): folded into the launch's row below.
+    ...[...moved.values()].filter((j) => j.publishedVersion != null).map((j) => j.id),
   ].slice(0, MAX_ROWS);
 }
 
@@ -82,6 +86,17 @@ export async function loadEmailInsights(
       }),
     );
     totals = new Map(counted);
+  }
+
+  // A launch's welcome emails are one programme, whichever engine sent them (engine move).
+  const moved = await loadMovedJourneys(ctx, db).catch(() => new Map());
+  for (const j of moved.values()) {
+    const t = totals.get(j.id);
+    if (!t || j.audience?.kind !== "waitlist") continue;
+    const key = `journey_${j.audience.campaignId}`;
+    const into = totals.get(key) ?? { sends: 0, opens: 0, clicks: 0 };
+    totals.set(key, { sends: into.sends + t.sends, opens: into.opens + t.opens, clicks: into.clicks + t.clicks });
+    totals.delete(j.id);
   }
 
   const ids = [...totals.keys()].filter((id) => (totals.get(id)?.sends ?? 0) > 0).slice(0, MAX_ROWS);

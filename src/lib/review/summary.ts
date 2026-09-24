@@ -11,6 +11,7 @@ import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
+import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -92,9 +93,21 @@ export function repoResultsItem(
 
 /** A lifecycle journey Vizzy drafted that has never been published. */
 export function agentJourneyItem(
-  j: Pick<LifecycleJourney, "id" | "name" | "authoredBy" | "publishedVersion" | "status">,
+  j: Pick<LifecycleJourney, "id" | "name" | "authoredBy" | "publishedVersion" | "status"> & Partial<Pick<LifecycleJourney, "audience">>,
+  launchName?: string,
 ): ReviewItem | null {
   if (j.authoredBy !== "agent" || j.publishedVersion != null || j.status === "archived") return null;
+  // A launch's welcome journey on the lifecycle engine (engine move) reads as the launch's.
+  if (j.audience?.kind === "waitlist") {
+    return {
+      id: `lcj:${j.id}`,
+      kind: "agent_draft",
+      title: `Welcome emails for ${launchName ?? "a launch"}`,
+      detail: "Drafted by Vizzy · not published",
+      href: `/admin/lifecycle/${j.id}`,
+      action: "Open",
+    };
+  }
   return {
     id: `lcj:${j.id}`,
     kind: "agent_draft",
@@ -264,7 +277,7 @@ export async function loadReview(
   const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves] = await Promise.all([
     opts.lifecycle ? soft("ai lines", countWaitingApprovals(ctx, db), 0) : 0,
     opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : [],
-    opts.lifecycle
+    opts.lifecycle || isWaitlistEngineUiEnabled()
       ? soft("agent journeys", repos.lifecycleJourneys.find({ where: [["authoredBy", "==", "agent"]], limit: 50 }), [])
       : [],
     soft("launch journeys", repos.journeys.find({ where: [["status", "==", "draft"]], limit: 50 }), []),
@@ -309,7 +322,7 @@ export async function loadReview(
       .sort((a, b) => (b.scheduledAt ?? "").localeCompare(a.scheduledAt ?? ""))
       .map((p) => failedPostItem(p, workspaceNames.get(p.workspaceId))),
     ...connections.map(connectionItem),
-    ...agentJourneys.map(agentJourneyItem),
+    ...agentJourneys.map((j) => agentJourneyItem(j, j.audience?.kind === "waitlist" ? launchNames.get(j.audience.campaignId) : undefined)),
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),

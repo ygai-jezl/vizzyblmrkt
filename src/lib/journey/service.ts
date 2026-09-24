@@ -1,11 +1,17 @@
 import type { TenantContext } from "@/lib/tenant";
 import { forTenant } from "@/lib/tenant";
+import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Journey, JourneyGraph, JourneyStatus } from "@/lib/types/journey";
 import {
   activateJourney,
   processEmailJobs,
   validateJourneyGraph,
 } from "@/lib/email/delivery";
+import { releaseHeldJourneySteps, type ReleaseSummary } from "./hold";
+import { legacyEditorMode } from "./flags";
+import { setLifecycleJourneyStatus } from "@/lib/lifecycle/service";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
+import type { WaitlistReleaseSummary } from "@/lib/lifecycle/waitlist/enrol";
 
 /**
  * Journey persistence service — the single source of truth for saving and
@@ -77,9 +83,13 @@ export type SetJourneyStateResult =
       ok: true;
       status: JourneyStatus;
       enqueued?: number;
+      /** People who were waiting while it was paused (engine move D1). */
+      held?: ReleaseSummary;
+      /** A launch on the lifecycle engine: people who waited there (engine move). */
+      moved?: WaitlistReleaseSummary;
       result?: { processed: number; done: number; failed: number };
     }
-  | { ok: false; error: "journey_not_found" | "journey_invalid"; reason?: string };
+  | { ok: false; error: "journey_not_found" | "journey_invalid" | "launch_archived" | "original_editor_retired"; reason?: string };
 
 /**
  * Activate the journey (enqueue the first step for every verified subscriber,
@@ -91,9 +101,14 @@ export async function setJourneyState(
   ctx: TenantContext,
   campaignId: string,
   action: "activate" | "pause",
+  db?: FirestoreLike,
 ): Promise<SetJourneyStateResult> {
-  const repo = forTenant(ctx);
+  const repo = forTenant(ctx, db);
   const id = journeyIdFor(campaignId);
+
+  // A launch moved to the lifecycle engine controls both engines (engine move).
+  const campaignFirst = await repo.campaigns.getById(campaignId);
+  if (campaignFirst?.waitlistEngine === "lifecycle") return setMovedLaunchState(ctx, campaignId, action, db);
 
   const journey = await repo.journeys.getById(id);
   if (!journey) return { ok: false, error: "journey_not_found" };
@@ -104,6 +119,13 @@ export async function setJourneyState(
     return { ok: true, status: "paused" };
   }
 
+  // An archived launch's steps can't send: publishing would enrol everyone and
+  // then stop each first email. Restore the launch first (engine move D1).
+  if (campaignFirst?.archivedAt) return { ok: false, error: "launch_archived" };
+  // Engine move D6: once the original editor is retired, a journey that never ran
+  // can't start on it (resuming one that has run still works).
+  if (journey.status === "draft" && legacyEditorMode() !== "edit") return { ok: false, error: "original_editor_retired" };
+
   // Refuse to activate an empty/half-wired journey: it would flip to "active",
   // enqueue nobody, and silently send nothing — the worst kind of failure.
   const valid = validateJourneyGraph(journey.graph);
@@ -112,8 +134,51 @@ export async function setJourneyState(
   }
 
   await repo.journeys.update(id, { status: "active", updatedAt: now });
-  const fresh = await repo.journeys.getById(id);
-  const { enqueued } = await activateJourney(ctx, fresh!);
-  const result = await processEmailJobs(ctx);
-  return { ok: true, status: "active", enqueued, result };
+  const fresh = (await repo.journeys.getById(id))!;
+  // People who waited while it was paused carry on first, then anyone new joins.
+  const held = await releaseHeldJourneySteps(ctx, fresh, { db });
+  const { enqueued } = await activateJourney(ctx, fresh, db);
+  const result = await processEmailJobs(ctx, 25, db);
+  return { ok: true, status: "active", enqueued, held, result };
+}
+
+/**
+ * A launch moved to the lifecycle engine (engine move): "Turn welcome emails
+ * back on" and pause control BOTH engines — its journey on the lifecycle engine,
+ * and the original journey while people are still finishing on it. The
+ * original journey only drains: resuming it releases whoever was waiting there
+ * and never enrols anyone new.
+ */
+async function setMovedLaunchState(
+  ctx: TenantContext,
+  campaignId: string,
+  action: "activate" | "pause",
+  db?: FirestoreLike,
+): Promise<SetJourneyStateResult> {
+  const repo = forTenant(ctx, db);
+  const campaign = await repo.campaigns.getById(campaignId);
+  if (action === "activate" && campaign?.archivedAt) return { ok: false, error: "launch_archived" };
+  const moved = await repo.lifecycleJourneys.getById(waitlistJourneyId(campaignId));
+  const original = await repo.journeys.getById(journeyIdFor(campaignId));
+  if (!moved && !original) return { ok: false, error: "journey_not_found" };
+  const now = new Date().toISOString();
+
+  if (action === "pause") {
+    if (moved && moved.status === "active") await setLifecycleJourneyStatus(ctx, moved.id, "paused", { db });
+    if (original?.status === "active") await repo.journeys.update(original.id, { status: "paused", updatedAt: now });
+    return { ok: true, status: "paused" };
+  }
+
+  let movedRelease: WaitlistReleaseSummary | undefined;
+  if (moved && moved.publishedVersion && moved.status !== "active") {
+    const r = await setLifecycleJourneyStatus(ctx, moved.id, "active", { db });
+    if (r.ok) movedRelease = r.value.released;
+  }
+  let held: ReleaseSummary | undefined;
+  if (original?.status === "paused" && !original.retiredAt) {
+    await repo.journeys.update(original.id, { status: "active", updatedAt: now });
+    held = await releaseHeldJourneySteps(ctx, { ...original, status: "active" }, { db });
+  }
+  const result = await processEmailJobs(ctx, 25, db);
+  return { ok: true, status: "active", enqueued: 0, ...(held ? { held } : {}), ...(movedRelease ? { moved: movedRelease } : {}), result };
 }

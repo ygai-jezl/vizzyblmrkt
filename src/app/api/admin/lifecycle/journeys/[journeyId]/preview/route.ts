@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** Dry-run the draft for an imagined user: when each email would go out. */
 export async function POST(req: Request, { params }: { params: Promise<{ journeyId: string }> }) {
-  const gate = await lifecycleAdmin(req, { mutate: false });
+  const gate = await lifecycleAdmin(req, { mutate: false, journeys: true });
   if (!gate.ok) return gate.response;
   return respond(await previewJourney(gate.ctx, (await params).journeyId, await readJson(req)));
 }

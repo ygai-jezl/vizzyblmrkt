@@ -9,6 +9,7 @@ import type {
   WaitConfig,
 } from "@/lib/types/lifecycle";
 import type { ConditionOperator } from "@/lib/types/journey";
+import { CONDITION_FIELDS } from "@/lib/journey/conditions";
 
 /**
  * Client-side model for the Lifecycle → Journeys screens: the API's response
@@ -24,6 +25,12 @@ export interface GraphIssue {
 
 export interface JourneyDetail {
   journey: LifecycleJourney;
+  /** Product users, or a launch's waitlist (engine move). */
+  audience: "product" | "waitlist";
+  /** Waitlist journeys: their launch. */
+  launch: { id: string; name: string; archived: boolean } | null;
+  /** Waitlist journeys: people waiting while it's paused (or the launch archived). */
+  held?: number;
   connection: {
     id: string;
     name: string;
@@ -89,6 +96,18 @@ export function fieldOptions(catalog: ConnectionCatalog | undefined): FieldOptio
   return out;
 }
 
+/**
+ * The fields a waitlist journey's conditions read: the original waitlist
+ * engine's signup fields (same labels, same logic), plus the journey's own.
+ */
+export function waitlistFieldOptions(): FieldOption[] {
+  return [
+    ...CONDITION_FIELDS.map((f) => ({ value: `signup.${f.key}`, label: f.label, group: "Signup", kind: f.valueType })),
+    { value: "enrolment.emails_sent", label: "Emails sent so far", group: "Journey", kind: "number" },
+    { value: "enrolment.days_since_enrol", label: "Days since joining", group: "Journey", kind: "number" },
+  ];
+}
+
 export function fieldKind(field: string, options: FieldOption[]): FieldKind {
   const known = options.find((o) => o.value === field);
   if (known) return known.kind;
@@ -128,6 +147,7 @@ export function waitSummary(w: WaitConfig | undefined): string {
   if (!w) return "Not set";
   const parts: string[] = [];
   parts.push(w.minHours < 1 ? `${Math.round(w.minHours * 60)} min` : `${w.minHours} h`);
+  if (w.after === "previous_step") parts.push("after the previous step");
   if (w.sinceEnrolHours) parts.push(`≥ ${w.sinceEnrolHours} h since sign-up`);
   if (w.differentLocalDay) parts.push("next day");
   if (w.windowExemptHours) parts.push("sends right away");
@@ -174,6 +194,13 @@ export const ISSUE_TEXT: Record<string, string> = {
   duplicate_pool: "Two content pools share an id.",
   duplicate_pool_item: "Two emails in a pool share an id.",
   pool_item_empty: "An email has no subject or body.",
+  field_not_for_waitlist: "A welcome journey can only branch on signup details.",
+  field_not_for_product: "Signup details are only for a launch's welcome journey.",
+  hard_stop_required: "Set when the journey stops (Settings).",
+  wait_too_long: "A wait can be at most 60 days here.",
+  exit_target_waitlist_only: "Only a launch's welcome journey can hand people to the weekly newsletter.",
+  ab_test_waitlist_only: "A/B tests are for a launch's welcome journey.",
+  ab_test_needs_variants: "An A/B test needs a control and at least one variant.",
 };
 
 export function issueText(i: GraphIssue): string {

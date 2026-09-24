@@ -4,6 +4,54 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0004 — Waitlist journeys move to the lifecycle engine (2026-09-24)
+
+Context: a launch's welcome & nurture journey ran on the original waitlist
+engine (a job per step in `email_jobs`), while connected products' journeys ran
+on the lifecycle engine (versions, test/shadow/live, a lease per person). Two
+engines meant two editors, and the original one stranded people when a journey
+was paused. Owner decisions (2026-09-24): move fully, staged, one launch at a
+time; people part-way through finish on the original engine; nobody ever gets
+both engines' emails; new signups during a pause join and wait; people held
+over 90 days leave; stranded people are recovered after a dry run; waitlist
+sends are capped at 10,000 a day at any time of day and never dropped over a
+cap; the owner's launches go first.
+
+Decision (engine move D1–D6, one PR, every part behind a flag off in prod):
+- **D1** — the original engine HOLDS a paused or archived journey's steps
+  instead of ending them (`WAITLIST_JOURNEY_HOLD_ON_PAUSE`), and stamps each
+  person's engine (`signup.journeyEngine`).
+- **D2** — a lifecycle journey's audience can be a launch's waitlist (`lcjw_`
+  per launch). Waitlist enrolments live in their own collection and due queue
+  (`waitlist_enrolments`, two composite indexes) so product journeys are never
+  slowed down. The lease/claim/commit/walk loop is shared (`enrolmentRun.ts`).
+  Kill switch `WAITLIST_ENGINE_ENABLED` holds, never drops. `LIFECYCLE_MODE_CEILING`
+  doesn't apply to waitlist journeys.
+- **D3** — parity with the original engine: its renderer, sender, v1
+  unsubscribe links, tracking, `signup.*` conditions (its own two-state
+  evaluator) and A/B allocation; any-time sending; waits counted from the
+  previous step; no hard stop. A converter keeps node, branch and variant ids,
+  so each email's history continues. A golden parity suite runs both engines on
+  a simulated clock.
+- **D4** — the lifecycle editor's welcome-journey mode, one launch → journey
+  mapping for every screen, and Vizzy's drafts saved as lifecycle drafts for
+  moved launches (`NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED`).
+- **D5** — per-launch switching (`campaign.waitlistEngine`: legacy, rehearsal,
+  lifecycle) with rehearsal in shadow, a switch with no backfill, a drain that
+  retires the original journey, and rollback; a pilot list
+  (`WAITLIST_ENGINE_PILOT_TENANTS`, `*` = everyone); the zero-double-send check.
+- **D6** — retirement as a switch, not a deletion: `WAITLIST_LEGACY_EDITOR`
+  (`read_only`, then `retired`) once every launch has moved and drained and 30
+  days have passed. The original engine keeps sending whatever is queued, and
+  v1 unsubscribe links keep working, permanently. Deleting the dead code can
+  wait for a later tidy-up.
+
+Consequences: two enrolment collections to maintain; `journey_step` processing
+stays until no jobs remain; readers must go through the launch → journey
+mapping (`src/lib/journey/launchJourney.ts`) rather than `journey_{campaignId}`.
+
+---
+
 ## ADR-0003 — Admin portal authentication (2026-06-15)
 
 Context: building the admin portal (All Signups dashboard). Founder decisions:

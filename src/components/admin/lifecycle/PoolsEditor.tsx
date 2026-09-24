@@ -5,6 +5,9 @@ import { ArrowDown, ArrowUp, Eye, Plus, Trash2 } from "lucide-react";
 import type { ContentPool, PoolItem } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { renderLifecycleEmail, type RenderValues } from "@/lib/lifecycle/render";
+import { compileJourneyEmail } from "@/lib/agents/compiler";
+import type { Campaign } from "@/lib/types/campaign";
+import type { Signup } from "@/lib/types/signup";
 import { ConditionList } from "./ConditionList";
 import type { FieldOption } from "./model";
 import { Badge, Button, Field, inputClass } from "../connect/ui";
@@ -14,6 +17,10 @@ import { Badge, Button, Field, inputClass } from "../connect/ui";
  * email in its pool that the person hasn't had and is eligible for — so order
  * matters. Previews render with sample values through the same renderer the
  * runner uses.
+ *
+ * A launch's welcome journey (`waitlist`, engine move) uses the original
+ * waitlist emails' merge tags, hero images and renderer, and a pool can be an
+ * A/B test: the first email is the control, the others its variants.
  */
 
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,39}$/;
@@ -35,6 +42,28 @@ const TOKENS = [
   ["{{block.next_step}}", "Button (or link, in letters) to the next step"],
   ["{{block.insight}}", "The product's insight for this person"],
 ] as const;
+
+const WAITLIST_TOKENS = [
+  ["{{first_name}}", "First name (blank if unknown)"],
+  ["{{last_name}}", "Last name"],
+  ["{{current_rank}}", "Their place on the waitlist"],
+  ["{{referral_count}}", "How many people they've referred"],
+  ["{{referral_link}}", "Their referral link"],
+  ["{{waitlist_name}}", "The launch's product name"],
+  ["{{voice_chat_link}}", "Link that opens the voice chat"],
+  ["{{metadata.company}}", "Anything captured at signup"],
+] as const;
+
+/** A welcome-journey email as it will look, rendered by the original engine's compiler. */
+function renderWaitlistPreview(item: PoolItem, launchName: string, brand: string): { subject: string; html: string } {
+  const signup = { id: "preview", firstName: "Alex", lastName: "Doe", email: "alex@example.com", amountReferred: 2, referralLink: "https://example.com/r/alex" } as unknown as Signup;
+  const campaign = { id: "preview", waitlistName: launchName, productName: launchName } as unknown as Campaign;
+  const c = compileJourneyEmail(
+    { subject: item.subject, body: item.body, heroImageUrl: item.heroImageUrl ?? null },
+    { signup, campaign, rank: 12, footer: { brand, unsubscribeUrl: "#", managePreferencesUrl: "#", privacyUrl: "#" } },
+  );
+  return { subject: c.subject, html: c.html };
+}
 
 function sampleValues(catalog: ConnectionCatalog | undefined, productName: string, brand: string, postalAddress: string | null): RenderValues {
   const steps = [...(catalog?.onboardingSteps ?? [])].sort((a, b) => a.order - b.order);
@@ -61,6 +90,7 @@ export function PoolsEditor({
   focusPoolId,
   onFocusPool,
   onChange,
+  waitlist = false,
 }: {
   pools: ContentPool[];
   fields: FieldOption[];
@@ -72,6 +102,8 @@ export function PoolsEditor({
   focusPoolId: string | null;
   onFocusPool: (id: string | null) => void;
   onChange: (pools: ContentPool[]) => void;
+  /** A launch's welcome journey (engine move): `productName` is then the launch's name. */
+  waitlist?: boolean;
 }) {
   const current = pools.find((p) => p.id === focusPoolId) ?? pools[0] ?? null;
   const values = useMemo(() => sampleValues(catalog, productName, brand, postalAddress), [catalog, productName, brand, postalAddress]);
@@ -81,8 +113,18 @@ export function PoolsEditor({
 
   const addPool = () => {
     const id = uniqueId("pool", new Set(pools.map((p) => p.id)));
-    onChange([...pools, { id, label: "New content", items: [blankItem("email_1")] }]);
+    onChange([...pools, { id, label: "New content", items: [waitlist ? waitlistItem("control", "Email") : blankItem("email_1")] }]);
     onFocusPool(id);
+  };
+  const toggleTest = (pool: ContentPool, on: boolean) => {
+    if (on) {
+      const control = pool.items[0]!;
+      const items = pool.items.length > 1 ? pool.items : [control, { ...control, id: variantId(), label: "Variant B" }];
+      setPool(pool.id, { items, abTest: { splitPercent: 50 } });
+      return;
+    }
+    if (pool.items.length > 1 && !window.confirm("Stop testing? The variants are removed and everyone gets the control.")) return;
+    setPool(pool.id, { items: pool.items.slice(0, 1), abTest: undefined });
   };
 
   return (
@@ -109,7 +151,7 @@ export function PoolsEditor({
         <details className="mt-4 rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800">
           <summary className="cursor-pointer font-medium">Personalisation tokens</summary>
           <ul className="mt-2 space-y-1.5">
-            {TOKENS.map(([t, d]) => (
+            {(waitlist ? WAITLIST_TOKENS : TOKENS).map(([t, d]) => (
               <li key={t}>
                 <code className="break-all font-mono">{t}</code>
                 <div className="text-neutral-500">{d}</div>
@@ -140,10 +182,33 @@ export function PoolsEditor({
               </Button>
             ) : null}
           </div>
-          <p className="text-xs text-neutral-500">
-            Sent in this order: each time a step uses this pool, the person gets the first email here they haven&rsquo;t had
-            and are eligible for.
-          </p>
+          {waitlist ? (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" disabled={readOnly} checked={Boolean(current.abTest)} onChange={(e) => toggleTest(current, e.target.checked)} />
+                A/B test this email
+              </label>
+              {current.abTest ? (
+                <label className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
+                  <input
+                    className={`${inputClass} w-20`}
+                    type="number"
+                    min={1}
+                    max={100}
+                    disabled={readOnly}
+                    value={current.abTest.splitPercent}
+                    onChange={(e) => setPool(current.id, { abTest: { splitPercent: Math.min(100, Math.max(1, Math.round(Number(e.target.value) || 1))) } })}
+                  />
+                  % of people get a variant (the rest get the control). Each person always gets the same one.
+                </label>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs text-neutral-500">
+              Sent in this order: each time a step uses this pool, the person gets the first email here they haven&rsquo;t had
+              and are eligible for.
+            </p>
+          )}
           <ol className="space-y-3">
             {current.items.map((item, i) => (
               <li key={item.id}>
@@ -154,6 +219,7 @@ export function PoolsEditor({
                   fields={fields}
                   values={values}
                   readOnly={readOnly}
+                  waitlist={waitlist ? { launchName: productName, brand, arm: current.abTest ? (i === 0 ? "Control" : `Variant ${String.fromCharCode(65 + i)}`) : null } : null}
                   onChange={(next) => setItems(current, current.items.map((x, j) => (j === i ? next : x)))}
                   onMove={(dir) => {
                     const items = [...current.items];
@@ -166,7 +232,12 @@ export function PoolsEditor({
               </li>
             ))}
           </ol>
-          {!readOnly && current.items.length < 10 ? (
+          {!readOnly && waitlist && current.abTest && current.items.length < 3 ? (
+            <Button onClick={() => setItems(current, [...current.items, { ...current.items[0]!, id: variantId(), label: `Variant ${String.fromCharCode(65 + current.items.length)}` }])}>
+              <Plus size={14} /> Variant
+            </Button>
+          ) : null}
+          {!readOnly && !waitlist && current.items.length < 10 ? (
             <Button
               onClick={() => {
                 const id = uniqueId(`email_${current.items.length + 1}`, new Set(current.items.map((x) => x.id)));
@@ -182,6 +253,26 @@ export function PoolsEditor({
       )}
     </div>
   );
+}
+
+/** A/B variant ids follow the original engine's shape, so each arm's results carry across engines. */
+function variantId(): string {
+  return `var_${crypto.randomUUID()}`;
+}
+
+function waitlistItem(id: string, label: string): PoolItem {
+  return {
+    id,
+    label,
+    subject: "",
+    previewText: null,
+    body: "Hi {{first_name}},\n\n",
+    layout: null,
+    heroImageUrl: null,
+    format: "branded",
+    messageClass: "marketing",
+    personalization: "none",
+  };
 }
 
 function blankItem(id: string): PoolItem {
@@ -205,6 +296,7 @@ function ItemEditor({
   fields,
   values,
   readOnly,
+  waitlist,
   onChange,
   onMove,
   onRemove,
@@ -215,6 +307,8 @@ function ItemEditor({
   fields: FieldOption[];
   values: RenderValues;
   readOnly: boolean;
+  /** A launch's welcome-journey email: its launch, brand, and A/B arm label. */
+  waitlist: { launchName: string; brand: string; arm: string | null } | null;
   onChange: (next: PoolItem) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -222,14 +316,18 @@ function ItemEditor({
   const [open, setOpen] = useState(index === 0);
   const [preview, setPreview] = useState(false);
   const set = (patch: Partial<PoolItem>) => onChange({ ...item, ...patch });
-  const rendered = useMemo(() => (preview ? renderLifecycleEmail({ item, values }) : null), [preview, item, values]);
+  const rendered = useMemo(() => {
+    if (!preview) return null;
+    if (waitlist) return { ...renderWaitlistPreview(item, waitlist.launchName, waitlist.brand), missing: [] as string[] };
+    return renderLifecycleEmail({ item, values });
+  }, [preview, item, values, waitlist]);
   const eligibility = item.eligibility ?? { match: "all" as const, conditions: [] };
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpen(!open)}>
-          <span className="mr-2 text-xs text-neutral-400">{index + 1}.</span>
+          <span className="mr-2 text-xs text-neutral-400">{waitlist?.arm ?? `${index + 1}.`}</span>
           <span className="text-sm font-medium">{item.label}</span>
           <span className="ml-2 truncate text-xs text-neutral-500">{item.subject || "No subject"}</span>
         </button>
@@ -261,9 +359,16 @@ function ItemEditor({
             <Field label="Subject">
               <input className={inputClass} value={item.subject} disabled={readOnly} onChange={(e) => set({ subject: e.target.value.slice(0, 200) })} />
             </Field>
+            {waitlist ? (
+              <Field label="Hero image URL" hint="Optional — shown above the body.">
+                <input className={inputClass} value={item.heroImageUrl ?? ""} disabled={readOnly} onChange={(e) => set({ heroImageUrl: e.target.value.trim().slice(0, 2048) || null })} />
+              </Field>
+            ) : (
             <Field label="Preview text" hint="Shown after the subject in most inboxes.">
               <input className={inputClass} value={item.previewText ?? ""} disabled={readOnly} onChange={(e) => set({ previewText: e.target.value.slice(0, 200) || null })} />
             </Field>
+            )}
+            {waitlist ? null : (
             <div className="grid grid-cols-3 gap-2">
               <Field label="Style">
                 <select className={inputClass} value={item.format} disabled={readOnly} onChange={(e) => set({ format: e.target.value as PoolItem["format"] })}>
@@ -284,6 +389,7 @@ function ItemEditor({
                 </select>
               </Field>
             </div>
+            )}
           </div>
           {item.layout ? (
             <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -299,6 +405,7 @@ function ItemEditor({
               onChange={(e) => set({ body: e.target.value.slice(0, 20000), layout: null })}
             />
           </Field>
+          {waitlist ? null : (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Only send when</span>
@@ -317,6 +424,7 @@ function ItemEditor({
               onChange={(conditions) => set({ eligibility: conditions.length ? { ...eligibility, conditions } : undefined })}
             />
           </div>
+          )}
           <div className="space-y-2">
             <Button onClick={() => setPreview(!preview)}>
               <Eye size={14} /> {preview ? "Hide preview" : "Preview with sample data"}
@@ -326,7 +434,7 @@ function ItemEditor({
                 <p className="text-sm">
                   <span className="text-neutral-500">Subject:</span> {rendered.subject || <i>empty</i>}
                 </p>
-                {rendered.missing.length ? (
+                {rendered.missing.length && !waitlist ? (
                   <p className="text-xs text-amber-700 dark:text-amber-400">
                     No sample value for: {rendered.missing.join(", ")} — for a real person without these, this email is skipped
                     and the next eligible one sends instead. Add a fallback like {"{{token|fallback}}"}.

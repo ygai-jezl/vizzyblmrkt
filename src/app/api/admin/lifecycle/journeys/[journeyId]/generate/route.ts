@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * draft only; the published version is untouched.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ journeyId: string }> }) {
-  const gate = await lifecycleAdmin(req, { mutate: true });
+  const gate = await lifecycleAdmin(req, { mutate: true, journeys: true });
   if (!gate.ok) return gate.response;
   return respond(await generateJourneyDraft(gate.ctx, (await params).journeyId, await readJson(req)));
 }

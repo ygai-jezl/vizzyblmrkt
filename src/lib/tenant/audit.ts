@@ -42,6 +42,9 @@ export interface LaunchDeletionCounts {
   /** Invites and invite waves (nav v2 phase 4); present only when any were purged. */
   invites?: number;
   inviteWaves?: number;
+  /** The launch's waitlist journey on the lifecycle engine and its enrolments (engine move); only when present. */
+  waitlistJourneys?: number;
+  waitlistEnrolments?: number;
 }
 
 /**

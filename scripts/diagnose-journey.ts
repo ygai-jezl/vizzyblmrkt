@@ -507,6 +507,21 @@ async function reportSignup(
     );
   }
 
+  // Engine move: which engine emails this person. Someone on the lifecycle engine
+  // gets its emails (waitlist_enrolments), and the original engine ends their steps.
+  console.log(`  journeyEngine:  ${s(d.journeyEngine ?? "(not stamped)")}`);
+  if (d.journeyEngine === "lifecycle") {
+    const enrolments = await db.collection("waitlist_enrolments").where("signupId", "==", su.id).get();
+    for (const e of enrolments.docs) {
+      const x = e.data();
+      if (x.tenantId !== tenant.id) continue;
+      console.log(
+        `  >> On the lifecycle engine: enrolment ${e.id} status=${s(x.status)} cursor=${s(x.cursor?.nodeId)} nextRunAt=${s(x.nextRunAt)} held=${s(x.heldReason)} sent=${Array.isArray(x.sentItems) ? x.sentItems.length : 0}${x.stopReason ? ` stopReason=${s(x.stopReason)}` : ""}`,
+      );
+    }
+    if (enrolments.empty) console.log("  >> Stamped for the lifecycle engine, but no enrolment found.");
+  }
+
   // (a) Journey doc + graph.
   let graph: JourneyGraph | null = null;
   let journeyStatus = "(no journey doc)";

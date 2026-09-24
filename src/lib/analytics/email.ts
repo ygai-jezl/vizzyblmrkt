@@ -2,7 +2,9 @@ import { forTenant } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailEvent } from "@/lib/types/emailEvent";
 import type { Journey } from "@/lib/types/journey";
+import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import { journeyIdFor } from "@/lib/journey/service";
+import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { CONTROL } from "@/lib/journey/allocation";
 import { computeBqEmailBreakdown, type RawEngagement } from "./bigquery";
 
@@ -112,9 +114,52 @@ export function engagementFromRaw(raw: RawEngagement): EngagementCounts {
   };
 }
 
-function sequenceName(journey: Journey): string {
-  const emails = journey.graph.nodes.filter((n) => n.type === "email").length;
+function sequenceName(journey: Journey | null, moved: LifecycleJourney | null): string {
+  const nodes = journey ? journey.graph.nodes : (moved?.draft.graph.nodes ?? []);
+  const emails = nodes.filter((n) => n.type === "email").length;
   return emails === 1 ? "Email sequence (1 email)" : `Email sequence (${emails} emails)`;
+}
+
+/**
+ * A launch's welcome sequence, on either journey engine (engine move): the
+ * original engine's journey and the launch's waitlist journey on the lifecycle
+ * engine. Moved journeys keep their email and variant ids, so their events
+ * count as one sequence.
+ */
+async function launchSequence(
+  ctx: TenantContext,
+  campaignId: string,
+  db?: FirestoreLike,
+): Promise<{ journeyId: string; journeyIds: string[]; journey: Journey | null; moved: LifecycleJourney | null }> {
+  const journeyId = journeyIdFor(campaignId);
+  const movedId = waitlistJourneyId(campaignId);
+  const repo = forTenant(ctx, db);
+  const [journey, moved] = await Promise.all([
+    repo.journeys.getById(journeyId),
+    repo.lifecycleJourneys.getById(movedId).catch(() => null),
+  ]);
+  return { journeyId, journeyIds: [journeyId, movedId], journey, moved };
+}
+
+/** Events for every journey id of one sequence, up to the read cap in total. */
+async function sequenceEvents(
+  ctx: TenantContext,
+  journeyIds: string[],
+  db?: FirestoreLike,
+): Promise<{ events: EmailEvent[]; truncated: boolean }> {
+  const rows: EmailEvent[] = [];
+  for (const id of journeyIds) {
+    // Equality-only (tenantId + journeyId) — no composite index required.
+    rows.push(
+      ...(await forTenant(ctx, db).emailEvents.find({
+        where: [["journeyId", "==", id]],
+        limit: READ_CAP + 1 - rows.length,
+      })),
+    );
+    if (rows.length > READ_CAP) break;
+  }
+  const truncated = rows.length > READ_CAP;
+  return { events: truncated ? rows.slice(0, READ_CAP) : rows, truncated };
 }
 
 export async function computeEmailAnalytics(
@@ -122,19 +167,14 @@ export async function computeEmailAnalytics(
   campaignId: string,
   db?: FirestoreLike,
 ): Promise<EmailAnalytics> {
-  const journeyId = journeyIdFor(campaignId);
-  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
+  const { journeyId, journeyIds, journey, moved } = await launchSequence(ctx, campaignId, db);
 
   const sequences: SequenceRow[] = [];
   let truncated = false;
-  if (journey) {
-    // Equality-only (tenantId + journeyId) — no composite index required.
-    const rows = await forTenant(ctx, db).emailEvents.find({
-      where: [["journeyId", "==", journeyId]],
-      limit: READ_CAP + 1,
-    });
-    truncated = rows.length > READ_CAP;
-    const events = truncated ? rows.slice(0, READ_CAP) : rows;
+  if (journey || moved) {
+    const read = await sequenceEvents(ctx, journeyIds, db);
+    truncated = read.truncated;
+    const events = read.events;
     const counts = aggregateEvents(events);
     const enrolled = new Set(
       events.filter((e) => e.type === "send").map((e) => e.signupId),
@@ -142,7 +182,7 @@ export async function computeEmailAnalytics(
     sequences.push({
       kind: "sequence",
       id: journeyId,
-      name: sequenceName(journey),
+      name: sequenceName(journey, moved),
       enrolled,
       ...counts,
     });
@@ -231,20 +271,76 @@ export interface NodeBreakdown extends EngagementCounts {
   arms: ArmBreakdown[];
 }
 
+/** One email step of a launch's sequence, and its A/B arms if it has a test. */
+interface SequenceStep {
+  nodeId: string;
+  label: string;
+  ab: { armIds: string[]; status?: "running" | "promoted"; winnerVariantId: string | null } | null;
+}
+
+/**
+ * The email steps of a launch's sequence (`journey_{launch}`): from its original
+ * journey, or — for a launch that started on the lifecycle engine (engine move)
+ * — from its journey there (each email's pool; A/B pools list their arms).
+ */
+async function sequenceSteps(
+  ctx: TenantContext,
+  journeyId: string,
+  db?: FirestoreLike,
+): Promise<{ steps: SequenceStep[]; journeyIds: string[] } | null> {
+  const repo = forTenant(ctx, db);
+  const journey = await repo.journeys.getById(journeyId);
+  if (journey) {
+    return {
+      journeyIds: [journeyId, waitlistJourneyId(journey.campaignId)],
+      steps: journey.graph.nodes
+        .filter((n) => n.type === "email")
+        .map((node) => {
+          const ab = node.data.abTest;
+          return {
+            nodeId: node.id,
+            label: node.data.label || node.data.subject || "Untitled email",
+            ab: ab
+              ? { armIds: [CONTROL, ...ab.variants.map((v) => v.variantId)], status: ab.status, winnerVariantId: ab.winnerVariantId ?? null }
+              : null,
+          };
+        }),
+    };
+  }
+  if (!journeyId.startsWith("journey_")) return null;
+  const moved = await repo.lifecycleJourneys.getById(waitlistJourneyId(journeyId.slice("journey_".length))).catch(() => null);
+  if (!moved) return null;
+  return {
+    journeyIds: [journeyId, moved.id],
+    steps: moved.draft.graph.nodes
+      .filter((n) => n.type === "email")
+      .map((node) => {
+        const pool = moved.draft.pools.find((p) => p.id === node.data.poolId);
+        const winner = pool ? (moved.abWinners?.[pool.id] ?? null) : null;
+        return {
+          nodeId: node.id,
+          label: node.data.label || pool?.items[0]?.subject || "Untitled email",
+          ab:
+            pool?.abTest && pool.items.length > 1
+              ? { armIds: pool.items.map((i) => i.id), status: winner ? ("promoted" as const) : ("running" as const), winnerVariantId: winner }
+              : null,
+        };
+      }),
+  };
+}
+
+const armLabel = (vid: string, i: number) => (vid === CONTROL || i === 0 ? "Control" : `Variant ${String.fromCharCode(64 + i)}`);
+
 export async function computeSequenceEmailBreakdown(
   ctx: TenantContext,
   journeyId: string,
   db?: FirestoreLike,
 ): Promise<{ nodes: NodeBreakdown[]; truncated: boolean }> {
-  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
-  if (!journey) return { nodes: [], truncated: false };
+  const seq = await sequenceSteps(ctx, journeyId, db);
+  if (!seq) return { nodes: [], truncated: false };
 
-  const rows = await forTenant(ctx, db).emailEvents.find({
-    where: [["journeyId", "==", journeyId]],
-    limit: READ_CAP + 1,
-  });
-  const truncated = rows.length > READ_CAP;
-  const events = truncated ? rows.slice(0, READ_CAP) : rows;
+  // Including the launch's sends from the lifecycle engine once it has moved.
+  const { events, truncated } = await sequenceEvents(ctx, seq.journeyIds, db);
 
   const byNode = new Map<string, EmailEvent[]>();
   for (const e of events) {
@@ -253,31 +349,25 @@ export async function computeSequenceEmailBreakdown(
     else byNode.set(e.nodeId, [e]);
   }
 
-  const nodes: NodeBreakdown[] = journey.graph.nodes
-    .filter((n) => n.type === "email")
-    .map((node) => {
-      const nodeEvents = byNode.get(node.id) ?? [];
-      const counts = aggregateEvents(nodeEvents);
-      const ab = node.data.abTest;
-      let arms: ArmBreakdown[] = [];
-      if (ab) {
-        const armIds = [CONTROL, ...ab.variants.map((v) => v.variantId)];
-        arms = armIds.map((vid, i) => ({
+  const nodes: NodeBreakdown[] = seq.steps.map((step) => {
+    const nodeEvents = byNode.get(step.nodeId) ?? [];
+    const arms: ArmBreakdown[] = step.ab
+      ? step.ab.armIds.map((vid, i) => ({
           variantId: vid,
-          label: vid === CONTROL ? "Control" : `Variant ${String.fromCharCode(64 + i)}`,
+          label: armLabel(vid, i),
           ...aggregateEvents(nodeEvents.filter((e) => e.variantId === vid)),
-        }));
-      }
-      return {
-        nodeId: node.id,
-        label: node.data.label || node.data.subject || "Untitled email",
-        abTest: !!ab,
-        status: ab?.status,
-        winnerVariantId: ab?.winnerVariantId ?? null,
-        arms,
-        ...counts,
-      };
-    });
+        }))
+      : [];
+    return {
+      nodeId: step.nodeId,
+      label: step.label,
+      abTest: !!step.ab,
+      status: step.ab?.status,
+      winnerVariantId: step.ab?.winnerVariantId ?? null,
+      arms,
+      ...aggregateEvents(nodeEvents),
+    };
+  });
 
   return { nodes, truncated };
 }
@@ -293,17 +383,16 @@ export async function computeHybridEmailAnalytics(
   campaignId: string,
   db?: FirestoreLike,
 ): Promise<EmailAnalytics> {
-  const journeyId = journeyIdFor(campaignId);
-  const bq = await computeBqEmailBreakdown(ctx, journeyId).catch(() => null);
+  const { journeyId, journeyIds, journey, moved } = await launchSequence(ctx, campaignId, db);
+  const bq = await computeBqEmailBreakdown(ctx, journeyIds).catch(() => null);
   if (!bq) return computeEmailAnalytics(ctx, campaignId, db);
 
-  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
   const sequences: SequenceRow[] = [];
-  if (journey) {
+  if (journey || moved) {
     sequences.push({
       kind: "sequence",
       id: journeyId,
-      name: sequenceName(journey),
+      name: sequenceName(journey, moved),
       enrolled: bq.sequence.enrolled,
       ...engagementFromRaw(bq.sequence),
     });
@@ -325,41 +414,32 @@ export async function computeHybridSequenceBreakdown(
   journeyId: string,
   db?: FirestoreLike,
 ): Promise<{ nodes: NodeBreakdown[]; truncated: boolean }> {
-  const bq = await computeBqEmailBreakdown(ctx, journeyId).catch(() => null);
+  const seq = await sequenceSteps(ctx, journeyId, db);
+  if (!seq) return { nodes: [], truncated: false };
+  const bq = await computeBqEmailBreakdown(ctx, seq.journeyIds).catch(() => null);
   if (!bq) return computeSequenceEmailBreakdown(ctx, journeyId, db);
 
-  const journey = await forTenant(ctx, db).journeys.getById(journeyId);
-  if (!journey) return { nodes: [], truncated: false };
-
   const byNode = new Map(bq.nodes.map((n) => [n.nodeId, n]));
-  const nodes: NodeBreakdown[] = journey.graph.nodes
-    .filter((n) => n.type === "email")
-    .map((node) => {
-      const bqNode = byNode.get(node.id);
-      const counts = engagementFromRaw(bqNode?.counts ?? RAW_ZERO);
-      const ab = node.data.abTest;
-      let arms: ArmBreakdown[] = [];
-      if (ab) {
-        const armCounts = new Map(
-          (bqNode?.arms ?? []).map((a) => [a.variantId, a.counts]),
-        );
-        const armIds = [CONTROL, ...ab.variants.map((v) => v.variantId)];
-        arms = armIds.map((vid, i) => ({
+  const nodes: NodeBreakdown[] = seq.steps.map((step) => {
+    const bqNode = byNode.get(step.nodeId);
+    const armCounts = new Map((bqNode?.arms ?? []).map((a) => [a.variantId, a.counts]));
+    const arms: ArmBreakdown[] = step.ab
+      ? step.ab.armIds.map((vid, i) => ({
           variantId: vid,
-          label: vid === CONTROL ? "Control" : `Variant ${String.fromCharCode(64 + i)}`,
+          label: armLabel(vid, i),
           ...engagementFromRaw(armCounts.get(vid) ?? RAW_ZERO),
-        }));
-      }
-      return {
-        nodeId: node.id,
-        label: node.data.label || node.data.subject || "Untitled email",
-        abTest: !!ab,
-        status: ab?.status,
-        winnerVariantId: ab?.winnerVariantId ?? null,
-        arms,
-        ...counts,
-      };
-    });
+        }))
+      : [];
+    return {
+      nodeId: step.nodeId,
+      label: step.label,
+      abTest: !!step.ab,
+      status: step.ab?.status,
+      winnerVariantId: step.ab?.winnerVariantId ?? null,
+      arms,
+      ...engagementFromRaw(bqNode?.counts ?? RAW_ZERO),
+    };
+  });
 
   return { nodes, truncated: false };
 }

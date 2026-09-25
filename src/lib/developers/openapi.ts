@@ -488,7 +488,7 @@ function webhooks(origin: string): Json {
       post: {
         operationId: "webhook",
         summary: "Webhook",
-        description: `Changes your product should mirror, such as an unsubscribe from one of YouGrow's emails. Reply 2xx within 5 seconds; anything else is retried with backoff for 24 hours, with the same \`id\`. More types may be added: reply 2xx to any you don't handle. ${verify} \`dir\` is \`webhook\`.`,
+        description: `Changes your product should mirror: \`email_preferences.updated\` (an unsubscribe from one of YouGrow's emails), \`email.suppressed\` (YouGrow stopped emailing a user because their address hard-bounced or they reported an email as spam) and \`connection.test\` (the Test webhook button). API writes never trigger one. Reply 2xx within 5 seconds; anything else is retried with backoff for 24 hours, with the same \`id\`. More types may be added: reply 2xx to any you don't handle. ${verify} \`dir\` is \`webhook\`.`,
         security: [{ bearerAuth: [] }],
         parameters: [keyIdHeader],
         requestBody: {
@@ -502,6 +502,10 @@ function webhooks(origin: string): Json {
                 createdAt: "2026-09-25T10:00:00Z",
                 data: { userId: "user_123", category: "onboarding", subscribed: false, scope: "category", source: "list-unsubscribe" },
               },
+            },
+            suppressed: {
+              summary: "A spam complaint",
+              value: { id: "wh_2b8e4f", type: "email.suppressed", createdAt: "2026-09-25T10:00:00Z", data: { userId: "user_123", reason: "complaint" } },
             },
             test: { summary: "Test webhook", value: { id: "wh_test_1", type: "connection.test", createdAt: "2026-09-25T10:00:00Z", data: {} } },
           }),

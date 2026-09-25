@@ -636,6 +636,13 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Tell the product (an `email.suppressed` webhook) when a journey email to one of
+  # its users hard-bounces or is reported as spam. "false" in prod
+  # (apphosting.prod.yaml) until verified here.
+  - variable: CONNECT_SUPPRESSION_WEBHOOK_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

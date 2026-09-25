@@ -59,3 +59,17 @@ describe("setupSteps", () => {
   });
 });
 
+
+describe("optional steps", () => {
+  it("marks the context endpoint optional, so setup can complete without it", () => {
+    const steps = setupSteps({
+      kind: "custom",
+      environment: "production",
+      guide: { catalog: "done", eventsReceived: "done", contextEndpoint: "todo" },
+      journeys: [],
+      production: null,
+    } as never);
+    expect(steps.find((s) => s.id === "context")).toMatchObject({ optional: true, done: false });
+    expect(steps.filter((s) => s.optional).map((s) => s.id)).toEqual(["context"]);
+  });
+});

@@ -11,8 +11,8 @@ export default function ConnectYourCodeDocs() {
     <article>
       <H1>Connecting your code</H1>
       <Lead>
-        YouGrow reads your product&apos;s code to learn how it works — what getting started means, which events it can
-        send, which numbers it can report about each user — so setting up lifecycle email takes minutes, not a project.
+        YouGrow reads your product&apos;s code to learn how it works — where people sign up, what getting started means,
+        which numbers it can report about each user — so setting up lifecycle email takes minutes, not a project.
         Access is <strong>read-only</strong>, limited to the repositories you choose, and you can remove it at any time.
       </Lead>
 
@@ -59,7 +59,7 @@ export default function ConnectYourCodeDocs() {
       </P>
       <P>Here&apos;s a message you can send them:</P>
       <Code title="For your GitHub organisation owner">{`Hi — we're setting up YouGrow for lifecycle email. It needs READ-ONLY access
-to our product's code so it can learn our onboarding steps and events.
+to our product's code so it can learn our sign-up and onboarding steps.
 
 Please approve the "YouGrow" GitHub app request${app ? ` (${app})` : ""}.
 It asks only for read access to code and metadata, and only for the

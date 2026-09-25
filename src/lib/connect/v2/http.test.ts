@@ -58,7 +58,9 @@ describe("API v2 auth and gate", () => {
   it("is off (404) until API_V2_ENABLED is on", async () => {
     const w = await setup();
     delete process.env.API_V2_ENABLED;
-    expect((await w.patch("u_1", { email: "a@example.com" })).status).toBe(404);
+    const res = await w.patch("u_1", { email: "a@example.com" });
+    expect(res.status).toBe(404);
+    expect((await json(res)).error).toBe("api_disabled");
   });
 
   it("needs Basic auth with the right key id and secret", async () => {
@@ -115,7 +117,8 @@ describe("PATCH /api/v2/users/{userId}", () => {
     expect(b.error).toBe("invalid");
     expect(JSON.stringify(b.fields)).toContain("subscribed");
     expect(JSON.stringify(b.fields)).toContain("nope");
-    expect((await w.patch("batch", { firstName: "x" })).status).toBe(400); // reserved id
+    expect((await w.patch("batch", { firstName: "x" })).status).toBe(400); // reserved ids
+    expect((await w.patch("..", { firstName: "x" })).status).toBe(400);
     expect((await w.patch("u_1", "{not json")).status).toBe(400);
   });
 

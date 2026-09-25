@@ -42,6 +42,10 @@ export default function DevelopersLayout({ children }: { children: ReactNode }) 
             ·{" "}
             <a href="/developers/llms-full.txt" className="underline hover:text-neutral-900 dark:hover:text-white">
               every page as Markdown
+            </a>{" "}
+            ·{" "}
+            <a href="/developers/openapi.json" className="underline hover:text-neutral-900 dark:hover:text-white">
+              OpenAPI
             </a>
           </p>
         </nav>

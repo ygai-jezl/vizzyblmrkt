@@ -51,7 +51,8 @@ type Gate =
   | { ok: false; response: Response };
 
 async function gate(req: Request, deps: V2HttpDeps, readBody: boolean): Promise<Gate> {
-  if (!isApiV2Enabled()) return { ok: false, response: json(404, { error: "not_found" }) };
+  // Its own code, so a client can't mistake "the API is off here" for "no such user".
+  if (!isApiV2Enabled()) return { ok: false, response: json(404, { error: "api_disabled", message: "API v2 isn't enabled on this YouGrow." }) };
   const nowMs = (deps.nowMs ?? Date.now)();
   let body = "";
   if (readBody) {

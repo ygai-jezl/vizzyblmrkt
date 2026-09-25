@@ -1,9 +1,9 @@
-import { agentFile, MARKDOWN, pageMarkdown } from "@/lib/developers/agentDocs";
+import { agentRedirect } from "@/lib/developers/agentDocs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** /developers/events as Markdown, for coding agents. */
+/** /developers/events.md moved to /developers/users.md with API v2 (2026-09-25): prompts copied earlier still land. */
 export function GET() {
-  return agentFile(() => pageMarkdown("events"), MARKDOWN);
+  return agentRedirect("/developers/users.md");
 }

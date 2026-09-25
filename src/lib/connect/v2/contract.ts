@@ -32,8 +32,8 @@ export const V2_LIMITS = {
   maxPropertiesBytes: 4 * 1024,
 } as const;
 
-/** `batch` is a route, so it can't be a user id. */
-export const RESERVED_USER_IDS = new Set(["batch"]);
+/** Ids a path can't carry: `batch` is a route, and URL parsing drops `.` and `..`. */
+export const RESERVED_USER_IDS = new Set(["batch", ".", ".."]);
 
 const LOCALE_RE = /^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$/;
 /** Profile fields that are top-level in v2 — not accepted as traits. */
@@ -52,7 +52,7 @@ export const UserIdSchema = z
   .string()
   .min(1)
   .max(256)
-  .refine((id) => !RESERVED_USER_IDS.has(id), { message: '"batch" is reserved' });
+  .refine((id) => !RESERVED_USER_IDS.has(id), { message: '"batch", "." and ".." are reserved' });
 
 const FactValueSchema = z.union([z.string().max(200), z.number().finite(), z.boolean()]);
 const TraitValueSchema = z.union([z.string().max(500), z.number().finite(), z.boolean()]);
@@ -112,7 +112,17 @@ export const BatchItemSchema = z.object({ userId: UserIdSchema }).passthrough();
 /** The body of POST /api/v2/users/batch. Items are validated one by one, so one bad item never fails the rest. */
 export const BatchRequestSchema = z.object({ users: z.array(z.unknown()).min(1).max(V2_LIMITS.maxBatch) }).strict();
 
-const RESERVED = new Set<string>(Object.values(RESERVED_EVENTS));
+/**
+ * v1's reserved events that v2 expresses as STATE instead. `onboarding.completed`
+ * stays an event: a product without a step checklist still knows when someone
+ * has finished getting started (it marks them activated).
+ */
+const STATE_EVENTS = new Set<string>([
+  RESERVED_EVENTS.signedUp,
+  RESERVED_EVENTS.stepCompleted,
+  RESERVED_EVENTS.userDeleted,
+  RESERVED_EVENTS.preferencesUpdated,
+]);
 
 /** The body of POST /api/v2/users/{userId}/events: a milestone. */
 export const EventRequestSchema = z
@@ -121,7 +131,7 @@ export const EventRequestSchema = z
       .string()
       .max(80)
       .regex(EVENT_NAME_RE, { message: "lower-case, dot-separated, e.g. report.exported" })
-      .refine((e) => !RESERVED.has(e), { message: "reserved — send it as state (signedUpAt, steps, subscribed) or DELETE the user" }),
+      .refine((e) => !STATE_EVENTS.has(e), { message: "send this as state instead (signedUpAt, steps, subscribed), or DELETE the user" }),
     properties: z.record(z.string(), z.unknown()).optional(),
     occurredAt: TimestampSchema.optional(),
     /** Makes a retry harmless: the same key is recorded once. */

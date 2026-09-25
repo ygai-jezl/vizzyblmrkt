@@ -1,15 +1,17 @@
-import { SEVERITY_LABEL, type IntegrationTask } from "./integrationTasks";
-import { HEADER_KEY_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP, LIMITS, SIGNATURE_TOLERANCE_SEC } from "./protocol";
+import { PHASE_1, SEVERITY_LABEL, type IntegrationTask } from "./integrationTasks";
+import type { GuideField, GuideSend } from "./integrationGuide";
+import { LIMITS } from "./protocol";
+import { V2_LIMITS, V2_PATHS } from "./v2/contract";
 
 /**
  * The prompt a customer pastes into their coding agent (Claude Code, Cursor, …)
  * in their own repo: what to build, where, in priority order. Server-side only
- * (it quotes the protocol's limits); contains no secrets — only env var names
- * and the public key id.
+ * (it quotes the API's limits); contains no secrets — only env var names and the
+ * public key id.
  *
  * It has to stand on its own: an agent that can't reach the docs still has the
- * protocol essentials, and it's told where the contract is — the docs and the
- * published SDK, never YouGrow's source.
+ * protocol essentials, and it's told where the contract is — the docs, the OpenAPI
+ * spec and the published SDK, never YouGrow's source.
  */
 
 export interface AgentPromptInput {
@@ -23,58 +25,66 @@ export interface AgentPromptInput {
   facts: Array<{ id: string; label: string; unit: string | null; source: string }>;
   /** True when those steps / facts are Learn from repo's proposals, not the customer's accepted catalog. */
   proposed?: { steps: boolean; facts: boolean };
-  events: Array<{ name: string; when: string }>;
+  /** What to send, field by field (from the integration guide). */
+  send: GuideSend;
   warnings: string[];
 }
-
-/** Phase 1 is what a journey needs to run lawfully; everything else waits until it's live. */
-const PHASE_1 = new Set<IntegrationTask["severity"]>(["required", "compliance"]);
 
 function proposal(kind: "step" | "fact", productName: string): string {
   return `These ${kind} ids are **proposals** from YouGrow's reading of this repository, not our accepted catalog. Before building against them, accept or edit them in YouGrow → Products → ${productName} → Catalog, then copy this prompt again — otherwise the ids won't match.`;
 }
 
 const HOW: Record<string, string> = {
-  server_event: "send it where the server makes this happen",
-  reconcile: "derive it from stored state in a scheduled job, with a stable messageId like `{userId}:step:{stepId}`",
-  client_only: "it's only computed in the browser today — derive it from stored state in a scheduled job",
+  server_event: "set it in the PATCH where the server makes this happen",
+  reconcile: "derive it from stored state in a scheduled sync — resending the same state is harmless",
+  client_only: "it's only computed in the browser today — derive it from stored state in a scheduled sync",
 };
+
+/** A field as the agent should send it: a fixed JSON value where there is one, else its type. */
+const fieldLine = (f: GuideField) => (f.example ? `- \`${f.field}\` = \`${f.example}\` — ${f.when}` : `- \`${f.field}\` (${f.type}) — ${f.when}`);
 
 export function buildAgentPrompt(p: AgentPromptInput): string {
   const o = p.origin;
+  const user = `${o}${V2_PATHS.user}`;
+  const kb = (bytes: number) => `${bytes / 1024} KB`;
   const lines: string[] = [];
   const push = (...l: string[]) => lines.push(...l);
   push(
     `# Connect ${p.productName} to YouGrow lifecycle email`,
     "",
-    `You're working in the ${p.productName} codebase. Connect it to YouGrow in two phases:`,
-    "- **Phase 1 — required and compliance:** sign-ups, account deletion and email opt-outs. Before writing any code, reply with a short plan for Phase 1 — at most 2 PRs — and wait for my OK. Then build it, and stop.",
-    "- **Phase 2 — personalisation:** optional, and only once Phase 1 is live.",
+    `You're working in the ${p.productName} codebase. Connect it to YouGrow (API v2: our server sends each user's current state) in two phases:`,
+    "- **Phase 1 — sign-ups and compliance:** send each user's state when they sign up (with their timezone and consent), their email opt-outs, who must never be emailed, and account deletion. Before writing any code, reply with a short plan for Phase 1 — at most 2 PRs — and wait for my OK. Then build it, and stop.",
+    "- **Phase 2 — personalisation:** onboarding steps and facts in the same call, and a context endpoint only if we need values fresher than our last write. Optional, and only once Phase 1 is live.",
     "",
-    "Build the simplest thing that works: an awaited call at the moment something happens, or a small scheduled job that reads stored state. Don't build a sync engine, queues or state machines around YouGrow — it dedupes by `messageId`, so re-sending is safe. If something below doesn't match the code, ask me rather than design around it.",
+    "Build the simplest thing that works: an awaited call where something changes, or a small scheduled job that reads stored state and sends it. Don't build a sync engine, queues or state machines around YouGrow — every write is idempotent, so sending the same state again is harmless. If something below doesn't match the code, ask me rather than design around it.",
     "",
     "## Where the contract is",
     ...(p.docs
       ? [
-          `- Read ${o}/developers/llms-full.txt first: every YouGrow docs page in one Markdown file. Single pages: ${o}/developers/events.md, ${o}/developers/context-endpoint.md, ${o}/developers/webhooks.md, ${o}/developers/security.md.`,
-          `- JSON Schemas for every message, generated from YouGrow's own validators: ${o}/developers/schema/events.json, ${o}/developers/schema/context-request.json, ${o}/developers/schema/context-response.json, ${o}/developers/schema/webhook.json. Signing test vectors: ${o}/developers/test-vectors.json.`,
+          `- Read ${o}/developers/llms-full.txt first: every YouGrow docs page in one Markdown file. Single pages: ${o}/developers/users.md, ${o}/developers/context-endpoint.md, ${o}/developers/webhooks.md, ${o}/developers/security.md.`,
+          `- The OpenAPI 3.1 spec, generated from YouGrow's own validators: ${o}/developers/openapi.json — every endpoint, field, response and error. JSON Schemas for each body: ${o}/developers/schema/user-patch.json, ${o}/developers/schema/batch-request.json, ${o}/developers/schema/event.json, ${o}/developers/schema/context-response.json, ${o}/developers/schema/webhook.json. Test vectors for verifying our tokens: ${o}/developers/test-vectors.json.`,
         ]
       : ["- This YouGrow doesn't publish developer docs. Work from the protocol essentials below and the `@yougrowai/node` README."]),
-    "- The contract is the docs and the published `@yougrowai/node` package (its README and type definitions in node_modules). Don't clone or read YouGrow's own source code: it's the platform, not the contract, and its main branch can be ahead of what's deployed.",
+    "- The contract is the docs, the OpenAPI spec and the published `@yougrowai/node` package, version 0.3.0 or later (its README and type definitions in node_modules). Don't clone or read YouGrow's own source code: it's the platform, not the contract, and its main branch can be ahead of what's deployed.",
     "",
     "## Ground rules",
     `- Server-side only. Read settings from environment variables: \`YOUGROW_ORIGIN\` (value \`${o}\`), \`YOUGROW_KEY_ID\` (public, value \`${p.keyId}\`) and \`YOUGROW_SECRET\` (secret — it's in our secret manager; never commit, log or send it to a browser).`,
-    "- On a Node server, use our SDK (`npm install @yougrowai/node`) — it signs, batches and retries events and verifies our requests. It works from ES modules, and from CommonJS (`require`) in 0.2.0 and later. Point it at YOUGROW_ORIGIN: pass `endpoint` = YOUGROW_ORIGIN + `/api/v1/events` to `new YouGrow(…)`, and `issuer` = YOUGROW_ORIGIN to `createVerifier(…)`. Without the SDK, sign requests as below.",
-    "- In a serverless function (Cloud Functions, Lambda, Vercel), `await yg.flush()` before it returns — work left running afterwards may never finish. Use a Node runtime: the SDK needs `node:crypto`, so edge runtimes won't work.",
-    "- Give every event a unique `messageId` — deterministic where you can, so retries and repeats are harmless.",
-    "- Never let a YouGrow call break our own flows: send events asynchronously, and catch and log failures.",
+    "- Every request uses HTTP Basic auth over HTTPS: `YOUGROW_KEY_ID` is the username, `YOUGROW_SECRET` the password. There's nothing to sign.",
+    "- On a Node server, use our SDK: `npm install @yougrowai/node` (0.3.0 or later — earlier versions speak the removed API v1). `const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID, secret: process.env.YOUGROW_SECRET, origin: process.env.YOUGROW_ORIGIN })`, then `await yg.users.update(userId, patch)`, `await yg.users.batch(items)`, `await yg.users.delete(userId)` and `await yg.users.get(userId)`. It works from ES modules and from CommonJS: `const { YouGrow } = require(\"@yougrowai/node\")`. For our requests to you, `createVerifier({ keyId: process.env.YOUGROW_KEY_ID, origin: process.env.YOUGROW_ORIGIN })` from `@yougrowai/node/server`. Without the SDK, any HTTP client works — see the protocol essentials below.",
+    "- Await every call. The SDK sends each one straight away, with no queue to flush, so nothing is lost when a serverless function (Cloud Functions, Lambda, Vercel) returns. It retries network errors, 429 and 5xx itself. Use a Node runtime for the SDK — not an edge runtime.",
+    "- Never let a YouGrow call break our own flows: catch and log failures.",
     "- Add tests for each part, and keep changes small and reviewable.",
     "",
     "## Protocol essentials",
-    `- Events: \`POST ${o}/api/v1/events\` with body \`{"batch":[…]}\` — 1–${LIMITS.maxBatch} messages, at most ${LIMITS.maxBodyBytes / 1024} KB. Headers: \`${HEADER_KEY_ID}\`, \`${HEADER_TIMESTAMP}\` (unix seconds, within ${SIGNATURE_TOLERANCE_SEC / 60} minutes of our clock) and \`${HEADER_SIGNATURE}\` = \`v1=\` + hex HMAC-SHA256(secret, \`"events:" + timestamp + "." + rawBody\`). Sign the exact bytes you send.`,
-    "- Messages: `identify` — `{ type, messageId, userId, timestamp, traits, consent: { basis } }`; `track` — `{ type, messageId, userId, timestamp, event, properties }`. Timestamps are ISO 8601 with a timezone.",
-    `- Our requests to you (context endpoint, webhooks) carry \`Authorization: Bearer <JWT>\`, ES256, with keys at \`${o}/.well-known/jwks.json\`. Check \`iss\` = \`${o}\`, \`aud\` = your key id, \`dir\` (\`context\` or \`webhook\`), \`exp\`, and \`body_sha256\` = base64url SHA-256 of the raw request body. Verify before parsing.`,
-    `- Context response: \`{ asOf, steps, nextStep, facts, insights, consent?, hold?, exit? }\` — at most 20 steps, 50 facts and 20 insights, ${LIMITS.maxContextBytes / 1024} KB, within 5 seconds.`,
+    `- \`PATCH ${user}\` (the userId URL-encoded) with a JSON body of the user's current state. It's a JSON Merge Patch: fields you send replace YouGrow's, fields you leave out stay, \`null\` clears one, and \`steps\`, \`facts\` and \`traits\` merge key by key. The first write creates the user. At most ${kb(V2_LIMITS.maxBodyBytes)}.`,
+    `- Fields: \`signedUpAt\` (when the account was created, ISO 8601 with a timezone — it starts sign-up journeys), \`email\`, \`firstName\`, \`lastName\`, \`timezone\` (IANA, e.g. \`Europe/London\`), \`locale\` (BCP 47, e.g. \`en-GB\`), \`consent\` (\`consent\`, \`soft_opt_in\`, \`corporate_subscriber\` or \`none\`), \`subscribed\` (\`false\` = opted out in our product), \`excluded\` (\`{"reason":"staff"}\` = never email them; \`null\` lifts it), \`steps\` (step id → the ISO 8601 time it was done, or \`null\`), \`facts\` (fact id → latest value: number, string or boolean; \`null\` removes it), \`traits\` (anything else journeys branch on — not email, names, timezone or locale), \`updatedAt\` (when you read this state; a write older than the newest applied is ignored). At most ${V2_LIMITS.maxSteps} steps, ${V2_LIMITS.maxFacts} facts and ${V2_LIMITS.maxTraits} traits per user. Unknown fields are refused.`,
+    '- Responses: `200 {"applied":true,"user":{…}}`; `200 {"applied":false,"reason":"stale_write"}` or `"deleted_later"` — a skipped write, not an error, so don\'t retry it; `400 {"error":"invalid","fields":[{"path":"…","message":"…"}]}` (or `invalid_json`) — fix the payload, don\'t retry it; `401 unauthorized` — wrong key id or secret; `413 body_too_large`; `429 rate_limited` — wait `Retry-After` seconds; `5xx` or a network error — retry with backoff (writes are idempotent).',
+    `- Many users: \`POST ${o}${V2_PATHS.batch}\` with \`{"users":[{"userId":"…", …the same fields}]}\` — 1–${V2_LIMITS.maxBatch} per request, each applied on its own. The response counts \`applied\`, \`ignored\` and \`failed\`; \`results\` lists only the items that weren't applied. \`yg.users.batch(items)\` takes any number.`,
+    `- Read back: \`GET ${user}\` → the state plus \`enrolments\` and \`optOuts\`; \`404\` when YouGrow doesn't hold them. Erase: \`DELETE\` the same URL → \`204\`, safe to repeat.`,
+    `- Milestones (optional): \`POST ${o}${V2_PATHS.events}\` with \`{"event":"report.exported","occurredAt":"…"}\` — for a user already sent. \`user.signed_up\`, \`onboarding.step_completed\`, \`user.deleted\` and \`email_preferences.updated\` are refused: they're state (\`signedUpAt\`, \`steps\`, \`subscribed\`, DELETE).`,
+    "- Rate limits per key: 600 requests a minute and 20,000 an hour; a batch counts as one request.",
+    `- Our requests to you (the context endpoint, webhooks) carry \`Authorization: Bearer <JWT>\`, ES256, with keys at \`${o}/.well-known/jwks.json\`. Check \`iss\` = \`${o}\`, \`aud\` = your key id, \`dir\` (\`context\` or \`webhook\`), \`exp\`, and \`body_sha256\` = base64url SHA-256 of the raw request body. Verify before parsing.`,
+    `- Context response (only if you build the optional context endpoint): \`{ asOf, steps, nextStep, facts, insights, consent?, hold?, exit? }\` — at most 20 steps, 50 facts and 20 insights, ${kb(LIMITS.maxContextBytes)}, within the connection's timeout (2 seconds by default).`,
     "",
     "## Tasks",
     "Under each task, **Found in our code** and **Look at** come from YouGrow's automated reading of this repository. Treat them as leads, not facts: check where each value is actually written, and whether the data exists at that moment, before relying on them.",
@@ -85,42 +95,56 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     push("", `#### ${n}. [${SEVERITY_LABEL[t.severity]}] ${t.title}${t.status === "done" ? " — already working, just check it" : ""}`, `Do: ${t.action}`, `If skipped: ${t.ifSkipped}`);
     if (t.fromCode.length) push("Found in our code:", ...t.fromCode.map((c) => `- ${c}`));
     if (t.files.length) push("Look at:", ...t.files.map((f) => `- \`${f.path}${f.line ? `:${f.line}` : ""}\``));
-    if (t.id === "steps" && p.steps.length) {
-      if (p.proposed?.steps) push(proposal("step", p.productName));
-      push("Steps (use these exact ids):", ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}`));
-    }
-    if (t.id === "context") {
-      if (p.steps.length) push(`Return \`steps\` with these ids: ${p.steps.map((s) => `\`${s.id}\``).join(", ")}, and \`nextStep\` = the first not done.`);
+    if (t.id === "steps") {
+      if (p.steps.length) {
+        if (p.proposed?.steps) push(proposal("step", p.productName));
+        push(
+          "Steps (use these exact ids; each value is the ISO 8601 time it was done):",
+          ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}`),
+        );
+      }
       if (p.facts.length) {
         if (p.proposed?.facts) push(proposal("fact", p.productName));
-        push("Return these `facts` (ids must match exactly):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
+        push("Facts (ids must match exactly; send the latest value):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
       }
-      push("Verify our request first (see Protocol essentials) — in Node, `createVerifier` from `@yougrowai/node/server` does all of it.");
+    }
+    if (t.id === "context") {
+      push(
+        "Skip it unless a value changes too fast to send, or you want insight sentences in emails. If you build it: return `steps` and `facts` with the same ids as above, and `nextStep` = the first step not done. Verify our request first (see Protocol essentials) — in Node, `createVerifier` from `@yougrowai/node/server` does all of it.",
+      );
     }
   };
-  const later = p.tasks.filter((t) => !PHASE_1.has(t.severity));
-  push("", "### Phase 1 — required and compliance (plan, build, then stop)");
-  p.tasks.filter((t) => PHASE_1.has(t.severity)).forEach(task);
+  const later = p.tasks.filter((t) => !PHASE_1.has(t.id));
+  push("", "### Phase 1 — sign-ups and compliance (plan, build, then stop)");
+  p.tasks.filter((t) => PHASE_1.has(t.id)).forEach(task);
   if (later.length) {
     push("", "### Phase 2 — personalisation (later, once Phase 1 is live)");
     later.forEach(task);
   }
-  if (p.events.length) {
-    push("", "## Events to send (exact names and payloads)", ...p.events.map((e) => `- \`${e.name}\` — ${e.when}`));
+
+  const s = p.send;
+  push("", "## What to send (exact fields)", `At sign-up — one \`PATCH ${user}\` with:`, ...s.signup.map(fieldLine));
+  push("", "Opt-outs and exclusions — the same PATCH, whenever they change:", ...s.compliance.map(fieldLine));
+  push("", `On erasure: \`DELETE ${user}\` — ${s.deletion}`);
+  if (s.progress.length) {
+    push("", "Phase 2 — in the same PATCH, whenever they change:", ...s.progress.map(fieldLine));
+  }
+  if (s.milestones.length) {
+    push("", `Optional milestones — \`POST ${o}${V2_PATHS.events}\`:`, ...s.milestones.map((m) => `- \`${m.event}\` — ${m.when}`));
   }
   if (p.warnings.length) push("", "## Gaps YouGrow noticed in our code", ...p.warnings.map((w) => `- ${w}`));
   push(
     "",
     "## Done when",
     "Phase 1:",
-    `- A test sign-up shows \`identify\` and \`user.signed_up\` in YouGrow → Products → ${p.productName} → **Events** within seconds.`,
-    "- Opting a test account out of email sends `email_preferences.updated` with `\"subscribed\": false` (a JSON boolean).",
-    "- Erasing a test account sends `user.deleted`. If your product has a deletion grace period, run your erasure code directly for the test account rather than waiting.",
+    `- \`GET ${user}\` for a test account (or \`yg.users.get\`) shows what you sent, with \`signedUpAt\` set. Each write also appears in YouGrow → Products → ${p.productName} → **Events** within seconds.`,
+    "- Opting a test account out sets `\"subscribed\": false` (a JSON boolean), and an excluded account (e.g. staff) shows `excluded` — GET shows both.",
+    "- Erasing a test account sends `DELETE`, and GET then answers 404. If your product has a deletion grace period, run your erasure code directly for the test account rather than waiting.",
     "- Journeys start in **test** mode, where only people on a journey's test list get email — add your test accounts there.",
     "",
     "Phase 2:",
-    "- Step events arrive as test accounts complete steps.",
-    "- **Test connection**, run with a real test account's id, returns the steps and facts you expect. It passes any valid response, so check the content, not just the tick.",
+    "- GET shows `steps` and `facts` changing as test accounts complete steps.",
+    "- If you built the context endpoint: **Test connection**, run with a real test account's id, returns the steps and facts you expect. It passes any valid response, so check the content, not just the tick.",
   );
   return lines.join("\n");
 }

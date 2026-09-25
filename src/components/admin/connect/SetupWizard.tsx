@@ -178,8 +178,8 @@ export function SetupWizard({
         {step === "listen" && created ? (
           <>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              Send an identify or track event from your product. It appears here within a few
-              seconds — rejected messages show their reason.
+              Send a user&apos;s state from your product. It appears here within a few seconds —
+              rejected writes show their reason.
             </p>
             <EventDebugger connectionId={created.connection.id} compact />
             <div className="flex justify-end">
@@ -194,51 +194,41 @@ export function SetupWizard({
   );
 }
 
-/** How to send events without the SDK: sign the raw body with HMAC-SHA256. */
+/** How to send a user's state without the SDK: one PATCH, HTTP Basic auth (API v2). */
 function InstallSnippet({ origin, keyId }: { origin: string; keyId: string }) {
-  const snippet = `// Node 18+ — send events to ${origin}/api/v1/events
-import { createHmac, randomUUID } from "node:crypto";
-
+  const snippet = `// Node 18+ — send a user's state to ${origin}/api/v2/users/{userId}
 const KEY_ID = "${keyId}";
 const SECRET = process.env.YOUGROW_SECRET; // the secret you just copied
+const AUTH = "Basic " + Buffer.from(\`\${KEY_ID}:\${SECRET}\`).toString("base64");
 
-export async function sendEvents(batch) {
-  const body = JSON.stringify({ batch });
-  const ts = Math.floor(Date.now() / 1000);
-  const sig = createHmac("sha256", SECRET).update(\`events:\${ts}.\${body}\`).digest("hex");
-  const res = await fetch("${origin}/api/v1/events", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-yougrow-key-id": KEY_ID,
-      "x-yougrow-timestamp": String(ts),
-      "x-yougrow-signature": \`v1=\${sig}\`,
-    },
-    body,
+export async function updateUser(userId, state) {
+  const res = await fetch(\`${origin}/api/v2/users/\${encodeURIComponent(userId)}\`, {
+    method: "PATCH",
+    headers: { authorization: AUTH, "content-type": "application/json" },
+    body: JSON.stringify(state),
+    signal: AbortSignal.timeout(10_000),
   });
-  return res.json(); // { accepted, duplicates, rejected: [...] }
+  if (!res.ok) throw new Error(\`YouGrow \${res.status}: \${await res.text()}\`);
+  return res.json(); // { applied, user }
 }
 
 // On sign-up:
-await sendEvents([
-  { type: "identify", messageId: randomUUID(), userId: user.id,
-    timestamp: new Date().toISOString(),
-    traits: { email: user.email, firstName: user.firstName, timezone: "Europe/London" },
-    consent: { basis: "soft_opt_in" } },
-  { type: "track", messageId: randomUUID(), userId: user.id,
-    timestamp: new Date().toISOString(), event: "user.signed_up" },
-]);
+await updateUser(user.id, {
+  email: user.email,
+  firstName: user.firstName,
+  timezone: "Europe/London",
+  consent: "soft_opt_in",
+  signedUpAt: new Date().toISOString(),
+});
 
-// When an onboarding step is done:
-await sendEvents([{ type: "track", messageId: randomUUID(), userId: user.id,
-  timestamp: new Date().toISOString(), event: "onboarding.step_completed",
-  properties: { step: "create_brand" } }]);`;
+// When an onboarding step is done (send the same fields again any time — it's a merge):
+await updateUser(user.id, { steps: { create_brand: new Date().toISOString() } });`;
   return (
     <div className="space-y-2">
       <p className="text-sm text-neutral-600 dark:text-neutral-400">
-        Call this from your server (never the browser). Every message needs a unique{" "}
-        <code className="font-mono text-xs">messageId</code> — resending one is harmless. Up to 100
-        messages per request; timestamps must include a timezone.
+        Call this from your server (never the browser). Each call sends a user&apos;s current state:
+        fields you send replace ours, fields you leave out stay, and resending is harmless. Timestamps
+        must include a timezone.
       </p>
       <pre className="max-h-96 overflow-auto rounded-md border border-neutral-200 bg-neutral-50 p-3 font-mono text-xs dark:border-neutral-800 dark:bg-neutral-900">
         {snippet}

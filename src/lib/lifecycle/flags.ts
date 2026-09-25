@@ -15,11 +15,6 @@ export function isLifecycleUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_LIFECYCLE_ENABLED === "true";
 }
 
-/** Server flag — the public ingest API (/api/v1/events) 503s when off. */
-export function isLifecycleIngestEnabled(): boolean {
-  return process.env.LIFECYCLE_INGEST_ENABLED === "true";
-}
-
 /**
  * The highest delivery mode any lifecycle send may use in this environment:
  * `test` < `shadow` < `live`. Unset or unknown means `test` (the safest), so a

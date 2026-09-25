@@ -6,7 +6,7 @@ import type { ProductUser } from "@/lib/types/productUser";
 import { activeJourneysFor, enrolOnEvents, enrolOnSignup } from "@/lib/lifecycle/enrol";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isInvitesEnabled } from "@/lib/invites/flags";
-import { recordInviteProgress, type TouchedUser } from "@/lib/invites/attribution";
+import { inviteCodeFromTraits, recordInviteProgress, type TouchedUser } from "@/lib/invites/attribution";
 import { eraseProductUserHistory, scrubSuppressionEmails } from "../erase";
 import { EVENT_TTL_MS, recordDiagnostics, touchHealth, type IngestSummary } from "../ingest";
 import {
@@ -126,7 +126,7 @@ async function afterWrites(
   }
   const touched: TouchedUser[] = writes.map((w) => ({
     user: w.user,
-    code: typeof w.patch.traits?.yg_invite === "string" ? w.patch.traits.yg_invite : null,
+    code: inviteCodeFromTraits(w.patch.traits),
   }));
   if (touched.length > 0 && isInvitesEnabled()) {
     await recordInviteProgress(ctx, connection.id, touched, { db, nowMs }).catch((err) => {
@@ -313,6 +313,12 @@ export async function recordUserEvent(
   if (result.outcome === "applied" && result.user && isLifecycleEnabled()) {
     await enrolOnEvents(ctx, connection, [{ user: result.user, event: body.event, timestamp }], { db: deps.db, nowMs }).catch((err) => {
       console.error(`[api-v2] event enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    });
+  }
+  // A milestone can activate the user (onboarding.completed) — invites count that.
+  if (result.outcome === "applied" && result.user && isInvitesEnabled()) {
+    await recordInviteProgress(ctx, connection.id, [{ user: result.user, code: null }], { db: deps.db, nowMs }).catch((err) => {
+      console.error(`[api-v2] invite progress failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   }
   const summary: IngestSummary = { accepted: 1, duplicates: 0, rejected: [] };

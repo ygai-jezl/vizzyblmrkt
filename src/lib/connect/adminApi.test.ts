@@ -28,7 +28,6 @@ beforeAll(() => {
   process.env.CONNECT_SECRET_ENC_KEY = "unit-test-connect-root-key-rotate-me";
 });
 beforeEach(() => {
-  process.env.LIFECYCLE_INGEST_ENABLED = "true";
   __resetIngestCaches();
 });
 
@@ -41,7 +40,7 @@ async function create(db: FakeFirestore, kind: "custom" | "sandbox", ctx = ctxA)
 }
 
 const fire = (db: FakeFirestore, id: string, action: Record<string, unknown>) =>
-  fireSandbox(ctxA, id, { userId: "sandbox_alex", action }, { origin, db });
+  fireSandbox(ctxA, id, { userId: "sandbox_alex", action }, { db });
 
 describe("connections admin API", () => {
   it("creates a sandbox wired to its reference endpoints, with you as the test user", async () => {
@@ -164,15 +163,15 @@ describe("connections admin API", () => {
 });
 
 describe("the sandbox end to end", () => {
-  it("fires events through real ingest, then lists events and users", async () => {
+  it("sends state through the real API v2 write path, then lists events and users", async () => {
     const db = new FakeFirestore();
     const { connection } = await create(db, "sandbox");
 
     const r = await fire(db, connection.id, { kind: "signed_up" });
-    expect(r).toMatchObject({ status: 200, body: { accepted: 2, rejected: [] } });
+    expect(r).toMatchObject({ status: 200, body: { applied: true, user: { userId: "sandbox_alex" } } });
 
     const events = await listConnectionEvents(ctxA, connection.id, { db });
-    expect((events.body as { events: unknown[] }).events).toHaveLength(2);
+    expect((events.body as { events: unknown[] }).events).toHaveLength(1); // one state write
     const users = await listConnectionUsers(ctxA, connection.id, { db });
     expect((users.body as { users: Array<Record<string, unknown>> }).users[0]).toMatchObject({
       externalUserId: "sandbox_alex",

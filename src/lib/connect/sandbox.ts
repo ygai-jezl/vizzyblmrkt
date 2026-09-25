@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { forTenant, getConnectionKey, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type {
@@ -7,18 +6,17 @@ import type {
   SandboxUser,
 } from "@/lib/types/productConnection";
 import { readRequestTextCapped } from "@/lib/http/readBody";
-import { currentSecret } from "./keys";
-import { handleIngestRequest } from "./ingestHttp";
 import { outboundIssuer, publishedJwks } from "./outboundSigner";
 import { bearerToken, verifyOutboundToken, type OutboundDirection } from "./outboundToken";
 import {
   ContextRequestSchema,
   HEADER_KEY_ID,
   WebhookPayloadSchema,
-  signedHeaders,
   zodReason,
   type ProductContext,
 } from "./protocol";
+import type { UserPatch } from "./v2/contract";
+import { deleteUser, patchUser } from "./v2/users";
 
 /**
  * The Sandbox: a platform-hosted stand-in for a connected product, so the whole
@@ -28,10 +26,10 @@ import {
  * It behaves like a real integration: its context and webhook endpoints verify
  * the platform's signed JWT against the published keys exactly as a product
  * would (the same handlers back
- * the public /api/sandbox/* reference routes), and "fire event" signs a batch and
- * runs it through the real ingest handler. The platform calls these IN-PROCESS
- * (a signed Request handed straight to the handler) — the same verification code
- * with no network hop, so no origin is trusted and there is no SSRF surface.
+ * the public /api/sandbox/* reference routes), and "fire event" sends a test
+ * user's state through the real API v2 write path. The platform calls these
+ * IN-PROCESS — the same code with no network hop, so no origin is trusted and
+ * there is no SSRF surface.
  */
 
 /** A GEO-analytics-style SaaS: mirrors vizzybl.ai's brand → audit → prompts. */
@@ -241,71 +239,60 @@ export type SandboxAction =
   | { kind: "preferences"; category: string; subscribed: boolean }
   | { kind: "deleted" };
 
-function messagesFor(user: SandboxUser, action: SandboxAction, timestamp: string): unknown[] {
-  const base = { userId: user.userId, timestamp };
-  const id = () => `sbx_${randomUUID()}`;
-  const identify = {
-    ...base,
-    type: "identify",
-    messageId: id(),
-    traits: { email: user.email, firstName: user.firstName ?? null, timezone: user.timezone, plan: "pro" },
-    consent: { basis: "consent", source: "sandbox" },
+/** The API v2 write a sandbox action stands for (null: an erasure). */
+function patchFor(user: SandboxUser, action: SandboxAction, conn: ProductConnection, now: string): UserPatch | null {
+  const profile: UserPatch = {
+    email: user.email,
+    firstName: user.firstName ?? null,
+    timezone: user.timezone,
+    traits: { plan: "pro" },
+    consent: "consent",
   };
   switch (action.kind) {
     case "identify":
-      return [identify];
+      return profile;
     case "signed_up":
-      return [identify, { ...base, type: "track", messageId: id(), event: "user.signed_up" }];
+      return { ...profile, signedUpAt: now };
     case "step":
-      return [
-        { ...base, type: "track", messageId: id(), event: "onboarding.step_completed", properties: { step: action.step } },
-      ];
+      return { steps: { [action.step]: now } };
     case "completed":
-      return [{ ...base, type: "track", messageId: id(), event: "onboarding.completed" }];
+      return { steps: Object.fromEntries(conn.catalog.onboardingSteps.map((s) => [s.id, now])) };
     case "preferences":
-      return [
-        {
-          ...base,
-          type: "track",
-          messageId: id(),
-          event: "email_preferences.updated",
-          properties: { category: action.category, subscribed: action.subscribed },
-        },
-      ];
+      // API v2 has one product-side switch for lifecycle email; the category is the sandbox UI's label.
+      return { subscribed: action.subscribed };
     case "deleted":
-      return [{ ...base, type: "track", messageId: id(), event: "user.deleted" }];
+      return null;
   }
 }
 
 /**
- * Act as the product: sign a batch for one test user and run it through the
- * REAL ingest handler (in-process). A step event also ticks the step on the test
- * user, so the sandbox's context endpoint agrees with the events it sent.
+ * Act as the product: send one test user's state (or erase them) through the
+ * REAL API v2 write path, in-process — the same operations the public routes
+ * run once a key is authenticated. A step also ticks the step on the test user,
+ * so the sandbox's context endpoint agrees with the state it sent.
  */
 export async function fireSandboxEvent(
   ctx: TenantContext,
   conn: ProductConnection,
   userId: string,
   action: SandboxAction,
-  deps: { db?: FirestoreLike; nowMs?: number; origin: string },
+  deps: { db?: FirestoreLike; nowMs?: number },
 ): Promise<{ status: number; body: unknown }> {
   const user = conn.sandbox?.users.find((u) => u.userId === userId);
   if (!user) return { status: 404, body: { error: "unknown_user" } };
-  const secret = currentSecret(conn);
-  if (!secret) return { status: 409, body: { error: "connection_revoked" } };
+  if (conn.status === "revoked") return { status: 409, body: { error: "connection_revoked" } };
 
   const nowMs = deps.nowMs ?? Date.now();
-  const raw = JSON.stringify({ batch: messagesFor(user, action, new Date(nowMs).toISOString()) });
-  const res = await handleIngestRequest(
-    new Request(`${deps.origin}/api/v1/events`, {
-      method: "POST",
-      headers: signedHeaders(conn.keyId, secret, "events", raw, nowMs),
-      body: raw,
-    }),
-    { db: deps.db, nowMs: () => nowMs },
-  );
+  const patch = patchFor(user, action, conn, new Date(nowMs).toISOString());
+  const opts = { db: deps.db, nowMs };
+  if (!patch) {
+    await deleteUser(ctx, conn, user.userId, opts);
+    return { status: 200, body: { deleted: true } };
+  }
+  const result = await patchUser(ctx, conn, user.userId, patch, opts);
+  if ("invalid" in result) return { status: 400, body: { error: "invalid", fields: result.invalid } };
 
-  if (res.status === 202 && action.kind === "step") {
+  if (action.kind === "step") {
     await forTenant(ctx, deps.db).productConnections.claim(conn.id, (cur) => {
       if (!cur.sandbox) return null;
       const users = cur.sandbox.users.map((u) =>
@@ -314,5 +301,5 @@ export async function fireSandboxEvent(
       return { sandbox: { ...cur.sandbox, users } };
     });
   }
-  return { status: res.status, body: await res.json() };
+  return { status: 200, body: result };
 }

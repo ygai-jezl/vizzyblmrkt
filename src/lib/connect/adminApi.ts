@@ -381,16 +381,13 @@ export async function fireSandbox(
   ctx: TenantContext,
   id: string,
   input: unknown,
-  opts: { origin: string; db?: FirestoreLike },
+  opts: { db?: FirestoreLike } = {},
 ): Promise<ApiResult> {
   const parsed = FireInput.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const conn = await loadConnection(ctx, id, opts.db);
   if (!conn) return fail(404, "not_found");
   if (conn.kind !== "sandbox") return fail(400, "not_a_sandbox");
-  const r = await fireSandboxEvent(ctx, conn, parsed.data.userId, parsed.data.action, {
-    db: opts.db,
-    origin: opts.origin,
-  });
-  return { status: r.status === 202 ? 200 : r.status, body: r.body };
+  const r = await fireSandboxEvent(ctx, conn, parsed.data.userId, parsed.data.action, { db: opts.db });
+  return { status: r.status, body: r.body };
 }

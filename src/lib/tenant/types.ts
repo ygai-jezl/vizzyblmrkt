@@ -24,8 +24,8 @@ export interface TenantContext {
    * How the tenant was established, for auditing. `agent` = reconstructed from a
    * signed capability token minted by the verified admin-chat proxy and echoed
    * back by an agent tool (see src/lib/canvas/auth.ts). `api_key` = resolved from a
-   * product connection's key id AFTER its request signature verified (see
-   * src/lib/connect/ingestHttp.ts).
+   * product connection's key id AFTER its secret checked out (see
+   * src/lib/connect/connectionAuth.ts).
    */
   source: "host" | "tenant_param" | "idtoken" | "system" | "agent" | "api_key";
 }

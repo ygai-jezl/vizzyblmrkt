@@ -133,9 +133,8 @@ describe("lifecycle admin API", () => {
     expect((await journeyAnalytics(other, journey.id, db)).status).toBe(404);
   });
 
-  it("enrols a Sandbox test user the Sandbox hasn't sent yet, via the real ingest path", async () => {
+  it("enrols a Sandbox test user the Sandbox hasn't sent yet, via the real API v2 write path", async () => {
     process.env.CONNECT_SECRET_ENC_KEY = "unit-test-connect-root-key-rotate-me";
-    process.env.LIFECYCLE_INGEST_ENABLED = "true";
     __resetIngestCaches();
     const db = new FakeFirestore();
     seedWorld(db);
@@ -161,6 +160,5 @@ describe("lifecycle admin API", () => {
     });
     // Anyone who isn't one of the Sandbox's test users is still refused.
     expect(await enrolByHand(ctx, journey.id, { userId: "stranger" }, db, T0)).toMatchObject({ status: 404, body: { error: "user_not_found" } });
-    delete process.env.LIFECYCLE_INGEST_ENABLED;
   });
 });

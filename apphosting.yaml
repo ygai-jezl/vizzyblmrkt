@@ -619,6 +619,14 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Consent decides which marketing someone gets: a marketing email due without
+  # consent is skipped (not held), journeys can admit only people with marketing
+  # consent, and a "Marketing consent granted" trigger. "false" in prod
+  # (apphosting.prod.yaml) until verified here.
+  - variable: LIFECYCLE_CONSENT_AT_SEND
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

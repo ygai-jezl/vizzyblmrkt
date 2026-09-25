@@ -113,15 +113,17 @@ export const BatchItemSchema = z.object({ userId: UserIdSchema }).passthrough();
 export const BatchRequestSchema = z.object({ users: z.array(z.unknown()).min(1).max(V2_LIMITS.maxBatch) }).strict();
 
 /**
- * v1's reserved events that v2 expresses as STATE instead. `onboarding.completed`
- * stays an event: a product without a step checklist still knows when someone
- * has finished getting started (it marks them activated).
+ * Events v2 expresses as STATE instead: v1's reserved events, and the opt-in
+ * trigger YouGrow derives from `consent`. `onboarding.completed` stays an event:
+ * a product without a step checklist still knows when someone has finished
+ * getting started (it marks them activated).
  */
 const STATE_EVENTS = new Set<string>([
   RESERVED_EVENTS.signedUp,
   RESERVED_EVENTS.stepCompleted,
   RESERVED_EVENTS.userDeleted,
   RESERVED_EVENTS.preferencesUpdated,
+  RESERVED_EVENTS.marketingConsentGranted,
 ]);
 
 /** The body of POST /api/v2/users/{userId}/events: a milestone. */
@@ -131,7 +133,7 @@ export const EventRequestSchema = z
       .string()
       .max(80)
       .regex(EVENT_NAME_RE, { message: "lower-case, dot-separated, e.g. report.exported" })
-      .refine((e) => !STATE_EVENTS.has(e), { message: "send this as state instead (signedUpAt, steps, subscribed), or DELETE the user" }),
+      .refine((e) => !STATE_EVENTS.has(e), { message: "send this as state instead (signedUpAt, steps, consent, subscribed), or DELETE the user" }),
     properties: z.record(z.string(), z.unknown()).optional(),
     occurredAt: TimestampSchema.optional(),
     /** Makes a retry harmless: the same key is recorded once. */

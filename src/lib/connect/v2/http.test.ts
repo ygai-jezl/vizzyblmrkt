@@ -236,6 +236,62 @@ describe("sign-up enrolment through the API", () => {
   });
 });
 
+describe("the opt-in trigger through the API (LIFECYCLE_CONSENT_AT_SEND)", () => {
+  afterEach(() => {
+    delete process.env.LIFECYCLE_CONSENT_AT_SEND;
+  });
+
+  async function optInWorld() {
+    process.env.LIFECYCLE_ENABLED = "true";
+    process.env.LIFECYCLE_CONSENT_AT_SEND = "true";
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { connection, secret } = await createConnection(lifecycleCtx, { name: "Acme", kind: "custom", catalog: SANDBOX_CATALOG }, db);
+    const { journey } = await publishOnboarding(db, {
+      mode: "live",
+      connectionId: connection.id,
+      settings: { trigger: { event: "user.marketing_consent_granted", maxEventAgeHours: 72 } },
+    });
+    const auth = { keyId: connection.keyId, secret };
+    const deps: V2HttpDeps = { db, nowMs: () => T0 + 60_000 };
+    const patch = (userId: string, body: unknown) => handlePatchUser(request("PATCH", auth, body), userId, deps);
+    const enrolment = (userId: string) =>
+      forTenant(lifecycleCtx, db).lifecycleEnrolments.getById(enrolmentDocId(journey.id, productUserDocId(connection.id, userId)));
+    return { auth, deps, patch, enrolment };
+  }
+
+  it("enrols someone YouGrow knew once their consent becomes one the connection accepts", async () => {
+    const w = await optInWorld();
+    await w.patch("alex", { email: "alex@example.com", consent: "none" });
+    expect(await w.enrolment("alex")).toBeNull();
+    expect((await w.patch("alex", { consent: "consent" })).status).toBe(200);
+    expect(await w.enrolment("alex")).toMatchObject({ status: "active", source: "trigger" });
+  });
+
+  it("doesn't fire on a user's first write (a sign-up or a backfill), or when consent stays the same", async () => {
+    const w = await optInWorld();
+    await w.patch("sam", { email: "sam@example.com", consent: "consent" });
+    expect(await w.enrolment("sam")).toBeNull();
+    await w.patch("sam", { firstName: "Sam", consent: "consent" });
+    expect(await w.enrolment("sam")).toBeNull();
+  });
+
+  it("doesn't fire with the flag off", async () => {
+    const w = await optInWorld();
+    delete process.env.LIFECYCLE_CONSENT_AT_SEND;
+    await w.patch("alex", { email: "alex@example.com", consent: "none" });
+    await w.patch("alex", { consent: "consent" });
+    expect(await w.enrolment("alex")).toBeNull();
+  });
+
+  it("can't be sent as an event: YouGrow derives it from consent", async () => {
+    const w = await optInWorld();
+    await w.patch("alex", { email: "alex@example.com" });
+    const res = await handleUserEvent(request("POST", w.auth, { event: "user.marketing_consent_granted" }), "alex", w.deps);
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("erasure cascade", () => {
   it("removes AI drafts, unlinks invites, and keeps opt-outs working without the address", async () => {
     const w = await setup();

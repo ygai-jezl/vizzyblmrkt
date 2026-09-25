@@ -226,6 +226,14 @@ export const LifecycleSettingsSchema = z.object({
   tracking: z
     .object({ opens: z.boolean().default(false), clicks: z.boolean().default(false) })
     .default({ opens: false, clicks: false }),
+  /**
+   * Who may join. `requireMarketingConsent`: only people whose consent (as the
+   * product sent it) the connection accepts for marketing — someone who opts in
+   * later joins then, while the trigger's window still allows it.
+   */
+  entry: z
+    .object({ requireMarketingConsent: z.boolean().default(false) })
+    .default({ requireMarketingConsent: false }),
 });
 export type LifecycleSettings = z.infer<typeof LifecycleSettingsSchema>;
 

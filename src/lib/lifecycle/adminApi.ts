@@ -22,7 +22,7 @@ import {
 } from "./service";
 import { enrolUser, versionDocId } from "./enrol";
 import { lifecycleSender } from "./policy";
-import { isLifecycleAiDraftsEnabled, isLifecycleChatAuthoringEnabled, lifecycleModeCeiling } from "./flags";
+import { isLifecycleAiDraftsEnabled, isLifecycleChatAuthoringEnabled, isLifecycleConsentAtSendEnabled, lifecycleModeCeiling } from "./flags";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectLifecycleDraft } from "./architect";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type ExportWhich } from "./transfer";
@@ -122,7 +122,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       sender: { verified: true, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
       postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
       modeCeiling: "live",
-      features: { chatAuthoring: false, aiLines: false },
+      features: { chatAuthoring: false, aiLines: false, consentAtSend: false },
     });
   }
   const [connection, version, tenant] = await Promise.all([
@@ -153,7 +153,11 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
     sender: { verified: sender.verified, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
     postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
     modeCeiling: lifecycleModeCeiling(),
-    features: { chatAuthoring: isLifecycleChatAuthoringEnabled(), aiLines: isLifecycleAiDraftsEnabled() },
+    features: {
+      chatAuthoring: isLifecycleChatAuthoringEnabled(),
+      aiLines: isLifecycleAiDraftsEnabled(),
+      consentAtSend: isLifecycleConsentAtSendEnabled(),
+    },
   });
 }
 
@@ -392,6 +396,7 @@ export async function previewJourney(
       stepsDoneAt: Object.fromEntries(Object.entries(p.stepsDoneAfterHours).map(([k, h]) => [k, anchorMs + h * 3600_000])),
       facts: p.facts,
       consentBasis: p.consentBasis,
+      ...(isLifecycleConsentAtSendEnabled() ? { marketingBases: connection.consentPolicy.marketingBases } : {}),
     },
   );
   return ok({

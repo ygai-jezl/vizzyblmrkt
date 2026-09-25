@@ -355,9 +355,10 @@ await yg.users.delete(user.id);                                       // the acc
           product without a step checklist, or to say they&apos;re done.
         </li>
         <li>
-          Sign-ups, steps, opt-outs and deletion are state, so <C>user.signed_up</C>, <C>onboarding.step_completed</C>,{" "}
-          <C>email_preferences.updated</C> and <C>user.deleted</C> are refused: send <C>signedUpAt</C>, <C>steps</C> or{" "}
-          <C>subscribed</C>, or DELETE the user.
+          Sign-ups, steps, consent, opt-outs and deletion are state, so <C>user.signed_up</C>,{" "}
+          <C>onboarding.step_completed</C>, <C>user.marketing_consent_granted</C>, <C>email_preferences.updated</C> and{" "}
+          <C>user.deleted</C> are refused: send <C>signedUpAt</C>, <C>steps</C>, <C>consent</C> or <C>subscribed</C>, or
+          DELETE the user.
         </li>
         <li>
           <C>properties</C>: optional, ≤ {V2_LIMITS.maxPropertiesBytes / 1024} KB serialised. <C>occurredAt</C>: optional,

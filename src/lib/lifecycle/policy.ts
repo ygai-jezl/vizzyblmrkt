@@ -1,5 +1,6 @@
 import type { Tenant } from "@/lib/types/tenant";
 import type { DeliveryMode, LifecycleJourney, LifecycleSettings } from "@/lib/types/lifecycle";
+import type { ConsentBasis, ConsentPolicy } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import { registrableDomain } from "@/lib/domains/registrableDomain";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
@@ -14,6 +15,11 @@ const MODE_RANK: Record<DeliveryMode, number> = { test: 0, shadow: 1, live: 2 };
 /** The most restrictive of the given modes (test < shadow < live). */
 export function lowestMode(...modes: DeliveryMode[]): DeliveryMode {
   return modes.reduce((lo, m) => (MODE_RANK[m] < MODE_RANK[lo] ? m : lo), "live" as DeliveryMode);
+}
+
+/** Whether a consent basis lets this connection send marketing-class email (service email needs none). */
+export function allowsMarketing(policy: Pick<ConsentPolicy, "marketingBases">, basis: ConsentBasis | null | undefined): boolean {
+  return policy.marketingBases.includes(basis ?? "none");
 }
 
 /** In test mode only these product users are enrolled and emailed. */

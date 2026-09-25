@@ -35,3 +35,13 @@ export function isLifecycleAiDraftsEnabled(): boolean {
 export function isLifecycleChatAuthoringEnabled(): boolean {
   return process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED === "true";
 }
+
+/**
+ * Server flag — consent decides which marketing someone gets. A marketing email
+ * that's due without consent is skipped (off: held until consent arrives, however
+ * late); a journey can admit only people with marketing consent; and the
+ * "Marketing consent granted" trigger enrols people who opt in later.
+ */
+export function isLifecycleConsentAtSendEnabled(): boolean {
+  return process.env.LIFECYCLE_CONSENT_AT_SEND === "true";
+}

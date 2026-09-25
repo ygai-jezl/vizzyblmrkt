@@ -4,11 +4,13 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import { activeJourneysFor, enrolOnEvents, enrolOnSignup } from "@/lib/lifecycle/enrol";
-import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { isLifecycleConsentAtSendEnabled, isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { allowsMarketing } from "@/lib/lifecycle/policy";
 import { isInvitesEnabled } from "@/lib/invites/flags";
 import { inviteCodeFromTraits, recordInviteProgress, type TouchedUser } from "@/lib/invites/attribution";
 import { eraseProductUserHistory, scrubSuppressionEmails } from "../erase";
 import { EVENT_TTL_MS, recordDiagnostics, touchHealth, type IngestSummary } from "../ingest";
+import { RESERVED_EVENTS } from "../protocol";
 import {
   applyMessage,
   applyUserPatch,
@@ -51,7 +53,8 @@ type Journeys = Awaited<ReturnType<typeof activeJourneysFor>>;
 
 /** What a write left behind, for the caller and the side effects. */
 type WriteOutcome =
-  | { kind: "applied"; user: ProductUser }
+  /** `consentGranted`: someone YouGrow already knew moved to a basis the connection accepts for marketing. */
+  | { kind: "applied"; user: ProductUser; consentGranted: boolean }
   | { kind: "skipped"; reason: "stale_write" | "deleted_later"; storedUpdatedAt: string | null; user: ProductUser | null }
   | { kind: "invalid"; fields: Array<{ path: string; message: string }> };
 
@@ -105,14 +108,21 @@ async function writeUser(
   if (r && "invalid" in r) return { kind: "invalid", fields: r.invalid };
   if (r && "skipped" in r) return { kind: "skipped", reason: r.skipped, storedUpdatedAt: r.storedUpdatedAt, user: seen };
   if (applied.outcome !== "applied" || !applied.user) throw new Error(`unexpected write outcome: ${applied.outcome}`);
-  return { kind: "applied", user: applied.user };
+  // A user's first write (a sign-up or a backfill) never counts as a grant: consent
+  // at sign-up is what consent-only journeys are for.
+  const before = seen as ProductUser | null;
+  const consentGranted =
+    before?.status === "active" &&
+    !allowsMarketing(connection.consentPolicy, before.consent?.basis) &&
+    allowsMarketing(connection.consentPolicy, applied.user.consent?.basis);
+  return { kind: "applied", user: applied.user, consentGranted };
 }
 
 /** Enrolment, invites, diagnostics and health for the writes that applied. Never throws. */
 async function afterWrites(
   ctx: TenantContext,
   connection: ProductConnection,
-  writes: Array<{ user: ProductUser; patch: UserPatch }>,
+  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean }>,
   rejected: IngestSummary["rejected"],
   nowMs: number,
   db?: FirestoreLike,
@@ -122,6 +132,15 @@ async function afterWrites(
   if (users.length > 0 && isLifecycleEnabled()) {
     await enrolOnSignup(ctx, connection, users, { db, nowMs, journeys }).catch((err) => {
       console.error(`[api-v2] enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    });
+  }
+  // The opt-in trigger, for sequences meant for people who consent later.
+  const granted = writes.filter((w) => w.consentGranted).map((w) => w.user);
+  if (granted.length > 0 && isLifecycleEnabled() && isLifecycleConsentAtSendEnabled()) {
+    const at = new Date(nowMs).toISOString();
+    const events = granted.map((user) => ({ user, event: RESERVED_EVENTS.marketingConsentGranted, timestamp: at }));
+    await enrolOnEvents(ctx, connection, events, { db, nowMs }).catch((err) => {
+      console.error(`[api-v2] opt-in enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   }
   const touched: TouchedUser[] = writes.map((w) => ({
@@ -164,7 +183,7 @@ export async function patchUser(
     const live = w.user && w.user.status === "active" ? userStateOf(w.user) : undefined;
     return { applied: false, reason: w.reason, storedUpdatedAt: w.storedUpdatedAt, ...(live ? { user: live } : {}) };
   }
-  await afterWrites(ctx, connection, [{ user: w.user, patch }], [], nowMs, deps.db);
+  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted }], [], nowMs, deps.db);
   return { applied: true, user: userStateOf(w.user) };
 }
 
@@ -177,7 +196,7 @@ export async function patchBatch(
 ): Promise<BatchResponse> {
   const nowMs = deps.nowMs ?? Date.now();
   const out: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
-  const writes: Array<{ user: ProductUser; patch: UserPatch }> = [];
+  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean }> = [];
   const rejected: IngestSummary["rejected"] = [];
   for (const [index, raw] of items.slice(0, V2_LIMITS.maxBatch).entries()) {
     const head = BatchItemSchema.safeParse(raw);
@@ -201,7 +220,7 @@ export async function patchBatch(
       const w = await writeUser(ctx, connection, userId, parsed.data, nowMs, deps.db);
       if (w.kind === "applied") {
         out.applied += 1;
-        writes.push({ user: w.user, patch: parsed.data });
+        writes.push({ user: w.user, patch: parsed.data, consentGranted: w.consentGranted });
       } else if (w.kind === "skipped") {
         out.ignored += 1;
         out.results.push({ index, userId, status: "ignored", reason: w.reason });

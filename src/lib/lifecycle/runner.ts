@@ -27,8 +27,8 @@ import { nextNodeId } from "./graph";
 import { nextWindowAt } from "./sendWindow";
 import { renderLifecycleEmail, type RenderedEmail } from "./render";
 import { buildRecipientContext, buildRenderValues, nextStepOf, pickInsight, safeChecklist } from "./recipientContext";
-import { isTestRecipient, lifecycleSender, lowestMode } from "./policy";
-import { isLifecycleAiDraftsEnabled, lifecycleModeCeiling } from "./flags";
+import { allowsMarketing, isTestRecipient, lifecycleSender, lowestMode } from "./policy";
+import { isLifecycleAiDraftsEnabled, isLifecycleConsentAtSendEnabled, lifecycleModeCeiling } from "./flags";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
 import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut";
 import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
@@ -329,12 +329,15 @@ async function deliver(
 
   // The product can opt the user out of this category in its own context.
   if (context?.consent?.categories?.[settings.category.key] === false) return { kind: "exit", reason: "unsubscribed_in_product" };
-  // Marketing needs a basis this connection accepts; service mail doesn't.
+  // Marketing needs a basis this connection accepts; service mail doesn't. Without
+  // one the email is skipped, so it never goes out late when consent arrives
+  // (flag off: held until then, however long that takes).
   if (item.messageClass === "marketing") {
     const basis = context?.consent?.basis
       ? effectiveBasis(context.consent.basis, user.email, connection)
       : (user.consent?.basis ?? "none");
-    if (!connection.consentPolicy.marketingBases.includes(basis)) {
+    if (!allowsMarketing(connection.consentPolicy, basis)) {
+      if (isLifecycleConsentAtSendEnabled()) return { kind: "skipped", reason: "no_marketing_consent" };
       return { kind: "hold", untilMs: nextDayWindow(), event: "waiting_for_consent", detail: `basis: ${basis}` };
     }
   }

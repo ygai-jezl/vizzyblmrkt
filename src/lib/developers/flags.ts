@@ -5,6 +5,9 @@ export function isDevelopersDocsEnabled(): boolean {
   return process.env.DEVELOPERS_DOCS_ENABLED === "true";
 }
 
+/** Where @yougrowai/node sends events and whose keys it trusts unless told otherwise. */
+export const SDK_DEFAULT_ORIGIN = "https://yougrow.ai";
+
 /**
  * The platform origin the docs show (API URLs, the JWKS, the issuer) — this
  * environment's own, so staging docs point at staging.
@@ -13,7 +16,7 @@ export function docsOrigin(): string {
   try {
     return outboundIssuer();
   } catch {
-    return "https://yougrow.ai";
+    return SDK_DEFAULT_ORIGIN;
   }
 }
 

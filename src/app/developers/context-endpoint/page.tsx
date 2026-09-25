@@ -161,6 +161,13 @@ X-YouGrow-Key-Id: <your key id>
         </li>
         <li>Links that aren&apos;t https on your allowed link domains are removed; the rest of the response is kept.</li>
         <li>
+          On a serverless platform, a cold start counts against your timeout too — see{" "}
+          <Link className="underline" href="/developers/security#raw-body">
+            reading the raw body
+          </Link>{" "}
+          for each framework, and keep the verifier at module scope.
+        </li>
+        <li>
           Your connection shows the last success and the last error. Repeated failures are worth fixing quickly: the
           journey stops being able to see your live data.
         </li>

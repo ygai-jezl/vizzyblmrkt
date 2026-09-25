@@ -3,7 +3,8 @@ import { isInvitesEnabled } from "@/lib/invites/flags";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ProductMap } from "./productMapSchema";
 import { RESERVED_EVENTS } from "./protocol";
-import { buildAgentPrompt, buildIntegrationTasks, type IntegrationTask } from "./integrationTasks";
+import { buildAgentPrompt } from "./agentPrompt";
+import { buildIntegrationTasks, type IntegrationTask } from "./integrationTasks";
 
 /**
  * The per-connection INTEGRATION GUIDE: exactly what this customer's developers
@@ -19,7 +20,7 @@ export type GuideStatus = "done" | "todo" | "info";
 export interface GuideEvent {
   name: string;
   when: string;
-  properties?: Record<string, string>;
+  properties?: Record<string, string | boolean>;
   /** How to detect it: at a clear server moment, or by a scheduled reconcile. */
   how?: "server_event" | "reconcile" | "client_only" | null;
 }
@@ -27,7 +28,8 @@ export interface GuideEvent {
 export interface IntegrationGuide {
   keyId: string;
   eventsUrl: string;
-  docsUrl: string;
+  /** Null when this YouGrow doesn't publish /developers. */
+  docsUrl: string | null;
   status: { eventsReceived: GuideStatus; contextEndpoint: GuideStatus; webhookEndpoint: GuideStatus; catalog: GuideStatus };
   identify: { traits: Array<{ key: string; note: string }> };
   events: GuideEvent[];
@@ -55,6 +57,8 @@ export function buildIntegrationGuide(input: {
   analysis?: Pick<RepoAnalysis, "map"> | null;
   origin: string;
   productName?: string;
+  /** Whether this YouGrow publishes /developers (default true); the guide links nothing there when it doesn't. */
+  docs?: boolean;
 }): IntegrationGuide {
   const { connection, origin } = input;
   const map = input.analysis?.map ?? null;
@@ -87,8 +91,9 @@ export function buildIntegrationGuide(input: {
     },
     {
       name: RESERVED_EVENTS.preferencesUpdated,
-      properties: { category: "onboarding", subscribed: "true | false" },
-      when: mapHooks(map, "preferences")[0] ?? mapHooks(map, "consent")[0] ?? "When someone changes their email preferences in your product.",
+      // A real example, not a placeholder: agents copy these literally, and `subscribed` must be a JSON boolean.
+      properties: { category: "onboarding", subscribed: false },
+      when: `${mapHooks(map, "preferences")[0] ?? mapHooks(map, "consent")[0] ?? "When someone changes their email preferences in your product."} \`subscribed\` is a JSON boolean — false when they opt out, true when they opt back in.`,
     },
   ];
 
@@ -117,13 +122,17 @@ export function buildIntegrationGuide(input: {
   const promptFacts = (cat.facts ?? []).length
     ? (cat.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source }))
     : (map?.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source }));
+  const docs = input.docs ?? true;
   const agentPrompt = buildAgentPrompt({
     productName: input.productName ?? "our product",
     keyId: connection.keyId,
     origin,
+    docs,
     tasks,
     steps: promptSteps,
     facts: promptFacts,
+    // Ids the customer hasn't accepted yet are Learn from repo's proposals — the prompt must say so.
+    proposed: { steps: !steps.length && promptSteps.length > 0, facts: !(cat.facts ?? []).length && promptFacts.length > 0 },
     events: events.map((e) => ({ name: e.properties ? `${e.name} ${JSON.stringify(e.properties)}` : e.name, when: e.when })),
     warnings: map?.warnings ?? [],
   });
@@ -131,7 +140,7 @@ export function buildIntegrationGuide(input: {
   return {
     keyId: connection.keyId,
     eventsUrl: `${origin}/api/v1/events`,
-    docsUrl: `${origin}/developers`,
+    docsUrl: docs ? `${origin}/developers` : null,
     status,
     identify: { traits },
     events,

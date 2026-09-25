@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
-import { docsOrigin } from "@/lib/developers/flags";
+import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
 
 export default function EventsDocs() {
   const origin = docsOrigin();
@@ -84,11 +84,17 @@ def send_events(batch):
       <H3>Or the Node SDK</H3>
       <P>
         <C>@yougrowai/node</C> adds batching, retries and helpers like <C>stepCompleted</C>. The helper above does the same
-        job without it.
+        job without it. It works from ES modules and, from 0.2.0, from CommonJS (<C>require</C>) too.
       </P>
       <Code>{`// npm install @yougrowai/node
 import { YouGrow } from "@yougrowai/node";
-const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET! });`}</Code>
+const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET!${origin === SDK_DEFAULT_ORIGIN ? "" : `, origin: "${origin}"`} });`}</Code>
+      {origin !== SDK_DEFAULT_ORIGIN ? (
+        <P>
+          The SDK sends to <C>{SDK_DEFAULT_ORIGIN}</C> unless told otherwise, hence <C>origin</C> (0.2.0 and later; earlier
+          versions take <C>{`endpoint: "${url}"`}</C>).
+        </P>
+      ) : null}
 
       <H2 id="signups">1. Send sign-ups — required</H2>
       <H3>What</H3>
@@ -235,7 +241,15 @@ for (let i = 0; i < batch.length; i += 100) await sendEvents(batch.slice(i, i + 
           <strong>Never block your own flows.</strong> Send in the background and catch errors — if YouGrow is unreachable,
           your user should still sign up. Retry later if you like; duplicates are ignored.
         </li>
-        <li><strong>Serverless (Cloud Functions, Lambda, edge):</strong> await the send (or <C>yg.flush()</C>) before your function returns.</li>
+        <li>
+          <strong>Serverless (Cloud Functions, Lambda, Vercel):</strong> await the send (or <C>yg.flush()</C>) before your
+          function returns — work left running afterwards may never finish. In a script, <C>await yg.close()</C> before it
+          exits.
+        </li>
+        <li>
+          <strong>A Node runtime.</strong> The SDK and the helper above use <C>node:crypto</C>, so they don&apos;t run on edge
+          runtimes (Vercel Edge Functions, Next.js middleware, Cloudflare Workers) — send from a Node function instead.
+        </li>
         <li><strong>A unique <C>messageId</C> per event</strong> — random for one-off events, fixed for scheduled checks.</li>
         <li><strong>Timestamps must include a timezone</strong> (<C>2026-09-23T10:00:00Z</C>), and be no more than a day in the future.</li>
         <li>Up to 100 messages and 512 KB per request.</li>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { suggestRepos } from "@/lib/integrations/suggestRepos";
 import { ExternalLink, Github, Lock, ShieldCheck } from "lucide-react";
+import { useDeveloperDocs } from "@/components/developers/DocsAvailability";
 import { Banner, Button } from "./ui";
 
 /**
@@ -46,6 +47,7 @@ export function GitHubRepoChooser({
 }) {
   const [info, setInfo] = useState<Installation | null>(null);
   const suggested = useRef(false);
+  const docs = useDeveloperDocs();
 
   // Pre-tick once, when the repo list first arrives and nothing is ticked yet.
   useEffect(() => {
@@ -92,7 +94,13 @@ export function GitHubRepoChooser({
         </div>
         <p className="mt-2 text-xs text-neutral-500">
           In a GitHub organisation that isn&apos;t yours? GitHub will offer to <strong>request</strong> it from your org&apos;s owners — once they
-          approve, come back and pick your repos. <a className="underline" href="/developers/connect-your-code" target="_blank" rel="noreferrer">How connecting works</a>
+          approve, come back and pick your repos.
+          {docs ? (
+            <>
+              {" "}
+              <a className="underline" href="/developers/connect-your-code" target="_blank" rel="noreferrer">How connecting works</a>
+            </>
+          ) : null}
         </p>
       </div>
     );

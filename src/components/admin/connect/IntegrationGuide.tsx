@@ -56,10 +56,16 @@ export function IntegrationGuide({ connection }: { connection: PublicConnection 
           <li className="flex items-center gap-2"><Tick s={guide.status.webhookEndpoint} /> Webhook endpoint set (optional)</li>
         </ul>
         <p className="text-sm">
-          Key id {code(guide.keyId)} · events go to {code(guide.eventsUrl)} ·{" "}
-          <a className="underline" href={guide.docsUrl} target="_blank" rel="noreferrer">
-            developer docs
-          </a>
+          Key id {code(guide.keyId)} · events go to {code(guide.eventsUrl)}
+          {guide.docsUrl ? (
+            <>
+              {" "}
+              ·{" "}
+              <a className="underline" href={guide.docsUrl} target="_blank" rel="noreferrer">
+                developer docs
+              </a>
+            </>
+          ) : null}
         </p>
         {!guide.fromRepo ? (
           <p className="text-xs text-neutral-500">Tip: run <strong>Learn from repo</strong> — the guide then includes how each step can be detected in your code, and anything your code doesn&apos;t handle yet.</p>

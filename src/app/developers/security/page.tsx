@@ -1,5 +1,5 @@
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
-import { docsOrigin } from "@/lib/developers/flags";
+import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
 
 export default function SecurityDocs() {
   const origin = docsOrigin();
@@ -71,22 +71,85 @@ X-YouGrow-Signature: v1=<signature>`}</Code>
       <H3>With the Node SDK</H3>
       <Code>{`import { createVerifier } from "@yougrowai/node/server";
 
-const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
+const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID!${origin === SDK_DEFAULT_ORIGIN ? "" : `, origin: "${origin}"`} });
 const v = await verifier.verify({ headers: req.headers, rawBody, direction: "context" });
 if (!v.ok) return res.status(401).end();`}</Code>
       <P>
         It fetches and caches the key set, refetches when we rotate keys, and keeps working on cached keys if a refresh
-        fails. New keys are published a day before they&apos;re used, so rotations never break you.
+        fails. New keys are published a day before they&apos;re used, so rotations never break you. Create it once, outside
+        your handler, so the keys stay cached between requests.
+        {origin !== SDK_DEFAULT_ORIGIN ? (
+          <>
+            {" "}
+            It trusts <C>{SDK_DEFAULT_ORIGIN}</C> unless told otherwise, hence <C>origin</C> (0.2.0 and later; earlier
+            versions take <C>{`issuer: "${origin}"`}</C>).
+          </>
+        ) : null}
       </P>
       <Note tone="warn">
         Verify against the <strong>raw</strong> body. Frameworks that parse JSON first can re-serialize it with different
         bytes, and the body hash won&apos;t match — read the raw body, verify, then parse.
       </Note>
 
+      <H2 id="raw-body">Reading the raw body</H2>
+      <P>
+        Most frameworks parse JSON before your handler runs. Here&apos;s how to get the exact bytes in each — then verify,
+        then parse. (<C>verify</C> takes a string, or a Buffer from 0.2.0.)
+      </P>
+      <Code title="Express">{`app.post("/yougrow/context", express.raw({ type: "application/json" }), async (req, res) => {
+  const rawBody = req.body.toString("utf8"); // a Buffer, because of express.raw()
+  // … verify, then JSON.parse(rawBody)
+});`}</Code>
+      <Code title="Next.js — App Router (app/yougrow/context/route.ts)">{`export async function POST(req: Request) {
+  const rawBody = await req.text();
+  const v = await verifier.verify({ headers: req.headers, rawBody, direction: "context" });
+  if (!v.ok) return Response.json({ error: v.reason }, { status: 401 });
+  // … JSON.parse(rawBody)
+}`}</Code>
+      <Code title="Next.js — Pages Router (pages/api/yougrow/context.ts)">{`export const config = { api: { bodyParser: false } }; // keep the body unparsed
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  const rawBody = Buffer.concat(chunks).toString("utf8");
+  // … verify, then JSON.parse(rawBody)
+}`}</Code>
+      <Code title="Firebase / Cloud Functions (onRequest)">{`export const yougrowContext = onRequest(async (req, res) => {
+  const rawBody = req.rawBody.toString("utf8"); // req.body is already parsed; rawBody is the exact bytes
+  // … verify, then JSON.parse(rawBody)
+});`}</Code>
+      <Code title="Fastify">{`app.register(async (scope) => {
+  // For these routes only: hand JSON bodies over as the raw string.
+  scope.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body, done) => done(null, body));
+  scope.post("/yougrow/context", async (req, reply) => {
+    const rawBody = req.body as string;
+    // … verify, then JSON.parse(rawBody)
+  });
+});`}</Code>
+      <Code title="NestJS">{`const app = await NestFactory.create(AppModule, { rawBody: true }); // main.ts
+
+@Post("yougrow/context")
+async context(@Req() req: RawBodyRequest<Request>) {
+  const rawBody = req.rawBody!.toString("utf8");
+  // … verify, then JSON.parse(rawBody)
+}`}</Code>
+      <Code title="AWS Lambda (API Gateway or a function URL)">{`export const handler = async (event) => {
+  const rawBody = event.isBase64Encoded ? Buffer.from(event.body ?? "", "base64").toString("utf8") : event.body ?? "";
+  const v = await verifier.verify({ headers: event.headers, rawBody, direction: "context" });
+  // …
+};`}</Code>
+      <P>
+        Use a Node runtime: the SDK uses <C>node:crypto</C>, so it doesn&apos;t run on edge runtimes (Vercel Edge Functions,
+        Next.js middleware, Cloudflare Workers). On a serverless platform, a cold start plus the first key fetch has to
+        fit inside your context endpoint&apos;s timeout — keep the verifier at module scope, and consider keeping one
+        instance warm.
+      </P>
+
       <H2 id="vectors">Test vectors</H2>
       <P>
-        <C>sdk/node/test/vectors.json</C> in the SDK holds reference HMAC signatures and ES256 tokens (with the public
-        key that verifies them) so you can check your implementation in any language.
+        <a className="underline" href="/developers/test-vectors.json">test-vectors.json</a> holds reference HMAC
+        signatures and ES256 tokens (with the public key that verifies them) so you can check your implementation in any
+        language. The same file ships in the SDK package as <C>test/vectors.json</C>.
       </P>
     </article>
   );

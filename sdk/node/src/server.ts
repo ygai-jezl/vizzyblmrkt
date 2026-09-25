@@ -1,4 +1,5 @@
 import { tokenFromAuthorization, tokenKid, verifyJwt, type Jwk, type JwtFailure, type RequestDirection, type YouGrowClaims } from "./jwt.js";
+import { DEFAULT_ORIGIN, isSecureOrigin, originOf } from "./origin.js";
 
 /**
  * Helpers for the two endpoints YouGrow calls on YOUR server:
@@ -11,16 +12,18 @@ import { tokenFromAuthorization, tokenKid, verifyJwt, type Jwk, type JwtFailure,
  * Every such request carries `Authorization: Bearer <JWT>` signed with
  * YouGrow's private key. Your secret is NOT involved — you verify against
  * YouGrow's public keys, so nothing you store can be used to forge YouGrow.
- * Always verify against the RAW body, before parsing it.
+ * Always verify against the RAW body (the exact bytes received, as a Buffer or
+ * string), before parsing it.
  *
- *   const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
+ *   const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID!, origin: process.env.YOUGROW_ORIGIN });
  *   const v = await verifier.verify({ headers: req.headers, rawBody, direction: "context" });
  *   if (!v.ok) return res.status(401).end();
  */
 
 export type { Jwk, RequestDirection, YouGrowClaims } from "./jwt.js";
 
-export const DEFAULT_ISSUER = "https://yougrow.ai";
+/** YouGrow's default origin: the `iss` of its tokens. */
+export const DEFAULT_ISSUER = DEFAULT_ORIGIN;
 const JWKS_PATH = "/.well-known/jwks.json";
 const MIN_CACHE_MS = 60_000;
 const MAX_CACHE_MS = 24 * 3600_000;
@@ -31,9 +34,15 @@ const REFETCH_COOLDOWN_MS = 60_000;
 type HeaderBag = Headers | Record<string, string | string[] | undefined>;
 
 function header(h: HeaderBag, name: string): string | null {
+  if (!h) return null;
   if (typeof (h as Headers).get === "function") return (h as Headers).get(name);
   const bag = h as Record<string, string | string[] | undefined>;
-  const v = bag[name] ?? bag[name.toLowerCase()];
+  let v = bag[name] ?? bag[name.toLowerCase()];
+  if (v === undefined) {
+    // Plain objects can keep the sender's casing (e.g. API Gateway REST events): match any case.
+    const lower = name.toLowerCase();
+    v = Object.entries(bag).find(([k, value]) => value !== undefined && k.toLowerCase() === lower)?.[1];
+  }
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 }
 
@@ -44,7 +53,13 @@ export type VerifyResult =
 export interface VerifierOptions {
   /** Your connection's key id — the token's audience. */
   keyId: string;
-  /** YouGrow's origin. Defaults to https://yougrow.ai; use the dev origin for staging. */
+  /**
+   * YouGrow's origin: the same value as the client's `origin`, e.g. from
+   * YOUGROW_ORIGIN. Defaults to https://yougrow.ai. Tokens must carry it as
+   * `iss`, and the keys are fetched from `${origin}/.well-known/jwks.json`.
+   */
+  origin?: string;
+  /** Alias of `origin` (its 0.1 name). */
   issuer?: string;
   /** Pin the key set instead of fetching it (tests, air-gapped setups). */
   jwks?: { keys: Jwk[] };
@@ -52,7 +67,12 @@ export interface VerifierOptions {
 }
 
 export interface Verifier {
-  verify(input: { headers: HeaderBag; rawBody: string; direction: RequestDirection; nowMs?: number }): Promise<VerifyResult>;
+  /**
+   * Check one request. `rawBody` is the exact body received — a string, or the
+   * bytes (e.g. a Buffer) — never re-serialised JSON. Plain header objects
+   * match in any case; Fetch `Headers` already do.
+   */
+  verify(input: { headers: HeaderBag; rawBody: string | Uint8Array; direction: RequestDirection; nowMs?: number }): Promise<VerifyResult>;
 }
 
 function cacheMs(cacheControl: string | null): number {
@@ -68,10 +88,11 @@ function cacheMs(cacheControl: string | null): number {
  * change on your side. If a refresh fails it keeps using the keys it has.
  */
 export function createVerifier(opts: VerifierOptions): Verifier {
-  const issuer = (opts.issuer ?? DEFAULT_ISSUER).replace(/\/+$/, "");
-  if (!opts.jwks && !/^https:\/\//.test(issuer) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(issuer)) {
-    throw new Error("createVerifier: issuer must be https");
+  if (opts.origin && opts.issuer && originOf(opts.origin) !== originOf(opts.issuer)) {
+    throw new Error("createVerifier: origin and issuer differ (issuer is an alias of origin); pass origin only");
   }
+  const issuer = originOf(opts.origin || opts.issuer);
+  if (!opts.jwks && !isSecureOrigin(issuer)) throw new Error("createVerifier: origin must be https");
   if (!opts.keyId) throw new Error("createVerifier: keyId is required");
   const doFetch = opts.fetch ?? globalThis.fetch;
   let keys: Jwk[] | null = opts.jwks?.keys ?? null;
@@ -101,6 +122,9 @@ export function createVerifier(opts: VerifierOptions): Verifier {
 
   return {
     async verify(input) {
+      if (typeof input.rawBody !== "string" && !ArrayBuffer.isView(input.rawBody)) {
+        throw new TypeError("verify: rawBody must be the raw request body (a string or Buffer), not parsed JSON");
+      }
       const token = tokenFromAuthorization(header(input.headers, "authorization"));
       const now = Date.now();
       const sinceFetch = now - lastFetchAt;

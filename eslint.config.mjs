@@ -111,6 +111,8 @@ const eslintConfig = [
       "infra/**",
       "agents/**",
       "workers/**",
+      // The SDK's build output (its CommonJS half uses require()); the sources are linted.
+      "sdk/node/dist/**",
     ],
   },
 ];

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { C, Code, H1, H2, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
-import { docsOrigin } from "@/lib/developers/flags";
+import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
+import { SCHEMAS } from "@/lib/developers/schemas";
 
 export default function DevelopersHome() {
   const origin = docsOrigin();
@@ -84,7 +85,8 @@ export default function DevelopersHome() {
           <C>@yougrowai/node</C>
         </a>{" "}
         handles signing, batching and retries for events, and verifies our requests for your endpoints. Node 18 or later,
-        no dependencies. Every part of the protocol is documented here too, so any language works.
+        no dependencies, from ES modules (<C>import</C>) or CommonJS (<C>require</C>, from 0.2.0). Every part of the
+        protocol is documented here too, so any language works.
       </P>
       <Code title="Install">{`npm install @yougrowai/node`}</Code>
       <Code title="Node">{`import { YouGrow } from "@yougrowai/node";
@@ -92,6 +94,52 @@ import { createVerifier, contextResponse } from "@yougrowai/node/server";
 
 const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET! });
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });`}</Code>
+      {origin !== SDK_DEFAULT_ORIGIN ? (
+        <P>
+          This YouGrow is at <C>{origin}</C>, and the SDK uses <C>{SDK_DEFAULT_ORIGIN}</C> unless told otherwise. Pass{" "}
+          <C>{`origin: "${origin}"`}</C> to both (0.2.0 and later) — or, with earlier versions,{" "}
+          <C>{`endpoint: "${origin}/api/v1/events"`}</C> to <C>YouGrow</C> and <C>{`issuer: "${origin}"`}</C> to{" "}
+          <C>createVerifier</C>.
+        </P>
+      ) : null}
+      <P>
+        Short-lived code has to wait for the send: in a serverless function (Cloud Functions, Lambda, Vercel),{" "}
+        <C>await yg.flush()</C> before it returns; in a script, <C>await yg.close()</C> before it exits. The SDK needs a
+        Node runtime — edge runtimes (Vercel Edge Functions, Next.js middleware, Cloudflare Workers) aren&apos;t supported
+        yet.
+      </P>
+
+      <H2 id="agents">For coding agents</H2>
+      <P>
+        Handing the integration to Claude Code, Cursor or another coding agent? Everything here is also plain Markdown,
+        and the protocol is machine-readable:
+      </P>
+      <UL>
+        <li>
+          <a className="underline" href="/llms.txt">llms.txt</a> is the index, and{" "}
+          <a className="underline" href="/developers/llms-full.txt">llms-full.txt</a> has every page in one file. Each page
+          also has a <C>.md</C> twin, e.g. <a className="underline" href="/developers/events.md">/developers/events.md</a>.
+        </li>
+        <li>
+          JSON Schemas, generated from the validators our API uses:{" "}
+          {Object.entries(SCHEMAS).map(([name, s], i, all) => (
+            <span key={name}>
+              <a className="underline" href={`/developers/schema/${name}`}>
+                {s.title.toLowerCase()}
+              </a>
+              {i < all.length - 1 ? ", " : "."}
+            </span>
+          ))}
+        </li>
+        <li>
+          <a className="underline" href="/developers/test-vectors.json">Signing test vectors</a> for any language, and our
+          public keys at <C>{`${origin}/.well-known/jwks.json`}</C>.
+        </li>
+      </UL>
+      <Note>
+        The contract is these docs, the schemas and the published <C>@yougrowai/node</C> package. YouGrow&apos;s own source
+        code isn&apos;t: its main branch can be ahead of what&apos;s deployed.
+      </Note>
     </article>
   );
 }

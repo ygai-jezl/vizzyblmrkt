@@ -6,8 +6,9 @@ export default function WebhooksDocs() {
     <article>
       <H1>Webhooks</H1>
       <Lead>
-        When someone unsubscribes from one of our emails, YouGrow tells your server — so your product&apos;s own email
-        settings say the same thing, and your other emails respect it too.
+        When someone unsubscribes from one of our emails, or we stop emailing them because their address bounced or they
+        reported spam, YouGrow tells your server — so your product&apos;s own records say the same thing, and your other
+        emails respect it too.
       </Lead>
       <Note>
         <strong>Compliance.</strong> Without a webhook, our own unsubscribe links still work — we stop sending straight
@@ -79,6 +80,7 @@ X-YouGrow-Key-Id: <your key id>
       <Fields
         rows={[
           ["email_preferences.updated", "", "Someone changed an email preference from one of our emails. Mirror it in your product."],
+          ["email.suppressed", "", "We stopped emailing someone: their address hard-bounced, or they reported one of our emails as spam."],
           ["connection.test", "", "Sent by Test webhook in YouGrow. Verify it and reply 2xx; there's nothing to change."],
         ]}
       />
@@ -96,9 +98,29 @@ X-YouGrow-Key-Id: <your key id>
         ]}
       />
 
+      <H3>email.suppressed — data</H3>
+      <Fields
+        rows={[
+          ["userId", "string", <><strong>Your</strong> user id.</>],
+          ["reason", "string", <><C>hard_bounce</C>: the address doesn&apos;t exist or refuses mail. <C>complaint</C>: they reported one of our emails as spam — treat it as an objection to marketing email.</>],
+        ]}
+      />
+
+      <H2 id="consent-records">Your consent records</H2>
+      <P>
+        Record what we send in your own consent records — an unsubscribe as an opt-out, a complaint as an objection — and let
+        your usual sync send the user&apos;s state back to us. That echo is harmless:
+      </P>
+      <UL>
+        <li>
+          An opt-out made in one of our emails holds whatever the API sends: <C>subscribed: true</C> can&apos;t lift it.
+        </li>
+        <li>Writes through the API never trigger a webhook, so the echo can&apos;t loop.</li>
+      </UL>
+
       <H2 id="example">A complete example (Node)</H2>
       <Code title="Express">{`import express from "express";
-import { createVerifier } from "@yougrowai/node/server";
+import { createVerifier, type WebhookEvent } from "@yougrowai/node/server";
 
 const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID! });
 const app = express();
@@ -112,7 +134,7 @@ app.post("/yougrow/webhook", express.raw({ type: "application/json", limit: "16k
   const v = await verifier.verify({ headers: req.headers, rawBody, direction: "webhook" });
   if (!v.ok) return res.status(401).json({ error: v.reason });
 
-  const hook = JSON.parse(rawBody);
+  const hook = JSON.parse(rawBody) as WebhookEvent;
   if (await db.webhooksSeen.has(hook.id)) return res.status(200).end();    // a retry we already handled
 
   if (hook.type === "email_preferences.updated") {
@@ -122,6 +144,8 @@ app.post("/yougrow/webhook", express.raw({ type: "application/json", limit: "16k
     } else if (category in SETTING) {
       await db.users.update(userId, { [SETTING[category as keyof typeof SETTING]]: subscribed });
     }
+  } else if (hook.type === "email.suppressed" && hook.data.reason === "complaint") {
+    await db.users.update(hook.data.userId, { marketingEmail: false });      // a spam report is an objection
   }
   await db.webhooksSeen.add(hook.id);                                        // keep ids for a few days
   res.status(200).end();                                                     // any other type: 2xx, nothing to do

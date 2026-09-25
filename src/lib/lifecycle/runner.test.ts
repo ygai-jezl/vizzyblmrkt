@@ -424,3 +424,92 @@ describe("API v2 state in the runner", () => {
     expect((await w.get()).log.some((l) => l.event === "context_skipped")).toBe(true);
   });
 });
+
+describe("consent at send (LIFECYCLE_CONSENT_AT_SEND)", () => {
+  beforeEach(() => {
+    process.env.LIFECYCLE_CONSENT_AT_SEND = "true";
+  });
+  afterEach(() => {
+    delete process.env.LIFECYCLE_CONSENT_AT_SEND;
+  });
+
+  /** Keep running the enrolment until it sends (or stops, or 10 runs pass). */
+  async function runUntilSent(w: Awaited<ReturnType<typeof world>>): Promise<string> {
+    let last = "";
+    for (let i = 0; i < 10; i += 1) {
+      const e = await w.get();
+      if (e.status !== "active" || !e.nextRunAt) break;
+      last = await w.run(Date.parse(e.nextRunAt));
+      if (last === "sent") break;
+    }
+    return last;
+  }
+
+  it("skips a marketing email that's due without consent, instead of holding it", async () => {
+    const w = await world({ consent: "none" });
+    const next = await throughWelcome(w);
+    expect(await w.run(next)).not.toBe("held");
+    const e = await w.get();
+    expect(e.sentItems.map((s) => [s.itemId, s.status])).toEqual([
+      ["w", "sent"],
+      ["r1", "skipped"],
+    ]);
+    expect(e.sentItems[1]).toMatchObject({ reason: "no_marketing_consent" });
+    expect(e.log.some((l) => l.event === "waiting_for_consent")).toBe(false);
+    expect(w.sent).toHaveLength(1); // only the service welcome
+  });
+
+  it("sends later marketing emails once consent arrives, but never the skipped one", async () => {
+    const w = await world({ consent: "none" });
+    const next = await throughWelcome(w);
+    await w.run(next);
+    await forTenant(system, w.db).productUsers.update(w.users[0]!.id, {
+      consent: { basis: "consent", assertedBasis: "consent", source: "in_app", at: iso(next) },
+    });
+    expect(await runUntilSent(w)).toBe("sent");
+    const e = await w.get();
+    expect(e.sentItems.filter((s) => s.itemId === "r1").map((s) => s.status)).toEqual(["skipped"]);
+    expect(e.sentItems.at(-1)).toMatchObject({ status: "sent" });
+    expect(e.sentItems.at(-1)!.itemId).not.toBe("r1");
+    expect(w.sent).toHaveLength(2);
+  });
+
+  it("releases an enrolment the old rule held by skipping its email, not sending it late", async () => {
+    delete process.env.LIFECYCLE_CONSENT_AT_SEND;
+    const w = await world({ consent: "none" });
+    const next = await throughWelcome(w);
+    expect(await w.run(next)).toBe("held");
+    process.env.LIFECYCLE_CONSENT_AT_SEND = "true";
+    expect(await w.run(Date.parse((await w.get()).nextRunAt!))).not.toBe("held");
+    expect((await w.get()).sentItems.find((s) => s.itemId === "r1")).toMatchObject({ status: "skipped", reason: "no_marketing_consent" });
+    expect(w.sent).toHaveLength(1);
+  });
+});
+
+describe("going live (LIFECYCLE_GO_LIVE_SWEEP)", () => {
+  afterEach(() => {
+    delete process.env.LIFECYCLE_GO_LIVE_SWEEP;
+  });
+
+  it("under a test ceiling, a live journey skips a real person at enrolment instead of holding them", async () => {
+    process.env.LIFECYCLE_GO_LIVE_SWEEP = "true";
+    delete process.env.LIFECYCLE_MODE_CEILING; // unset = test
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const user = seedUser(db, "alex");
+    const { journey, version } = await publishOnboarding(db, { mode: "live", testUserIds: [] });
+    const r = await enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0) }, { db, nowMs: T0 });
+    expect(r).toEqual({ outcome: "skipped", reason: "not_a_test_recipient" });
+  });
+
+  it("an enrolment held for its mode that never started leaves once its window has passed", async () => {
+    const w = await world({ mode: "live", testUserIds: [] }); // enrolled while the ceiling was live
+    delete process.env.LIFECYCLE_MODE_CEILING; // now it's test
+    process.env.LIFECYCLE_GO_LIVE_SWEEP = "true";
+    await w.run(T0);
+    expect(await w.run(T0 + 15 * MIN)).toBe("held"); // inside its 72-hour window: still waiting
+    expect(await w.run(T0 + 73 * HOUR)).toBe("exited");
+    expect(await w.get()).toMatchObject({ status: "exited", stopReason: "window_passed" });
+    expect(w.sent).toHaveLength(0);
+  });
+});

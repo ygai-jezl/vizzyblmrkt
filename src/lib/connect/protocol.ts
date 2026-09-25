@@ -86,6 +86,8 @@ export const RESERVED_EVENTS = {
   onboardingCompleted: "onboarding.completed",
   userDeleted: "user.deleted",
   preferencesUpdated: "email_preferences.updated",
+  /** Derived from state: someone YouGrow already knew moved to a consent basis the connection accepts for marketing. */
+  marketingConsentGranted: "user.marketing_consent_granted",
 } as const;
 
 export const StepCompletedPropsSchema = z.object({ step: z.string().regex(STEP_ID_RE) });

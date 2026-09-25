@@ -71,7 +71,7 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
     severity: "compliance",
     title: "Sync email preferences",
     action:
-      "When someone opts out of this email in your product, PATCH `subscribed: false` (`true` when they opt back in), and apply the unsubscribes our webhook sends you.",
+      "When someone opts out of this email in your product, PATCH `subscribed: false` (`true` when they opt back in). Apply what our webhook sends you: unsubscribes from our emails, and bounces or spam complaints.",
     ifSkipped: "Someone who opts out in your product still gets lifecycle emails (our own unsubscribe links always work).",
   },
   timezone: {

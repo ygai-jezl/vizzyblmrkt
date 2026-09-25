@@ -3,9 +3,10 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { readRequestTextCapped } from "@/lib/http/readBody";
 import { parseBasicAuth, resolveConnection, secretMatches } from "../connectionAuth";
-import { BatchRequestSchema, EventRequestSchema, fieldErrors, UserIdSchema, UserPatchSchema, V2_LIMITS } from "./contract";
+import { environmentOf } from "../environments";
+import { BatchRequestSchema, EventRequestSchema, fieldErrors, parseUserPatch, UserIdSchema, V2_LIMITS, type FieldError, type MeResponse } from "./contract";
 import { isApiV2Enabled } from "./flags";
-import { deleteUser, getUserView, patchBatch, patchUser, recordUserEvent } from "./users";
+import { deleteUser, getUserView, patchBatch, patchUser, recordRejected, recordUserEvent } from "./users";
 
 /**
  * The HTTP side of API v2 (`/api/v2/users…`). Server-to-server only (no CORS).
@@ -78,17 +79,25 @@ async function gate(req: Request, deps: V2HttpDeps, readBody: boolean): Promise<
   return { ok: true, ctx, connection, body, nowMs };
 }
 
-function parseJson(body: string): { ok: true; value: unknown } | { ok: false; response: Response } {
+function parseJson(body: string): { ok: true; value: unknown } | { ok: false } {
   try {
     return { ok: true, value: JSON.parse(body) };
   } catch {
-    return { ok: false, response: json(400, { error: "invalid_json" }) };
+    return { ok: false };
   }
 }
 
-function checkUserId(userId: string): Response | null {
+function userIdProblems(userId: string): FieldError[] | null {
   const r = UserIdSchema.safeParse(userId);
-  return r.success ? null : json(400, { error: "invalid", fields: fieldErrors(r.error).map((f) => ({ ...f, path: "userId" })) });
+  return r.success ? null : fieldErrors(r.error).map((f) => ({ ...f, path: "userId" }));
+}
+
+type Open = Extract<Gate, { ok: true }>;
+
+/** A 400 once the caller is known: also listed in the Events tab's rejections (`what` names the call). */
+async function refuse(g: Open, deps: V2HttpDeps, what: string, fields: FieldError[] | null): Promise<Response> {
+  await recordRejected(g.ctx, g.connection, what, fields, g.nowMs, deps.db);
+  return json(400, fields ? { error: "invalid", fields } : { error: "invalid_json" });
 }
 
 /** Unexpected failures: safe to retry, since every write is idempotent. */
@@ -100,25 +109,41 @@ function internal(scope: string, err: unknown): Response {
 export async function handlePatchUser(req: Request, userId: string, deps: V2HttpDeps = {}): Promise<Response> {
   const g = await gate(req, deps, true);
   if (!g.ok) return g.response;
-  const bad = checkUserId(userId);
-  if (bad) return bad;
+  const badId = userIdProblems(userId);
+  if (badId) return refuse(g, deps, "PATCH", badId);
   const body = parseJson(g.body);
-  if (!body.ok) return body.response;
-  const parsed = UserPatchSchema.safeParse(body.value);
-  if (!parsed.success) return json(400, { error: "invalid", fields: fieldErrors(parsed.error) });
+  if (!body.ok) return refuse(g, deps, "PATCH", null);
+  // Invalid profile fields are dropped (and reported); anything else invalid is a 400.
+  const parsed = parseUserPatch(body.value);
+  if (!parsed.ok) return refuse(g, deps, "PATCH", parsed.fields);
   try {
-    const r = await patchUser(g.ctx, g.connection, userId, parsed.data, { db: deps.db, nowMs: g.nowMs });
-    return "invalid" in r ? json(400, { error: "invalid", fields: r.invalid }) : json(200, r);
+    const ignoredFields = parsed.ignoredFields.map((f) => f.path);
+    const r = await patchUser(g.ctx, g.connection, userId, parsed.patch, { db: deps.db, nowMs: g.nowMs }, { ignoredFields });
+    if ("invalid" in r) return json(400, { error: "invalid", fields: r.invalid });
+    return json(200, r.applied && parsed.ignoredFields.length ? { ...r, ignoredFields: parsed.ignoredFields } : r);
   } catch (err) {
     return internal("patch", err);
   }
 }
 
+/** GET /api/v2/me — the connection behind the key: a credential check that also names the environment. */
+export async function handleMe(req: Request, deps: V2HttpDeps = {}): Promise<Response> {
+  const g = await gate(req, deps, false);
+  if (!g.ok) return g.response;
+  const c = g.connection;
+  const me: MeResponse = {
+    connection: { id: c.id, name: c.name, environment: environmentOf(c), status: c.status },
+    keyId: c.keyId,
+    rotating: Boolean(c.prevSecretExpiresAt && Date.parse(c.prevSecretExpiresAt) > g.nowMs),
+  };
+  return json(200, me);
+}
+
 export async function handleGetUser(req: Request, userId: string, deps: V2HttpDeps = {}): Promise<Response> {
   const g = await gate(req, deps, false);
   if (!g.ok) return g.response;
-  const bad = checkUserId(userId);
-  if (bad) return bad;
+  const badId = userIdProblems(userId);
+  if (badId) return refuse(g, deps, "GET", badId);
   try {
     const view = await getUserView(g.ctx, g.connection, userId, { db: deps.db, nowMs: g.nowMs });
     return view ? json(200, view) : json(404, { error: "not_found" });
@@ -130,8 +155,8 @@ export async function handleGetUser(req: Request, userId: string, deps: V2HttpDe
 export async function handleDeleteUser(req: Request, userId: string, deps: V2HttpDeps = {}): Promise<Response> {
   const g = await gate(req, deps, false);
   if (!g.ok) return g.response;
-  const bad = checkUserId(userId);
-  if (bad) return bad;
+  const badId = userIdProblems(userId);
+  if (badId) return refuse(g, deps, "DELETE", badId);
   try {
     await deleteUser(g.ctx, g.connection, userId, { db: deps.db, nowMs: g.nowMs });
     return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
@@ -144,9 +169,9 @@ export async function handleBatch(req: Request, deps: V2HttpDeps = {}): Promise<
   const g = await gate(req, deps, true);
   if (!g.ok) return g.response;
   const body = parseJson(g.body);
-  if (!body.ok) return body.response;
+  if (!body.ok) return refuse(g, deps, "batch", null);
   const parsed = BatchRequestSchema.safeParse(body.value);
-  if (!parsed.success) return json(400, { error: "invalid", fields: fieldErrors(parsed.error) });
+  if (!parsed.success) return refuse(g, deps, "batch", fieldErrors(parsed.error));
   try {
     return json(200, await patchBatch(g.ctx, g.connection, parsed.data.users, { db: deps.db, nowMs: g.nowMs }));
   } catch (err) {
@@ -157,15 +182,15 @@ export async function handleBatch(req: Request, deps: V2HttpDeps = {}): Promise<
 export async function handleUserEvent(req: Request, userId: string, deps: V2HttpDeps = {}): Promise<Response> {
   const g = await gate(req, deps, true);
   if (!g.ok) return g.response;
-  const bad = checkUserId(userId);
-  if (bad) return bad;
+  const badId = userIdProblems(userId);
+  if (badId) return refuse(g, deps, "event", badId);
   const body = parseJson(g.body);
-  if (!body.ok) return body.response;
+  if (!body.ok) return refuse(g, deps, "event", null);
   const parsed = EventRequestSchema.safeParse(body.value);
-  if (!parsed.success) return json(400, { error: "invalid", fields: fieldErrors(parsed.error) });
+  if (!parsed.success) return refuse(g, deps, "event", fieldErrors(parsed.error));
   const props = JSON.stringify(parsed.data.properties ?? {});
   if (Buffer.byteLength(props, "utf8") > V2_LIMITS.maxPropertiesBytes) {
-    return json(400, { error: "invalid", fields: [{ path: "properties", message: `at most ${V2_LIMITS.maxPropertiesBytes / 1024} KB` }] });
+    return refuse(g, deps, "event", [{ path: "properties", message: `at most ${V2_LIMITS.maxPropertiesBytes / 1024} KB` }]);
   }
   try {
     const r = await recordUserEvent(g.ctx, g.connection, userId, parsed.data, { db: deps.db, nowMs: g.nowMs });

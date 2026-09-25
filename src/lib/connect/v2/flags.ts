@@ -7,3 +7,12 @@
 export function isApiV2Enabled(): boolean {
   return process.env.API_V2_ENABLED === "true";
 }
+
+/**
+ * Server flag — tell the product (an `email.suppressed` webhook) when YouGrow stops
+ * emailing one of its users because the address hard-bounced or they marked an
+ * email as spam.
+ */
+export function isSuppressionWebhookEnabled(): boolean {
+  return process.env.CONNECT_SUPPRESSION_WEBHOOK_ENABLED === "true";
+}

@@ -10,6 +10,8 @@ import {
 } from "@/lib/email/mandrillWebhook";
 import { recordEmailEvent } from "@/lib/email/events";
 import { suppressEmail } from "@/lib/email/suppression";
+import { notifyProductOfSuppression } from "@/lib/connect/suppressed";
+import { isSuppressionWebhookEnabled } from "@/lib/connect/v2/flags";
 import type { EmailSuppressionReason } from "@/lib/types/emailSuppression";
 
 /** Engagement events that mean "never email this address again". */
@@ -117,6 +119,16 @@ export async function POST(req: Request) {
           campaignId: meta.campaignId || null,
           signupId: meta.signupId || null,
         });
+        // A journey email to a product user: tell that product (a hard bounce or a complaint).
+        if (
+          isSuppressionWebhookEnabled() &&
+          (reason === "hard_bounce" || reason === "spam") &&
+          meta.recipientKind === "product_user" &&
+          meta.connectionId &&
+          meta.signupId
+        ) {
+          await notifyProductOfSuppression(ctx, { connectionId: meta.connectionId, productUserId: meta.signupId, reason });
+        }
       } catch (err) {
         console.error("[mandrill-webhook] failed to suppress", err);
       }

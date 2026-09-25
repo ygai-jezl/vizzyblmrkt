@@ -139,7 +139,14 @@ describe("the OpenAPI spec", () => {
     expect(Object.keys(spec.paths).sort()).toEqual(Object.values(V2_PATHS).sort());
     const ops = operations(spec.paths).map(([path, method]) => `${method.toUpperCase()} ${path}`);
     expect(ops.sort()).toEqual(
-      ["PATCH /api/v2/users/{userId}", "GET /api/v2/users/{userId}", "DELETE /api/v2/users/{userId}", "POST /api/v2/users/batch", "POST /api/v2/users/{userId}/events"].sort(),
+      [
+        "PATCH /api/v2/users/{userId}",
+        "GET /api/v2/users/{userId}",
+        "DELETE /api/v2/users/{userId}",
+        "POST /api/v2/users/batch",
+        "POST /api/v2/users/{userId}/events",
+        "GET /api/v2/me",
+      ].sort(),
     );
     for (const [path, method] of operations(spec.paths)) {
       const file = `${ROOT}/src/app${path.replace(/\{(\w+)\}/g, "[$1]")}/route.ts`;

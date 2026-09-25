@@ -3,10 +3,10 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { ProductContext } from "@/lib/connect/protocol";
 import type { ContextResult } from "@/lib/connect/contextClient";
 import type { EmailMessage, EmailResult } from "@/lib/email";
-import type { DeliveryMode, LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
+import type { DeliveryMode, LifecycleJourney, LifecycleSettings, LifecycleVersion } from "@/lib/types/lifecycle";
 import type { ProductUser } from "@/lib/types/productUser";
 import { productUserDocId } from "@/lib/connect/profile";
-import { createLifecycleJourney, publishLifecycleJourney, updateLifecycleDelivery } from "../service";
+import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft, updateLifecycleDelivery } from "../service";
 
 /**
  * Test fixtures for the lifecycle runtime: one tenant with a verified sending
@@ -122,6 +122,8 @@ export async function publishOnboarding(
     caps?: { sendsPerDay: number; enrolmentsPerDay: number };
     nowMs?: number;
     connectionId?: string;
+    /** Settings to publish with (merged over the template's), e.g. another trigger or `entry`. */
+    settings?: Partial<LifecycleSettings>;
   } = {},
 ): Promise<{ journey: LifecycleJourney; version: LifecycleVersion }> {
   const nowMs = opts.nowMs ?? T0 - 3600_000;
@@ -132,6 +134,11 @@ export async function publishOnboarding(
   );
   if (!created.ok) throw new Error(`create failed: ${created.error}`);
   const id = created.value.journey.id;
+  if (opts.settings) {
+    const draft = created.value.journey.draft;
+    const saved = await saveLifecycleDraft(ctx, id, { ...draft, settings: { ...draft.settings, ...opts.settings } }, { db, nowMs });
+    if (!saved.ok) throw new Error(`draft failed: ${saved.error}`);
+  }
   const delivery = await updateLifecycleDelivery(
     ctx,
     id,

@@ -378,6 +378,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           sender={detail.sender}
           readOnly={readOnly}
           waitlist={waitlist && launch ? { launchId: launch.id, launchName: launch.name } : null}
+          consentAtSend={detail.features.consentAtSend}
           onChange={(settings) => edit({ settings })}
         />
       ) : null}

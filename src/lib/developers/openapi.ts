@@ -252,7 +252,7 @@ function paths(): Json {
         tags: ["Users"],
         summary: "Send a user's state",
         description:
-          "Merge a JSON Merge Patch (RFC 7396) into the user's state: fields you send replace ours, fields you leave out stay, `null` clears one, and `steps`, `facts` and `traits` merge key by key. The first write for an id creates the user. `signedUpAt` enrols them in sign-up journeys while they're inside the journey's window — checked on every write, so a retry or a late write still enrols, and a journey that goes live later picks them up at their next write. Sending the same state twice is harmless.",
+          "Merge a JSON Merge Patch (RFC 7396) into the user's state: fields you send replace ours, fields you leave out stay, `null` clears one, and `steps`, `facts` and `traits` merge key by key. The first write for an id creates the user. `signedUpAt` enrols them in sign-up journeys while they're inside the journey's window — checked on every write, so a retry or a late write still enrols, and when a journey goes live YouGrow enrols everyone still inside it. An invalid `email`, `firstName`, `lastName`, `timezone` or `locale` doesn't sink the write: it's left as it was and listed in `ignoredFields`. Sending the same state twice is harmless.",
         requestBody: {
           required: true,
           content: body("UserPatch", {

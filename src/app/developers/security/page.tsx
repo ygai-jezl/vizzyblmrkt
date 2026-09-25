@@ -35,7 +35,7 @@ export default function SecurityDocs() {
       </P>
       <Code>{`Authorization: Basic <base64 of "<key id>:<secret>">
 
-curl -u "$YOUGROW_KEY_ID:$YOUGROW_SECRET" ${origin}/api/v2/users/user_123`}</Code>
+curl -u "$YOUGROW_KEY_ID:$YOUGROW_SECRET" ${origin}/api/v2/me`}</Code>
       <UL>
         <li>
           Most HTTP clients build the header for you: <C>curl -u</C>, <C>{`requests.patch(…, auth=(key_id, secret))`}</C>,
@@ -48,6 +48,10 @@ curl -u "$YOUGROW_KEY_ID:$YOUGROW_SECRET" ${origin}/api/v2/users/user_123`}</Cod
         <li>
           A missing or wrong key id or secret gets <C>401</C> — as does a revoked connection. During a rotation, the
           previous secret works for 24 hours.
+        </li>
+        <li>
+          <strong>Check a key</strong> with <C>GET /api/v2/me</C> (<C>yg.me()</C> in the SDK). It returns the connection the
+          key belongs to — its name, environment and status — so you can tell a staging key from a production one.
         </li>
         <li>Send it from your server only. Anyone with the secret can change your users&apos; state.</li>
       </UL>

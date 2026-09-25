@@ -10,7 +10,7 @@ import { __resetConnectionCaches, invalidateConnectionCaches } from "../connecti
 import { productUserDocId } from "../profile";
 import { SANDBOX_CATALOG } from "../sandbox";
 import { isSuppressedFor, suppressEmail } from "@/lib/email/suppression";
-import { handleBatch, handleDeleteUser, handleGetUser, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
+import { handleBatch, handleDeleteUser, handleGetUser, handleMe, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
 const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -98,6 +98,27 @@ describe("API v2 auth and gate", () => {
   });
 });
 
+describe("GET /api/v2/me", () => {
+  it("names the connection behind the key, and needs the key", async () => {
+    const w = await setup();
+    const res = await handleMe(request("GET", w.auth), w.deps);
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({ connection: { id: w.connection.id, name: "Acme", environment: null, status: "active" }, keyId: w.auth.keyId, rotating: false });
+    expect((await handleMe(request("GET", null), w.deps)).status).toBe(401);
+    delete process.env.API_V2_ENABLED;
+    expect((await handleMe(request("GET", w.auth), w.deps)).status).toBe(404);
+  });
+
+  it("says which environment the connection is for, and when a rotation is under way", async () => {
+    const db = new FakeFirestore();
+    const { connection, secret } = await createConnection(ctxA, { name: "Acme (staging)", kind: "custom" }, db);
+    await rotateConnectionSecret(ctxA, connection.id, db, NOW);
+    invalidateConnectionCaches(connection.keyId, ctxA.tenantId, connection.id);
+    const res = await handleMe(request("GET", { keyId: connection.keyId, secret }), { db, nowMs: () => NOW + 60_000 });
+    expect(await json(res)).toMatchObject({ connection: { environment: "staging" }, rotating: true });
+  });
+});
+
 describe("PATCH /api/v2/users/{userId}", () => {
   it("creates and merges the user's state; GET returns it", async () => {
     const w = await setup();
@@ -120,6 +141,20 @@ describe("PATCH /api/v2/users/{userId}", () => {
     expect((await w.patch("batch", { firstName: "x" })).status).toBe(400); // reserved ids
     expect((await w.patch("..", { firstName: "x" })).status).toBe(400);
     expect((await w.patch("u_1", "{not json")).status).toBe(400);
+  });
+
+  it("applies the rest when only profile fields are invalid, and names the ones it left as they were", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "alex@example.com", timezone: "Europe/London" });
+    const res = await w.patch("u_1", { timezone: "Mars/Olympus", email: "not-an-email", subscribed: false, excluded: { reason: "staff" } });
+    expect(res.status).toBe(200);
+    const b = await json(res);
+    expect(b).toMatchObject({ applied: true, user: { email: "alex@example.com", timezone: "Europe/London", subscribed: false, excluded: { reason: "staff" } } });
+    expect((b.ignoredFields as Array<{ path: string }>).map((f) => f.path).sort()).toEqual(["email", "timezone"]);
+    // Beside any other problem, a profile field is still part of a 400.
+    const bad = await w.patch("u_1", { timezone: "Mars/Olympus", subscribed: "no" });
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify((await json(bad)).fields)).toContain("subscribed");
   });
 
   it("skips a stale write with a 200 that says so", async () => {
@@ -172,7 +207,7 @@ describe("DELETE /api/v2/users/{userId}", () => {
 });
 
 describe("POST /api/v2/users/batch", () => {
-  it("applies item by item and reports only the ignored and failed ones", async () => {
+  it("applies item by item; reports the ignored and failed ones, and applied ones with ignored fields", async () => {
     const w = await setup();
     await w.patch("u_2", { firstName: "New", updatedAt: "2026-09-25T11:00:00Z" });
     const res = await handleBatch(
@@ -188,10 +223,10 @@ describe("POST /api/v2/users/batch", () => {
     );
     expect(res.status).toBe(200);
     const b = await json(res);
-    expect(b).toMatchObject({ applied: 1, ignored: 1, failed: 2 });
+    expect(b).toMatchObject({ applied: 2, ignored: 1, failed: 1 });
     expect(b.results).toMatchObject([
       { index: 1, userId: "u_2", status: "ignored", reason: "stale_write" },
-      { index: 2, userId: "u_3", status: "failed", reason: "invalid" },
+      { index: 2, userId: "u_3", status: "applied", reason: "fields_ignored", fields: [{ path: "timezone" }] },
       { index: 3, userId: null, status: "failed", reason: "invalid" },
     ]);
     expect((await w.get("u_1")).status).toBe(200);

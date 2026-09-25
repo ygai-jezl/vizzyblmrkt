@@ -80,7 +80,8 @@ export interface UserView extends UserState {
 export type SkipReason = "stale_write" | "deleted_later";
 
 export type PatchResponse =
-  | { applied: true; user: UserState }
+  /** `ignoredFields`: profile fields whose value was invalid, so left as they were; the rest applied. */
+  | { applied: true; user: UserState; ignoredFields?: FieldError[] }
   | { applied: false; reason: SkipReason; storedUpdatedAt?: string | null; user?: UserState };
 
 /** What was wrong with one field, e.g. `{ path: "traits.plan", message: "…" }`. */
@@ -98,8 +99,19 @@ export interface BatchResponse {
   applied: number;
   ignored: number;
   failed: number;
-  /** Only the ignored and failed items; applied ones are counted. `index` is the item's position in your array. */
-  results: Array<{ index: number; userId: string | null; status: "ignored" | "failed"; reason: string; fields?: FieldError[] }>;
+  /**
+   * The ignored and failed items, and applied ones whose invalid profile fields were
+   * left as they were (reason `fields_ignored`). `index` is the item's position in your array.
+   */
+  results: Array<{ index: number; userId: string | null; status: "applied" | "ignored" | "failed"; reason: string; fields?: FieldError[] }>;
+}
+
+/** The connection behind your key (`GET /api/v2/me`). */
+export interface MeResponse {
+  connection: { id: string; name: string; environment: "staging" | "production" | null; status: "active" | "paused" | "revoked" };
+  keyId: string;
+  /** A new secret was issued in the last 24 hours; the previous one works until then. */
+  rotating: boolean;
 }
 
 export interface EventResult {

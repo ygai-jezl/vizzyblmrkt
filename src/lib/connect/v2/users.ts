@@ -25,7 +25,7 @@ import {
 import {
   BatchItemSchema,
   fieldErrors,
-  UserPatchSchema,
+  parseUserPatch,
   V2_LIMITS,
   type BatchResponse,
   type EventRequest,
@@ -187,7 +187,7 @@ export async function patchUser(
   return { applied: true, user: userStateOf(w.user) };
 }
 
-/** POST /api/v2/users/batch — item by item, never all-or-nothing; `results` lists only ignored and failed items. */
+/** POST /api/v2/users/batch — item by item, never all-or-nothing; `results` lists ignored and failed items, and applied ones with ignored fields. */
 export async function patchBatch(
   ctx: TenantContext,
   connection: ProductConnection,
@@ -208,19 +208,20 @@ export async function patchBatch(
       continue;
     }
     const { userId, ...rest } = head.data;
-    const parsed = UserPatchSchema.safeParse(rest);
-    if (!parsed.success) {
-      const fields = fieldErrors(parsed.error);
+    const parsed = parseUserPatch(rest);
+    if (!parsed.ok) {
+      const fields = parsed.fields;
       out.failed += 1;
       out.results.push({ index, userId, status: "failed", reason: "invalid", fields });
       rejected.push({ index, messageId: null, reason: reasonOf(fields) });
       continue;
     }
     try {
-      const w = await writeUser(ctx, connection, userId, parsed.data, nowMs, deps.db);
+      const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db);
       if (w.kind === "applied") {
         out.applied += 1;
-        writes.push({ user: w.user, patch: parsed.data, consentGranted: w.consentGranted });
+        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted });
+        if (parsed.ignoredFields.length) out.results.push({ index, userId, status: "applied", reason: "fields_ignored", fields: parsed.ignoredFields });
       } else if (w.kind === "skipped") {
         out.ignored += 1;
         out.results.push({ index, userId, status: "ignored", reason: w.reason });

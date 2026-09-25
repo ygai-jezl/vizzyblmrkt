@@ -3,7 +3,8 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { readRequestTextCapped } from "@/lib/http/readBody";
 import { parseBasicAuth, resolveConnection, secretMatches } from "../connectionAuth";
-import { BatchRequestSchema, EventRequestSchema, fieldErrors, UserIdSchema, UserPatchSchema, V2_LIMITS } from "./contract";
+import { environmentOf } from "../environments";
+import { BatchRequestSchema, EventRequestSchema, fieldErrors, parseUserPatch, UserIdSchema, V2_LIMITS, type MeResponse } from "./contract";
 import { isApiV2Enabled } from "./flags";
 import { deleteUser, getUserView, patchBatch, patchUser, recordUserEvent } from "./users";
 
@@ -104,14 +105,29 @@ export async function handlePatchUser(req: Request, userId: string, deps: V2Http
   if (bad) return bad;
   const body = parseJson(g.body);
   if (!body.ok) return body.response;
-  const parsed = UserPatchSchema.safeParse(body.value);
-  if (!parsed.success) return json(400, { error: "invalid", fields: fieldErrors(parsed.error) });
+  // Invalid profile fields are dropped (and reported); anything else invalid is a 400.
+  const parsed = parseUserPatch(body.value);
+  if (!parsed.ok) return json(400, { error: "invalid", fields: parsed.fields });
   try {
-    const r = await patchUser(g.ctx, g.connection, userId, parsed.data, { db: deps.db, nowMs: g.nowMs });
-    return "invalid" in r ? json(400, { error: "invalid", fields: r.invalid }) : json(200, r);
+    const r = await patchUser(g.ctx, g.connection, userId, parsed.patch, { db: deps.db, nowMs: g.nowMs });
+    if ("invalid" in r) return json(400, { error: "invalid", fields: r.invalid });
+    return json(200, r.applied && parsed.ignoredFields.length ? { ...r, ignoredFields: parsed.ignoredFields } : r);
   } catch (err) {
     return internal("patch", err);
   }
+}
+
+/** GET /api/v2/me — the connection behind the key: a credential check that also names the environment. */
+export async function handleMe(req: Request, deps: V2HttpDeps = {}): Promise<Response> {
+  const g = await gate(req, deps, false);
+  if (!g.ok) return g.response;
+  const c = g.connection;
+  const me: MeResponse = {
+    connection: { id: c.id, name: c.name, environment: environmentOf(c), status: c.status },
+    keyId: c.keyId,
+    rotating: Boolean(c.prevSecretExpiresAt && Date.parse(c.prevSecretExpiresAt) > g.nowMs),
+  };
+  return json(200, me);
 }
 
 export async function handleGetUser(req: Request, userId: string, deps: V2HttpDeps = {}): Promise<Response> {

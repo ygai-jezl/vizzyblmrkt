@@ -6,6 +6,7 @@ import {
   EventRequestSchema,
   EventResponseSchema,
   FieldErrorSchema,
+  MeResponseSchema,
   PatchResponseSchema,
   UserIdSchema,
   UserPatchSchema,
@@ -84,16 +85,27 @@ export const COMPONENTS: Record<string, Component> = {
     schema: PatchResponseSchema,
     io: "output",
     description:
-      "`applied: true` — saved; `user` is what we now hold. `applied: false` — skipped because we hold something newer: `stale_write` (older than the stored `updatedAt`) or `deleted_later` (older than a later DELETE). Neither needs a retry.",
+      "`applied: true` — saved; `user` is what we now hold, and `ignoredFields` lists any profile field (`email`, `firstName`, `lastName`, `timezone`, `locale`) whose value was invalid and so left as it was. `applied: false` — skipped because we hold something newer: `stale_write` (older than the stored `updatedAt`) or `deleted_later` (older than a later DELETE). Neither needs a retry.",
   },
   BatchResponse: {
     schema: BatchResponseSchema,
     io: "output",
-    description: "How many users were applied, ignored and failed. `results` lists only the items that weren't applied; `index` is the item's position in your `users` array.",
+    description:
+      "How many users were applied, ignored and failed. `results` lists the items that weren't applied, and applied ones whose invalid profile fields were left as they were (`fields_ignored`); `index` is the item's position in your `users` array.",
     notes: {
-      applied: "Users whose state was saved.",
+      applied: "Users whose state was saved (some perhaps with `fields_ignored`, listed in `results`).",
       ignored: "Users skipped because we hold something newer (`stale_write` or `deleted_later`). Nothing to do.",
       failed: "Users not saved: `invalid` (see `fields`) — fix and resend — or `internal_error` — resend.",
+    },
+  },
+  MeResponse: {
+    schema: MeResponseSchema,
+    io: "output",
+    description: "The connection behind your key.",
+    notes: {
+      connection: "Its id, name, environment (`staging`, `production`, or null when it has none) and status.",
+      keyId: "The key id you authenticated with.",
+      rotating: "A new secret was issued in the last 24 hours; the previous one keeps working until then.",
     },
   },
   EventResponse: {
@@ -173,7 +185,7 @@ const ALEX: Json = {
 const INVALID = {
   error: "invalid",
   fields: [
-    { path: "timezone", message: "not an IANA time zone, e.g. Europe/London" },
+    { path: "subscribed", message: "Invalid input: expected boolean, received string" },
     { path: "traits.email", message: "send email as a top-level field, not a trait" },
   ],
 };
@@ -270,6 +282,10 @@ function paths(): Json {
             description: "Applied — or skipped because YouGrow holds something newer (`applied: false`). Neither needs a retry. A skipped write is a 200, not a 409.",
             content: body("PatchResponse", {
               applied: { summary: "Applied", value: { applied: true, user: ALEX } },
+              fieldsIgnored: {
+                summary: "Applied, with an invalid timezone left as it was",
+                value: { applied: true, user: ALEX, ignoredFields: [{ path: "timezone", message: "not an IANA time zone, e.g. Europe/London" }] },
+              },
               stale: {
                 summary: "Skipped: older than the stored state",
                 value: { applied: false, reason: "stale_write", storedUpdatedAt: "2026-09-25T10:05:00.000Z", user: ALEX },
@@ -330,6 +346,7 @@ function paths(): Json {
                   { userId: "user_123", steps: { create_project: "2026-09-25T10:02:00Z" }, updatedAt: "2026-09-25T10:05:00Z" },
                   { userId: "user_456", facts: { projects: 0 }, updatedAt: "2026-09-25T10:00:00Z" },
                   { userId: "user_789", timezone: "Europe/Paris" },
+                  { userId: "user_999", subscribed: false },
                 ],
               },
             },
@@ -337,17 +354,18 @@ function paths(): Json {
         },
         responses: {
           "200": {
-            description: "Every item was tried. `results` lists the ones that weren't applied.",
+            description: "Every item was tried. `results` lists the ones that weren't applied, and applied ones with `fields_ignored`.",
             content: body("BatchResponse", {
               mixed: {
-                summary: "One applied, one ignored, one failed",
+                summary: "Two applied (one with a field ignored), one ignored, one failed",
                 value: {
-                  applied: 1,
+                  applied: 2,
                   ignored: 1,
                   failed: 1,
                   results: [
                     { index: 1, userId: "user_456", status: "ignored", reason: "stale_write" },
-                    { index: 2, userId: "user_789", status: "failed", reason: "invalid", fields: [{ path: "timezone", message: "not an IANA time zone, e.g. Europe/London" }] },
+                    { index: 2, userId: "user_789", status: "applied", reason: "fields_ignored", fields: [{ path: "timezone", message: "not an IANA time zone, e.g. Europe/London" }] },
+                    { index: 3, userId: "user_999", status: "failed", reason: "invalid", fields: [{ path: "subscribed", message: "Invalid input: expected boolean, received string" }] },
                   ],
                 },
               },
@@ -358,6 +376,27 @@ function paths(): Json {
             content: body("Error"),
           },
           ...errors(["401", "Unauthorized"], ["413", "TooLarge"], ["429", "RateLimited"], ["5XX", "ServerError"]),
+        },
+      },
+    },
+    [V2_PATHS.me]: {
+      get: {
+        operationId: "getConnection",
+        tags: ["Connection"],
+        summary: "Check your key",
+        description:
+          "The connection behind the key: its name, environment and status. Call it to check your credentials, and that they're the right environment's, before you send anything. It counts against the rate limit like any request.",
+        responses: {
+          "200": {
+            description: "The key works.",
+            content: body("MeResponse", {
+              production: {
+                summary: "A production connection",
+                value: { connection: { id: "pcn_7d2f19", name: "Acme", environment: "production", status: "active" }, keyId: "ygk_3f9a2b7c", rotating: false },
+              },
+            }),
+          },
+          ...errors(["401", "Unauthorized"], ["404", "NotFound"], ["429", "RateLimited"], ["5XX", "ServerError"]),
         },
       },
     },
@@ -505,6 +544,7 @@ export function openApiSpec(origin: string): Json {
     tags: [
       { name: "Users", description: "Send each user's current state, read it back, or erase it." },
       { name: "Events", description: "Optional milestones." },
+      { name: "Connection", description: "Check the key you're using." },
     ],
     paths: paths(),
     webhooks: webhooks(o),

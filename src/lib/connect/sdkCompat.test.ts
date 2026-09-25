@@ -35,7 +35,8 @@ const typesMatch: [
   Same<Sdk.UserView, C.UserView>,
   Same<Sdk.PatchResponse, C.PatchResponse>,
   Same<Sdk.BatchResponse, C.BatchResponse>,
-] = [true, true, true, true, true];
+  Same<Sdk.MeResponse, C.MeResponse>,
+] = [true, true, true, true, true, true];
 
 /** Routes the SDK's requests to the platform's real v2 handlers, in-process. */
 function platformFetch(deps: V2HttpDeps): typeof fetch {
@@ -76,8 +77,18 @@ describe("SDK ↔ platform compatibility", () => {
 
     // The repo's lint bans `.batch(` calls (a Firestore guard), so take the method off the client first.
     const sync = yg.users.batch;
-    const batch = await sync([{ userId: "u2", email: "b@example.test" }, { userId: "u3", timezone: "Mars/Olympus" } as never], { quiet: true });
-    expect(batch).toMatchObject({ applied: 1, failed: 1, results: [{ index: 1, userId: "u3", status: "failed", reason: "invalid" }] });
+    const batch = await sync(
+      [{ userId: "u2", email: "b@example.test" }, { userId: "u3", timezone: "Mars/Olympus" }, { userId: "u4", subscribed: "no" } as never],
+      { quiet: true },
+    );
+    expect(batch).toMatchObject({
+      applied: 2,
+      failed: 1,
+      results: [
+        { index: 1, userId: "u3", status: "applied", reason: "fields_ignored" },
+        { index: 2, userId: "u4", status: "failed", reason: "invalid" },
+      ],
+    });
 
     expect(await yg.events.track(odd, "report.exported", { idempotencyKey: "k1" })).toEqual({ recorded: true, duplicate: false });
     expect(await yg.events.track(odd, "report.exported", { idempotencyKey: "k1" })).toEqual({ recorded: false, duplicate: true });

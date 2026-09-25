@@ -9,6 +9,7 @@ import { createConnection, revokeConnection, rotateConnectionSecret } from "../k
 import { __resetConnectionCaches, invalidateConnectionCaches } from "../connectionAuth";
 import { productUserDocId } from "../profile";
 import { SANDBOX_CATALOG } from "../sandbox";
+import { isSuppressedFor, suppressEmail } from "@/lib/email/suppression";
 import { handleBatch, handleDeleteUser, handleGetUser, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
@@ -229,5 +230,26 @@ describe("sign-up enrolment through the API", () => {
     expect(await forTenant(lifecycleCtx, db).lifecycleEnrolments.getById(id)).toMatchObject({ status: "active", anchorAt: new Date(T0).toISOString() });
     const view = await json(await handleGetUser(request("GET", auth), "alex", deps));
     expect(view.enrolments).toMatchObject([{ journeyId: journey.id, status: "active", mode: "live" }]);
+  });
+});
+
+describe("erasure cascade", () => {
+  it("removes AI drafts, unlinks invites, and keeps opt-outs working without the address", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "Alex@Example.com" });
+    const id = productUserDocId(w.connection.id, "u_1");
+    w.db.seed("lifecycle_drafts", "d_1", { tenantId: ctxA.tenantId, productUserId: id, previewHtml: "<p>Hi Alex</p>" });
+    w.db.seed("invites", "inv_1", { tenantId: ctxA.tenantId, productUserId: id, emailHash: "h" });
+    await suppressEmail(ctxA, { email: "alex@example.com", reason: "unsubscribe", source: "footer" }, w.db);
+    expect(await isSuppressedFor(ctxA, "alex@example.com", "onboarding", w.db)).toBe(true);
+
+    expect((await w.del("u_1")).status).toBe(204);
+
+    const repo = forTenant(ctxA, w.db);
+    expect(await repo.lifecycleDrafts.getById("d_1")).toBeNull();
+    expect(await repo.invites.getById("inv_1")).toMatchObject({ productUserId: null, emailHash: "h" });
+    const rows = await repo.emailSuppressions.find({ where: [["reason", "==", "unsubscribe"]], limit: 5 });
+    expect(rows.map((r) => [r.email, r.normalizedEmail])).toEqual([["", ""]]);
+    expect(await isSuppressedFor(ctxA, "alex@example.com", "onboarding", w.db)).toBe(true); // still honoured
   });
 });

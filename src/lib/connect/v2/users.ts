@@ -7,7 +7,7 @@ import { activeJourneysFor, enrolOnEvents, enrolOnSignup } from "@/lib/lifecycle
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isInvitesEnabled } from "@/lib/invites/flags";
 import { recordInviteProgress, type TouchedUser } from "@/lib/invites/attribution";
-import { eraseProductUserHistory } from "../erase";
+import { eraseProductUserHistory, scrubSuppressionEmails } from "../erase";
 import { EVENT_TTL_MS, recordDiagnostics, touchHealth, type IngestSummary } from "../ingest";
 import {
   applyMessage,
@@ -268,6 +268,7 @@ export async function deleteUser(
     await repo.productUsers.claim(id, (cur) => (cur.status === "deleted" ? null : tombstoneOf(cur, nowMs)));
   }
   await eraseProductUserHistory(ctx, id, deps.db);
+  if (user?.status === "active" && user.emailNormalized) await scrubSuppressionEmails(ctx, user.emailNormalized, deps.db);
 }
 
 /** POST /api/v2/users/{userId}/events — a milestone for a user YouGrow already holds. */

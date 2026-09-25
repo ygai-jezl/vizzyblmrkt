@@ -1,28 +1,5 @@
 {
-  "description": "Signing vectors for the YouGrow product-connection protocol. 'vectors': product -> platform events, signature = 'v1=' + hex(HMAC-SHA256(secret, 'events:' + timestamp + '.' + body)), generated with openssl. 'outbound': platform -> product ES256 JWTs (context pulls, webhooks), signed once with a throwaway P-256 key whose private half was discarded; only the public JWK is kept. Both the server and the SDK test suites must accept every outbound token at nowMs and reject the listed tamperings.",
-  "vectors": [
-    {
-      "secret": "ygs_test_secret_one",
-      "direction": "events",
-      "timestamp": 1758455000,
-      "body": "{\"batch\":[{\"type\":\"identify\",\"messageId\":\"m1\",\"userId\":\"u1\",\"timestamp\":\"2026-09-21T10:00:00Z\",\"traits\":{\"email\":\"alex@acme.test\"}}]}",
-      "signature": "v1=d4bdf726960d10a135b3493f4074b3d3d3773a23ec49955d6efb720bcd2ef914"
-    },
-    {
-      "secret": "ygs_test_secret_two",
-      "direction": "events",
-      "timestamp": 1758455123,
-      "body": "{\"batch\":[{\"type\":\"track\",\"messageId\":\"m2\",\"userId\":\"ü-用户\",\"timestamp\":\"2026-09-21T10:00:00+01:00\",\"event\":\"user.signed_up\"}]}",
-      "signature": "v1=fadcda4cd874e1ad19b1f7059cca902b54afdfe9032c10dcfdffa75cc450b317"
-    },
-    {
-      "secret": "ygs_test_secret_one",
-      "direction": "events",
-      "timestamp": 1758455000,
-      "body": "",
-      "signature": "v1=aae9033d246c64b2e62a630910f59e35531cfb71d5b1a4da90a1002323979eae"
-    }
-  ],
+  "description": "Signing vectors for the YouGrow product-connection protocol. 'outbound': platform -> product ES256 JWTs (context pulls, webhooks), signed once with a throwaway P-256 key whose private half was discarded; only the public JWK is kept. Both the server and the SDK test suites must accept every outbound token at nowMs and reject the listed tamperings.",
   "outbound": {
     "issuer": "https://yougrow.ai",
     "audience": "ygk_vectorsvectorsvectors0",

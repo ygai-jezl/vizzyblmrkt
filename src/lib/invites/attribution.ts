@@ -2,7 +2,6 @@ import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Invite } from "@/lib/types/invite";
 import type { ProductUser } from "@/lib/types/productUser";
-import { RESERVED_EVENTS, type IngestMessage } from "@/lib/connect/protocol";
 import { INVITE_CODE_RE, inviteEmailHash } from "./ids";
 
 /**
@@ -31,13 +30,10 @@ const CHUNK = 30;
 const NO_INVITES_MEMO_MS = 60_000;
 const noInvitesUntil = new Map<string, number>();
 
-/** The `yg_invite` code on a message: a trait, or a property of `user.signed_up`. */
-export function inviteCodeOf(msg: IngestMessage): string | null {
-  const fromTraits = msg.traits?.yg_invite;
-  const fromProps =
-    msg.type === "track" && msg.event === RESERVED_EVENTS.signedUp ? msg.properties?.yg_invite : undefined;
-  const code = typeof fromTraits === "string" ? fromTraits : typeof fromProps === "string" ? fromProps : null;
-  return code && INVITE_CODE_RE.test(code) ? code : null;
+/** The `yg_invite` code a product sent back as a trait (API v2), if it's a well-formed one. */
+export function inviteCodeFromTraits(traits: Record<string, unknown> | undefined): string | null {
+  const code = traits?.yg_invite;
+  return typeof code === "string" && INVITE_CODE_RE.test(code) ? code : null;
 }
 
 function chunks<T>(items: T[]): T[][] {
@@ -111,14 +107,16 @@ export async function recordInviteProgress(
   const now = new Date(nowMs).toISOString();
   for (const { invite, user, by } of matches.values()) {
     if (!invite.invited || invite.signedUp || !invite.invitedAt) continue;
-    const isNew = Date.parse(user.firstSeenAt) >= Date.parse(invite.invitedAt) - NEW_USER_GRACE_MS;
+    // When the account was made: the product's own signedUpAt (API v2), else when we first saw them.
+    const joinedAt = user.signedUpAt ?? user.firstSeenAt;
+    const isNew = Date.parse(joinedAt) >= Date.parse(invite.invitedAt) - NEW_USER_GRACE_MS;
     if (!isNew) continue;
     const done = await repos.invites.claim(invite.id, (cur) =>
       cur.signedUp
         ? null
         : {
             signedUp: true,
-            signedUpAt: user.firstSeenAt,
+            signedUpAt: joinedAt,
             productUserId: user.id,
             matchedBy: by,
             ...(user.activated ? { activated: true, activatedAt: user.activatedAt ?? now } : {}),

@@ -566,7 +566,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  - variable: LIFECYCLE_INGEST_ENABLED
+  # API v2 (/api/v2/users…): the state-based product API. It replaced v1's
+  # /api/v1/events, removed on 2026-09-25 with its LIFECYCLE_INGEST_ENABLED flag.
+  # "false" in prod (apphosting.prod.yaml) until verified here, then turned on
+  # there with a chore(prod) change.
+  - variable: API_V2_ENABLED
     value: "true"
     availability:
       - RUNTIME
@@ -583,8 +587,8 @@ env:
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-dev
   # prod overrides both in apphosting.prod.yaml.
   # Public developer docs (/developers): how to send events, build the context
-  # endpoint, receive webhooks and verify our requests. Off in prod until the
-  # owner opens them (apphosting.prod.yaml).
+  # endpoint, receive webhooks and verify our requests. Open in prod too since
+  # 2026-09-25 (apphosting.prod.yaml).
   - variable: DEVELOPERS_DOCS_ENABLED
     value: "true"
     availability:

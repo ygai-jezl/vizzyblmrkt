@@ -7,11 +7,10 @@ import type { ProductConnection } from "@/lib/types/productConnection";
 import { createConnection, currentSecret } from "./keys";
 import { handleSandboxContextRequest } from "./sandbox";
 import { fetchProductContext, isAllowedLink } from "./contextClient";
-import { __resetIngestCaches } from "./ingestHttp";
+import { __resetConnectionCaches as __resetIngestCaches } from "./connectionAuth";
 import { createProductConnection, fireSandbox } from "./adminApi";
 import { outboundIssuer, publishedJwks } from "./outboundSigner";
 import { bearerToken, verifyOutboundToken } from "./outboundToken";
-import { verifySignature } from "./protocol";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", email: "jez@yougrow.test", role: "admin" };
 const NOW = Date.parse("2026-09-21T12:00:00Z");
@@ -20,7 +19,6 @@ beforeAll(() => {
   process.env.CONNECT_SECRET_ENC_KEY = "unit-test-connect-root-key-rotate-me";
 });
 beforeEach(() => {
-  process.env.LIFECYCLE_INGEST_ENABLED = "true";
   __resetIngestCaches();
 });
 
@@ -78,7 +76,7 @@ describe("fetchProductContext — sandbox (in-process, signed)", () => {
       ctx,
       conn.id,
       { userId: "sandbox_alex", action: { kind: "step", step: "create_brand" } },
-      { origin: "https://yougrow.test", db },
+      { db },
     );
     expect(fired.status).toBe(200);
 
@@ -119,17 +117,9 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
               rawBody: String(init?.body),
               nowMs: NOW,
             }).ok === true;
-          // The connection secret authenticates events IN only: nothing on an
-          // outbound request is derived from it.
-          secretWorks =
-            verifySignature({
-              secrets: [secret],
-              direction: "events",
-              timestamp: headers.get("x-yougrow-timestamp"),
-              signature: headers.get("x-yougrow-signature"),
-              rawBody: String(init?.body),
-              nowMs: NOW,
-            }).ok === true;
+          // Nothing on an outbound request is derived from the connection secret:
+          // no v1-style HMAC signature, only our own signed token.
+          secretWorks = headers.has("x-yougrow-signature") || String(headers.get("authorization")).includes(secret);
           return new Response(JSON.stringify(goodContext), { status: 200 });
         },
       },

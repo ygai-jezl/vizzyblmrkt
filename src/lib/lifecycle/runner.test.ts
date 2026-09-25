@@ -383,3 +383,44 @@ describe("lifecycle runner", () => {
     expect(denied).toEqual({ ok: false, error: "live" });
   });
 });
+
+describe("API v2 state in the runner", () => {
+  const repo = (w: Awaited<ReturnType<typeof world>>) => forTenant(system, w.db);
+
+  it("an excluded user leaves the journey without the product being asked", async () => {
+    const w = await world();
+    await repo(w).productUsers.update(w.users[0]!.id, { excluded: { reason: "staff", at: iso(T0) } });
+    expect(await w.run(T0)).toBe("exited");
+    expect(await w.get()).toMatchObject({ status: "exited", stopReason: "excluded: staff" });
+    expect(w.contextCalls).toHaveLength(0);
+  });
+
+  it("the product's own opt-out (subscribed: false) ends the journey", async () => {
+    const w = await world();
+    await repo(w).productUsers.update(w.users[0]!.id, { subscribed: false });
+    expect(await w.run(T0)).toBe("exited");
+    expect((await w.get()).stopReason).toBe("unsubscribed_in_product");
+  });
+
+  it("with no context endpoint: no pull, stored steps and facts, and health isn't marked failing", async () => {
+    const w = await world();
+    await repo(w).productConnections.update(CONNECTION_ID, { contextEndpoint: null });
+    await repo(w).productUsers.update(w.users[0]!.id, { facts: { share_of_voice: { value: 12, at: iso(T0) } } });
+    await throughWelcome(w);
+    expect(w.contextCalls).toHaveLength(0);
+    const conn = await repo(w).productConnections.getById(CONNECTION_ID);
+    expect(conn?.health?.consecutiveContextFailures ?? 0).toBe(0);
+    expect(conn?.health?.lastContextError ?? null).toBeNull();
+  });
+
+  it("after 3 failed pulls in a row, skips pulling for 15 minutes and uses the stored state", async () => {
+    const w = await world();
+    await repo(w).productConnections.update(CONNECTION_ID, {
+      health: { consecutiveContextFailures: 3, lastContextError: "timeout", lastContextErrorAt: iso(T0 + 10 * MIN) },
+    });
+    expect(await w.run(T0)).toBe("waiting");
+    expect(await w.run(T0 + 15 * MIN)).toBe("sent");
+    expect(w.contextCalls).toHaveLength(0);
+    expect((await w.get()).log.some((l) => l.event === "context_skipped")).toBe(true);
+  });
+});

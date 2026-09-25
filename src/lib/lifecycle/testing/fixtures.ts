@@ -65,7 +65,8 @@ export function seedWorld(db: FakeFirestore): void {
     keyId: "ygk_test",
     secretEnc: null,
     secretPrefix: "ygs_x",
-    contextEndpoint: null,
+    // The runner only pulls context from a product that has an endpoint; tests stub the pull itself.
+    contextEndpoint: { url: "https://app.example.com/yougrow/context", enabled: true, timeoutMs: 2000 },
     webhookEndpoint: null,
     linkDomains: ["example.com"],
     catalog: { events: [], traits: [{ key: "plan", type: "string", label: "Plan", description: "" }], onboardingSteps: STEPS, glossary: [] },

@@ -11,6 +11,7 @@ import {
   StepCompletedPropsSchema,
   type IngestMessage,
 } from "./protocol";
+import { V2_LIMITS, type SkipReason, type UserPatch, type UserState } from "./v2/contract";
 
 /**
  * How one ingested message changes a product user — PURE (no I/O), so every rule
@@ -173,12 +174,16 @@ function withoutIdentity(user: ProductUser): Doc {
   return rest;
 }
 
-/** The PII-free tombstone a deleted user becomes (kept ~30 days, then TTL'd). */
-export function tombstoneOf(current: ProductUser, nowMs: number): Doc {
+/**
+ * The PII-free tombstone a deleted user becomes (kept ~30 days, then TTL'd). It
+ * keeps no user id: its doc id — a one-way hash of the connection and user ids —
+ * is all that's needed to recognise a late write for the same person.
+ */
+export function tombstoneOf(current: Pick<ProductUser, "connectionId" | "firstSeenAt" | "lastSeenAt" | "createdAt">, nowMs: number): Doc {
   const now = new Date(nowMs).toISOString();
   return {
     connectionId: current.connectionId,
-    externalUserId: current.externalUserId,
+    externalUserId: "",
     email: null,
     emailNormalized: null,
     firstName: null,
@@ -192,6 +197,11 @@ export function tombstoneOf(current: ProductUser, nowMs: number): Doc {
     consent: null,
     emailPreferences: {},
     status: "deleted",
+    signedUpAt: null,
+    excluded: null,
+    facts: {},
+    stateUpdatedAt: null,
+    deletedAt: now,
     activated: false,
     activatedAt: null,
     ttlAt: new Date(nowMs + TOMBSTONE_TTL_MS),
@@ -199,6 +209,134 @@ export function tombstoneOf(current: ProductUser, nowMs: number): Doc {
     lastSeenAt: current.lastSeenAt,
     createdAt: current.createdAt,
     updatedAt: now,
+  };
+}
+
+/** A tombstone for a user we never saw (a DELETE first), so an older late write can't create them. */
+export function newTombstone(connection: Pick<ProductConnection, "id">, nowMs: number): Doc {
+  const now = new Date(nowMs).toISOString();
+  return tombstoneOf({ connectionId: connection.id, firstSeenAt: now, lastSeenAt: now, createdAt: now }, nowMs);
+}
+
+// ---- API v2: state writes ------------------------------------------------------
+
+export type PatchResult =
+  | { next: Doc; applied: true }
+  | { skipped: SkipReason; storedUpdatedAt: string | null }
+  | { invalid: Array<{ path: string; message: string }> };
+
+/**
+ * API v2: apply one PATCH — a JSON Merge Patch (RFC 7396) of the user's state —
+ * to their profile. PURE, like applyMessage.
+ *
+ * - Scalars: a value replaces ours, `null` clears. Maps (`steps`, `facts`,
+ *   `traits`) merge key by key; a `null` value removes that key.
+ * - `updatedAt` (optional) is when the product read this state: a write older
+ *   than the newest one applied is ignored (`stale_write`). Writes without it
+ *   always apply, and never move that bar — so two clocks can't fight.
+ * - A deleted user (tombstone): a write older than the deletion is ignored
+ *   (`deleted_later`); any other write starts a fresh person.
+ */
+export function applyUserPatch(
+  current: ProductUser | null,
+  userId: string,
+  patch: UserPatch,
+  opts: {
+    connection: Pick<ProductConnection, "id" | "consentPolicy"> & { catalog?: Pick<ConnectionCatalog, "onboardingSteps"> };
+    nowMs: number;
+  },
+): PatchResult {
+  const now = new Date(opts.nowMs).toISOString();
+  const writeAt = patch.updatedAt ? toUtcIso(patch.updatedAt) : null;
+  let prev = current;
+  if (prev?.status === "deleted") {
+    const deletedAt = prev.deletedAt ?? prev.updatedAt;
+    if (writeAt && writeAt < deletedAt) return { skipped: "deleted_later", storedUpdatedAt: null };
+    prev = null; // a fresh person under the same id
+  }
+  if (prev && writeAt && prev.stateUpdatedAt && writeAt < prev.stateUpdatedAt) {
+    return { skipped: "stale_write", storedUpdatedAt: prev.stateUpdatedAt };
+  }
+
+  const base: Doc = prev ? withoutIdentity(prev) : skeleton(opts.connection, userId, now, now);
+  const doc: Doc = {
+    ...base,
+    traits: { ...base.traits },
+    steps: { ...base.steps },
+    facts: { ...(base.facts ?? {}) },
+    milestones: { ...base.milestones },
+    emailPreferences: { ...base.emailPreferences },
+  };
+  const at = writeAt ?? now;
+
+  if (patch.email !== undefined) {
+    doc.email = patch.email === null ? null : patch.email.trim();
+    doc.emailNormalized = patch.email === null ? null : normalizeEmail(patch.email);
+  }
+  if (patch.firstName !== undefined) doc.firstName = patch.firstName;
+  if (patch.lastName !== undefined) doc.lastName = patch.lastName;
+  if (patch.timezone !== undefined) doc.timezone = patch.timezone;
+  if (patch.locale !== undefined) doc.locale = patch.locale;
+  if (patch.signedUpAt !== undefined) doc.signedUpAt = toUtcIso(patch.signedUpAt);
+  if (patch.consent !== undefined) {
+    doc.consent = patch.consent === null ? null : { basis: patch.consent, assertedBasis: patch.consent, source: "api", at };
+  }
+  // Re-derive the effective basis from what the product asserted (the email may have changed).
+  if (doc.consent) {
+    const asserted = doc.consent.assertedBasis ?? doc.consent.basis;
+    doc.consent = { ...doc.consent, assertedBasis: asserted, basis: effectiveBasis(asserted, doc.email, opts.connection) };
+  }
+  if (patch.subscribed !== undefined) doc.subscribed = patch.subscribed;
+  if (patch.excluded !== undefined) doc.excluded = patch.excluded === null ? null : { reason: patch.excluded.reason, at };
+
+  for (const [id, doneAt] of Object.entries(patch.steps ?? {})) {
+    if (doneAt === null) delete doc.steps[id];
+    else doc.steps[id] = { doneAt: toUtcIso(doneAt) };
+  }
+  for (const [id, value] of Object.entries(patch.facts ?? {})) {
+    if (value === null) delete doc.facts![id];
+    else doc.facts![id] = { value, at };
+  }
+  for (const [key, value] of Object.entries(patch.traits ?? {})) {
+    if (value === null) delete doc.traits[key];
+    else doc.traits[key] = value;
+  }
+  const invalid: Array<{ path: string; message: string }> = [];
+  if (Object.keys(doc.traits).length > V2_LIMITS.maxTraits) invalid.push({ path: "traits", message: `more than ${V2_LIMITS.maxTraits} traits after this write` });
+  if (Object.keys(doc.facts ?? {}).length > V2_LIMITS.maxFacts) invalid.push({ path: "facts", message: `more than ${V2_LIMITS.maxFacts} facts after this write` });
+  if (Object.keys(doc.steps).length > V2_LIMITS.maxSteps) invalid.push({ path: "steps", message: `more than ${V2_LIMITS.maxSteps} steps after this write` });
+  if (invalid.length) return { invalid };
+
+  if (writeAt) doc.stateUpdatedAt = max(doc.stateUpdatedAt ?? undefined, writeAt);
+  if (!doc.activated) {
+    const activated = activationAt(doc, opts.connection.catalog?.onboardingSteps ?? []);
+    if (activated) {
+      doc.activated = true;
+      doc.activatedAt = activated;
+    }
+  }
+  doc.lastSeenAt = max(doc.lastSeenAt, now);
+  doc.updatedAt = now;
+  return { next: doc, applied: true };
+}
+
+/** The user's state as API v2 returns it. */
+export function userStateOf(user: ProductUser): UserState {
+  return {
+    userId: user.externalUserId,
+    email: user.email ?? null,
+    firstName: user.firstName ?? null,
+    lastName: user.lastName ?? null,
+    timezone: user.timezone ?? null,
+    locale: user.locale ?? null,
+    signedUpAt: user.signedUpAt ?? null,
+    consent: user.consent?.assertedBasis ?? user.consent?.basis ?? null,
+    subscribed: user.subscribed !== false,
+    excluded: user.excluded ? { reason: user.excluded.reason } : null,
+    steps: Object.fromEntries(Object.entries(user.steps).map(([id, s]) => [id, s.doneAt])),
+    facts: Object.fromEntries(Object.entries(user.facts ?? {}).map(([id, f]) => [id, f.value])),
+    traits: Object.fromEntries(Object.entries(user.traits).filter((e): e is [string, string | number | boolean] => e[1] !== null)),
+    updatedAt: user.stateUpdatedAt ?? null,
   };
 }
 

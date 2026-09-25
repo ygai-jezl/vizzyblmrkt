@@ -4,6 +4,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
+import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import { entryCursor } from "./planner";
 import { isTestRecipient } from "./policy";
 
@@ -58,6 +59,9 @@ export async function enrolUser(
   if (journey.status !== "active") return { outcome: "skipped", reason: "journey_not_active" };
   if (user.status !== "active") return { outcome: "skipped", reason: "user_deleted" };
   if (user.connectionId !== journey.connectionId) return { outcome: "skipped", reason: "wrong_connection" };
+  // API v2: the product's own "never email" and opt-out apply to every journey.
+  if (user.excluded) return { outcome: "skipped", reason: "excluded" };
+  if (user.subscribed === false) return { outcome: "skipped", reason: "unsubscribed_in_product" };
   if (journey.deliveryMode === "test" && !isTestRecipient(journey, user)) {
     return { outcome: "skipped", reason: "not_a_test_recipient" };
   }
@@ -137,6 +141,49 @@ export async function activeJourneysFor(
     if (version) out.push({ journey, version });
   }
   return out;
+}
+
+/**
+ * API v2: enrol users in the active sign-up journeys (triggered by
+ * `user.signed_up`) whose window their `signedUpAt` is still inside. It runs on
+ * EVERY write, so a retry, a late write, or a journey that goes live later still
+ * enrols the people inside its window — and it's idempotent (one enrolment per
+ * journey and user). Best-effort per user, like enrolOnEvents.
+ */
+export async function enrolOnSignup(
+  ctx: TenantContext,
+  connection: Pick<ProductConnection, "id" | "status">,
+  users: ProductUser[],
+  deps: { db?: FirestoreLike; nowMs?: number; journeys?: Array<{ journey: LifecycleJourney; version: LifecycleVersion }> } = {},
+): Promise<{ enrolled: number }> {
+  const candidates = users.filter((u) => u.status === "active" && u.signedUpAt);
+  if (candidates.length === 0 || connection.status !== "active") return { enrolled: 0 };
+  const nowMs = deps.nowMs ?? Date.now();
+  const journeys = (deps.journeys ?? (await activeJourneysFor(ctx, connection.id, deps.db))).filter(
+    ({ version }) => version.settings.trigger.event === RESERVED_EVENTS.signedUp,
+  );
+  const repo = forTenant(ctx, deps.db);
+  let enrolled = 0;
+  for (const user of candidates) {
+    const signedUpMs = Date.parse(user.signedUpAt!);
+    for (const { journey, version } of journeys) {
+      if (nowMs - signedUpMs > version.settings.trigger.maxEventAgeHours * 3600_000) continue;
+      try {
+        // Already in: one read, no write (this runs on every write for the whole window).
+        if (await repo.lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id))) continue;
+        const r = await enrolUser(
+          ctx,
+          { journey, version, user, source: "trigger", anchorAt: user.signedUpAt! },
+          { db: deps.db, nowMs },
+        );
+        if (r.outcome === "enrolled") enrolled += 1;
+      } catch (err) {
+        const m = err instanceof Error ? err.message.slice(0, 200) : "error";
+        console.error(`[lifecycle] sign-up enrol failed ${ctx.tenantId}/${journey.id}/${user.id}: ${m}`);
+      }
+    }
+  }
+  return { enrolled };
 }
 
 export interface TriggerEvent {

@@ -8,6 +8,7 @@ import { KeyReveal } from "./KeyReveal";
 import { Banner, Button, Field, Section, inputClass } from "./ui";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
+import { useDeveloperDocs } from "@/components/developers/DocsAvailability";
 
 const PHASE3 = isNavV2Phase3Enabled();
 const INVITES = isInvitesUiEnabled();
@@ -25,12 +26,13 @@ export function ConnectionSettings({
   onSaved: () => void;
 }) {
   const router = useRouter();
+  const docs = useDeveloperDocs();
   const sandbox = connection.kind === "sandbox";
   const [name, setName] = useState(connection.name);
   const [environment, setEnvironment] = useState(connection.environment ?? "");
   const [ctxUrl, setCtxUrl] = useState(connection.contextEndpoint?.url ?? "");
   const [ctxOn, setCtxOn] = useState(connection.contextEndpoint?.enabled ?? false);
-  const [timeoutMs, setTimeoutMs] = useState(connection.contextEndpoint?.timeoutMs ?? 5000);
+  const [timeoutMs, setTimeoutMs] = useState(connection.contextEndpoint?.timeoutMs ?? 2000);
   const [hookUrl, setHookUrl] = useState(connection.webhookEndpoint?.url ?? "");
   const [hookOn, setHookOn] = useState(connection.webhookEndpoint?.enabled ?? false);
   const [domains, setDomains] = useState(connection.linkDomains.join(", "));
@@ -178,7 +180,9 @@ export function ConnectionSettings({
             <input type="checkbox" disabled={disabled || sandbox} checked={hookOn} onChange={(e) => setHookOn(e.target.checked)} /> Enabled
           </label>
           {!sandbox && !disabled && hookSaved ? <Button onClick={() => void testWebhook()}>Test webhook</Button> : null}
-          <a className="text-xs text-neutral-500 underline" href="/developers/webhooks" target="_blank" rel="noreferrer">What to build</a>
+          {docs ? (
+            <a className="text-xs text-neutral-500 underline" href="/developers/webhooks" target="_blank" rel="noreferrer">What to build</a>
+          ) : null}
         </div>
         {hookMsg ? <Banner tone={hookMsg.tone}>{hookMsg.text}</Banner> : null}
         <Field label="Allowed link domains" hint="Step links your product returns must be https on one of these domains; others are dropped.">

@@ -10,7 +10,7 @@ import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto
  *   dir  "context" | "webhook"
  *   iat / exp   at most 5 minutes apart
  *   jti  unique per request
- *   body_sha256  base64url SHA-256 of the exact raw body
+ *   body_sha256  base64url SHA-256 of the exact raw body (the bytes as received)
  *
  * Signature first, then every claim. Pinned by test/vectors.json.
  */
@@ -81,7 +81,8 @@ export function verifyJwt(input: {
   issuer: string;
   audience: string;
   direction: RequestDirection;
-  rawBody: string;
+  /** The bytes as received; a string is hashed as UTF-8. */
+  rawBody: string | Uint8Array;
   nowMs?: number;
 }): JwtResult {
   if (!input.token) return { ok: false, reason: "missing_token" };
@@ -119,7 +120,8 @@ export function verifyJwt(input: {
   const nowSec = Math.floor((input.nowMs ?? Date.now()) / 1000);
   if (nowSec > c.exp + LEEWAY_SEC) return { ok: false, reason: "expired" };
   if (nowSec < c.iat - LEEWAY_SEC) return { ok: false, reason: "not_yet_valid" };
-  const hash = createHash("sha256").update(input.rawBody, "utf8").digest("base64url");
+  const bytes = typeof input.rawBody === "string" ? Buffer.from(input.rawBody, "utf8") : input.rawBody;
+  const hash = createHash("sha256").update(bytes).digest("base64url");
   if (c.body_sha256 !== hash) return { ok: false, reason: "body_mismatch" };
   return { ok: true, claims: c as unknown as YouGrowClaims };
 }

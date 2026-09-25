@@ -1,15 +1,18 @@
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
 import { docsOrigin, githubAppPublicUrl } from "@/lib/developers/flags";
+import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 
 export default function ConnectYourCodeDocs() {
   const app = githubAppPublicUrl();
   const origin = docsOrigin();
+  // GitLab's project chooser (and its read_api scope) exist only with repo selection on.
+  const selection = isGitRepoSelectionEnabled();
   return (
     <article>
       <H1>Connecting your code</H1>
       <Lead>
-        YouGrow reads your product&apos;s code to learn how it works — what getting started means, which events it can
-        send, which numbers it can report about each user — so setting up lifecycle email takes minutes, not a project.
+        YouGrow reads your product&apos;s code to learn how it works — where people sign up, what getting started means,
+        which numbers it can report about each user — so setting up lifecycle email takes minutes, not a project.
         Access is <strong>read-only</strong>, limited to the repositories you choose, and you can remove it at any time.
       </Lead>
 
@@ -56,7 +59,7 @@ export default function ConnectYourCodeDocs() {
       </P>
       <P>Here&apos;s a message you can send them:</P>
       <Code title="For your GitHub organisation owner">{`Hi — we're setting up YouGrow for lifecycle email. It needs READ-ONLY access
-to our product's code so it can learn our onboarding steps and events.
+to our product's code so it can learn our sign-up and onboarding steps.
 
 Please approve the "YouGrow" GitHub app request${app ? ` (${app})` : ""}.
 It asks only for read access to code and metadata, and only for the
@@ -84,11 +87,26 @@ Details: ${origin}/developers/connect-your-code`}</Code>
       <H2 id="gitlab">Connect GitLab</H2>
       <OL>
         <li>In YouGrow, open <strong>Account → Connections</strong> and press <strong>Connect</strong> next to GitLab.</li>
-        <li>
-          GitLab asks you to authorise YouGrow with <C>read_repository</C>, <C>read_api</C> and <C>read_user</C> — all
-          read-only. YouGrow can&apos;t push or change anything.
-        </li>
-        <li>Back in YouGrow, choose which projects it may use. Only those are ever read.</li>
+        {selection ? (
+          <>
+            <li>
+              GitLab asks you to authorise YouGrow with <C>read_repository</C>, <C>read_api</C> and <C>read_user</C> — all
+              read-only. YouGrow can&apos;t push or change anything.
+            </li>
+            <li>Back in YouGrow, choose which projects it may use. Only those are ever read.</li>
+          </>
+        ) : (
+          <>
+            <li>
+              GitLab asks you to authorise YouGrow with <C>read_repository</C> and <C>read_user</C> — both read-only.
+              YouGrow can&apos;t push or change anything.
+            </li>
+            <li>
+              Back in YouGrow, on <strong>Learn from repo</strong>, add your project by its address. Only the projects you
+              add are ever read.
+            </li>
+          </>
+        )}
       </OL>
       <P>GitLab access follows your own project permissions, so there&apos;s no separate group approval.</P>
 

@@ -20,7 +20,7 @@ export type GuideStatus = "done" | "todo" | "info";
 export interface GuideEvent {
   name: string;
   when: string;
-  properties?: Record<string, string>;
+  properties?: Record<string, string | boolean>;
   /** How to detect it: at a clear server moment, or by a scheduled reconcile. */
   how?: "server_event" | "reconcile" | "client_only" | null;
 }
@@ -91,8 +91,9 @@ export function buildIntegrationGuide(input: {
     },
     {
       name: RESERVED_EVENTS.preferencesUpdated,
-      properties: { category: "onboarding", subscribed: "true | false" },
-      when: mapHooks(map, "preferences")[0] ?? mapHooks(map, "consent")[0] ?? "When someone changes their email preferences in your product.",
+      // A real example, not a placeholder: agents copy these literally, and `subscribed` must be a JSON boolean.
+      properties: { category: "onboarding", subscribed: false },
+      when: `${mapHooks(map, "preferences")[0] ?? mapHooks(map, "consent")[0] ?? "When someone changes their email preferences in your product."} \`subscribed\` is a JSON boolean — false when they opt out, true when they opt back in.`,
     },
   ];
 
@@ -130,6 +131,8 @@ export function buildIntegrationGuide(input: {
     tasks,
     steps: promptSteps,
     facts: promptFacts,
+    // Ids the customer hasn't accepted yet are Learn from repo's proposals — the prompt must say so.
+    proposed: { steps: !steps.length && promptSteps.length > 0, facts: !(cat.facts ?? []).length && promptFacts.length > 0 },
     events: events.map((e) => ({ name: e.properties ? `${e.name} ${JSON.stringify(e.properties)}` : e.name, when: e.when })),
     warnings: map?.warnings ?? [],
   });

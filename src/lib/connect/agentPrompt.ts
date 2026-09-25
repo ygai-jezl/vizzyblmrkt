@@ -21,8 +21,17 @@ export interface AgentPromptInput {
   tasks: IntegrationTask[];
   steps: Array<{ id: string; label: string; completion: string; how?: string | null }>;
   facts: Array<{ id: string; label: string; unit: string | null; source: string }>;
+  /** True when those steps / facts are Learn from repo's proposals, not the customer's accepted catalog. */
+  proposed?: { steps: boolean; facts: boolean };
   events: Array<{ name: string; when: string }>;
   warnings: string[];
+}
+
+/** Phase 1 is what a journey needs to run lawfully; everything else waits until it's live. */
+const PHASE_1 = new Set<IntegrationTask["severity"]>(["required", "compliance"]);
+
+function proposal(kind: "step" | "fact", productName: string): string {
+  return `These ${kind} ids are **proposals** from YouGrow's reading of this repository, not our accepted catalog. Before building against them, accept or edit them in YouGrow → Products → ${productName} → Catalog, then copy this prompt again — otherwise the ids won't match.`;
 }
 
 const HOW: Record<string, string> = {
@@ -38,7 +47,11 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
   push(
     `# Connect ${p.productName} to YouGrow lifecycle email`,
     "",
-    `You're working in the ${p.productName} codebase. Implement our side of the YouGrow integration below, in priority order. YouGrow analysed this repository (read-only) to find where each piece belongs — verify each location before changing it, and ask me if something doesn't match.`,
+    `You're working in the ${p.productName} codebase. Connect it to YouGrow in two phases:`,
+    "- **Phase 1 — required and compliance:** sign-ups, account deletion and email opt-outs. Before writing any code, reply with a short plan for Phase 1 — at most 2 PRs — and wait for my OK. Then build it, and stop.",
+    "- **Phase 2 — personalisation:** optional, and only once Phase 1 is live.",
+    "",
+    "Build the simplest thing that works: an awaited call at the moment something happens, or a small scheduled job that reads stored state. Don't build a sync engine, queues or state machines around YouGrow — it dedupes by `messageId`, so re-sending is safe. If something below doesn't match the code, ask me rather than design around it.",
     "",
     "## Where the contract is",
     ...(p.docs
@@ -64,30 +77,50 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     `- Context response: \`{ asOf, steps, nextStep, facts, insights, consent?, hold?, exit? }\` — at most 20 steps, 50 facts and 20 insights, ${LIMITS.maxContextBytes / 1024} KB, within 5 seconds.`,
     "",
     "## Tasks",
+    "Under each task, **Found in our code** and **Look at** come from YouGrow's automated reading of this repository. Treat them as leads, not facts: check where each value is actually written, and whether the data exists at that moment, before relying on them.",
   );
-  p.tasks.forEach((t, i) => {
-    push("", `### ${i + 1}. [${SEVERITY_LABEL[t.severity]}] ${t.title}${t.status === "done" ? " — already working, just check it" : ""}`, `Do: ${t.action}`, `If skipped: ${t.ifSkipped}`);
+  let n = 0;
+  const task = (t: IntegrationTask) => {
+    n += 1;
+    push("", `#### ${n}. [${SEVERITY_LABEL[t.severity]}] ${t.title}${t.status === "done" ? " — already working, just check it" : ""}`, `Do: ${t.action}`, `If skipped: ${t.ifSkipped}`);
     if (t.fromCode.length) push("Found in our code:", ...t.fromCode.map((c) => `- ${c}`));
     if (t.files.length) push("Look at:", ...t.files.map((f) => `- \`${f.path}${f.line ? `:${f.line}` : ""}\``));
     if (t.id === "steps" && p.steps.length) {
+      if (p.proposed?.steps) push(proposal("step", p.productName));
       push("Steps (use these exact ids):", ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}`));
     }
     if (t.id === "context") {
       if (p.steps.length) push(`Return \`steps\` with these ids: ${p.steps.map((s) => `\`${s.id}\``).join(", ")}, and \`nextStep\` = the first not done.`);
-      if (p.facts.length) push("Return these `facts` (ids must match exactly):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
+      if (p.facts.length) {
+        if (p.proposed?.facts) push(proposal("fact", p.productName));
+        push("Return these `facts` (ids must match exactly):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
+      }
       push("Verify our request first (see Protocol essentials) — in Node, `createVerifier` from `@yougrowai/node/server` does all of it.");
     }
-  });
+  };
+  const later = p.tasks.filter((t) => !PHASE_1.has(t.severity));
+  push("", "### Phase 1 — required and compliance (plan, build, then stop)");
+  p.tasks.filter((t) => PHASE_1.has(t.severity)).forEach(task);
+  if (later.length) {
+    push("", "### Phase 2 — personalisation (later, once Phase 1 is live)");
+    later.forEach(task);
+  }
   if (p.events.length) {
-    push("", "## Events to send (exact names)", ...p.events.map((e) => `- \`${e.name}\` — ${e.when}`));
+    push("", "## Events to send (exact names and payloads)", ...p.events.map((e) => `- \`${e.name}\` — ${e.when}`));
   }
   if (p.warnings.length) push("", "## Gaps YouGrow noticed in our code", ...p.warnings.map((w) => `- ${w}`));
   push(
     "",
     "## Done when",
-    `- YouGrow → Products → ${p.productName} → **Events** shows \`identify\` and \`user.signed_up\` arriving (and step events as steps are completed).`,
-    "- **Test connection** on the same page passes, showing the steps and facts above.",
-    "- Deleting a test account sends `user.deleted`; changing its email preferences sends `email_preferences.updated`.",
+    "Phase 1:",
+    `- A test sign-up shows \`identify\` and \`user.signed_up\` in YouGrow → Products → ${p.productName} → **Events** within seconds.`,
+    "- Opting a test account out of email sends `email_preferences.updated` with `\"subscribed\": false` (a JSON boolean).",
+    "- Erasing a test account sends `user.deleted`. If your product has a deletion grace period, run your erasure code directly for the test account rather than waiting.",
+    "- Journeys start in **test** mode, where only people on a journey's test list get email — add your test accounts there.",
+    "",
+    "Phase 2:",
+    "- Step events arrive as test accounts complete steps.",
+    "- **Test connection**, run with a real test account's id, returns the steps and facts you expect. It passes any valid response, so check the content, not just the tick.",
   );
   return lines.join("\n");
 }

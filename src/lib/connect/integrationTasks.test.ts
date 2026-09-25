@@ -80,7 +80,7 @@ describe("prompt for the customer's coding agent", () => {
 
   it("covers every task, where it goes, and how to check it's done", () => {
     expect(p).toMatch(/^# Connect vizzybl\.ai to YouGrow lifecycle email/);
-    expect(p).toContain("### 1. [Required] Send sign-ups");
+    expect(p).toContain("#### 1. [Required] Send sign-ups");
     expect(p).toContain("`functions/src/auth/onUserCreated.ts:12`");
     expect(p).toContain("https://yougrow.test/developers/context-endpoint");
     expect(p).toContain("## Done when");
@@ -95,6 +95,30 @@ describe("prompt for the customer's coding agent", () => {
     expect(p).toContain("`YOUGROW_KEY_ID` (public, value `ygk_public_id`)");
     expect(p).toContain("`YOUGROW_SECRET`");
     expect(p).not.toMatch(/ygs_[A-Za-z0-9]/);
+  });
+
+  it("works in phases: plan and build the required and compliance tasks first, then stop", () => {
+    expect(p).toContain("reply with a short plan for Phase 1 — at most 2 PRs — and wait for my OK");
+    expect(p).toContain("Don't build a sync engine");
+    const phase1 = p.slice(p.indexOf("### Phase 1"), p.indexOf("### Phase 2"));
+    expect(phase1).toContain("[Required] Send sign-ups");
+    expect(phase1).toContain("[Compliance] Handle account deletion");
+    expect(phase1).toContain("[Compliance] Sync email preferences");
+    expect(phase1).not.toContain("[Personalisation]");
+    expect(p.slice(p.indexOf("### Phase 2"))).toContain("[Personalisation] Report onboarding steps");
+    expect(p).toContain("Treat them as leads, not facts");
+  });
+
+  it("gives typed payloads, never placeholders an agent could copy literally", () => {
+    expect(p).toContain('`email_preferences.updated {"category":"onboarding","subscribed":false}`');
+    expect(p).not.toContain("true | false");
+  });
+
+  it("labels Learn from repo's ids as proposals until they're accepted into the catalog", () => {
+    expect(p).toContain("These step ids are **proposals**");
+    expect(p).toContain("These fact ids are **proposals**");
+    const accepted = buildIntegrationGuide({ connection: { ...connection, catalog: SANDBOX_CATALOG }, origin: "https://yougrow.test", productName: "vizzybl.ai" });
+    expect(accepted.agentPrompt).not.toContain("These step ids are **proposals**");
   });
 
   it("says where the contract is — the docs and the SDK, never YouGrow's source", () => {

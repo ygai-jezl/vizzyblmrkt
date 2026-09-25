@@ -12,7 +12,7 @@ import { assertSafeHttpsUrl } from "@/lib/security/ssrf";
 import { normalizeHost, registrableDomain } from "@/lib/domains/registrableDomain";
 import { isAllowedLink, linkDomainOf } from "./links";
 import { createConnection, revokeConnection, rotateConnectionSecret } from "./keys";
-import { invalidateConnectionCaches } from "./ingestHttp";
+import { invalidateConnectionCaches } from "./connectionAuth";
 import { fetchProductContext, recordContextHealth, type ContextClientDeps } from "./contextClient";
 import { sendConnectionWebhook } from "./webhookClient";
 import { eraseProductUser } from "./erase";

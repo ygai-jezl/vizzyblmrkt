@@ -570,6 +570,13 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # API v2 (/api/v2/users…): the state-based product API that replaces v1's
+  # /api/v1/events. Unset (off) in prod until verified here, then turned on
+  # there with a chore(prod) change.
+  - variable: API_V2_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # Root key that seals connection secrets (AES-GCM). Created in dev with
   #   infra/lifecycle/setup.sh secret vizzybl-marketing-dev
   - variable: CONNECT_SECRET_ENC_KEY

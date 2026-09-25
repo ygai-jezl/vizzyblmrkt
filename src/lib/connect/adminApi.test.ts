@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant, getConnectionKey } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
-import { __resetIngestCaches } from "./ingestHttp";
+import { __resetConnectionCaches as __resetIngestCaches } from "./connectionAuth";
 import { productUserDocId } from "./profile";
 import {
   createProductConnection,

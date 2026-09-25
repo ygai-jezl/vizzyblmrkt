@@ -1,16 +1,10 @@
-import {
-  forTenant,
-  getConnectionKey,
-  isRateLimited,
-  type ConnectionKeyRecord,
-  type RateLimitConfig,
-  type TenantContext,
-} from "@/lib/tenant";
+import { isRateLimited, type RateLimitConfig, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { readRequestTextCapped } from "@/lib/http/readBody";
 import { isLifecycleIngestEnabled } from "@/lib/lifecycle/flags";
 import { connectionSecrets } from "./keys";
+import { resolveConnection } from "./connectionAuth";
 import { ingestBatch } from "./ingest";
 import {
   HEADER_KEY_ID,
@@ -50,50 +44,9 @@ export const INGEST_RATE_LIMIT: RateLimitConfig = {
   hourlyLimit: 3000,
 };
 
-const KEY_CACHE_MS = 60_000;
-const UNKNOWN_KEY_CACHE_MS = 10_000;
-const CONNECTION_CACHE_MS = 30_000;
-const MAX_CACHE_ENTRIES = 5_000;
-
-const keyCache = new Map<string, { rec: ConnectionKeyRecord | null; until: number }>();
-const connectionCache = new Map<string, { conn: ProductConnection | null; until: number }>();
-
-function remember<V>(cache: Map<string, V>, key: string, value: V): void {
-  if (cache.size >= MAX_CACHE_ENTRIES) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  cache.set(key, value);
-}
-
-/** Drop cached routing/connection state (call after a revoke or rotation). */
-export function invalidateConnectionCaches(keyId: string, tenantId: string, connectionId: string): void {
-  keyCache.delete(keyId);
-  connectionCache.delete(`${tenantId}/${connectionId}`);
-}
-
-/** Test helper. */
-export function __resetIngestCaches(): void {
-  keyCache.clear();
-  connectionCache.clear();
-}
-
-async function resolveKey(keyId: string, nowMs: number, db?: FirestoreLike) {
-  const hit = keyCache.get(keyId);
-  if (hit && hit.until > nowMs) return hit.rec;
-  const rec = await getConnectionKey(keyId, db);
-  remember(keyCache, keyId, { rec, until: nowMs + (rec ? KEY_CACHE_MS : UNKNOWN_KEY_CACHE_MS) });
-  return rec;
-}
-
-async function loadConnection(ctx: TenantContext, id: string, nowMs: number, db?: FirestoreLike) {
-  const cacheKey = `${ctx.tenantId}/${id}`;
-  const hit = connectionCache.get(cacheKey);
-  if (hit && hit.until > nowMs) return hit.conn;
-  const conn = await forTenant(ctx, db).productConnections.getById(id);
-  remember(connectionCache, cacheKey, { conn, until: nowMs + CONNECTION_CACHE_MS });
-  return conn;
-}
+/** Re-exported for callers that still import them from here. */
+export { invalidateConnectionCaches } from "./connectionAuth";
+export { __resetConnectionCaches as __resetIngestCaches } from "./connectionAuth";
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -112,22 +65,16 @@ export async function handleIngestRequest(req: Request, deps: IngestHttpDeps = {
   const keyId = req.headers.get(HEADER_KEY_ID)?.trim() ?? "";
   if (!keyId) return json(401, { error: "missing_signature" });
 
-  let rec: ConnectionKeyRecord | null;
-  let connection: ProductConnection | null = null;
-  let ctx: TenantContext | null = null;
+  let ctx: TenantContext;
+  let connection: ProductConnection;
   try {
-    rec = await resolveKey(keyId, nowMs, deps.db);
-    if (rec) {
-      ctx = { tenantId: rec.tenantId, region: rec.region, source: "api_key" };
-      connection = await loadConnection(ctx, rec.connectionId, nowMs, deps.db);
-    }
+    const resolved = await resolveConnection(keyId, nowMs, deps.db);
+    if (!resolved) return json(401, { error: "unknown_key" });
+    ({ ctx, connection } = resolved);
   } catch (err) {
     const m = err instanceof Error ? err.message.slice(0, 200) : "error";
     console.error(`[connect] key resolution failed: ${m}`);
     return json(503, { error: "unavailable" });
-  }
-  if (!ctx || !connection || connection.status === "revoked" || connection.keyId !== keyId) {
-    return json(401, { error: "unknown_key" });
   }
 
   let secrets: string[];

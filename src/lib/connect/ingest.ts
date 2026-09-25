@@ -177,7 +177,7 @@ export async function ingestBatch(
 }
 
 /** Observed catalog + recent rejections for the setup wizard and debugger. */
-async function recordDiagnostics(
+export async function recordDiagnostics(
   ctx: TenantContext,
   connection: ProductConnection,
   seen: {
@@ -221,7 +221,7 @@ async function recordDiagnostics(
 }
 
 /** Stamp health.lastEventAt (throttled — at most once a minute). */
-async function touchHealth(
+export async function touchHealth(
   ctx: TenantContext,
   connection: ProductConnection,
   summary: IngestSummary,

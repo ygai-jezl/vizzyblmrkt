@@ -13,7 +13,7 @@ import {
 } from "./adminApi";
 import { enrolmentDocId } from "./enrol";
 import { createConnection } from "@/lib/connect/keys";
-import { __resetIngestCaches } from "@/lib/connect/ingestHttp";
+import { __resetConnectionCaches as __resetIngestCaches } from "@/lib/connect/connectionAuth";
 import { productUserDocId } from "@/lib/connect/profile";
 import { SANDBOX_CATALOG } from "@/lib/connect/sandbox";
 import { processEnrolment } from "./runner";

@@ -10,8 +10,8 @@ https://yougrow.ai/developers are the contract. The source on GitHub isn't: its
 main branch can be ahead of what's been released.
 
 > **2026-09-25:** API v1 (`POST /api/v1/events`, HMAC signing) was removed.
-> 0.3.0 is the client for API v2; 0.1.x only spoke v1, so upgrade to keep
-> sending. See [Upgrading from 0.1.x](#upgrading-from-01x).
+> 0.3.0 and later are the client for API v2; 0.1.x only spoke v1, so upgrade to
+> keep sending. See [Upgrading from 0.1.x](#upgrading-from-01x).
 
 ```sh
 npm install @yougrowai/node
@@ -40,6 +40,9 @@ const yg = new YouGrow({
   secret: process.env.YOUGROW_SECRET!,  // shown once; keep it server-side
   origin: process.env.YOUGROW_ORIGIN,   // optional; defaults to https://yougrow.ai
 });
+
+// Check the key (e.g. when you deploy): which connection and environment it's for
+const { connection } = await yg.me(); // { name, environment: "production", status: "active", … }
 
 // At sign-up: who they are, and the basis for emailing them
 await yg.users.update(user.id, {
@@ -135,8 +138,10 @@ record an event twice. A key that was already recorded resolves
 - A step's value is when it was done (`null`: not done). Timestamps are ISO 8601
   with a zone (`Z` or `+01:00`), e.g. from `toISOString()`.
 - `email`, `firstName`, `lastName`, `timezone` and `locale` are fields of their
-  own, never traits. Unknown fields are refused (400), so a typo can't be
-  silently dropped.
+  own, never traits. An invalid one doesn't sink the update: the rest applies,
+  that field keeps its stored value, and the result lists it in
+  `ignoredFields`. Anything else invalid, including an unknown field, is
+  refused (400), so a typo can't be silently dropped.
 - Up to 50 steps, 50 facts and 50 traits per user. Step ids are lower-case
   letters, digits, `_` and `-`; trait keys start with a letter.
 
@@ -178,8 +183,13 @@ Every method returns a promise; await it.
   `code` (the API's `error`, e.g. `invalid`, `unauthorized`, `body_too_large`),
   `fields` for a 400, and a message such as
   `YouGrow API 400 invalid: traits.plan: …`. A 429 or 5xx that outlasts the
-  retries rejects the same way; a network error or timeout rejects with that
-  error.
+  retries rejects the same way, and so does a network failure or timeout
+  (`status` 0, `code` `network_error` or `timeout`, the original error as
+  `cause`).
+- `err.retryable` says whether trying again later may work: true for a 429, a
+  5xx, a timeout or a network failure. In a queue worker, or a trigger with
+  retries on, rethrow those so the work is redelivered, and log the rest: a
+  400 won't succeed as it is. Every write is safe to repeat.
 - A user id the API can't take (empty, over 256 characters, `"batch"`, `"."`
   or `".."`) rejects with a `TypeError` before anything is sent.
 
@@ -189,8 +199,9 @@ import { YouGrowError } from "@yougrowai/node";
 try {
   await yg.users.update(user.id, patch);
 } catch (err) {
-  if (err instanceof YouGrowError && err.status === 400) console.error(err.message, err.fields); // [{ path, message }]
-  throw err;
+  if (err instanceof YouGrowError && err.retryable) throw err; // 429, 5xx, timeout, network: let it be retried
+  if (err instanceof YouGrowError) console.error(err.message, err.fields); // e.g. a 400: [{ path, message }]; fix it
+  else throw err;
 }
 ```
 
@@ -285,10 +296,20 @@ never invents them.
 
 ### Webhooks
 
-YouGrow tells your webhook endpoint about preference changes, e.g. an
-unsubscribe from onboarding tips. Verify it with
-`verifier.verify({ …, direction: "webhook" })`. Webhook ids (`jti` in the
-token, `id` in the body) are unique, so you can drop duplicates.
+YouGrow tells your webhook endpoint about changes to mirror. Verify each request
+with `verifier.verify({ …, direction: "webhook" })`, then read the body as a
+`WebhookEvent` (a type from `@yougrowai/node/server`):
+
+- `email_preferences.updated`: the person unsubscribed from one of YouGrow's
+  emails (`data.scope` is `all` or `category`).
+- `email.suppressed`: YouGrow stopped emailing them, because their address
+  hard-bounced (`data.reason` `hard_bounce`) or they reported an email as spam
+  (`complaint`).
+- `connection.test`: the Test webhook button.
+
+Reply 2xx to any type you don't handle. Webhook ids (`jti` in the token, `id` in
+the body) are unique and the same on every retry, so you can drop duplicates.
+API writes never trigger a webhook, so echoing a change back can't loop.
 
 ## Without the SDK
 
@@ -322,9 +343,17 @@ at https://yougrow.ai/developers.
 `test/vectors.json` (included in this package) holds reference tokens for
 checking your own verifier.
 
+## Upgrading from 0.3
+
+- A network failure or timeout that outlasts the retries now rejects with a
+  `YouGrowError` (`status` 0, `code` `network_error` or `timeout`) instead of
+  the raw error, which is its `cause`.
+- New: `yg.me()`, `err.retryable`, `ignoredFields` on update results (and
+  `fields_ignored` in batch results), and the `WebhookEvent` type.
+
 ## Upgrading from 0.1.x
 
-| 0.1.x (API v1) | 0.3.0 (API v2) |
+| 0.1.x (API v1) | 0.3.0 and later (API v2) |
 |---|---|
 | `identify({ userId, traits, consent })` | `users.update(userId, { email, firstName, …, consent, traits })`: profile fields are top-level, and `consent` is the basis itself, e.g. `"soft_opt_in"` |
 | `track({ event: "user.signed_up" })` | `signedUpAt` in `users.update` |

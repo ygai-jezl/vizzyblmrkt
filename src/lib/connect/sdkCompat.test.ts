@@ -7,7 +7,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { createConnection } from "./keys";
 import { __resetConnectionCaches } from "./connectionAuth";
 import type * as C from "./v2/contract";
-import { handleBatch, handleDeleteUser, handleGetUser, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./v2/http";
+import { handleBatch, handleDeleteUser, handleGetUser, handleMe, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./v2/http";
 import { fetchProductContext } from "./contextClient";
 import { sendConnectionWebhook } from "./webhookClient";
 import { outboundIssuer, publishedJwks } from "./outboundSigner";
@@ -44,6 +44,7 @@ function platformFetch(deps: V2HttpDeps): typeof fetch {
     const req = new Request(input, init);
     const path = new URL(req.url).pathname;
     if (path === "/api/v2/users/batch" && req.method === "POST") return handleBatch(req, deps);
+    if (path === "/api/v2/me" && req.method === "GET") return handleMe(req, deps);
     const m = /^\/api\/v2\/users\/([^/]+)(\/events)?$/.exec(path);
     if (!m) return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
     const userId = decodeURIComponent(m[1]!);
@@ -64,6 +65,8 @@ describe("SDK ↔ platform compatibility", () => {
     const db = new FakeFirestore();
     const { connection, secret } = await createConnection(ctx, { name: "Acme", kind: "custom" }, db);
     const yg = new YouGrow({ keyId: connection.keyId, secret, origin: "https://yougrow.test", fetch: platformFetch({ db }) });
+
+    expect(await yg.me()).toEqual({ connection: { id: connection.id, name: "Acme", environment: null, status: "active" }, keyId: connection.keyId, rotating: false });
 
     const odd = "acme/alex@example.test"; // ids are path-encoded by the SDK
     const created = await yg.users.update(odd, { email: "alex@example.test", consent: "soft_opt_in", traits: { plan: "pro" }, steps: { create_brand: "2026-09-25T09:00:00Z" } });

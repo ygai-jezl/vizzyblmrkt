@@ -50,6 +50,26 @@ export type VerifyResult =
   | { ok: true; claims: YouGrowClaims }
   | { ok: false; reason: JwtFailure | "keys_unavailable" };
 
+/** What YouGrow POSTs to your webhook endpoint: one of these, by `type`. Reply 2xx to any type you don't handle. */
+export type WebhookEvent =
+  | WebhookEnvelope<
+      "email_preferences.updated",
+      /** The person unsubscribed from one of YouGrow's emails: from one category, or all of them. */
+      { userId: string; category: string; subscribed: false; scope: "all" | "category"; source: string }
+    >
+  /** YouGrow stopped emailing the person: their address hard-bounced, or they reported an email as spam. */
+  | WebhookEnvelope<"email.suppressed", { userId: string; reason: "hard_bounce" | "complaint" }>
+  /** The Test webhook button. */
+  | WebhookEnvelope<"connection.test", Record<string, never>>;
+
+export interface WebhookEnvelope<T extends string, D> {
+  /** Unique per webhook, and the same on every retry: drop ones you've seen. */
+  id: string;
+  type: T;
+  createdAt: string;
+  data: D;
+}
+
 export interface VerifierOptions {
   /** Your connection's key id — the token's audience. */
   keyId: string;

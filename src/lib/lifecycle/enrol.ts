@@ -5,9 +5,9 @@ import type { ConsentPolicy, ProductConnection } from "@/lib/types/productConnec
 import type { ProductUser } from "@/lib/types/productUser";
 import type { LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
-import { isLifecycleConsentAtSendEnabled } from "./flags";
+import { isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecycleModeCeiling } from "./flags";
 import { entryCursor } from "./planner";
-import { allowsMarketing, isTestRecipient } from "./policy";
+import { allowsMarketing, isTestRecipient, lowestMode } from "./policy";
 
 /**
  * Enrolment: a product user entering a published lifecycle journey. The
@@ -65,7 +65,11 @@ export async function enrolUser(
   // API v2: the product's own "never email" and opt-out apply to every journey.
   if (user.excluded) return { outcome: "skipped", reason: "excluded" };
   if (user.subscribed === false) return { outcome: "skipped", reason: "unsubscribed_in_product" };
-  if (journey.deliveryMode === "test" && !isTestRecipient(journey, user)) {
+  // The mode the runner will send in: capped by this environment's ceiling when going
+  // live is swept (the sweep enrols real people once it's live; holding them would
+  // send the whole sequence late).
+  const mode = isLifecycleGoLiveSweepEnabled() ? lowestMode(journey.deliveryMode, lifecycleModeCeiling()) : journey.deliveryMode;
+  if (mode === "test" && !isTestRecipient(journey, user)) {
     return { outcome: "skipped", reason: "not_a_test_recipient" };
   }
   // A consent-only journey admits people whose consent (as the product sent it) allows marketing.

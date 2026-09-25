@@ -300,6 +300,22 @@ export const LifecycleJourneySchema = z.object({
    */
   abWinners: z.record(z.string(), z.string()).optional(),
   /**
+   * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
+   * signed up inside the window once the journey can first email everyone (its
+   * mode or the environment's ceiling rose to live). Resumable: the cursor is the
+   * `lastSeenAt` reached. Cleared when it drops below live, so the next go-live
+   * sweeps again.
+   */
+  goLiveSweep: z
+    .object({
+      status: z.enum(["running", "done"]),
+      cursor: z.string().nullable(),
+      enrolled: z.number().int().nonnegative(),
+      updatedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
+  /**
    * Waitlist journeys: enrolling the launch's existing signups on the first
    * publish (a launch that never ran on the original engine). Resumable: the
    * cursor is the last signup id enrolled.

@@ -485,3 +485,31 @@ describe("consent at send (LIFECYCLE_CONSENT_AT_SEND)", () => {
     expect(w.sent).toHaveLength(1);
   });
 });
+
+describe("going live (LIFECYCLE_GO_LIVE_SWEEP)", () => {
+  afterEach(() => {
+    delete process.env.LIFECYCLE_GO_LIVE_SWEEP;
+  });
+
+  it("under a test ceiling, a live journey skips a real person at enrolment instead of holding them", async () => {
+    process.env.LIFECYCLE_GO_LIVE_SWEEP = "true";
+    delete process.env.LIFECYCLE_MODE_CEILING; // unset = test
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const user = seedUser(db, "alex");
+    const { journey, version } = await publishOnboarding(db, { mode: "live", testUserIds: [] });
+    const r = await enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0) }, { db, nowMs: T0 });
+    expect(r).toEqual({ outcome: "skipped", reason: "not_a_test_recipient" });
+  });
+
+  it("an enrolment held for its mode that never started leaves once its window has passed", async () => {
+    const w = await world({ mode: "live", testUserIds: [] }); // enrolled while the ceiling was live
+    delete process.env.LIFECYCLE_MODE_CEILING; // now it's test
+    process.env.LIFECYCLE_GO_LIVE_SWEEP = "true";
+    await w.run(T0);
+    expect(await w.run(T0 + 15 * MIN)).toBe("held"); // inside its 72-hour window: still waiting
+    expect(await w.run(T0 + 73 * HOUR)).toBe("exited");
+    expect(await w.get()).toMatchObject({ status: "exited", stopReason: "window_passed" });
+    expect(w.sent).toHaveLength(0);
+  });
+});

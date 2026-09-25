@@ -45,3 +45,13 @@ export function isLifecycleChatAuthoringEnabled(): boolean {
 export function isLifecycleConsentAtSendEnabled(): boolean {
   return process.env.LIFECYCLE_CONSENT_AT_SEND === "true";
 }
+
+/**
+ * Server flag — going live reaches recent sign-ups, never late. Enrolment uses the
+ * effective mode (the journey's, capped by the ceiling); when a sign-up journey can
+ * first email everyone, the tick enrols the people inside its window; and an
+ * enrolment held for its mode that never started exits once its window passes.
+ */
+export function isLifecycleGoLiveSweepEnabled(): boolean {
+  return process.env.LIFECYCLE_GO_LIVE_SWEEP === "true";
+}

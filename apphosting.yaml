@@ -627,6 +627,15 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Going live reaches recent sign-ups, never late: enrolment uses the effective
+  # mode (capped by the ceiling), a sign-up journey that can first email everyone
+  # enrols the people inside its window, and a mode hold that never started exits
+  # once its window passes. "false" in prod (apphosting.prod.yaml) until verified
+  # here; scripts/count-mode-holds.ts counts what the last part will touch.
+  - variable: LIFECYCLE_GO_LIVE_SWEEP
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

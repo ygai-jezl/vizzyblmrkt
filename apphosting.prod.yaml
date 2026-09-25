@@ -557,9 +557,10 @@ env:
   # to sign with dev's key — which prod can't use — and every context pull and
   # webhook would fail closed. Create the key with:
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-prod
-  # The /developers docs stay off in prod until the owner opens them.
+  # The /developers docs are open in prod (owner decision, 2026-09-25): the
+  # integration guide's coding-agent prompt links to them, and they 404'd here.
   - variable: DEVELOPERS_DOCS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: CONNECT_SIGNING_KMS_KEY

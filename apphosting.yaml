@@ -583,8 +583,8 @@ env:
   #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-dev
   # prod overrides both in apphosting.prod.yaml.
   # Public developer docs (/developers): how to send events, build the context
-  # endpoint, receive webhooks and verify our requests. Off in prod until the
-  # owner opens them (apphosting.prod.yaml).
+  # endpoint, receive webhooks and verify our requests. Open in prod too since
+  # 2026-09-25 (apphosting.prod.yaml).
   - variable: DEVELOPERS_DOCS_ENABLED
     value: "true"
     availability:

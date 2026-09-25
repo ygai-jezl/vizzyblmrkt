@@ -534,8 +534,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  - variable: LIFECYCLE_INGEST_ENABLED
-    value: "true"
+  # API v2 (/api/v2/users…) stays off here until it's verified on dev. It has to
+  # be set: apphosting.yaml turns it on, and this file only overrides. (v1's
+  # LIFECYCLE_INGEST_ENABLED went with /api/v1/events on 2026-09-25.)
+  - variable: API_V2_ENABLED
+    value: "false"
     availability:
       - RUNTIME
   # CONNECT_SECRET_ENC_KEY and LIFECYCLE_WORKER_SECRET are set in apphosting.yaml

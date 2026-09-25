@@ -153,7 +153,7 @@ describe("prompt for the customer's coding agent", () => {
     expect(p).toContain("https://yougrow.test/developers/openapi.json");
     expect(p).toContain("Don't clone or read YouGrow's own source code");
     expect(p).toContain("`YOUGROW_ORIGIN` (value `https://yougrow.test`)");
-    expect(p).toContain("0.3.0 or later");
+    expect(p).toContain("0.4.0 or later");
     expect(p).toContain('`const { YouGrow } = require("@yougrowai/node")`');
   });
 

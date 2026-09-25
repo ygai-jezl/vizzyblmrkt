@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConsentBasis, EVENT_NAME_RE, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
+import { ConsentBasis, EVENT_NAME_RE, ProductConnectionStatus, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
 import { RESERVED_EVENTS, TimestampSchema } from "../protocol";
 
 /**
@@ -18,6 +18,7 @@ export const V2_PATHS = {
   user: "/api/v2/users/{userId}",
   batch: "/api/v2/users/batch",
   events: "/api/v2/users/{userId}/events",
+  me: "/api/v2/me",
 } as const;
 
 export const V2_LIMITS = {
@@ -113,15 +114,17 @@ export const BatchItemSchema = z.object({ userId: UserIdSchema }).passthrough();
 export const BatchRequestSchema = z.object({ users: z.array(z.unknown()).min(1).max(V2_LIMITS.maxBatch) }).strict();
 
 /**
- * v1's reserved events that v2 expresses as STATE instead. `onboarding.completed`
- * stays an event: a product without a step checklist still knows when someone
- * has finished getting started (it marks them activated).
+ * Events v2 expresses as STATE instead: v1's reserved events, and the opt-in
+ * trigger YouGrow derives from `consent`. `onboarding.completed` stays an event:
+ * a product without a step checklist still knows when someone has finished
+ * getting started (it marks them activated).
  */
 const STATE_EVENTS = new Set<string>([
   RESERVED_EVENTS.signedUp,
   RESERVED_EVENTS.stepCompleted,
   RESERVED_EVENTS.userDeleted,
   RESERVED_EVENTS.preferencesUpdated,
+  RESERVED_EVENTS.marketingConsentGranted,
 ]);
 
 /** The body of POST /api/v2/users/{userId}/events: a milestone. */
@@ -131,7 +134,7 @@ export const EventRequestSchema = z
       .string()
       .max(80)
       .regex(EVENT_NAME_RE, { message: "lower-case, dot-separated, e.g. report.exported" })
-      .refine((e) => !STATE_EVENTS.has(e), { message: "send this as state instead (signedUpAt, steps, subscribed), or DELETE the user" }),
+      .refine((e) => !STATE_EVENTS.has(e), { message: "send this as state instead (signedUpAt, steps, consent, subscribed), or DELETE the user" }),
     properties: z.record(z.string(), z.unknown()).optional(),
     occurredAt: TimestampSchema.optional(),
     /** Makes a retry harmless: the same key is recorded once. */
@@ -179,8 +182,16 @@ export type UserView = z.infer<typeof UserViewSchema>;
 export const SkipReason = z.enum(["stale_write", "deleted_later"]);
 export type SkipReason = z.infer<typeof SkipReason>;
 
+export const FieldErrorSchema = z.object({ path: z.string(), message: z.string() });
+export type FieldError = z.infer<typeof FieldErrorSchema>;
+
 export const PatchResponseSchema = z.union([
-  z.object({ applied: z.literal(true), user: UserStateSchema }),
+  z.object({
+    applied: z.literal(true),
+    user: UserStateSchema,
+    /** Profile fields that were invalid, so left as they were; everything else applied. */
+    ignoredFields: z.array(FieldErrorSchema).optional(),
+  }),
   z.object({
     applied: z.literal(false),
     reason: SkipReason,
@@ -190,18 +201,16 @@ export const PatchResponseSchema = z.union([
 ]);
 export type PatchResponse = z.infer<typeof PatchResponseSchema>;
 
-export const FieldErrorSchema = z.object({ path: z.string(), message: z.string() });
-
 export const BatchResponseSchema = z.object({
   applied: z.number().int(),
   ignored: z.number().int(),
   failed: z.number().int(),
-  /** Only the ignored and failed items; applied ones are counted. */
+  /** The ignored and failed items, and applied ones whose profile fields were ignored (`fields_ignored`). */
   results: z.array(
     z.object({
       index: z.number().int(),
       userId: z.string().nullable(),
-      status: z.enum(["ignored", "failed"]),
+      status: z.enum(["applied", "ignored", "failed"]),
       reason: z.string(),
       fields: z.array(FieldErrorSchema).optional(),
     }),
@@ -210,6 +219,20 @@ export const BatchResponseSchema = z.object({
 export type BatchResponse = z.infer<typeof BatchResponseSchema>;
 
 export const EventResponseSchema = z.object({ recorded: z.boolean(), duplicate: z.boolean() });
+
+/** GET /api/v2/me: the connection behind the key — a credential check that also names the environment. */
+export const MeResponseSchema = z.object({
+  connection: z.object({
+    id: z.string(),
+    name: z.string(),
+    environment: z.enum(["staging", "production"]).nullable(),
+    status: ProductConnectionStatus,
+  }),
+  keyId: z.string(),
+  /** A new secret was issued in the last 24 hours; the previous one works until then. */
+  rotating: z.boolean(),
+});
+export type MeResponse = z.infer<typeof MeResponseSchema>;
 
 export const ErrorSchema = z.object({
   error: z.string(),
@@ -220,4 +243,24 @@ export const ErrorSchema = z.object({
 /** Zod issues → the `fields` of a 400 (`path` like "traits.plan"). */
 export function fieldErrors(error: z.ZodError): Array<{ path: string; message: string }> {
   return error.issues.slice(0, 20).map((i) => ({ path: i.path.length ? i.path.join(".") : "(body)", message: i.message }));
+}
+
+/** Profile fields a bad value can't sink a write for: the rest applies, and these come back as `ignoredFields`. */
+export const PROFILE_FIELDS: ReadonlySet<string> = new Set(["email", "firstName", "lastName", "timezone", "locale"]);
+
+/**
+ * Parse a PATCH body (or a batch item without its `userId`). When the only
+ * problems are profile fields, they're dropped and the rest applies, so a bad
+ * timezone never stops consent, an opt-out or an exclusion from landing. Any other
+ * problem is a 400 naming it.
+ */
+export function parseUserPatch(body: unknown): { ok: true; patch: UserPatch; ignoredFields: FieldError[] } | { ok: false; fields: FieldError[] } {
+  const first = UserPatchSchema.safeParse(body);
+  if (first.success) return { ok: true, patch: first.data, ignoredFields: [] };
+  const issues = first.error.issues;
+  const profileOnly = issues.every((i) => i.path.length === 1 && PROFILE_FIELDS.has(String(i.path[0])));
+  if (!profileOnly || typeof body !== "object" || body === null || Array.isArray(body)) return { ok: false, fields: fieldErrors(first.error) };
+  const dropped = new Set(issues.map((i) => String(i.path[0])));
+  const second = UserPatchSchema.safeParse(Object.fromEntries(Object.entries(body).filter(([k]) => !dropped.has(k))));
+  return second.success ? { ok: true, patch: second.data, ignoredFields: fieldErrors(first.error) } : { ok: false, fields: fieldErrors(first.error) };
 }

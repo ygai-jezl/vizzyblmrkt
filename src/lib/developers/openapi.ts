@@ -6,6 +6,7 @@ import {
   EventRequestSchema,
   EventResponseSchema,
   FieldErrorSchema,
+  MeResponseSchema,
   PatchResponseSchema,
   UserIdSchema,
   UserPatchSchema,
@@ -61,7 +62,7 @@ export const COMPONENTS: Record<string, Component> = {
     description: "An optional milestone that journeys can start from or branch on.",
     notes: {
       event:
-        "Lower-case, dot-separated, ≤ 80 chars, e.g. `report.exported`. `user.signed_up`, `onboarding.step_completed`, `user.deleted` and `email_preferences.updated` are refused: send `signedUpAt`, `steps` or `subscribed`, or DELETE the user. `onboarding.completed` marks the user activated.",
+        "Lower-case, dot-separated, ≤ 80 chars, e.g. `report.exported`. `user.signed_up`, `onboarding.step_completed`, `user.marketing_consent_granted`, `user.deleted` and `email_preferences.updated` are refused: send `signedUpAt`, `steps`, `consent` or `subscribed`, or DELETE the user. `onboarding.completed` marks the user activated.",
       properties: `Anything useful, ≤ ${kb(V2_LIMITS.maxPropertiesBytes)} serialised.`,
       occurredAt: "When it happened (ISO 8601 with a timezone). Defaults to now.",
       idempotencyKey: "Makes a retry harmless: the same key is recorded once.",
@@ -84,16 +85,27 @@ export const COMPONENTS: Record<string, Component> = {
     schema: PatchResponseSchema,
     io: "output",
     description:
-      "`applied: true` — saved; `user` is what we now hold. `applied: false` — skipped because we hold something newer: `stale_write` (older than the stored `updatedAt`) or `deleted_later` (older than a later DELETE). Neither needs a retry.",
+      "`applied: true` — saved; `user` is what we now hold, and `ignoredFields` lists any profile field (`email`, `firstName`, `lastName`, `timezone`, `locale`) whose value was invalid and so left as it was. `applied: false` — skipped because we hold something newer: `stale_write` (older than the stored `updatedAt`) or `deleted_later` (older than a later DELETE). Neither needs a retry.",
   },
   BatchResponse: {
     schema: BatchResponseSchema,
     io: "output",
-    description: "How many users were applied, ignored and failed. `results` lists only the items that weren't applied; `index` is the item's position in your `users` array.",
+    description:
+      "How many users were applied, ignored and failed. `results` lists the items that weren't applied, and applied ones whose invalid profile fields were left as they were (`fields_ignored`); `index` is the item's position in your `users` array.",
     notes: {
-      applied: "Users whose state was saved.",
+      applied: "Users whose state was saved (some perhaps with `fields_ignored`, listed in `results`).",
       ignored: "Users skipped because we hold something newer (`stale_write` or `deleted_later`). Nothing to do.",
       failed: "Users not saved: `invalid` (see `fields`) — fix and resend — or `internal_error` — resend.",
+    },
+  },
+  MeResponse: {
+    schema: MeResponseSchema,
+    io: "output",
+    description: "The connection behind your key.",
+    notes: {
+      connection: "Its id, name, environment (`staging`, `production`, or null when it has none) and status.",
+      keyId: "The key id you authenticated with.",
+      rotating: "A new secret was issued in the last 24 hours; the previous one keeps working until then.",
     },
   },
   EventResponse: {
@@ -173,7 +185,7 @@ const ALEX: Json = {
 const INVALID = {
   error: "invalid",
   fields: [
-    { path: "timezone", message: "not an IANA time zone, e.g. Europe/London" },
+    { path: "subscribed", message: "Invalid input: expected boolean, received string" },
     { path: "traits.email", message: "send email as a top-level field, not a trait" },
   ],
 };
@@ -240,7 +252,7 @@ function paths(): Json {
         tags: ["Users"],
         summary: "Send a user's state",
         description:
-          "Merge a JSON Merge Patch (RFC 7396) into the user's state: fields you send replace ours, fields you leave out stay, `null` clears one, and `steps`, `facts` and `traits` merge key by key. The first write for an id creates the user. `signedUpAt` enrols them in sign-up journeys while they're inside the journey's window — checked on every write, so a retry or a late write still enrols, and a journey that goes live later picks them up at their next write. Sending the same state twice is harmless.",
+          "Merge a JSON Merge Patch (RFC 7396) into the user's state: fields you send replace ours, fields you leave out stay, `null` clears one, and `steps`, `facts` and `traits` merge key by key. The first write for an id creates the user. `signedUpAt` enrols them in sign-up journeys while they're inside the journey's window — checked on every write, so a retry or a late write still enrols, and when a journey goes live YouGrow enrols everyone still inside it. An invalid `email`, `firstName`, `lastName`, `timezone` or `locale` doesn't sink the write: it's left as it was and listed in `ignoredFields`. Sending the same state twice is harmless.",
         requestBody: {
           required: true,
           content: body("UserPatch", {
@@ -270,6 +282,10 @@ function paths(): Json {
             description: "Applied — or skipped because YouGrow holds something newer (`applied: false`). Neither needs a retry. A skipped write is a 200, not a 409.",
             content: body("PatchResponse", {
               applied: { summary: "Applied", value: { applied: true, user: ALEX } },
+              fieldsIgnored: {
+                summary: "Applied, with an invalid timezone left as it was",
+                value: { applied: true, user: ALEX, ignoredFields: [{ path: "timezone", message: "not an IANA time zone, e.g. Europe/London" }] },
+              },
               stale: {
                 summary: "Skipped: older than the stored state",
                 value: { applied: false, reason: "stale_write", storedUpdatedAt: "2026-09-25T10:05:00.000Z", user: ALEX },
@@ -330,6 +346,7 @@ function paths(): Json {
                   { userId: "user_123", steps: { create_project: "2026-09-25T10:02:00Z" }, updatedAt: "2026-09-25T10:05:00Z" },
                   { userId: "user_456", facts: { projects: 0 }, updatedAt: "2026-09-25T10:00:00Z" },
                   { userId: "user_789", timezone: "Europe/Paris" },
+                  { userId: "user_999", subscribed: false },
                 ],
               },
             },
@@ -337,17 +354,18 @@ function paths(): Json {
         },
         responses: {
           "200": {
-            description: "Every item was tried. `results` lists the ones that weren't applied.",
+            description: "Every item was tried. `results` lists the ones that weren't applied, and applied ones with `fields_ignored`.",
             content: body("BatchResponse", {
               mixed: {
-                summary: "One applied, one ignored, one failed",
+                summary: "Two applied (one with a field ignored), one ignored, one failed",
                 value: {
-                  applied: 1,
+                  applied: 2,
                   ignored: 1,
                   failed: 1,
                   results: [
                     { index: 1, userId: "user_456", status: "ignored", reason: "stale_write" },
-                    { index: 2, userId: "user_789", status: "failed", reason: "invalid", fields: [{ path: "timezone", message: "not an IANA time zone, e.g. Europe/London" }] },
+                    { index: 2, userId: "user_789", status: "applied", reason: "fields_ignored", fields: [{ path: "timezone", message: "not an IANA time zone, e.g. Europe/London" }] },
+                    { index: 3, userId: "user_999", status: "failed", reason: "invalid", fields: [{ path: "subscribed", message: "Invalid input: expected boolean, received string" }] },
                   ],
                 },
               },
@@ -358,6 +376,27 @@ function paths(): Json {
             content: body("Error"),
           },
           ...errors(["401", "Unauthorized"], ["413", "TooLarge"], ["429", "RateLimited"], ["5XX", "ServerError"]),
+        },
+      },
+    },
+    [V2_PATHS.me]: {
+      get: {
+        operationId: "getConnection",
+        tags: ["Connection"],
+        summary: "Check your key",
+        description:
+          "The connection behind the key: its name, environment and status. Call it to check your credentials, and that they're the right environment's, before you send anything. It counts against the rate limit like any request.",
+        responses: {
+          "200": {
+            description: "The key works.",
+            content: body("MeResponse", {
+              production: {
+                summary: "A production connection",
+                value: { connection: { id: "pcn_7d2f19", name: "Acme", environment: "production", status: "active" }, keyId: "ygk_3f9a2b7c", rotating: false },
+              },
+            }),
+          },
+          ...errors(["401", "Unauthorized"], ["404", "NotFound"], ["429", "RateLimited"], ["5XX", "ServerError"]),
         },
       },
     },
@@ -449,7 +488,7 @@ function webhooks(origin: string): Json {
       post: {
         operationId: "webhook",
         summary: "Webhook",
-        description: `Changes your product should mirror, such as an unsubscribe from one of YouGrow's emails. Reply 2xx within 5 seconds; anything else is retried with backoff for 24 hours, with the same \`id\`. More types may be added: reply 2xx to any you don't handle. ${verify} \`dir\` is \`webhook\`.`,
+        description: `Changes your product should mirror: \`email_preferences.updated\` (an unsubscribe from one of YouGrow's emails), \`email.suppressed\` (YouGrow stopped emailing a user because their address hard-bounced or they reported an email as spam) and \`connection.test\` (the Test webhook button). API writes never trigger one. Reply 2xx within 5 seconds; anything else is retried with backoff for 24 hours, with the same \`id\`. More types may be added: reply 2xx to any you don't handle. ${verify} \`dir\` is \`webhook\`.`,
         security: [{ bearerAuth: [] }],
         parameters: [keyIdHeader],
         requestBody: {
@@ -463,6 +502,10 @@ function webhooks(origin: string): Json {
                 createdAt: "2026-09-25T10:00:00Z",
                 data: { userId: "user_123", category: "onboarding", subscribed: false, scope: "category", source: "list-unsubscribe" },
               },
+            },
+            suppressed: {
+              summary: "A spam complaint",
+              value: { id: "wh_2b8e4f", type: "email.suppressed", createdAt: "2026-09-25T10:00:00Z", data: { userId: "user_123", reason: "complaint" } },
             },
             test: { summary: "Test webhook", value: { id: "wh_test_1", type: "connection.test", createdAt: "2026-09-25T10:00:00Z", data: {} } },
           }),
@@ -505,6 +548,7 @@ export function openApiSpec(origin: string): Json {
     tags: [
       { name: "Users", description: "Send each user's current state, read it back, or erase it." },
       { name: "Events", description: "Optional milestones." },
+      { name: "Connection", description: "Check the key you're using." },
     ],
     paths: paths(),
     webhooks: webhooks(o),

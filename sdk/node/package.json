@@ -1,6 +1,6 @@
 {
   "name": "@yougrowai/node",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Keep your users' state in YouGrow lifecycle journeys, and verify the requests YouGrow sends you.",
   "license": "MIT",
   "author": "YouGrow.AI Limited",
@@ -22,7 +22,8 @@
     "./server": {
       "import": { "types": "./dist/server.d.ts", "default": "./dist/server.js" },
       "require": { "types": "./dist/cjs/server.d.ts", "default": "./dist/cjs/server.js" }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": { "server": ["./dist/cjs/server.d.ts"] }

@@ -17,26 +17,26 @@ export interface FieldDoc<K extends string = string> {
 
 /** The body of PATCH /api/v2/users/{userId} — every key of UserPatchSchema, in reading order. */
 export const USER_FIELDS: ReadonlyArray<FieldDoc<keyof UserPatch & string>> = [
-  { name: "email", type: "string | null", notes: "Their email address, ≤ 254 chars. We can't email anyone without one." },
-  { name: "firstName", type: "string | null", notes: "Used in greetings (falls back to “there”), ≤ 100 chars." },
-  { name: "lastName", type: "string | null", notes: "≤ 100 chars." },
+  { name: "email", type: "string | null", notes: "Their email address, ≤ 254 chars. We can't email anyone without one. An invalid value is left as it was and listed in `ignoredFields`, not a 400." },
+  { name: "firstName", type: "string | null", notes: "Used in greetings (falls back to “there”), ≤ 100 chars. An invalid value is left as it was and listed in `ignoredFields`, not a 400." },
+  { name: "lastName", type: "string | null", notes: "≤ 100 chars. An invalid value is left as it was and listed in `ignoredFields`, not a 400." },
   {
     name: "timezone",
     type: "string | null",
-    notes: "An IANA time zone, e.g. `Europe/London`. Emails go out in each person's morning; without one, in your connection's default time zone.",
+    notes: "An IANA time zone, e.g. `Europe/London`. Emails go out in each person's morning; without one, in your connection's default time zone. An invalid value is left as it was and listed in `ignoredFields`, not a 400.",
   },
-  { name: "locale", type: "string | null", notes: "A BCP 47 locale, e.g. `en-GB`." },
+  { name: "locale", type: "string | null", notes: "A BCP 47 locale, e.g. `en-GB`. An invalid value is left as it was and listed in `ignoredFields`, not a 400." },
   {
     name: "signedUpAt",
     type: "string",
     notes:
-      "When the account was created: ISO 8601 with a timezone. It starts sign-up journeys while the person is inside the journey's window. It can be changed, not cleared.",
+      "When the account was created: ISO 8601 with a timezone. It starts sign-up journeys while the person is inside the journey's window (72 hours by default), so sending past users with their real date is safe. It can be changed, not cleared.",
   },
   {
     name: "consent",
     type: "string | null",
     notes:
-      "Your legal basis for marketing email: `consent`, `soft_opt_in`, `corporate_subscriber` or `none`. Service emails (like a welcome) don't need one. `corporate_subscriber` counts as `none` for free-mail addresses (gmail.com, …).",
+      "Your legal basis for marketing email: `consent`, `soft_opt_in`, `corporate_subscriber` or `none`. Service emails (like a welcome) don't need one; a marketing email that's due without one is skipped. `corporate_subscriber` counts as `none` for free-mail addresses (gmail.com, …).",
   },
   {
     name: "subscribed",

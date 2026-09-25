@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { forTenant, TenantIsolationError, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import type { ProductConnection } from "@/lib/types/productConnection";
+import type { ConsentPolicy, ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
+import { isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecycleModeCeiling } from "./flags";
 import { entryCursor } from "./planner";
-import { isTestRecipient } from "./policy";
+import { allowsMarketing, isTestRecipient, lowestMode } from "./policy";
 
 /**
  * Enrolment: a product user entering a published lifecycle journey. The
@@ -50,6 +51,8 @@ export async function enrolUser(
     /** When the journey clock starts (the trigger event's time). */
     anchorAt: string;
     requireApproval?: boolean;
+    /** The connection's consent policy, when the caller has it (else read when a journey needs it). */
+    consentPolicy?: ConsentPolicy;
   },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<EnrolOutcome> {
@@ -62,8 +65,17 @@ export async function enrolUser(
   // API v2: the product's own "never email" and opt-out apply to every journey.
   if (user.excluded) return { outcome: "skipped", reason: "excluded" };
   if (user.subscribed === false) return { outcome: "skipped", reason: "unsubscribed_in_product" };
-  if (journey.deliveryMode === "test" && !isTestRecipient(journey, user)) {
+  // The mode the runner will send in: capped by this environment's ceiling when going
+  // live is swept (the sweep enrols real people once it's live; holding them would
+  // send the whole sequence late).
+  const mode = isLifecycleGoLiveSweepEnabled() ? lowestMode(journey.deliveryMode, lifecycleModeCeiling()) : journey.deliveryMode;
+  if (mode === "test" && !isTestRecipient(journey, user)) {
     return { outcome: "skipped", reason: "not_a_test_recipient" };
+  }
+  // A consent-only journey admits people whose consent (as the product sent it) allows marketing.
+  if (isLifecycleConsentAtSendEnabled() && version.settings.entry?.requireMarketingConsent) {
+    const policy = a.consentPolicy ?? (await forTenant(ctx, deps.db).productConnections.getById(journey.connectionId))?.consentPolicy;
+    if (!policy || !allowsMarketing(policy, user.consent?.basis)) return { outcome: "skipped", reason: "no_marketing_consent" };
   }
 
   const repo = forTenant(ctx, deps.db);
@@ -120,6 +132,9 @@ export async function enrolUser(
   return { outcome: "enrolled", enrolmentId: id };
 }
 
+/** What the trigger paths need from the connection (its consent policy saves a read). */
+type EnrolConnection = Pick<ProductConnection, "id" | "status"> & Partial<Pick<ProductConnection, "consentPolicy">>;
+
 /** Active journeys on a connection, each with its published version. */
 export async function activeJourneysFor(
   ctx: TenantContext,
@@ -152,7 +167,7 @@ export async function activeJourneysFor(
  */
 export async function enrolOnSignup(
   ctx: TenantContext,
-  connection: Pick<ProductConnection, "id" | "status">,
+  connection: EnrolConnection,
   users: ProductUser[],
   deps: { db?: FirestoreLike; nowMs?: number; journeys?: Array<{ journey: LifecycleJourney; version: LifecycleVersion }> } = {},
 ): Promise<{ enrolled: number }> {
@@ -173,7 +188,7 @@ export async function enrolOnSignup(
         if (await repo.lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id))) continue;
         const r = await enrolUser(
           ctx,
-          { journey, version, user, source: "trigger", anchorAt: user.signedUpAt! },
+          { journey, version, user, source: "trigger", anchorAt: user.signedUpAt!, consentPolicy: connection.consentPolicy },
           { db: deps.db, nowMs },
         );
         if (r.outcome === "enrolled") enrolled += 1;
@@ -201,7 +216,7 @@ export interface TriggerEvent {
  */
 export async function enrolOnEvents(
   ctx: TenantContext,
-  connection: Pick<ProductConnection, "id" | "status">,
+  connection: EnrolConnection,
   events: TriggerEvent[],
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<{ enrolled: number }> {
@@ -217,7 +232,7 @@ export async function enrolOnEvents(
       try {
         const r = await enrolUser(
           ctx,
-          { journey, version, user: e.user, source: "trigger", anchorAt: e.timestamp },
+          { journey, version, user: e.user, source: "trigger", anchorAt: e.timestamp, consentPolicy: connection.consentPolicy },
           { db: deps.db, nowMs },
         );
         if (r.outcome === "enrolled") enrolled += 1;

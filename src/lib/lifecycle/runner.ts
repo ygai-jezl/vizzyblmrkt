@@ -27,8 +27,9 @@ import { nextNodeId } from "./graph";
 import { nextWindowAt } from "./sendWindow";
 import { renderLifecycleEmail, type RenderedEmail } from "./render";
 import { buildRecipientContext, buildRenderValues, nextStepOf, pickInsight, safeChecklist } from "./recipientContext";
-import { isTestRecipient, lifecycleSender, lowestMode } from "./policy";
-import { isLifecycleAiDraftsEnabled, lifecycleModeCeiling } from "./flags";
+import { allowsMarketing, isTestRecipient, lifecycleSender, lowestMode } from "./policy";
+import { isLifecycleAiDraftsEnabled, isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecycleModeCeiling } from "./flags";
+import { sweepGoLive } from "./goLive";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
 import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut";
 import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
@@ -208,6 +209,18 @@ export async function processEnrolment(
     if (user.email && (await isSuppressedFor(ctx, user.email, settings.category.key, deps.db))) {
       return await stop("unsubscribed");
     }
+    const mode = lowestMode(leased.mode, journey.deliveryMode, lifecycleModeCeiling());
+    // Held for its mode and never started: once the trigger's window has passed it
+    // leaves, instead of sending the whole sequence late when the mode opens up.
+    if (
+      isLifecycleGoLiveSweepEnabled() &&
+      mode === "test" &&
+      !isTestRecipient(journey, user) &&
+      leased.sentItems.length === 0 &&
+      nowMs - anchorMs > settings.trigger.maxEventAgeHours * 3600_000
+    ) {
+      return await stop("window_passed");
+    }
 
     const scope: RunScope = {
       ctx,
@@ -219,7 +232,7 @@ export async function processEnrolment(
       version,
       connection,
       user,
-      mode: lowestMode(leased.mode, journey.deliveryMode, lifecycleModeCeiling()),
+      mode,
       ...recipientClock(user, connection, version),
       policy,
       settings,
@@ -329,12 +342,15 @@ async function deliver(
 
   // The product can opt the user out of this category in its own context.
   if (context?.consent?.categories?.[settings.category.key] === false) return { kind: "exit", reason: "unsubscribed_in_product" };
-  // Marketing needs a basis this connection accepts; service mail doesn't.
+  // Marketing needs a basis this connection accepts; service mail doesn't. Without
+  // one the email is skipped, so it never goes out late when consent arrives
+  // (flag off: held until then, however long that takes).
   if (item.messageClass === "marketing") {
     const basis = context?.consent?.basis
       ? effectiveBasis(context.consent.basis, user.email, connection)
       : (user.consent?.basis ?? "none");
-    if (!connection.consentPolicy.marketingBases.includes(basis)) {
+    if (!allowsMarketing(connection.consentPolicy, basis)) {
+      if (isLifecycleConsentAtSendEnabled()) return { kind: "skipped", reason: "no_marketing_consent" };
       return { kind: "hold", untilMs: nextDayWindow(), event: "waiting_for_consent", detail: `basis: ${basis}` };
     }
   }
@@ -653,6 +669,8 @@ export interface LifecycleTickResult {
   drafts: PrepareResult;
   /** Waitlist journeys (engine move), when their engine is on. */
   waitlist?: { due: number; outcomes: Partial<Record<EnrolmentRunOutcome, number>>; deferred: number; backfilled: number; retired: number };
+  /** Sign-up journeys that swept their window on going live (LIFECYCLE_GO_LIVE_SWEEP). */
+  goLive?: { journeys: number; enrolled: number };
 }
 
 /**
@@ -676,6 +694,7 @@ export async function runLifecycleTick(
     webhooks: { delivered: 0, failed: 0, expired: 0 },
     drafts: { prepared: 0, fallback: 0, superseded: 0 },
     ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
+    ...(product && isLifecycleGoLiveSweepEnabled() ? { goLive: { journeys: 0, enrolled: 0 } } : {}),
   };
   for (const [index, t] of tenants.entries()) {
     if (clock() >= deadline) {
@@ -690,6 +709,17 @@ export async function runLifecycleTick(
       clock() + Math.max(MIN_TENANT_SLICE_MS, Math.floor((deadline - clock()) / (tenants.length - index))),
     );
     const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
+    // Going live first, so the people it enrols can go out this tick. It gets at
+    // most half the tenant's share; a big window resumes next tick.
+    if (total.goLive) {
+      try {
+        const s = await sweepGoLive(ctx, { db: deps.db, now: clock, deadlineMs: clock() + Math.floor((tenantDeadline - clock()) / 2) });
+        total.goLive.journeys += s.journeys;
+        total.goLive.enrolled += s.enrolled;
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) go-live sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
+    }
     if (product) {
       try {
         const r = await drainLifecycleTenant(ctx, deps, tenantDeadline);

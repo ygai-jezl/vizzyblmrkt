@@ -81,6 +81,12 @@ pools = [{"id", "label", "items": [{"id", "label", "subject", "previewText", "bo
 {{next_step.label}}, {{onboarding.steps_remaining}}, and the blocks {{block.checklist}},
 {{block.next_step}}, {{block.insight}}. Never write numbers or results about a person — the
 blocks carry the product's own facts.
+Mark each email's "messageClass": "service" for a welcome or help getting started (no consent
+needed), "marketing" for anything promotional. A marketing email that's due for someone
+without marketing consent is skipped, never sent late. settings include "trigger":
+{"event", "maxEventAgeHours"} — "user.signed_up", "user.marketing_consent_granted" (people
+who opt in to marketing later) or a catalog event name — and "entry":
+{"requireMarketingConsent": true|false}; set it true for a sequence that's all marketing.
 
 # After saving
 Briefly say what you built or changed (the emails and when they go out) and that it's a

@@ -185,10 +185,12 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
       <P>
         We create the person&apos;s profile, and <C>signedUpAt</C> enrols them in every published journey that starts on
         sign-up — as long as they&apos;re inside the journey&apos;s sign-up window (72 hours by default), so importing past
-        users won&apos;t email them all. We check on every write: a retry or a late write still enrols them while
-        they&apos;re inside the window, and a journey that goes live later picks up people who still are at their next
-        write. People who are{" "}
-        <C>excluded</C>, or have <C>subscribed: false</C>, never enrol.
+        users won&apos;t email them all. We check on every write, so a retry or a late write still enrols them while
+        they&apos;re inside the window; and when a journey goes live, we enrol everyone still inside it ourselves (see{" "}
+        <a className="underline" href="#test-mode">
+          test mode
+        </a>
+        ). People who are <C>excluded</C>, or have <C>subscribed: false</C>, never enrol.
       </P>
       <H3>Check it works</H3>
       <P>
@@ -292,6 +294,25 @@ await yg.users.delete(user.id);                                       // the acc
         at sign-up, and again if it changes. Service emails, like a welcome, don&apos;t need one; marketing emails do.{" "}
         <C>corporate_subscriber</C> counts as <C>none</C> for free-mail addresses (gmail.com, …).
       </P>
+      <H3>Service and marketing email</H3>
+      <P>
+        Each email in a journey is <strong>service</strong> (a welcome, help getting started: no consent needed) or{" "}
+        <strong>marketing</strong> (it needs a basis your connection accepts: <C>consent</C>, <C>soft_opt_in</C> or{" "}
+        <C>corporate_subscriber</C> by default). We check when each email is due. Without consent, a marketing email is
+        skipped, not held, so someone who opts in later never gets a stale one.
+      </P>
+      <UL>
+        <li>
+          A sequence that&apos;s all marketing can admit <strong>only people with marketing consent</strong> (a journey
+          setting). It uses the <C>consent</C> you send, and someone who opts in while its trigger is still recent joins
+          then, from the start.
+        </li>
+        <li>
+          For people who opt in later, start a sequence on <strong>Marketing consent granted</strong>. It fires when a write
+          moves someone we already hold onto a basis your connection accepts. A user&apos;s first write never fires it, so a
+          backfill doesn&apos;t either.
+        </li>
+      </UL>
       <H3>Opt-outs: subscribed</H3>
       <P>
         When someone turns off this kind of email in your product&apos;s settings, send <C>{`"subscribed": false`}</C>. They
@@ -355,9 +376,10 @@ await yg.users.delete(user.id);                                       // the acc
           product without a step checklist, or to say they&apos;re done.
         </li>
         <li>
-          Sign-ups, steps, opt-outs and deletion are state, so <C>user.signed_up</C>, <C>onboarding.step_completed</C>,{" "}
-          <C>email_preferences.updated</C> and <C>user.deleted</C> are refused: send <C>signedUpAt</C>, <C>steps</C> or{" "}
-          <C>subscribed</C>, or DELETE the user.
+          Sign-ups, steps, consent, opt-outs and deletion are state, so <C>user.signed_up</C>,{" "}
+          <C>onboarding.step_completed</C>, <C>user.marketing_consent_granted</C>, <C>email_preferences.updated</C> and{" "}
+          <C>user.deleted</C> are refused: send <C>signedUpAt</C>, <C>steps</C>, <C>consent</C> or <C>subscribed</C>, or
+          DELETE the user.
         </li>
         <li>
           <C>properties</C>: optional, ≤ {V2_LIMITS.maxPropertiesBytes / 1024} KB serialised. <C>occurredAt</C>: optional,
@@ -389,6 +411,54 @@ await yg.users.delete(user.id);                                       // the acc
         </li>
       </UL>
 
+      <H2 id="sync">Keeping YouGrow in sync</H2>
+      <P>Send a user&apos;s state whenever it changes, from wherever it changes. Three rules make that robust:</P>
+      <OL>
+        <li>
+          <strong>Retry what can succeed later.</strong> The SDK retries timeouts, network errors, <C>429</C> and{" "}
+          <C>5xx</C> itself (3 times, waiting at most 5 s). If it still fails, <C>err.retryable</C> is <C>true</C>: in a queue
+          worker, or a trigger with retries on, rethrow it so the work comes back. Log anything else: a <C>400</C> won&apos;t
+          succeed as it is.
+        </li>
+        <li>
+          <strong>Make repeats harmless.</strong> Set <C>updatedAt</C> to when the change happened, e.g. the database
+          write&apos;s time. A redelivered or out-of-order write is then ignored when something newer has arrived, and{" "}
+          <C>DELETE</C> is always safe to repeat.
+        </li>
+        <li>
+          <strong>Re-sync daily.</strong> A small job that re-sends everyone who signed up or changed in the last two days
+          catches whatever a failure dropped, and state that changes with time rather than with a write, such as a snooze
+          that ends.
+        </li>
+      </OL>
+      <P>
+        An invalid <C>email</C>, <C>firstName</C>, <C>lastName</C>, <C>timezone</C> or <C>locale</C> doesn&apos;t sink a
+        write: the rest applies, and the response lists it in <C>ignoredFields</C>. Log it and fix the data. Any other
+        invalid field is a <C>400</C>.
+      </P>
+      <Code title="A Firestore trigger (Cloud Functions 2nd gen, retries on)">{`import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { YouGrow, YouGrowError } from "@yougrowai/node";
+
+const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID!, secret: process.env.YOUGROW_SECRET!${sdkOrigin} });
+
+export const yougrowSync = onDocumentWritten({ document: "users/{uid}", retry: true }, async (event) => {
+  const uid = event.params.uid;
+  const after = event.data?.after.data();
+  try {
+    if (!after) return void (await yg.users.delete(uid));        // the account was erased
+    // stateOf: your mapping from the document to YouGrow's fields
+    const r = await yg.users.update(uid, { ...stateOf(after), updatedAt: event.time });
+    if (r.applied && r.ignoredFields) console.warn("YouGrow left fields as they were", r.ignoredFields);
+  } catch (err) {
+    if (err instanceof YouGrowError && err.retryable) throw err; // redelivered later
+    console.error("YouGrow refused the write", err);             // fix the data; don't retry
+  }
+});`}</Code>
+      <Code title="A daily re-sync">{`// Everyone who signed up or changed in the last two days; the SDK sends 100 per request.
+const since = new Date(Date.now() - 2 * 86_400_000);
+const recent = await db.users.findChangedSince(since);
+await yg.users.batch(recent.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt: u.updatedAt.toISOString() })));`}</Code>
+
       <H2 id="batch">Many users at once</H2>
       <P>
         <C>POST /api/v2/users/batch</C> takes up to {V2_LIMITS.maxBatch} users — for a scheduled sync or a first import. Each
@@ -401,24 +471,27 @@ await yg.users.delete(user.id);                                       // the acc
   "users": [
     { "userId": "user_123", "steps": { "create_project": "2026-09-25T10:02:00Z" } },
     { "userId": "user_456", "facts": { "projects": 0 }, "updatedAt": "2026-09-25T10:00:00Z" },
-    { "userId": "user_789", "timezone": "Mars/Olympus" }
+    { "userId": "user_789", "timezone": "Mars/Olympus" },
+    { "userId": "user_999", "subscribed": "no" }
   ]
 }`}</Code>
       <Code title="Response">{`200 OK
 {
-  "applied": 1,
+  "applied": 2,
   "ignored": 1,
   "failed": 1,
   "results": [
     { "index": 1, "userId": "user_456", "status": "ignored", "reason": "stale_write" },
-    { "index": 2, "userId": "user_789", "status": "failed", "reason": "invalid",
-      "fields": [{ "path": "timezone", "message": "not an IANA time zone, e.g. Europe/London" }] }
+    { "index": 2, "userId": "user_789", "status": "applied", "reason": "fields_ignored",
+      "fields": [{ "path": "timezone", "message": "not an IANA time zone, e.g. Europe/London" }] },
+    { "index": 3, "userId": "user_999", "status": "failed", "reason": "invalid",
+      "fields": [{ "path": "subscribed", "message": "Invalid input: expected boolean, received string" }] }
   ]
 }`}</Code>
       <UL>
         <li>
-          <C>results</C> lists only the items that weren&apos;t applied; <C>index</C> is the item&apos;s position in your
-          array.
+          <C>results</C> lists the items that weren&apos;t applied, and applied ones whose invalid profile fields were left as
+          they were (<C>fields_ignored</C>); <C>index</C> is the item&apos;s position in your array.
         </li>
         <li>
           <C>ignored</C> items need nothing (<C>stale_write</C> or <C>deleted_later</C>). <C>failed</C> ones weren&apos;t
@@ -435,6 +508,18 @@ await yg.users.delete(user.id);                                       // the acc
           It returns the combined result and logs failed items in one warning; pass <C>{`{ throwOnItemError: true }`}</C> to
           throw instead.
         </li>
+      </UL>
+
+      <H2 id="existing">Existing users</H2>
+      <P>
+        Send the people who signed up before you connected, with their real <C>signedUpAt</C>, in batches of{" "}
+        {V2_LIMITS.maxBatch}. A backfill can&apos;t send anyone an old welcome: sign-up journeys only enrol people whose{" "}
+        <C>signedUpAt</C> is inside their window (72 hours by default, up to 30 days). Once we hold them, later sequences,
+        such as a newsletter or an email on a milestone, can reach them.
+      </P>
+      <UL>
+        <li>Send <C>consent</C>, <C>subscribed</C> and <C>excluded</C> as well, so their choices hold from the start.</li>
+        <li>A batch counts as one request: 600 a minute and 20,000 an hour per key.</li>
       </UL>
 
       <H2 id="get">Reading a user back</H2>
@@ -475,6 +560,33 @@ await yg.users.delete(user.id);                                       // the acc
         </li>
       </UL>
 
+      <H2 id="test-mode">Test mode and going live</H2>
+      <P>
+        While a journey is in <strong>test</strong> mode, it enrols and emails only its listed test users. Add your team and
+        test accounts in the journey&apos;s <strong>Delivery</strong> tab. Everyone else is left out, not held.
+      </P>
+      <P>
+        When the journey goes live, or this YouGrow starts sending for real, we enrol everyone whose <C>signedUpAt</C> is
+        still inside the journey&apos;s window. You don&apos;t resend anyone, and nobody outside the window gets a late
+        welcome.
+      </P>
+
+      <H2 id="checking">Checking your integration</H2>
+      <UL>
+        <li>
+          <strong>Your key:</strong> <C>yg.me()</C> (<C>GET /api/v2/me</C>) returns the connection it belongs to: its name,
+          environment and status. Check it when you deploy, so a staging key never ends up in production.
+        </li>
+        <li>
+          <strong>A user:</strong> <C>yg.users.get(id)</C> shows their state, the journeys they&apos;re in and any opt-outs.
+        </li>
+        <li>
+          <strong>In YouGrow:</strong> <strong>Products → your product → Events</strong> lists every write as it arrives,
+          including ones that changed nothing because we held something newer, erasures, and refused requests with the
+          reason. The <strong>Users</strong> tab shows each person&apos;s current state.
+        </li>
+      </UL>
+
       <H2 id="rules">Rules that keep it safe</H2>
       <UL>
         <li>
@@ -491,7 +603,7 @@ await yg.users.delete(user.id);                                       // the acc
         <li>
           <strong>Retry what&apos;s worth retrying:</strong> network errors, <C>429</C> (after <C>Retry-After</C>) and{" "}
           <C>5xx</C>, with backoff. Don&apos;t retry a <C>400</C> — fix the payload. The SDK retries for you (3 times by
-          default).
+          default), then <C>err.retryable</C> says whether to try again later.
         </li>
         <li>
           <strong>Timestamps include a timezone:</strong> <C>2026-09-25T10:00:00Z</C>, or <C>new Date().toISOString()</C>.
@@ -513,10 +625,10 @@ await yg.users.delete(user.id);                                       // the acc
       <H3>Responses</H3>
       <Fields
         rows={[
-          ["200 applied: true", "", <>Saved. <C>user</C> is the state we now hold.</>],
+          ["200 applied: true", "", <>Saved. <C>user</C> is the state we now hold. <C>ignoredFields</C> lists any profile field (<C>email</C>, <C>firstName</C>, <C>lastName</C>, <C>timezone</C>, <C>locale</C>) whose invalid value we left as it was.</>],
           ["200 applied: false", "", <>Skipped — we hold something newer: <C>stale_write</C> (older than the stored <C>updatedAt</C>, given as <C>storedUpdatedAt</C>) or <C>deleted_later</C> (older than a later DELETE). Nothing to fix; don&apos;t retry.</>],
           ["204", "", "DELETE: erased, or nothing to erase."],
-          ["400 invalid", "", <>The body isn&apos;t valid, or has a field we don&apos;t know — or the <C>userId</C> in the URL isn&apos;t: <C>fields</C> lists each problem as a <C>path</C> and a <C>message</C>. Fix it; don&apos;t retry it as it is.</>],
+          ["400 invalid", "", <>The body isn&apos;t valid, or has a field we don&apos;t know — or the <C>userId</C> in the URL isn&apos;t: <C>fields</C> lists each problem as a <C>path</C> and a <C>message</C>. Fix it; don&apos;t retry it as it is. (Invalid profile fields on their own don&apos;t: they&apos;re ignored.)</>],
           ["400 invalid_json", "", "The body isn't JSON."],
           ["401 unauthorized", "", "The key id or secret is missing or wrong, or the connection was revoked."],
           ["404 not_found", "", "GET: we don't hold that user. Events: send the user's state first."],

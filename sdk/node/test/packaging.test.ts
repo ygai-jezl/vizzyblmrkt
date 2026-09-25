@@ -23,7 +23,7 @@ const tscBin = join(dirname(requireHere.resolve("typescript/package.json")), "bi
 const typeRoots = dirname(dirname(requireHere.resolve("@types/node/package.json")));
 
 /** The client's methods: constructing it sends nothing, and nothing here calls it. */
-const CLIENT_SHAPE = `[yg.users.update, yg.users.batch, yg.users.get, yg.users.delete, yg.events.track].map((f) => typeof f)`;
+const CLIENT_SHAPE = `[yg.users.update, yg.users.batch, yg.users.get, yg.users.delete, yg.events.track, yg.me].map((f) => typeof f)`;
 
 const CJS_CHECK = `
 const { YouGrow, YouGrowError, YouGrowBatchError } = require("@yougrowai/node");
@@ -43,6 +43,7 @@ const vectors = require("./node_modules/@yougrowai/node/test/vectors.json");
   const yg = new YouGrow({ keyId: "k", secret: "s" });
   console.log(JSON.stringify({
     resolved: [require.resolve("@yougrowai/node"), require.resolve("@yougrowai/node/server")],
+    version: require("@yougrowai/node/package.json").version,
     tokens,
     client: ${CLIENT_SHAPE},
     errors: [new YouGrowError("x", 400).name, new YouGrowBatchError("x", { applied: 0, ignored: 0, failed: 0, results: [] }).name],
@@ -52,6 +53,7 @@ const vectors = require("./node_modules/@yougrowai/node/test/vectors.json");
 
 const ESM_CHECK = `
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { YouGrow, YouGrowError, YouGrowBatchError } from "@yougrowai/node";
 import { createVerifier } from "@yougrowai/node/server";
 
@@ -68,6 +70,7 @@ for (const t of out.tokens) {
 const yg = new YouGrow({ keyId: "k", secret: "s" });
 console.log(JSON.stringify({
   resolved: [import.meta.resolve("@yougrowai/node"), import.meta.resolve("@yougrowai/node/server")],
+  version: createRequire(import.meta.url)("@yougrowai/node/package.json").version,
   tokens,
   client: ${CLIENT_SHAPE},
   errors: [new YouGrowError("x", 400).name, new YouGrowBatchError("x", { applied: 0, ignored: 0, failed: 0, results: [] }).name],
@@ -83,12 +86,13 @@ import {
   type BatchItem,
   type BatchResponse,
   type EventResult,
+  type MeResponse,
   type PatchResponse,
   type UserPatch,
   type UserView,
   type YouGrowOptions,
 } from "@yougrowai/node";
-import { DEFAULT_ISSUER, contextResponse, createVerifier, type Verifier, type VerifyResult } from "@yougrowai/node/server";
+import { DEFAULT_ISSUER, contextResponse, createVerifier, type Verifier, type VerifyResult, type WebhookEvent } from "@yougrowai/node/server";
 
 const options: YouGrowOptions = { keyId: "k", secret: "s", origin: process.env.YOUGROW_ORIGIN, timeoutMs: 5_000, maxRetryWaitMs: 1_000 };
 const yg = new YouGrow(options);
@@ -104,7 +108,16 @@ export async function sync(): Promise<Array<string | null | boolean | number>> {
   const tracked: EventResult = await yg.events.track("u1", "report.exported", { properties: { format: "pdf" } });
   // @ts-expect-error consent is one of four bases
   await yg.users.update("u1", { consent: "maybe" });
-  return [state, batched.failed, view?.subscribed ?? null, tracked.duplicate];
+  const me: MeResponse = await yg.me();
+  return [state, batched.failed, view?.subscribed ?? null, tracked.duplicate, me.connection.environment];
+}
+
+export function onWebhook(raw: string): string {
+  const event = JSON.parse(raw) as WebhookEvent;
+  if (event.type !== "email.suppressed") return event.type;
+  // @ts-expect-error a suppression carries a reason, not a category
+  void event.data.category;
+  return event.data.reason;
 }
 
 const verifier: Verifier = createVerifier({ keyId: "k", origin: process.env.YOUGROW_ORIGIN });
@@ -180,7 +193,7 @@ describe("the packed SDK", { timeout: 60_000 }, () => {
     const expected = /^(dist\/(cjs\/)?[a-z]+\.(js|d\.ts)|dist\/cjs\/package\.json|test\/vectors\.json|README\.md|LICENSE|package\.json)$/;
     expect(files.filter((f) => !expected.test(f))).toEqual([]);
     expect(JSON.parse(readFileSync(join(root, "dist", "cjs", "package.json"), "utf8"))).toEqual({ type: "commonjs" });
-    expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))).toMatchObject({ name: "@yougrowai/node", version: "0.3.0" });
+    expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))).toMatchObject({ name: "@yougrowai/node", version: "0.4.0" });
   });
 
   it.each([
@@ -190,13 +203,15 @@ describe("the packed SDK", { timeout: 60_000 }, () => {
     const r = JSON.parse(await inDir(projects[which], process.execPath, ["check.js"])) as {
       resolved: string[];
       tokens: boolean[][];
+      version: string;
       client: string[];
       errors: string[];
     };
     expect(r.resolved[0]).toMatch(index);
     expect(r.resolved[1]).toMatch(server);
     expect(r.tokens).toEqual(vectorsFile.outbound.tokens.map(() => [true, true]));
-    expect(r.client).toEqual(Array(5).fill("function"));
+    expect(r.version).toBe("0.4.0");
+    expect(r.client).toEqual(Array(6).fill("function"));
     expect(r.errors).toEqual(["YouGrowError", "YouGrowBatchError"]);
   });
 

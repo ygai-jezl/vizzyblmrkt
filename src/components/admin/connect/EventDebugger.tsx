@@ -13,9 +13,23 @@ interface Rejection {
 const POLL_MS = 5000;
 
 /**
- * Live view of what a product is sending: the latest accepted events and the
- * most recent rejections (with the reason, so an integrator can fix them).
+ * Live view of what a product is sending: the latest writes, milestones and
+ * erasures — including writes that changed nothing because YouGrow held something
+ * newer — and the most recent rejections (with the reason, so an integrator can fix
+ * them).
  */
+
+/** v2 state writes are "identify" rows with a `v2:` message id. */
+function messageLabel(e: ProductEvent) {
+  if (e.type === "track") return <span className="font-mono">{e.event}</span>;
+  if (e.type === "erase") return <Badge>erased</Badge>;
+  return <Badge>{e.messageId.startsWith("v2:") ? "state update" : "identify"}</Badge>;
+}
+
+const SKIPPED: Record<string, string> = {
+  stale_write: "Older than the state YouGrow holds",
+  deleted_later: "Older than a later deletion",
+};
 export function EventDebugger({ connectionId, compact = false }: { connectionId: string; compact?: boolean }) {
   const [events, setEvents] = useState<ProductEvent[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
@@ -72,14 +86,15 @@ export function EventDebugger({ connectionId, compact = false }: { connectionId:
               events.map((e) => (
                 <tr key={e.id} className="border-t border-neutral-100 dark:border-neutral-900">
                   <td className="whitespace-nowrap px-3 py-2 text-neutral-500">{timeAgo(e.receivedAt)}</td>
+                  <td className="px-3 py-2">{messageLabel(e)}</td>
+                  <td className="max-w-[10rem] truncate px-3 py-2 font-mono">{e.externalUserId || "—"}</td>
                   <td className="px-3 py-2">
-                    {e.type === "track" ? <span className="font-mono">{e.event}</span> : <Badge>identify</Badge>}
+                    {e.applied ? "✓" : <span title={SKIPPED[e.skipped ?? "stale_write"]}>— {e.skipped ? e.skipped.replace(/_/g, " ") : ""}</span>}
                   </td>
-                  <td className="max-w-[10rem] truncate px-3 py-2 font-mono">{e.externalUserId}</td>
-                  <td className="px-3 py-2">{e.applied ? "✓" : <span title="Older than the latest update">—</span>}</td>
                   {!compact ? (
                     <td className="max-w-xs truncate px-3 py-2 font-mono text-neutral-500">
                       {JSON.stringify(e.payload)}
+                      {e.ignoredFields?.length ? <span className="text-amber-700 dark:text-amber-400"> · ignored: {e.ignoredFields.join(", ")}</span> : null}
                     </td>
                   ) : null}
                 </tr>

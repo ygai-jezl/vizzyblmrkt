@@ -47,7 +47,7 @@ export interface JourneyDetail {
   sender: { verified: boolean; fromEmail: string | null; fromName: string | null };
   postalAddress: string | null;
   modeCeiling: "test" | "shadow" | "live";
-  features: { chatAuthoring: boolean; aiLines: boolean };
+  features: { chatAuthoring: boolean; aiLines: boolean; consentAtSend: boolean };
 }
 
 export type EnrolmentRow = LifecycleEnrolment & {

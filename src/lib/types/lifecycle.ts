@@ -226,6 +226,14 @@ export const LifecycleSettingsSchema = z.object({
   tracking: z
     .object({ opens: z.boolean().default(false), clicks: z.boolean().default(false) })
     .default({ opens: false, clicks: false }),
+  /**
+   * Who may join. `requireMarketingConsent`: only people whose consent (as the
+   * product sent it) the connection accepts for marketing — someone who opts in
+   * later joins then, while the trigger's window still allows it.
+   */
+  entry: z
+    .object({ requireMarketingConsent: z.boolean().default(false) })
+    .default({ requireMarketingConsent: false }),
 });
 export type LifecycleSettings = z.infer<typeof LifecycleSettingsSchema>;
 
@@ -291,6 +299,22 @@ export const LifecycleJourneySchema = z.object({
    * promotion doesn't need a new version.
    */
   abWinners: z.record(z.string(), z.string()).optional(),
+  /**
+   * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
+   * signed up inside the window once the journey can first email everyone (its
+   * mode or the environment's ceiling rose to live). Resumable: the cursor is the
+   * `lastSeenAt` reached. Cleared when it drops below live, so the next go-live
+   * sweeps again.
+   */
+  goLiveSweep: z
+    .object({
+      status: z.enum(["running", "done"]),
+      cursor: z.string().nullable(),
+      enrolled: z.number().int().nonnegative(),
+      updatedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
   /**
    * Waitlist journeys: enrolling the launch's existing signups on the first
    * publish (a launch that never ran on the original engine). Resumable: the

@@ -82,3 +82,27 @@ describe("the product onboarding template", () => {
     expect(items(steps).length).toBeLessThan(5);
   });
 });
+
+describe("planTimeline and marketing consent", () => {
+  const scenario = (consentBasis: "consent" | "none", marketingBases?: Array<"consent">) =>
+    planTimeline({ graph: draft.graph, pools: draft.pools, policy }, SANDBOX_CATALOG, {
+      anchorMs: Date.parse("2026-09-21T09:00:00Z"),
+      tz: "Europe/London",
+      offsetMin: 20,
+      consentBasis,
+      ...(marketingBases ? { marketingBases } : {}),
+    });
+
+  it("shows marketing emails as skipped for someone without consent, and still sends service ones", () => {
+    const steps = scenario("none", ["consent"]);
+    expect(items(steps)).toEqual(["w"]);
+    const skipped = steps.filter((s) => s.kind === "skip" && s.itemId);
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped.every((s) => s.label.endsWith(": no marketing consent"))).toBe(true);
+  });
+
+  it("sends them with consent, and doesn't judge consent at all without the connection's bases", () => {
+    expect(items(scenario("consent", ["consent"])).length).toBeGreaterThan(1);
+    expect(items(scenario("none"))).toEqual(items(scenario("consent")));
+  });
+});

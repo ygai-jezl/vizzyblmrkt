@@ -80,7 +80,8 @@ export interface UserView extends UserState {
 export type SkipReason = "stale_write" | "deleted_later";
 
 export type PatchResponse =
-  | { applied: true; user: UserState }
+  /** `ignoredFields`: profile fields whose value was invalid, so left as they were; the rest applied. */
+  | { applied: true; user: UserState; ignoredFields?: FieldError[] }
   | { applied: false; reason: SkipReason; storedUpdatedAt?: string | null; user?: UserState };
 
 /** What was wrong with one field, e.g. `{ path: "traits.plan", message: "…" }`. */
@@ -98,8 +99,19 @@ export interface BatchResponse {
   applied: number;
   ignored: number;
   failed: number;
-  /** Only the ignored and failed items; applied ones are counted. `index` is the item's position in your array. */
-  results: Array<{ index: number; userId: string | null; status: "ignored" | "failed"; reason: string; fields?: FieldError[] }>;
+  /**
+   * The ignored and failed items, and applied ones whose invalid profile fields were
+   * left as they were (reason `fields_ignored`). `index` is the item's position in your array.
+   */
+  results: Array<{ index: number; userId: string | null; status: "applied" | "ignored" | "failed"; reason: string; fields?: FieldError[] }>;
+}
+
+/** The connection behind your key (`GET /api/v2/me`). */
+export interface MeResponse {
+  connection: { id: string; name: string; environment: "staging" | "production" | null; status: "active" | "paused" | "revoked" };
+  keyId: string;
+  /** A new secret was issued in the last 24 hours; the previous one works until then. */
+  rotating: boolean;
 }
 
 export interface EventResult {
@@ -173,23 +185,34 @@ const MAX_USER_ID = 256;
 /** The longest delay a Node timer accepts. */
 const MAX_TIMER_MS = 2_147_483_647;
 
-/** The API refused a request, or still failed (429, 5xx) after the retries. */
+/**
+ * The API refused a request, or it still failed after the retries: a 429, a 5xx,
+ * or a timeout or network failure (`status` 0, `code` `timeout` or `network_error`).
+ */
 export class YouGrowError extends Error {
-  /** The API's error code (`invalid`, `unauthorized`, `rate_limited`…), or `http_<status>` when the body has none. */
+  /** The API's error code (`invalid`, `unauthorized`, `rate_limited`…), `timeout` or `network_error`, or `http_<status>`. */
   readonly code: string;
   /** For a 400: which fields were wrong, and why. */
   readonly fields?: FieldError[];
+  /**
+   * True for a 429, a 5xx, a timeout or a network failure: trying again later may
+   * work, so a queue or trigger should rethrow it for redelivery. Anything else
+   * (a 400, 401, 404…) won't succeed as it is.
+   */
+  readonly retryable: boolean;
 
   constructor(
     message: string,
     readonly status: number,
     readonly body?: unknown,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = "YouGrowError";
     const b = asRecord(body);
     this.code = typeof b?.error === "string" ? b.error : `http_${status}`;
     if (Array.isArray(b?.fields)) this.fields = b.fields as FieldError[];
+    this.retryable = status === 0 || status === 429 || status >= 500;
   }
 }
 
@@ -252,6 +275,14 @@ export class YouGrow {
     };
   }
 
+  /**
+   * The connection behind your key: its name, environment and status. A credential
+   * check — and a way to catch a key from the wrong environment — before you send.
+   */
+  async me(): Promise<MeResponse> {
+    return (await this.#send("GET", "/api/v2/me")) as MeResponse;
+  }
+
   async #patchMany(items: readonly BatchItem[], opts: BatchOptions = {}): Promise<BatchResponse> {
     if (!Array.isArray(items)) throw new TypeError("YouGrow: users.batch takes an array of { userId, ...patch }");
     const total: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
@@ -293,7 +324,7 @@ export class YouGrow {
         text = await res.text(); // under the same deadline
       } catch (err) {
         // Network error or timeout.
-        if (attempt >= this.#maxRetries) throw err;
+        if (attempt >= this.#maxRetries) throw transportError(err);
         await sleep(this.#retryWait(attempt));
         continue;
       }
@@ -365,6 +396,13 @@ function failureSummary(r: BatchResponse, count: number): string {
 }
 
 /** e.g. "YouGrow API 400 invalid: traits.plan: …". */
+/** A timeout or network failure that outlasted the retries: status 0, retryable, the original error as `cause`. */
+function transportError(err: unknown): YouGrowError {
+  const code = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError") ? "timeout" : "network_error";
+  const detail = err instanceof Error ? err.message : String(err);
+  return new YouGrowError(`YouGrow API ${code}: ${detail}`, 0, { error: code }, { cause: err });
+}
+
 function apiError(status: number, body: unknown): YouGrowError {
   const b = asRecord(body);
   const fields = Array.isArray(b?.fields) ? (b.fields as FieldError[]) : [];

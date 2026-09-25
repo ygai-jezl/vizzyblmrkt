@@ -204,8 +204,18 @@ describe("retries and timeouts", () => {
     expect(down.calls).toHaveLength(4); // 1 + 3 retries
 
     const offline = fakeApi(networkError);
-    await expect(client(offline.fetch, { maxRetries: 1 }).users.update("u1", {})).rejects.toThrow("fetch failed");
+    const err = await client(offline.fetch, { maxRetries: 1 }).users.update("u1", {}).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(YouGrowError);
+    expect(err).toMatchObject({ status: 0, code: "network_error", retryable: true, message: "YouGrow API network_error: fetch failed" });
+    expect((err as Error).cause).toBeInstanceOf(TypeError);
     expect(offline.calls).toHaveLength(2);
+  });
+
+  it("says whether an error is worth retrying later", async () => {
+    const fail = async (status: number) =>
+      (await client(fakeApi(reply(status, { error: "x" })).fetch, { maxRetries: 0 }).users.update("u1", {}).catch((e: unknown) => e)) as YouGrowError;
+    for (const status of [429, 500, 503]) expect((await fail(status)).retryable).toBe(true);
+    for (const status of [400, 401, 404, 413]) expect((await fail(status)).retryable).toBe(false);
   });
 
   it("honours Retry-After on a 429, capped at maxRetryWaitMs, then succeeds", async () => {
@@ -250,7 +260,7 @@ describe("retries and timeouts", () => {
         }),
     );
     const started = Date.now();
-    await expect(client(fetch, { timeoutMs: 40, maxRetries: 2 }).users.update("u1", {})).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(client(fetch, { timeoutMs: 40, maxRetries: 2 }).users.update("u1", {})).rejects.toMatchObject({ name: "YouGrowError", status: 0, code: "timeout", retryable: true });
     expect(Date.now() - started).toBeGreaterThanOrEqual(3 * 40 - 10);
     expect(calls).toHaveLength(3);
     expect(calls.every((c) => c.signal?.aborted)).toBe(true);
@@ -388,6 +398,14 @@ describe("users.get, users.delete and events.track", () => {
     expect(calls[0]!.headers).toEqual({ authorization: BASIC, accept: "application/json" });
     await expect(yg.users.get("u2")).resolves.toBeNull();
     await expect(yg.users.get("u3")).rejects.toMatchObject({ name: "YouGrowError", status: 404, code: "http_404" });
+  });
+
+  it("reads the connection behind the key with me()", async () => {
+    const me = { connection: { id: "pcn_1", name: "Acme", environment: "production", status: "active" }, keyId: KEY_ID, rotating: false };
+    const { fetch, calls } = fakeApi(reply(200, me));
+    expect(await client(fetch).me()).toEqual(me);
+    expect(calls[0]).toMatchObject({ url: "https://yougrow.ai/api/v2/me", method: "GET" });
+    expect(calls[0]!.headers.authorization).toBe(BASIC);
   });
 
   it("deletes a user (204), as often as you like", async () => {

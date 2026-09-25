@@ -184,6 +184,8 @@ export interface PlanScenario {
   facts?: Record<string, string | number | boolean>;
   traits?: Record<string, string | number | boolean | null>;
   consentBasis?: ConsentBasis;
+  /** The bases the connection accepts for marketing: given, marketing emails without one show as skipped. */
+  marketingBases?: ConsentBasis[];
 }
 
 export interface PlannedStep {
@@ -254,6 +256,12 @@ export function planTimeline(
       continue;
     }
     if (d.kind === "send") {
+      const basis = scenario.consentBasis ?? "consent";
+      if (scenario.marketingBases && d.item.messageClass === "marketing" && !scenario.marketingBases.includes(basis)) {
+        out.push({ atMs: r.state.nowMs, kind: "skip", nodeId: d.nodeId, poolId: d.pool.id, itemId: d.item.id, label: `${d.item.label}: no marketing consent` });
+        state = afterSkip(r.state, d);
+        continue;
+      }
       out.push({ atMs: r.state.nowMs, kind: "send", nodeId: d.nodeId, poolId: d.pool.id, itemId: d.item.id, label: d.item.label });
       state = afterSend(r.state, d, r.state.nowMs, "sent");
       continue;

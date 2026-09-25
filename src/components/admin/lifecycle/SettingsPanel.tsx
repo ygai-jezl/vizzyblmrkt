@@ -13,6 +13,8 @@ import { Badge, Field, Section, inputClass } from "../connect/ui";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const RESERVED = ["user.signed_up", "onboarding.completed"];
+/** Derived by YouGrow from the consent a product sends (LIFECYCLE_CONSENT_AT_SEND). */
+const CONSENT_GRANTED = "user.marketing_consent_granted";
 
 export function SettingsPanel({
   settings,
@@ -21,6 +23,7 @@ export function SettingsPanel({
   readOnly,
   onChange,
   waitlist = null,
+  consentAtSend = false,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -28,10 +31,13 @@ export function SettingsPanel({
   readOnly: boolean;
   onChange: (next: LifecycleSettings) => void;
   waitlist?: { launchId: string; launchName: string } | null;
+  /** Consent decides marketing: the consent-only setting and the opt-in trigger. */
+  consentAtSend?: boolean;
 }) {
   const p = settings.sendPolicy;
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
-  const events = [...new Set([...RESERVED, ...(catalog?.events ?? []).map((e) => e.name)])];
+  const events = [...new Set([...RESERVED, ...(consentAtSend ? [CONSENT_GRANTED] : []), ...(catalog?.events ?? []).map((e) => e.name)])];
+  const entry = settings.entry ?? { requireMarketingConsent: false };
   const time = `${String(p.startHour).padStart(2, "0")}:${String(p.startMinute).padStart(2, "0")}`;
   const endMin = p.startHour * 60 + p.startMinute + p.windowMinutes;
   const tooLate = endMin > 24 * 60;
@@ -120,6 +126,23 @@ export function SettingsPanel({
             />
           </Field>
         </div>
+        {consentAtSend ? (
+          <label className="mt-3 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              disabled={readOnly}
+              checked={entry.requireMarketingConsent}
+              onChange={(e) => onChange({ ...settings, entry: { ...entry, requireMarketingConsent: e.target.checked } })}
+            />
+            <span>
+              Only people with marketing consent
+              <span className="block text-xs text-neutral-500">
+                Uses the consent your product sends. Someone who opts in while the event is still recent enough joins then, from the start.
+              </span>
+            </span>
+          </label>
+        ) : null}
       </Section>
 
       <Section title="Send window" description="Emails only go out in this window, in each person's own timezone, at a steady minute that's theirs. Nothing is ever sent late.">

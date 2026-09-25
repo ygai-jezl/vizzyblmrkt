@@ -587,6 +587,24 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Consent at send time (see apphosting.yaml) stays off until it's verified on
+  # dev. It has to be set: this file only overrides apphosting.yaml.
+  - variable: LIFECYCLE_CONSENT_AT_SEND
+    value: "false"
+    availability:
+      - RUNTIME
+  # The go-live sweep (see apphosting.yaml) stays off until it's verified on dev;
+  # run scripts/count-mode-holds.ts against prod before switching it on.
+  - variable: LIFECYCLE_GO_LIVE_SWEEP
+    value: "false"
+    availability:
+      - RUNTIME
+  # The email.suppressed webhook (see apphosting.yaml) stays off until it's
+  # verified on dev.
+  - variable: CONNECT_SUPPRESSION_WEBHOOK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
   # Google Analytics — ON in prod (owner decision, 2026-09-24): `/`, `/login` and
   # `/developers` only, with Consent Mode v2 (denied by default in the EEA, UK and

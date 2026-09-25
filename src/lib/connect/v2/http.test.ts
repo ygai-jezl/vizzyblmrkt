@@ -327,6 +327,48 @@ describe("the opt-in trigger through the API (LIFECYCLE_CONSENT_AT_SEND)", () =>
   });
 });
 
+describe("what the Events tab shows for API v2", () => {
+  const rows = async (w: Awaited<ReturnType<typeof setup>>) => forTenant(ctxA, w.db).productEvents.find({ limit: 50 });
+  const rejections = async (w: Awaited<ReturnType<typeof setup>>) =>
+    (await forTenant(ctxA, w.db).connectionDiagnostics.getById(w.connection.id))?.recentRejections ?? [];
+
+  it("keeps a row for a write that changed nothing, and no user id for one older than a deletion", async () => {
+    const w = await setup();
+    await w.patch("u_1", { firstName: "New", updatedAt: "2026-09-25T11:00:00Z" });
+    await w.patch("u_1", { firstName: "Old", updatedAt: "2026-09-25T10:00:00Z" });
+    expect((await rows(w)).filter((e) => !e.applied)).toMatchObject([{ externalUserId: "u_1", skipped: "stale_write" }]);
+    await w.patch("u_2", { firstName: "Sam" });
+    await w.del("u_2");
+    await w.patch("u_2", { firstName: "Late", updatedAt: "2026-09-25T11:00:00Z" });
+    const late = (await rows(w)).find((e) => e.skipped === "deleted_later");
+    expect(late).toMatchObject({ applied: false, externalUserId: "", productUserId: "", payload: {} });
+  });
+
+  it("keeps a row for each erasure, without the user id, and still erases the user's own rows", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "a@example.com" });
+    await w.del("u_1");
+    const r = await rows(w);
+    expect(r.some((e) => e.externalUserId === "u_1")).toBe(false);
+    expect(r).toMatchObject([{ type: "erase", externalUserId: "", productUserId: "", applied: true }]);
+  });
+
+  it("lists 400s among the rejections, by field path and never by value", async () => {
+    const w = await setup();
+    expect((await w.patch("u_1", { subscribed: "yes-please" })).status).toBe(400);
+    expect((await w.patch("u_1", "{not json")).status).toBe(400);
+    const reasons = (await rejections(w)).map((x) => x.reason);
+    expect(reasons).toEqual(expect.arrayContaining([expect.stringMatching(/^PATCH: invalid: subscribed/), "PATCH: invalid JSON"]));
+    expect(JSON.stringify(reasons)).not.toContain("yes-please");
+  });
+
+  it("notes the profile fields it left as they were", async () => {
+    const w = await setup();
+    await w.patch("u_1", { timezone: "Mars/Olympus", firstName: "Alex" });
+    expect(await rows(w)).toMatchObject([{ applied: true, payload: { firstName: "Alex" }, ignoredFields: ["timezone"] }]);
+  });
+});
+
 describe("erasure cascade", () => {
   it("removes AI drafts, unlinks invites, and keeps opt-outs working without the address", async () => {
     const w = await setup();

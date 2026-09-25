@@ -14,7 +14,8 @@ export const ProductEventSchema = z.object({
   productUserId: z.string(),
   externalUserId: z.string(),
   messageId: z.string(),
-  type: z.enum(["identify", "track"]),
+  /** `erase`: an API v2 DELETE (no user id kept). */
+  type: z.enum(["identify", "track", "erase"]),
   /** Track only. */
   event: z.string().nullable().optional(),
   /** Track properties or identify traits (≤4 KB serialised). */
@@ -24,6 +25,10 @@ export const ProductEventSchema = z.object({
   receivedAt: z.string(),
   /** False when it changed nothing (e.g. an identify older than the latest). */
   applied: z.boolean(),
+  /** API v2: why a write changed nothing — YouGrow held something newer. */
+  skipped: z.enum(["stale_write", "deleted_later"]).nullable().optional(),
+  /** API v2: profile fields whose invalid value was left as it was. */
+  ignoredFields: z.array(z.string()).optional(),
   ttlAt: z.unknown().optional(),
 });
 export type ProductEvent = z.infer<typeof ProductEventSchema>;

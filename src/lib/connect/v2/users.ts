@@ -71,6 +71,7 @@ async function writeUser(
   patch: UserPatch,
   nowMs: number,
   db?: FirestoreLike,
+  ignoredFields: string[] = [],
 ): Promise<WriteOutcome> {
   const now = new Date(nowMs).toISOString();
   const userDocId = productUserDocId(connection.id, userId);
@@ -85,22 +86,31 @@ async function writeUser(
       mutate: (current) => {
         seen = current;
         result = applyUserPatch(current, userId, patch, { connection, nowMs });
-        // A skipped or invalid write changes nothing — not even the Events tab.
-        return "next" in result ? { next: result.next, applied: true } : { reject: "not_applied" };
+        if ("next" in result) return { next: result.next, applied: true };
+        // A skipped write changes nothing but leaves a row, so the Events tab shows it
+        // arrived. An invalid one changes nothing at all (it's a 400, in rejections).
+        return "skipped" in result ? { next: null, applied: false } : { reject: "not_applied" };
       },
-      buildEvent: (wasApplied) => ({
-        connectionId: connection.id,
-        productUserId: userDocId,
-        externalUserId: userId,
-        messageId,
-        type: "identify",
-        event: null,
-        payload: eventPayload(patch),
-        timestamp: now,
-        receivedAt: now,
-        applied: wasApplied,
-        ttlAt: new Date(nowMs + EVENT_TTL_MS),
-      }),
+      buildEvent: (wasApplied) => {
+        const skipped = result && "skipped" in result ? result.skipped : null;
+        // After an erasure, a late write keeps no user id or data, only that it came.
+        const erased = skipped === "deleted_later";
+        return {
+          connectionId: connection.id,
+          productUserId: erased ? "" : userDocId,
+          externalUserId: erased ? "" : userId,
+          messageId,
+          type: "identify",
+          event: null,
+          payload: erased ? {} : eventPayload(patch),
+          timestamp: now,
+          receivedAt: now,
+          applied: wasApplied,
+          ...(skipped ? { skipped } : {}),
+          ...(ignoredFields.length ? { ignoredFields } : {}),
+          ttlAt: new Date(nowMs + EVENT_TTL_MS),
+        };
+      },
     },
     db,
   );
@@ -172,9 +182,10 @@ export async function patchUser(
   userId: string,
   patch: UserPatch,
   deps: V2Deps = {},
+  opts: { ignoredFields?: string[] } = {},
 ): Promise<PatchResponse | { invalid: Array<{ path: string; message: string }> }> {
   const nowMs = deps.nowMs ?? Date.now();
-  const w = await writeUser(ctx, connection, userId, patch, nowMs, deps.db);
+  const w = await writeUser(ctx, connection, userId, patch, nowMs, deps.db, opts.ignoredFields);
   if (w.kind === "invalid") {
     await afterWrites(ctx, connection, [], [{ index: 0, messageId: null, reason: reasonOf(w.fields) }], nowMs, deps.db);
     return { invalid: w.fields };
@@ -217,7 +228,7 @@ export async function patchBatch(
       continue;
     }
     try {
-      const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db);
+      const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db, parsed.ignoredFields.map((f) => f.path));
       if (w.kind === "applied") {
         out.applied += 1;
         writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted });
@@ -289,6 +300,42 @@ export async function deleteUser(
   }
   await eraseProductUserHistory(ctx, id, deps.db);
   if (user?.status === "active" && user.emailNormalized) await scrubSuppressionEmails(ctx, user.emailNormalized, deps.db);
+  // The Events tab shows that an erasure arrived — without the user id.
+  const messageId = `v2:erase:${randomUUID()}`;
+  const now = new Date(nowMs).toISOString();
+  await repo.productEvents
+    .create(productEventDocId(connection.id, messageId), {
+      connectionId: connection.id,
+      productUserId: "",
+      externalUserId: "",
+      messageId,
+      type: "erase",
+      event: null,
+      payload: {},
+      timestamp: now,
+      receivedAt: now,
+      applied: true,
+      ttlAt: new Date(nowMs + EVENT_TTL_MS),
+    })
+    .catch((err) => {
+      console.warn(`[api-v2] erase row failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    });
+}
+
+/**
+ * A request refused with a 400 before any write, for the Events tab's rejections
+ * (`what` names the call). Field paths and messages only, never values. Never throws.
+ */
+export async function recordRejected(
+  ctx: TenantContext,
+  connection: ProductConnection,
+  what: string,
+  fields: Array<{ path: string; message: string }> | null,
+  nowMs: number,
+  db?: FirestoreLike,
+): Promise<void> {
+  const reason = `${what}: ${fields ? reasonOf(fields) : "invalid JSON"}`.slice(0, 300);
+  await afterWrites(ctx, connection, [], [{ index: 0, messageId: null, reason }], nowMs, db).catch(() => undefined);
 }
 
 /** POST /api/v2/users/{userId}/events — a milestone for a user YouGrow already holds. */

@@ -283,9 +283,9 @@ export async function enrolByHand(
     const conn = await repo.productConnections.getById(journey.connectionId);
     const isSandboxUser = conn?.kind === "sandbox" && conn.sandbox?.users.some((u) => u.userId === parsed.data.userId);
     if (!conn || !isSandboxUser) return fail(404, "user_not_found");
-    // The ingest handler only needs a URL to build the Request; no origin is trusted.
-    const sent = await fireSandboxEvent(ctx, conn, parsed.data.userId, { kind: "identify" }, { db, nowMs, origin: "https://sandbox.internal" });
-    if (sent.status !== 202) return fail(409, "sandbox_send_failed", JSON.stringify(sent.body).slice(0, 200));
+    // The Sandbox sends the test user's state first, through the real API v2 write path.
+    const sent = await fireSandboxEvent(ctx, conn, parsed.data.userId, { kind: "identify" }, { db, nowMs });
+    if (sent.status !== 200) return fail(409, "sandbox_send_failed", JSON.stringify(sent.body).slice(0, 200));
     user = await repo.productUsers.getById(userDocId);
     if (!user) return fail(404, "user_not_found");
   }

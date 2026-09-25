@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
+import { DOC_PAGES, hasMarkdown } from "./docs";
 
 /**
  * The developer docs as Markdown, for coding agents. It walks the SAME element
@@ -160,12 +161,13 @@ function link(text: string, href: string, ctx: Ctx): string {
   return !text || text === url ? `<${url}>` : `[${text}](${url})`;
 }
 
+/** Docs pages with a Markdown twin. Others (the API reference) and files like llms-full.txt or schema/*.json stay as they are. */
+const TWINS = new Set(DOC_PAGES.filter(hasMarkdown).map((p) => p.path));
+
 function absolute(href: string, ctx: Ctx): string {
   if (!href.startsWith("/")) return href;
   const path = href.split("#")[0]!;
-  // Another docs page → its Markdown twin (files like llms-full.txt or schema/*.json stay as they are).
-  const isPage = (path === "/developers" || path.startsWith("/developers/")) && !/\.[a-z]+$/i.test(path);
-  return isPage ? `${ctx.origin}${path}.md` : `${ctx.origin}${href}`;
+  return TWINS.has(path) ? `${ctx.origin}${path}.md` : `${ctx.origin}${href}`;
 }
 
 function codeSpan(s: string): string {

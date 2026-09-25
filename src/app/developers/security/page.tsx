@@ -5,40 +5,51 @@ export default function SecurityDocs() {
   const origin = docsOrigin();
   return (
     <article>
-      <H1>Signing &amp; verifying</H1>
+      <H1>Authentication</H1>
       <Lead>
-        Two directions, two mechanisms. What <em>you</em> send us is signed with your connection&apos;s secret. What{" "}
-        <em>we</em> send you is signed with YouGrow&apos;s own key, which you verify with our published public keys —
-        so nothing you store could ever be used to impersonate YouGrow.
+        Two directions, two mechanisms. When <em>you</em> call us, you authenticate with your connection&apos;s key id and
+        secret. What <em>we</em> send you is signed with YouGrow&apos;s own key, which you verify with our published public
+        keys — so nothing you store could ever be used to impersonate YouGrow.
       </Lead>
 
       <H2 id="keys">Your key id and secret</H2>
       <UL>
-        <li><strong>Key id</strong> (<C>ygk_…</C>) — public. It identifies your connection, and it&apos;s the audience of our tokens.</li>
+        <li>
+          <strong>Key id</strong> (<C>ygk_…</C>) — public. It identifies your connection: it&apos;s your username for the API,
+          and the audience of our tokens.
+        </li>
         <li>
           <strong>Secret</strong> (<C>ygs_…</C>) — shown once when you create the connection. Keep it in your
           server&apos;s secret manager. Never put it in source control, a browser, a mobile app or logs.
         </li>
         <li>
-          <strong>Rotating:</strong> Settings → Rotate secret issues a new one; the old one keeps working for 24 hours
-          so you can deploy without downtime. If a secret may have leaked, rotate immediately.
+          <strong>Rotating:</strong> Settings → Rotate secret issues a new one. The previous secret keeps working for 24
+          hours, so you can deploy the new one without downtime. If a secret may have leaked, rotate immediately.
         </li>
       </UL>
 
-      <H2 id="signing-events">Signing events you send</H2>
-      <Code>{`timestamp = current unix time in seconds
-signature = hex( HMAC-SHA256( secret, "events:" + timestamp + "." + rawBody ) )
+      <H2 id="authenticating">Authenticating your requests</H2>
+      <P>
+        Every request to the API uses HTTP Basic auth over HTTPS: your key id is the username and your secret is the
+        password.
+      </P>
+      <Code>{`Authorization: Basic <base64 of "<key id>:<secret>">
 
-X-YouGrow-Key-Id:    <key id>
-X-YouGrow-Timestamp: <timestamp>
-X-YouGrow-Signature: v1=<signature>`}</Code>
+curl -u "$YOUGROW_KEY_ID:$YOUGROW_SECRET" ${origin}/api/v2/users/user_123`}</Code>
       <UL>
-        <li>Sign the exact bytes you send — serialize the JSON once and send that string.</li>
-        <li>We refuse timestamps more than 5 minutes from our clock; keep your server&apos;s clock in sync.</li>
         <li>
-          During a rotation you may send several signatures separated by commas (<C>v1=…,v1=…</C>); one valid
-          signature is enough.
+          Most HTTP clients build the header for you: <C>curl -u</C>, <C>{`requests.patch(…, auth=(key_id, secret))`}</C>,
+          or the Node SDK from <C>keyId</C> and <C>secret</C>.
         </li>
+        <li>
+          There&apos;s nothing to sign and no clock to keep in sync. HTTPS protects the request, and every write is
+          idempotent, so a retry is harmless.
+        </li>
+        <li>
+          A missing or wrong key id or secret gets <C>401</C> — as does a revoked connection. During a rotation, the
+          previous secret works for 24 hours.
+        </li>
+        <li>Send it from your server only. Anyone with the secret can change your users&apos; state.</li>
       </UL>
 
       <H2 id="verifying">Verifying our requests</H2>
@@ -147,9 +158,8 @@ async context(@Req() req: RawBodyRequest<Request>) {
 
       <H2 id="vectors">Test vectors</H2>
       <P>
-        <a className="underline" href="/developers/test-vectors.json">test-vectors.json</a> holds reference HMAC
-        signatures and ES256 tokens (with the public key that verifies them) so you can check your implementation in any
-        language. The same file ships in the SDK package as <C>test/vectors.json</C>.
+        <a className="underline" href="/developers/test-vectors.json">test-vectors.json</a> holds reference ES256 tokens,
+        with the public key that verifies them, so you can check your verification in any language. The same file ships in the SDK package as <C>test/vectors.json</C>.
       </P>
     </article>
   );

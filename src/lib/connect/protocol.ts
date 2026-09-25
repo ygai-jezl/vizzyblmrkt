@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
   ConsentBasis,
@@ -8,38 +7,25 @@ import {
 } from "@/lib/types/productConnection";
 
 /**
- * The product-connection wire protocol — ONE module shared by the ingest API,
- * the context client and the webhook sender. The Node SDK (sdk/node) implements
- * the same checks independently; both are pinned by the shared test vectors in
- * sdk/node/test/vectors.json.
+ * The product-connection protocol shared by the platform's internals, the
+ * context client and the webhook sender. What a product calls — API v2 — lives
+ * in ./v2/contract.ts (HTTP Basic auth, state writes).
  *
- * Product → platform (events) is signed with the connection's SECRET:
- *   X-YouGrow-Key-Id:    the connection's public key id
- *   X-YouGrow-Timestamp: unix seconds
- *   X-YouGrow-Signature: v1=<hex HMAC-SHA256(secret, `events:${timestamp}.${rawBody}`)>
- * The timestamp bounds replay to ±5 minutes, and ingest messageIds make an
- * in-window replay a no-op.
+ * Platform → product (context pulls, webhooks) carries a JWT signed with the
+ * platform's own KMS key, verified against our published JWKS (outboundToken.ts),
+ * so nothing a product holds can be used to forge our requests. The Node SDK
+ * implements the same checks independently; both are pinned by the shared test
+ * vectors in sdk/node/test/vectors.json.
  *
- * Platform → product (context pulls, webhooks) is NOT signed with that secret:
- * it carries a JWT signed with the platform's own KMS key, verified against our
- * published JWKS (outboundToken.ts). So the secrets we store can only ever
- * authenticate events INTO the platform — never requests to a product.
+ * (v1's per-request HMAC signing of POST /api/v1/events was removed with v1 on
+ * 2026-09-25.)
  */
 
+/** Sent on context pulls and webhooks: which connection the request is for. */
 export const HEADER_KEY_ID = "x-yougrow-key-id";
-export const HEADER_TIMESTAMP = "x-yougrow-timestamp";
-export const HEADER_SIGNATURE = "x-yougrow-signature";
-
-/** HMAC signing covers product → platform only (see above). */
-export type SignDirection = "events";
-
-/** Accepted clock skew between signer and verifier. */
-export const SIGNATURE_TOLERANCE_SEC = 300;
 
 export const LIMITS = {
-  /** Ingest request body. */
-  maxBodyBytes: 512 * 1024,
-  /** Messages per ingest request. */
+  /** Messages per internal batch. */
   maxBatch: 100,
   /** One message's traits/properties, serialised. */
   maxPayloadBytes: 4 * 1024,
@@ -50,80 +36,6 @@ export const LIMITS = {
   /** How far in the future a message timestamp may be. */
   maxFutureSkewMs: 24 * 3600_000,
 } as const;
-
-// ---- Signing -----------------------------------------------------------------
-
-export function signBody(
-  secret: string,
-  direction: SignDirection,
-  timestampSec: number,
-  rawBody: string,
-): string {
-  const mac = createHmac("sha256", secret)
-    .update(`${direction}:${timestampSec}.${rawBody}`)
-    .digest("hex");
-  return `v1=${mac}`;
-}
-
-/** The three auth headers (plus content-type) for an outbound signed request. */
-export function signedHeaders(
-  keyId: string,
-  secret: string,
-  direction: SignDirection,
-  rawBody: string,
-  nowMs = Date.now(),
-): Record<string, string> {
-  const ts = Math.floor(nowMs / 1000);
-  return {
-    "content-type": "application/json",
-    [HEADER_KEY_ID]: keyId,
-    [HEADER_TIMESTAMP]: String(ts),
-    [HEADER_SIGNATURE]: signBody(secret, direction, ts, rawBody),
-  };
-}
-
-export type VerifyFailure =
-  | "missing_signature"
-  | "bad_timestamp"
-  | "stale_timestamp"
-  | "bad_signature";
-
-export type VerifyResult = { ok: true } | { ok: false; reason: VerifyFailure };
-
-/**
- * Verify a signed request against any of `secrets` (current + a rotating-out
- * previous one). Constant-time comparison. The header may carry several
- * comma-separated `v1=` values (a signer mid-rotation can sign with both).
- */
-export function verifySignature(input: {
-  secrets: string[];
-  direction: SignDirection;
-  timestamp: string | null;
-  signature: string | null;
-  rawBody: string;
-  nowMs?: number;
-  toleranceSec?: number;
-}): VerifyResult {
-  if (!input.timestamp || !input.signature) return { ok: false, reason: "missing_signature" };
-  if (!/^\d{1,12}$/.test(input.timestamp)) return { ok: false, reason: "bad_timestamp" };
-  const ts = Number(input.timestamp);
-  const nowSec = Math.floor((input.nowMs ?? Date.now()) / 1000);
-  if (Math.abs(nowSec - ts) > (input.toleranceSec ?? SIGNATURE_TOLERANCE_SEC)) {
-    return { ok: false, reason: "stale_timestamp" };
-  }
-  const provided = input.signature
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.startsWith("v1="))
-    .map((s) => Buffer.from(s));
-  for (const secret of input.secrets) {
-    const expected = Buffer.from(signBody(secret, input.direction, ts, input.rawBody));
-    for (const p of provided) {
-      if (p.length === expected.length && timingSafeEqual(p, expected)) return { ok: true };
-    }
-  }
-  return { ok: false, reason: "bad_signature" };
-}
 
 // ---- Ingest messages -----------------------------------------------------------
 
@@ -166,9 +78,6 @@ export type IngestMessage = z.infer<typeof IngestMessageSchema>;
 export type IdentifyMessage = z.infer<typeof IdentifyMessageSchema>;
 export type TrackMessage = z.infer<typeof TrackMessageSchema>;
 
-export const IngestBodySchema = z.object({
-  batch: z.array(z.unknown()).min(1),
-});
 
 /** Events the platform gives meaning to (any other event is a plain milestone). */
 export const RESERVED_EVENTS = {

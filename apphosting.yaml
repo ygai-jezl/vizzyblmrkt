@@ -566,7 +566,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  - variable: LIFECYCLE_INGEST_ENABLED
+  # API v2 (/api/v2/users…): the state-based product API. It replaced v1's
+  # /api/v1/events, removed on 2026-09-25 with its LIFECYCLE_INGEST_ENABLED flag.
+  # "false" in prod (apphosting.prod.yaml) until verified here, then turned on
+  # there with a chore(prod) change.
+  - variable: API_V2_ENABLED
     value: "true"
     availability:
       - RUNTIME

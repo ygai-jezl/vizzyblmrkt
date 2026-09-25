@@ -6,14 +6,18 @@ export default function ContextEndpointDocs() {
     <article>
       <H1>The context endpoint</H1>
       <Lead>
-        Just before YouGrow emails one of your users, it asks your server for that person&apos;s current state. Your
-        answer decides which branch of the journey they take, fills in their checklist and next step, and supplies
-        the true facts an email may mention.
+        Optional. When you set one, YouGrow asks your server for a user&apos;s live state just before it emails them. Your
+        answer decides which branch of the journey they take, fills in their checklist and next step, and supplies the
+        true facts an email may mention.
       </Lead>
       <Note>
-        Why ask, rather than rely on events alone? Events tell us what happened; the context endpoint tells us what&apos;s{" "}
-        <em>true right now</em> — including numbers only your product knows. It&apos;s also how your product keeps the
-        final say: you can hold or stop email for anyone, at the moment it would be sent.
+        <strong>You may not need one.</strong> Journeys run on the state you{" "}
+        <Link className="underline" href="/developers/users">
+          send
+        </Link>{" "}
+        — steps and facts included. A context endpoint is for what&apos;s <em>true right now</em>: numbers that change too
+        fast to send, and insight sentences only your product can write. It&apos;s also how your product keeps the final
+        say: you can hold or stop email for anyone, at the moment it would be sent.
       </Note>
 
       <H2 id="setup">What you need in place</H2>
@@ -44,6 +48,7 @@ export default function ContextEndpointDocs() {
       </OL>
 
       <H2 id="when">When we call it</H2>
+      <P>Only while a context endpoint is set and switched on in your connection&apos;s Settings.</P>
       <Fields
         rows={[
           ["send", "", "When a journey is about to act for this user — take a branch or send an email. This is the call that matters most."],
@@ -71,7 +76,7 @@ X-YouGrow-Key-Id: <your key id>
 }`}</Code>
       <Fields
         rows={[
-          ["userId", "string", "Your own id for the user — the userId you send in events."],
+          ["userId", "string", "Your own id for the user — the userId you use in the API."],
           ["purpose", "string", <><C>send</C>, <C>prepare</C> or <C>test</C>. You can answer them all the same way.</>],
           ["journeyId / nodeId", "string?", "Which journey and step is asking — useful in your logs."],
           ["requestId", "string", <>Unique per request; it&apos;s also the token&apos;s <C>jti</C>.</>],
@@ -80,8 +85,8 @@ X-YouGrow-Key-Id: <your key id>
 
       <H2 id="response">The response</H2>
       <P>
-        Reply <C>200</C> with JSON — at most 64 KB, within your configured timeout (5 seconds at most). Only{" "}
-        <C>asOf</C> is required; send what you have.
+        Reply <C>200</C> with JSON — at most 64 KB, within your configured timeout (2 seconds by default, 5 at most).
+        Only <C>asOf</C> is required; send what you have.
       </P>
       <Code>{`{
   "asOf": "2026-09-23T10:00:00Z",
@@ -104,9 +109,9 @@ X-YouGrow-Key-Id: <your key id>
       <H3>steps — the onboarding checklist (up to 20)</H3>
       <Fields
         rows={[
-          ["id", "string", <>Your step id — the same ids as your catalog and <C>onboarding.step_completed</C> events. Lower-case letters, digits, <C>_</C>, <C>-</C>.</>],
+          ["id", "string", <>Your step id — the same ids as your catalog and the <C>steps</C> you send. Lower-case letters, digits, <C>_</C>, <C>-</C>.</>],
           ["label", "string", "What the user sees, ≤ 120 chars."],
-          ["done", "boolean", "Whether it's done now. This overrides what events said, so journeys follow the live state."],
+          ["done", "boolean", "Whether it's done now. This overrides the steps you've sent, so journeys follow the live state."],
           ["doneAt", "string?", "When it was done (ISO 8601 with a timezone)."],
           ["url", "string?", "A deep link that completes the step — https, on your allowed link domains."],
           ["blocked", "string?", "If the user can't do this step yet, why (≤ 200 chars)."],
@@ -120,7 +125,7 @@ X-YouGrow-Key-Id: <your key id>
         rows={[
           ["id", "string", <>Stable id, ≤ 64 chars. List the ids you send in your catalog&apos;s <strong>Facts</strong> — Test connection warns about any it doesn&apos;t know.</>],
           ["label", "string", "What the number is, ≤ 120 chars."],
-          ["value", "number | string | boolean", "The value (strings ≤ 200). Journeys can branch on it: fact.<id>."],
+          ["value", "number | string | boolean", "The value (strings ≤ 200). Journeys can branch on it: fact.<id>. It overrides the value you've sent."],
           ["unit", "string?", <>E.g. <C>%</C>, ≤ 20 chars.</>],
           ["display", "string?", <>How to show it, e.g. <C>12%</C>.</>],
           ["source / observedAt", "string?", "Where it came from and when — shown to your team when they review drafts."],
@@ -146,18 +151,22 @@ X-YouGrow-Key-Id: <your key id>
       <H3>consent, hold and exit — your product has the final say</H3>
       <Fields
         rows={[
-          ["consent", "object?", <><C>basis</C> (<C>consent</C>, <C>soft_opt_in</C>, <C>corporate_subscriber</C>, <C>none</C>) and optional <C>categories</C> (e.g. <C>{`{"onboarding": false}`}</C>). Overrides what events said.</>],
+          ["consent", "object?", <><C>basis</C> (<C>consent</C>, <C>soft_opt_in</C>, <C>corporate_subscriber</C>, <C>none</C>) and optional <C>categories</C> (e.g. <C>{`{"onboarding": false}`}</C>). Overrides the consent you&apos;ve sent.</>],
           ["hold", "object?", <><C>{`{ "reason": "…", "until": "<ISO time>" }`}</C> — don&apos;t email yet (e.g. their data is still loading). We check again at <C>until</C> — 6 hours if you don&apos;t say, never more than 24 hours.</>],
-          ["exit", "object?", <><C>{`{ "reason": "…" }`}</C> — stop all lifecycle email for this user: staff accounts, invited team members, accounts pending deletion, anyone who shouldn&apos;t get it.</>],
+          ["exit", "object?", <><C>{`{ "reason": "…" }`}</C> — stop all lifecycle email for this user: staff accounts, invited team members, accounts pending deletion, anyone who shouldn&apos;t get it. For people you know about in advance, <C>excluded</C> in their state does the same without an endpoint.</>],
         ]}
       />
 
       <H2 id="failures">Failures and timeouts</H2>
       <UL>
         <li>
-          If your endpoint errors, times out, or returns something invalid, the email still goes out using what events
-          told us — without the insight block — and conditions use the steps from your events. Unknown data never
-          matches a branch, so people fall to each branch&apos;s safe default.
+          If your endpoint errors, times out, or returns something invalid, the email still goes out using the state
+          you&apos;ve sent — without the insight block — and conditions use your stored steps and facts. Unknown data
+          never matches a branch, so people fall to each branch&apos;s safe default.
+        </li>
+        <li>
+          After 3 failures in a row we stop asking for 15 minutes and use the stored state; then we try again. So a slow
+          or broken endpoint never holds up your journeys.
         </li>
         <li>Links that aren&apos;t https on your allowed link domains are removed; the rest of the response is kept.</li>
         <li>

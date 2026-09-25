@@ -13,7 +13,7 @@ import {
 } from "./adminApi";
 import { enrolmentDocId } from "./enrol";
 import { createConnection } from "@/lib/connect/keys";
-import { __resetIngestCaches } from "@/lib/connect/ingestHttp";
+import { __resetConnectionCaches as __resetIngestCaches } from "@/lib/connect/connectionAuth";
 import { productUserDocId } from "@/lib/connect/profile";
 import { SANDBOX_CATALOG } from "@/lib/connect/sandbox";
 import { processEnrolment } from "./runner";
@@ -54,7 +54,7 @@ describe("lifecycle admin API", () => {
     const r = await getJourneyDetail(ctx, journey.id, db);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
-      connection: { id: CONNECTION_ID, contextConfigured: false },
+      connection: { id: CONNECTION_ID, contextConfigured: true },
       version: { version: 1 },
       issues: [],
       sender: { verified: true, fromEmail: "jez@sandbox.test" },
@@ -133,9 +133,8 @@ describe("lifecycle admin API", () => {
     expect((await journeyAnalytics(other, journey.id, db)).status).toBe(404);
   });
 
-  it("enrols a Sandbox test user the Sandbox hasn't sent yet, via the real ingest path", async () => {
+  it("enrols a Sandbox test user the Sandbox hasn't sent yet, via the real API v2 write path", async () => {
     process.env.CONNECT_SECRET_ENC_KEY = "unit-test-connect-root-key-rotate-me";
-    process.env.LIFECYCLE_INGEST_ENABLED = "true";
     __resetIngestCaches();
     const db = new FakeFirestore();
     seedWorld(db);
@@ -161,6 +160,5 @@ describe("lifecycle admin API", () => {
     });
     // Anyone who isn't one of the Sandbox's test users is still refused.
     expect(await enrolByHand(ctx, journey.id, { userId: "stranger" }, db, T0)).toMatchObject({ status: 404, body: { error: "user_not_found" } });
-    delete process.env.LIFECYCLE_INGEST_ENABLED;
   });
 });

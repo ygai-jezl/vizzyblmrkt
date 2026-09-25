@@ -1,15 +1,6 @@
 import { describe, it, expect } from "vitest";
 import vectorsFile from "./vectors.json";
-import { sign, type Direction } from "../src/signing.js";
 import { verifyJwt, type Jwk, type RequestDirection } from "../src/jwt.js";
-
-const vectors = vectorsFile.vectors as Array<{
-  secret: string;
-  direction: Direction;
-  timestamp: number;
-  body: string;
-  signature: string;
-}>;
 
 const out = vectorsFile.outbound as {
   issuer: string;
@@ -18,12 +9,6 @@ const out = vectorsFile.outbound as {
   jwks: { keys: Jwk[] };
   tokens: { direction: RequestDirection; body: string; token: string }[];
 };
-
-describe("SDK event signing matches the shared vectors", () => {
-  it.each(vectors.map((v, i) => [i, v] as const))("vector %i", (_i, v) => {
-    expect(sign(v.secret, v.direction, v.timestamp, v.body)).toBe(v.signature);
-  });
-});
 
 describe("SDK verifies YouGrow's tokens from the shared vectors", () => {
   const base = (t: (typeof out.tokens)[number]) => ({

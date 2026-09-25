@@ -6,14 +6,17 @@ import { z } from "zod";
  * onboarding steps they've done) and can run lifecycle journeys for them.
  *
  * Lives in the tenant-scoped `product_connections` collection (regional DB).
- * Three signed contracts hang off it (see src/lib/connect/protocol.ts):
- *  - ingest: the product POSTs identify/track events to /api/v1/events;
- *  - context: the platform POSTs to the product's context endpoint for fresh
- *    facts + insight candidates before an email;
- *  - webhook: the platform POSTs preference changes back to the product.
- * All three are signed with the connection's HMAC secret (sealed at rest, bound
- * to `${tenantId}:${id}` — see src/lib/connect/keys.ts). The public key id routes
- * unauthenticated ingest to this tenant via the control-plane `connection_keys`.
+ * Three contracts hang off it:
+ *  - API v2 (src/lib/connect/v2/contract.ts): the product sends each user's
+ *    state to /api/v2/users…, authenticated with HTTP Basic — the public key id
+ *    (routed to this tenant via the control-plane `connection_keys`) and the
+ *    connection's secret (sealed at rest, bound to `${tenantId}:${id}` — see
+ *    src/lib/connect/keys.ts);
+ *  - context (optional): the platform POSTs to the product's context endpoint
+ *    for fresh facts + insight candidates before an email;
+ *  - webhook (optional): the platform POSTs preference changes back.
+ * Context pulls and webhooks carry the platform's own signed JWT
+ * (src/lib/connect/outboundToken.ts) — never anything derived from the secret.
  */
 
 /** Event names: lower-case dotted segments, e.g. `onboarding.step_completed`. */
@@ -123,7 +126,8 @@ export type ConsentPolicy = z.infer<typeof ConsentPolicySchema>;
 
 export const ContextEndpointSchema = z.object({
   url: z.string().max(2000),
-  timeoutMs: z.number().int().min(500).max(5000).default(5000),
+  /** Per pull. The default is 2 s: a cold start or a slow lookup falls back to stored state rather than holding up sends. */
+  timeoutMs: z.number().int().min(500).max(5000).default(2000),
   enabled: z.boolean().default(false),
 });
 
@@ -177,6 +181,8 @@ export const ConnectionHealthSchema = z.object({
   lastEventAt: z.string().nullable().optional(),
   lastContextOkAt: z.string().nullable().optional(),
   lastContextError: z.string().max(200).nullable().optional(),
+  /** When the last pull failed — with the count below, it opens the runner's breaker. */
+  lastContextErrorAt: z.string().nullable().optional(),
   consecutiveContextFailures: z.number().int().nonnegative().optional(),
 });
 

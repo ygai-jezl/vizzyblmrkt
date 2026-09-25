@@ -7,7 +7,7 @@ import type { RenderValues } from "./render";
 
 /**
  * What the runner knows about one recipient for one run: the stored profile
- * (built from the product's events) overlaid with the product's live context,
+ * (the state the product sends) overlaid with the product's live context,
  * shaped for the condition walk (RecipientContext) and the renderer
  * (RenderValues). Server-only (link checks use the connection's domains).
  */
@@ -21,13 +21,31 @@ export function buildRecipientContext(a: {
   nowMs: number;
 }): RecipientContext {
   return {
-    user: { traits: a.user.traits, steps: a.user.steps, milestones: a.user.milestones, consent: a.user.consent },
+    user: { traits: a.user.traits, steps: a.user.steps, milestones: a.user.milestones, consent: a.user.consent, facts: a.user.facts },
     catalog: a.connection.catalog,
     context: a.context,
     emailsSent: a.emailsSent,
     enrolledAtMs: a.enrolledAtMs,
     nowMs: a.nowMs,
   };
+}
+
+/**
+ * Facts for the template: the live context's when it has any, else the latest
+ * values the product pushed (API v2), labelled from the catalog.
+ */
+function renderFacts(context: ProductContext | null, user: ProductUser, catalog: RecipientContext["catalog"]): RenderValues["facts"] {
+  if (context && context.facts.length > 0) {
+    return context.facts.map((f) => ({ id: f.id, label: f.label, value: f.value, unit: f.unit ?? null, display: f.display ?? null }));
+  }
+  const known = new Map((catalog.facts ?? []).map((f) => [f.id, f] as const));
+  return Object.entries(user.facts ?? {}).map(([id, f]) => ({
+    id,
+    label: known.get(id)?.label ?? id,
+    value: f.value,
+    unit: known.get(id)?.unit ?? null,
+    display: null,
+  }));
 }
 
 type Insight = ProductContext["insights"][number];
@@ -86,13 +104,7 @@ export function buildRenderValues(a: {
     user: { id: a.user.externalUserId, first_name: a.user.firstName, last_name: a.user.lastName, email: a.user.email },
     product: { name: a.connection.name },
     traits: a.user.traits,
-    facts: (a.context?.facts ?? []).map((f) => ({
-      id: f.id,
-      label: f.label,
-      value: f.value,
-      unit: f.unit ?? null,
-      display: f.display ?? null,
-    })),
+    facts: renderFacts(a.context, a.user, a.rc.catalog),
     nextStep: next ? { label: next.label, url: next.url } : null,
     checklist: steps.map((s) => ({ label: s.label, done: s.done, url: s.url })),
     insight: a.insight ? { sentence: a.insight.sentence, aiLine: a.aiLine ?? null } : null,

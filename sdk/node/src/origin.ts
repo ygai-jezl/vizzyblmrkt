@@ -1,5 +1,5 @@
 /**
- * YouGrow's origin, shared by the client (events go to `${origin}/api/v1/events`)
+ * YouGrow's origin, shared by the client (its requests go to `${origin}/api/v2/…`)
  * and the verifier (tokens carry `iss: origin`; keys are at
  * `${origin}/.well-known/jwks.json`). Pass the same value to both, e.g. from
  * YOUGROW_ORIGIN, when you're connected to another YouGrow instance.

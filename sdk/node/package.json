@@ -1,7 +1,7 @@
 {
   "name": "@yougrowai/node",
-  "version": "0.2.0",
-  "description": "Send your product's user events to YouGrow lifecycle journeys, and answer its signed context and webhook requests.",
+  "version": "0.3.0",
+  "description": "Keep your users' state in YouGrow lifecycle journeys, and verify the requests YouGrow sends you.",
   "license": "MIT",
   "author": "YouGrow.AI Limited",
   "homepage": "https://yougrow.ai/developers",
@@ -10,7 +10,7 @@
     "url": "git+https://github.com/ygai-jezl/vizzyblmrkt.git",
     "directory": "sdk/node"
   },
-  "keywords": ["yougrow", "lifecycle-email", "onboarding", "events", "webhooks", "jwks"],
+  "keywords": ["yougrow", "lifecycle-email", "onboarding", "user-state", "events", "webhooks", "jwks"],
   "type": "module",
   "main": "./dist/cjs/index.js",
   "types": "./dist/cjs/index.d.ts",

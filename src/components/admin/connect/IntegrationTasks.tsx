@@ -21,9 +21,11 @@ export function IntegrationTasks({ tasks, showDone = true }: { tasks: Integratio
             <Badge tone={TONE[t.severity]}>{SEVERITY_LABEL[t.severity]}</Badge>
             {t.status === "done" ? <span className="text-xs font-normal text-green-600">working</span> : null}
           </div>
-          <p className="mt-1 text-sm">{t.action}</p>
+          <p className="mt-1 text-sm">
+            <CodeText text={t.action} />
+          </p>
           <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
-            <span className="font-medium">If skipped:</span> {t.ifSkipped}
+            <span className="font-medium">If skipped:</span> <CodeText text={t.ifSkipped} />
           </p>
           {t.fromCode.length ? (
             <ul className="mt-2 space-y-1 text-xs text-neutral-600 dark:text-neutral-400">

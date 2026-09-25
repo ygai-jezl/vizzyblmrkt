@@ -12,7 +12,7 @@ import type {
   LifecycleVersion,
   SendPolicy,
 } from "@/lib/types/lifecycle";
-import { fetchProductContext, recordContextHealth, type ContextResult } from "@/lib/connect/contextClient";
+import { contextBreakerOpen, fetchProductContext, recordContextHealth, type ContextResult } from "@/lib/connect/contextClient";
 import { sendConnectionWebhook } from "@/lib/connect/webhookClient";
 import { effectiveBasis } from "@/lib/connect/profile";
 import type { ProductContext } from "@/lib/connect/protocol";
@@ -70,6 +70,8 @@ export type { EnrolmentRunOutcome } from "./enrolmentRun";
  */
 
 export const LIFECYCLE_RUN_BUDGET_MS = 80_000;
+/** The least time a tenant gets in a tick, however many tenants share it. */
+const MIN_TENANT_SLICE_MS = 5_000;
 const CONCURRENCY = 4;
 const DUE_LIMIT = 50;
 /** Re-check a blocked enrolment (paused journey, mode ceiling…) this often. */
@@ -200,6 +202,9 @@ export async function processEnrolment(
     const anchorMs = Date.parse(leased.anchorAt);
     if (policy.hardStopDays !== null && nowMs > anchorMs + policy.hardStopDays * DAY_MS) return await stop("hard_stop");
     if (user.emailPreferences[settings.category.key]?.subscribed === false) return await stop("unsubscribed_in_product");
+    // API v2: exclusion and the product's opt-out are stored state — no context pull needed.
+    if (user.excluded) return await stop(`excluded: ${user.excluded.reason}`);
+    if (user.subscribed === false) return await stop("unsubscribed_in_product");
     if (user.email && (await isSuppressedFor(ctx, user.email, settings.category.key, deps.db))) {
       return await stop("unsubscribed");
     }
@@ -240,27 +245,35 @@ export async function processEnrolment(
 
     // Walk once without context: a run that only reaches a wait needs no call
     // to the product. Anything that reads the user's state (a condition, a pool
-    // pick, a send) gets ONE live context pull, then the walk is redone with it.
+    // pick, a send) gets ONE live context pull — when the product has a context
+    // endpoint (it's optional: the stored state is used otherwise) — then the
+    // walk is redone with it.
     const state: WalkState = walkStateOf(leased, nowMs);
     const probe = { used: false };
     let walk: WalkResult = decideNext(state, env(state, null, probe));
-    if (probe.used || walk.decision.kind === "send") {
-      const res = await (deps.fetchContext ?? fetchProductContext)(
-        connection,
-        { userId: user.externalUserId, purpose: "send", journeyId: journey.id, nodeId: startCursor },
-        { db: deps.db, nowMs },
-      );
-      await noteContextHealth(scope, res);
-      if (res.ok) {
-        context = res.context;
-        if (context.exit) return await stop(`product_exit: ${context.exit.reason}`);
-        if (context.hold) {
-          const asked = context.hold.until ? Date.parse(context.hold.until) : nowMs + PRODUCT_HOLD_DEFAULT_MS;
-          const until = Math.min(Math.max(asked, nowMs + 60_000), nowMs + PRODUCT_HOLD_MAX_MS);
-          return await hold(until, "product_hold", context.hold.reason);
-        }
+    const hasEndpoint = Boolean(connection.contextEndpoint?.enabled && connection.contextEndpoint.url);
+    if (hasEndpoint && (probe.used || walk.decision.kind === "send")) {
+      if (contextBreakerOpen(connection, nowMs)) {
+        // Recent pulls failed: don't spend this tick waiting on the product.
+        log("context_skipped", "recent pulls failed; using the stored state");
       } else {
-        log("context_unavailable", res.error);
+        const res = await (deps.fetchContext ?? fetchProductContext)(
+          connection,
+          { userId: user.externalUserId, purpose: "send", journeyId: journey.id, nodeId: startCursor },
+          { db: deps.db, nowMs },
+        );
+        await noteContextHealth(scope, res);
+        if (res.ok) {
+          context = res.context;
+          if (context.exit) return await stop(`product_exit: ${context.exit.reason}`);
+          if (context.hold) {
+            const asked = context.hold.until ? Date.parse(context.hold.until) : nowMs + PRODUCT_HOLD_DEFAULT_MS;
+            const until = Math.min(Math.max(asked, nowMs + 60_000), nowMs + PRODUCT_HOLD_MAX_MS);
+            return await hold(until, "product_hold", context.hold.reason);
+          }
+        } else {
+          log("context_unavailable", res.error);
+        }
       }
       walk = decideNext(state, env(state, context));
     }
@@ -664,15 +677,22 @@ export async function runLifecycleTick(
     drafts: { prepared: 0, fallback: 0, superseded: 0 },
     ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
   };
-  for (const t of tenants) {
+  for (const [index, t] of tenants.entries()) {
     if (clock() >= deadline) {
       total.deferredTenants += 1;
       continue;
     }
+    // Each tenant gets its share of what's left, so one slow tenant (a slow
+    // context endpoint, a big queue) can't hold up every tenant after it; time a
+    // tenant doesn't use passes on to the rest. Deferred work runs next tick.
+    const tenantDeadline = Math.min(
+      deadline,
+      clock() + Math.max(MIN_TENANT_SLICE_MS, Math.floor((deadline - clock()) / (tenants.length - index))),
+    );
     const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
     if (product) {
       try {
-        const r = await drainLifecycleTenant(ctx, deps, deadline);
+        const r = await drainLifecycleTenant(ctx, deps, tenantDeadline);
         total.tenants += 1;
         for (const [k, v] of Object.entries(r.outcomes)) {
           const key = k as EnrolmentRunOutcome;
@@ -691,7 +711,7 @@ export async function runLifecycleTick(
     // Waitlist journeys: their own queue, after the tenant's product journeys.
     if (waitlist && total.waitlist) {
       try {
-        const w = await runWaitlistTick(ctx, deps, deadline);
+        const w = await runWaitlistTick(ctx, deps, tenantDeadline);
         total.waitlist.due += w.due;
         total.waitlist.deferred += w.deferred;
         total.waitlist.backfilled += w.backfilled;

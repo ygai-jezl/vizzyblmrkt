@@ -22,8 +22,11 @@ const requireHere = createRequire(import.meta.url);
 const tscBin = join(dirname(requireHere.resolve("typescript/package.json")), "bin", "tsc");
 const typeRoots = dirname(dirname(requireHere.resolve("@types/node/package.json")));
 
+/** The client's methods: constructing it sends nothing, and nothing here calls it. */
+const CLIENT_SHAPE = `[yg.users.update, yg.users.batch, yg.users.get, yg.users.delete, yg.events.track].map((f) => typeof f)`;
+
 const CJS_CHECK = `
-const { YouGrow, sign } = require("@yougrowai/node");
+const { YouGrow, YouGrowError, YouGrowBatchError } = require("@yougrowai/node");
 const { createVerifier } = require("@yougrowai/node/server");
 const vectors = require("./node_modules/@yougrowai/node/test/vectors.json");
 
@@ -37,18 +40,19 @@ const vectors = require("./node_modules/@yougrowai/node/test/vectors.json");
     const asBuffer = await verifier.verify({ headers, rawBody: Buffer.from(t.body), direction: t.direction, nowMs: out.nowMs });
     tokens.push([asString.ok, asBuffer.ok]);
   }
+  const yg = new YouGrow({ keyId: "k", secret: "s" });
   console.log(JSON.stringify({
     resolved: [require.resolve("@yougrowai/node"), require.resolve("@yougrowai/node/server")],
-    signatures: vectors.vectors.map((v) => sign(v.secret, v.direction, v.timestamp, v.body) === v.signature),
     tokens,
-    client: typeof new YouGrow({ keyId: "k", secret: "s" }).flush,
+    client: ${CLIENT_SHAPE},
+    errors: [new YouGrowError("x", 400).name, new YouGrowBatchError("x", { applied: 0, ignored: 0, failed: 0, results: [] }).name],
   }));
 })();
 `;
 
 const ESM_CHECK = `
 import { readFileSync } from "node:fs";
-import { YouGrow, sign } from "@yougrowai/node";
+import { YouGrow, YouGrowError, YouGrowBatchError } from "@yougrowai/node";
 import { createVerifier } from "@yougrowai/node/server";
 
 const vectors = JSON.parse(readFileSync(new URL("./node_modules/@yougrowai/node/test/vectors.json", import.meta.url), "utf8"));
@@ -61,30 +65,54 @@ for (const t of out.tokens) {
   const asBuffer = await verifier.verify({ headers, rawBody: Buffer.from(t.body), direction: t.direction, nowMs: out.nowMs });
   tokens.push([asString.ok, asBuffer.ok]);
 }
+const yg = new YouGrow({ keyId: "k", secret: "s" });
 console.log(JSON.stringify({
   resolved: [import.meta.resolve("@yougrowai/node"), import.meta.resolve("@yougrowai/node/server")],
-  signatures: vectors.vectors.map((v) => sign(v.secret, v.direction, v.timestamp, v.body) === v.signature),
   tokens,
-  client: typeof new YouGrow({ keyId: "k", secret: "s" }).flush,
+  client: ${CLIENT_SHAPE},
+  errors: [new YouGrowError("x", 400).name, new YouGrowBatchError("x", { applied: 0, ignored: 0, failed: 0, results: [] }).name],
 }));
 `;
 
-/** Compiles in every module mode below; the @ts-expect-error proves the types are real, not `any`. */
+/** Compiles in every module mode below (never runs); the @ts-expect-errors prove the types are real, not `any`. */
 const CONSUMER_TS = `
-import { YouGrow, YouGrowError, HEADERS, sign, type IngestResult, type YouGrowOptions } from "@yougrowai/node";
+import {
+  YouGrow,
+  YouGrowBatchError,
+  YouGrowError,
+  type BatchItem,
+  type BatchResponse,
+  type EventResult,
+  type PatchResponse,
+  type UserPatch,
+  type UserView,
+  type YouGrowOptions,
+} from "@yougrowai/node";
 import { DEFAULT_ISSUER, contextResponse, createVerifier, type Verifier, type VerifyResult } from "@yougrowai/node/server";
 
 const options: YouGrowOptions = { keyId: "k", secret: "s", origin: process.env.YOUGROW_ORIGIN, timeoutMs: 5_000, maxRetryWaitMs: 1_000 };
 const yg = new YouGrow(options);
-const stepId: string = yg.stepCompleted("u1", "create_brand", { messageId: "u1:step:create_brand" });
-const flushed: Promise<IngestResult[]> = yg.flush();
+const patch: UserPatch = { email: "alex@example.com", signedUpAt: new Date(0).toISOString(), consent: "soft_opt_in", steps: { create_brand: null }, traits: { plan: "pro" } };
+const items: readonly BatchItem[] = [{ userId: "u1", ...patch }];
+
+export async function sync(): Promise<Array<string | null | boolean | number>> {
+  const updated: PatchResponse = await yg.users.update("u1", patch);
+  const state = updated.applied ? updated.user.email : updated.reason;
+  const batched: BatchResponse = await yg.users.batch(items, { quiet: true, throwOnItemError: false });
+  const view: UserView | null = await yg.users.get("u1");
+  await yg.users.delete("u1");
+  const tracked: EventResult = await yg.events.track("u1", "report.exported", { properties: { format: "pdf" } });
+  // @ts-expect-error consent is one of four bases
+  await yg.users.update("u1", { consent: "maybe" });
+  return [state, batched.failed, view?.subscribed ?? null, tracked.duplicate];
+}
+
 const verifier: Verifier = createVerifier({ keyId: "k", origin: process.env.YOUGROW_ORIGIN });
 const checked: Promise<VerifyResult> = verifier.verify({ headers: { Authorization: "Bearer x" }, rawBody: Buffer.from("{}"), direction: "context" });
 const body: string = contextResponse({ steps: [{ id: "create_brand", label: "Add your brand", done: false }] });
-const signature: string = sign("s", "events", 0, "");
 // @ts-expect-error timeoutMs is a number
 new YouGrow({ keyId: "k", secret: "s", timeoutMs: "slow" });
-export const used = [stepId, flushed, checked, body, signature, HEADERS.signature, DEFAULT_ISSUER, YouGrowError];
+export const used = [checked, body, DEFAULT_ISSUER, YouGrowError, YouGrowBatchError];
 `;
 
 const TYPE_CHECKS: Array<[project: "cjs" | "esm", module: string, moduleResolution: string]> = [
@@ -137,7 +165,8 @@ afterAll(() => {
   if (builtDist) rmSync(distDir, { recursive: true, force: true });
 });
 
-describe("the packed SDK", () => {
+// Each case spawns node or tsc; under a full test run that can take more than the default 5 s.
+describe("the packed SDK", { timeout: 60_000 }, () => {
   it("holds both builds, the vectors, README and LICENSE, and nothing else", () => {
     const root = join(projects.cjs, "node_modules", "@yougrowai", "node");
     const files = (readdirSync(root, { recursive: true }) as string[])
@@ -151,7 +180,7 @@ describe("the packed SDK", () => {
     const expected = /^(dist\/(cjs\/)?[a-z]+\.(js|d\.ts)|dist\/cjs\/package\.json|test\/vectors\.json|README\.md|LICENSE|package\.json)$/;
     expect(files.filter((f) => !expected.test(f))).toEqual([]);
     expect(JSON.parse(readFileSync(join(root, "dist", "cjs", "package.json"), "utf8"))).toEqual({ type: "commonjs" });
-    expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))).toMatchObject({ name: "@yougrowai/node", version: "0.2.0" });
+    expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))).toMatchObject({ name: "@yougrowai/node", version: "0.3.0" });
   });
 
   it.each([
@@ -160,15 +189,15 @@ describe("the packed SDK", () => {
   ] as const)("works with %s: both entry points, every vector", async (_how, which, index, server) => {
     const r = JSON.parse(await inDir(projects[which], process.execPath, ["check.js"])) as {
       resolved: string[];
-      signatures: boolean[];
       tokens: boolean[][];
-      client: string;
+      client: string[];
+      errors: string[];
     };
     expect(r.resolved[0]).toMatch(index);
     expect(r.resolved[1]).toMatch(server);
-    expect(r.signatures).toEqual(vectorsFile.vectors.map(() => true));
     expect(r.tokens).toEqual(vectorsFile.outbound.tokens.map(() => [true, true]));
-    expect(r.client).toBe("function");
+    expect(r.client).toEqual(Array(5).fill("function"));
+    expect(r.errors).toEqual(["YouGrowError", "YouGrowBatchError"]);
   });
 
   it.concurrent.for(TYPE_CHECKS)("type-checks in a %s project with module %s, moduleResolution %s", async ([which, module, resolution], { expect }) => {

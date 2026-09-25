@@ -26,6 +26,8 @@ export interface SetupStep {
   label: string;
   detail: string;
   done: boolean;
+  /** Shown, but not needed for "Setup complete" (the context endpoint, with API v2). */
+  optional?: boolean;
   /** A tab on this product's page… */
   tab?: "learn" | "catalog" | "guide" | "events" | "test" | "settings";
   /** …or a page elsewhere. */
@@ -47,16 +49,19 @@ export function setupSteps(input: SetupInput): SetupStep[] {
     },
     {
       id: "events",
-      label: "Receive sign-ups and onboarding events",
-      detail: custom ? "Your developers send these. The Integration guide has a prompt for their coding agent." : "Fire an event from the Sandbox tab.",
+      label: "Receive your users' sign-ups and steps",
+      detail: custom
+        ? "Your developers send each user's state to the API. The Integration guide has a prompt for their coding agent."
+        : "Send a sign-up from the Sandbox tab.",
       done: input.guide.eventsReceived === "done",
       tab: custom ? "guide" : "events",
     },
     {
       id: "context",
-      label: "Answer the context request",
-      detail: "Before each email we ask your product for that person's latest facts.",
+      label: "Answer the context request (optional)",
+      detail: "Only for values that change too fast to send: before each email we ask your product for that person's latest facts.",
       done: input.guide.contextEndpoint === "done",
+      optional: true,
       tab: "test",
     },
     {

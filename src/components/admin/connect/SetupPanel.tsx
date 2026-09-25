@@ -61,16 +61,18 @@ export function SetupPanel({ connection, onOpenTab }: { connection: PublicConnec
 
   if (error) return <Banner tone="err">{error}</Banner>;
   if (!steps) return <p className="text-sm text-neutral-500">Loading…</p>;
-  const done = steps.filter((s) => s.done).length;
-  const next = steps.find((s) => !s.done);
+  // Optional steps are shown, but "Setup complete" doesn't wait for them.
+  const required = steps.filter((s) => !s.optional);
+  const done = required.filter((s) => s.done).length;
+  const next = required.find((s) => !s.done);
 
   return (
     <Section
-      title={done === steps.length ? "Setup complete" : `Setup · ${done} of ${steps.length} done`}
+      title={done === required.length ? "Setup complete" : `Setup · ${done} of ${required.length} done`}
       description="Everything this product needs before its journeys can send, in the order it happens."
     >
       <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800" aria-hidden>
-        <div className="h-full rounded-full bg-blue-600 dark:bg-blue-400" style={{ width: `${(100 * done) / steps.length}%` }} />
+        <div className="h-full rounded-full bg-blue-600 dark:bg-blue-400" style={{ width: `${(100 * done) / required.length}%` }} />
       </div>
       <ol className="space-y-1">
         {steps.map((step) => {

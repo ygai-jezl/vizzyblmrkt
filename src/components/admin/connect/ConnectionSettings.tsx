@@ -32,7 +32,7 @@ export function ConnectionSettings({
   const [environment, setEnvironment] = useState(connection.environment ?? "");
   const [ctxUrl, setCtxUrl] = useState(connection.contextEndpoint?.url ?? "");
   const [ctxOn, setCtxOn] = useState(connection.contextEndpoint?.enabled ?? false);
-  const [timeoutMs, setTimeoutMs] = useState(connection.contextEndpoint?.timeoutMs ?? 5000);
+  const [timeoutMs, setTimeoutMs] = useState(connection.contextEndpoint?.timeoutMs ?? 2000);
   const [hookUrl, setHookUrl] = useState(connection.webhookEndpoint?.url ?? "");
   const [hookOn, setHookOn] = useState(connection.webhookEndpoint?.enabled ?? false);
   const [domains, setDomains] = useState(connection.linkDomains.join(", "));

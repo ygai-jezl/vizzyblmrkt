@@ -29,10 +29,10 @@ export default function WebhooksDocs() {
         <li>Your server turns off the matching setting on Alex&apos;s account, and replies <C>200</C>.</li>
       </OL>
       <P>
-        It works the other way too: when someone changes their email preferences <em>in your product</em>, send us{" "}
-        <C>email_preferences.updated</C> as an{" "}
-        <Link className="underline" href="/developers/events#other">
-          event
+        It works the other way too: when someone opts out <em>in your product</em>, send <C>{`"subscribed": false`}</C> in
+        their{" "}
+        <Link className="underline" href="/developers/users#compliance">
+          state
         </Link>
         .
       </P>
@@ -88,7 +88,7 @@ X-YouGrow-Key-Id: <your key id>
       <H3>email_preferences.updated — data</H3>
       <Fields
         rows={[
-          ["userId", "string", <><strong>Your</strong> user id, exactly as you sent it in events. Payloads never contain an email address.</>],
+          ["userId", "string", <><strong>Your</strong> user id, exactly as you use it in the API. Payloads never contain an email address.</>],
           ["category", "string", <>The type of email they left — the journey&apos;s unsubscribe category, e.g. <C>onboarding</C>. Map it to your own setting.</>],
           ["subscribed", "boolean", <>Always <C>false</C> today (an unsubscribe).</>],
           ["scope", "string", <><C>category</C>: just this type of email. <C>all</C>: they chose to stop <em>every</em> email from you on our preferences page — turn off all your marketing email for them.</>],

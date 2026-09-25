@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { SCHEMAS } from "@/lib/developers/schemas";
 import { ProductMapSchema } from "./productMapSchema";
 import { buildIntegrationTasks } from "./integrationTasks";
 import { buildIntegrationGuide } from "./integrationGuide";
@@ -92,6 +95,47 @@ describe("prompt for the customer's coding agent", () => {
     expect(p).toContain("`YOUGROW_KEY_ID` (public, value `ygk_public_id`)");
     expect(p).toContain("`YOUGROW_SECRET`");
     expect(p).not.toMatch(/ygs_[A-Za-z0-9]/);
+  });
+
+  it("says where the contract is — the docs and the SDK, never YouGrow's source", () => {
+    expect(p).toContain("Read https://yougrow.test/developers/llms-full.txt first");
+    expect(p).toContain("Don't clone or read YouGrow's own source code");
+    expect(p).toContain("`YOUGROW_ORIGIN` (value `https://yougrow.test`)");
+    expect(p).toContain("`endpoint` = YOUGROW_ORIGIN + `/api/v1/events`");
+  });
+
+  it("carries the protocol essentials, so it works even if the docs can't be reached", () => {
+    expect(p).toContain("## Protocol essentials");
+    expect(p).toContain("`POST https://yougrow.test/api/v1/events`");
+    expect(p).toContain("`x-yougrow-key-id`, `x-yougrow-timestamp`");
+    expect(p).toContain("`x-yougrow-signature` = `v1=` + hex HMAC-SHA256");
+    expect(p).toContain("`iss` = `https://yougrow.test`");
+    expect(p).toContain("`await yg.flush()` before it returns");
+  });
+
+  it("links only to pages and files that exist", () => {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    const urls = [...p.matchAll(/https:\/\/yougrow\.test[^\s`)"',]*/g)].map((m) => m[0].replace(/[.:]$/, ""));
+    expect(urls.length).toBeGreaterThan(8);
+    for (const url of urls) {
+      const path = new URL(url).pathname;
+      if (path === "/") continue; // the origin itself is a value (YOUGROW_ORIGIN, iss), not a page
+      const schema = /^\/developers\/schema\/([^/]+)$/.exec(path);
+      if (schema) {
+        expect(Object.keys(SCHEMAS), url).toContain(schema[1]);
+        continue;
+      }
+      expect(existsSync(`${root}/src/app${path}/route.ts`), url).toBe(true);
+    }
+  });
+
+  it("links nothing under /developers when this YouGrow doesn't publish docs", () => {
+    const g = buildIntegrationGuide({ connection, analysis: { map }, origin: "https://yougrow.test", productName: "vizzybl.ai", docs: false });
+    expect(g.agentPrompt).not.toContain("/developers");
+    expect(g.agentPrompt).toContain("This YouGrow doesn't publish developer docs");
+    expect(g.agentPrompt).toContain("## Protocol essentials");
+    expect(g.docsUrl).toBeNull();
+    expect(guide.docsUrl).toBe("https://yougrow.test/developers");
   });
 
   it("adds the optional invite-code task only while invites are on", () => {

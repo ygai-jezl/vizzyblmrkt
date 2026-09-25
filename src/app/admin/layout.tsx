@@ -16,6 +16,8 @@ import { SidebarV2 } from "@/components/admin/nav/SidebarV2";
 import { ShellProvider } from "@/components/admin/nav/ShellProvider";
 import { VizzyPanel } from "@/components/admin/nav/VizzyPanel";
 import { CommandPalette } from "@/components/admin/nav/CommandPalette";
+import { DeveloperDocsProvider } from "@/components/developers/DocsAvailability";
+import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
@@ -103,6 +105,8 @@ export default async function AdminLayout({
     region: ctx.region,
     role: ctx.role ?? "member",
   };
+  // Screens link to /developers only where this YouGrow publishes it.
+  const docs = isDevelopersDocsEnabled();
 
   if (navV2) {
     // Server-side read of an explicit theme choice, so the first paint is already
@@ -127,7 +131,9 @@ export default async function AdminLayout({
         />
         <div className="flex min-w-0 flex-1 flex-col">
           <AdminHeader names={crumbNames} />
-          <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
+          <main className="min-w-0 flex-1 px-6 py-6">
+            <DeveloperDocsProvider enabled={docs}>{children}</DeveloperDocsProvider>
+          </main>
         </div>
         {phase2 ? <VizzyPanel /> : null}
         {phase2 ? (
@@ -162,7 +168,9 @@ export default async function AdminLayout({
         archivedLaunches={archivedLaunches}
         ctx={sidebarCtx}
       />
-      <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
+      <main className="min-w-0 flex-1 px-6 py-6">
+        <DeveloperDocsProvider enabled={docs}>{children}</DeveloperDocsProvider>
+      </main>
     </div>
   );
 }

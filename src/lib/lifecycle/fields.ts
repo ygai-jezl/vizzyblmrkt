@@ -7,8 +7,8 @@ import type { Eligibility, LifecycleBranch, LifecycleCondition } from "@/lib/typ
 
 /**
  * Lifecycle condition fields, resolved from what we know about one recipient:
- * the stored profile (built from the product's events) overlaid with the live
- * context the product returned for this run.
+ * the stored profile (the state the product sends) overlaid with the live
+ * context the product returned for this run, when it has a context endpoint.
  *
  * THREE-STATE: a value we can't know is `undefined`, and an unknown value never
  * matches ANY operator — not even `is_false`. So "unknown" always falls through
@@ -24,8 +24,8 @@ import type { Eligibility, LifecycleBranch, LifecycleCondition } from "@/lib/typ
 export type FieldValue = string | number | boolean | undefined;
 
 export interface RecipientContext {
-  user: Pick<ProductUser, "traits" | "steps" | "milestones" | "consent">;
-  catalog: Pick<ConnectionCatalog, "onboardingSteps">;
+  user: Pick<ProductUser, "traits" | "steps" | "milestones" | "consent" | "facts">;
+  catalog: Pick<ConnectionCatalog, "onboardingSteps"> & Partial<Pick<ConnectionCatalog, "facts">>;
   /** The product's live context for this run; null when it wasn't available. */
   context: ProductContext | null;
   emailsSent: number;
@@ -60,7 +60,8 @@ export function resolveField(field: string, rc: RecipientContext): FieldValue {
       return Boolean(rc.user.steps[key]);
     }
     case "fact": {
-      return rc.context?.facts.find((f) => f.id === key)?.value;
+      // The live context when it has the fact, else the latest value the product pushed (API v2).
+      return rc.context?.facts.find((f) => f.id === key)?.value ?? rc.user.facts?.[key]?.value;
     }
     case "milestone":
       return Boolean(rc.user.milestones[key]);

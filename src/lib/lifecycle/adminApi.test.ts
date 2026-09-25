@@ -54,7 +54,7 @@ describe("lifecycle admin API", () => {
     const r = await getJourneyDetail(ctx, journey.id, db);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
-      connection: { id: CONNECTION_ID, contextConfigured: false },
+      connection: { id: CONNECTION_ID, contextConfigured: true },
       version: { version: 1 },
       issues: [],
       sender: { verified: true, fromEmail: "jez@sandbox.test" },

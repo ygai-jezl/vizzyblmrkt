@@ -163,7 +163,24 @@ export async function recordContextHealth(
     : {
         ...connection.health,
         lastContextError: result.error,
+        lastContextErrorAt: now,
         consecutiveContextFailures: (connection.health?.consecutiveContextFailures ?? 0) + 1,
       };
   await forTenant(ctx, db).productConnections.update(connection.id, { health }).catch(() => {});
+}
+
+/** Failures in a row that open the breaker, and how long it stays open. */
+export const CONTEXT_BREAKER_FAILURES = 3;
+export const CONTEXT_BREAKER_MS = 15 * 60_000;
+
+/**
+ * Whether to skip pulling this connection's context for now: after
+ * CONTEXT_BREAKER_FAILURES failed pulls in a row, for CONTEXT_BREAKER_MS after
+ * the last one — the stored state is used instead. The next pull after that
+ * either closes it (success) or reopens it (another failure).
+ */
+export function contextBreakerOpen(connection: Pick<ProductConnection, "health">, nowMs: number): boolean {
+  const h = connection.health ?? {};
+  if ((h.consecutiveContextFailures ?? 0) < CONTEXT_BREAKER_FAILURES || !h.lastContextErrorAt) return false;
+  return nowMs - Date.parse(h.lastContextErrorAt) < CONTEXT_BREAKER_MS;
 }

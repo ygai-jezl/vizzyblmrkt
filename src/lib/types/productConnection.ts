@@ -123,7 +123,8 @@ export type ConsentPolicy = z.infer<typeof ConsentPolicySchema>;
 
 export const ContextEndpointSchema = z.object({
   url: z.string().max(2000),
-  timeoutMs: z.number().int().min(500).max(5000).default(5000),
+  /** Per pull. The default is 2 s: a cold start or a slow lookup falls back to stored state rather than holding up sends. */
+  timeoutMs: z.number().int().min(500).max(5000).default(2000),
   enabled: z.boolean().default(false),
 });
 
@@ -177,6 +178,8 @@ export const ConnectionHealthSchema = z.object({
   lastEventAt: z.string().nullable().optional(),
   lastContextOkAt: z.string().nullable().optional(),
   lastContextError: z.string().max(200).nullable().optional(),
+  /** When the last pull failed — with the count below, it opens the runner's breaker. */
+  lastContextErrorAt: z.string().nullable().optional(),
   consecutiveContextFailures: z.number().int().nonnegative().optional(),
 });
 

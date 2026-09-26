@@ -643,6 +643,14 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Marketing consent granted" fires only for opt-ins after the sign-up window
+  # (the longest sign-up journey's, 72 hours without one): consent given during
+  # sign-up, even minutes after a first write without it, is for the sign-up
+  # journeys. "false" in prod (apphosting.prod.yaml) until verified here.
+  - variable: LIFECYCLE_OPT_IN_AFTER_SIGNUP
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

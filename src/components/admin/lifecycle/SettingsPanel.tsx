@@ -24,6 +24,7 @@ export function SettingsPanel({
   onChange,
   waitlist = null,
   consentAtSend = false,
+  optInAfterSignup = false,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -33,6 +34,8 @@ export function SettingsPanel({
   waitlist?: { launchId: string; launchName: string } | null;
   /** Consent decides marketing: the consent-only setting and the opt-in trigger. */
   consentAtSend?: boolean;
+  /** The opt-in trigger fires only after the sign-up window (LIFECYCLE_OPT_IN_AFTER_SIGNUP). */
+  optInAfterSignup?: boolean;
 }) {
   const p = settings.sendPolicy;
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
@@ -100,7 +103,16 @@ export function SettingsPanel({
     <div className="space-y-4">
       <Section title="Starts when" description="Which product event enrols someone. Each person enters once.">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Event">
+          <Field
+            label="Event"
+            hint={
+              settings.trigger.event !== CONSENT_GRANTED
+                ? undefined
+                : optInAfterSignup
+                  ? "People who opt in after their sign-up window. Opt-ins during sign-up join your sign-up journeys instead."
+                  : "People YouGrow already holds who opt in to marketing."
+            }
+          >
             <select
               className={inputClass}
               value={settings.trigger.event}

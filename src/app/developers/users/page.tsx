@@ -309,8 +309,10 @@ await yg.users.delete(user.id);                                       // the acc
         </li>
         <li>
           For people who opt in later, start a sequence on <strong>Marketing consent granted</strong>. It fires when a write
-          moves someone we already hold onto a basis your connection accepts. A user&apos;s first write never fires it, so a
-          backfill doesn&apos;t either.
+          moves someone we already hold onto a basis your connection accepts, once their sign-up window has passed (your
+          longest sign-up journey&apos;s, 72 hours by default). Consent given during sign-up — with the first write, or
+          minutes later when your first write comes before your consent step — is for the sign-up journeys, which still take
+          them, so nobody gets both. A backfill never fires it.
         </li>
       </UL>
       <H3>Opt-outs: subscribed</H3>

@@ -3,8 +3,8 @@ import { applyProductMessage, forTenant, TenantIsolationError, type TenantContex
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
-import { activeJourneysFor, enrolOnEvents, enrolOnSignup } from "@/lib/lifecycle/enrol";
-import { isLifecycleConsentAtSendEnabled, isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { activeJourneysFor, enrolOnEvents, enrolOnSignup, pastSignupWindow, signupWindowHours } from "@/lib/lifecycle/enrol";
+import { isLifecycleConsentAtSendEnabled, isLifecycleEnabled, isLifecycleOptInAfterSignupEnabled } from "@/lib/lifecycle/flags";
 import { allowsMarketing } from "@/lib/lifecycle/policy";
 import { isInvitesEnabled } from "@/lib/invites/flags";
 import { inviteCodeFromTraits, recordInviteProgress, type TouchedUser } from "@/lib/invites/attribution";
@@ -147,9 +147,19 @@ async function afterWrites(
   // The opt-in trigger, for sequences meant for people who consent later.
   const granted = writes.filter((w) => w.consentGranted).map((w) => w.user);
   if (granted.length > 0 && isLifecycleEnabled() && isLifecycleConsentAtSendEnabled()) {
-    const at = new Date(nowMs).toISOString();
-    const events = granted.map((user) => ({ user, event: RESERVED_EVENTS.marketingConsentGranted, timestamp: at }));
-    await enrolOnEvents(ctx, connection, events, { db, nowMs }).catch((err) => {
+    await (async () => {
+      let later = granted;
+      if (isLifecycleOptInAfterSignupEnabled()) {
+        // Consent during sign-up (even minutes after a first write that had none) is
+        // for the sign-up journeys, which still take them: only a later opt-in fires.
+        const hours = signupWindowHours(journeys ?? (await activeJourneysFor(ctx, connection.id, db)));
+        later = granted.filter((user) => pastSignupWindow(user, hours, nowMs));
+      }
+      if (later.length === 0) return;
+      const at = new Date(nowMs).toISOString();
+      const events = later.map((user) => ({ user, event: RESERVED_EVENTS.marketingConsentGranted, timestamp: at }));
+      await enrolOnEvents(ctx, connection, events, { db, nowMs });
+    })().catch((err) => {
       console.error(`[api-v2] opt-in enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   }

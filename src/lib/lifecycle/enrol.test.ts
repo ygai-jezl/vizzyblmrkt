@@ -4,7 +4,7 @@ import { forTenant } from "@/lib/tenant";
 import { productUserDocId } from "@/lib/connect/profile";
 import { deleteUser, patchUser, recordUserEvent } from "@/lib/connect/v2/users";
 import type { ProductConnection } from "@/lib/types/productConnection";
-import { enrolmentDocId } from "./enrol";
+import { enrolmentDocId, pastSignupWindow, signupWindowHours } from "./enrol";
 import { CONNECTION_ID, T0, publishOnboarding, seedWorld, system } from "./testing/fixtures";
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -83,5 +83,24 @@ describe("enrolment from the product's state writes", () => {
     expect(await s.enrolment("dana")).not.toBeNull();
     await deleteUser(system, s.connection, "dana", { db: s.db, nowMs: T0 + 1000 });
     expect(await s.enrolment("dana")).toBeNull();
+  });
+});
+
+describe("the sign-up window", () => {
+  const version = (event: string, maxEventAgeHours: number) =>
+    ({ version: { settings: { trigger: { event, maxEventAgeHours } } } }) as unknown as Parameters<typeof signupWindowHours>[0][number];
+
+  it("is the longest among the sign-up journeys, 72 hours without one", () => {
+    expect(signupWindowHours([])).toBe(72);
+    expect(signupWindowHours([version("user.marketing_consent_granted", 500)])).toBe(72);
+    expect(signupWindowHours([version("user.signed_up", 24), version("user.signed_up", 168), version("report.exported", 700)])).toBe(168);
+  });
+
+  it("counts from signedUpAt, else from when YouGrow first heard of them", () => {
+    const at = new Date(T0).toISOString();
+    expect(pastSignupWindow({ signedUpAt: at, firstSeenAt: at }, 72, T0 + 71 * 3600_000)).toBe(false);
+    expect(pastSignupWindow({ signedUpAt: at, firstSeenAt: at }, 72, T0 + 73 * 3600_000)).toBe(true);
+    expect(pastSignupWindow({ signedUpAt: null, firstSeenAt: at }, 72, T0 + 3600_000)).toBe(false);
+    expect(pastSignupWindow({ signedUpAt: new Date(T0 - 10 * 86_400_000).toISOString(), firstSeenAt: at }, 72, T0)).toBe(true);
   });
 });

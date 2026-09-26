@@ -55,3 +55,15 @@ export function isLifecycleConsentAtSendEnabled(): boolean {
 export function isLifecycleGoLiveSweepEnabled(): boolean {
   return process.env.LIFECYCLE_GO_LIVE_SWEEP === "true";
 }
+
+/**
+ * Server flag — "Marketing consent granted" is for people who opt in after
+ * signing up. An opt-in while a sign-up journey could still take the person (the
+ * longest sign-up window, 72 hours without one) is sign-up consent: the sign-up
+ * journeys take them and the trigger doesn't fire, even when the product's first
+ * write came before its consent step. Off: only a user's first write counts as
+ * sign-up consent.
+ */
+export function isLifecycleOptInAfterSignupEnabled(): boolean {
+  return process.env.LIFECYCLE_OPT_IN_AFTER_SIGNUP === "true";
+}

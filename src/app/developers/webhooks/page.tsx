@@ -108,8 +108,26 @@ X-YouGrow-Key-Id: <your key id>
 
       <H2 id="consent-records">Your consent records</H2>
       <P>
-        Record what we send in your own consent records — an unsubscribe as an opt-out, a complaint as an objection — and let
-        your usual sync send the user&apos;s state back to us. That echo is harmless:
+        Record what we send in your own consent records. If your product keeps one marketing consent rather than a setting
+        per type of email, this is what each webhook means for it:
+      </P>
+      <Fields
+        head={["Webhook", "Value", "In your records"]}
+        rows={[
+          ["email_preferences.updated", "scope: all", "They asked to stop every email from you: record a withdrawal of marketing consent."],
+          [
+            "email_preferences.updated",
+            "scope: category",
+            "They left one type of email: turn off that setting if you have one. Don't record it as a withdrawal of all marketing — they didn't make that choice, and we keep enforcing this one.",
+          ],
+          ["email.suppressed", "reason: complaint", "They reported one of our emails as spam, an objection: record a withdrawal of marketing consent."],
+          ["email.suppressed", "reason: hard_bounce", "The address doesn't work. That's not a consent choice: record nothing, and fix the address if you can."],
+          ["connection.test", "", "Nothing to record."],
+        ]}
+      />
+      <P>
+        Date it with the webhook&apos;s <C>createdAt</C>. If the person changed their consent in your product after that,
+        keep their newer choice. Then let your usual sync send the user&apos;s state back to us. That echo is harmless:
       </P>
       <UL>
         <li>

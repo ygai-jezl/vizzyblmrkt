@@ -58,20 +58,21 @@ export function Note({ children, tone = "info" }: { children: ReactNode; tone?: 
 }
 
 /** A field reference table: [name, type, notes]. */
-export function Fields({ rows }: { rows: Array<[string, string, ReactNode]> }) {
+/** A three-column table: a name, a type (or value) and notes; `head` renames the columns. */
+export function Fields({ rows, head = ["Field", "Type", "Notes"] }: { rows: Array<[string, string, ReactNode]>; head?: [string, string, string] }) {
   return (
     <div className="mt-4 overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
       <table className="w-full text-left text-sm">
         <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900">
           <tr>
-            <th className="px-3 py-2 font-medium">Field</th>
-            <th className="px-3 py-2 font-medium">Type</th>
-            <th className="px-3 py-2 font-medium">Notes</th>
+            <th className="px-3 py-2 font-medium">{head[0]}</th>
+            <th className="px-3 py-2 font-medium">{head[1]}</th>
+            <th className="px-3 py-2 font-medium">{head[2]}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {rows.map(([name, type, notes]) => (
-            <tr key={name} className="align-top">
+            <tr key={`${name} ${type}`} className="align-top">
               <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{name}</td>
               <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-neutral-500">{type}</td>
               <td className="px-3 py-2 leading-6 text-neutral-700 dark:text-neutral-300">{notes}</td>

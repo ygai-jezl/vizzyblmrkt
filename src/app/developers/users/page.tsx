@@ -208,6 +208,12 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
         send it back as a trait (<C>{`traits: { yg_invite: "…" }`}</C>), the match also works when someone signs up with a
         different email. The value is an opaque code: it carries no personal data and grants nothing on its own.
       </P>
+      <P>
+        Keeping it through sign-up can mean storing it in the browser, and your consent rules may treat that as a cookie that
+        needs consent. You can carry it in the URL instead, through your sign-in redirect, or skip it: matching by email still
+        works. People can edit it — a code we don&apos;t know is ignored, and at worst an edited one credits the wrong invite
+        in your invite numbers.
+      </P>
 
       <H2 id="steps">2. Onboarding steps and facts — personalisation</H2>
       <H3>What</H3>
@@ -332,9 +338,23 @@ await yg.users.delete(user.id);                                       // the acc
       <H3>Exclusions: excluded</H3>
       <P>
         For people who must never get lifecycle email — staff, test accounts, invited teammates — send{" "}
-        <C>{`"excluded": {"reason": "staff"}`}</C>. It applies to every journey, straight away. Clearing it (
-        <C>{`"excluded": null`}</C>) lets them into journeys that start from then on; it doesn&apos;t put them back into the
-        ones they left.
+        <C>{`"excluded": {"reason": "staff"}`}</C>. It applies to every journey straight away: a journey they&apos;re in
+        stops before its next email. Clearing it (<C>{`"excluded": null`}</C>):
+      </P>
+      <UL>
+        <li>never puts them back into a journey they left;</li>
+        <li>
+          enrols them in a sign-up journey they never joined, if they&apos;re still inside its window — the write that clears
+          it enrols them, with the journey timed from their <C>signedUpAt</C>;
+        </li>
+        <li>otherwise lets them into journeys that start from then on.</li>
+      </UL>
+      <P>
+        If what decides it lives outside the record your sync watches — a membership, an invite — your{" "}
+        <a className="underline" href="#sync">
+          daily re-sync
+        </a>{" "}
+        is what sends the change.
       </P>
       <H3>Deletion: DELETE</H3>
       <P>

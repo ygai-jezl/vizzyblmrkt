@@ -33,15 +33,17 @@ import {
   type UserPatch,
   type UserView,
 } from "./contract";
+import { isQuietUnchangedWritesEnabled } from "./flags";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
  * `ctx` and `connection` come ONLY from the key; the body never sets scope.
  *
  * Every write is one Firestore transaction (applyProductMessage): the user's
- * profile and a row for the connection's Events tab commit together. After it,
- * best-effort side effects that never fail the write: sign-up enrolment,
- * invite attribution, diagnostics and health.
+ * profile and a row for the connection's Events tab commit together. A write that
+ * changed nothing leaves no row when CONNECT_QUIET_UNCHANGED_WRITES is on (the tab
+ * counts those). After it, best-effort side effects that never fail the write:
+ * sign-up enrolment, invite attribution, diagnostics and health.
  */
 
 export interface V2Deps {
@@ -53,10 +55,34 @@ type Journeys = Awaited<ReturnType<typeof activeJourneysFor>>;
 
 /** What a write left behind, for the caller and the side effects. */
 type WriteOutcome =
-  /** `consentGranted`: someone YouGrow already knew moved to a basis the connection accepts for marketing. */
-  | { kind: "applied"; user: ProductUser; consentGranted: boolean }
+  /**
+   * `consentGranted`: someone YouGrow already knew moved to a basis the connection accepts for marketing.
+   * `quiet`: the write changed nothing and left no Events row.
+   */
+  | { kind: "applied"; user: ProductUser; consentGranted: boolean; quiet: boolean }
   | { kind: "skipped"; reason: "stale_write" | "deleted_later"; storedUpdatedAt: string | null; user: ProductUser | null }
   | { kind: "invalid"; fields: Array<{ path: string; message: string }> };
+
+/** JSON with object keys sorted, so two values compare by content. */
+function stableJson(value: unknown): string {
+  const sort = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sort)
+      : v && typeof v === "object"
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sort((v as Record<string, unknown>)[k])]))
+        : v;
+  return JSON.stringify(sort(value));
+}
+
+/** Whether a write left someone's state as it was: what GET returns, bar `updatedAt`. */
+function sameState(before: ProductUser | null, after: Omit<ProductUser, "id" | "tenantId">): boolean {
+  if (!before || before.status !== "active") return false;
+  const view = (u: ProductUser) => {
+    const { updatedAt: _updatedAt, ...rest } = userStateOf(u);
+    return stableJson(rest);
+  };
+  return view(before) === view({ ...after, id: before.id, tenantId: before.tenantId });
+}
 
 /** The Events tab keeps a summary when a write is big (the profile holds the rest). */
 function eventPayload(patch: UserPatch): Record<string, unknown> {
@@ -78,6 +104,7 @@ async function writeUser(
   const messageId = `v2:${randomUUID()}`;
   let result: PatchResult | null = null;
   let seen: ProductUser | null = null;
+  let unchanged = false;
   const applied = await applyProductMessage(
     ctx,
     {
@@ -86,12 +113,18 @@ async function writeUser(
       mutate: (current) => {
         seen = current;
         result = applyUserPatch(current, userId, patch, { connection, nowMs });
-        if ("next" in result) return { next: result.next, applied: true };
+        if ("next" in result) {
+          unchanged = sameState(current, result.next);
+          return { next: result.next, applied: true };
+        }
         // A skipped write changes nothing but leaves a row, so the Events tab shows it
         // arrived. An invalid one changes nothing at all (it's a 400, in rejections).
         return "skipped" in result ? { next: null, applied: false } : { reject: "not_applied" };
       },
       buildEvent: (wasApplied) => {
+        // A re-sync resending the same state leaves no row (the tab counts those),
+        // unless fields were left as they were: that's worth seeing.
+        if (wasApplied && unchanged && ignoredFields.length === 0 && isQuietUnchangedWritesEnabled()) return null;
         const skipped = result && "skipped" in result ? result.skipped : null;
         // After an erasure, a late write keeps no user id or data, only that it came.
         const erased = skipped === "deleted_later";
@@ -125,14 +158,15 @@ async function writeUser(
     before?.status === "active" &&
     !allowsMarketing(connection.consentPolicy, before.consent?.basis) &&
     allowsMarketing(connection.consentPolicy, applied.user.consent?.basis);
-  return { kind: "applied", user: applied.user, consentGranted };
+  const quiet = (unchanged as boolean) && ignoredFields.length === 0 && isQuietUnchangedWritesEnabled();
+  return { kind: "applied", user: applied.user, consentGranted, quiet };
 }
 
 /** Enrolment, invites, diagnostics and health for the writes that applied. Never throws. */
 async function afterWrites(
   ctx: TenantContext,
   connection: ProductConnection,
-  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean }>,
+  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean; quiet?: boolean }>,
   rejected: IngestSummary["rejected"],
   nowMs: number,
   db?: FirestoreLike,
@@ -176,7 +210,8 @@ async function afterWrites(
   for (const w of writes) {
     for (const [k, v] of Object.entries(w.patch.traits ?? {})) observedTraits.set(k, v === null ? "null" : typeof v);
   }
-  const summary: IngestSummary = { accepted: writes.length, duplicates: 0, rejected };
+  const unchanged = writes.filter((w) => w.quiet).length;
+  const summary: IngestSummary = { accepted: writes.length, duplicates: 0, rejected, ...(unchanged ? { unchanged } : {}) };
   const now = new Date(nowMs).toISOString();
   await recordDiagnostics(ctx, connection, { observedEvents: new Map(), observedTraits, summary, now }, db);
   await touchHealth(ctx, connection, summary, nowMs, db);
@@ -204,7 +239,7 @@ export async function patchUser(
     const live = w.user && w.user.status === "active" ? userStateOf(w.user) : undefined;
     return { applied: false, reason: w.reason, storedUpdatedAt: w.storedUpdatedAt, ...(live ? { user: live } : {}) };
   }
-  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted }], [], nowMs, deps.db);
+  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet }], [], nowMs, deps.db);
   return { applied: true, user: userStateOf(w.user) };
 }
 
@@ -217,7 +252,7 @@ export async function patchBatch(
 ): Promise<BatchResponse> {
   const nowMs = deps.nowMs ?? Date.now();
   const out: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
-  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean }> = [];
+  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean }> = [];
   const rejected: IngestSummary["rejected"] = [];
   for (const [index, raw] of items.slice(0, V2_LIMITS.maxBatch).entries()) {
     const head = BatchItemSchema.safeParse(raw);
@@ -241,7 +276,7 @@ export async function patchBatch(
       const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db, parsed.ignoredFields.map((f) => f.path));
       if (w.kind === "applied") {
         out.applied += 1;
-        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted });
+        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted, quiet: w.quiet });
         if (parsed.ignoredFields.length) out.results.push({ index, userId, status: "applied", reason: "fields_ignored", fields: parsed.ignoredFields });
       } else if (w.kind === "skipped") {
         out.ignored += 1;

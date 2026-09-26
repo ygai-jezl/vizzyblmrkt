@@ -149,7 +149,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     "Make it reliable",
     [
       "Never let a YouGrow call break our own flows: catch and log failures. Where the work can be retried (a queue worker, or a trigger with retries on), rethrow an error whose `retryable` is true so it's redelivered, and log the rest: a 400 won't succeed as it is. Set `updatedAt` to when the change happened, so a redelivered or out-of-order write is harmless.",
-      "Add a small daily job that re-sends everyone who signed up or changed in the last two days: it catches anything a failure dropped.",
+      "Add a small daily job that re-sends everyone's current state, with `updatedAt` = when the job read it (just the people who changed, if our data can tell): it catches anything a failure dropped, and state that changes without a write, such as a snooze that ends. Resending people whose state is unchanged is fine.",
     ],
     "a test shows a retryable error (a 503 or a timeout) is rethrown and a 400 is logged, and the daily job runs.",
   );

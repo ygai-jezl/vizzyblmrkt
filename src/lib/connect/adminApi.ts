@@ -290,7 +290,7 @@ export async function listConnectionEvents(
     }),
     repo.connectionDiagnostics.getById(id),
   ]);
-  return ok({ events, rejections: diagnostics?.recentRejections ?? [] });
+  return ok({ events, rejections: diagnostics?.recentRejections ?? [], unchanged: diagnostics?.unchangedWrites ?? null });
 }
 
 export async function listConnectionUsers(

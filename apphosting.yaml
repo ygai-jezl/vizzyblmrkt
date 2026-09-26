@@ -651,6 +651,13 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # A write that leaves a user's state as it was (a daily re-sync resending the
+  # same values) leaves no row in the Events tab, which counts them instead.
+  # "false" in prod (apphosting.prod.yaml) until verified here.
+  - variable: CONNECT_QUIET_UNCHANGED_WRITES
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

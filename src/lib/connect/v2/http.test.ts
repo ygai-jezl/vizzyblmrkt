@@ -447,6 +447,47 @@ describe("what the Events tab shows for API v2", () => {
     await w.patch("u_1", { timezone: "Mars/Olympus", firstName: "Alex" });
     expect(await rows(w)).toMatchObject([{ applied: true, payload: { firstName: "Alex" }, ignoredFields: ["timezone"] }]);
   });
+
+  describe("writes that changed nothing (CONNECT_QUIET_UNCHANGED_WRITES)", () => {
+    const unchanged = async (w: Awaited<ReturnType<typeof setup>>) =>
+      (await forTenant(ctxA, w.db).connectionDiagnostics.getById(w.connection.id))?.unchangedWrites;
+    beforeEach(() => {
+      process.env.CONNECT_QUIET_UNCHANGED_WRITES = "true";
+    });
+    afterEach(() => {
+      delete process.env.CONNECT_QUIET_UNCHANGED_WRITES;
+    });
+
+    it("leaves no row, counts it, and still keeps the write's time", async () => {
+      const w = await setup();
+      const state = { email: "a@example.com", firstName: "Alex", consent: "consent", facts: { projects: 2 } };
+      await w.patch("u_1", { ...state, updatedAt: "2026-09-25T10:00:00Z" });
+      await w.patch("u_1", { ...state, updatedAt: "2026-09-25T11:00:00Z" }); // a re-sync: nothing changed
+      await w.patch("u_1", { ...state, facts: { projects: 3 } }); // a change
+      await w.patch("u_1", { ...state, facts: { projects: 3 }, timezone: "Mars/Olympus" }); // nothing changed, but a field was left out
+      expect(await rows(w)).toHaveLength(3);
+      expect(await unchanged(w)).toMatchObject({ count: 1 });
+      // The quiet write still moved the bar: an older write is now stale.
+      const late = await json(await w.patch("u_1", { firstName: "Old", updatedAt: "2026-09-25T10:30:00Z" }));
+      expect(late).toMatchObject({ applied: false, reason: "stale_write" });
+    });
+
+    it("counts unchanged batch items, and lists every write again with the flag off", async () => {
+      const w = await setup();
+      const batch = async (users: unknown[]) => json(await handleBatch(request("POST", w.auth, { users }), w.deps));
+      const items = [
+        { userId: "a", firstName: "Ann", facts: { projects: 1 } },
+        { userId: "b", firstName: "Bo", traits: { plan: "pro" } },
+      ];
+      await batch(items);
+      expect(await batch(items)).toMatchObject({ applied: 2, ignored: 0, failed: 0, results: [] });
+      expect(await rows(w)).toHaveLength(2);
+      expect(await unchanged(w)).toMatchObject({ count: 2 });
+      delete process.env.CONNECT_QUIET_UNCHANGED_WRITES;
+      await batch(items);
+      expect(await rows(w)).toHaveLength(4);
+    });
+  });
 });
 
 describe("erasure cascade", () => {

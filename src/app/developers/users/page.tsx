@@ -428,9 +428,10 @@ await yg.users.delete(user.id);                                       // the acc
           <C>DELETE</C> is always safe to repeat.
         </li>
         <li>
-          <strong>Re-sync daily.</strong> A small job that re-sends everyone who signed up or changed in the last two days
-          catches whatever a failure dropped, and state that changes with time rather than with a write, such as a snooze
-          that ends.
+          <strong>Re-sync daily.</strong> A small job that re-sends everyone&apos;s current state catches whatever a failure
+          dropped, and state that changes without a write to the user, such as a snooze that ends or a membership your trigger
+          doesn&apos;t watch. If you can&apos;t tell who changed, send everyone: resending the same state is harmless, and it
+          isn&apos;t listed in your Events tab.
         </li>
       </OL>
       <P>
@@ -456,10 +457,10 @@ export const yougrowSync = onDocumentWritten({ document: "users/{uid}", retry: t
     console.error("YouGrow refused the write", err);             // fix the data; don't retry
   }
 });`}</Code>
-      <Code title="A daily re-sync">{`// Everyone who signed up or changed in the last two days; the SDK sends 100 per request.
-const since = new Date(Date.now() - 2 * 86_400_000);
-const recent = await db.users.findChangedSince(since);
-await yg.users.batch(recent.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt: u.updatedAt.toISOString() })));`}</Code>
+      <Code title="A daily re-sync">{`// Everyone's current state; the SDK sends 100 per request.
+const readAt = new Date().toISOString();            // before reading, so a newer write wins
+const users = await db.users.findAll();
+await yg.users.batch(users.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt: readAt })));`}</Code>
 
       <H2 id="batch">Many users at once</H2>
       <P>
@@ -583,9 +584,10 @@ await yg.users.batch(recent.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt
           <strong>A user:</strong> <C>yg.users.get(id)</C> shows their state, the journeys they&apos;re in and any opt-outs.
         </li>
         <li>
-          <strong>In YouGrow:</strong> <strong>Products → your product → Events</strong> lists every write as it arrives,
-          including ones that changed nothing because we held something newer, erasures, and refused requests with the
-          reason. The <strong>Users</strong> tab shows each person&apos;s current state.
+          <strong>In YouGrow:</strong> <strong>Products → your product → Events</strong> lists writes as they arrive,
+          including ones we ignored because we held something newer, erasures, and refused requests with the reason. Writes
+          that changed nothing, such as a daily re-sync resending the same state, are counted there rather than listed. The{" "}
+          <strong>Users</strong> tab shows each person&apos;s current state.
         </li>
       </UL>
 

@@ -587,22 +587,22 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Consent at send time (see apphosting.yaml) stays off until it's verified on
-  # dev. It has to be set: this file only overrides apphosting.yaml.
+  # Consent at send time (see apphosting.yaml): on in prod since 2026-09-26, after
+  # it was verified on dev. Set "false" here to switch it off.
   - variable: LIFECYCLE_CONSENT_AT_SEND
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
-  # The go-live sweep (see apphosting.yaml) stays off until it's verified on dev;
-  # run scripts/count-mode-holds.ts against prod before switching it on.
+  # The go-live sweep (see apphosting.yaml): on in prod since 2026-09-26, after it
+  # was verified on dev (scripts/count-mode-holds.ts found 0 holds in prod).
   - variable: LIFECYCLE_GO_LIVE_SWEEP
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
-  # The email.suppressed webhook (see apphosting.yaml) stays off until it's
-  # verified on dev.
+  # The email.suppressed webhook (see apphosting.yaml): on in prod since
+  # 2026-09-26, after it was verified on dev.
   - variable: CONNECT_SUPPRESSION_WEBHOOK_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

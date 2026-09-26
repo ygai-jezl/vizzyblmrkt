@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
@@ -259,15 +260,28 @@ export async function testContext(
   return ok(result);
 }
 
-export async function testWebhook(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
+/** What an endpoint that's still starting up answers: the test tries once more, as a delivery would. */
+const STARTING_UP = new Set(["timeout", "http_502", "http_503", "http_504"]);
+
+export async function testWebhook(
+  ctx: TenantContext,
+  id: string,
+  db?: FirestoreLike,
+  deps: Pick<NonNullable<Parameters<typeof sendConnectionWebhook>[2]>, "fetchImpl"> = {},
+): Promise<ApiResult> {
   const conn = await loadConnection(ctx, id, db);
   if (!conn) return fail(404, "not_found");
-  const result = await sendConnectionWebhook(
-    conn,
-    { type: "connection.test", data: { message: "Test webhook from YouGrow" } },
-    { db },
-  );
-  return ok(result);
+  // Both tries carry the same id, like a delivery's retries.
+  const event = {
+    id: `wh_${randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    type: "connection.test" as const,
+    data: { message: "Test webhook from YouGrow" },
+  };
+  const first = await sendConnectionWebhook(conn, event, { db, ...deps });
+  if (first.ok || !STARTING_UP.has(first.error)) return ok(first);
+  const second = await sendConnectionWebhook(conn, event, { db, ...deps });
+  return ok({ ...second, attempts: 2, firstError: first.error });
 }
 
 // ---- Events and users ----------------------------------------------------------------

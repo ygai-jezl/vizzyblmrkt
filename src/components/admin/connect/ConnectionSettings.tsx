@@ -51,14 +51,28 @@ export function ConnectionSettings({
   /** Send one signed connection.test to the SAVED webhook URL and say what came back. */
   async function testWebhook() {
     setHookMsg(null);
-    const r = await api<{ ok: boolean; status?: number; error?: string }>(`/api/admin/connections/${connection.id}/test-webhook`, { method: "POST" });
-    if (r.ok && r.data.ok) return setHookMsg({ tone: "ok", text: `Delivered — your endpoint replied ${r.data.status ?? 200}.` });
+    const r = await api<{ ok: boolean; status?: number; error?: string; attempts?: number; firstError?: string }>(
+      `/api/admin/connections/${connection.id}/test-webhook`,
+      { method: "POST" },
+    );
+    const firstTry = (e = "") => (e === "timeout" ? "got no reply within 5 seconds" : `got ${e.slice(5)}`);
+    if (r.ok && r.data.ok) {
+      const replied = `your endpoint replied ${r.data.status ?? 200}`;
+      const text =
+        r.data.attempts === 2
+          ? `Delivered on the second try — ${replied}. The first try ${firstTry(r.data.firstError)}, probably while it started up; real deliveries retry, so that's fine.`
+          : `Delivered — ${replied}.`;
+      return setHookMsg({ tone: "ok", text });
+    }
     const err = r.data?.error ?? "";
-    const text = err.startsWith("http_")
-      ? `Your endpoint replied ${err.slice(5)} — it should verify the request and reply 2xx.`
-      : err === "not_configured"
-        ? "Save a webhook URL with Enabled ticked first."
-        : errorText(r.data);
+    const text =
+      err === "timeout"
+        ? `Your endpoint didn't reply within 5 seconds${r.data.attempts === 2 ? ", twice" : ""}. If it's serverless it may still be starting up: press Test webhook again. It should reply 2xx quickly and do slow work afterwards.`
+        : err.startsWith("http_")
+          ? `Your endpoint replied ${err.slice(5)} — it should verify the request and reply 2xx.`
+          : err === "not_configured"
+            ? "Save a webhook URL with Enabled ticked first."
+            : errorText(r.data);
     setHookMsg({ tone: "err", text });
   }
 

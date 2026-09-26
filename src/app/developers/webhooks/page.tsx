@@ -171,8 +171,12 @@ app.post("/yougrow/webhook", express.raw({ type: "application/json", limit: "16k
           same value twice is harmless anyway.
         </li>
         <li>
+          A serverless endpoint that&apos;s slow to start is fine: the retry a minute later finds it running. Your handler
+          may then see an id it already handled, if it finished the first time after we stopped waiting.
+        </li>
+        <li>
           <strong>Test webhook</strong> in your connection&apos;s Settings sends one straight away and shows what your
-          server replied.
+          server replied. If the first try gets no reply within 5 seconds, it tries once more, as a delivery would.
         </li>
       </UL>
       <Note>

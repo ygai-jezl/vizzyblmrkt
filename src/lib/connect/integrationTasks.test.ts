@@ -94,13 +94,38 @@ describe("prompt for the customer's coding agent", () => {
 
   it("covers every task, where it goes, and how to check it's done", () => {
     expect(p).toMatch(/^# Connect vizzybl\.ai to YouGrow lifecycle email/);
-    expect(p).toContain("#### 1. [Required] Send sign-ups");
+    expect(p).toContain("#### 3. [Required] Send sign-ups");
     expect(p).toContain("`functions/src/auth/onUserCreated.ts:12`");
     expect(p).toContain("https://yougrow.test/developers/users.md");
-    expect(p).toContain("## Done when");
-    expect(p).toContain("`GET https://yougrow.test/api/v2/users/{userId}` for a test account");
+    expect(p).toContain("Done: `GET https://yougrow.test/api/v2/users/{userId}` for a test account");
     expect(p).toContain("**Events** within seconds");
     expect(p).toContain("Journeys start in **test** mode");
+  });
+
+  it("is an ordered checklist: each step has a check, the key comes first and the handoff last", () => {
+    const phase1 = p.slice(p.indexOf("## Phase 1"), p.indexOf("## Phase 2"));
+    expect(phase1).toContain("A step is done only when its check passes. If a check fails, stop and show me the output");
+    for (const phase of [phase1, p.slice(p.indexOf("## Phase 2"), p.indexOf("## Reference"))]) {
+      const steps = phase.split(/\n(?=#### \d+\. )/).slice(1);
+      expect(steps.length).toBeGreaterThan(1);
+      expect(steps.map((s) => Number(/^#### (\d+)\./.exec(s)?.[1]))).toEqual(steps.map((_, i) => i + 1));
+      for (const s of steps) expect(s, s.slice(0, 50)).toMatch(/\nDone: /);
+    }
+    const steps = phase1.split(/\n(?=#### \d+\. )/).slice(1);
+    expect(steps[0]).toMatch(/^#### 1\. The key[\s\S]*\nDone: `await yg\.me\(\)`/);
+    expect(steps[1]).toMatch(/^#### 2\. The plan/);
+    expect(steps.at(-1)).toMatch(/^#### \d+\. Hand off/);
+    // Reference comes after every action.
+    expect(p.indexOf("## Reference")).toBeGreaterThan(p.indexOf("## Phase 2"));
+    expect(p.indexOf("### Protocol essentials")).toBeGreaterThan(p.indexOf("## Reference"));
+  });
+
+  it("marks what only I can do, never asks for the secret in the chat, and pins the SDK", () => {
+    expect(p).toContain("**Ask me** to set `YOUGROW_ORIGIN`");
+    expect(p).toContain("**Ask me** to set our webhook URL in YouGrow");
+    expect(p).toContain("**ask me** to add our test accounts there");
+    expect(p).toContain("Never ask me to paste the secret into this chat");
+    expect(p).toContain("npm install @yougrowai/node@^0.4.0");
   });
 
   it("uses the proposed steps and facts before anything is accepted into the catalog", () => {
@@ -117,14 +142,14 @@ describe("prompt for the customer's coding agent", () => {
   it("works in phases: plan and build sign-ups and compliance first, then stop", () => {
     expect(p).toContain("reply with a short plan for Phase 1 — at most 2 PRs — and wait for my OK");
     expect(p).toContain("Don't build a sync engine");
-    const phase1 = p.slice(p.indexOf("### Phase 1"), p.indexOf("### Phase 2"));
+    const phase1 = p.slice(p.indexOf("## Phase 1"), p.indexOf("## Phase 2"));
     expect(phase1).toContain("[Required] Send sign-ups");
     expect(phase1).toContain("[Compliance] Handle account deletion");
     expect(phase1).toContain("[Compliance] Sync email preferences");
     expect(phase1).toContain("[Recommended] Send each user's timezone");
     expect(phase1).toContain("[Recommended] Exclude people who shouldn't get onboarding email");
     expect(phase1).not.toContain("[Personalisation]");
-    const phase2 = p.slice(p.indexOf("### Phase 2"), p.indexOf("## What to send"));
+    const phase2 = p.slice(p.indexOf("## Phase 2"), p.indexOf("## Reference"));
     expect(phase2).toContain("[Personalisation] Report onboarding steps and facts");
     expect(phase2).toContain("[Personalisation] Build the context endpoint (optional)");
     expect(p).toContain("Treat them as leads, not facts");
@@ -149,7 +174,7 @@ describe("prompt for the customer's coding agent", () => {
   });
 
   it("says where the contract is — the docs, the OpenAPI spec and the SDK, never YouGrow's source", () => {
-    expect(p).toContain("Read https://yougrow.test/developers/llms-full.txt first");
+    expect(p).toContain("Read https://yougrow.test/developers/llms-full.txt before writing any code");
     expect(p).toContain("https://yougrow.test/developers/openapi.json");
     expect(p).toContain("Don't clone or read YouGrow's own source code");
     expect(p).toContain("`YOUGROW_ORIGIN` (value `https://yougrow.test`)");

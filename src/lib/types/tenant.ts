@@ -491,6 +491,30 @@ export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
 });
 export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
 
+export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 } as const;
+
+/**
+ * An Email style Vizzy suggested (from chat or the brand kit), waiting for an admin to Review
+ * and Save it. Sends never read it. It has no logo size: the page measures the logo on Review.
+ * `suggestedAt` is the compare-and-clear key, so a Save or Dismiss never clears a newer one.
+ */
+export const EmailStyleSuggestionSchema = z.object({
+  logoId: EmailStyleLogoSchema.shape.id.nullable(),
+  companyName: CompanyNameSchema.nullable(),
+  headerColor: HexColorSchema,
+  accentColor: HexColorSchema,
+  source: z.enum(["brand_kit", "chat"]),
+  /** What was asked for, in the asker's words. */
+  brief: z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.brief),
+  notes: z
+    .array(z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.note))
+    .max(EMAIL_STYLE_SUGGESTION_LIMITS.notes),
+  /** Firebase UID of who asked Vizzy, or "agent". Never shown on the page or sent to Vizzy. */
+  suggestedBy: z.string().min(1).max(128),
+  suggestedAt: z.string().min(1).max(40),
+});
+export type EmailStyleSuggestion = z.infer<typeof EmailStyleSuggestionSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -544,6 +568,8 @@ export const TenantSchema = z.object({
   learnedPostPatterns: LearnedPostPatternsSchema.optional(),
   /** Email style (header band + button colour). A damaged value reads as none, never a throw. */
   emailStyle: StoredEmailStyleSchema.optional().catch(undefined),
+  /** A pending Email style suggestion from Vizzy, for an admin to apply. Damaged reads as none. */
+  emailStyleSuggestion: EmailStyleSuggestionSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

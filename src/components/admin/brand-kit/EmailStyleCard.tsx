@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { EmailStyleInputSchema, type EmailStyleInput } from "@/lib/types/tenant";
 import { BRAND_KIT_LOGOS_ROUTE, brandLogoAbsoluteUrl, brandLogoPublicUrl } from "@/lib/content/brandKit";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
@@ -18,15 +19,18 @@ import {
   brandKitWithLogo,
   emailStyleHints,
   fitLogoSize,
+  suggestionForReview,
   type EmailStyleLogoChoice,
   type PaletteChip,
+  type PendingEmailStyleSuggestion,
 } from "./emailStyleForm";
 
 /**
  * Brand › Email style: the header band (logo, optional company name, header colour) and the
  * button colour that branded emails wear. "Use brand kit" fills it in from Brand; nothing
  * changes until an admin saves. The preview goes through the lifecycle renderer, so it
- * matches the send. Members see it read-only.
+ * matches the send. A banner shows Vizzy's pending suggestion: Review loads it into the form
+ * and Save applies it, or Dismiss drops it. Members see it all read-only.
  */
 
 const FIELD =
@@ -147,6 +151,7 @@ function sampleValues(brand: string): RenderValues {
 
 export function EmailStyleCard({
   initial,
+  pending,
   logos,
   fromBrandKit,
   palette,
@@ -158,6 +163,11 @@ export function EmailStyleCard({
 }: {
   /** The saved style; null = none, so emails have today's look. */
   initial: EmailStyleInput | null;
+  /**
+   * Vizzy's pending suggestion. Read from props (not copied into state), so when a chat card
+   * refreshes the page the banner updates without wiping unsaved edits.
+   */
+  pending: PendingEmailStyleSuggestion | null;
   /** This tenant's logos, newest first. */
   logos: EmailStyleLogoChoice[];
   /** What "Use brand kit" fills in, before the logo is measured. */
@@ -184,11 +194,16 @@ export function EmailStyleCard({
   );
   const sampling = useRef(new Map<string, Promise<LogoSample | null>>());
   const [notes, setNotes] = useState<string[]>([]);
-  const [busy, setBusy] = useState<null | "kit" | "save" | "reset">(null);
+  // The suggestion (by suggestedAt) loaded into the form, and the one applied or dismissed here.
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [handled, setHandled] = useState<string | null>(null);
+  const [busy, setBusy] = useState<null | "kit" | "save" | "reset" | "dismiss">(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const router = useRouter();
   const dirty = saved ? !sameDraft(draft, toDraft(saved, listed)) : started;
+  const suggestion = pending && pending.suggestedAt !== handled ? pending : null;
 
   // Save is explicit; warn before losing unsaved edits (as the Colours page does).
   useEffect(() => {
@@ -288,6 +303,55 @@ export function EmailStyleCard({
         accentColor: kit.accentColor,
       });
       setNotes(listed ? kit.notes : []);
+      setReviewing(null);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual. */
+  function review(s: PendingEmailStyleSuggestion) {
+    const r = suggestionForReview(
+      s,
+      logos,
+      listed ? undefined : { savedLogoId: savedLogo?.id ?? null, logosOff: logosUnavailable === "off" },
+    );
+    edit({ logoId: r.logoId, companyName: r.companyName ?? "", headerColor: r.headerColor, accentColor: r.accentColor });
+    setNotes(r.notes);
+    setReviewing(s.suggestedAt);
+  }
+
+  async function dismiss(s: PendingEmailStyleSuggestion) {
+    setBusy("dismiss");
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/admin/brand-kit/email-style/suggestion", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestedAt: s.suggestedAt }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { cleared?: boolean };
+      if (!res.ok) {
+        setError(res.status === 403 ? "Only an admin can dismiss a suggestion." : "Couldn't dismiss — try again.");
+        return;
+      }
+      setHandled(s.suggestedAt);
+      if (reviewing === s.suggestedAt) {
+        // Back to the saved style.
+        setReviewing(null);
+        setDraft(toDraft(saved, listed));
+        setStarted(saved !== null);
+        setNotes([]);
+      }
+      if (data.cleared) {
+        setStatus("Suggestion dismissed. Your Email style hasn't changed.");
+      } else {
+        // It had already gone or been replaced: fetch whatever is pending now.
+        router.refresh();
+      }
+    } catch {
+      setError("Couldn't dismiss — try again.");
     } finally {
       setBusy(null);
     }
@@ -302,7 +366,8 @@ export function EmailStyleCard({
       const res = await fetch("/api/admin/brand-kit/email-style", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(check.data),
+        // Saving a reviewed suggestion also clears it, if it's still the pending one.
+        body: JSON.stringify(reviewing ? { ...check.data, fromSuggestion: reviewing } : check.data),
       });
       const data = (await res.json().catch(() => ({}))) as {
         emailStyle?: EmailStyleInput;
@@ -320,6 +385,12 @@ export function EmailStyleCard({
       setSaved(data.emailStyle);
       setDraft(toDraft(data.emailStyle, listed));
       setNotes([]);
+      if (reviewing) {
+        setHandled(reviewing);
+        // A newer suggestion survives the Save, and this page can't tell: fetch whatever is pending now.
+        router.refresh();
+      }
+      setReviewing(null);
       setStatus("Saved. Branded emails use this style from now on.");
     } catch {
       setError("Couldn't save — try again.");
@@ -343,6 +414,7 @@ export function EmailStyleCard({
       setDraft(BLANK);
       setStarted(false);
       setNotes([]);
+      setReviewing(null);
       setStatus("Reset. Your emails have today's look.");
     } catch {
       setError("Couldn't reset — try again.");
@@ -355,6 +427,21 @@ export function EmailStyleCard({
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      {suggestion ? (
+        <SuggestionBanner
+          suggestion={suggestion}
+          logoTitle={
+            logos.find((l) => l.id === suggestion.logoId)?.title ??
+            (savedLogo && savedLogo.id === suggestion.logoId ? "Current logo" : null)
+          }
+          logosUnavailable={logosUnavailable}
+          canEdit={canEdit}
+          reviewing={reviewing === suggestion.suggestedAt}
+          disabled={busy !== null}
+          onReview={() => review(suggestion)}
+          onDismiss={() => void dismiss(suggestion)}
+        />
+      ) : null}
       <div className="space-y-6">
         {canEdit ? (
           <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-neutral-300 p-3 dark:border-neutral-700">
@@ -490,7 +577,9 @@ export function EmailStyleCard({
             <button
               type="button"
               onClick={save}
-              disabled={disabled || !dirty || !check.success || logoState === "checking" || logoState === "failed"}
+              disabled={
+                disabled || !(dirty || reviewing) || !check.success || logoState === "checking" || logoState === "failed"
+              }
               className="rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
             >
               {busy === "save" ? "Saving…" : "Save"}
@@ -527,6 +616,93 @@ export function EmailStyleCard({
         <p className={HINT}>A sample welcome email. Letters stay plain, with no header.</p>
       </div>
     </div>
+  );
+}
+
+/** Vizzy's pending suggestion: what it would change, and (for admins) Review and Dismiss. */
+function SuggestionBanner({
+  suggestion,
+  logoTitle,
+  logosUnavailable,
+  canEdit,
+  reviewing,
+  disabled,
+  onReview,
+  onDismiss,
+}: {
+  suggestion: PendingEmailStyleSuggestion;
+  /** The suggested logo's name; null when there's none, or it's been deleted or couldn't be loaded. */
+  logoTitle: string | null;
+  /** Logos is off, or the list couldn't be loaded, so a logo missing from it isn't known to be deleted. */
+  logosUnavailable: "off" | "failed" | false;
+  canEdit: boolean;
+  /** It's loaded into the form. */
+  reviewing: boolean;
+  disabled: boolean;
+  onReview: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <section
+      aria-label="Email style suggestion"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm text-neutral-700 lg:col-span-2 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
+    >
+      <div className="min-w-0 space-y-1">
+        <p className="font-medium text-neutral-900 dark:text-neutral-100">
+          Vizzy suggested an Email style{suggestion.source === "brand_kit" ? " from your brand kit" : ""}
+        </p>
+        {suggestion.brief ? (
+          <p className={`truncate ${HINT}`} title={suggestion.brief}>
+            &ldquo;{suggestion.brief}&rdquo;
+          </p>
+        ) : null}
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <SwatchLabel hex={suggestion.headerColor} label="Header" />
+          <SwatchLabel hex={suggestion.accentColor} label="Button" />
+          <span>
+            Logo:{" "}
+            {suggestion.logoId
+              ? (logoTitle ??
+                (logosUnavailable === "off"
+                  ? "not shown, as Logos isn't switched on"
+                  : logosUnavailable
+                    ? "one that couldn't be loaded"
+                    : "one that's been deleted"))
+              : "none"}
+          </span>
+          {suggestion.companyName ? <span>Name: {suggestion.companyName}</span> : null}
+        </p>
+      </div>
+      {canEdit ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {reviewing ? (
+            <span className={HINT}>Loaded below — Save to apply it.</span>
+          ) : (
+            <button type="button" onClick={onReview} disabled={disabled} className={`font-medium ${BTN}`}>
+              Review
+            </button>
+          )}
+          <button type="button" onClick={onDismiss} disabled={disabled} className={BTN}>
+            Dismiss
+          </button>
+        </div>
+      ) : (
+        <p className={HINT}>Nothing changes until an admin reviews and applies it.</p>
+      )}
+    </section>
+  );
+}
+
+function SwatchLabel({ hex, label }: { hex: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        aria-hidden
+        className="h-3.5 w-3.5 rounded-sm border border-neutral-300 dark:border-neutral-700"
+        style={{ backgroundColor: hex }}
+      />
+      {label} <span className="font-mono">{hex}</span>
+    </span>
   );
 }
 

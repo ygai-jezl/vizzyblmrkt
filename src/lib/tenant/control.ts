@@ -8,11 +8,13 @@ import {
   TenantSchema,
   EmailSenderConfigSchema,
   StoredEmailStyleSchema,
+  EmailStyleSuggestionSchema,
   type Tenant,
   type BrandKit,
   type BrandVoice,
   type EmailSenderConfig,
   type EmailStyleInput,
+  type EmailStyleSuggestion,
   type StoredEmailStyle,
   type GitConnection,
   type GitSelectedRepo,
@@ -138,12 +140,14 @@ export async function setTenantBrandVoice(
  * Write the tenant's Email style (top-level `emailStyle`, like brandVoice), or remove it with
  * `null` ("Reset to default"). Parsed strictly here too, so nothing is stored that the lenient
  * read would drop. Stamps `updatedAt` (and `updatedBy` when given). Returns what was stored.
+ * With `clearSuggestionAt` (an admin applied Vizzy's suggestion), the same transaction clears
+ * the pending suggestion too, but only if it's still that one, so a newer suggestion survives.
  */
 export async function setTenantEmailStyle(
   id: string,
   style: EmailStyleInput | null,
   db: FirestoreLike = getDb() as unknown as FirestoreLike,
-  opts: { updatedBy?: string } = {},
+  opts: { updatedBy?: string; clearSuggestionAt?: string } = {},
 ): Promise<StoredEmailStyle | null> {
   const now = new Date().toISOString();
   const next =
@@ -154,11 +158,60 @@ export async function setTenantEmailStyle(
           updatedAt: now,
           ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
         });
+  const ref = db.collection("tenants").doc(id);
+  const write = { emailStyle: next ?? FieldValue.delete(), updatedAt: now };
+  const clearAt = opts.clearSuggestionAt;
+  if (!clearAt) {
+    await ref.update(write);
+    return next;
+  }
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const matches = pendingSuggestedAt(snap.data()) === clearAt;
+    tx.update(ref, matches ? { ...write, emailStyleSuggestion: FieldValue.delete() } : write);
+  });
+  return next;
+}
+
+/** The pending suggestion's compare-and-clear key, read off the raw doc. */
+function pendingSuggestedAt(data: Record<string, unknown> | undefined): unknown {
+  return (data?.emailStyleSuggestion as { suggestedAt?: unknown } | undefined)?.suggestedAt;
+}
+
+/**
+ * Save Vizzy's Email style suggestion (top-level `emailStyleSuggestion`), replacing any older
+ * one. Never touches `emailStyle`: nothing changes until an admin applies it. Parsed strictly,
+ * so nothing is stored that the lenient read would drop. Returns what was stored.
+ */
+export async function setTenantEmailStyleSuggestion(
+  id: string,
+  suggestion: EmailStyleSuggestion,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<EmailStyleSuggestion> {
+  const next = EmailStyleSuggestionSchema.parse(suggestion);
   await db
     .collection("tenants")
     .doc(id)
-    .update({ emailStyle: next ?? FieldValue.delete(), updatedAt: now });
+    .update({ emailStyleSuggestion: next, updatedAt: new Date().toISOString() });
   return next;
+}
+
+/**
+ * Dismiss the pending suggestion, but only if it's still the one made at `suggestedAt` (a
+ * transaction), so a newer suggestion that arrived meanwhile survives. Returns whether it cleared.
+ */
+export async function clearTenantEmailStyleSuggestion(
+  id: string,
+  suggestedAt: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || pendingSuggestedAt(snap.data()) !== suggestedAt) return false;
+    tx.update(ref, { emailStyleSuggestion: FieldValue.delete(), updatedAt: new Date().toISOString() });
+    return true;
+  });
 }
 
 /**

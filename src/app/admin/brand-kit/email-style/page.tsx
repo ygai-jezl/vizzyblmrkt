@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
 /**
  * Brand › Email style. The logo, optional company name, header colour and button colour
  * that branded emails wear (lifecycle, launch welcome, invite and newsletter emails). Members
- * can view; only admins save. Flag-gated (EMAIL_STYLE_ENABLED).
+ * can view, including a pending Vizzy suggestion; only admins save or dismiss it. Flag-gated
+ * (EMAIL_STYLE_ENABLED).
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -49,6 +50,20 @@ export default async function EmailStylePage() {
     byteSize,
   }));
   const saved = tenant?.emailStyle;
+  // Vizzy's pending suggestion, for the banner. Who asked stays on the server.
+  const suggestion = tenant?.emailStyleSuggestion;
+  const pending = suggestion
+    ? {
+        logoId: suggestion.logoId,
+        companyName: suggestion.companyName,
+        headerColor: suggestion.headerColor,
+        accentColor: suggestion.accentColor,
+        source: suggestion.source,
+        brief: suggestion.brief,
+        notes: suggestion.notes,
+        suggestedAt: suggestion.suggestedAt,
+      }
+    : null;
   const phase3 = isNavV2Phase3Enabled();
 
   return (
@@ -77,6 +92,7 @@ export default async function EmailStylePage() {
               }
             : null
         }
+        pending={pending}
         logos={choices}
         fromBrandKit={styleFromBrandKit(tenant?.brandKit, choices)}
         palette={paletteChips(tenant?.brandKit)}

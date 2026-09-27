@@ -1,9 +1,10 @@
-import { EMAIL_STYLE_LIMITS, type BrandKit } from "@/lib/types/tenant";
+import { EMAIL_STYLE_LIMITS, type BrandKit, type EmailStyleSuggestion } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 import {
   accentFor,
   contrastRatio,
+  isEmailLogo,
   luminance,
   readableOn,
   type BrandKitEmailStyle,
@@ -12,8 +13,9 @@ import {
 
 /**
  * Pure helpers for the Brand › Email style page (EmailStyleCard): sizing a logo for the
- * header, the logo-on-header contrast check, "Use brand kit" with the logo in view, and the
- * page's hints. Client-safe; only the canvas read itself lives in the component.
+ * header, the logo-on-header contrast check, "Use brand kit" with the logo in view, reviewing
+ * a Vizzy suggestion, and the page's hints. Client-safe; only the canvas read itself lives in
+ * the component.
  */
 
 /** A logo the page can offer: what "Use brand kit" needs, plus its name and size on disk. */
@@ -74,6 +76,54 @@ export function brandKitWithLogo(kit: BrandKitEmailStyle, ink: string | null): B
     headerColor: "#ffffff",
     accentColor: kit.headerColor,
     notes: [...kit.notes, "Your logo is hard to see on your brand colour, so the header is white and the brand colour is on the button"],
+  };
+}
+
+/** A pending Vizzy suggestion as the page shows it: who asked is left out. */
+export type PendingEmailStyleSuggestion = Omit<EmailStyleSuggestion, "suggestedBy">;
+
+/**
+ * Review a Vizzy suggestion: its values for the form, exactly as asked (a hard-to-see logo
+ * gets the page's warning, never a colour swap). A logo that's since been deleted, or that
+ * email can't show, falls back to no logo with a note. With no logo list (`unlisted`: Logos is
+ * off, or the list failed to load), only the saved logo is known: any other suggested logo
+ * leaves the saved one.
+ */
+export function suggestionForReview(
+  suggestion: PendingEmailStyleSuggestion,
+  logos: readonly EmailStyleLogoChoice[],
+  unlisted?: { savedLogoId: string | null; logosOff?: boolean },
+): BrandKitEmailStyle {
+  const notes = [...suggestion.notes];
+  let logoId: string | null;
+  if (unlisted) {
+    const known = suggestion.logoId === null || suggestion.logoId === unlisted.savedLogoId;
+    logoId = known ? suggestion.logoId : unlisted.savedLogoId;
+    if (!known) {
+      notes.push(
+        unlisted.logosOff
+          ? "Logos aren't switched on in this environment, so the suggested logo isn't used"
+          : "Your logos couldn't be loaded, so the suggested logo isn't used — try Review again later",
+      );
+    }
+  } else {
+    const logo = logos.find((l) => l.id === suggestion.logoId);
+    const usable = logo && isEmailLogo(logo) ? logo : null;
+    logoId = usable?.id ?? null;
+    if (suggestion.logoId !== null && !usable) {
+      notes.push(
+        logo
+          ? "The suggested logo can't be shown in email, so there's no logo — pick another if you like"
+          : "The suggested logo has been deleted, so there's no logo — pick another if you like",
+      );
+    }
+  }
+  return {
+    logoId,
+    companyName: suggestion.companyName,
+    headerColor: suggestion.headerColor,
+    accentColor: suggestion.accentColor,
+    notes,
   };
 }
 

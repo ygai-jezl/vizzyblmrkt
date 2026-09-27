@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Brand › Email style: flag, then sign-in, then admin; a strict parse; the logo must be
-// this tenant's PNG/JPEG. Save and Reset write only `tenant.emailStyle`.
+// this tenant's PNG/JPEG. Save and Reset write only `tenant.emailStyle` (Save may also clear
+// the suggestion it applies).
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 const logos = vi.hoisted(() => ({ getLogo: vi.fn() }));
@@ -114,6 +115,23 @@ describe("PUT /api/admin/brand-kit/email-style", () => {
       { updatedBy: "usr_admin" },
     );
     expect(await res.json()).toMatchObject({ emailStyle: { companyName: "Example Co", headerColor: "#0b1f3a" } });
+  });
+
+  it("saving a reviewed suggestion asks for it to be cleared (if it's still the pending one)", async () => {
+    const suggestedAt = "2026-09-27T10:00:00.000Z";
+    const res = await PUT(req("PUT", { ...style, fromSuggestion: suggestedAt }));
+    expect(res.status).toBe(200);
+    expect(control.setTenantEmailStyle).toHaveBeenCalledWith("ten_A", style, undefined, {
+      updatedBy: "usr_admin",
+      clearSuggestionAt: suggestedAt,
+    });
+  });
+
+  it("400s for a fromSuggestion that isn't a short string", async () => {
+    for (const fromSuggestion of [42, "", "x".repeat(41)]) {
+      expect((await PUT(req("PUT", { ...style, fromSuggestion }))).status).toBe(400);
+    }
+    expect(control.setTenantEmailStyle).not.toHaveBeenCalled();
   });
 
   it("a blank name or no logo is fine", async () => {

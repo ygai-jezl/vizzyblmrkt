@@ -5,6 +5,7 @@ import {
   BrandKitSchema,
   PaletteGroupSchema,
   EmailStyleInputSchema,
+  EmailStyleSuggestionSchema,
 } from "./tenant";
 
 describe("TenantSchema.gitConnections", () => {
@@ -144,5 +145,46 @@ describe("TenantSchema.emailStyle (lenient on read)", () => {
     expect(field.parse(undefined)).toBeUndefined();
     expect(field.parse({ headerColor: "red" })).toBeUndefined();
     expect(field.parse("nonsense")).toBeUndefined();
+  });
+});
+
+describe("EmailStyleSuggestionSchema (strict on write)", () => {
+  const suggestion = {
+    logoId: "logo_1",
+    companyName: null,
+    headerColor: "#0B1F3A",
+    accentColor: "#ff6b35",
+    source: "chat",
+    brief: "Make the header navy",
+    notes: ["No logos yet — add a PNG or JPG in Brand › Logos"],
+    suggestedBy: "usr_admin",
+    suggestedAt: "2026-09-27T10:00:00.000Z",
+  };
+  const ok = (over: Record<string, unknown>) => EmailStyleSuggestionSchema.safeParse({ ...suggestion, ...over }).success;
+
+  it("accepts a suggestion with or without a logo, lowercasing the colours", () => {
+    expect(EmailStyleSuggestionSchema.parse(suggestion).headerColor).toBe("#0b1f3a");
+    expect(ok({ logoId: null, companyName: "Example Co", source: "brand_kit", brief: "", notes: [] })).toBe(true);
+  });
+
+  it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {
+    expect(ok({ headerColor: "navy" })).toBe(false);
+    expect(ok({ companyName: "{{user.first_name}} Co" })).toBe(false);
+    expect(ok({ logoId: "a/b" })).toBe(false);
+    expect(ok({ source: "email" })).toBe(false);
+    expect(ok({ brief: "a".repeat(501) })).toBe(false);
+    expect(ok({ notes: ["a", "b", "c", "d", "e", "f"] })).toBe(false);
+    expect(ok({ notes: ["a".repeat(201)] })).toBe(false);
+    expect(ok({ suggestedAt: "" })).toBe(false);
+    expect(ok({ suggestedBy: "" })).toBe(false);
+  });
+});
+
+describe("TenantSchema.emailStyleSuggestion (lenient on read)", () => {
+  it("reads a damaged value as undefined instead of throwing", () => {
+    const field = TenantSchema.shape.emailStyleSuggestion;
+    expect(field.parse(undefined)).toBeUndefined();
+    expect(field.parse({ headerColor: "#0b1f3a" })).toBeUndefined();
+    expect(field.parse(42)).toBeUndefined();
   });
 });

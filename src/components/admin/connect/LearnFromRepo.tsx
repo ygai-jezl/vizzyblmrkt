@@ -69,7 +69,18 @@ const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
   { id: "glossary", title: "Glossary", description: "Your product's terms, for the writing." },
 ];
 
-export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection: PublicConnection; canEdit: boolean; onAccepted: () => void }) {
+export function LearnFromRepo({
+  connection,
+  canEdit,
+  onAccepted,
+  onOpenCatalog,
+}: {
+  connection: PublicConnection;
+  canEdit: boolean;
+  onAccepted: () => void;
+  /** Opens the Catalog tab (to add steps by hand when none were found). */
+  onOpenCatalog?: () => void;
+}) {
   const [analyses, setAnalyses] = useState<RepoAnalysis[] | null>(null);
   /** Repos ticked from the read-only GitHub app's list. */
   const [picked, setPicked] = useState<string[]>([]);
@@ -237,6 +248,7 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
           <p className="text-xs text-neutral-500">
             {latest.repos.map((r) => r.url.replace("https://", "") + (r.ref ? `@${r.ref}` : "")).join(", ")} · started {timeAgo(latest.createdAt)}
             {latest.stats ? ` · ${latest.stats.files} files read · ${latest.stats.verifiedItems}/${latest.stats.items} items backed by code` : ""}
+            {latest.stats?.dropped ? ` · ${latest.stats.dropped} left out (not in a form we could use)` : ""}
             {latest.acceptedAt ? ` · added to the catalog ${timeAgo(latest.acceptedAt)}` : ""}
           </p>
         </div>
@@ -248,6 +260,22 @@ export function LearnFromRepo({ connection, canEdit, onAccepted }: { connection:
           {map.warnings.length > 0 ? (
             <Banner tone="info">
               <span className="font-medium">Worth knowing:</span> {map.warnings.join(" · ")}
+            </Banner>
+          ) : null}
+
+          {items.steps.length === 0 && latest && !RUNNING.has(latest.status) ? (
+            <Banner tone="info">
+              <span className="font-medium">No onboarding steps found.</span> Your welcome email&apos;s checklist and next-step
+              button are built from them. Run it again with the repository that holds your sign-up and setup flow, or add the
+              steps yourself in{" "}
+              {onOpenCatalog ? (
+                <button type="button" className="underline" onClick={onOpenCatalog}>
+                  Catalog
+                </button>
+              ) : (
+                "Catalog"
+              )}
+              .
             </Banner>
           ) : null}
 

@@ -99,6 +99,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
         <LearnFromRepo
           connection={connection}
           canEdit={canEdit}
+          onOpenCatalog={() => setTab("catalog")}
           onAccepted={() => {
             void load();
             setTab("catalog");

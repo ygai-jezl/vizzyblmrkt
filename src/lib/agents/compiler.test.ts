@@ -155,6 +155,74 @@ describe("mandatory footer (safety net + token resolution)", () => {
   });
 });
 
+// Pinned byte-for-byte: with no Email style saved, sends must stay exactly this.
+describe("today's output", () => {
+  const launch = { waitlistName: "Example Beta", productName: "Example" } as unknown as Campaign;
+  const footer = {
+    brand: "Example Co",
+    unsubscribeUrl: "https://waitlist.example.com/unsubscribe?u=tok",
+    managePreferencesUrl: "https://waitlist.example.com/preferences?u=tok",
+    privacyUrl: "https://example.com/privacy",
+  };
+
+  it("broadcast html", () => {
+    const out = compileBroadcast(
+      {
+        subject: "This week at {{waitlist_name}}",
+        body: '<h2>This week</h2>\n<p>Hi {{first_name}}, here\'s what\'s new.</p>\n<p><a href="https://example.com/blog/update">Read the update</a></p>',
+        heroImageUrl: "https://cdn.example.com/weekly.png",
+      },
+      launch,
+      footer,
+    );
+    expect(out.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/weekly.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <h2>This week</h2>
+      <p>Hi *|FNAME|*, here's what's new.</p>
+      <p><a href="https://example.com/blog/update">Read the update</a></p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="*|UPDATE_PROFILE|*" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="*|UNSUB|*" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  it("journey html and text", () => {
+    const signup = {
+      firstName: "Jo",
+      referralLink: "https://waitlist.example.com/beta?ref=abc123",
+      amountReferred: 2,
+    } as unknown as Signup;
+    const out = compileJourneyEmail(
+      {
+        subject: "You're on the {{waitlist_name}} list",
+        body: "Hi {{first_name}},\n\nYou're #{{current_rank}} on the {{waitlist_name}} list.\n\nShare your link to move up: {{referral_link}}",
+        heroImageUrl: "https://cdn.example.com/welcome.png",
+      },
+      { signup, campaign: launch, rank: 42, footer },
+    );
+    expect(out.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/welcome.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <p>Hi Jo,</p>
+      <p>You&#39;re #42 on the Example list.</p>
+      <p>Share your link to move up: https://waitlist.example.com/beta?ref=abc123</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="https://waitlist.example.com/preferences?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://waitlist.example.com/unsubscribe?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(out.text).toMatchInlineSnapshot(`
+      "Hi Jo,
+
+      You're #42 on the Example list.
+
+      Share your link to move up: https://waitlist.example.com/beta?ref=abc123
+      This email was sent by Example Co.
+      Manage preferences (https://waitlist.example.com/preferences?u=tok) | Unsubscribe (https://waitlist.example.com/unsubscribe?u=tok) | Privacy Policy (https://example.com/privacy)"
+    `);
+  });
+});
+
 describe("emoji + charset robustness", () => {
   it("preserves emoji in a journey email's subject + body and declares utf-8", () => {
     const signup = { firstName: "Maya", amountReferred: 0 } as unknown as Signup;

@@ -141,6 +141,26 @@ describe("wrap", () => {
     expect(out).toContain("&quot;onerror"); // quote escaped — no live onerror attribute
     expect(wrap("x", "https://ok.com/a.png")).toContain('src="https://ok.com/a.png"');
   });
+
+  // Pinned byte-for-byte: with no Email style saved, the shell must stay exactly this.
+  it("pins today's output, with and without a hero", () => {
+    expect(wrap("<p>x</p>", null)).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>x</p>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap("x", "https://ok.example.com/a.png")).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://ok.example.com/a.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          x
+        </div>
+      </body></html>"
+    `);
+  });
 });
 
 describe("EmailLayoutSchema", () => {

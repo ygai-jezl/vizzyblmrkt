@@ -600,7 +600,7 @@ env:
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
     availability:
       - RUNTIME
-  # Lifecycle runner: the highest delivery mode dev may use (prod: test), and the
+  # Lifecycle runner: the highest delivery mode dev may use (prod: live), and the
   # Cloud Scheduler tick's shared secret. Created in dev with
   #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-dev
   - variable: LIFECYCLE_MODE_CEILING

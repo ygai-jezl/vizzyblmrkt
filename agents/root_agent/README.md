@@ -32,7 +32,8 @@ context/brand_context.py       build_dynamic_instruction (state-based; Firestore
 context/memory_config.py       composite_user_id + optional VertexAiMemoryBankService
 prompts/                       base system instruction
 agent_logging/logger.py        structured logging
-tests/                         pure-helper unit tests (no ADK needed)
+tools/                         root FunctionTools (knowledge, insights, Email style): pure *_client.py + thin ADK wrappers
+tests/                         unit tests (pure clients; the tool-declaration tests need ADK)
 .agent_engine_config.json      identity_type=AGENT_IDENTITY + runtime env_vars
 deploy.sh                      wraps `adk deploy agent_engine`
 ```
@@ -41,12 +42,17 @@ Phase 3 adds `tools/` (marketing FunctionTools + A2A) and `subagents/`; Phase 4
 adds MCP toolsets and memory search.
 
 ## Local test
-The callbacks keep ADK imports under `TYPE_CHECKING`, so the pure helpers are
-unit-testable without ADK installed (ADK 2.x needs Python 3.10+):
+The tools keep their request logic in pure `*_client.py` modules and the callbacks
+keep ADK imports under `TYPE_CHECKING`, so the logic is tested without calling ADK.
+Tests that do need ADK (the tool declarations) start with
+`pytest.importorskip("google.adk")`. The package's `__init__.py` imports `agent.py`,
+though, so run the suite from a Python 3.10+ venv with ADK installed — the deploy
+venv (see Deploy) plus pytest works, and CI doesn't run it:
 
 ```bash
+agents/.venv/bin/pip install pytest     # once
 cd agents/root_agent
-python -m pytest tests/ -v
+../.venv/bin/python -m pytest tests/ -q
 ```
 
 The agent itself (`agent.py`) imports `google.adk` and only runs under ADK 2.x +

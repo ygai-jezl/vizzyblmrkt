@@ -1,5 +1,6 @@
 import type { CatalogTrait, ProductConnection } from "@/lib/types/productConnection";
 import { isInvitesEnabled } from "@/lib/invites/flags";
+import { isEntitiesEnabled } from "./v2/flags";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { ProductMap } from "./productMapSchema";
 import { RESERVED_EVENTS } from "./protocol";
@@ -88,6 +89,11 @@ const acceptedAsTrait = (key: string) => UserPatchSchema.safeParse({ traits: { [
 const acceptedAsEvent = (name: string) => EventRequestSchema.safeParse({ event: name }).success;
 
 const lcFirst = (s: string) => `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
+
+/** Where a per-entity value goes, and what to tell the developer about it. */
+const perEntity = (label: string) => ` Per ${label}: in each ${label}'s \`entities\` entry, not at the top level.`;
+/** A fact only some have: the rest send nothing (a 0 would be a false sentence in an email). */
+const onlyFor = (who: string) => ` Only for ${who} — leave it out for the rest, never 0 or an empty value.`;
 /** Ends with a full stop (catalog labels often don't). */
 const sentence = (s: string) => (/[.!?…]$/.test(s) ? s : `${s}.`);
 
@@ -107,6 +113,10 @@ export function buildIntegrationGuide(input: {
   const facts = cat.facts ?? [];
   const detection = new Map((map?.onboardingSteps ?? []).map((s) => [s.id, s.detection] as const));
   const invites = isInvitesEnabled();
+  // API v2 entities: a step or fact of a kind goes inside each entity of that kind. Its label: the catalog's, else the analysis's.
+  const entitiesOn = isEntitiesEnabled();
+  const labelOf = (kind: string | null | undefined): string | null =>
+    entitiesOn && kind ? ((cat.entityKinds ?? []).find((k) => k.kind === kind)?.label ?? (map?.entityKinds ?? []).find((k) => k.kind === kind)?.label ?? kind) : null;
 
   const timezoneGap = mapHooks(map, "timezone")[0];
   const preferences = mapHooks(map, "preferences")[0] ?? mapHooks(map, "consent")[0];
@@ -150,17 +160,23 @@ export function buildIntegrationGuide(input: {
       },
     ],
     progress: [
-      ...steps.map((s) => ({
-        field: `steps.${s.id}`,
-        type: "ISO 8601 time",
-        when: s.completion ? sentence(`When ${lcFirst(s.completion)}`) : `When “${s.label}” is done.`,
-        how: detection.get(s.id) ?? null,
-      })),
-      ...facts.map((f) => ({
-        field: `facts.${f.id}`,
-        type: f.type,
-        when: `${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `, from ${f.source}` : ""}. Send the latest value.`,
-      })),
+      ...steps.map((s) => {
+        const per = labelOf(s.kind);
+        return {
+          field: per ? `entities.{id}.steps.${s.id}` : `steps.${s.id}`,
+          type: "ISO 8601 time",
+          when: `${s.completion ? sentence(`When ${lcFirst(s.completion)}`) : `When “${s.label}” is done.`}${per ? perEntity(per) : ""}`,
+          how: detection.get(s.id) ?? null,
+        };
+      }),
+      ...facts.map((f) => {
+        const per = labelOf(f.kind);
+        return {
+          field: per ? `entities.{id}.facts.${f.id}` : `facts.${f.id}`,
+          type: f.type,
+          when: `${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `, from ${f.source}` : ""}. Send the latest value.${per ? perEntity(per) : ""}${f.appliesWhen ? onlyFor(f.appliesWhen) : ""}`,
+        };
+      }),
     ],
     deletion: `When an account is erased (after any grace period).${fromCode(deletionHook)}`,
     milestones: [
@@ -194,11 +210,11 @@ export function buildIntegrationGuide(input: {
   });
   // Steps for the prompt: the accepted catalog, or — before anything's accepted — what the code suggested.
   const promptSteps = steps.length
-    ? steps.map((s) => ({ id: s.id, label: s.label, completion: s.completion ?? "", how: detection.get(s.id) ?? null }))
-    : (map?.onboardingSteps ?? []).map((s) => ({ id: s.id, label: s.label, completion: s.completion, how: s.detection }));
+    ? steps.map((s) => ({ id: s.id, label: s.label, completion: s.completion ?? "", how: detection.get(s.id) ?? null, per: labelOf(s.kind) }))
+    : (map?.onboardingSteps ?? []).map((s) => ({ id: s.id, label: s.label, completion: s.completion, how: s.detection, per: labelOf(s.entityKind) }));
   const promptFacts = facts.length
-    ? facts.map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source }))
-    : (map?.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source }));
+    ? facts.map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, per: labelOf(f.kind), appliesWhen: f.appliesWhen ?? null }))
+    : (map?.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, per: labelOf(f.entityKind), appliesWhen: f.appliesWhen || null }));
   const docs = input.docs ?? true;
   const agentPrompt = buildAgentPrompt({
     productName: input.productName ?? "our product",

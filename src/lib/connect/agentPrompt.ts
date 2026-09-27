@@ -26,8 +26,10 @@ export interface AgentPromptInput {
   /** Whether this YouGrow publishes /developers; when it doesn't, the prompt links nothing there. */
   docs: boolean;
   tasks: IntegrationTask[];
-  steps: Array<{ id: string; label: string; completion: string; how?: string | null }>;
-  facts: Array<{ id: string; label: string; unit: string | null; source: string }>;
+  /** `per`: the kind's label when it's done or measured per entity (API v2 `entities`), e.g. "brand". */
+  steps: Array<{ id: string; label: string; completion: string; how?: string | null; per?: string | null }>;
+  /** `appliesWhen`: who has it, when not everyone does. */
+  facts: Array<{ id: string; label: string; unit: string | null; source: string; per?: string | null; appliesWhen?: string | null }>;
   /** True when those steps / facts are Learn from repo's proposals, not the customer's accepted catalog. */
   proposed?: { steps: boolean; facts: boolean };
   /** What to send, field by field (from the integration guide). */
@@ -46,6 +48,9 @@ const HOW: Record<string, string> = {
 };
 
 /** A field as the agent should send it: a fixed JSON value where there is one, else its type. */
+/** A step or fact kept per entity goes inside each one. */
+const perLine = (per: string | null | undefined) => (per ? ` — per ${per}: in each ${per}'s \`entities\` entry, not at the top level` : "");
+
 const fieldLine = (f: GuideField) => (f.example ? `- \`${f.field}\` = \`${f.example}\` — ${f.when}` : `- \`${f.field}\` (${f.type}) — ${f.when}`);
 
 /** How to tell each task is done — always on a test account, never on real users. */
@@ -130,12 +135,18 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
         if (p.proposed?.steps) body.push(proposal("step", p.productName));
         body.push(
           "Steps (use these exact ids; each value is the ISO 8601 time it was done):",
-          ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}`),
+          ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}${perLine(s.per)}`),
         );
       }
       if (p.facts.length) {
         if (p.proposed?.facts) body.push(proposal("fact", p.productName));
-        body.push("Facts (ids must match exactly; send the latest value):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
+        body.push(
+          "Facts (ids must match exactly; send the latest value):",
+          ...p.facts.map(
+            (f) =>
+              `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}${perLine(f.per)}${f.appliesWhen ? `; only for ${f.appliesWhen} — leave it out for the rest, never 0 or an empty value` : ""}`,
+          ),
+        );
       }
     }
     if (t.id === "context") {

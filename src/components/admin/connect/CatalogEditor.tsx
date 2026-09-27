@@ -195,7 +195,7 @@ export function CatalogEditor({
         description="Numbers (or values) your context endpoint can return about each user — the raw material for insights, and fields journeys can branch on. Ids must match the facts your endpoint returns."
       >
         {cat.facts.map((f, i) => (
-          <div key={i} className={`grid gap-2 ${perVisible ? "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_8rem_auto]" : "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_auto]"}`}>
+          <div key={i} className={`grid gap-2 ${perVisible ? "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_2fr_8rem_auto]" : "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_2fr_auto]"}`}>
             <input className={`${inputClass} font-mono`} disabled={disabled} value={f.id} placeholder="share_of_voice"
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, id: e.target.value } : x)))} />
             <input className={inputClass} disabled={disabled} value={f.label} placeholder="Share of voice"
@@ -208,6 +208,8 @@ export function CatalogEditor({
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, unit: e.target.value || null } : x)))} />
             <input className={inputClass} disabled={disabled} value={f.source} placeholder="Where it comes from"
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, source: e.target.value } : x)))} />
+            <input className={inputClass} disabled={disabled} value={f.appliesWhen ?? ""} placeholder="Only for… (blank: everyone)" aria-label="Only for"
+              onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, appliesWhen: e.target.value || undefined } : x)))} />
             {perSelect(f.kind, (kind) => update("facts", cat.facts.map((x) => (x === f ? { ...x, kind } : x))), "Value per")}
             <Button tone="danger" disabled={disabled} aria-label="Remove fact" onClick={() => update("facts", cat.facts.filter((x) => x !== f))}>
               <Trash2 size={14} />

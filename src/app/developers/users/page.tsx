@@ -226,7 +226,9 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
         </li>
         <li>
           <C>facts</C> — numbers (or short values) about their account that journeys can branch on and emails can mention,
-          e.g. <C>{`"projects": 3`}</C>. Send the latest value; <C>null</C> removes one.
+          e.g. <C>{`"projects": 3`}</C>. Send the latest value; <C>null</C> removes one. If someone doesn&apos;t have one —
+          a feature they haven&apos;t set up, a score that isn&apos;t measured yet — leave it out rather than sending{" "}
+          <C>0</C>: an email that needs it is then skipped for them instead of saying something untrue.
         </li>
         <li>
           <C>traits</C> — anything else journeys branch on, such as <C>plan</C> or <C>company</C>.

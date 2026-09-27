@@ -15,6 +15,9 @@ import type { ProductEvent } from "@/lib/types/productEvent";
  * `mutate` is pure: it receives the freshest profile (or null) and returns the
  * complete next profile (or null for no change), or a rejection reason. Tenant
  * ownership is re-checked inside the transaction on both documents.
+ *
+ * `buildEvent` may return null to leave no row — only for messages whose ids are
+ * never replayed (API v2 state writes), since the row is also the replay gate.
  */
 
 type Doc<T> = Omit<T, "id" | "tenantId">;
@@ -30,8 +33,8 @@ export interface ApplyMessageArgs {
   mutate: (current: ProductUser | null) =>
     | { next: Doc<ProductUser> | null; applied: boolean }
     | { reject: string };
-  /** The event row to record, given whether the message changed anything. */
-  buildEvent: (applied: boolean) => Doc<ProductEvent>;
+  /** The event row to record, given whether the message changed anything; null records none. */
+  buildEvent: (applied: boolean) => Doc<ProductEvent> | null;
 }
 
 export async function applyProductMessage(
@@ -63,7 +66,8 @@ export async function applyProductMessage(
     const result = args.mutate(current);
     if ("reject" in result) return { outcome: "rejected", reason: result.reject };
 
-    txn.create(eventRef, { ...args.buildEvent(result.applied), [TENANT_FIELD]: ctx.tenantId });
+    const row = args.buildEvent(result.applied);
+    if (row) txn.create(eventRef, { ...row, [TENANT_FIELD]: ctx.tenantId });
     if (!result.next) return { outcome: "unchanged", user: current };
     const doc = { ...result.next, [TENANT_FIELD]: ctx.tenantId };
     if (userSnap.exists) txn.set(userRef, doc);

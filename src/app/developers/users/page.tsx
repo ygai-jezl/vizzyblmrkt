@@ -195,7 +195,8 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
       <H3>Check it works</H3>
       <P>
         Sign up a test account, then open <strong>Products → your product → Events</strong>: the write appears within
-        seconds. A refused write gets a <C>400</C> that says what was wrong. Or read the user back with{" "}
+        seconds. A refused write gets a <C>400</C> that says what was wrong. Then look the account up in{" "}
+        <strong>Users</strong> by your user id, or read it back with{" "}
         <a className="underline" href="#get">
           GET
         </a>
@@ -207,6 +208,12 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
         <C>?yg_invite=…</C> added. We already match sign-ups to invites by email. If you keep that value through sign-up and
         send it back as a trait (<C>{`traits: { yg_invite: "…" }`}</C>), the match also works when someone signs up with a
         different email. The value is an opaque code: it carries no personal data and grants nothing on its own.
+      </P>
+      <P>
+        Keeping it through sign-up can mean storing it in the browser, and your consent rules may treat that as a cookie that
+        needs consent. You can carry it in the URL instead, through your sign-in redirect, or skip it: matching by email still
+        works. People can edit it — a code we don&apos;t know is ignored, and at worst an edited one credits the wrong invite
+        in your invite numbers.
       </P>
 
       <H2 id="steps">2. Onboarding steps and facts — personalisation</H2>
@@ -309,8 +316,10 @@ await yg.users.delete(user.id);                                       // the acc
         </li>
         <li>
           For people who opt in later, start a sequence on <strong>Marketing consent granted</strong>. It fires when a write
-          moves someone we already hold onto a basis your connection accepts. A user&apos;s first write never fires it, so a
-          backfill doesn&apos;t either.
+          moves someone we already hold onto a basis your connection accepts, once their sign-up window has passed (your
+          longest sign-up journey&apos;s, 72 hours by default). Consent given during sign-up — with the first write, or
+          minutes later when your first write comes before your consent step — is for the sign-up journeys, which still take
+          them, so nobody gets both. A backfill never fires it.
         </li>
       </UL>
       <H3>Opt-outs: subscribed</H3>
@@ -330,9 +339,23 @@ await yg.users.delete(user.id);                                       // the acc
       <H3>Exclusions: excluded</H3>
       <P>
         For people who must never get lifecycle email — staff, test accounts, invited teammates — send{" "}
-        <C>{`"excluded": {"reason": "staff"}`}</C>. It applies to every journey, straight away. Clearing it (
-        <C>{`"excluded": null`}</C>) lets them into journeys that start from then on; it doesn&apos;t put them back into the
-        ones they left.
+        <C>{`"excluded": {"reason": "staff"}`}</C>. It applies to every journey straight away: a journey they&apos;re in
+        stops before its next email. Clearing it (<C>{`"excluded": null`}</C>):
+      </P>
+      <UL>
+        <li>never puts them back into a journey they left;</li>
+        <li>
+          enrols them in a sign-up journey they never joined, if they&apos;re still inside its window — the write that clears
+          it enrols them, with the journey timed from their <C>signedUpAt</C>;
+        </li>
+        <li>otherwise lets them into journeys that start from then on.</li>
+      </UL>
+      <P>
+        If what decides it lives outside the record your sync watches — a membership, an invite — your{" "}
+        <a className="underline" href="#sync">
+          daily re-sync
+        </a>{" "}
+        is what sends the change.
       </P>
       <H3>Deletion: DELETE</H3>
       <P>
@@ -426,9 +449,10 @@ await yg.users.delete(user.id);                                       // the acc
           <C>DELETE</C> is always safe to repeat.
         </li>
         <li>
-          <strong>Re-sync daily.</strong> A small job that re-sends everyone who signed up or changed in the last two days
-          catches whatever a failure dropped, and state that changes with time rather than with a write, such as a snooze
-          that ends.
+          <strong>Re-sync daily.</strong> A small job that re-sends everyone&apos;s current state catches whatever a failure
+          dropped, and state that changes without a write to the user, such as a snooze that ends or a membership your trigger
+          doesn&apos;t watch. If you can&apos;t tell who changed, send everyone: resending the same state is harmless, and it
+          isn&apos;t listed in your Events tab.
         </li>
       </OL>
       <P>
@@ -454,10 +478,10 @@ export const yougrowSync = onDocumentWritten({ document: "users/{uid}", retry: t
     console.error("YouGrow refused the write", err);             // fix the data; don't retry
   }
 });`}</Code>
-      <Code title="A daily re-sync">{`// Everyone who signed up or changed in the last two days; the SDK sends 100 per request.
-const since = new Date(Date.now() - 2 * 86_400_000);
-const recent = await db.users.findChangedSince(since);
-await yg.users.batch(recent.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt: u.updatedAt.toISOString() })));`}</Code>
+      <Code title="A daily re-sync">{`// Everyone's current state; the SDK sends 100 per request.
+const readAt = new Date().toISOString();            // before reading, so a newer write wins
+const users = await db.users.findAll();
+await yg.users.batch(users.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt: readAt })));`}</Code>
 
       <H2 id="batch">Many users at once</H2>
       <P>
@@ -578,12 +602,15 @@ await yg.users.batch(recent.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt
           environment and status. Check it when you deploy, so a staging key never ends up in production.
         </li>
         <li>
-          <strong>A user:</strong> <C>yg.users.get(id)</C> shows their state, the journeys they&apos;re in and any opt-outs.
+          <strong>A user:</strong> <strong>Products → your product → Users → Look up</strong> takes your user id and shows
+          what we hold, the journeys they&apos;re in, their opt-outs and their latest writes — no secret needed. For 30 days
+          after an erasure it shows when they were erased. From code, <C>yg.users.get(id)</C> returns the same state.
         </li>
         <li>
-          <strong>In YouGrow:</strong> <strong>Products → your product → Events</strong> lists every write as it arrives,
-          including ones that changed nothing because we held something newer, erasures, and refused requests with the
-          reason. The <strong>Users</strong> tab shows each person&apos;s current state.
+          <strong>In YouGrow:</strong> <strong>Products → your product → Events</strong> lists writes as they arrive,
+          including ones we ignored because we held something newer, erasures, and refused requests with the reason. Writes
+          that changed nothing, such as a daily re-sync resending the same state, are counted there rather than listed. The{" "}
+          <strong>Users</strong> tab shows each person&apos;s current state.
         </li>
       </UL>
 

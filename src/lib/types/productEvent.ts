@@ -58,6 +58,8 @@ export const ConnectionDiagnosticsSchema = z.object({
     )
     .max(50)
     .default([]),
+  /** API v2 writes that left the state as it was: counted here, not listed. */
+  unchangedWrites: z.object({ count: z.number().int(), lastAt: z.string() }).optional(),
   updatedAt: z.string(),
 });
 export type ConnectionDiagnostics = z.infer<typeof ConnectionDiagnosticsSchema>;

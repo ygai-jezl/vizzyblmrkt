@@ -132,6 +132,29 @@ export async function enrolUser(
   return { outcome: "enrolled", enrolmentId: id };
 }
 
+/** The sign-up window when no sign-up journey sets one (the trigger's default). */
+export const DEFAULT_SIGNUP_WINDOW_HOURS = 72;
+
+/**
+ * How long after signing up a sign-up journey can still take someone: the
+ * longest window among the journeys that start on `user.signed_up`, or 72 hours
+ * when there are none.
+ */
+export function signupWindowHours(journeys: ReadonlyArray<{ version: LifecycleVersion }>): number {
+  let hours = 0;
+  for (const { version } of journeys) {
+    const t = version.settings.trigger;
+    if (t.event === RESERVED_EVENTS.signedUp) hours = Math.max(hours, t.maxEventAgeHours);
+  }
+  return hours || DEFAULT_SIGNUP_WINDOW_HOURS;
+}
+
+/** Whether someone's sign-up window has passed, counted from `signedUpAt` (else when we first heard of them). */
+export function pastSignupWindow(user: Pick<ProductUser, "signedUpAt" | "firstSeenAt">, windowHours: number, nowMs: number): boolean {
+  const from = Date.parse(user.signedUpAt ?? user.firstSeenAt);
+  return !Number.isFinite(from) || nowMs - from > windowHours * 3600_000;
+}
+
 /** What the trigger paths need from the connection (its consent policy saves a read). */
 type EnrolConnection = Pick<ProductConnection, "id" | "status"> & Partial<Pick<ProductConnection, "consentPolicy">>;
 

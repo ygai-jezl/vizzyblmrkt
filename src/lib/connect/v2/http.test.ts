@@ -327,6 +327,86 @@ describe("the opt-in trigger through the API (LIFECYCLE_CONSENT_AT_SEND)", () =>
   });
 });
 
+describe("the opt-in trigger after the sign-up window (LIFECYCLE_OPT_IN_AFTER_SIGNUP)", () => {
+  const HOUR = 3600_000;
+  afterEach(() => {
+    delete process.env.LIFECYCLE_CONSENT_AT_SEND;
+    delete process.env.LIFECYCLE_OPT_IN_AFTER_SIGNUP;
+  });
+
+  /** An opt-in journey, plus a consent-only sign-up journey when `signupWindowHours` is given. */
+  async function world(opts: { signupWindowHours?: number } = {}) {
+    process.env.LIFECYCLE_ENABLED = "true";
+    process.env.LIFECYCLE_CONSENT_AT_SEND = "true";
+    process.env.LIFECYCLE_OPT_IN_AFTER_SIGNUP = "true";
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { connection, secret } = await createConnection(lifecycleCtx, { name: "Acme", kind: "custom", catalog: SANDBOX_CATALOG }, db);
+    const optIn = await publishOnboarding(db, {
+      mode: "live",
+      connectionId: connection.id,
+      settings: { trigger: { event: "user.marketing_consent_granted", maxEventAgeHours: 72 } },
+    });
+    const signup = opts.signupWindowHours
+      ? await publishOnboarding(db, {
+          mode: "live",
+          connectionId: connection.id,
+          settings: { trigger: { event: "user.signed_up", maxEventAgeHours: opts.signupWindowHours }, entry: { requireMarketingConsent: true } },
+        })
+      : null;
+    const auth = { keyId: connection.keyId, secret };
+    let now = T0;
+    const deps: V2HttpDeps = { db, nowMs: () => now };
+    const patch = (userId: string, body: unknown) => handlePatchUser(request("PATCH", auth, body), userId, deps);
+    const inJourney = async (journeyId: string, userId: string) =>
+      (await forTenant(lifecycleCtx, db).lifecycleEnrolments.getById(enrolmentDocId(journeyId, productUserDocId(connection.id, userId)))) !== null;
+    const signUp = (userId: string) => patch(userId, { email: `${userId}@example.com`, signedUpAt: new Date(T0).toISOString(), consent: "none" });
+    return { patch, signUp, inJourney, optIn: optIn.journey.id, signup: signup?.journey.id ?? "", setNow: (ms: number) => (now = ms) };
+  }
+
+  it("doesn't fire for consent minutes after a first write without it: the sign-up journey takes them", async () => {
+    const w = await world({ signupWindowHours: 72 });
+    await w.signUp("alex");
+    w.setNow(T0 + 5 * 60_000);
+    await w.patch("alex", { consent: "consent" });
+    expect(await w.inJourney(w.optIn, "alex")).toBe(false);
+    expect(await w.inJourney(w.signup, "alex")).toBe(true);
+  });
+
+  it("fires for an opt-in after the sign-up window", async () => {
+    const w = await world();
+    await w.signUp("sam");
+    w.setNow(T0 + 73 * HOUR);
+    await w.patch("sam", { consent: "consent" });
+    expect(await w.inJourney(w.optIn, "sam")).toBe(true);
+  });
+
+  it("waits for the longest sign-up window, so nobody joins both", async () => {
+    const w = await world({ signupWindowHours: 168 });
+    await w.signUp("kim");
+    await w.signUp("lee");
+    w.setNow(T0 + 100 * HOUR);
+    await w.patch("kim", { consent: "consent" });
+    expect([await w.inJourney(w.optIn, "kim"), await w.inJourney(w.signup, "kim")]).toEqual([false, true]);
+    w.setNow(T0 + 170 * HOUR);
+    await w.patch("lee", { consent: "consent" });
+    expect([await w.inJourney(w.optIn, "lee"), await w.inJourney(w.signup, "lee")]).toEqual([true, false]);
+  });
+
+  it("counts from when YouGrow first heard of them when there's no signedUpAt", async () => {
+    const w = await world();
+    await w.patch("ash", { email: "ash@example.com", consent: "none" });
+    w.setNow(T0 + HOUR);
+    await w.patch("ash", { consent: "consent" });
+    expect(await w.inJourney(w.optIn, "ash")).toBe(false);
+    w.setNow(T0 + 2 * HOUR);
+    await w.patch("ash", { consent: "none" });
+    w.setNow(T0 + 80 * HOUR);
+    await w.patch("ash", { consent: "consent" });
+    expect(await w.inJourney(w.optIn, "ash")).toBe(true);
+  });
+});
+
 describe("what the Events tab shows for API v2", () => {
   const rows = async (w: Awaited<ReturnType<typeof setup>>) => forTenant(ctxA, w.db).productEvents.find({ limit: 50 });
   const rejections = async (w: Awaited<ReturnType<typeof setup>>) =>
@@ -366,6 +446,47 @@ describe("what the Events tab shows for API v2", () => {
     const w = await setup();
     await w.patch("u_1", { timezone: "Mars/Olympus", firstName: "Alex" });
     expect(await rows(w)).toMatchObject([{ applied: true, payload: { firstName: "Alex" }, ignoredFields: ["timezone"] }]);
+  });
+
+  describe("writes that changed nothing (CONNECT_QUIET_UNCHANGED_WRITES)", () => {
+    const unchanged = async (w: Awaited<ReturnType<typeof setup>>) =>
+      (await forTenant(ctxA, w.db).connectionDiagnostics.getById(w.connection.id))?.unchangedWrites;
+    beforeEach(() => {
+      process.env.CONNECT_QUIET_UNCHANGED_WRITES = "true";
+    });
+    afterEach(() => {
+      delete process.env.CONNECT_QUIET_UNCHANGED_WRITES;
+    });
+
+    it("leaves no row, counts it, and still keeps the write's time", async () => {
+      const w = await setup();
+      const state = { email: "a@example.com", firstName: "Alex", consent: "consent", facts: { projects: 2 } };
+      await w.patch("u_1", { ...state, updatedAt: "2026-09-25T10:00:00Z" });
+      await w.patch("u_1", { ...state, updatedAt: "2026-09-25T11:00:00Z" }); // a re-sync: nothing changed
+      await w.patch("u_1", { ...state, facts: { projects: 3 } }); // a change
+      await w.patch("u_1", { ...state, facts: { projects: 3 }, timezone: "Mars/Olympus" }); // nothing changed, but a field was left out
+      expect(await rows(w)).toHaveLength(3);
+      expect(await unchanged(w)).toMatchObject({ count: 1 });
+      // The quiet write still moved the bar: an older write is now stale.
+      const late = await json(await w.patch("u_1", { firstName: "Old", updatedAt: "2026-09-25T10:30:00Z" }));
+      expect(late).toMatchObject({ applied: false, reason: "stale_write" });
+    });
+
+    it("counts unchanged batch items, and lists every write again with the flag off", async () => {
+      const w = await setup();
+      const batch = async (users: unknown[]) => json(await handleBatch(request("POST", w.auth, { users }), w.deps));
+      const items = [
+        { userId: "a", firstName: "Ann", facts: { projects: 1 } },
+        { userId: "b", firstName: "Bo", traits: { plan: "pro" } },
+      ];
+      await batch(items);
+      expect(await batch(items)).toMatchObject({ applied: 2, ignored: 0, failed: 0, results: [] });
+      expect(await rows(w)).toHaveLength(2);
+      expect(await unchanged(w)).toMatchObject({ count: 2 });
+      delete process.env.CONNECT_QUIET_UNCHANGED_WRITES;
+      await batch(items);
+      expect(await rows(w)).toHaveLength(4);
+    });
   });
 });
 

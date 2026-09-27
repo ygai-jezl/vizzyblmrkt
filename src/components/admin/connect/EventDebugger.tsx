@@ -14,9 +14,9 @@ const POLL_MS = 5000;
 
 /**
  * Live view of what a product is sending: the latest writes, milestones and
- * erasures — including writes that changed nothing because YouGrow held something
- * newer — and the most recent rejections (with the reason, so an integrator can fix
- * them).
+ * erasures — including writes ignored because YouGrow held something newer — and
+ * the most recent rejections (with the reason, so an integrator can fix them).
+ * Writes that left the state as it was (a daily re-sync) are counted, not listed.
  */
 
 /** v2 state writes are "identify" rows with a `v2:` message id. */
@@ -33,17 +33,19 @@ const SKIPPED: Record<string, string> = {
 export function EventDebugger({ connectionId, compact = false }: { connectionId: string; compact?: boolean }) {
   const [events, setEvents] = useState<ProductEvent[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
+  const [unchanged, setUnchanged] = useState<{ count: number; lastAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(true);
 
   const load = useCallback(async () => {
-    const r = await api<{ events: ProductEvent[]; rejections: Rejection[] }>(
+    const r = await api<{ events: ProductEvent[]; rejections: Rejection[]; unchanged?: { count: number; lastAt: string } | null }>(
       `/api/admin/connections/${connectionId}/events?limit=${compact ? 10 : 50}`,
     );
     if (!r.ok) return setError(errorText(r.data));
     setError(null);
     setEvents(r.data.events);
     setRejections(r.data.rejections);
+    setUnchanged(r.data.unchanged ?? null);
   }, [connectionId, compact]);
 
   useEffect(() => {
@@ -103,6 +105,13 @@ export function EventDebugger({ connectionId, compact = false }: { connectionId:
           </tbody>
         </table>
       </div>
+
+      {unchanged ? (
+        <p className="text-xs text-neutral-500">
+          Writes that changed nothing aren&apos;t listed: {unchanged.count.toLocaleString()} so far, the last{" "}
+          {timeAgo(unchanged.lastAt)}.
+        </p>
+      ) : null}
 
       {rejections.length > 0 ? (
         <div className="space-y-1">

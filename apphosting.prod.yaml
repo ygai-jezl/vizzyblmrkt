@@ -605,6 +605,19 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # The opt-in trigger after the sign-up window (see apphosting.yaml) stays off
+  # until it's verified on dev. It has to be set: this file only overrides
+  # apphosting.yaml.
+  - variable: LIFECYCLE_OPT_IN_AFTER_SIGNUP
+    value: "false"
+    availability:
+      - RUNTIME
+  # Unchanged writes counted, not listed (see apphosting.yaml): off until it's
+  # verified on dev.
+  - variable: CONNECT_QUIET_UNCHANGED_WRITES
+    value: "false"
+    availability:
+      - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
   # Google Analytics — ON in prod (owner decision, 2026-09-24): `/`, `/login` and
   # `/developers` only, with Consent Mode v2 (denied by default in the EEA, UK and

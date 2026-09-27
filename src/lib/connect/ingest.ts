@@ -18,6 +18,8 @@ export interface IngestSummary {
   accepted: number;
   duplicates: number;
   rejected: IngestRejection[];
+  /** Accepted writes that changed nothing and left no Events row. */
+  unchanged?: number;
 }
 
 /** Product events are kept this long for the debugger and analytics. */
@@ -39,7 +41,8 @@ export async function recordDiagnostics(
   },
   db?: FirestoreLike,
 ): Promise<void> {
-  if (seen.observedEvents.size === 0 && seen.observedTraits.size === 0 && seen.summary.rejected.length === 0) {
+  const unchanged = seen.summary.unchanged ?? 0;
+  if (seen.observedEvents.size === 0 && seen.observedTraits.size === 0 && seen.summary.rejected.length === 0 && unchanged === 0) {
     return;
   }
   const merge = (cur: Omit<ConnectionDiagnostics, "id" | "tenantId">) => {
@@ -57,7 +60,14 @@ export async function recordDiagnostics(
       ...seen.summary.rejected.map((r) => ({ at: seen.now, messageId: r.messageId, reason: r.reason })),
       ...cur.recentRejections,
     ].slice(0, MAX_REJECTIONS);
-    return { observedEvents: events, observedTraits: traits, recentRejections: rejections, updatedAt: seen.now };
+    const unchangedWrites = unchanged > 0 ? { count: (cur.unchangedWrites?.count ?? 0) + unchanged, lastAt: seen.now } : cur.unchangedWrites;
+    return {
+      observedEvents: events,
+      observedTraits: traits,
+      recentRejections: rejections,
+      ...(unchangedWrites ? { unchangedWrites } : {}),
+      updatedAt: seen.now,
+    };
   };
   try {
     await forTenant(ctx, db).connectionDiagnostics.upsert(

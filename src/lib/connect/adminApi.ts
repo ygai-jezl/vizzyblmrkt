@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
@@ -16,6 +17,8 @@ import { invalidateConnectionCaches } from "./connectionAuth";
 import { fetchProductContext, recordContextHealth, type ContextClientDeps } from "./contextClient";
 import { sendConnectionWebhook } from "./webhookClient";
 import { eraseProductUser } from "./erase";
+import { productUserDocId } from "./profile";
+import { getUserView } from "./v2/users";
 import {
   SANDBOX_CATALOG,
   SANDBOX_LINK_DOMAINS,
@@ -259,15 +262,28 @@ export async function testContext(
   return ok(result);
 }
 
-export async function testWebhook(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
+/** What an endpoint that's still starting up answers: the test tries once more, as a delivery would. */
+const STARTING_UP = new Set(["timeout", "http_502", "http_503", "http_504"]);
+
+export async function testWebhook(
+  ctx: TenantContext,
+  id: string,
+  db?: FirestoreLike,
+  deps: Pick<NonNullable<Parameters<typeof sendConnectionWebhook>[2]>, "fetchImpl"> = {},
+): Promise<ApiResult> {
   const conn = await loadConnection(ctx, id, db);
   if (!conn) return fail(404, "not_found");
-  const result = await sendConnectionWebhook(
-    conn,
-    { type: "connection.test", data: { message: "Test webhook from YouGrow" } },
-    { db },
-  );
-  return ok(result);
+  // Both tries carry the same id, like a delivery's retries.
+  const event = {
+    id: `wh_${randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    type: "connection.test" as const,
+    data: { message: "Test webhook from YouGrow" },
+  };
+  const first = await sendConnectionWebhook(conn, event, { db, ...deps });
+  if (first.ok || !STARTING_UP.has(first.error)) return ok(first);
+  const second = await sendConnectionWebhook(conn, event, { db, ...deps });
+  return ok({ ...second, attempts: 2, firstError: first.error });
 }
 
 // ---- Events and users ----------------------------------------------------------------
@@ -290,7 +306,7 @@ export async function listConnectionEvents(
     }),
     repo.connectionDiagnostics.getById(id),
   ]);
-  return ok({ events, rejections: diagnostics?.recentRejections ?? [] });
+  return ok({ events, rejections: diagnostics?.recentRejections ?? [], unchanged: diagnostics?.unchangedWrites ?? null });
 }
 
 export async function listConnectionUsers(
@@ -309,6 +325,65 @@ export async function listConnectionUsers(
   });
   const next = users.length === limit ? (users[users.length - 1]?.lastSeenAt ?? null) : null;
   return ok({ users, next });
+}
+
+/** How many of a user's latest writes the lookup shows. */
+const LOOKUP_WRITES = 20;
+
+/**
+ * One user, looked up by the product's own user id — what an integrator checks
+ * after a test sign-up, without needing the API secret: the state GET
+ * /api/v2/users/{id} returns (with the journeys they're in and their opt-outs),
+ * the consent YouGrow applies, and their latest writes. Within 30 days of an
+ * erasure, the tombstone says when they were erased.
+ */
+export async function lookupConnectionUser(
+  ctx: TenantContext,
+  id: string,
+  externalUserId: string,
+  db?: FirestoreLike,
+): Promise<ApiResult> {
+  const userId = externalUserId.trim();
+  if (!userId || userId.length > 256) return fail(400, "invalid_input", "userId");
+  const conn = await loadConnection(ctx, id, db);
+  if (!conn) return fail(404, "not_found");
+  const repo = forTenant(ctx, db);
+  const docId = productUserDocId(conn.id, userId);
+  const user = await repo.productUsers.getById(docId);
+  if (!user || user.connectionId !== conn.id) return ok({ found: false });
+  if (user.status !== "active") return ok({ found: false, erasedAt: user.deletedAt ?? user.updatedAt });
+  // Equality only (no composite index): a user's rows are few, so sort them here.
+  const [view, rows] = await Promise.all([
+    getUserView(ctx, conn, userId, { db }),
+    repo.productEvents.find({ where: [["productUserId", "==", docId]], limit: 200 }),
+  ]);
+  if (!view) return ok({ found: false });
+  const journeyIds = [...new Set(view.enrolments.map((e) => e.journeyId))];
+  const journeys = await Promise.all(journeyIds.map((j) => repo.lifecycleJourneys.getById(j)));
+  const names = new Map(journeys.flatMap((j) => (j ? [[j.id, j.name] as const] : [])));
+  return ok({
+    found: true,
+    user: {
+      ...view,
+      enrolments: view.enrolments.map((e) => ({ ...e, journeyName: names.get(e.journeyId) ?? null })),
+    },
+    /** What YouGrow applies: e.g. corporate_subscriber counts as none for a free-mail address. */
+    effectiveConsent: user.consent?.basis ?? null,
+    firstSeenAt: user.firstSeenAt,
+    lastSeenAt: user.lastSeenAt,
+    writes: rows
+      .sort((x, y) => y.receivedAt.localeCompare(x.receivedAt))
+      .slice(0, LOOKUP_WRITES)
+      .map((e) => ({
+        at: e.receivedAt,
+        type: e.type,
+        event: e.event,
+        applied: e.applied,
+        skipped: e.skipped ?? null,
+        payload: e.payload,
+        ignoredFields: e.ignoredFields ?? [],
+      })),
+  });
 }
 
 export async function eraseConnectionUser(

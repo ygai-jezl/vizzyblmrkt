@@ -605,17 +605,16 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # The opt-in trigger after the sign-up window (see apphosting.yaml) stays off
-  # until it's verified on dev. It has to be set: this file only overrides
-  # apphosting.yaml.
+  # The opt-in trigger after the sign-up window (see apphosting.yaml): on in prod
+  # since 2026-09-27, after it was verified on dev. Set "false" here to switch it off.
   - variable: LIFECYCLE_OPT_IN_AFTER_SIGNUP
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
-  # Unchanged writes counted, not listed (see apphosting.yaml): off until it's
-  # verified on dev.
+  # Unchanged writes counted, not listed (see apphosting.yaml): on in prod since
+  # 2026-09-27, after it was verified on dev. Set "false" here to switch it off.
   - variable: CONNECT_QUIET_UNCHANGED_WRITES
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

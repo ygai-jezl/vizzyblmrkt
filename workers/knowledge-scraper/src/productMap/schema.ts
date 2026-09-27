@@ -114,12 +114,37 @@ export type MapGlossary = z.infer<typeof MapGlossarySchema>;
 export type MapHook = z.infer<typeof MapHookSchema>;
 
 /**
- * Tidy one model-written item before validation: cap and trim its evidence, and
- * DROP any `verified` claim — only the job's verifier may set that.
+ * A step or fact id in the form the catalog needs (lower-case, underscores):
+ * "createBrand", "add-brand" or "Add brand" → "create_brand" / "add_brand". A
+ * leading digit gets the prefix ("1st_audit" → "step_1st_audit"). Empty when
+ * nothing usable is left.
  */
-function prepItem(x: unknown): unknown {
+export function toCatalogId(raw: unknown, prefix: string): string {
+  if (typeof raw !== "string") return "";
+  const s = raw
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!s) return "";
+  return (/^[a-z]/.test(s) ? s : `${prefix}_${s}`).slice(0, 64).replace(/_+$/, "");
+}
+
+/**
+ * Tidy one model-written item before validation: cap and trim its evidence, and
+ * DROP any `verified` claim — only the job's verifier may set that. Step and fact
+ * ids are ours to choose, so a badly formed one is fixed (or made from the label)
+ * rather than losing the step; event names must match the product's, so aren't.
+ */
+function prepItem(x: unknown, section?: MapSection): unknown {
   if (!x || typeof x !== "object") return x;
   const o = { ...(x as Record<string, unknown>) };
+  if (section === "onboardingSteps" || section === "facts") {
+    const prefix = section === "facts" ? "fact" : "step";
+    const id = toCatalogId(o.id, prefix) || toCatalogId(o.label, prefix);
+    if (id) o.id = id;
+  }
   if (Array.isArray(o.evidence)) {
     o.evidence = o.evidence.slice(0, 5).map((e) => {
       if (!e || typeof e !== "object") return e;
@@ -148,7 +173,7 @@ const SECTION_SCHEMA: Record<MapSection, z.ZodType> = {
 
 /** Validate ONE model-written item for a section (evidence tidied, `verified` stripped). */
 export function parseMapItem(section: MapSection, raw: unknown): { ok: true; item: unknown } | { ok: false; reason: string } {
-  const r = SECTION_SCHEMA[section].safeParse(prepItem(raw));
+  const r = SECTION_SCHEMA[section].safeParse(prepItem(raw, section));
   if (r.success) return { ok: true, item: r.data };
   const issue = r.error.issues[0];
   return { ok: false, reason: issue ? `${issue.path.join(".") || "(item)"}: ${issue.message}`.slice(0, 200) : "invalid" };
@@ -161,11 +186,11 @@ export function parseMapItem(section: MapSection, raw: unknown): { ok: true; ite
 export function parseProductMapLenient(raw: unknown): { map: ProductMap; dropped: number } {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   let dropped = 0;
-  const list = <T>(key: string, schema: z.ZodType<T>, max: number): T[] => {
+  const list = <T>(key: MapSection, schema: z.ZodType<T>, max: number): T[] => {
     const arr = Array.isArray(obj[key]) ? (obj[key] as unknown[]) : [];
     const out: T[] = [];
     for (const x of arr) {
-      const r = schema.safeParse(prepItem(x));
+      const r = schema.safeParse(prepItem(x, key));
       if (r.success && out.length < max) out.push(r.data);
       else dropped += 1;
     }

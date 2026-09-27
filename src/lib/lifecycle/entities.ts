@@ -104,12 +104,23 @@ export function pickEntity(
   }
 }
 
-/** The person as one entity sees them: their own steps and facts, with the entity's on top. */
-export function withEntity<U extends Pick<ProductUser, "steps" | "facts">>(user: U, e: ProductEntity, opts: { facts: boolean }): U {
+/** The person's values, less the ids the catalog keeps per entity of `kind`. */
+function exceptKind<V>(values: Record<string, V>, items: Array<{ id: string; kind?: string | null }>, kind: string): Record<string, V> {
+  const scoped = new Set(items.filter((x) => x.kind === kind).map((x) => x.id));
+  return scoped.size ? Object.fromEntries(Object.entries(values).filter(([id]) => !scoped.has(id))) : values;
+}
+
+/**
+ * The person as one entity sees them: their own steps and facts, with the
+ * entity's on top. A step or fact the catalog keeps per entity of its kind comes
+ * from the entity alone — a top-level copy (sent before entities were, or for
+ * another of them) never makes this one look done.
+ */
+export function withEntity<U extends Pick<ProductUser, "steps" | "facts">>(user: U, e: ProductEntity, catalog: Catalog, opts: { facts: boolean }): U {
   return {
     ...user,
-    steps: { ...user.steps, ...e.steps },
-    ...(opts.facts ? { facts: { ...(user.facts ?? {}), ...e.facts } } : {}),
+    steps: { ...exceptKind(user.steps, catalog.onboardingSteps, e.kind), ...e.steps },
+    ...(opts.facts ? { facts: { ...exceptKind(user.facts ?? {}, catalog.facts ?? [], e.kind), ...e.facts } } : {}),
   };
 }
 
@@ -216,9 +227,9 @@ export function entityViewFor(
  * top of theirs. About the person (or all): the onboarding focus's steps, so the
  * checklist and `onboarding.*` follow what they're setting up; facts stay theirs.
  */
-export function viewedUser<U extends Pick<ProductUser, "steps" | "facts">>(user: U, view: EntityView): U {
-  if (view.entity) return withEntity(user, view.entity.entity, { facts: true });
-  if (view.onboarding) return withEntity(user, view.onboarding.entity, { facts: false });
+export function viewedUser<U extends Pick<ProductUser, "steps" | "facts">>(user: U, view: EntityView, catalog: Catalog): U {
+  if (view.entity) return withEntity(user, view.entity.entity, catalog, { facts: true });
+  if (view.onboarding) return withEntity(user, view.onboarding.entity, catalog, { facts: false });
   return user;
 }
 

@@ -130,7 +130,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
   const entities = about
     ? entityViewFor(stored, about, connection.catalog, { pinned: enrolment.entityId ?? null, triggerId: enrolment.entityId ?? null })
     : undefined;
-  const user = entities ? viewedUser(stored, entities) : stored;
+  const user = entities ? viewedUser(stored, entities, connection.catalog) : stored;
 
   const res = await (deps.fetchContext ?? fetchProductContext)(
     connection,

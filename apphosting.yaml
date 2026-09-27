@@ -646,14 +646,14 @@ env:
   # "Marketing consent granted" fires only for opt-ins after the sign-up window
   # (the longest sign-up journey's, 72 hours without one): consent given during
   # sign-up, even minutes after a first write without it, is for the sign-up
-  # journeys. "false" in prod (apphosting.prod.yaml) until verified here.
+  # journeys. On in prod too since 2026-09-27 (apphosting.prod.yaml).
   - variable: LIFECYCLE_OPT_IN_AFTER_SIGNUP
     value: "true"
     availability:
       - RUNTIME
   # A write that leaves a user's state as it was (a daily re-sync resending the
   # same values) leaves no row in the Events tab, which counts them instead.
-  # "false" in prod (apphosting.prod.yaml) until verified here.
+  # On in prod too since 2026-09-27 (apphosting.prod.yaml).
   - variable: CONNECT_QUIET_UNCHANGED_WRITES
     value: "true"
     availability:

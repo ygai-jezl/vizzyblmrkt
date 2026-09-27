@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConsentBasis, EVENT_NAME_RE, ProductConnectionStatus, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
+import { ConsentBasis, ENTITY_KIND_RE, EVENT_NAME_RE, ProductConnectionStatus, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
 import { RESERVED_EVENTS, TimestampSchema } from "../protocol";
 
 /**
@@ -62,8 +62,7 @@ const TraitValueSchema = z.union([z.string().max(500), z.number().finite(), z.bo
 
 /** An entity's id: the product's own id for the workspace, brand or project. */
 export const ENTITY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
-/** An entity's kind: the product's own word for it, e.g. `brand` or `workspace`. */
-export const ENTITY_KIND_RE = /^[a-z][a-z0-9_]{0,39}$/;
+export { ENTITY_KIND_RE };
 const EntityIdSchema = z.string().regex(ENTITY_ID_RE, { message: "letters, digits, _ . : and -, ≤ 128 chars" });
 const StepsPatchSchema = z.record(z.string().regex(STEP_ID_RE, { message: "step ids are lower-case letters, digits, _ and -" }), TimestampSchema.nullable());
 const FactsPatchSchema = z.record(z.string().min(1).max(64), FactValueSchema.nullable());

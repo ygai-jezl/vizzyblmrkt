@@ -25,6 +25,17 @@ function localInputValue(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+type About = { found: boolean; mode?: "one" | "all" | "each"; one?: string; many?: string; count?: number; entity?: { id: string; name: string | null } | null };
+
+/** Which of a real user's entities the emails would be about, in words. */
+function aboutLine(a: About): string {
+  if (!a.found) return "YouGrow doesn't hold a user with that id.";
+  if (a.mode === "all") return `Their emails would cover all ${a.count} of their ${a.many}.`;
+  if (a.mode === "each") return `Each of their ${a.count} ${a.many} would get its own emails.`;
+  if (!a.entity) return `They have no ${a.many} yet, so emails would fall back to the person.`;
+  return `Their emails would be about the ${a.one} “${a.entity.name ?? a.entity.id}”${a.count && a.count > 1 ? ` (one of ${a.count})` : ""}.`;
+}
+
 export function TimelinePreview({
   journeyId,
   catalog,
@@ -40,7 +51,8 @@ export function TimelinePreview({
   const [timezone, setTimezone] = useState(defaultTimezone);
   const [signup, setSignup] = useState(localInputValue(Date.now()));
   const [done, setDone] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<{ timezone: string; steps: PlannedStep[] } | null>(null);
+  const [userId, setUserId] = useState("");
+  const [result, setResult] = useState<{ timezone: string; steps: PlannedStep[]; about?: About | null } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const run = async () => {
@@ -50,9 +62,9 @@ export function TimelinePreview({
         .filter(([, v]) => v.trim() !== "")
         .map(([k, v]) => [k, Math.max(0, Number(v) || 0)]),
     );
-    const r = await api<{ timezone: string; steps: PlannedStep[] }>(`/api/admin/lifecycle/journeys/${journeyId}/preview`, {
+    const r = await api<{ timezone: string; steps: PlannedStep[]; about?: About | null }>(`/api/admin/lifecycle/journeys/${journeyId}/preview`, {
       method: "POST",
-      body: JSON.stringify({ timezone, anchorAt: new Date(signup).toISOString(), stepsDoneAfterHours }),
+      body: JSON.stringify({ timezone, anchorAt: new Date(signup).toISOString(), stepsDoneAfterHours, ...(userId.trim() ? { userId: userId.trim() } : {}) }),
     });
     if (!r.ok) return setErr(errorText(r.data));
     setResult(r.data);
@@ -85,12 +97,16 @@ export function TimelinePreview({
             </div>
           </div>
         ) : null}
+        <Field label="Your user id (optional)" hint="A real user: also shows which of their entities the emails would be about, when the journey is about one of them.">
+          <input className={inputClass} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="e.g. a test account's id" />
+        </Field>
         <Button tone="primary" onClick={() => void run()}>
           Show the timeline
         </Button>
         {err ? <Banner tone="err">{err}</Banner> : null}
       </Section>
 
+      {result?.about ? <p className="text-sm">{aboutLine(result.about)}</p> : null}
       {result ? (
         <ol className="space-y-2">
           {result.steps.map((s, i) => (

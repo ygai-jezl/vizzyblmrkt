@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CONDITION_FIELD_KEYS, ConditionOperator } from "./journey";
 import { EmailLayoutSchema } from "./emailLayout";
+import { ENTITY_KIND_RE } from "./productConnection";
 
 /**
  * Lifecycle journeys — branching email sequences for a CONNECTED PRODUCT's users
@@ -33,6 +34,8 @@ export const LIFECYCLE_FIELD_RE = new RegExp(
   "^(?:(?:trait|step|fact|milestone)\\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}" +
     "|onboarding\\.(?:complete|steps_done|steps_remaining)|consent\\.basis" +
     "|enrolment\\.(?:emails_sent|days_since_enrol)" +
+    "|entities\\.(?:count|finished|unfinished)" +
+    "|entities\\.(?:any|all)\\.step\\.[a-z0-9][a-z0-9_-]{0,63}|entities\\.(?:min|max)\\.fact\\.[a-z][a-z0-9_]{0,63}" +
     `|signup\\.(?:${CONDITION_FIELD_KEYS.join("|")}))$`,
 );
 
@@ -200,6 +203,31 @@ export const SendPolicySchema = z.object({
 });
 export type SendPolicy = z.infer<typeof SendPolicySchema>;
 
+/**
+ * What a journey's emails are about when people have several of something
+ * (API v2 `entities`): the person; one of their entities, picked by a rule;
+ * all of them in one email; or each one separately.
+ */
+export const JourneyAboutSchema = z.object({
+  mode: z.enum(["person", "one", "all", "each"]).default("person"),
+  /** The entity kind (the catalog's), for one / all / each. */
+  kind: z.string().regex(ENTITY_KIND_RE).nullable().default(null),
+  /**
+   * For "one": which. `focus` follows their onboarding (a finished one first, else the
+   * one furthest along, then the most recent); the others are fixed once chosen —
+   * `trigger` (the entity the trigger happened to), `recent`, `fact_high`, `fact_low`.
+   */
+  pick: z.enum(["focus", "trigger", "recent", "fact_high", "fact_low"]).default("focus"),
+  /** The fact `fact_high` / `fact_low` compare. */
+  fact: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).nullable().default(null),
+  /** Count entities they only belong to or were invited to, not just the ones they own. */
+  includeJoined: z.boolean().default(false),
+  /** For "all": how many one email lists before "and N more". */
+  maxListed: z.number().int().min(1).max(20).default(5),
+});
+export type JourneyAbout = z.infer<typeof JourneyAboutSchema>;
+export const JOURNEY_ABOUT_DEFAULT: JourneyAbout = JourneyAboutSchema.parse({});
+
 export const LifecycleSettingsSchema = z.object({
   trigger: z
     .object({
@@ -234,6 +262,7 @@ export const LifecycleSettingsSchema = z.object({
   entry: z
     .object({ requireMarketingConsent: z.boolean().default(false) })
     .default({ requireMarketingConsent: false }),
+  about: JourneyAboutSchema.default(JOURNEY_ABOUT_DEFAULT),
 });
 export type LifecycleSettings = z.infer<typeof LifecycleSettingsSchema>;
 

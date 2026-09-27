@@ -158,6 +158,13 @@ const pools: ContentPool[] = [
 ];
 
 /** Build the draft. The catalog decides whether the "onboarding complete" branch is usable. */
+/** The template's About: one entity, following their onboarding, when the catalog's steps are per entity. */
+function onboardingAbout(catalog: ConnectionCatalog): { about?: { mode: "one"; kind: string; pick: "focus" } } {
+  const kind = catalog.onboardingSteps.find((s) => s.kind)?.kind ?? null;
+  const known = kind ? (catalog.entityKinds ?? []).find((k) => k.kind === kind) : null;
+  return known && known.multiple ? { about: { mode: "one", kind: known.kind, pick: "focus" } } : {};
+}
+
 export function buildProductOnboardingDraft(catalog: ConnectionCatalog): LifecycleDraft {
   const slots: Array<{ wait: WaitConfig; label: string; yes: string; no: string }> = [
     { wait: { minHours: 12, differentLocalDay: true }, label: "Next business morning", yes: "education", no: "reminders" },
@@ -222,7 +229,9 @@ export function buildProductOnboardingDraft(catalog: ConnectionCatalog): Lifecyc
   return {
     graph: { nodes, edges },
     pools: structuredClone(pools),
-    settings: LifecycleSettingsSchema.parse({}),
+    // When the steps are done per entity (a brand, a workspace), the sequence is about
+    // the one they're setting up, and ends once one is finished.
+    settings: LifecycleSettingsSchema.parse(onboardingAbout(catalog)),
   };
 }
 

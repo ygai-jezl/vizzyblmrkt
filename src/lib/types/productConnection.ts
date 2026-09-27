@@ -25,6 +25,10 @@ export const EVENT_NAME_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 export const TRAIT_KEY_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 /** Onboarding step ids, e.g. `create_brand`. */
 export const STEP_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** An entity kind: the product's own word for a thing people have several of, e.g. `brand`. */
+export const ENTITY_KIND_RE = /^[a-z][a-z0-9_]{0,39}$/;
+/** Which entity kind a catalog step, fact or event belongs to; absent or null = the person. */
+const EntityKindRef = z.string().regex(ENTITY_KIND_RE).nullable().optional();
 
 export const ProductConnectionKind = z.enum(["custom", "sandbox"]);
 export type ProductConnectionKind = z.infer<typeof ProductConnectionKind>;
@@ -54,6 +58,8 @@ export const CatalogEventSchema = z.object({
   name: z.string().max(80).regex(EVENT_NAME_RE),
   label: z.string().max(120).default(""),
   description: z.string().max(500).default(""),
+  /** The entity kind it happens to, e.g. `audit.completed` → `brand`. */
+  kind: EntityKindRef,
 });
 export type CatalogEvent = z.infer<typeof CatalogEventSchema>;
 
@@ -76,6 +82,8 @@ export const OnboardingStepSchema = z.object({
   order: z.number().int().min(0).max(100),
   /** How the product decides the step is done (plain words, for people and the AI). */
   completion: z.string().max(500).optional(),
+  /** Done per entity of this kind (e.g. per brand) rather than once per person. */
+  kind: EntityKindRef,
 });
 export type OnboardingStep = z.infer<typeof OnboardingStepSchema>;
 
@@ -96,8 +104,28 @@ export const CatalogFactSchema = z.object({
   description: z.string().max(500).default(""),
   /** Where the product gets it (plain words), e.g. "daily visibility snapshot". */
   source: z.string().max(200).default(""),
+  /** A value per entity of this kind (e.g. share of voice per brand) rather than per person. */
+  kind: EntityKindRef,
 });
 export type CatalogFact = z.infer<typeof CatalogFactSchema>;
+
+/**
+ * A kind of thing people have several of in the product — workspaces, brands,
+ * projects — as the product names it. Learned from the repo or added by hand;
+ * users send them as `entities`, and journeys say which of them an email is about.
+ */
+export const CatalogEntityKindSchema = z.object({
+  kind: z.string().regex(ENTITY_KIND_RE),
+  /** Singular and plural, for emails and the admin: "brand" / "brands". */
+  label: z.string().min(1).max(40),
+  plural: z.string().min(1).max(40),
+  /** The kind it sits inside, e.g. a brand's `workspace`. */
+  parent: z.string().regex(ENTITY_KIND_RE).nullable().optional(),
+  /** One person can have several. */
+  multiple: z.boolean().default(true),
+  description: z.string().max(300).default(""),
+});
+export type CatalogEntityKind = z.infer<typeof CatalogEntityKindSchema>;
 
 export const GlossaryEntrySchema = z.object({
   term: z.string().min(1).max(80),
@@ -111,6 +139,7 @@ export const ConnectionCatalogSchema = z.object({
   onboardingSteps: z.array(OnboardingStepSchema).max(20).default([]),
   facts: z.array(CatalogFactSchema).max(50).default([]),
   glossary: z.array(GlossaryEntrySchema).max(100).default([]),
+  entityKinds: z.array(CatalogEntityKindSchema).max(10).default([]),
 });
 export type ConnectionCatalog = z.infer<typeof ConnectionCatalogSchema>;
 

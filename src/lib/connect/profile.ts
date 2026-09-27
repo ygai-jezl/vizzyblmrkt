@@ -395,15 +395,32 @@ export function userStateOf(user: ProductUser): UserState {
  * When a user counts as activated: their first `onboarding.completed`, or the
  * moment every catalog onboarding step was done (the same rule as the lifecycle
  * field `onboarding.complete`), whichever came first. Null while neither holds.
+ *
+ * Steps done per entity (a catalog step with a `kind`, e.g. per brand) count once
+ * any entity the person owns of that kind has all of them done — one finished
+ * brand is enough, however many others are half set up.
  */
 export function activationAt(
-  doc: Pick<Doc, "milestones" | "steps">,
-  steps: ReadonlyArray<{ id: string }>,
+  doc: Pick<Doc, "milestones" | "steps"> & Partial<Pick<Doc, "entities">>,
+  steps: ReadonlyArray<{ id: string; kind?: string | null }>,
 ): string | null {
   const completed = doc.milestones[RESERVED_EVENTS.onboardingCompleted]?.firstAt ?? null;
   let allDone: string | null = null;
-  if (steps.length > 0 && steps.every((s) => doc.steps[s.id])) {
-    allDone = steps.reduce((latest, s) => max(latest, doc.steps[s.id]!.doneAt), "");
+  const own = steps.filter((s) => !s.kind);
+  const kind = steps.find((s) => s.kind)?.kind ?? null;
+  if (steps.length > 0 && own.every((s) => doc.steps[s.id])) {
+    const ownAt = own.reduce((latest, s) => max(latest, doc.steps[s.id]!.doneAt), "");
+    if (!kind) allDone = ownAt;
+    else {
+      const perEntity = steps.filter((s) => s.kind === kind);
+      let first: string | null = null;
+      for (const e of Object.values(doc.entities ?? {})) {
+        if (e.kind !== kind || (e.role !== "owner" && e.role !== null) || !perEntity.every((s) => e.steps[s.id])) continue;
+        const at = perEntity.reduce((latest, s) => max(latest, e.steps[s.id]!.doneAt), "");
+        if (!first || at < first) first = at;
+      }
+      if (first) allDone = max(ownAt, first);
+    }
   }
   if (completed && allDone) return completed < allDone ? completed : allDone;
   return completed ?? allDone;

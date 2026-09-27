@@ -19,6 +19,7 @@ import { sendConnectionWebhook } from "./webhookClient";
 import { eraseProductUser } from "./erase";
 import { productUserDocId } from "./profile";
 import { getUserView } from "./v2/users";
+import { isEntitiesEnabled } from "./v2/flags";
 import {
   SANDBOX_CATALOG,
   SANDBOX_LINK_DOMAINS,
@@ -111,7 +112,7 @@ export async function getConnectionDetail(ctx: TenantContext, id: string, db?: F
   const conn = await loadConnection(ctx, id, db);
   if (!conn) return fail(404, "not_found");
   const diagnostics = await forTenant(ctx, db).connectionDiagnostics.getById(id);
-  return ok({ connection: publicConnection(conn), diagnostics });
+  return ok({ connection: publicConnection(conn), diagnostics, features: { entities: isEntitiesEnabled() } });
 }
 
 const EndpointInput = z.object({

@@ -62,6 +62,8 @@ type AudienceKind = JourneyAudience["kind"];
 
 /** Content built on the onboarding checklist: it shows nothing without catalog steps. */
 const USES_STEPS = /\{\{\s*(?:block\.(?:checklist|next_step)|next_step\.|onboarding\.)/;
+/** `{{entity.name}}` / `{{entity.kind}}` with no fallback: empty unless the email is about one entity. */
+const ENTITY_TOKEN_NO_FALLBACK = /\{\{\s*entity\.(?:name|kind)\s*\}\}/;
 
 /** Why a condition field isn't valid for this catalog, or null when it is. */
 export function fieldProblem(field: string, catalog: ConnectionCatalog): string | null {
@@ -74,6 +76,7 @@ export function fieldProblem(field: string, catalog: ConnectionCatalog): string 
     return `unknown event "${key}"`;
   }
   if (family === "onboarding" && catalog.onboardingSteps.length === 0) return "the catalog has no onboarding steps";
+  if (family === "entities" && (catalog.entityKinds ?? []).length === 0) return "the catalog has no entity kinds";
   return null;
 }
 
@@ -222,6 +225,20 @@ export function validateLifecycleDraft(
         issues.push({ code: "needs_onboarding_steps", detail: `${p.id}/${item.id}` });
       }
       if (item.eligibility) checkConditions(item.eligibility.conditions, catalog, `${p.id}/${item.id}`, issues, audience);
+    }
+  }
+  // What the journey is about (API v2 entities).
+  const about = draft.settings?.about;
+  if (audience === "product" && about && about.mode !== "person") {
+    if (!about.kind) issues.push({ code: "about_kind_missing" });
+    else if (!(catalog.entityKinds ?? []).some((k) => k.kind === about.kind)) issues.push({ code: "about_kind_unknown", detail: about.kind });
+    if (about.mode === "one" && (about.pick === "fact_high" || about.pick === "fact_low") && !about.fact) issues.push({ code: "about_fact_missing" });
+  }
+  if (audience === "product" && (!about || about.mode === "person" || about.mode === "all")) {
+    for (const p of pools) {
+      for (const item of p.items) {
+        if (ENTITY_TOKEN_NO_FALLBACK.test(`${item.subject}\n${item.body}`)) issues.push({ code: "entity_token_needs_one", detail: `${p.id}/${item.id}` });
+      }
     }
   }
   return { ok: issues.length === 0, issues };

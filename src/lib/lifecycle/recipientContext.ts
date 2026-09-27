@@ -4,6 +4,7 @@ import type { ProductContext } from "@/lib/connect/protocol";
 import { isAllowedLink } from "@/lib/connect/contextClient";
 import { checklist, type RecipientContext } from "./fields";
 import type { RenderValues } from "./render";
+import { digestRows, kindLabel, type EntityView } from "./entities";
 
 /**
  * What the runner knows about one recipient for one run: the stored profile
@@ -19,8 +20,11 @@ export function buildRecipientContext(a: {
   emailsSent: number;
   enrolledAtMs: number;
   nowMs: number;
+  /** The person's entities as this send sees them (the user is already viewed through it). */
+  entities?: EntityView;
 }): RecipientContext {
   return {
+    ...(a.entities ? { entities: a.entities } : {}),
     user: { traits: a.user.traits, steps: a.user.steps, milestones: a.user.milestones, consent: a.user.consent, facts: a.user.facts },
     catalog: a.connection.catalog,
     context: a.context,
@@ -100,7 +104,11 @@ export function buildRenderValues(a: {
 }): RenderValues {
   const steps = safeChecklist(a.rc, a.connection.linkDomains);
   const next = nextStepOf(a.context, steps, a.connection.linkDomains);
+  const view = a.rc.entities;
+  const about = view?.entity?.entity;
   return {
+    entity: about ? { name: about.name, kind: kindLabel(about.kind, a.rc.catalog) } : null,
+    entities: view ? { count: view.list.length, ...digestRows(view.list, a.rc.catalog, view.maxListed) } : null,
     user: { id: a.user.externalUserId, first_name: a.user.firstName, last_name: a.user.lastName, email: a.user.email },
     product: { name: a.connection.name },
     traits: a.user.traits,

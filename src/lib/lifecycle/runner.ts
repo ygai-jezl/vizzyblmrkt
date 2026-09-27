@@ -38,6 +38,9 @@ import { decideSendVersion, type SendVersion } from "./decide";
 import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
 import { runWaitlistTick } from "./waitlist/tick";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
+import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
+import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { entityViewFor, viewedUser, type EntityView } from "./entities";
 import {
   cursorOf,
   DAY_MS,
@@ -141,6 +144,8 @@ interface RunScope {
   version: LifecycleVersion;
   connection: ProductConnection;
   user: ProductUser;
+  /** API v2 entities: what this run is about (`user` is already viewed through it). */
+  entities?: EntityView;
   mode: DeliveryMode;
   tz: string;
   offsetMin: number;
@@ -195,10 +200,22 @@ export async function processEnrolment(
     const connection = await cache.connection(leased.connectionId);
     if (!connection || connection.status === "revoked") return await stop("connection_revoked");
     if (connection.status !== "active") return await hold(nowMs + HOLD_MS, "connection_paused");
-    const user = await repo.productUsers.getById(leased.productUserId);
-    if (!user || user.status !== "active") return await stop("user_deleted");
+    const stored = await repo.productUsers.getById(leased.productUserId);
+    if (!stored || stored.status !== "active") return await stop("user_deleted");
 
     const settings = version.settings;
+    // API v2 entities: which of their workspaces, brands or projects this run is about.
+    const about = isEntitiesEnabled() ? (settings.about ?? JOURNEY_ABOUT_DEFAULT) : null;
+    const entities: EntityView | undefined = about
+      ? entityViewFor(stored, about, connection.catalog, { pinned: leased.entityId ?? null, triggerId: leased.entityId ?? null })
+      : undefined;
+    if (about?.mode === "each" && !entities?.entity) return await stop("entity_removed");
+    if (about?.mode === "one" && about.pick !== "focus" && entities?.entity && entities.entity.id !== leased.entityId) {
+      // Every rule but `focus` keeps its first choice, so a sequence never switches mid-way.
+      await repo.lifecycleEnrolments.update(enrolmentId, { entityId: entities.entity.id });
+      log("entity_chosen", entities.entity.id);
+    }
+    const user = entities ? viewedUser(stored, entities) : stored;
     const policy = settings.sendPolicy;
     const anchorMs = Date.parse(leased.anchorAt);
     if (policy.hardStopDays !== null && nowMs > anchorMs + policy.hardStopDays * DAY_MS) return await stop("hard_stop");
@@ -232,6 +249,7 @@ export async function processEnrolment(
       version,
       connection,
       user,
+      entities,
       mode,
       ...recipientClock(user, connection, version),
       policy,
@@ -254,6 +272,7 @@ export async function processEnrolment(
         emailsSent: () => state.sent.filter((s) => s.status !== "skipped").length,
         excluded,
         probe,
+        entities,
       });
 
     // Walk once without context: a run that only reaches a wait needs no call
@@ -264,6 +283,17 @@ export async function processEnrolment(
     const state: WalkState = walkStateOf(leased, nowMs);
     const probe = { used: false };
     let walk: WalkResult = decideNext(state, env(state, null, probe));
+    // About each entity separately: at most one email a day to the person across them.
+    if (about?.mode === "each" && walk.decision.kind === "send") {
+      const siblings = await repo.lifecycleEnrolments.find({ where: [["productUserId", "==", stored.id]], limit: 60 });
+      const lastMs = Math.max(
+        0,
+        ...siblings
+          .filter((e) => e.journeyId === journey.id && e.id !== enrolmentId && e.lastSentAt)
+          .map((e) => Date.parse(e.lastSentAt!)),
+      );
+      if (nowMs - lastMs < DAY_MS) return await hold(lastMs + DAY_MS, "entity_frequency_cap");
+    }
     const hasEndpoint = Boolean(connection.contextEndpoint?.enabled && connection.contextEndpoint.url);
     if (hasEndpoint && (probe.used || walk.decision.kind === "send")) {
       if (contextBreakerOpen(connection, nowMs)) {
@@ -407,6 +437,7 @@ async function deliver(
     emailsSent: state.sent.filter((x) => x.status !== "skipped").length,
     enrolledAtMs: state.anchorMs,
     nowMs: s.nowMs,
+    entities: s.entities,
   });
   const steps = safeChecklist(rc, connection.linkDomains);
   const footer = {

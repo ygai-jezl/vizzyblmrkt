@@ -4,6 +4,7 @@ import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductContext } from "@/lib/connect/protocol";
 import type { Eligibility, LifecycleBranch, LifecycleCondition } from "@/lib/types/lifecycle";
+import { entitiesField, type EntityView } from "./entities";
 
 /**
  * Lifecycle condition fields, resolved from what we know about one recipient:
@@ -25,7 +26,9 @@ export type FieldValue = string | number | boolean | undefined;
 
 export interface RecipientContext {
   user: Pick<ProductUser, "traits" | "steps" | "milestones" | "consent" | "facts">;
-  catalog: Pick<ConnectionCatalog, "onboardingSteps"> & Partial<Pick<ConnectionCatalog, "facts">>;
+  catalog: Pick<ConnectionCatalog, "onboardingSteps"> & Partial<Pick<ConnectionCatalog, "facts" | "entityKinds">>;
+  /** API v2 entities, when the journey reads them: what this email is about and the ones it counts. */
+  entities?: EntityView;
   /** The product's live context for this run; null when it wasn't available. */
   context: ProductContext | null;
   emailsSent: number;
@@ -76,6 +79,8 @@ export function resolveField(field: string, rc: RecipientContext): FieldValue {
     }
     case "consent":
       return key === "basis" ? (rc.context?.consent?.basis ?? rc.user.consent?.basis ?? "none") : undefined;
+    case "entities":
+      return rc.entities ? entitiesField(key, rc.entities.list, rc.catalog) : undefined;
     case "enrolment":
       if (key === "emails_sent") return rc.emailsSent;
       if (key === "days_since_enrol") return Math.floor((rc.nowMs - rc.enrolledAtMs) / 86_400_000);

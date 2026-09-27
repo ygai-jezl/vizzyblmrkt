@@ -118,3 +118,47 @@ describe("three-state fields", () => {
     expect(matchesEligibility(undefined, rc())).toBe(true);
   });
 });
+
+describe("what a journey is about (entities)", () => {
+  const withKinds = {
+    ...SANDBOX_CATALOG,
+    entityKinds: [{ kind: "brand", label: "brand", plural: "brands", parent: null, multiple: true, description: "" }],
+  };
+  const draftAbout = (about: Record<string, unknown>) => {
+    const d = buildProductOnboardingDraft(SANDBOX_CATALOG);
+    return { ...d, settings: { ...d.settings, about: { mode: "person", kind: null, pick: "focus", fact: null, includeJoined: false, maxListed: 5, ...about } } } as LifecycleDraft;
+  };
+  const codesOf = (d: LifecycleDraft, catalog = withKinds) => validateLifecycleDraft(d, catalog).issues.map((i) => i.code);
+
+  it("needs a kind the catalog knows, and a fact for the fact rules", () => {
+    expect(codesOf(draftAbout({ mode: "one" }))).toContain("about_kind_missing");
+    expect(codesOf(draftAbout({ mode: "one", kind: "workspace" }))).toContain("about_kind_unknown");
+    expect(codesOf(draftAbout({ mode: "one", kind: "brand", pick: "fact_high" }))).toContain("about_fact_missing");
+    expect(codesOf(draftAbout({ mode: "all", kind: "brand" }))).not.toEqual(expect.arrayContaining(["about_kind_missing", "about_kind_unknown"]));
+  });
+
+  it("flags {{entity.name}} with no fallback in a journey that isn't about one of them", () => {
+    const d = draftAbout({ mode: "person" });
+    d.pools[0]!.items[0]!.subject = "Hi {{entity.name}}";
+    expect(codesOf(d)).toContain("entity_token_needs_one");
+    d.pools[0]!.items[0]!.subject = "Hi {{entity.name|there}}";
+    expect(codesOf(d)).not.toContain("entity_token_needs_one");
+    const one = draftAbout({ mode: "one", kind: "brand" });
+    one.pools[0]!.items[0]!.subject = "Hi {{entity.name}}";
+    expect(codesOf(one)).not.toContain("entity_token_needs_one");
+  });
+
+  it("reads entities.* conditions only when the catalog names entity kinds", () => {
+    const d = buildProductOnboardingDraft(SANDBOX_CATALOG);
+    const cond = d.graph.nodes.find((n) => n.id === "cond_1")!;
+    cond.data.branches = [{ id: "many", conditions: [{ field: "entities.count", operator: "gt", value: 1 }] }];
+    expect(validateLifecycleDraft(d, SANDBOX_CATALOG).issues).toContainEqual(expect.objectContaining({ code: "unknown_field", detail: "the catalog has no entity kinds" }));
+    expect(validateLifecycleDraft(d, withKinds).issues.some((i) => i.code === "unknown_field")).toBe(false);
+  });
+
+  it("starts the onboarding template about the brand they're setting up when steps are per brand", () => {
+    const perBrand = { ...withKinds, onboardingSteps: SANDBOX_CATALOG.onboardingSteps.map((s) => ({ ...s, kind: "brand" })) };
+    expect(buildProductOnboardingDraft(perBrand).settings.about).toMatchObject({ mode: "one", kind: "brand", pick: "focus" });
+    expect(buildProductOnboardingDraft(SANDBOX_CATALOG).settings.about).toMatchObject({ mode: "person" });
+  });
+});

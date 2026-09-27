@@ -55,6 +55,18 @@ describe("validateLifecycleDraft", () => {
     expect(c).toEqual(expect.arrayContaining(["pool_missing", "pool_item_empty", "consecutive_waits", "exit_has_outgoing"]));
   });
 
+  it("won't publish emails built on the checklist while the catalog has no onboarding steps", () => {
+    const noSteps = { ...SANDBOX_CATALOG, onboardingSteps: [] };
+    const d = buildProductOnboardingDraft(SANDBOX_CATALOG);
+    const issues = validateLifecycleDraft(d, noSteps).issues.filter((i) => i.code === "needs_onboarding_steps");
+    expect(issues.map((i) => i.detail)).toContain("welcome/w");
+    expect(validateLifecycleDraft(d, SANDBOX_CATALOG).issues.some((i) => i.code === "needs_onboarding_steps")).toBe(false);
+    const plain = buildProductOnboardingDraft(SANDBOX_CATALOG);
+    for (const p of plain.pools) for (const item of p.items) item.body = "<p>Hi {{user.first_name|there}}</p>";
+    for (const p of plain.pools) for (const item of p.items) item.subject = "Hello";
+    expect(validateLifecycleDraft(plain, noSteps).issues.some((i) => i.code === "needs_onboarding_steps")).toBe(false);
+  });
+
   it("needs exactly one trigger", () => {
     const d = fresh();
     d.graph.nodes = d.graph.nodes.filter((n) => n.type !== "trigger");

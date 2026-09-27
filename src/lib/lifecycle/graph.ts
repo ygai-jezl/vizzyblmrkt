@@ -60,6 +60,9 @@ export const NO_CATALOG: ConnectionCatalog = ConnectionCatalogSchema.parse({});
 
 type AudienceKind = JourneyAudience["kind"];
 
+/** Content built on the onboarding checklist: it shows nothing without catalog steps. */
+const USES_STEPS = /\{\{\s*(?:block\.(?:checklist|next_step)|next_step\.|onboarding\.)/;
+
 /** Why a condition field isn't valid for this catalog, or null when it is. */
 export function fieldProblem(field: string, catalog: ConnectionCatalog): string | null {
   const dot = field.indexOf(".");
@@ -213,6 +216,10 @@ export function validateLifecycleDraft(
       itemIds.add(item.id);
       if (!item.subject.trim() || !item.body.trim()) {
         issues.push({ code: "pool_item_empty", detail: `${p.id}/${item.id}` });
+      }
+      // A welcome whose checklist and next-step button would come out empty.
+      if (audience === "product" && catalog.onboardingSteps.length === 0 && USES_STEPS.test(`${item.subject}\n${item.body}`)) {
+        issues.push({ code: "needs_onboarding_steps", detail: `${p.id}/${item.id}` });
       }
       if (item.eligibility) checkConditions(item.eligibility.conditions, catalog, `${p.id}/${item.id}`, issues, audience);
     }

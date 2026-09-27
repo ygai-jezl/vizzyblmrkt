@@ -194,6 +194,8 @@ export const ISSUE_TEXT: Record<string, string> = {
   duplicate_pool: "Two content pools share an id.",
   duplicate_pool_item: "Two emails in a pool share an id.",
   pool_item_empty: "An email has no subject or body.",
+  needs_onboarding_steps:
+    "An email shows the onboarding checklist or next step, but this product has no onboarding steps yet. Add them in Products → your product → Catalog (or Learn from repo).",
   field_not_for_waitlist: "A welcome journey can only branch on signup details.",
   field_not_for_product: "Signup details are only for a launch's welcome journey.",
   hard_stop_required: "Set when the journey stops (Settings).",

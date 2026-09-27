@@ -56,25 +56,25 @@ export interface AnalysisPass {
 export const ANALYSIS_PASSES: AnalysisPass[] = [
   {
     id: "onboarding",
-    sections: ["onboardingSteps"],
+    sections: ["onboardingSteps", "entityKinds"],
     summary: false,
     maxTurns: 20,
     focus:
-      "Start by searching for: checklist, onboarding, OnboardingProgress, getting.?started, setup, wizard, progress, tasks, firstRun — and read the matches: products often have a checklist hook listing every step. Find the product's ONBOARDING — what a new user must do to get value: setup wizards, getting-started checklists, progress hooks, empty states that prompt a first action. For each step record id, label, HOW completion is decided (the data condition), the in-app route, and detection: server_event (a clear server-side moment such as a record created or a status set to completed), reconcile (derivable from stored state) or client_only (computed only in the browser). Also check what the SERVER stores that proves each step (e.g. a completed audit record) — prefer those conditions.",
+      "Start by searching for: checklist, onboarding, OnboardingProgress, getting.?started, setup, wizard, progress, tasks, firstRun — and read the matches: products often have a checklist hook listing every step. Find the product's ONBOARDING — what a new user must do to get value: setup wizards, getting-started checklists, progress hooks, empty states that prompt a first action. For each step record id, label, HOW completion is decided (the data condition), the in-app route, and detection: server_event (a clear server-side moment such as a record created or a status set to completed), reconcile (derivable from stored state) or client_only (computed only in the browser). Also check what the SERVER stores that proves each step (e.g. a completed audit record) — prefer those conditions. Then decide what onboarding is ABOUT: can one person own or belong to SEVERAL of something — workspaces, brands, projects, sites, stores (look for a create flow with no one-per-user limit, a *Limit field, a membership or members table, a switcher)? Record each such kind in entityKinds (kind, singular label, plural, the kind it sits inside, how people relate to it — owner, member, invited — and any limit), and give each step its entityKind when it's done once per one of them rather than once per person.",
   },
   {
     id: "events",
     sections: ["events", "traits"],
     summary: false,
     focus:
-      "Find (1) EVENTS: meaningful user actions the product could report — resource created, job completed, teammate joined, integration connected, plan changed — with where in the code each happens; name them lower-case dot-separated (e.g. audit.completed). (2) TRAITS: per-user or per-account attributes worth branching on — plan/tier, role, account type, billing status — with their type and where they're stored.",
+      "Find (1) EVENTS: meaningful user actions the product could report — resource created, job completed, teammate joined, integration connected, plan changed — with where in the code each happens; name them lower-case dot-separated (e.g. audit.completed). When an event happens to one of several things a person can have (an audit runs on a brand), give it that entityKind (the thing's kind in snake_case, e.g. brand). (2) TRAITS: per-user or per-account attributes worth branching on — plan/tier, role, account type, billing status — with their type and where they're stored.",
   },
   {
     id: "facts",
     sections: ["facts"],
     summary: false,
     focus:
-      "Find FACTS: numbers (or values) the product stores or computes about a user's account that would make a true, useful sentence in an email — scores, percentages, counts, rankings, trends. For each: id, label, unit, and source (the collection, table or function that holds or computes it, and how often it updates). Only real per-account data; say if it's computed on read.",
+      "Find FACTS: numbers (or values) the product stores or computes about a user's account that would make a true, useful sentence in an email — scores, percentages, counts, rankings, trends. For each: id, label, unit, and source (the collection, table or function that holds or computes it, and how often it updates). Only real per-account data; say if it's computed on read. When the value belongs to one of several things a person can have (share of voice per brand), give it that entityKind (snake_case, e.g. brand).",
   },
   {
     id: "context",
@@ -158,7 +158,7 @@ export const TOOLS: FunctionDecl[] = [
 
 const GENERAL_QUESTIONS = `YOUR QUESTIONS — answer each from the code, with evidence:
 1. Sign-up: where is a new user account created (client and/or server)? Which fields are stored on the user? (hook "signup")
-2. Onboarding: what does the product consider the steps of getting started (checklists, setup wizards, "getting started" UI, progress hooks)? For each step: a short snake_case id, a user-facing label, HOW completion is decided (the data condition, in plain words), the in-app route that completes it, and whether completion has a clear SERVER-side moment ("server_event": e.g. a record is created or a status set to completed in server code), can be derived from stored state ("reconcile"), or is only computed in the browser ("client_only").
+2. Onboarding: what does the product consider the steps of getting started (checklists, setup wizards, "getting started" UI, progress hooks)? And can one person have several of the thing being set up (workspaces, brands, projects)? If so, record it in entityKinds and give per-thing steps an entityKind. For each step: a short snake_case id, a user-facing label, HOW completion is decided (the data condition, in plain words), the in-app route that completes it, and whether completion has a clear SERVER-side moment ("server_event": e.g. a record is created or a status set to completed in server code), can be derived from stored state ("reconcile"), or is only computed in the browser ("client_only").
 3. Events: meaningful user actions the product could report (e.g. brand.created, audit.completed, team.member_joined). Names: lower-case, dot-separated. Say when each happens in the code.
 4. Traits: per-user or per-account attributes worth branching on (plan/tier, role, account type…), with their type.
 5. Facts: numbers (or values) the product stores or computes about a user's account that would make a useful, TRUE sentence in an email (e.g. a score, a count, a percentage) — where they're stored or computed and their unit. Only real, per-account data the product has.
@@ -187,13 +187,14 @@ EVIDENCE MUST COME FROM CODE THAT RUNS — not tests, docs, READMEs or plans (pl
 EVIDENCE: every item needs 1–3 evidence entries: {"path": exact path as listed, "line": line number, "excerpt": text copied EXACTLY from read_file or search output (without the "123: " line-number prefix), at most 200 characters}. Evidence is checked automatically; invented or paraphrased excerpts are flagged. Give "confidence": "high" | "medium" | "low". Don't record an item you have no evidence for.
 
 ITEM FORMATS for record_findings:
- onboardingSteps: {"id","label","completion","path","detection":"server_event|reconcile|client_only","confidence","evidence"}
- events: {"name","label","description","when","confidence","evidence"}
+ onboardingSteps: {"id","label","completion","path","detection":"server_event|reconcile|client_only","entityKind","confidence","evidence"}
+ entityKinds: {"kind","label","plural","parent","multiple","membership","limit","description","confidence","evidence"}
+ events: {"name","label","description","when","entityKind","confidence","evidence"}
  traits: {"key","type":"string|number|boolean|timestamp","label","description","confidence","evidence"}
- facts: {"id","label","type":"number|string|boolean","unit","description","source","confidence","evidence"}
+ facts: {"id","label","type":"number|string|boolean","unit","description","source","entityKind","confidence","evidence"}
  glossary: {"term","definition","confidence","evidence"}
  hooks: {"kind":"signup|deletion|consent|preferences|exit_rule|timezone|other","description","confidence","evidence"}
-Ids and fact ids: snake_case. Keep it to what the code supports; quality over quantity.`;
+Ids, fact ids and kinds: snake_case. entityKind: omit it for what's once per person. Keep it to what the code supports; quality over quantity.`;
 }
 
 function truncateJson(value: unknown): Record<string, unknown> {
@@ -244,6 +245,7 @@ class Findings {
     facts: new Map(),
     glossary: new Map(),
     hooks: new Map(),
+    entityKinds: new Map(),
   };
   dropped = 0;
 
@@ -252,6 +254,8 @@ class Findings {
       case "onboardingSteps":
       case "facts":
         return String(item.id);
+      case "entityKinds":
+        return String(item.kind);
       case "events":
         return String(item.name);
       case "traits":
@@ -297,6 +301,7 @@ class Findings {
       facts: [...this.items.facts.values()],
       glossary: [...this.items.glossary.values()],
       hooks: [...this.items.hooks.values()],
+      entityKinds: [...this.items.entityKinds.values()],
     }).map;
   }
 }

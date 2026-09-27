@@ -20,29 +20,41 @@ import { place } from "@/lib/nav/places";
  * ticks what's right and adds it to the catalog.
  */
 
-type SectionId = "steps" | "events" | "traits" | "facts" | "glossary";
+type SectionId = "entities" | "steps" | "events" | "traits" | "facts" | "glossary";
 type Evidence = ProductMap["events"][number]["evidence"][number];
 type Item = { key: string; title: string; detail: string; badges: string[]; confidence: string; evidence: Evidence[] };
 
 const RUNNING = new Set(["queued", "running"]);
 
+/** "per brand" for an item done or measured per entity of a kind. */
+const perKind = (kind: string | null | undefined, map: ProductMap) =>
+  kind ? [`per ${(map.entityKinds ?? []).find((k) => k.kind === kind)?.label ?? kind}`] : [];
+
 function itemsOf(map: ProductMap): Record<SectionId, Item[]> {
   return {
+    entities: (map.entityKinds ?? []).map((k) => ({
+      key: k.kind,
+      title: `${k.plural} (${k.kind})`,
+      detail: [k.description, k.parent ? `Inside a ${k.parent}` : "", k.membership, k.limit ? `Limit: ${k.limit}` : ""].filter(Boolean).join(" · "),
+      badges: [k.multiple ? "several per person" : "one per person"],
+      confidence: k.confidence,
+      evidence: k.evidence,
+    })),
     steps: map.onboardingSteps.map((s) => ({
       key: s.id,
       title: `${s.label} (${s.id})`,
       detail: [s.completion, s.path ? `Route: ${s.path}` : ""].filter(Boolean).join(" · "),
-      badges: [s.detection === "server_event" ? "server event" : s.detection === "reconcile" ? "from stored state" : "browser only"],
+      badges: [s.detection === "server_event" ? "server event" : s.detection === "reconcile" ? "from stored state" : "browser only", ...perKind(s.entityKind, map)],
       confidence: s.confidence,
       evidence: s.evidence,
     })),
-    events: map.events.map((e) => ({ key: e.name, title: e.name, detail: [e.description, e.when].filter(Boolean).join(" — "), badges: [], confidence: e.confidence, evidence: e.evidence })),
+    events: map.events.map((e) => ({ key: e.name, title: e.name, detail: [e.description, e.when].filter(Boolean).join(" — "), badges: perKind(e.entityKind, map), confidence: e.confidence, evidence: e.evidence })),
     traits: map.traits.map((t) => ({ key: t.key, title: `${t.label || t.key} (${t.key})`, detail: t.description, badges: [t.type], confidence: t.confidence, evidence: t.evidence })),
     facts: map.facts.map((f) => ({
       key: f.id,
       title: `${f.label} (${f.id})`,
       detail: [f.description, f.source ? `Source: ${f.source}` : ""].filter(Boolean).join(" · "),
-      badges: [f.unit ? `${f.type}, ${f.unit}` : f.type],
+      badges: [f.unit ? `${f.type}, ${f.unit}` : f.type, ...perKind(f.entityKind, map)],
       confidence: f.confidence,
       evidence: f.evidence,
     })),
@@ -62,6 +74,11 @@ const proven = (i: Item, section: SectionId) => i.evidence.some((e) => provenBy(
 const trusted = (i: Item, section: SectionId) => i.confidence !== "low" && proven(i, section);
 
 const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
+  {
+    id: "entities",
+    title: "Things people have several of",
+    description: "Workspaces, brands, projects: what one person can own or join several of. Journeys can say which of them each email is about.",
+  },
   { id: "steps", title: "Onboarding steps", description: "What getting started means in your product, and how each step counts as done." },
   { id: "events", title: "Events", description: "Actions your product can report to us." },
   { id: "traits", title: "Traits", description: "Attributes journeys can branch on." },
@@ -86,7 +103,14 @@ export function LearnFromRepo({
   const [picked, setPicked] = useState<string[]>([]);
   /** Other repositories by address (GitLab, or a public repo). */
   const [repos, setRepos] = useState<Array<{ url: string; ref: string }>>([]);
-  const [selected, setSelected] = useState<Record<SectionId, Set<string>>>({ steps: new Set(), events: new Set(), traits: new Set(), facts: new Set(), glossary: new Set() });
+  const [selected, setSelected] = useState<Record<SectionId, Set<string>>>({
+    entities: new Set(),
+    steps: new Set(),
+    events: new Set(),
+    traits: new Set(),
+    facts: new Set(),
+    glossary: new Set(),
+  });
   const [open, setOpen] = useState<string | null>(null);
   const [origin, setOrigin] = useState(connection.linkDomains[0] ? `https://${connection.linkDomains[0]}` : "");
   const [busy, setBusy] = useState(false);
@@ -122,7 +146,7 @@ export function LearnFromRepo({
   useEffect(() => {
     if (!items) return;
     const pick = (s: SectionId) => new Set(items[s].filter((i) => trusted(i, s)).map((i) => i.key));
-    setSelected({ steps: pick("steps"), events: pick("events"), traits: pick("traits"), facts: pick("facts"), glossary: pick("glossary") });
+    setSelected({ entities: pick("entities"), steps: pick("steps"), events: pick("events"), traits: pick("traits"), facts: pick("facts"), glossary: pick("glossary") });
   }, [items]);
 
   const start = async () => {
@@ -150,6 +174,7 @@ export function LearnFromRepo({
       traits: [...selected.traits],
       facts: [...selected.facts],
       glossary: [...selected.glossary],
+      entityKinds: [...selected.entities],
       appOrigin: origin.trim() || null,
     };
     const r = await api<{ accepted: Record<SectionId, number> }>(`/api/admin/connections/${connection.id}/learn/${latest.id}/accept`, {

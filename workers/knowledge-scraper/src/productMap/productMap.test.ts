@@ -125,6 +125,23 @@ describe("evidence verification", () => {
     expect(parseMapItem("onboardingSteps", { id: "add-brand", label: "Add your brand", evidence: [] })).toMatchObject({ ok: true, item: { id: "add_brand" } });
   });
 
+  it("keeps the things a person can have several of, and which steps, facts and events belong to them", () => {
+    const { map, dropped } = parseProductMapLenient({
+      entityKinds: [
+        { kind: "Brand", label: "brand", plural: "brands", parent: "Workspace", multiple: true, membership: "owner via brands.ownerUid", evidence: [] },
+        { label: "Workspace", plural: "workspaces", evidence: [] },
+      ],
+      onboardingSteps: [{ id: "run_audit", label: "Run an audit", entityKind: "Brand", evidence: [] }],
+      facts: [{ id: "share_of_voice", label: "Share of voice", entityKind: "brand", evidence: [] }],
+      events: [{ name: "audit.completed", entityKind: "brandProfile", evidence: [] }],
+    });
+    expect(dropped).toBe(0);
+    expect(map.entityKinds.map((k) => [k.kind, k.parent ?? null])).toEqual([["brand", "workspace"], ["workspace", null]]);
+    expect(map.onboardingSteps[0]!.entityKind).toBe("brand");
+    expect(map.facts[0]!.entityKind).toBe("brand");
+    expect(map.events[0]!.entityKind).toBe("brand_profile");
+  });
+
   it("a model can't mark its own evidence verified", () => {
     const { map } = parseProductMapLenient({
       traits: [{ key: "tier", type: "string", evidence: [{ path: "x.ts", excerpt: "made up entirely", verified: true }] }],

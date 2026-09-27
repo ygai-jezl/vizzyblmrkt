@@ -61,6 +61,8 @@ export async function sendConnectionWebhook(
     await res.body?.cancel().catch(() => {});
     return res.ok ? { ok: true, status: res.status } : { ok: false, error: `http_${res.status}` };
   } catch (err) {
+    // No reply within 5 s — e.g. a serverless endpoint still starting up.
+    if ((err as { name?: unknown } | null)?.name === "TimeoutError") return { ok: false, error: "timeout" };
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 200) : "network" };
   }
 }

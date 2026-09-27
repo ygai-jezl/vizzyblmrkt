@@ -90,7 +90,7 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
     severity: "recommended",
     title: "Keep the waitlist invite code at sign-up",
     action:
-      "Invite links land on your sign-up page with ?yg_invite=…; keep it through sign-up and send it back in the sign-up PATCH as `traits.yg_invite`.",
+      "Invite links land on your sign-up page with ?yg_invite=…; keep it through sign-up and send it back in the sign-up PATCH as `traits.yg_invite`. Carry it in the URL through your sign-in redirect if storing it in the browser would need cookie consent.",
     ifSkipped: "Invited people who sign up with a different email aren't counted as signed up from their invite.",
   },
 };

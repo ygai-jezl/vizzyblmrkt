@@ -210,6 +210,40 @@ describe("the sandbox end to end", () => {
     expect(conn.sandbox?.webhookInbox[0]).toMatchObject({ type: "connection.test" });
   });
 
+  it("tries a test webhook once more when the first try times out (a cold start), with the same id", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "custom");
+    await forTenant(ctxA, db).productConnections.update(connection.id, {
+      webhookEndpoint: { url: "https://api.acme.test/yougrow/webhook", enabled: true },
+    });
+    const ids: string[] = [];
+    const fetchImpl = async (_url: string, init?: RequestInit) => {
+      ids.push(JSON.parse(String(init?.body)).id);
+      if (ids.length === 1) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      return new Response(null, { status: 204 });
+    };
+    const r = await testWebhook(ctxA, connection.id, db, { fetchImpl });
+    expect(r.body).toEqual({ ok: true, status: 204, attempts: 2, firstError: "timeout" });
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+  });
+
+  it("doesn't try a test webhook again when the endpoint refused it", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "custom");
+    await forTenant(ctxA, db).productConnections.update(connection.id, {
+      webhookEndpoint: { url: "https://api.acme.test/yougrow/webhook", enabled: true },
+    });
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return new Response(null, { status: 401 });
+    };
+    const r = await testWebhook(ctxA, connection.id, db, { fetchImpl });
+    expect(r.body).toEqual({ ok: false, error: "http_401" });
+    expect(calls).toBe(1);
+  });
+
   it("limits sandbox recipients to your own address or a verified domain", async () => {
     const db = new FakeFirestore();
     const { connection } = await create(db, "sandbox");

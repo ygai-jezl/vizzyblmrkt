@@ -108,7 +108,7 @@ function block(el: Element, ctx: Ctx): string[] {
       return [quote(parts.join("\n\n"))];
     }
     case Fields:
-      return [table(el.props.rows as Array<[string, string, ReactNode]>, ctx)];
+      return [table(el.props.rows as Array<[string, string, ReactNode]>, ctx, el.props.head as [string, string, string] | undefined)];
     default:
       return blocks(kids, ctx); // article, section, div
   }
@@ -144,10 +144,12 @@ function list(items: ReactNode, ordered: boolean, ctx: Ctx): string {
     .join("\n");
 }
 
-function table(rows: Array<[string, string, ReactNode]>, ctx: Ctx): string {
+function table(rows: Array<[string, string, ReactNode]>, ctx: Ctx, names: [string, string, string] = ["Field", "Type", "Notes"]): string {
   const withType = rows.some(([, type]) => type);
   const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
-  const head = withType ? "| Field | Type | Notes |\n| --- | --- | --- |" : "| Field | Notes |\n| --- | --- |";
+  const head = withType
+    ? `| ${names[0]} | ${names[1]} | ${names[2]} |\n| --- | --- | --- |`
+    : `| ${names[0]} | ${names[2]} |\n| --- | --- |`;
   const body = rows.map(([name, type, notes]) => {
     const cells = [codeSpan(name), ...(withType ? [type ? codeSpan(type) : ""] : []), inline(notes, ctx)];
     return `| ${cells.map(cell).join(" | ")} |`;

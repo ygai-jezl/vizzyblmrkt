@@ -5,6 +5,7 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import {
   unsubscribeLinks,
   journeyFooterValues,
@@ -406,6 +407,7 @@ async function processBroadcastJob(
       { subject: b.subject, body: b.body, heroImageUrl: b.heroImageUrl ?? null },
       campaign,
       broadcastFooterValues(tenant, campaign),
+      resolveEmailStyle(tenant),
     );
     // Tenant/campaign sender identity overrides the env defaults. NOTE: a
     // MailChimp Marketing campaign can only override the display name + reply-to;
@@ -639,7 +641,7 @@ async function processJourneyStepJob(
     email: signup.email,
   });
   const footer = journeyFooterValues({ tenant, campaign, unsubscribeUrl: unsub.pageUrl });
-  const compiled = compileJourneyEmail(arm, { signup, campaign, rank, footer });
+  const compiled = compileJourneyEmail(arm, { signup, campaign, rank, footer }, resolveEmailStyle(tenant));
 
   // Send once per job: if a prior attempt already dispatched (then failed during
   // the next-step enqueue), don't re-send — just continue to scheduling.

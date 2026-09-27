@@ -4,6 +4,7 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Invite } from "@/lib/types/invite";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { emailLinkOrigin, journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { isSuppressed } from "@/lib/email/suppression";
 import { recordEmailEvent } from "@/lib/email/events";
@@ -106,6 +107,7 @@ export async function processInviteJob(
     productName: inviteProductName(connection),
     expiresInDays: wave.expiresInDays,
     locale: signup.locale ?? resolveCampaignLocale(campaign, tenant),
+    style: resolveEmailStyle(tenant),
   });
   const sender = resolveSender(tenant, campaign);
   const journeyId = inviteJourneyId(campaign.id);

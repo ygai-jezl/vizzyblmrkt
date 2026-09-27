@@ -4,6 +4,7 @@ import type { InviteWave } from "@/lib/types/invite";
 import { INVITE_LIMITS } from "@/lib/types/invite";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { journeyFooterValues } from "@/lib/email/footer";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
 import { zodReason } from "@/lib/connect/protocol";
@@ -166,6 +167,7 @@ export async function previewWave(ctx: TenantContext, campaignId: string, waveId
         productName: inviteProductName(connection),
         expiresInDays: wave.expiresInDays,
         locale: first.locale ?? resolveCampaignLocale(setup.campaign, tenant),
+        style: resolveEmailStyle(tenant),
       })
     : null;
   return ok({
@@ -220,6 +222,7 @@ export async function sendTestInvite(ctx: TenantContext, campaignId: string, wav
     productName: inviteProductName(connection),
     expiresInDays: wave.expiresInDays,
     locale: resolveCampaignLocale(setup.campaign, tenant),
+    style: resolveEmailStyle(tenant),
   });
   const sender = resolveSender(tenant, setup.campaign);
   const res = await sendEmail({

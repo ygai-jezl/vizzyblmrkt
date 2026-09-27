@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { defaultInviteCopy, ensureInviteLink, hasInviteLink, renderInviteEmail } from "./render";
 
 const merge = {
@@ -46,6 +47,44 @@ describe("invite email", () => {
     expect(out.subject).toBe("A&B <app> Bcc: x@evil.test");
     expect(out.html).toContain("A&amp;B &lt;app&gt;");
     expect(out.html).toContain("Join A&amp;B &lt;app&gt;");
+  });
+
+  describe("with an Email style", () => {
+    const style = (accentColor: string): ResolvedEmailStyle => ({
+      logo: null,
+      name: null,
+      altName: "Fernlight",
+      headerColor: "#0b1f3a",
+      accentColor,
+    });
+    const render = (s?: ResolvedEmailStyle | null) =>
+      renderInviteEmail({ ...defaultInviteCopy("en"), merge, inviteUrl: URL_, productName: "Fernlight", expiresInDays: 30, style: s });
+    const button = (html: string) => html.match(/<a href="https:\/\/waitlist\.example\.com\/invite\/[^"]*"[^>]*>/)?.[0] ?? "";
+
+    it("adds the band and gives the button the button colour, with a readable label", () => {
+      const dark = render(style("#1d4ed8"));
+      expect(dark.html).toContain('bgcolor="#0b1f3a"');
+      expect(button(dark.html)).toContain("background:#1d4ed8;color:#ffffff;");
+      expect(button(render(style("#ffd400")).html)).toContain("background:#ffd400;color:#000000;");
+      // The link and the text part don't change.
+      expect(dark.text).toBe(render().text);
+    });
+
+    it("leads with its opening words, the button read as its label, so the band isn't the inbox snippet", () => {
+      const { html } = render(style("#1d4ed8"));
+      const hidden = html.match(/<div style="display:none;[^"]*">([^<]*)<\/div>/)?.[1] ?? "";
+      expect(hidden).toMatch(/^Hi Amara &lt;b&gt;, Thanks for waiting\. Fernlight is ready/);
+      expect(hidden).toContain("invited in. Join Fernlight");
+      expect(html.indexOf("display:none")).toBeLessThan(html.indexOf('bgcolor="#0b1f3a"'));
+      // The link stays in the button alone: never a hidden copy in the preheader.
+      expect(html.match(/href="https:\/\/waitlist\.example\.com\/invite\//g)).toHaveLength(1);
+      expect(html).not.toMatch(/YGINV1/);
+    });
+
+    it("no style (null or absent) keeps today's #111 button", () => {
+      expect(render(null)).toEqual(render());
+      expect(button(render().html)).toContain("background:#111;color:#fff;");
+    });
   });
 
   // Pinned byte-for-byte: with no Email style saved, invites must stay exactly this.

@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
+import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { suppressEmailCategory } from "@/lib/email/suppression";
 import type { ProductContext } from "@/lib/connect/protocol";
 import type { AiDraft } from "@/lib/types/lifecycle";
@@ -9,7 +10,7 @@ import { processEnrolment, runEnrolmentNow } from "./runner";
 import { prepareDueDrafts } from "./prepare";
 import { countWaitingApprovals, decideApproval, listApprovals, type ApprovalView } from "./approvals";
 import { AI_LINE_MARKER, draftDocId } from "./drafts";
-import { STEPS, T0, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
+import { STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
 
 const MIN = 60_000;
 const HOUR = 3600_000;
@@ -287,6 +288,45 @@ describe("AI lines: booking, preparing, approving, sending", () => {
     expect(await w.run(sendAt)).toBe("exited");
     expect(await w.draft()).toMatchObject({ status: "superseded" });
     expect(await countWaitingApprovals(system, w.db, sendAt - 12 * HOUR)).toBe(0);
+  });
+});
+
+describe("approvals preview with an Email style", () => {
+  const STYLE = {
+    logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+    companyName: null,
+    headerColor: "#0b1f3a",
+    accentColor: "#1d4ed8",
+  };
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("a branded email's preview has the band, as the send will", async () => {
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    const sendAt = await booked(w);
+    // Onboarding finished overnight: the branded education email (E1) is prepared instead of R1.
+    w.setContext(productContext({ done: STEPS.map((s) => s.id) }));
+    await w.prepare(sendAt - 12 * HOUR);
+    expect(await w.prepare(sendAt - 12 * HOUR + MIN)).toMatchObject({ prepared: 1 });
+    const e1 = await w.draft("e1", "education");
+    expect(e1.previewHtml).toContain('bgcolor="#0b1f3a"');
+    expect(e1.previewHtml).toContain(`/api/brand-logo/${TENANT_ID}/`);
+    expect(e1.previewHtml).toContain(AI_LINE_MARKER);
+  });
+
+  it("a letter's preview stays plain", async () => {
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    const sendAt = await booked(w);
+    await w.prepare(sendAt - 12 * HOUR);
+    const r1 = await w.draft();
+    expect(r1.previewHtml).toContain(AI_LINE_MARKER);
+    expect(r1.previewHtml).not.toContain("#0b1f3a");
+    expect(r1.previewHtml).not.toContain("color-scheme");
   });
 });
 

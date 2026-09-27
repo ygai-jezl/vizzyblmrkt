@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { FOOTER_MARKER } from "@/lib/email/emailRender";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { EmailLayoutSchema } from "@/lib/types/emailLayout";
 import { renderLifecycleEmail, type RenderValues } from "./render";
 
@@ -329,6 +330,82 @@ describe("renderLifecycleEmail", () => {
         1 Example Street, London
         Manage preferences (https://app.example.com/preferences?u=tok123) | Unsubscribe (https://app.example.com/unsubscribe?u=tok123) | Privacy Policy (https://example.com/privacy)"
       `);
+    });
+  });
+
+  describe("Email style", () => {
+    const LOGO_URL = "https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png";
+    const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+      logo: { url: LOGO_URL, width: 120, height: 40 },
+      name: "Example Co",
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#1d4ed8",
+      ...over,
+    });
+    const full = item({ body: "<p>Hi {{user.first_name}}</p>\n{{block.checklist}}\n{{block.insight}}\n{{block.next_step}}" });
+    const button = (html: string) => html.match(/<td bgcolor="[^"]*"[^>]*><a [^>]*>/)?.[0] ?? "";
+
+    it("no style (null or absent) is today's email", () => {
+      const plain = renderLifecycleEmail({ item: full, values: values() });
+      expect(renderLifecycleEmail({ item: full, values: values(), style: null })).toEqual(plain);
+    });
+
+    it("a branded email gets the band and the button colour — with a saved layout too", () => {
+      const r = renderLifecycleEmail({ item: full, values: values(), style: style() });
+      expect(r.html).toContain('bgcolor="#0b1f3a"');
+      expect(r.html).toContain(`src="${LOGO_URL}"`);
+      expect(button(r.html)).toContain('bgcolor="#1d4ed8"');
+      // A dark accent is readable on white and on the panel, so links and the rule take it too.
+      expect(r.html).toContain("color:#1d4ed8;text-decoration:underline");
+      expect(r.html).toContain("border-left:3px solid #1d4ed8");
+      expect(r.text).toBe(renderLifecycleEmail({ item: full, values: values() }).text);
+
+      const layout = EmailLayoutSchema.parse({ blocks: [{ id: "b1", kind: "text", html: "<p>Hi {{user.first_name}}</p>" }] });
+      expect(renderLifecycleEmail({ item: item({ layout }), values: values(), style: style() }).html).toContain('bgcolor="#0b1f3a"');
+    });
+
+    it("the accent button always has a readable label", () => {
+      const dark = button(renderLifecycleEmail({ item: full, values: values(), style: style() }).html);
+      expect(dark).toContain("background:#1d4ed8");
+      expect(dark).toContain("color:#ffffff");
+      const light = button(renderLifecycleEmail({ item: full, values: values(), style: style({ accentColor: "#FFD400" }) }).html);
+      expect(light).toContain('bgcolor="#ffd400"');
+      expect(light).toContain("color:#000000");
+    });
+
+    it("a light accent keeps checklist links and the insight rule at #111", () => {
+      const r = renderLifecycleEmail({ item: full, values: values(), style: style({ accentColor: "#ffd400" }) });
+      expect(r.html).toContain("color:#111;text-decoration:underline");
+      expect(r.html).toContain("border-left:3px solid #111");
+      expect(r.html).not.toContain("color:#ffd400");
+    });
+
+    it("a letter is byte-identical with or without a style", () => {
+      const letter = item({ ...full, format: "letter" });
+      const plain = renderLifecycleEmail({ item: letter, values: values() });
+      const styled = renderLifecycleEmail({ item: letter, values: values(), style: style() });
+      expect(styled).toEqual(plain);
+      expect(styled.html).not.toContain("color-scheme");
+    });
+
+    it("a {{…}} in the company name stays literal", () => {
+      const r = renderLifecycleEmail({
+        item: full,
+        values: values(),
+        style: style({ logo: null, name: "{{user.email}}", altName: "{{user.email}}" }),
+      });
+      expect(r.html).toContain(">{{user.email}}</span>");
+      expect(r.html).not.toContain("alex@acme.test");
+      expect(r.missing).toEqual([]);
+    });
+
+    it("puts the preheader before the band, and only once", () => {
+      const r = renderLifecycleEmail({ item: full, values: values(), style: style() });
+      const pre = r.html.indexOf("2 steps left");
+      expect(pre).toBeGreaterThan(-1);
+      expect(pre).toBeLessThan(r.html.indexOf('bgcolor="#0b1f3a"'));
+      expect(r.html.match(/2 steps left/g)).toHaveLength(1);
     });
   });
 });

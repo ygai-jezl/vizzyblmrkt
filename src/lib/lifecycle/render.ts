@@ -11,6 +11,7 @@ import {
   wrap,
   wrapLetter,
 } from "@/lib/email/emailRender";
+import { accentFor, readableOn, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { FooterMergeValues } from "@/lib/email/mergeVars";
 import type { PoolItem } from "@/lib/types/lifecycle";
 import type { TraitValue } from "@/lib/types/productUser";
@@ -35,6 +36,11 @@ import type { TraitValue } from "@/lib/types/productUser";
  * Link hygiene: every href in the output must pass isSafeHref, or it becomes "#".
  * Links that came from the product's context are filtered to https on the
  * connection's link domains before they get here (recipientContext).
+ *
+ * Email style: a `branded` email gets the header band and the button colour
+ * (next-step button; checklist links and the insight rule when readable). A
+ * `letter` stays plain. No style = today's output. Pure + client-safe: the
+ * journey editor previews with it, so the style arrives resolved, as data.
  */
 
 export interface RenderValues {
@@ -122,14 +128,15 @@ function valueFor(key: string, v: RenderValues): string | undefined {
   }
 }
 
-function checklistBlock(steps: RenderValues["checklist"]): string {
+function checklistBlock(steps: RenderValues["checklist"], emailStyle: ResolvedEmailStyle | null): string {
   if (steps.length === 0) return "";
+  const link = accentFor(emailStyle, "link") ?? "#111";
   const rows = steps
     .map((s) => {
       const label = escapeHtml(s.label);
       const linked =
         !s.done && s.url && isSafeHref(s.url)
-          ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline">${label}</a>`
+          ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" style="color:${link};text-decoration:underline">${label}</a>`
           : label;
       const style = s.done ? "color:#8a8a8a;text-decoration:line-through" : "color:#111";
       return `<tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">${s.done ? "✓" : "☐"}</td><td style="padding:4px 0;font-family:${FONT};font-size:15px;${style}">${linked}</td></tr>`;
@@ -157,25 +164,31 @@ function entitiesBlock(e: RenderValues["entities"], letter: boolean): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse;width:100%">${rows}${tail}</table>`;
 }
 
-function nextStepBlock(next: RenderValues["nextStep"], letter: boolean): string {
+function nextStepBlock(next: RenderValues["nextStep"], letter: boolean, emailStyle: ResolvedEmailStyle | null): string {
   if (!next) return "";
   const label = escapeHtml(next.label);
   if (!next.url || !isSafeHref(next.url)) return `<p style="margin:0 0 16px"><strong>${label}</strong></p>`;
   const href = escapeHtml(next.url);
   if (letter) return `<p style="margin:0 0 16px"><a href="${href}" target="_blank" rel="noopener noreferrer">${label} →</a></p>`;
-  return `<div style="margin:8px 0 20px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td bgcolor="#111111" style="background:#111111;border-radius:8px"><a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${label} →</a></td></tr></table></div>`;
+  const accent = accentFor(emailStyle, "button");
+  const bg = accent ?? "#111111";
+  const ink = accent ? readableOn(accent) : "#ffffff";
+  return `<div style="margin:8px 0 20px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td bgcolor="${bg}" style="background:${bg};border-radius:8px"><a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:600;color:${ink};text-decoration:none">${label} →</a></td></tr></table></div>`;
 }
 
-function insightBlock(insight: RenderValues["insight"], letter: boolean): string {
+function insightBlock(insight: RenderValues["insight"], letter: boolean, emailStyle: ResolvedEmailStyle | null): string {
   if (!insight) return "";
   const text = escapeHtml(insight.aiLine ? `${insight.sentence} ${insight.aiLine}` : insight.sentence);
   if (letter) return `<p style="margin:0 0 16px">${text}</p>`;
-  return `<div style="margin:8px 0 16px;padding:12px 14px;border-left:3px solid #111;background:#f6f6f6;font-family:${FONT};font-size:15px;line-height:1.6;color:#111">${text}</div>`;
+  const rule = accentFor(emailStyle, "rule") ?? "#111";
+  return `<div style="margin:8px 0 16px;padding:12px 14px;border-left:3px solid ${rule};background:#f6f6f6;font-family:${FONT};font-size:15px;line-height:1.6;color:#111">${text}</div>`;
 }
 
 interface RenderState {
   missing: Set<string>;
   insightUsed: boolean;
+  /** The Email style whose accent the blocks use; null = today's #111 (always, for letters). */
+  emailStyle: ResolvedEmailStyle | null;
 }
 
 function renderTokens(
@@ -189,12 +202,12 @@ function renderTokens(
   return template.replace(TOKEN_RE, (_m, key: string, fallback?: string) => {
     if (key.startsWith("block.")) {
       if (mode === "text") return "";
-      if (key === "block.checklist") return checklistBlock(v.checklist);
-      if (key === "block.next_step") return nextStepBlock(v.nextStep, letter);
+      if (key === "block.checklist") return checklistBlock(v.checklist, st.emailStyle);
+      if (key === "block.next_step") return nextStepBlock(v.nextStep, letter, st.emailStyle);
       if (key === "block.entities") return entitiesBlock(v.entities, letter);
       if (key === "block.insight") {
         if (v.insight) st.insightUsed = true;
-        return insightBlock(v.insight, letter);
+        return insightBlock(v.insight, letter, st.emailStyle);
       }
       missing.add(key);
       return "";
@@ -230,10 +243,14 @@ export function renderLifecycleEmail(input: {
   values: RenderValues;
   /** Shadow mode: the real recipient, shown in a banner at the top. */
   shadowFor?: string | null;
+  /** The tenant's resolved Email style (branded emails only); null/absent = today's look. */
+  style?: ResolvedEmailStyle | null;
 }): RenderedEmail {
   const { item, values } = input;
   const letter = item.format === "letter";
-  const st: RenderState = { missing: new Set<string>(), insightUsed: false };
+  // Letters stay plain: no band, and the blocks keep today's colours.
+  const style = letter ? null : (input.style ?? null);
+  const st: RenderState = { missing: new Set<string>(), insightUsed: false, emailStyle: style };
 
   const subject = renderTokens(item.subject, values, "text", letter, st).replace(/[\r\n]+/g, " ").trim();
 
@@ -248,10 +265,11 @@ export function renderLifecycleEmail(input: {
   const body =
     (input.shadowFor ? shadowBanner(input.shadowFor) : "") +
     neutralizeUnsafeHrefs(renderTokens(inner, values, "html", letter, st));
-  const shell = letter ? wrapLetter : (x: string) => wrap(x, null);
+  const preheader = item.previewText ? renderTokens(item.previewText, values, "text", letter, st) : null;
   return {
     subject,
-    html: shell(preheaderHtml(item.previewText ? renderTokens(item.previewText, values, "text", letter, st) : null) + body),
+    // wrap() puts the preheader ahead of the band, so the band never becomes the inbox snippet.
+    html: letter ? wrapLetter(preheaderHtml(preheader) + body) : wrap(body, null, { style, preheader }),
     text: htmlToText(body),
     missing: [...st.missing],
     insightUsed: st.insightUsed,

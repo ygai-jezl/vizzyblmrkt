@@ -7,10 +7,13 @@ import { deriveFaviconUrl } from "./favicon";
 import {
   TenantSchema,
   EmailSenderConfigSchema,
+  StoredEmailStyleSchema,
   type Tenant,
   type BrandKit,
   type BrandVoice,
   type EmailSenderConfig,
+  type EmailStyleInput,
+  type StoredEmailStyle,
   type GitConnection,
   type GitSelectedRepo,
   type SocialConnection,
@@ -129,6 +132,53 @@ export async function setTenantBrandVoice(
       brandVoice: brandVoice === null ? FieldValue.delete() : { ...brandVoice, updatedAt: now },
       updatedAt: now,
     });
+}
+
+/**
+ * Write the tenant's Email style (top-level `emailStyle`, like brandVoice), or remove it with
+ * `null` ("Reset to default"). Parsed strictly here too, so nothing is stored that the lenient
+ * read would drop. Stamps `updatedAt` (and `updatedBy` when given). Returns what was stored.
+ */
+export async function setTenantEmailStyle(
+  id: string,
+  style: EmailStyleInput | null,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+  opts: { updatedBy?: string } = {},
+): Promise<StoredEmailStyle | null> {
+  const now = new Date().toISOString();
+  const next =
+    style === null
+      ? null
+      : StoredEmailStyleSchema.parse({
+          ...style,
+          updatedAt: now,
+          ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
+        });
+  await db
+    .collection("tenants")
+    .doc(id)
+    .update({ emailStyle: next ?? FieldValue.delete(), updatedAt: now });
+  return next;
+}
+
+/**
+ * A logo was deleted: if the Email style uses it, null the style's logo so emails fall back
+ * to the name band (never a broken image). A transaction, so a Save that picks another logo
+ * meanwhile is never undone. Returns whether it cleared.
+ */
+export async function clearTenantEmailStyleLogo(
+  tenantId: string,
+  filename: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(tenantId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const style = snap.data()?.emailStyle as { logo?: { filename?: unknown } | null } | undefined;
+    if (!snap.exists || style?.logo?.filename !== filename) return false;
+    tx.update(ref, { "emailStyle.logo": null, updatedAt: new Date().toISOString() });
+    return true;
+  });
 }
 
 /**

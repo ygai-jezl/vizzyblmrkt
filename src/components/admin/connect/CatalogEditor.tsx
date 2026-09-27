@@ -15,14 +15,21 @@ export function CatalogEditor({
   diagnostics,
   canEdit,
   onSaved,
+  entities = false,
 }: {
   connection: PublicConnection;
   diagnostics: ConnectionDiagnostics | null;
   canEdit: boolean;
   onSaved: () => void;
+  /** API v2 entities are on: name the things people have several of, and which steps and facts are per one. */
+  entities?: boolean;
 }) {
-  // Catalogs saved before facts existed have none.
-  const [cat, setCat] = useState<ConnectionCatalog>({ ...connection.catalog, facts: connection.catalog.facts ?? [] });
+  // Catalogs saved before facts (or entity kinds) existed have none.
+  const [cat, setCat] = useState<ConnectionCatalog>({
+    ...connection.catalog,
+    facts: connection.catalog.facts ?? [],
+    entityKinds: connection.catalog.entityKinds ?? [],
+  });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
@@ -50,10 +57,56 @@ export function CatalogEditor({
 
   const row = "grid gap-2 sm:grid-cols-[1fr_1fr_2fr_auto]";
   const disabled = !canEdit;
+  const showKinds = entities || cat.entityKinds.length > 0;
+  const perVisible = showKinds && cat.entityKinds.length > 0;
+  /** "Per person" or per one of the kinds, for a step or fact. */
+  const perSelect = (value: string | null | undefined, onPick: (kind: string | null) => void, label: string) =>
+    perVisible ? (
+      <select className={inputClass} disabled={disabled} aria-label={label} value={value ?? ""} onChange={(e) => onPick(e.target.value || null)}>
+        <option value="">Per person</option>
+        {cat.entityKinds.map((k) => (
+          <option key={k.kind} value={k.kind}>
+            Per {k.label}
+          </option>
+        ))}
+      </select>
+    ) : null;
 
   return (
     <div className="space-y-4">
       {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+
+      {showKinds ? (
+        <Section
+          title="Things people have several of"
+          description="Workspaces, brands, projects — whatever your product lets one person have several of. Your server sends them as entities, and each journey says which of them its emails are about."
+        >
+          {cat.entityKinds.map((k, i) => (
+            <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+              <input className={`${inputClass} font-mono`} disabled={disabled} value={k.kind} placeholder="brand" aria-label="Kind (as your server sends it)"
+                onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, kind: e.target.value.trim().toLowerCase() } : x)))} />
+              <input className={inputClass} disabled={disabled} value={k.label} placeholder="brand" aria-label="One"
+                onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, label: e.target.value } : x)))} />
+              <input className={inputClass} disabled={disabled} value={k.plural} placeholder="brands" aria-label="Several"
+                onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, plural: e.target.value } : x)))} />
+              <select className={inputClass} disabled={disabled} aria-label="Sits inside" value={k.parent ?? ""}
+                onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, parent: e.target.value || null } : x)))}>
+                <option value="">Top level</option>
+                {cat.entityKinds.filter((x) => x !== k).map((x) => (
+                  <option key={x.kind} value={x.kind}>Inside a {x.label}</option>
+                ))}
+              </select>
+              <Button tone="danger" disabled={disabled} aria-label="Remove kind" onClick={() => update("entityKinds", cat.entityKinds.filter((x) => x !== k))}>
+                <Trash2 size={14} />
+              </Button>
+            </div>
+          ))}
+          <Button disabled={disabled || cat.entityKinds.length >= 10}
+            onClick={() => update("entityKinds", [...cat.entityKinds, { kind: "", label: "", plural: "", parent: null, multiple: true, description: "" }])}>
+            <Plus size={14} /> Add kind
+          </Button>
+        </Section>
+      ) : null}
 
       <Section title="Onboarding steps" description="In order. Journeys nudge users towards the next one; step ids match onboarding.step_completed events.">
         {[...cat.onboardingSteps]
@@ -70,9 +123,10 @@ export function CatalogEditor({
                 onClick={() => update("onboardingSteps", cat.onboardingSteps.filter((x) => x !== s).map((x, j) => ({ ...x, order: j })))}>
                 <Trash2 size={14} />
               </Button>
-              <input className={`${inputClass} sm:col-span-4`} disabled={disabled} value={s.completion ?? ""}
+              <input className={`${inputClass} ${perVisible ? "sm:col-span-3" : "sm:col-span-4"}`} disabled={disabled} value={s.completion ?? ""}
                 placeholder="How your product decides it's done — e.g. an audit has finished"
                 onChange={(e) => update("onboardingSteps", cat.onboardingSteps.map((x) => (x === s ? { ...x, completion: e.target.value.slice(0, 500) } : x)))} />
+              {perSelect(s.kind, (kind) => update("onboardingSteps", cat.onboardingSteps.map((x) => (x === s ? { ...x, kind } : x))), "Done per")}
             </div>
           ))}
         <Button disabled={disabled || cat.onboardingSteps.length >= 20}
@@ -141,7 +195,7 @@ export function CatalogEditor({
         description="Numbers (or values) your context endpoint can return about each user — the raw material for insights, and fields journeys can branch on. Ids must match the facts your endpoint returns."
       >
         {cat.facts.map((f, i) => (
-          <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_auto]">
+          <div key={i} className={`grid gap-2 ${perVisible ? "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_8rem_auto]" : "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_auto]"}`}>
             <input className={`${inputClass} font-mono`} disabled={disabled} value={f.id} placeholder="share_of_voice"
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, id: e.target.value } : x)))} />
             <input className={inputClass} disabled={disabled} value={f.label} placeholder="Share of voice"
@@ -154,6 +208,7 @@ export function CatalogEditor({
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, unit: e.target.value || null } : x)))} />
             <input className={inputClass} disabled={disabled} value={f.source} placeholder="Where it comes from"
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, source: e.target.value } : x)))} />
+            {perSelect(f.kind, (kind) => update("facts", cat.facts.map((x) => (x === f ? { ...x, kind } : x))), "Value per")}
             <Button tone="danger" disabled={disabled} aria-label="Remove fact" onClick={() => update("facts", cat.facts.filter((x) => x !== f))}>
               <Trash2 size={14} />
             </Button>

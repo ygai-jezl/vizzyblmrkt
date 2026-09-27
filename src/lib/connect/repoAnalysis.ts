@@ -159,6 +159,8 @@ const AcceptInput = z.object({
   traits: z.array(z.string().max(64)).max(40).default([]),
   facts: z.array(z.string().max(64)).max(30).default([]),
   glossary: z.array(z.string().max(80)).max(40).default([]),
+  /** Kinds of thing people have several of (workspaces, brands…). */
+  entityKinds: z.array(z.string().max(40)).max(10).default([]),
   /** The product's web origin, e.g. https://app.acme.com — turns step paths into deep links. */
   appOrigin: z.string().trim().max(200).nullable().optional(),
 });
@@ -213,21 +215,31 @@ export async function acceptProductMap(
   const traits = pick(map.traits, parsed.data.traits, (t) => t.key);
   const facts = pick(map.facts, parsed.data.facts, (f) => f.id);
   const glossary = pick(map.glossary, parsed.data.glossary, (g) => g.term);
+  const entityKinds = pick(map.entityKinds ?? [], parsed.data.entityKinds, (k) => k.kind);
 
   const current = ConnectionCatalogSchema.parse(conn.catalog ?? {});
+  const mergedKinds = upsert(
+    current.entityKinds,
+    entityKinds.map((k) => ({ kind: k.kind, label: k.label, plural: k.plural, parent: k.parent ?? null, multiple: k.multiple, description: k.description })),
+    (k) => k.kind,
+  );
+  // A step, fact or event is per entity only when the catalog knows that kind; else it's the person's.
+  const known = new Set(mergedKinds.map((k) => k.kind));
+  const kindOf = (k: string | null | undefined) => (k && known.has(k) ? { kind: k } : {});
   const sortedSteps = [...current.onboardingSteps].sort((a, b) => a.order - b.order);
   const mergedSteps = upsert(
     sortedSteps,
-    steps.map((s) => ({ id: s.id, label: s.label, url: deepLink(origin, s.path), order: 0, completion: s.completion || undefined })),
+    steps.map((s) => ({ id: s.id, label: s.label, url: deepLink(origin, s.path), order: 0, completion: s.completion || undefined, ...kindOf(s.entityKind) })),
     (s) => s.id,
   ).map((s, i) => ({ ...s, order: i }));
 
   const next = ConnectionCatalogSchema.safeParse({
     ...current,
     onboardingSteps: mergedSteps,
-    events: upsert(current.events, events.map((e) => ({ name: e.name, label: e.label, description: [e.description, e.when].filter(Boolean).join(" — ").slice(0, 500) })), (e) => e.name),
+    entityKinds: mergedKinds,
+    events: upsert(current.events, events.map((e) => ({ name: e.name, label: e.label, description: [e.description, e.when].filter(Boolean).join(" — ").slice(0, 500), ...kindOf(e.entityKind) })), (e) => e.name),
     traits: upsert(current.traits, traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })), (t) => t.key),
-    facts: upsert(current.facts, facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source })), (f) => f.id),
+    facts: upsert(current.facts, facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...kindOf(f.entityKind) })), (f) => f.id),
     glossary: upsert(current.glossary, glossary.map((g) => ({ term: g.term, definition: g.definition })), (g) => g.term.toLowerCase()),
   });
   if (!next.success) return fail(422, "catalog_invalid", zodReason(next.error));
@@ -235,7 +247,7 @@ export async function acceptProductMap(
   // Deep links into the product are allowed only on its link domains: add the app's.
   const linkDomains = origin && !conn.linkDomains.includes(origin.hostname) ? [...conn.linkDomains, origin.hostname].slice(0, 20) : conn.linkDomains;
   const nowIso = new Date(deps.nowMs ?? Date.now()).toISOString();
-  const accepted = { steps: steps.length, events: events.length, traits: traits.length, facts: facts.length, glossary: glossary.length };
+  const accepted = { steps: steps.length, events: events.length, traits: traits.length, facts: facts.length, glossary: glossary.length, entityKinds: entityKinds.length };
   await repo.productConnections.update(connectionId, { catalog: next.data, linkDomains, updatedAt: nowIso } as Partial<ProductConnection>);
   await repo.repoAnalyses.update(analysisId, { acceptedAt: nowIso, acceptedBy: ctx.email ?? ctx.userId ?? null, accepted });
   return { ok: true, value: { catalog: next.data, linkDomains, accepted } };

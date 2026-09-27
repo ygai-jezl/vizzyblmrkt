@@ -19,6 +19,37 @@ import { isSecureOrigin, originOf } from "./origin.js";
 
 export type ConsentBasis = "consent" | "soft_opt_in" | "corporate_subscriber" | "none";
 
+/** How a person relates to one of their entities. Only what they own counts toward their onboarding. */
+export type EntityRole = "owner" | "member" | "invited";
+
+/**
+ * One of the things a person has several of — a workspace, a brand, a project —
+ * in a write. It merges like the user; `kind` is required the first time.
+ */
+export interface EntityPatch {
+  /** What it is, in your product's words: "brand", "workspace", "project". */
+  kind?: string;
+  name?: string | null;
+  /** The entity it sits inside, e.g. a brand's workspace. */
+  parentId?: string | null;
+  role?: EntityRole | null;
+  steps?: Record<string, string | null>;
+  facts?: Record<string, number | string | boolean | null>;
+  /** When the person last worked on it. */
+  activeAt?: string | null;
+}
+
+/** One entity as YouGrow holds it. */
+export interface EntityState {
+  kind: string;
+  name: string | null;
+  parentId: string | null;
+  role: EntityRole | null;
+  steps: Record<string, string>;
+  facts: Record<string, string | number | boolean>;
+  activeAt: string | null;
+}
+
 /**
  * Any subset of a user's state, as a JSON Merge Patch (RFC 7396): fields sent
  * replace YouGrow's, fields left out stay, `null` clears, and `steps`, `facts`
@@ -47,6 +78,8 @@ export interface UserPatch {
   facts?: Record<string, number | string | boolean | null>;
   /** Anything else journeys branch on (null removes a key). */
   traits?: Record<string, string | number | boolean | null>;
+  /** The things this person has several of (workspaces, brands…), by your id; null removes one. */
+  entities?: Record<string, EntityPatch | null>;
   /** When you read this state. A write older than the stored one is ignored. */
   updatedAt?: string;
 }
@@ -66,12 +99,14 @@ export interface UserState {
   steps: Record<string, string>;
   facts: Record<string, string | number | boolean>;
   traits: Record<string, string | number | boolean>;
+  entities: Record<string, EntityState>;
   updatedAt: string | null;
 }
 
 /** `users.get` adds what YouGrow decided: journeys and opt-outs. */
 export interface UserView extends UserState {
-  enrolments: Array<{ journeyId: string; status: string; mode: string; enrolledAt: string }>;
+  /** `entityId`: the entity an enrolment is about, when its journey is about one of them. */
+  enrolments: Array<{ journeyId: string; status: string; mode: string; enrolledAt: string; entityId?: string | null }>;
   /** Unsubscribes made in YouGrow's emails. They hold until the person lifts them; the API can't. */
   optOuts: Array<{ scope: "all" | "category"; category: string | null; at: string | null }>;
 }
@@ -154,6 +189,8 @@ export interface TrackOptions {
   occurredAt?: string;
   /** The same key is recorded once. Defaults to a random key per call, so the SDK's own retries never count twice. */
   idempotencyKey?: string;
+  /** The entity it happened to (one of the user's `entities`), e.g. the brand an audit ran on. */
+  entityId?: string;
 }
 
 export interface UsersApi {
@@ -267,9 +304,9 @@ export class YouGrow {
     this.events = {
       track: async (userId, event, options = {}) => {
         const path = `${userPath(userId)}/events`;
-        const { properties, occurredAt } = options;
+        const { properties, occurredAt, entityId } = options;
         // One key for every attempt, so a retry is never recorded twice.
-        const body = { event, properties, occurredAt, idempotencyKey: options.idempotencyKey ?? randomUUID() };
+        const body = { event, properties, occurredAt, entityId, idempotencyKey: options.idempotencyKey ?? randomUUID() };
         return (await this.#send("POST", path, JSON.stringify(body))) as EventResult;
       },
     };

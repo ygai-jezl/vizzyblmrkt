@@ -13,7 +13,7 @@ import type { ProductMap } from "./productMapSchema";
  */
 
 export type TaskSeverity = "required" | "compliance" | "personalisation" | "recommended";
-export type TaskId = "signup" | "steps" | "context" | "deletion" | "preferences" | "timezone" | "exit" | "invite";
+export type TaskId = "signup" | "entities" | "steps" | "context" | "deletion" | "preferences" | "timezone" | "exit" | "invite";
 
 export interface IntegrationTask {
   id: TaskId;
@@ -45,6 +45,13 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
     action:
       "Where a new account is created, PATCH the user with `signedUpAt` (when the account was created), `email`, `firstName`, `timezone` and `consent`.",
     ifSkipped: "Nobody is ever enrolled — the journey sends no emails at all.",
+  },
+  entities: {
+    severity: "personalisation",
+    title: "Send what people have several of",
+    action:
+      "One person can have several workspaces, brands or projects: send them all as `entities` in the same PATCH — your id → `kind`, `name`, `role` (`owner`, `member` or `invited`), and their own `steps` and `facts`; `null` removes one. Send every one — each journey chooses which of them its emails are about.",
+    ifSkipped: "Emails can't tell their workspaces or brands apart: someone with one finished and one half done is nudged as if they'd done nothing.",
   },
   steps: {
     severity: "personalisation",
@@ -101,8 +108,8 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
  */
 export const PHASE_1: ReadonlySet<TaskId> = new Set<TaskId>(["signup", "deletion", "preferences", "timezone", "exit"]);
 
-/** Phase 1 first, then personalisation. */
-const ORDER: TaskId[] = ["signup", "deletion", "preferences", "timezone", "exit", "steps", "context"];
+/** Phase 1 first, then personalisation. `entities` only when the product lets people have several of something. */
+const ORDER: TaskId[] = ["signup", "deletion", "preferences", "timezone", "exit", "entities", "steps", "context"];
 const HOOK_TASK: Record<string, TaskId> = {
   signup: "signup",
   deletion: "deletion",
@@ -144,11 +151,22 @@ export function buildIntegrationTasks(input: {
   const { map } = input;
   const h = input.health ?? {};
   const hooksFor = (id: TaskId) => (map?.hooks ?? []).filter((x) => HOOK_TASK[x.kind] === id);
-  const order: TaskId[] = input.invites ? [...ORDER, "invite"] : ORDER;
+  const several = (map?.entityKinds ?? []).filter((k) => k.multiple);
+  const order: TaskId[] = (input.invites ? [...ORDER, "invite" as const] : ORDER).filter((id) => id !== "entities" || several.length > 0);
   return order.map((id) => {
     const hooks = hooksFor(id);
     const sourceItems =
-      id === "steps" ? [...(map?.onboardingSteps ?? []), ...(map?.facts ?? [])] : id === "context" ? (map?.facts ?? []) : hooks;
+      id === "steps"
+        ? [...(map?.onboardingSteps ?? []), ...(map?.facts ?? [])]
+        : id === "context"
+          ? (map?.facts ?? [])
+          : id === "entities"
+            ? several
+            : hooks;
+    if (id === "entities") {
+      const found = several.map((k) => `People can have several ${k.plural} (\`${k.kind}\`${k.parent ? `, inside a ${k.parent}` : ""})${k.membership ? `: ${k.membership}` : ""}.`);
+      return { id, ...META[id], fromCode: found, files: files(sourceItems), status: "todo" as const };
+    }
     const status: IntegrationTask["status"] =
       (id === "signup" && h.lastEventAt) || (id === "context" && input.contextEnabled && h.lastContextOkAt && !h.lastContextError) ? "done" : "todo";
     return { id, ...META[id], fromCode: hooks.map((x) => x.description), files: files(sourceItems), status };

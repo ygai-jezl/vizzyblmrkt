@@ -50,5 +50,5 @@ export interface RepoAnalysis {
   finishedAt?: string | null;
   acceptedAt?: string | null;
   acceptedBy?: string | null;
-  accepted?: { steps: number; events: number; traits: number; facts: number; glossary: number } | null;
+  accepted?: { steps: number; events: number; traits: number; facts: number; glossary: number; entityKinds?: number } | null;
 }

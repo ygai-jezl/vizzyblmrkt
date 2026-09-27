@@ -29,6 +29,8 @@ export const ProductEventSchema = z.object({
   skipped: z.enum(["stale_write", "deleted_later"]).nullable().optional(),
   /** API v2: profile fields whose invalid value was left as it was. */
   ignoredFields: z.array(z.string()).optional(),
+  /** API v2: the entity (a brand, a workspace…) a milestone was about. */
+  entityId: z.string().nullable().optional(),
   ttlAt: z.unknown().optional(),
 });
 export type ProductEvent = z.infer<typeof ProductEventSchema>;

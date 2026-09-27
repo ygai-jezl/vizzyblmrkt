@@ -47,7 +47,7 @@ export interface JourneyDetail {
   sender: { verified: boolean; fromEmail: string | null; fromName: string | null };
   postalAddress: string | null;
   modeCeiling: "test" | "shadow" | "live";
-  features: { chatAuthoring: boolean; aiLines: boolean; consentAtSend: boolean; optInAfterSignup: boolean };
+  features: { chatAuthoring: boolean; aiLines: boolean; consentAtSend: boolean; optInAfterSignup: boolean; entities: boolean };
 }
 
 export type EnrolmentRow = LifecycleEnrolment & {
@@ -194,6 +194,13 @@ export const ISSUE_TEXT: Record<string, string> = {
   duplicate_pool: "Two content pools share an id.",
   duplicate_pool_item: "Two emails in a pool share an id.",
   pool_item_empty: "An email has no subject or body.",
+  about_kind_missing: "Choose which kind of thing this journey is about (Settings → About).",
+  about_kind_unknown: "This journey is about a kind of thing the product's catalog doesn't have — add it in Products → Catalog, or pick another.",
+  about_fact_missing: "Choose the fact that decides which one each email is about.",
+  entity_token_needs_one:
+    "An email uses {{entity.name}} or {{entity.kind}} with no fallback, but the journey isn't about one of their entities — add a fallback, e.g. {{entity.name|your brand}}, or set About to one or each.",
+  needs_onboarding_steps:
+    "An email shows the onboarding checklist or next step, but this product has no onboarding steps yet. Add them in Products → your product → Catalog (or Learn from repo).",
   field_not_for_waitlist: "A welcome journey can only branch on signup details.",
   field_not_for_product: "Signup details are only for a launch's welcome journey.",
   hard_stop_required: "Set when the journey stops (Settings).",

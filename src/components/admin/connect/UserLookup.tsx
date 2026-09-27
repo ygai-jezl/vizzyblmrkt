@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { UserView } from "@/lib/connect/v2/contract";
+import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { api, errorText, timeAgo } from "./api";
 import { Badge, Banner, Button, inputClass } from "./ui";
 
@@ -37,10 +38,13 @@ const when = (iso: string | null | undefined) => (iso ? `${new Date(iso).toLocal
 export function UserLookup({
   connectionId,
   steps,
+  catalog,
   request,
 }: {
   connectionId: string;
   steps: Array<{ id: string; label: string }>;
+  /** For entities: which steps are per kind, and the kinds' names. */
+  catalog?: Pick<ConnectionCatalog, "onboardingSteps" | "entityKinds">;
   request: { id: string; at: number } | null;
 }) {
   const [draft, setDraft] = useState("");
@@ -88,12 +92,22 @@ export function UserLookup({
         {shown ? <Button onClick={() => setShown(null)}>Close</Button> : null}
       </form>
       {error ? <Banner tone="err">{error}</Banner> : null}
-      {shown ? <Result id={shown.id} result={shown.result} steps={steps} /> : null}
+      {shown ? <Result id={shown.id} result={shown.result} steps={steps} catalog={catalog} /> : null}
     </div>
   );
 }
 
-function Result({ id, result, steps }: { id: string; result: Lookup; steps: Array<{ id: string; label: string }> }) {
+function Result({
+  id,
+  result,
+  steps,
+  catalog,
+}: {
+  id: string;
+  result: Lookup;
+  steps: Array<{ id: string; label: string }>;
+  catalog?: Pick<ConnectionCatalog, "onboardingSteps" | "entityKinds">;
+}) {
   if (!result.found) {
     return result.erasedAt ? (
       <Banner tone="info">
@@ -109,6 +123,13 @@ function Result({ id, result, steps }: { id: string; result: Lookup; steps: Arra
   const { user, writes } = result;
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ");
   const labels = new Map(steps.map((s) => [s.id, s.label]));
+  const entities = Object.entries(user.entities ?? {});
+  const kindName = (kind: string) => catalog?.entityKinds?.find((k) => k.kind === kind)?.label ?? kind;
+  /** A kind's steps: the catalog's steps for it, or every step when none are per kind. */
+  const stepsOf = (kind: string) => {
+    const all = catalog?.onboardingSteps ?? [];
+    return all.some((s) => s.kind) ? all.filter((s) => s.kind === kind) : all;
+  };
   const consent =
     user.consent && result.effectiveConsent && result.effectiveConsent !== user.consent
       ? `${user.consent} (counts as ${result.effectiveConsent} for this address)`
@@ -163,6 +184,31 @@ function Result({ id, result, steps }: { id: string; result: Lookup; steps: Arra
         )}
       </Block>
 
+      {entities.length > 0 ? (
+        <Block title={`What they have several of (${entities.length})`}>
+          <ul className="space-y-1">
+            {entities.map(([eid, e]) => {
+              const kindSteps = stepsOf(e.kind);
+              const done = kindSteps.filter((s) => e.steps[s.id]).length;
+              const facts = Object.entries(e.facts);
+              return (
+                <li key={eid}>
+                  <span className="font-medium">{e.name ?? eid}</span> <span className="text-neutral-500">{kindName(e.kind)}</span>{" "}
+                  {e.role && e.role !== "owner" ? <Badge>{e.role}</Badge> : null}
+                  {kindSteps.length > 0 ? (
+                    <Badge tone={done === kindSteps.length ? "green" : "neutral"}>
+                      {done}/{kindSteps.length} steps
+                    </Badge>
+                  ) : null}
+                  {facts.length ? <span className="font-mono text-neutral-500"> {facts.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" · ")}</span> : null}
+                  <span className="font-mono text-neutral-400"> {eid}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Block>
+      ) : null}
+
       <Block title="Journeys">
         {user.enrolments.length === 0 ? (
           <p className="text-neutral-500">
@@ -173,7 +219,9 @@ function Result({ id, result, steps }: { id: string; result: Lookup; steps: Arra
           <ul className="space-y-0.5">
             {user.enrolments.map((e) => (
               <li key={e.journeyId}>
-                {e.journeyName ?? e.journeyId} · <Badge>{e.status}</Badge> <Badge>{e.mode}</Badge>{" "}
+                {e.journeyName ?? e.journeyId}
+                {e.entityId ? <span className="text-neutral-500"> · about {user.entities?.[e.entityId]?.name ?? e.entityId}</span> : null} ·{" "}
+                <Badge>{e.status}</Badge> <Badge>{e.mode}</Badge>{" "}
                 <span className="text-neutral-500">joined {timeAgo(e.enrolledAt)}</span>
               </li>
             ))}

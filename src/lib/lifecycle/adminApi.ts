@@ -20,7 +20,10 @@ import {
   updateLifecycleDelivery,
   type ServiceResult,
 } from "./service";
-import { enrolUser, versionDocId } from "./enrol";
+import { enrolPerson, versionDocId } from "./enrol";
+import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
+import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { entityViewFor, kindLabel } from "./entities";
 import { lifecycleSender } from "./policy";
 import {
   isLifecycleAiDraftsEnabled,
@@ -128,7 +131,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       sender: { verified: true, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
       postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
       modeCeiling: "live",
-      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false },
+      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false, entities: false },
     });
   }
   const [connection, version, tenant] = await Promise.all([
@@ -164,6 +167,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       aiLines: isLifecycleAiDraftsEnabled(),
       consentAtSend: isLifecycleConsentAtSendEnabled(),
       optInAfterSignup: isLifecycleOptInAfterSignupEnabled(),
+      entities: isEntitiesEnabled(),
     },
   });
 }
@@ -300,14 +304,15 @@ export async function enrolByHand(
     user = await repo.productUsers.getById(userDocId);
     if (!user) return fail(404, "user_not_found");
   }
-  const r = await enrolUser(
-    ctx,
-    { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString() },
-    { db, nowMs },
-  );
-  if (r.outcome === "enrolled") return ok({ enrolmentId: r.enrolmentId }, 201);
+  // A journey about each of their entities enrols them once per entity.
+  const rs = await enrolPerson(ctx, { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString() }, { db, nowMs });
+  const enrolledOne = rs.find((r) => r.outcome === "enrolled");
+  if (enrolledOne && enrolledOne.outcome === "enrolled") return ok({ enrolmentId: enrolledOne.enrolmentId }, 201);
+  const r = rs[0];
+  if (!r) return fail(409, "no_entities");
   if (r.outcome === "duplicate") return fail(409, "already_enrolled", r.enrolmentId);
-  return fail(409, r.reason);
+  if (r.outcome === "skipped") return fail(409, r.reason);
+  return fail(409, "not_enrolled");
 }
 
 export async function runNow(ctx: TenantContext, enrolmentId: string, deps: RunnerDeps = {}): Promise<ApiResult> {
@@ -406,10 +411,29 @@ export async function previewJourney(
       ...(isLifecycleConsentAtSendEnabled() ? { marketingBases: connection.consentPolicy.marketingBases } : {}),
     },
   );
+  // For a real user: which of their entities (brands, workspaces…) the emails would be about.
+  const aboutSetting = journey.draft.settings.about ?? JOURNEY_ABOUT_DEFAULT;
+  let about: Record<string, unknown> | null = null;
+  if (isEntitiesEnabled() && p.userId && aboutSetting.mode !== "person") {
+    const user = await forTenant(ctx, db).productUsers.getById(productUserDocId(connection.id, p.userId));
+    if (!user || user.status !== "active") about = { found: false };
+    else {
+      const view = entityViewFor(user, aboutSetting, connection.catalog);
+      about = {
+        found: true,
+        mode: aboutSetting.mode,
+        one: kindLabel(aboutSetting.kind, connection.catalog),
+        many: kindLabel(aboutSetting.kind, connection.catalog, true),
+        count: view.list.length,
+        entity: view.entity ? { id: view.entity.id, name: view.entity.entity.name } : null,
+      };
+    }
+  }
   return ok({
     timezone: tz,
     anchorAt: new Date(anchorMs).toISOString(),
     steps: steps.map((s) => ({ ...s, at: new Date(s.atMs).toISOString(), day: Math.floor((s.atMs - anchorMs) / DAY_MS) + 1 })),
+    about,
   });
 }
 

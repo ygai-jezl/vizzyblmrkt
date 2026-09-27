@@ -271,6 +271,79 @@ describe("sign-up enrolment through the API", () => {
   });
 });
 
+describe("entities: the things a person has several of (CONNECT_ENTITIES_ENABLED)", () => {
+  beforeEach(() => {
+    process.env.CONNECT_ENTITIES_ENABLED = "true";
+  });
+  afterEach(() => {
+    delete process.env.CONNECT_ENTITIES_ENABLED;
+  });
+
+  it("stores them, merges each like the user, removes one with null, and returns them", async () => {
+    const w = await setup();
+    const first = await w.patch("u_1", {
+      email: "a@example.com",
+      entities: {
+        brand_1: { kind: "brand", name: "Acme", parentId: "ws_1", role: "owner", steps: { create_brand: "2026-09-25T10:00:00Z" }, facts: { share_of_voice: 12 } },
+        brand_2: { kind: "brand", name: "Beta", role: "owner" },
+      },
+    });
+    expect(first.status).toBe(200);
+    await w.patch("u_1", { entities: { brand_1: { steps: { run_audit: "2026-09-25T11:00:00Z" }, facts: { share_of_voice: null } }, brand_2: null } });
+    const view = await json(await w.get("u_1"));
+    expect(view.entities).toEqual({
+      brand_1: {
+        kind: "brand",
+        name: "Acme",
+        parentId: "ws_1",
+        role: "owner",
+        steps: { create_brand: "2026-09-25T10:00:00.000Z", run_audit: "2026-09-25T11:00:00.000Z" },
+        facts: {},
+        activeAt: null,
+      },
+    });
+  });
+
+  it("needs a kind the first time it sees an entity, and holds at most 50", async () => {
+    const w = await setup();
+    const res = await w.patch("u_1", { entities: { brand_1: { name: "Acme" } } });
+    expect(res.status).toBe(400);
+    expect(await json(res)).toMatchObject({ fields: [{ path: "entities.brand_1.kind" }] });
+    const many = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`b${i}`, { kind: "brand" }]));
+    expect((await w.patch("u_1", { entities: many })).status).toBe(400);
+  });
+
+  it("clears them when the user is erased", async () => {
+    const w = await setup();
+    await w.patch("u_1", { entities: { brand_1: { kind: "brand", name: "Acme" } } });
+    await w.del("u_1");
+    const stored = await forTenant(ctxA, w.db).productUsers.getById(productUserDocId(w.connection.id, "u_1"));
+    expect(stored?.entities).toEqual({});
+  });
+
+  it("with the flag off, leaves entities out and says so, and applies the rest", async () => {
+    delete process.env.CONNECT_ENTITIES_ENABLED;
+    const w = await setup();
+    const res = await json(await w.patch("u_1", { firstName: "Alex", entities: { brand_1: { kind: "brand" } } }));
+    expect(res).toMatchObject({ applied: true, user: { firstName: "Alex", entities: {} }, ignoredFields: [{ path: "entities" }] });
+  });
+
+  it("keeps a milestone's entity on its Events row", async () => {
+    const w = await setup();
+    await w.patch("u_1", { entities: { brand_1: { kind: "brand" } } });
+    const res = await handleUserEvent(request("POST", w.auth, { event: "audit.completed", entityId: "brand_1" }), "u_1", w.deps);
+    expect(res.status).toBe(200);
+    const rows = await forTenant(ctxA, w.db).productEvents.find({ limit: 20 });
+    expect(rows.find((r) => r.event === "audit.completed")).toMatchObject({ entityId: "brand_1" });
+  });
+
+  it("can't be sent entity.created as an event: YouGrow derives it", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "a@example.com" });
+    expect((await handleUserEvent(request("POST", w.auth, { event: "entity.created" }), "u_1", w.deps)).status).toBe(400);
+  });
+});
+
 describe("the opt-in trigger through the API (LIFECYCLE_CONSENT_AT_SEND)", () => {
   afterEach(() => {
     delete process.env.LIFECYCLE_CONSENT_AT_SEND;

@@ -3,6 +3,7 @@
 import type { LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { Badge, Field, Section, inputClass } from "../connect/ui";
+import { AboutSection } from "./AboutSection";
 
 /**
  * Journey settings: what starts it, when emails may go out (in each person's own
@@ -25,6 +26,7 @@ export function SettingsPanel({
   waitlist = null,
   consentAtSend = false,
   optInAfterSignup = false,
+  entities = false,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -36,10 +38,19 @@ export function SettingsPanel({
   consentAtSend?: boolean;
   /** The opt-in trigger fires only after the sign-up window (LIFECYCLE_OPT_IN_AFTER_SIGNUP). */
   optInAfterSignup?: boolean;
+  /** API v2 entities (CONNECT_ENTITIES_ENABLED): the About setting and the `entity.created` trigger. */
+  entities?: boolean;
 }) {
   const p = settings.sendPolicy;
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
-  const events = [...new Set([...RESERVED, ...(consentAtSend ? [CONSENT_GRANTED] : []), ...(catalog?.events ?? []).map((e) => e.name)])];
+  const events = [
+    ...new Set([
+      ...RESERVED,
+      ...(consentAtSend ? [CONSENT_GRANTED] : []),
+      ...(entities && !waitlist ? ["entity.created"] : []),
+      ...(catalog?.events ?? []).map((e) => e.name),
+    ]),
+  ];
   const entry = settings.entry ?? { requireMarketingConsent: false };
   const time = `${String(p.startHour).padStart(2, "0")}:${String(p.startMinute).padStart(2, "0")}`;
   const endMin = p.startHour * 60 + p.startMinute + p.windowMinutes;
@@ -156,6 +167,8 @@ export function SettingsPanel({
           </label>
         ) : null}
       </Section>
+
+      {entities && !waitlist ? <AboutSection settings={settings} catalog={catalog} readOnly={readOnly} onChange={onChange} /> : null}
 
       <Section title="Send window" description="Emails only go out in this window, in each person's own timezone, at a steady minute that's theirs. Nothing is ever sent late.">
         <div className="flex flex-wrap gap-1.5">

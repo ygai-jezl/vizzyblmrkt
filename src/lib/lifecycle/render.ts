@@ -22,7 +22,9 @@ import type { TraitValue } from "@/lib/types/productUser";
  * `{{next_step.label}}`, `{{next_step.url}}`, `{{product.name}}`,
  * `{{onboarding.steps_remaining}}`, … each with an optional fallback:
  * `{{user.first_name|there}}`. Blocks: `{{block.checklist}}`,
- * `{{block.next_step}}`, `{{block.insight}}` render live HTML.
+ * `{{block.next_step}}`, `{{block.insight}}` and `{{block.entities}}` render
+ * live HTML. With API v2 entities: `{{entity.name}}`, `{{entity.kind}}` (the one
+ * an email is about) and `{{entities.count}}`.
  *
  * ONE pass over the template: a value is inserted escaped and never re-scanned,
  * so a product-supplied value containing "{{…}}" stays literal. A token with no
@@ -44,6 +46,14 @@ export interface RenderValues {
   checklist: Array<{ label: string; done: boolean; url: string | null }>;
   insight: { sentence: string; aiLine?: string | null } | null;
   footer: FooterMergeValues & { postalAddress?: string | null };
+  /** API v2 entities: the one this email is about (`{{entity.name}}`, `{{entity.kind}}`). */
+  entity?: { name: string | null; kind: string } | null;
+  /** The ones the journey counts: `{{entities.count}}` and `{{block.entities}}` (a digest). */
+  entities?: {
+    count: number;
+    rows: Array<{ name: string; done: number; total: number; facts: Array<{ label: string; value: string }> }>;
+    more: number;
+  } | null;
 }
 
 export interface RenderedEmail {
@@ -83,6 +93,12 @@ function valueFor(key: string, v: RenderValues): string | undefined {
       if (k === "label") return str(v.nextStep.label);
       if (k === "url") return v.nextStep.url && isSafeHref(v.nextStep.url) ? v.nextStep.url : undefined;
       return undefined;
+    case "entity":
+      if (k === "name") return str(v.entity?.name);
+      if (k === "kind") return str(v.entity?.kind);
+      return undefined;
+    case "entities":
+      return k === "count" && v.entities ? String(v.entities.count) : undefined;
     case "onboarding": {
       const done = v.checklist.filter((s) => s.done).length;
       if (k === "steps_done") return String(done);
@@ -122,6 +138,25 @@ function checklistBlock(steps: RenderValues["checklist"]): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse">${rows}</table>`;
 }
 
+/** One line per entity: its name, its progress, and a few of its facts. Nothing when there are none. */
+function entitiesBlock(e: RenderValues["entities"], letter: boolean): string {
+  if (!e || e.rows.length === 0) return "";
+  const line = (r: NonNullable<RenderValues["entities"]>["rows"][number]) => {
+    const parts = [
+      ...(r.total > 0 ? [`${r.done} of ${r.total} steps done`] : []),
+      ...r.facts.map((f) => `${f.label}: ${f.value}`),
+    ];
+    return `<strong>${escapeHtml(r.name)}</strong>${parts.length ? ` — ${escapeHtml(parts.join(" · "))}` : ""}`;
+  };
+  const more = e.more > 0 ? `and ${e.more} more` : "";
+  if (letter) return `<p style="margin:0 0 16px">${e.rows.map(line).join("<br>")}${more ? `<br>${more}` : ""}</p>`;
+  const rows = e.rows
+    .map((r) => `<tr><td style="padding:6px 0;font-family:${FONT};font-size:15px;color:#111;border-bottom:1px solid #eee">${line(r)}</td></tr>`)
+    .join("");
+  const tail = more ? `<tr><td style="padding:6px 0;font-family:${FONT};font-size:14px;color:#8a8a8a">${more}</td></tr>` : "";
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse;width:100%">${rows}${tail}</table>`;
+}
+
 function nextStepBlock(next: RenderValues["nextStep"], letter: boolean): string {
   if (!next) return "";
   const label = escapeHtml(next.label);
@@ -156,6 +191,7 @@ function renderTokens(
       if (mode === "text") return "";
       if (key === "block.checklist") return checklistBlock(v.checklist);
       if (key === "block.next_step") return nextStepBlock(v.nextStep, letter);
+      if (key === "block.entities") return entitiesBlock(v.entities, letter);
       if (key === "block.insight") {
         if (v.insight) st.insightUsed = true;
         return insightBlock(v.insight, letter);

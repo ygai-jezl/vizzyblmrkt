@@ -39,6 +39,32 @@ const item = {
   evidence: z.array(EvidenceSchema).max(5).default([]),
 };
 
+/** A kind of thing one person can have several of: `brand`, `workspace`, `project`. */
+const KIND_RE = /^[a-z][a-z0-9_]{0,39}$/;
+/** Which of the entity kinds an item belongs to (done per brand, a value per brand); absent = the person. */
+const entityKind = z.string().regex(KIND_RE).nullable().optional();
+
+/**
+ * Something one person can own or belong to several of — workspaces, brands,
+ * projects, sites — which the product's onboarding and numbers are often about.
+ */
+export const MapEntityKindSchema = z.object({
+  kind: z.string().regex(KIND_RE),
+  /** Singular and plural, as the product says them: "brand" / "brands". */
+  label: text(40).min(1),
+  plural: text(40).min(1),
+  /** The kind it sits inside, e.g. a brand's `workspace`. */
+  parent: z.string().regex(KIND_RE).nullable().optional(),
+  /** One person can own or belong to several (no one-per-user limit). */
+  multiple: z.boolean().default(true),
+  /** How people relate to it — owner, member, invited — and where that's stored. */
+  membership: text(300).default(""),
+  /** Any limit on how many, e.g. "brandsLimit on the plan". */
+  limit: text(200).default(""),
+  description: text(300).default(""),
+  ...item,
+});
+
 export const MapStepSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   label: text(120).min(1),
@@ -48,6 +74,8 @@ export const MapStepSchema = z.object({
   path: text(300).nullable().optional(),
   /** server_event: there's a clear moment in server code; reconcile: derive it from stored state. */
   detection: z.enum(["server_event", "reconcile", "client_only"]).default("reconcile"),
+  /** Done once per entity of this kind (e.g. per brand), not once per person. */
+  entityKind,
   ...item,
 });
 
@@ -57,6 +85,8 @@ export const MapEventSchema = z.object({
   description: text(500).default(""),
   /** Where it happens in their code, in words. */
   when: text(300).default(""),
+  /** The entity kind it happens to (e.g. an audit runs on a brand). */
+  entityKind,
   ...item,
 });
 
@@ -76,6 +106,8 @@ export const MapFactSchema = z.object({
   description: text(500).default(""),
   /** Where the product keeps or computes it. */
   source: text(200).default(""),
+  /** A value per entity of this kind (e.g. per brand), not per person. */
+  entityKind,
   ...item,
 });
 
@@ -102,6 +134,7 @@ export const ProductMapSchema = z.object({
   facts: z.array(MapFactSchema).max(30).default([]),
   glossary: z.array(MapGlossarySchema).max(40).default([]),
   hooks: z.array(MapHookSchema).max(30).default([]),
+  entityKinds: z.array(MapEntityKindSchema).max(10).default([]),
   /** Gaps worth knowing, e.g. "timezone isn't stored at sign-up". */
   warnings: z.array(text(300)).max(20).default([]),
 });
@@ -112,14 +145,49 @@ export type MapTrait = z.infer<typeof MapTraitSchema>;
 export type MapFact = z.infer<typeof MapFactSchema>;
 export type MapGlossary = z.infer<typeof MapGlossarySchema>;
 export type MapHook = z.infer<typeof MapHookSchema>;
+export type MapEntityKind = z.infer<typeof MapEntityKindSchema>;
+
+/**
+ * A step or fact id in the form the catalog needs (lower-case, underscores):
+ * "createBrand", "add-brand" or "Add brand" → "create_brand" / "add_brand". A
+ * leading digit gets the prefix ("1st_audit" → "step_1st_audit"). Empty when
+ * nothing usable is left.
+ */
+export function toCatalogId(raw: unknown, prefix: string): string {
+  if (typeof raw !== "string") return "";
+  const s = raw
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!s) return "";
+  return (/^[a-z]/.test(s) ? s : `${prefix}_${s}`).slice(0, 64).replace(/_+$/, "");
+}
 
 /**
  * Tidy one model-written item before validation: cap and trim its evidence, and
- * DROP any `verified` claim — only the job's verifier may set that.
+ * DROP any `verified` claim — only the job's verifier may set that. Step and fact
+ * ids are ours to choose, so a badly formed one is fixed (or made from the label)
+ * rather than losing the step; event names must match the product's, so aren't.
  */
-function prepItem(x: unknown): unknown {
+function prepItem(x: unknown, section?: MapSection): unknown {
   if (!x || typeof x !== "object") return x;
   const o = { ...(x as Record<string, unknown>) };
+  if (section === "onboardingSteps" || section === "facts") {
+    const prefix = section === "facts" ? "fact" : "step";
+    const id = toCatalogId(o.id, prefix) || toCatalogId(o.label, prefix);
+    if (id) o.id = id;
+  }
+  // Entity kinds are ours to name too: "Brand" or "brandProfile" → "brand" / "brand_profile".
+  const asKind = (v: unknown) => toCatalogId(v, "kind").slice(0, 40).replace(/_+$/, "");
+  if (section === "entityKinds") {
+    const kind = asKind(o.kind) || asKind(o.label);
+    if (kind) o.kind = kind;
+    if (typeof o.parent === "string") o.parent = asKind(o.parent) || null;
+  } else if (typeof o.entityKind === "string") {
+    o.entityKind = asKind(o.entityKind) || null;
+  }
   if (Array.isArray(o.evidence)) {
     o.evidence = o.evidence.slice(0, 5).map((e) => {
       if (!e || typeof e !== "object") return e;
@@ -134,7 +202,7 @@ function prepItem(x: unknown): unknown {
   return o;
 }
 
-export const MAP_SECTIONS = ["onboardingSteps", "events", "traits", "facts", "glossary", "hooks"] as const;
+export const MAP_SECTIONS = ["onboardingSteps", "events", "traits", "facts", "glossary", "hooks", "entityKinds"] as const;
 export type MapSection = (typeof MAP_SECTIONS)[number];
 
 const SECTION_SCHEMA: Record<MapSection, z.ZodType> = {
@@ -144,11 +212,12 @@ const SECTION_SCHEMA: Record<MapSection, z.ZodType> = {
   facts: MapFactSchema,
   glossary: MapGlossarySchema,
   hooks: MapHookSchema,
+  entityKinds: MapEntityKindSchema,
 };
 
 /** Validate ONE model-written item for a section (evidence tidied, `verified` stripped). */
 export function parseMapItem(section: MapSection, raw: unknown): { ok: true; item: unknown } | { ok: false; reason: string } {
-  const r = SECTION_SCHEMA[section].safeParse(prepItem(raw));
+  const r = SECTION_SCHEMA[section].safeParse(prepItem(raw, section));
   if (r.success) return { ok: true, item: r.data };
   const issue = r.error.issues[0];
   return { ok: false, reason: issue ? `${issue.path.join(".") || "(item)"}: ${issue.message}`.slice(0, 200) : "invalid" };
@@ -161,11 +230,11 @@ export function parseMapItem(section: MapSection, raw: unknown): { ok: true; ite
 export function parseProductMapLenient(raw: unknown): { map: ProductMap; dropped: number } {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   let dropped = 0;
-  const list = <T>(key: string, schema: z.ZodType<T>, max: number): T[] => {
+  const list = <T>(key: MapSection, schema: z.ZodType<T>, max: number): T[] => {
     const arr = Array.isArray(obj[key]) ? (obj[key] as unknown[]) : [];
     const out: T[] = [];
     for (const x of arr) {
-      const r = schema.safeParse(prepItem(x));
+      const r = schema.safeParse(prepItem(x, key));
       if (r.success && out.length < max) out.push(r.data);
       else dropped += 1;
     }
@@ -184,6 +253,7 @@ export function parseProductMapLenient(raw: unknown): { map: ProductMap; dropped
     facts: list("facts", MapFactSchema, 30),
     glossary: list("glossary", MapGlossarySchema, 40),
     hooks: list("hooks", MapHookSchema, 30),
+    entityKinds: list("entityKinds", MapEntityKindSchema, 10),
     warnings,
   });
   return { map, dropped };

@@ -600,7 +600,7 @@ env:
     value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
     availability:
       - RUNTIME
-  # Lifecycle runner: the highest delivery mode dev may use (prod: test), and the
+  # Lifecycle runner: the highest delivery mode dev may use (prod: live), and the
   # Cloud Scheduler tick's shared secret. Created in dev with
   #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-dev
   - variable: LIFECYCLE_MODE_CEILING
@@ -655,6 +655,15 @@ env:
   # same values) leaves no row in the Events tab, which counts them instead.
   # On in prod too since 2026-09-27 (apphosting.prod.yaml).
   - variable: CONNECT_QUIET_UNCHANGED_WRITES
+    value: "true"
+    availability:
+      - RUNTIME
+  # `entities`: the things a person has several of (workspaces, brands, projects),
+  # sent with their state, and journeys that say which of them each email is about
+  # (one, all, or each separately). Off: `entities` is left out of writes (listed in
+  # ignoredFields) and journeys are about the person. "false" in prod
+  # (apphosting.prod.yaml) until verified here.
+  - variable: CONNECT_ENTITIES_ENABLED
     value: "true"
     availability:
       - RUNTIME

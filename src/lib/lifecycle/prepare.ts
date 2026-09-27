@@ -16,6 +16,9 @@ import { AI_LINE_MARKER, allowedTermsFor, draftDocId, scheduleDraft } from "./dr
 import { validateAiLine, validateAiSubject } from "./insightValidator";
 import { lifecycleSender } from "./policy";
 import { COUNTER_TTL_MS, utcDayKey } from "./enrol";
+import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
+import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { entityViewFor, viewedUser } from "./entities";
 
 /**
  * Prepare AI-line drafts that are due (≈12 h before their send): re-predict the
@@ -112,16 +115,22 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
 
   const enrolment = await repo.lifecycleEnrolments.getById(leased.enrolmentId);
   if (!enrolment || enrolment.status !== "active") return supersede();
-  const [version, journey, connection, user, tenant] = await Promise.all([
+  const [version, journey, connection, stored, tenant] = await Promise.all([
     repo.lifecycleVersions.getById(leased.versionId),
     repo.lifecycleJourneys.getById(leased.journeyId),
     repo.productConnections.getById(leased.connectionId),
     repo.productUsers.getById(leased.productUserId),
     getTenantById(ctx.tenantId, deps.db).catch(() => null),
   ]);
-  if (!version || !journey || !connection || connection.status === "revoked" || !user || user.status !== "active") {
+  if (!version || !journey || !connection || connection.status === "revoked" || !stored || stored.status !== "active") {
     return supersede();
   }
+  // The same entity the runner will write about (API v2 entities).
+  const about = isEntitiesEnabled() ? (version.settings.about ?? JOURNEY_ABOUT_DEFAULT) : null;
+  const entities = about
+    ? entityViewFor(stored, about, connection.catalog, { pinned: enrolment.entityId ?? null, triggerId: enrolment.entityId ?? null })
+    : undefined;
+  const user = entities ? viewedUser(stored, entities) : stored;
 
   const res = await (deps.fetchContext ?? fetchProductContext)(
     connection,
@@ -146,6 +155,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
       offsetMin,
       anchorMs: state.anchorMs,
       emailsSent: () => state.sent.filter((s) => s.status !== "skipped").length,
+      entities,
     }),
   );
   const d = walk.decision;
@@ -164,6 +174,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     emailsSent: state.sent.filter((x) => x.status !== "skipped").length,
     enrolledAtMs: state.anchorMs,
     nowMs: sendAtMs,
+    entities,
   });
   const steps = safeChecklist(rc, connection.linkDomains);
   const next = nextStepOf(context, steps, connection.linkDomains);

@@ -68,6 +68,7 @@ export const SANDBOX_CATALOG: ConnectionCatalog = {
     { term: "Share of voice", definition: "How often AI answers mention your brand, compared with competitors." },
     { term: "Citation", definition: "A source an AI answer links to or quotes." },
   ],
+  entityKinds: [],
 };
 
 /** Step links in the template point here. */

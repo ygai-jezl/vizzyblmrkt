@@ -140,11 +140,40 @@ describe("accepting a product map", () => {
     expect(r.value.catalog.facts.map((f) => f.id)).toContain("visibility");
     expect(r.value.catalog.events.find((e) => e.name === "audit.completed")?.description).toContain("When the audit worker");
     expect(r.value.linkDomains).toContain("app.acme.test");
-    expect(r.value.accepted).toEqual({ steps: 2, events: 1, traits: 1, facts: 1, glossary: 1 });
+    expect(r.value.accepted).toEqual({ steps: 2, events: 1, traits: 1, facts: 1, glossary: 1, entityKinds: 0 });
     const saved = await forTenant(ctx, db).productConnections.getById(connection.id);
     expect(saved?.catalog.facts.map((f) => f.id)).toContain("visibility");
     const [a] = await listRepoAnalyses(ctx, connection.id, db);
     expect(a).toMatchObject({ acceptedBy: "jez@acme.test", accepted: { steps: 2 } });
+  });
+
+  it("adds the things people have several of, and keeps a step, fact or event per one of them only when that kind is known", async () => {
+    const perBrand = {
+      ...MAP,
+      entityKinds: [{ kind: "brand", label: "brand", plural: "brands", parent: "workspace", multiple: true, membership: "", limit: "", description: "", confidence: "high", evidence: [] }],
+      onboardingSteps: [
+        { ...MAP.onboardingSteps[0], entityKind: "brand" },
+        { ...MAP.onboardingSteps[1], entityKind: "workspace" },
+      ],
+      facts: [{ ...MAP.facts[0], entityKind: "brand" }],
+      events: [{ ...MAP.events[0], entityKind: "brand" }],
+    };
+    const { db, connection } = await withMap(perBrand);
+    const r = await acceptProductMap(
+      ctx,
+      connection.id,
+      "ra_done",
+      { entityKinds: ["brand"], steps: ["run_audit", "invite_team"], facts: ["visibility"], events: ["audit.completed"] },
+      { db },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.catalog.entityKinds).toEqual([{ kind: "brand", label: "brand", plural: "brands", parent: "workspace", multiple: true, description: "" }]);
+    expect(r.value.catalog.onboardingSteps.find((s) => s.id === "run_audit")?.kind).toBe("brand");
+    expect(r.value.catalog.onboardingSteps.find((s) => s.id === "invite_team")?.kind).toBeUndefined(); // "workspace" wasn't accepted
+    expect(r.value.catalog.facts.find((f) => f.id === "visibility")?.kind).toBe("brand");
+    expect(r.value.catalog.events.find((e) => e.name === "audit.completed")?.kind).toBe("brand");
+    expect(r.value.accepted).toMatchObject({ entityKinds: 1 });
   });
 
   it("replaces an existing step with the same id instead of duplicating it", async () => {

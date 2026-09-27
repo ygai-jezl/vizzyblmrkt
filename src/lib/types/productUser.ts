@@ -23,6 +23,29 @@ export type ProductUserStatus = z.infer<typeof ProductUserStatus>;
 export const TraitValueSchema = z.union([z.string().max(500), z.number(), z.boolean(), z.null()]);
 export type TraitValue = z.infer<typeof TraitValueSchema>;
 
+/** How the person relates to an entity: they own it, belong to it, or were invited to it. */
+export const EntityRole = z.enum(["owner", "member", "invited"]);
+export type EntityRole = z.infer<typeof EntityRole>;
+
+/**
+ * API v2: one of the things a person has several of — a workspace, a brand, a
+ * project — as the product sent it. `kind` is the product's own word for it; its
+ * steps and facts are the onboarding and numbers of that one thing.
+ */
+export const ProductEntitySchema = z.object({
+  kind: z.string().max(40),
+  name: z.string().max(120).nullable(),
+  parentId: z.string().max(128).nullable(),
+  role: EntityRole.nullable(),
+  steps: z.record(z.string(), z.object({ doneAt: z.string() })).default({}),
+  facts: z.record(z.string(), z.object({ value: z.union([z.string(), z.number(), z.boolean()]), at: z.string() })).default({}),
+  /** When the person last worked on it — breaks ties when picking which one an email is about. */
+  activeAt: z.string().nullable(),
+  firstSeenAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ProductEntity = z.infer<typeof ProductEntitySchema>;
+
 export const ProductUserSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -72,6 +95,8 @@ export const ProductUserSchema = z.object({
   facts: z
     .record(z.string(), z.object({ value: z.union([z.string(), z.number(), z.boolean()]), at: z.string() }))
     .optional(),
+  /** API v2: entity id (the product's own) → one of the things they have several of. */
+  entities: z.record(z.string(), ProductEntitySchema).optional(),
   /** API v2: the `updatedAt` of the newest write applied — an older write is ignored. */
   stateUpdatedAt: z.string().nullable().optional(),
   /** Tombstones: when the user was deleted (a write older than this is ignored). */

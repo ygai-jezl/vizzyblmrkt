@@ -73,6 +73,7 @@ const state = (userId: string, extra: Partial<UserState> = {}): UserState => ({
   steps: {},
   facts: {},
   traits: {},
+  entities: {},
   updatedAt: null,
   ...extra,
 });

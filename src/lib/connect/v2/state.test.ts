@@ -131,6 +131,7 @@ describe("userStateOf", () => {
       steps: { create_brand: "2026-09-25T09:00:00.000Z" },
       facts: { sov: 12 },
       traits: { plan: "pro", role: "admin" },
+      entities: {},
       updatedAt: "2026-09-25T11:00:00.000Z",
     });
   });

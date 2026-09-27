@@ -227,3 +227,20 @@ describe("prompt for the customer's coding agent", () => {
     expect(withInvites.at(-1)).toMatchObject({ id: "invite", severity: "recommended", status: "todo" });
   });
 });
+
+describe("what people have several of", () => {
+  const withKinds = (multiple: boolean) =>
+    ProductMapSchema.parse({
+      entityKinds: [{ kind: "brand", label: "brand", plural: "brands", parent: "workspace", multiple, membership: "brands.ownerUid", evidence: [{ path: "src/brands.ts", line: 4, excerpt: "createBrand(", verified: true }] }],
+    });
+
+  it("asks for entities only when a person can have several of something", () => {
+    const tasks = buildIntegrationTasks({ map: withKinds(true), health: null, contextEnabled: false });
+    const t = tasks.find((x) => x.id === "entities");
+    expect(t).toMatchObject({ severity: "personalisation", status: "todo", files: [{ path: "src/brands.ts", line: 4 }] });
+    expect(t!.fromCode[0]).toContain("several brands (`brand`, inside a workspace)");
+    expect(tasks.map((x) => x.id).indexOf("entities")).toBeLessThan(tasks.map((x) => x.id).indexOf("steps"));
+    expect(buildIntegrationTasks({ map: withKinds(false), health: null, contextEnabled: false }).some((x) => x.id === "entities")).toBe(false);
+    expect(buildIntegrationTasks({ map: null, health: null, contextEnabled: false }).some((x) => x.id === "entities")).toBe(false);
+  });
+});

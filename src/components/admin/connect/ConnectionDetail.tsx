@@ -26,17 +26,20 @@ const PHASE3 = isNavV2Phase3Enabled();
 export function ConnectionDetail({ connectionId, canEdit }: { connectionId: string; canEdit: boolean }) {
   const [connection, setConnection] = useState<PublicConnection | null>(null);
   const [diagnostics, setDiagnostics] = useState<ConnectionDiagnostics | null>(null);
+  /** API v2 entities are on (CONNECT_ENTITIES_ENABLED): the catalog can name them. */
+  const [entities, setEntities] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab | null>(null);
 
   const load = useCallback(async () => {
-    const r = await api<{ connection: PublicConnection; diagnostics: ConnectionDiagnostics | null }>(
+    const r = await api<{ connection: PublicConnection; diagnostics: ConnectionDiagnostics | null; features?: { entities?: boolean } }>(
       `/api/admin/connections/${connectionId}`,
     );
     if (!r.ok) return setError(errorText(r.data));
     setError(null);
     setConnection(r.data.connection);
     setDiagnostics(r.data.diagnostics);
+    setEntities(Boolean(r.data.features?.entities));
     // ?tab=learn (etc.) opens a tab directly — e.g. from the setup wizard.
     const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
     const valid: Tab[] = ["setup", "sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
@@ -99,6 +102,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
         <LearnFromRepo
           connection={connection}
           canEdit={canEdit}
+          onOpenCatalog={() => setTab("catalog")}
           onAccepted={() => {
             void load();
             setTab("catalog");
@@ -106,7 +110,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
         />
       ) : null}
       {tab === "catalog" ? (
-        <CatalogEditor connection={connection} diagnostics={diagnostics} canEdit={canEdit} onSaved={() => void load()} />
+        <CatalogEditor connection={connection} diagnostics={diagnostics} canEdit={canEdit} entities={entities} onSaved={() => void load()} />
       ) : null}
       {tab === "guide" ? <IntegrationGuide connection={connection} /> : null}
       {tab === "settings" ? <ConnectionSettings connection={connection} canEdit={canEdit} onSaved={() => void load()} /> : null}

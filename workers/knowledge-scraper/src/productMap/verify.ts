@@ -70,6 +70,7 @@ export function verifyProductMap(map: ProductMap, reader: RepoReader): { map: Pr
       facts: check(map.facts),
       glossary: check(map.glossary, true),
       hooks: check(map.hooks),
+      entityKinds: check(map.entityKinds),
     },
     stats,
   };

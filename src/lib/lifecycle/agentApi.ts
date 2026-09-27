@@ -78,14 +78,16 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
         kind: c.kind,
         status: c.status,
         catalog: {
-          events: c.catalog.events.map((e) => ({ name: e.name, label: e.label, description: e.description })),
+          events: c.catalog.events.map((e) => ({ name: e.name, label: e.label, description: e.description, kind: e.kind ?? null })),
           traits: c.catalog.traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })),
           onboardingSteps: [...c.catalog.onboardingSteps]
             .sort((a, b) => a.order - b.order)
-            .map((s) => ({ id: s.id, label: s.label, url: s.url ?? null, completion: s.completion ?? "" })),
+            .map((s) => ({ id: s.id, label: s.label, url: s.url ?? null, completion: s.completion ?? "", kind: s.kind ?? null })),
           // What the product can report per user: branch on `fact.<id>`, ground insights in them.
-          facts: (c.catalog.facts ?? []).map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description })),
+          facts: (c.catalog.facts ?? []).map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, kind: f.kind ?? null })),
           glossary: c.catalog.glossary,
+          // The things people have several of (brands, workspaces…): what a journey's "about" can name.
+          entityKinds: (c.catalog.entityKinds ?? []).map((k) => ({ kind: k.kind, label: k.label, plural: k.plural, parent: k.parent ?? null })),
         },
         contextConfigured: Boolean(c.contextEndpoint?.enabled),
         stats: stepStats(c, users),

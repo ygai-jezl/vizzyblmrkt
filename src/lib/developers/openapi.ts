@@ -62,10 +62,11 @@ export const COMPONENTS: Record<string, Component> = {
     description: "An optional milestone that journeys can start from or branch on.",
     notes: {
       event:
-        "Lower-case, dot-separated, ≤ 80 chars, e.g. `report.exported`. `user.signed_up`, `onboarding.step_completed`, `user.marketing_consent_granted`, `user.deleted` and `email_preferences.updated` are refused: send `signedUpAt`, `steps`, `consent` or `subscribed`, or DELETE the user. `onboarding.completed` marks the user activated.",
+        "Lower-case, dot-separated, ≤ 80 chars, e.g. `report.exported`. `user.signed_up`, `onboarding.step_completed`, `user.marketing_consent_granted`, `entity.created`, `user.deleted` and `email_preferences.updated` are refused: send `signedUpAt`, `steps`, `consent`, `entities` or `subscribed`, or DELETE the user. `onboarding.completed` marks the user activated.",
       properties: `Anything useful, ≤ ${kb(V2_LIMITS.maxPropertiesBytes)} serialised.`,
       occurredAt: "When it happened (ISO 8601 with a timezone). Defaults to now.",
       idempotencyKey: "Makes a retry harmless: the same key is recorded once.",
+      entityId: "The entity it happened to — one of the user's `entities`, e.g. the brand an audit ran on. A journey about one entity follows it.",
     },
   },
   ContextResponse: {
@@ -179,6 +180,7 @@ const ALEX: Json = {
   steps: { create_project: "2026-09-25T10:02:00.000Z" },
   facts: { projects: 1 },
   traits: { plan: "pro" },
+  entities: {},
   updatedAt: "2026-09-25T10:05:00.000Z",
 };
 

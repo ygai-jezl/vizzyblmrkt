@@ -13,6 +13,7 @@ const catalog: ConnectionCatalog = {
   ],
   facts: [],
   glossary: [{ term: "AI answers", definition: "What assistants say about you." }],
+  entityKinds: [],
 };
 const connection = { name: "Vizzybl", catalog };
 const opts = (o: Record<string, unknown> = {}) => ArchitectOptionsSchema.parse(o);

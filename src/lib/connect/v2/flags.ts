@@ -18,10 +18,20 @@ export function isSuppressionWebhookEnabled(): boolean {
 }
 
 /**
+ * Server flag — `entities`: the things a person has several of (workspaces,
+ * brands, projects), sent with their state, and journeys that say which of them
+ * each email is about. Off: `entities` in a write is left out (and listed in
+ * `ignoredFields`), and journeys are about the person only.
+ */
+/**
  * Server flag — a write that leaves the user's state as it was (a daily re-sync
  * resending the same values) leaves no row in the Events tab, which counts them
  * instead. The profile still records the write, so out-of-order writes stay safe.
  */
+export function isEntitiesEnabled(): boolean {
+  return process.env.CONNECT_ENTITIES_ENABLED === "true";
+}
+
 export function isQuietUnchangedWritesEnabled(): boolean {
   return process.env.CONNECT_QUIET_UNCHANGED_WRITES === "true";
 }

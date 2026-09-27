@@ -193,7 +193,7 @@ describe("the packed SDK", { timeout: 60_000 }, () => {
     const expected = /^(dist\/(cjs\/)?[a-z]+\.(js|d\.ts)|dist\/cjs\/package\.json|test\/vectors\.json|README\.md|LICENSE|package\.json)$/;
     expect(files.filter((f) => !expected.test(f))).toEqual([]);
     expect(JSON.parse(readFileSync(join(root, "dist", "cjs", "package.json"), "utf8"))).toEqual({ type: "commonjs" });
-    expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))).toMatchObject({ name: "@yougrowai/node", version: "0.4.0" });
+    expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))).toMatchObject({ name: "@yougrowai/node", version: "0.5.0" });
   });
 
   it.each([
@@ -210,7 +210,7 @@ describe("the packed SDK", { timeout: 60_000 }, () => {
     expect(r.resolved[0]).toMatch(index);
     expect(r.resolved[1]).toMatch(server);
     expect(r.tokens).toEqual(vectorsFile.outbound.tokens.map(() => [true, true]));
-    expect(r.version).toBe("0.4.0");
+    expect(r.version).toBe("0.5.0");
     expect(r.client).toEqual(Array(6).fill("function"));
     expect(r.errors).toEqual(["YouGrowError", "YouGrowBatchError"]);
   });

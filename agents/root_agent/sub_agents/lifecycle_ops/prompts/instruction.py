@@ -87,6 +87,15 @@ without marketing consent is skipped, never sent late. settings include "trigger
 {"event", "maxEventAgeHours"} — "user.signed_up", "user.marketing_consent_granted" (people
 who opt in to marketing later) or a catalog event name — and "entry":
 {"requireMarketingConsent": true|false}; set it true for a sequence that's all marketing.
+When the product's catalog has "entityKinds" (things one person has several of: brands,
+workspaces, projects), settings also take "about": {"mode": "person"|"one"|"all"|"each",
+"kind", "pick": "focus"|"trigger"|"recent"|"fact_high"|"fact_low", "fact",
+"includeJoined", "maxListed"}. Onboarding: {"mode": "one", "kind": <the steps' kind>,
+"pick": "focus"} (the one they're setting up; it ends once one is finished). A digest of
+all of them: "mode": "all" with {{block.entities}}. A milestone about one (e.g.
+"entity.created" or an event with that kind): "pick": "trigger". "each" sends per entity —
+use it only when asked. With "one" or "each", {{entity.name|your <label>}} names it; always
+give that fallback.
 
 # After saving
 Briefly say what you built or changed (the emails and when they go out) and that it's a

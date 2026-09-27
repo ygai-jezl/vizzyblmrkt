@@ -50,6 +50,7 @@ describe("looking a user up by the product's own id (Users tab)", () => {
       },
       effectiveConsent: "none", // corporate_subscriber doesn't count for a free-mail address
     });
+    expect((r.body as { user: { entities: unknown } }).user.entities).toEqual({});
     const writes = (r.body as { writes: Array<{ payload: Record<string, unknown>; applied: boolean }> }).writes;
     expect(writes.map((x) => x.payload)).toEqual([{ subscribed: false }, signup]);
   });

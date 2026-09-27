@@ -145,6 +145,27 @@ record an event twice. A key that was already recorded resolves
 - Up to 50 steps, 50 facts and 50 traits per user. Step ids are lower-case
   letters, digits, `_` and `-`; trait keys start with a letter.
 
+### Several workspaces, brands or projects
+
+When a person can have several of something, send them as `entities`, by your
+own id. Each has a `kind` (your word for it; required the first time), a
+`name`, the `parentId` it sits inside, the person's `role` (`owner`, `member` or
+`invited`), and its own `steps` and `facts`. Each merges like the user, and
+`null` removes one:
+
+```ts
+await yg.users.update(user.id, {
+  entities: {
+    brand_123: { kind: "brand", name: "Acme", role: "owner", steps: { run_audit: audit.finishedAt } },
+    brand_456: null, // deleted in your product
+  },
+});
+await yg.events.track(user.id, "audit.completed", { entityId: "brand_123" });
+```
+
+Journeys choose which of them each email is about, so send them all rather than
+picking one. Up to 50 per user.
+
 A user YouGrow hasn't seen is created by their first update.
 `users.get(userId)` returns the state as YouGrow holds it, plus what YouGrow
 decided: journey `enrolments`, and `optOuts` (unsubscribes made in YouGrow's
@@ -342,6 +363,12 @@ at https://yougrow.ai/developers.
 
 `test/vectors.json` (included in this package) holds reference tokens for
 checking your own verifier.
+
+## Upgrading from 0.4
+
+- New: `entities` in `users.update` and on the state it returns, `entityId` on
+  `events.track`, and `entityId` on enrolments from `users.get`. Nothing
+  existing changed.
 
 ## Upgrading from 0.3
 

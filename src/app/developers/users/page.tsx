@@ -289,6 +289,41 @@ await yg.users.batch(items);                          // any number: the SDK sen
         lets YouGrow fetch it at the moment of sending. Use the same step and fact ids in both.
       </P>
 
+      <H2 id="entities">When people have several of something</H2>
+      <P>
+        If one person can have several workspaces, brands or projects, send them all as <C>entities</C>, by your own id. Each
+        has a <C>kind</C> (your word for it — required the first time), a <C>name</C>, the <C>parentId</C> it sits inside,
+        the person&apos;s <C>role</C> (<C>owner</C>, <C>member</C> or <C>invited</C>), and its own <C>steps</C> and{" "}
+        <C>facts</C>. Each merges like the user, and <C>null</C> removes one.
+      </P>
+      <Code>{`await yg.users.update(user.id, {
+  entities: {
+    brand_123: { kind: "brand", name: "Acme", parentId: "ws_9", role: "owner", steps: { run_audit: audit.finishedAt } },
+    brand_456: { kind: "brand", name: "Beta", role: "owner", facts: { share_of_voice: 12 } },
+    brand_old: null,                                   // deleted in your product
+  },
+});
+await yg.events.track(user.id, "audit.completed", { entityId: "brand_123" });`}</Code>
+      <UL>
+        <li>
+          Send every one, not the one you think matters: each journey chooses which of them its emails are about — the one
+          they&apos;re setting up, the one a milestone happened to, all of them in one email, or each separately.
+        </li>
+        <li>
+          Someone counts as onboarded once any they own is finished. A half-done second one doesn&apos;t undo that, and
+          onboarding emails follow the one they&apos;re furthest along with.
+        </li>
+        <li>Only what they own counts toward their onboarding. Ones they belong to or were invited to are there for journeys that include them.</li>
+        <li>
+          A milestone about one of them takes its <C>entityId</C>. A new one fires <C>entity.created</C>, which a journey can
+          start from.
+        </li>
+        <li>
+          Name the kinds once in YouGrow — <strong>Products → your product → Catalog</strong> — or let Learn from repo find them.
+          Up to {V2_LIMITS.maxEntities} per user.
+        </li>
+      </UL>
+
       <H2 id="compliance">3. Consent, opt-outs, exclusions and deletion — compliance</H2>
       <Code>{`await yg.users.update(user.id, { consent: "consent" });              // they ticked "send me tips"
 await yg.users.update(user.id, { subscribed: false });               // opted out in your settings
@@ -399,10 +434,10 @@ await yg.users.delete(user.id);                                       // the acc
           product without a step checklist, or to say they&apos;re done.
         </li>
         <li>
-          Sign-ups, steps, consent, opt-outs and deletion are state, so <C>user.signed_up</C>,{" "}
-          <C>onboarding.step_completed</C>, <C>user.marketing_consent_granted</C>, <C>email_preferences.updated</C> and{" "}
-          <C>user.deleted</C> are refused: send <C>signedUpAt</C>, <C>steps</C>, <C>consent</C> or <C>subscribed</C>, or
-          DELETE the user.
+          Sign-ups, steps, consent, entities, opt-outs and deletion are state, so <C>user.signed_up</C>,{" "}
+          <C>onboarding.step_completed</C>, <C>user.marketing_consent_granted</C>, <C>entity.created</C>,{" "}
+          <C>email_preferences.updated</C> and <C>user.deleted</C> are refused: send <C>signedUpAt</C>, <C>steps</C>,{" "}
+          <C>consent</C>, <C>entities</C> or <C>subscribed</C>, or DELETE the user.
         </li>
         <li>
           <C>properties</C>: optional, ≤ {V2_LIMITS.maxPropertiesBytes / 1024} KB serialised. <C>occurredAt</C>: optional,

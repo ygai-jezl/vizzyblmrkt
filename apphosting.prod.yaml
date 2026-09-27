@@ -522,9 +522,9 @@ env:
       - RUNTIME
   # Lifecycle journeys — ON in prod (owner decision, 2026-09-21): Products,
   # Journeys, the Approval Queue, the ingest API, AI lines and chat authoring.
-  # LIFECYCLE_MODE_CEILING below stays `test` until the vizzybl.ai launch (M7),
-  # so a published journey can only email listed test users. To switch off
-  # quickly, set LIFECYCLE_ENABLED (and the NEXT_PUBLIC_ mirror) back to "false".
+  # LIFECYCLE_MODE_CEILING below is `live` from the vizzybl.ai launch (M7), so a
+  # journey set to live emails real users. To switch off quickly, set
+  # LIFECYCLE_ENABLED (and the NEXT_PUBLIC_ mirror) back to "false".
   - variable: LIFECYCLE_ENABLED
     value: "true"
     availability:
@@ -574,9 +574,12 @@ env:
     value: https://yougrow.ai
     availability:
       - RUNTIME
-  # The highest delivery mode prod may use: test until the vizzybl.ai launch (M7).
+  # The highest delivery mode prod may use: live from the vizzybl.ai launch (M7).
+  # Raising it enrols the people still inside each live sign-up journey's window
+  # (LIFECYCLE_GO_LIVE_SWEEP); enrolments made under `test` stay test. Set it back
+  # to `test` to stop real sends at once: the runner caps every send by it.
   - variable: LIFECYCLE_MODE_CEILING
-    value: test
+    value: live
     availability:
       - RUNTIME
   - variable: LIFECYCLE_AI_DRAFTS_ENABLED
@@ -615,6 +618,12 @@ env:
   # 2026-09-27, after it was verified on dev. Set "false" here to switch it off.
   - variable: CONNECT_QUIET_UNCHANGED_WRITES
     value: "true"
+    availability:
+      - RUNTIME
+  # Entities (see apphosting.yaml) stay off until they're verified on dev. It has
+  # to be set: this file only overrides apphosting.yaml.
+  - variable: CONNECT_ENTITIES_ENABLED
+    value: "false"
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

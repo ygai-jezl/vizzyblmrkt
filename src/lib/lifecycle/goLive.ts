@@ -3,7 +3,8 @@ import type { WhereClause } from "@/lib/tenant/repository";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import type { LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
-import { enrolmentDocId, enrolUser, versionDocId } from "./enrol";
+import { aboutOf, enrolmentIdFor, enrolUser, versionDocId } from "./enrol";
+import { enrolTargets } from "./entities";
 import { lifecycleModeCeiling } from "./flags";
 import { lowestMode } from "./policy";
 
@@ -84,12 +85,15 @@ async function sweepJourney(
     for (const user of page) {
       const nowMs = deps.now();
       if (user.status !== "active" || !user.signedUpAt || nowMs - Date.parse(user.signedUpAt) > windowMs) continue;
-      // Already in: one read, no write.
-      if (await repo.lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id))) continue;
-      const r = await enrolUser(ctx, { journey, version, user, source: "trigger", anchorAt: user.signedUpAt }, { db: deps.db, nowMs });
-      if (r.outcome === "enrolled") {
-        enrolled += 1;
-        added += 1;
+      const about = aboutOf(version);
+      for (const entityId of enrolTargets(user, about)) {
+        // Already in: one read, no write.
+        if (await repo.lifecycleEnrolments.getById(enrolmentIdFor(journey.id, user.id, about, entityId))) continue;
+        const r = await enrolUser(ctx, { journey, version, user, source: "trigger", anchorAt: user.signedUpAt, entityId }, { db: deps.db, nowMs });
+        if (r.outcome === "enrolled") {
+          enrolled += 1;
+          added += 1;
+        }
       }
     }
     const finished = page.length < pageSize;

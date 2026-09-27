@@ -43,7 +43,7 @@ export function UsersTable({ connection, canEdit }: { connection: PublicConnecti
 
   return (
     <div className="space-y-3">
-      <UserLookup connectionId={connection.id} steps={steps} request={request} />
+      <UserLookup connectionId={connection.id} steps={steps} catalog={connection.catalog} request={request} />
       {error ? <Banner tone="err">{error}</Banner> : null}
       <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-left text-xs">

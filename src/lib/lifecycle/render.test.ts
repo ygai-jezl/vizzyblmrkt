@@ -226,3 +226,39 @@ describe("renderLifecycleEmail", () => {
     expect(r.text).toContain("Shadow mode");
   });
 });
+
+describe("entities (the brand, workspace or project an email is about)", () => {
+  it("names the one it's about, and falls back when there isn't one", () => {
+    const one = renderLifecycleEmail({
+      item: item({ subject: "Next for {{entity.name|your brand}}", body: "<p>Your {{entity.kind}} {{entity.name}}.</p>" }),
+      values: values({ entity: { name: "Acme", kind: "brand" } }),
+    });
+    expect(one.subject).toBe("Next for Acme");
+    expect(one.html).toContain("Your brand Acme.");
+    const none = renderLifecycleEmail({ item: item({ subject: "Next for {{entity.name|your brand}}", body: "<p>{{entity.name}}</p>" }), values: values() });
+    expect(none.subject).toBe("Next for your brand");
+    expect(none.missing).toEqual(["entity.name"]); // no fallback: the runner won't send it
+  });
+
+  it("lists all of them in a digest, capped with “and N more”", () => {
+    const r = renderLifecycleEmail({
+      item: item({ body: "<p>You have {{entities.count}} brands.</p>\n{{block.entities}}" }),
+      values: values({
+        entities: {
+          count: 3,
+          rows: [
+            { name: "Acme", done: 3, total: 3, facts: [{ label: "Share of voice", value: "12%" }] },
+            { name: "Beta", done: 1, total: 3, facts: [] },
+          ],
+          more: 1,
+        },
+      }),
+    });
+    expect(r.missing).toEqual([]);
+    expect(r.html).toContain("You have 3 brands.");
+    expect(r.html).toContain("<strong>Acme</strong> — 3 of 3 steps done · Share of voice: 12%");
+    expect(r.html).toContain("<strong>Beta</strong> — 1 of 3 steps done");
+    expect(r.html).toContain("and 1 more");
+    expect(renderLifecycleEmail({ item: item({ body: "<p>x</p>\n{{block.entities}}" }), values: values() }).missing).toEqual([]);
+  });
+});

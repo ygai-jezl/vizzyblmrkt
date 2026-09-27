@@ -8,6 +8,9 @@ import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import { isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecycleModeCeiling } from "./flags";
 import { entryCursor } from "./planner";
 import { allowsMarketing, isTestRecipient, lowestMode } from "./policy";
+import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
+import { JOURNEY_ABOUT_DEFAULT, type JourneyAbout } from "@/lib/types/lifecycle";
+import { enrolTargets } from "./entities";
 
 /**
  * Enrolment: a product user entering a published lifecycle journey. The
@@ -21,6 +24,16 @@ export const COUNTER_TTL_MS = 40 * DAY_MS;
 
 export function enrolmentDocId(journeyId: string, productUserId: string): string {
   return `enr_${createHash("sha256").update(`${journeyId}\n${productUserId}`).digest("hex").slice(0, 40)}`;
+}
+
+/** A journey's "About" setting as enrolment reads it (the person, when entities are off). */
+export function aboutOf(version: Pick<LifecycleVersion, "settings">): JourneyAbout {
+  return isEntitiesEnabled() ? (version.settings.about ?? JOURNEY_ABOUT_DEFAULT) : JOURNEY_ABOUT_DEFAULT;
+}
+
+/** The enrolment's id: one per person — or, for a journey about each entity, one per person and entity. */
+export function enrolmentIdFor(journeyId: string, productUserId: string, about: JourneyAbout, entityId: string | null): string {
+  return enrolmentDocId(journeyId, about.mode === "each" && entityId ? `${productUserId}#${entityId}` : productUserId);
 }
 
 /** UTC day key for the daily counters, e.g. "20260921". */
@@ -53,6 +66,8 @@ export async function enrolUser(
     requireApproval?: boolean;
     /** The connection's consent policy, when the caller has it (else read when a journey needs it). */
     consentPolicy?: ConsentPolicy;
+    /** The entity this enrolment is about (a journey about each of them, or the trigger's). */
+    entityId?: string | null;
   },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<EnrolOutcome> {
@@ -86,7 +101,7 @@ export async function enrolUser(
     return { outcome: "skipped", reason: "enrolment_cap" };
   }
 
-  const id = enrolmentDocId(journey.id, user.id);
+  const id = enrolmentIdFor(journey.id, user.id, aboutOf(version), a.entityId ?? null);
   const cursor = entryCursor(version.graph);
   try {
     await repo.lifecycleEnrolments.create(id, {
@@ -101,6 +116,7 @@ export async function enrolUser(
       source: a.source,
       requireApproval: a.requireApproval ?? a.source === "backfill",
       anchorAt: a.anchorAt,
+      entityId: a.entityId ?? null,
       lastSentAt: null,
       cursor: cursor ? { nodeId: cursor } : null,
       nextRunAt: cursor ? now : null,
@@ -130,6 +146,24 @@ export async function enrolUser(
       console.warn(`[lifecycle] enrolment counter failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   return { outcome: "enrolled", enrolmentId: id };
+}
+
+/**
+ * Enrol one person — once per entity when the journey is about each of their
+ * entities (none yet: no enrolment), else once. `triggerEntityId`: the entity the
+ * trigger happened to, which a journey about each, or about "the trigger's", uses.
+ */
+export async function enrolPerson(
+  ctx: TenantContext,
+  a: Omit<Parameters<typeof enrolUser>[1], "entityId"> & { triggerEntityId?: string | null },
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
+): Promise<EnrolOutcome[]> {
+  const { triggerEntityId, ...rest } = a;
+  const out: EnrolOutcome[] = [];
+  for (const entityId of enrolTargets(a.user, aboutOf(a.version), triggerEntityId)) {
+    out.push(await enrolUser(ctx, { ...rest, entityId }, deps));
+  }
+  return out;
 }
 
 /** The sign-up window when no sign-up journey sets one (the trigger's default). */
@@ -207,14 +241,17 @@ export async function enrolOnSignup(
     for (const { journey, version } of journeys) {
       if (nowMs - signedUpMs > version.settings.trigger.maxEventAgeHours * 3600_000) continue;
       try {
-        // Already in: one read, no write (this runs on every write for the whole window).
-        if (await repo.lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id))) continue;
-        const r = await enrolUser(
-          ctx,
-          { journey, version, user, source: "trigger", anchorAt: user.signedUpAt!, consentPolicy: connection.consentPolicy },
-          { db: deps.db, nowMs },
-        );
-        if (r.outcome === "enrolled") enrolled += 1;
+        const about = aboutOf(version);
+        for (const entityId of enrolTargets(user, about)) {
+          // Already in: one read, no write (this runs on every write for the whole window).
+          if (await repo.lifecycleEnrolments.getById(enrolmentIdFor(journey.id, user.id, about, entityId))) continue;
+          const r = await enrolUser(
+            ctx,
+            { journey, version, user, source: "trigger", anchorAt: user.signedUpAt!, consentPolicy: connection.consentPolicy, entityId },
+            { db: deps.db, nowMs },
+          );
+          if (r.outcome === "enrolled") enrolled += 1;
+        }
       } catch (err) {
         const m = err instanceof Error ? err.message.slice(0, 200) : "error";
         console.error(`[lifecycle] sign-up enrol failed ${ctx.tenantId}/${journey.id}/${user.id}: ${m}`);
@@ -229,6 +266,8 @@ export interface TriggerEvent {
   event: string;
   /** The event's own time (UTC ISO). */
   timestamp: string;
+  /** The entity it happened to (API v2 `entities`), when there is one. */
+  entityId?: string | null;
 }
 
 /**
@@ -253,12 +292,12 @@ export async function enrolOnEvents(
       if (trigger.event !== e.event) continue;
       if (nowMs - Date.parse(e.timestamp) > trigger.maxEventAgeHours * 3600_000) continue;
       try {
-        const r = await enrolUser(
+        const rs = await enrolPerson(
           ctx,
-          { journey, version, user: e.user, source: "trigger", anchorAt: e.timestamp, consentPolicy: connection.consentPolicy },
+          { journey, version, user: e.user, source: "trigger", anchorAt: e.timestamp, consentPolicy: connection.consentPolicy, triggerEntityId: e.entityId ?? null },
           { db: deps.db, nowMs },
         );
-        if (r.outcome === "enrolled") enrolled += 1;
+        enrolled += rs.filter((r) => r.outcome === "enrolled").length;
       } catch (err) {
         const m = err instanceof Error ? err.message.slice(0, 200) : "error";
         console.error(`[lifecycle] enrol failed ${ctx.tenantId}/${journey.id}/${e.user.id}: ${m}`);

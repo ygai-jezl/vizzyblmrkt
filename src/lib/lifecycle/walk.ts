@@ -5,6 +5,7 @@ import type { ProductContext } from "@/lib/connect/protocol";
 import type { WalkEnv, WalkState } from "./planner";
 import { personalOffsetMinutes, resolveTimezone } from "./sendWindow";
 import { buildRecipientContext } from "./recipientContext";
+import type { EntityView } from "./entities";
 
 /**
  * The walk inputs for one enrolment, built the same way wherever the runtime
@@ -51,6 +52,8 @@ export function walkEnvFor(a: {
   excluded?: ReadonlySet<string>;
   /** Set when the walk reads the person's state (a condition or a pool pick). */
   probe?: { used: boolean };
+  /** The person's entities as this run sees them (`user` is already viewed through it). */
+  entities?: EntityView;
 }): WalkEnv {
   return {
     graph: a.version.graph,
@@ -68,6 +71,7 @@ export function walkEnvFor(a: {
         emailsSent: a.emailsSent(),
         enrolledAtMs: a.anchorMs,
         nowMs: atMs,
+        entities: a.entities,
       });
     },
   };

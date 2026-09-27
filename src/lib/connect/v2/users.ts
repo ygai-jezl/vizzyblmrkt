@@ -33,7 +33,7 @@ import {
   type UserPatch,
   type UserView,
 } from "./contract";
-import { isQuietUnchangedWritesEnabled } from "./flags";
+import { isEntitiesEnabled, isQuietUnchangedWritesEnabled } from "./flags";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
@@ -58,8 +58,9 @@ type WriteOutcome =
   /**
    * `consentGranted`: someone YouGrow already knew moved to a basis the connection accepts for marketing.
    * `quiet`: the write changed nothing and left no Events row.
+   * `newEntities`: entities this write added (they fire `entity.created`).
    */
-  | { kind: "applied"; user: ProductUser; consentGranted: boolean; quiet: boolean }
+  | { kind: "applied"; user: ProductUser; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }> }
   | { kind: "skipped"; reason: "stale_write" | "deleted_later"; storedUpdatedAt: string | null; user: ProductUser | null }
   | { kind: "invalid"; fields: Array<{ path: string; message: string }> };
 
@@ -159,14 +160,18 @@ async function writeUser(
     !allowsMarketing(connection.consentPolicy, before.consent?.basis) &&
     allowsMarketing(connection.consentPolicy, applied.user.consent?.basis);
   const quiet = (unchanged as boolean) && ignoredFields.length === 0 && isQuietUnchangedWritesEnabled();
-  return { kind: "applied", user: applied.user, consentGranted, quiet };
+  const had = before?.status === "active" ? (before.entities ?? {}) : {};
+  const newEntities = Object.entries(applied.user.entities ?? {})
+    .filter(([id]) => !had[id])
+    .map(([id, e]) => ({ id, kind: e.kind }));
+  return { kind: "applied", user: applied.user, consentGranted, quiet, newEntities };
 }
 
 /** Enrolment, invites, diagnostics and health for the writes that applied. Never throws. */
 async function afterWrites(
   ctx: TenantContext,
   connection: ProductConnection,
-  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean; quiet?: boolean }>,
+  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean; quiet?: boolean; newEntities?: Array<{ id: string; kind: string }> }>,
   rejected: IngestSummary["rejected"],
   nowMs: number,
   db?: FirestoreLike,
@@ -195,6 +200,15 @@ async function afterWrites(
       await enrolOnEvents(ctx, connection, events, { db, nowMs });
     })().catch((err) => {
       console.error(`[api-v2] opt-in enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    });
+  }
+  // A new workspace, brand or project: journeys that start when one is created.
+  const created = writes.flatMap((w) => (w.newEntities ?? []).map((e) => ({ user: w.user, entityId: e.id })));
+  if (created.length > 0 && isLifecycleEnabled() && isEntitiesEnabled()) {
+    const at = new Date(nowMs).toISOString();
+    const events = created.map(({ user, entityId }) => ({ user, event: RESERVED_EVENTS.entityCreated, timestamp: at, entityId }));
+    await enrolOnEvents(ctx, connection, events, { db, nowMs }).catch((err) => {
+      console.error(`[api-v2] entity enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   }
   const touched: TouchedUser[] = writes.map((w) => ({
@@ -239,7 +253,7 @@ export async function patchUser(
     const live = w.user && w.user.status === "active" ? userStateOf(w.user) : undefined;
     return { applied: false, reason: w.reason, storedUpdatedAt: w.storedUpdatedAt, ...(live ? { user: live } : {}) };
   }
-  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet }], [], nowMs, deps.db);
+  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities }], [], nowMs, deps.db);
   return { applied: true, user: userStateOf(w.user) };
 }
 
@@ -252,7 +266,7 @@ export async function patchBatch(
 ): Promise<BatchResponse> {
   const nowMs = deps.nowMs ?? Date.now();
   const out: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
-  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean }> = [];
+  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }> }> = [];
   const rejected: IngestSummary["rejected"] = [];
   for (const [index, raw] of items.slice(0, V2_LIMITS.maxBatch).entries()) {
     const head = BatchItemSchema.safeParse(raw);
@@ -264,7 +278,7 @@ export async function patchBatch(
       continue;
     }
     const { userId, ...rest } = head.data;
-    const parsed = parseUserPatch(rest);
+    const parsed = parseUserPatch(rest, { entities: isEntitiesEnabled() });
     if (!parsed.ok) {
       const fields = parsed.fields;
       out.failed += 1;
@@ -276,7 +290,7 @@ export async function patchBatch(
       const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db, parsed.ignoredFields.map((f) => f.path));
       if (w.kind === "applied") {
         out.applied += 1;
-        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted, quiet: w.quiet });
+        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities });
         if (parsed.ignoredFields.length) out.results.push({ index, userId, status: "applied", reason: "fields_ignored", fields: parsed.ignoredFields });
       } else if (w.kind === "skipped") {
         out.ignored += 1;
@@ -316,7 +330,7 @@ export async function getUserView(
   ]);
   return {
     ...userStateOf(user),
-    enrolments: enrolments.map((e) => ({ journeyId: e.journeyId, status: e.status, mode: e.mode, enrolledAt: e.createdAt })),
+    enrolments: enrolments.map((e) => ({ journeyId: e.journeyId, status: e.status, mode: e.mode, enrolledAt: e.createdAt, entityId: e.entityId ?? null })),
     optOuts: optOuts.map((s) => ({ scope: s.scope ?? "all", category: s.category ?? null, at: s.createdAt ?? null })),
   };
 }
@@ -396,6 +410,7 @@ export async function recordUserEvent(
   const messageId = body.idempotencyKey ?? `v2e:${randomUUID()}`;
   const timestamp = toUtcIso(body.occurredAt ?? now);
   const msg = { type: "track" as const, messageId, userId, timestamp, event: body.event, properties: body.properties ?? {} };
+  const entityId = isEntitiesEnabled() ? (body.entityId ?? null) : null;
   const userDocId = productUserDocId(connection.id, userId);
   const result = await applyProductMessage(
     ctx,
@@ -415,6 +430,7 @@ export async function recordUserEvent(
         timestamp,
         receivedAt: now,
         applied,
+        ...(entityId ? { entityId } : {}),
         ttlAt: new Date(nowMs + EVENT_TTL_MS),
       }),
     },
@@ -423,7 +439,7 @@ export async function recordUserEvent(
   if (result.outcome === "rejected") return { notFound: true };
   if (result.outcome === "duplicate") return { recorded: false, duplicate: true };
   if (result.outcome === "applied" && result.user && isLifecycleEnabled()) {
-    await enrolOnEvents(ctx, connection, [{ user: result.user, event: body.event, timestamp }], { db: deps.db, nowMs }).catch((err) => {
+    await enrolOnEvents(ctx, connection, [{ user: result.user, event: body.event, timestamp, entityId }], { db: deps.db, nowMs }).catch((err) => {
       console.error(`[api-v2] event enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   }

@@ -3,7 +3,7 @@ import { redactSecrets } from "./redact";
 import { RepoReader } from "./reader";
 import { evidenceKind, verifyEvidence, verifyProductMap } from "./verify";
 import { analyseRepo, ANALYSIS_PASSES, GENERAL_PASS, runTool, trimHistory, TOOLS, type Content, type ModelClient, type Part } from "./analyst";
-import { parseProductMapLenient } from "./schema";
+import { parseMapItem, parseProductMapLenient, toCatalogId } from "./schema";
 import { runProductMap } from "./run";
 import { scrubCredentials } from "../sources/git";
 
@@ -102,6 +102,44 @@ describe("evidence verification", () => {
     expect(checked.map.onboardingSteps[0]!.evidence[0]).toMatchObject({ verified: true, kind: "docs" });
     // The plan-backed step doesn't count as proven; the README-backed glossary term does.
     expect(checked.stats).toMatchObject({ items: 2, verifiedItems: 1 });
+  });
+
+  it("fixes badly formed step and fact ids instead of dropping the step; event names are left as written", () => {
+    expect(toCatalogId("createBrand", "step")).toBe("create_brand");
+    expect(toCatalogId("add-your-brand", "step")).toBe("add_your_brand");
+    expect(toCatalogId("1st Audit", "step")).toBe("step_1st_audit");
+    expect(toCatalogId("  ", "step")).toBe("");
+    const { map, dropped } = parseProductMapLenient({
+      onboardingSteps: [
+        { id: "createBrand", label: "Add your brand", evidence: [] },
+        { id: "Run First Audit", label: "Run your first audit", evidence: [] },
+        { label: "Connect your site", evidence: [] },
+      ],
+      facts: [{ id: "shareOfVoice", label: "Share of voice", evidence: [] }],
+      events: [{ name: "Not A Valid Name", evidence: [] }],
+    });
+    expect(map.onboardingSteps.map((s) => s.id)).toEqual(["create_brand", "run_first_audit", "connect_your_site"]);
+    expect(map.facts.map((f) => f.id)).toEqual(["share_of_voice"]);
+    expect(map.events).toEqual([]);
+    expect(dropped).toBe(1);
+    expect(parseMapItem("onboardingSteps", { id: "add-brand", label: "Add your brand", evidence: [] })).toMatchObject({ ok: true, item: { id: "add_brand" } });
+  });
+
+  it("keeps the things a person can have several of, and which steps, facts and events belong to them", () => {
+    const { map, dropped } = parseProductMapLenient({
+      entityKinds: [
+        { kind: "Brand", label: "brand", plural: "brands", parent: "Workspace", multiple: true, membership: "owner via brands.ownerUid", evidence: [] },
+        { label: "Workspace", plural: "workspaces", evidence: [] },
+      ],
+      onboardingSteps: [{ id: "run_audit", label: "Run an audit", entityKind: "Brand", evidence: [] }],
+      facts: [{ id: "share_of_voice", label: "Share of voice", entityKind: "brand", evidence: [] }],
+      events: [{ name: "audit.completed", entityKind: "brandProfile", evidence: [] }],
+    });
+    expect(dropped).toBe(0);
+    expect(map.entityKinds.map((k) => [k.kind, k.parent ?? null])).toEqual([["brand", "workspace"], ["workspace", null]]);
+    expect(map.onboardingSteps[0]!.entityKind).toBe("brand");
+    expect(map.facts[0]!.entityKind).toBe("brand");
+    expect(map.events[0]!.entityKind).toBe("brand_profile");
   });
 
   it("a model can't mark its own evidence verified", () => {

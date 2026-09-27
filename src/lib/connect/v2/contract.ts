@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConsentBasis, EVENT_NAME_RE, ProductConnectionStatus, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
+import { ConsentBasis, ENTITY_KIND_RE, EVENT_NAME_RE, ProductConnectionStatus, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
 import { RESERVED_EVENTS, TimestampSchema } from "../protocol";
 
 /**
@@ -31,6 +31,8 @@ export const V2_LIMITS = {
   maxSteps: 50,
   /** One event's properties, serialised. */
   maxPropertiesBytes: 4 * 1024,
+  /** Entities (workspaces, brands…) per user. */
+  maxEntities: 50,
 } as const;
 
 /** Ids a path can't carry: `batch` is a route, and URL parsing drops `.` and `..`. */
@@ -58,6 +60,35 @@ export const UserIdSchema = z
 const FactValueSchema = z.union([z.string().max(200), z.number().finite(), z.boolean()]);
 const TraitValueSchema = z.union([z.string().max(500), z.number().finite(), z.boolean()]);
 
+/** An entity's id: the product's own id for the workspace, brand or project. */
+export const ENTITY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+export { ENTITY_KIND_RE };
+const EntityIdSchema = z.string().regex(ENTITY_ID_RE, { message: "letters, digits, _ . : and -, ≤ 128 chars" });
+const StepsPatchSchema = z.record(z.string().regex(STEP_ID_RE, { message: "step ids are lower-case letters, digits, _ and -" }), TimestampSchema.nullable());
+const FactsPatchSchema = z.record(z.string().min(1).max(64), FactValueSchema.nullable());
+
+/**
+ * One entity in a write — a workspace, brand or project the person has. It
+ * merges like the user: fields sent replace, `steps` and `facts` merge key by key.
+ * `kind` is required the first time YouGrow sees the entity.
+ */
+export const EntityPatchSchema = z
+  .object({
+    /** What it is, in your product's words: `brand`, `workspace`, `project`. */
+    kind: z.string().regex(ENTITY_KIND_RE, { message: "lower-case letters, digits and _, e.g. brand" }).optional(),
+    name: z.string().max(120).nullable().optional(),
+    /** The entity it sits inside, e.g. a brand's workspace. */
+    parentId: EntityIdSchema.nullable().optional(),
+    /** How this person relates to it. Only what they own counts toward their onboarding. */
+    role: z.enum(["owner", "member", "invited"]).nullable().optional(),
+    steps: StepsPatchSchema.optional(),
+    facts: FactsPatchSchema.optional(),
+    /** When the person last worked on it. */
+    activeAt: TimestampSchema.nullable().optional(),
+  })
+  .strict();
+export type EntityPatch = z.infer<typeof EntityPatchSchema>;
+
 /** The body of PATCH /api/v2/users/{userId}: any subset of the user's state. */
 export const UserPatchSchema = z
   .object({
@@ -80,11 +111,13 @@ export const UserPatchSchema = z
     /** Never email this person, in any journey (staff, test accounts, invited teammates). */
     excluded: z.object({ reason: z.string().min(1).max(64) }).strict().nullable().optional(),
     /** Onboarding step id → when it was done (null: not done). */
-    steps: z.record(z.string().regex(STEP_ID_RE, { message: "step ids are lower-case letters, digits, _ and -" }), TimestampSchema.nullable()).optional(),
+    steps: StepsPatchSchema.optional(),
     /** Fact id → its latest value (null removes it). */
-    facts: z.record(z.string().min(1).max(64), FactValueSchema.nullable()).optional(),
+    facts: FactsPatchSchema.optional(),
     /** Anything else journeys branch on (null removes a key). */
     traits: z.record(z.string().regex(TRAIT_KEY_RE, { message: "trait keys start with a letter; letters, digits, _ and -" }), TraitValueSchema.nullable()).optional(),
+    /** The things this person has several of (workspaces, brands…), by your id; null removes one. */
+    entities: z.record(EntityIdSchema, EntityPatchSchema.nullable()).optional(),
     /** When you read this state. A write older than the stored one is ignored. */
     updatedAt: TimestampSchema.optional(),
   })
@@ -103,6 +136,17 @@ export const UserPatchSchema = z
     }
     if (Object.keys(patch.traits ?? {}).length > V2_LIMITS.maxTraits) {
       ctx.addIssue({ code: "custom", path: ["traits"], message: `at most ${V2_LIMITS.maxTraits} traits` });
+    }
+    if (Object.keys(patch.entities ?? {}).length > V2_LIMITS.maxEntities) {
+      ctx.addIssue({ code: "custom", path: ["entities"], message: `at most ${V2_LIMITS.maxEntities} entities` });
+    }
+    for (const [id, e] of Object.entries(patch.entities ?? {})) {
+      if (Object.keys(e?.steps ?? {}).length > V2_LIMITS.maxSteps) {
+        ctx.addIssue({ code: "custom", path: ["entities", id, "steps"], message: `at most ${V2_LIMITS.maxSteps} steps` });
+      }
+      if (Object.keys(e?.facts ?? {}).length > V2_LIMITS.maxFacts) {
+        ctx.addIssue({ code: "custom", path: ["entities", id, "facts"], message: `at most ${V2_LIMITS.maxFacts} facts` });
+      }
     }
   });
 export type UserPatch = z.infer<typeof UserPatchSchema>;
@@ -125,6 +169,7 @@ const STATE_EVENTS = new Set<string>([
   RESERVED_EVENTS.userDeleted,
   RESERVED_EVENTS.preferencesUpdated,
   RESERVED_EVENTS.marketingConsentGranted,
+  RESERVED_EVENTS.entityCreated,
 ]);
 
 /** The body of POST /api/v2/users/{userId}/events: a milestone. */
@@ -139,6 +184,8 @@ export const EventRequestSchema = z
     occurredAt: TimestampSchema.optional(),
     /** Makes a retry harmless: the same key is recorded once. */
     idempotencyKey: z.string().min(1).max(128).optional(),
+    /** The entity it happened to (one of the user's `entities`), e.g. the brand an audit ran on. */
+    entityId: EntityIdSchema.optional(),
   })
   .strict();
 export type EventRequest = z.infer<typeof EventRequestSchema>;
@@ -160,6 +207,19 @@ export const UserStateSchema = z.object({
   steps: z.record(z.string(), z.string()),
   facts: z.record(z.string(), FactValueSchema),
   traits: z.record(z.string(), TraitValueSchema),
+  /** The things this person has several of, by your id. */
+  entities: z.record(
+    z.string(),
+    z.object({
+      kind: z.string(),
+      name: z.string().nullable(),
+      parentId: z.string().nullable(),
+      role: z.enum(["owner", "member", "invited"]).nullable(),
+      steps: z.record(z.string(), z.string()),
+      facts: z.record(z.string(), FactValueSchema),
+      activeAt: z.string().nullable(),
+    }),
+  ),
   updatedAt: z.string().nullable(),
 });
 export type UserState = z.infer<typeof UserStateSchema>;
@@ -172,6 +232,8 @@ export const UserViewSchema = UserStateSchema.extend({
       status: z.string(),
       mode: z.string(),
       enrolledAt: z.string(),
+      /** The entity this enrolment is about, when the journey is about one of them. */
+      entityId: z.string().nullable().optional(),
     }),
   ),
   /** Unsubscribes made in YouGrow's emails. They hold until the person lifts them; the API can't. */
@@ -254,7 +316,17 @@ export const PROFILE_FIELDS: ReadonlySet<string> = new Set(["email", "firstName"
  * timezone never stops consent, an opt-out or an exclusion from landing. Any other
  * problem is a 400 naming it.
  */
-export function parseUserPatch(body: unknown): { ok: true; patch: UserPatch; ignoredFields: FieldError[] } | { ok: false; fields: FieldError[] } {
+export function parseUserPatch(
+  body: unknown,
+  opts: { entities?: boolean } = {},
+): { ok: true; patch: UserPatch; ignoredFields: FieldError[] } | { ok: false; fields: FieldError[] } {
+  // Where `entities` isn't available yet, it's left out (and said so) rather than refused.
+  if (opts.entities === false && body && typeof body === "object" && !Array.isArray(body) && "entities" in body) {
+    const { entities: _entities, ...rest } = body as Record<string, unknown>;
+    const r = parseUserPatch(rest, opts);
+    const note = { path: "entities", message: "entities aren't available on this YouGrow yet; the rest applied" };
+    return r.ok ? { ...r, ignoredFields: [...r.ignoredFields, note] } : r;
+  }
   const first = UserPatchSchema.safeParse(body);
   if (first.success) return { ok: true, patch: first.data, ignoredFields: [] };
   const issues = first.error.issues;

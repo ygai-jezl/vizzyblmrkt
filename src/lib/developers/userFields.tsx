@@ -67,6 +67,12 @@ export const USER_FIELDS: ReadonlyArray<FieldDoc<keyof UserPatch & string>> = [
       "Anything else journeys can branch on, e.g. `plan`: a string (≤ 500 chars), number or boolean. `null` removes one. Keys start with a letter, then letters, digits, `_` or `-`. Email, names, timezone and locale are fields of their own, so they're refused here. Merged key by key; at most 50.",
   },
   {
+    name: "entities",
+    type: "object",
+    notes:
+      "The things this person has several of — workspaces, brands, projects — by your id: `kind` (your word for it, e.g. `brand`; required the first time), `name`, `parentId`, `role` (`owner`, `member` or `invited`), `steps`, `facts` and `activeAt`. Each merges like the user; `null` removes one. At most 50. Journeys choose which of them each email is about.",
+  },
+  {
     name: "updatedAt",
     type: "string",
     notes: "Optional: when you read this state (ISO 8601). A write older than the newest one applied is ignored (`stale_write`).",
@@ -92,9 +98,10 @@ export const STATE_NOTES: Record<keyof UserView & string, string> = {
   steps: "Step id → when it was done, in UTC.",
   facts: "Fact id → the latest value you sent.",
   traits: "Trait key → value.",
+  entities: "Entity id → its kind, name, parent, role, steps, facts and when they last worked on it.",
   updatedAt: "The newest `updatedAt` applied, or `null` if you've never sent one.",
   enrolments:
-    "The journeys they're in or have been through: the journey's id, `status` (`active`, `completed` or `exited`), `mode` (`test`, `shadow` or `live`) and when they joined.",
+    "The journeys they're in or have been through: the journey's id, `status` (`active`, `completed` or `exited`), `mode` (`test`, `shadow` or `live`), when they joined, and `entityId` when the journey is about one of their entities.",
   optOuts:
     "Unsubscribes made in YouGrow's emails: `scope` `all` or `category` (with the `category`), and when. The API can't lift them, and `subscribed: true` doesn't either.",
 };

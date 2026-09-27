@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseSSE } from "./streamTypes";
 import { type ChatMode, DEFAULT_CHAT_MODE } from "./chatModes";
+import { asCard, type CanvasCardData } from "./cardData";
+
+export type { CanvasCardData } from "./cardData";
 
 /**
  * Client state machine for the dashboard root-agent chat. Ported from the
@@ -14,17 +17,6 @@ import { type ChatMode, DEFAULT_CHAT_MODE } from "./chatModes";
  */
 const CHAT_ENDPOINT = "/api/admin/agent/chat";
 const GENERIC_ERROR = "Sorry — I hit an error. Please try again.";
-
-/** A draft an agent saved on a canvas during this turn (shown as a card). */
-export interface CanvasCardData {
-  kind: string;
-  id: string;
-  title: string;
-  subtitle?: string;
-  url: string;
-  stats: Array<{ label: string; value: string | number }>;
-  warnings: number;
-}
 
 export interface ChatExchange {
   role: "user" | "agent";
@@ -49,22 +41,6 @@ export interface DashboardChatOptions {
   };
   /** Called when an agent saves a canvas draft during a turn. */
   onCanvasSaved?: (card: CanvasCardData) => void;
-}
-
-function asCard(result: Record<string, unknown> | undefined): CanvasCardData | null {
-  const card = result?.card as Partial<CanvasCardData> | undefined;
-  if (!card || typeof card !== "object" || typeof card.url !== "string" || typeof card.id !== "string") return null;
-  // Only same-app links: a card can never point the operator off-site.
-  if (!card.url.startsWith("/admin/")) return null;
-  return {
-    kind: String(card.kind ?? "canvas"),
-    id: card.id,
-    title: String(card.title ?? "Draft"),
-    subtitle: typeof card.subtitle === "string" ? card.subtitle : undefined,
-    url: card.url,
-    stats: Array.isArray(card.stats) ? card.stats.slice(0, 6) : [],
-    warnings: typeof card.warnings === "number" ? card.warnings : 0,
-  };
 }
 
 export interface UseDashboardChatReturn {

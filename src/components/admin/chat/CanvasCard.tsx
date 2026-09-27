@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { ArrowUpRight, Workflow } from "lucide-react";
-import type { CanvasCardData } from "./useDashboardChat";
+import type { CanvasCardData } from "./cardData";
 
 /**
  * A draft an agent just saved on a canvas — shown under its chat message with
  * the headline numbers and an "Open canvas" link. Drafts only: nothing sends
- * until a human publishes from the canvas.
+ * until a human publishes from the canvas. A kind may word the note and the
+ * link itself (an Email style suggestion: "Review and apply").
  */
 export function CanvasCard({ card }: { card: CanvasCardData }) {
   return (
@@ -27,14 +28,14 @@ export function CanvasCard({ card }: { card: CanvasCardData }) {
               </span>
             ) : null}
           </div>
-          <div className="text-xs text-neutral-400">Draft — nothing sends until you publish.</div>
+          <div className="text-xs text-neutral-400">{card.note ?? "Draft — nothing sends until you publish."}</div>
         </div>
       </div>
       <Link
         href={card.url}
         className="inline-flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
       >
-        Open canvas <ArrowUpRight size={14} />
+        {card.cta ?? "Open canvas"} <ArrowUpRight size={14} />
       </Link>
     </div>
   );

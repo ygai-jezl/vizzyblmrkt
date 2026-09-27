@@ -10,6 +10,7 @@ import { MarkdownMessage } from "@/components/admin/chat/MarkdownMessage";
 import { splitChapterByImages } from "@/lib/content/create/ebookHtml";
 import { ebookAspectRatioCss } from "@/lib/content/create/ebook";
 import type { ContentNode, EbookDoc } from "@/lib/types/contentPlan";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import {
   previewKind,
   splitBlogTitle,
@@ -31,13 +32,16 @@ import {
  *   • "opened" — clicked into (full copy + detail chrome)
  * Presentational only. The truncation/threading rules are the shared pure libs in
  * src/lib/distribute/preview/*; the email frame reuses the send-path renderer
- * (wrap/renderEmailLayout) so an opened email matches what recipients receive.
+ * (wrap/renderEmailLayout), with the tenant's Email style, so an opened email matches
+ * what recipients receive.
  */
 
 interface FrameProps {
   node: ContentNode;
   view: PreviewView;
   brandName?: string;
+  /** The tenant's resolved Email style (email frame only); null/absent = today's look. */
+  emailStyle?: ResolvedEmailStyle | null;
   /** Workspace id — needed to serve the node's generated post image (authenticated proxy). */
   workspaceId?: string;
   /** The FULL eBook (from ContentPlan.ebookDraft). The finalized hub node only carries a LIGHT
@@ -445,7 +449,7 @@ function BlogFrame({ node, view, brandName }: FrameProps) {
 }
 
 // ── Newsletter / Email ─────────────────────────────────────────────────────────
-function EmailFrame({ node, view, brandName }: FrameProps) {
+function EmailFrame({ node, view, brandName, emailStyle }: FrameProps) {
   const from = brandName || "Your Brand";
   const subject = node.subject?.trim() || node.role || "(no subject)";
   const preheader = node.previewText?.trim() || firstLine(node.body);
@@ -454,8 +458,8 @@ function EmailFrame({ node, view, brandName }: FrameProps) {
       node.layout && node.layout.blocks?.length
         ? renderEmailLayout(node.layout)
         : bodyToHtml(node.body || "");
-    return wrap(inner, null);
-  }, [node.layout, node.body]);
+    return wrap(inner, null, { style: emailStyle });
+  }, [node.layout, node.body, emailStyle]);
 
   if (view === "feed") {
     // As seen "in the feed": the inbox list row.
@@ -648,7 +652,7 @@ const FRAMES: Record<PreviewKind, (p: FrameProps) => React.ReactElement> = {
 };
 
 /** Render a node as its channel-native post, in the requested feed/opened state. */
-export function ContentPreview({ node, view, brandName, workspaceId, fullEbook }: FrameProps) {
+export function ContentPreview({ node, view, brandName, emailStyle, workspaceId, fullEbook }: FrameProps) {
   const Frame = FRAMES[previewKind(node)];
-  return <Frame node={node} view={view} brandName={brandName} workspaceId={workspaceId} fullEbook={fullEbook} />;
+  return <Frame node={node} view={view} brandName={brandName} emailStyle={emailStyle} workspaceId={workspaceId} fullEbook={fullEbook} />;
 }

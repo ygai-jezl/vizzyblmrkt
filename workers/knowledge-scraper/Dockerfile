@@ -5,6 +5,8 @@
 
 FROM node:24-trixie-slim AS build
 WORKDIR /app
+# No npm "new version" or funding notices in build logs.
+ENV npm_config_update_notifier=false npm_config_fund=false
 # We only need types to compile; don't pull Chromium into the throwaway build image.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY package*.json tsconfig.json ./
@@ -15,6 +17,9 @@ RUN npm run build
 FROM node:24-trixie-slim
 WORKDIR /app
 ENV NODE_ENV=production
+ENV npm_config_update_notifier=false npm_config_fund=false
+# apt runs without a terminal: say so, so debconf doesn't try (and log) every prompt UI.
+ARG DEBIAN_FRONTEND=noninteractive
 # Browsers live in a world-readable shared path so the non-root `node` user can run
 # Chromium that was installed here as root.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1

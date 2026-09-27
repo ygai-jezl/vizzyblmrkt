@@ -3,6 +3,8 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getLogo, updateLogo, deleteLogo, setPrimaryLogo } from "@/lib/admin/brandLogos";
 import { deleteBrandLogo } from "@/lib/tenant/brandLogo";
+import { clearTenantEmailStyleLogo } from "@/lib/tenant/control";
+import { getTenantById } from "@/lib/tenant";
 import { isBrandKitLogosEnabled } from "@/lib/content/brandKit";
 
 export const runtime = "nodejs";
@@ -47,6 +49,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
  * Delete a logo — both the Firestore row and the GCS bytes. No primary reassignment needed:
  * getPrimaryLogo derives the newest logo as primary when none is explicitly flagged, so
  * deleting the primary self-heals on the next read (no index-dependent promotion write).
+ * If the Email style uses it, that style drops to its name band (never a broken image), so
+ * only an admin can delete that one.
  */
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const blocked = sameOriginGuard(req);
@@ -59,7 +63,19 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { id } = await params;
   const logo = await getLogo(ctx, id);
   if (!logo) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // The Email style is admin-only, so a member can't drop its logo by deleting it.
+  if (ctx.role !== "admin") {
+    const tenant = await getTenantById(ctx.tenantId);
+    if (tenant?.emailStyle?.logo?.filename === logo.filename) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Your Email style uses this logo — ask an admin to delete it." },
+        { status: 403 },
+      );
+    }
+  }
 
+  // First, so a failure here leaves the logo in place rather than a style pointing at nothing.
+  await clearTenantEmailStyleLogo(ctx.tenantId, logo.filename);
   await deleteLogo(ctx, id);
   await deleteBrandLogo(ctx.tenantId, logo.filename);
   return NextResponse.json({ ok: true });

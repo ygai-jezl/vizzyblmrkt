@@ -384,6 +384,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           consentAtSend={detail.features.consentAtSend}
           optInAfterSignup={detail.features.optInAfterSignup}
           entities={detail.features.entities}
+          emailStyleEnabled={detail.features.emailStyle}
           onChange={(settings) => edit({ settings })}
         />
       ) : null}

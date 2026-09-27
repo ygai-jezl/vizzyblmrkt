@@ -7,6 +7,7 @@ import { api, errorText } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
 import type { JourneyDetail } from "./model";
 import { place } from "@/lib/nav/places";
+import { splitTestUsers } from "@/lib/lifecycle/testRecipients";
 
 /**
  * Who actually gets the emails: test (listed test users only), shadow (real
@@ -42,8 +43,12 @@ export function DeliveryPanel({
 }) {
   const j = detail.journey;
   const [mode, setMode] = useState<DeliveryMode>(j.deliveryMode);
-  const [userIds, setUserIds] = useState(j.testRecipients.userIds.join("\n"));
-  const [emails, setEmails] = useState(j.testRecipients.emails.join("\n"));
+  const waitlist = detail.audience === "waitlist";
+  // One list: the product's user ids and email addresses together (a waitlist has only addresses).
+  const [testUsers, setTestUsers] = useState(
+    (waitlist ? j.testRecipients.emails : [...j.testRecipients.userIds, ...j.testRecipients.emails]).join("\n"),
+  );
+  const typed = splitTestUsers(splitList(testUsers));
   const [shadowInbox, setShadowInbox] = useState(j.shadowInbox ?? "");
   const [sendsPerDay, setSendsPerDay] = useState(j.caps.sendsPerDay);
   const [enrolmentsPerDay, setEnrolmentsPerDay] = useState(j.caps.enrolmentsPerDay);
@@ -57,7 +62,9 @@ export function DeliveryPanel({
       method: "PATCH",
       body: JSON.stringify({
         deliveryMode: mode,
-        testRecipients: { userIds: splitList(userIds).slice(0, 50), emails: splitList(emails).slice(0, 50) },
+        testRecipients: waitlist
+          ? { userIds: j.testRecipients.userIds, emails: splitList(testUsers).slice(0, 50) }
+          : { userIds: typed.userIds.slice(0, 50), emails: typed.emails.slice(0, 50) },
         shadowInbox: shadowInbox.trim() || null,
         caps: { sendsPerDay, enrolmentsPerDay },
       }),
@@ -70,7 +77,6 @@ export function DeliveryPanel({
 
   const sandboxIds = detail.connection?.sandboxUsers ?? [];
   const capped = RANK[mode] > RANK[detail.modeCeiling];
-  const waitlist = detail.audience === "waitlist";
 
   return (
     <div className="space-y-4">
@@ -123,19 +129,25 @@ export function DeliveryPanel({
         description={
           waitlist
             ? "In test mode only these addresses are enrolled when they join, and they get real emails."
-            : "Enrolled (and emailed) in test mode. Use the product's own user ids, or their email addresses."
+            : "Enrolled (and emailed) in test mode: your product's user ids or their email addresses, one per line."
         }
       >
-        <div className="grid gap-3 sm:grid-cols-2">
-          {waitlist ? null : (
-          <Field label="User ids" hint={sandboxIds.length ? `Sandbox users: ${sandboxIds.map((u) => u.userId).join(", ")}` : "One per line."}>
-            <textarea className={`${inputClass} min-h-20 font-mono text-xs`} disabled={!canEdit} value={userIds} onChange={(e) => setUserIds(e.target.value)} />
-          </Field>
-          )}
-          <Field label="Email addresses" hint="One per line.">
-            <textarea className={`${inputClass} min-h-20 font-mono text-xs`} disabled={!canEdit} value={emails} onChange={(e) => setEmails(e.target.value)} />
-          </Field>
-        </div>
+        <Field
+          label={waitlist ? "Email addresses" : "User ids or email addresses"}
+          hint={
+            waitlist
+              ? "One per line."
+              : `One per line; anything with an @ is an email address.${sandboxIds.length ? ` Sandbox users: ${sandboxIds.map((u) => u.userId).join(", ")}` : ""}`
+          }
+        >
+          <textarea className={`${inputClass} min-h-20 font-mono text-xs`} disabled={!canEdit} value={testUsers} onChange={(e) => setTestUsers(e.target.value)} />
+        </Field>
+        {waitlist || (typed.userIds.length === 0 && typed.emails.length === 0) ? null : (
+          <p className="mt-1 text-xs text-neutral-500">
+            {typed.emails.length} email address{typed.emails.length === 1 ? "" : "es"} · {typed.userIds.length} user id
+            {typed.userIds.length === 1 ? "" : "s"}
+          </p>
+        )}
       </Section>
 
       <Section title="Shadow inbox" description="Your own address or one on a verified sending domain — shadow emails name the real recipient.">

@@ -4,6 +4,7 @@ import type { ConsentBasis, ConsentPolicy } from "@/lib/types/productConnection"
 import type { ProductUser } from "@/lib/types/productUser";
 import { registrableDomain } from "@/lib/domains/registrableDomain";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
+import { looksLikeEmail } from "./testRecipients";
 
 /**
  * Who a lifecycle email may go to, from which address, in which delivery mode.
@@ -30,7 +31,9 @@ export function isTestRecipient(
   const { userIds, emails } = journey.testRecipients;
   if (userIds.includes(user.externalUserId)) return true;
   const email = user.email ? normalizeEmail(user.email) : "";
-  return Boolean(email) && emails.some((e) => normalizeEmail(e) === email);
+  // An address saved in the user-id list (lists saved before the Delivery tab took
+  // one list, or set through the chat) still counts as the address it is.
+  return Boolean(email) && [...emails, ...userIds.filter(looksLikeEmail)].some((e) => normalizeEmail(e) === email);
 }
 
 /** Registrable domains of the tenant's VERIFIED sending domains. */

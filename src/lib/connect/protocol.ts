@@ -88,6 +88,8 @@ export const RESERVED_EVENTS = {
   preferencesUpdated: "email_preferences.updated",
   /** Derived from state: someone YouGrow already knew moved to a consent basis the connection accepts for marketing. */
   marketingConsentGranted: "user.marketing_consent_granted",
+  /** Derived from state (API v2 `entities`): a write added something the person has several of — a brand, a workspace. */
+  entityCreated: "entity.created",
 } as const;
 
 export const StepCompletedPropsSchema = z.object({ step: z.string().regex(STEP_ID_RE) });

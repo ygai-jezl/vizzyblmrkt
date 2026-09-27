@@ -3,7 +3,7 @@ import { z } from "zod";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import { isPublicEmailProvider } from "@/lib/domains/registrableDomain";
 import type { ConnectionCatalog, ConsentBasis, ProductConnection } from "@/lib/types/productConnection";
-import type { ProductUser, TraitValue } from "@/lib/types/productUser";
+import type { ProductEntity, ProductUser, TraitValue } from "@/lib/types/productUser";
 import {
   LIMITS,
   PreferencesUpdatedPropsSchema,
@@ -200,6 +200,7 @@ export function tombstoneOf(current: Pick<ProductUser, "connectionId" | "firstSe
     signedUpAt: null,
     excluded: null,
     facts: {},
+    entities: {},
     stateUpdatedAt: null,
     deletedAt: now,
     activated: false,
@@ -266,6 +267,7 @@ export function applyUserPatch(
     facts: { ...(base.facts ?? {}) },
     milestones: { ...base.milestones },
     emailPreferences: { ...base.emailPreferences },
+    ...(base.entities || patch.entities ? { entities: { ...(base.entities ?? {}) } } : {}),
   };
   const at = writeAt ?? now;
 
@@ -302,6 +304,41 @@ export function applyUserPatch(
     else doc.traits[key] = value;
   }
   const invalid: Array<{ path: string; message: string }> = [];
+  for (const [id, e] of Object.entries(patch.entities ?? {})) {
+    const entities = doc.entities!;
+    if (e === null) {
+      delete entities[id];
+      continue;
+    }
+    const cur = entities[id];
+    if (!cur && !e.kind) {
+      invalid.push({ path: `entities.${id}.kind`, message: "required the first time an entity is sent" });
+      continue;
+    }
+    const next: ProductEntity = cur
+      ? { ...cur, steps: { ...cur.steps }, facts: { ...cur.facts } }
+      : { kind: e.kind!, name: null, parentId: null, role: null, steps: {}, facts: {}, activeAt: null, firstSeenAt: at, updatedAt: at };
+    if (e.kind !== undefined) next.kind = e.kind;
+    if (e.name !== undefined) next.name = e.name;
+    if (e.parentId !== undefined) next.parentId = e.parentId;
+    if (e.role !== undefined) next.role = e.role;
+    if (e.activeAt !== undefined) next.activeAt = e.activeAt === null ? null : toUtcIso(e.activeAt);
+    for (const [step, doneAt] of Object.entries(e.steps ?? {})) {
+      if (doneAt === null) delete next.steps[step];
+      else next.steps[step] = { doneAt: toUtcIso(doneAt) };
+    }
+    for (const [fact, value] of Object.entries(e.facts ?? {})) {
+      if (value === null) delete next.facts[fact];
+      else next.facts[fact] = { value, at };
+    }
+    if (Object.keys(next.steps).length > V2_LIMITS.maxSteps) invalid.push({ path: `entities.${id}.steps`, message: `more than ${V2_LIMITS.maxSteps} steps after this write` });
+    if (Object.keys(next.facts).length > V2_LIMITS.maxFacts) invalid.push({ path: `entities.${id}.facts`, message: `more than ${V2_LIMITS.maxFacts} facts after this write` });
+    next.updatedAt = at;
+    entities[id] = next;
+  }
+  if (doc.entities && Object.keys(doc.entities).length > V2_LIMITS.maxEntities) {
+    invalid.push({ path: "entities", message: `more than ${V2_LIMITS.maxEntities} entities after this write` });
+  }
   if (Object.keys(doc.traits).length > V2_LIMITS.maxTraits) invalid.push({ path: "traits", message: `more than ${V2_LIMITS.maxTraits} traits after this write` });
   if (Object.keys(doc.facts ?? {}).length > V2_LIMITS.maxFacts) invalid.push({ path: "facts", message: `more than ${V2_LIMITS.maxFacts} facts after this write` });
   if (Object.keys(doc.steps).length > V2_LIMITS.maxSteps) invalid.push({ path: "steps", message: `more than ${V2_LIMITS.maxSteps} steps after this write` });
@@ -336,6 +373,20 @@ export function userStateOf(user: ProductUser): UserState {
     steps: Object.fromEntries(Object.entries(user.steps).map(([id, s]) => [id, s.doneAt])),
     facts: Object.fromEntries(Object.entries(user.facts ?? {}).map(([id, f]) => [id, f.value])),
     traits: Object.fromEntries(Object.entries(user.traits).filter((e): e is [string, string | number | boolean] => e[1] !== null)),
+    entities: Object.fromEntries(
+      Object.entries(user.entities ?? {}).map(([id, e]) => [
+        id,
+        {
+          kind: e.kind,
+          name: e.name,
+          parentId: e.parentId,
+          role: e.role,
+          steps: Object.fromEntries(Object.entries(e.steps).map(([s, v]) => [s, v.doneAt])),
+          facts: Object.fromEntries(Object.entries(e.facts).map(([f, v]) => [f, v.value])),
+          activeAt: e.activeAt,
+        },
+      ]),
+    ),
     updatedAt: user.stateUpdatedAt ?? null,
   };
 }

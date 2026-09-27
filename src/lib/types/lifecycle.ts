@@ -391,6 +391,11 @@ const EnrolmentRuntimeSchema = z.object({
   requireApproval: z.boolean().default(false),
   /** When the journey clock starts (the trigger event's time). */
   anchorAt: z.string(),
+  /**
+   * Product journeys about one of the person's entities (a brand, a workspace):
+   * the one this enrolment is about, fixed once chosen. Null for the person.
+   */
+  entityId: z.string().nullable().optional(),
   lastSentAt: z.string().nullable().optional(),
   /** The next node to process; null once finished. */
   cursor: z.object({ nodeId: z.string() }).nullable(),

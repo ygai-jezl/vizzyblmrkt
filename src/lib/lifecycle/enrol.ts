@@ -229,6 +229,8 @@ export interface TriggerEvent {
   event: string;
   /** The event's own time (UTC ISO). */
   timestamp: string;
+  /** The entity it happened to (API v2 `entities`), when there is one. */
+  entityId?: string | null;
 }
 
 /**

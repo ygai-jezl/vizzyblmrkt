@@ -156,7 +156,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
   step(
     "Hand off",
     [
-      `Reply with the proof, then stop: the \`yg.me()\` output, \`GET\` for the test account after each check above, the **Test webhook** result from your handler's log, and where the writes show in YouGrow → Products → ${p.productName} → **Events**.`,
+      `Reply with the proof, then stop: the \`yg.me()\` output, \`GET\` for the test account after each check above, the **Test webhook** result from your handler's log, and where the writes show in YouGrow → Products → ${p.productName} → **Events**. Tell me I can check the same account myself in **Users → Look up**, by its user id.`,
       "Journeys start in **test** mode, where only people on a journey's test list get email — **ask me** to add our test accounts there. When a journey goes live, YouGrow enrols everyone who signed up inside its window: there's nothing to resend.",
     ],
     "all of that is in your reply.",

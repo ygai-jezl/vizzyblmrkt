@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, timeAgo, type ProductUser, type PublicConnection } from "./api";
 import { Badge, Banner, Button } from "./ui";
+import { UserLookup } from "./UserLookup";
 
-/** The product's end users, as built from the events it sent. */
+/** The product's users, as its server sent them, most recently seen first — and a lookup by user id. */
 export function UsersTable({ connection, canEdit }: { connection: PublicConnection; canEdit: boolean }) {
   const [users, setUsers] = useState<ProductUser[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [request, setRequest] = useState<{ id: string; at: number } | null>(null);
   const steps = [...connection.catalog.onboardingSteps].sort((a, b) => a.order - b.order);
 
   const load = useCallback(
@@ -41,6 +43,7 @@ export function UsersTable({ connection, canEdit }: { connection: PublicConnecti
 
   return (
     <div className="space-y-3">
+      <UserLookup connectionId={connection.id} steps={steps} request={request} />
       {error ? <Banner tone="err">{error}</Banner> : null}
       <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-left text-xs">
@@ -57,7 +60,7 @@ export function UsersTable({ connection, canEdit }: { connection: PublicConnecti
             {users.length === 0 && !loading ? (
               <tr>
                 <td colSpan={5} className="px-3 py-4 text-center text-neutral-500">
-                  No users yet — they appear when your product sends an identify or track event.
+                  No users yet — they appear when your server sends a user&apos;s state.
                 </td>
               </tr>
             ) : null}
@@ -83,7 +86,10 @@ export function UsersTable({ connection, canEdit }: { connection: PublicConnecti
                 </td>
                 <td className="px-3 py-2">{u.consent ? <Badge>{u.consent.basis}</Badge> : <span className="text-neutral-400">—</span>}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-neutral-500">{timeAgo(u.lastSeenAt)}</td>
-                <td className="px-3 py-2 text-right">
+                <td className="whitespace-nowrap px-3 py-2 text-right">
+                  {u.status !== "deleted" ? (
+                    <Button onClick={() => setRequest({ id: u.externalUserId, at: Date.now() })}>Details</Button>
+                  ) : null}{" "}
                   {canEdit && u.status !== "deleted" ? (
                     <Button tone="danger" onClick={() => void erase(u)}>
                       Erase

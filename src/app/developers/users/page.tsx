@@ -195,7 +195,8 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
       <H3>Check it works</H3>
       <P>
         Sign up a test account, then open <strong>Products → your product → Events</strong>: the write appears within
-        seconds. A refused write gets a <C>400</C> that says what was wrong. Or read the user back with{" "}
+        seconds. A refused write gets a <C>400</C> that says what was wrong. Then look the account up in{" "}
+        <strong>Users</strong> by your user id, or read it back with{" "}
         <a className="underline" href="#get">
           GET
         </a>
@@ -601,7 +602,9 @@ await yg.users.batch(users.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt:
           environment and status. Check it when you deploy, so a staging key never ends up in production.
         </li>
         <li>
-          <strong>A user:</strong> <C>yg.users.get(id)</C> shows their state, the journeys they&apos;re in and any opt-outs.
+          <strong>A user:</strong> <strong>Products → your product → Users → Look up</strong> takes your user id and shows
+          what we hold, the journeys they&apos;re in, their opt-outs and their latest writes — no secret needed. For 30 days
+          after an erasure it shows when they were erased. From code, <C>yg.users.get(id)</C> returns the same state.
         </li>
         <li>
           <strong>In YouGrow:</strong> <strong>Products → your product → Events</strong> lists writes as they arrive,

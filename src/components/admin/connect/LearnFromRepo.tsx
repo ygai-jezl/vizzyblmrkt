@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BookOpenCheck, ChevronDown, ChevronRight, GitBranch, Plus, ShieldCheck, Trash2 } from "lucide-react";
-import type { ProductMap } from "@/lib/connect/productMapSchema";
+import { proves, type MapSection, type ProductMap } from "@/lib/connect/productMapSchema";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { api, errorText, timeAgo, type PublicConnection } from "./api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "./ui";
@@ -53,8 +53,8 @@ function itemsOf(map: ProductMap): Record<SectionId, Item[]> {
     facts: map.facts.map((f) => ({
       key: f.id,
       title: `${f.label} (${f.id})`,
-      detail: [f.description, f.source ? `Source: ${f.source}` : ""].filter(Boolean).join(" · "),
-      badges: [f.unit ? `${f.type}, ${f.unit}` : f.type, ...perKind(f.entityKind, map)],
+      detail: [f.description, f.source ? `Source: ${f.source}` : "", f.appliesWhen ? `Only for ${f.appliesWhen}` : ""].filter(Boolean).join(" · "),
+      badges: [f.unit ? `${f.type}, ${f.unit}` : f.type, ...perKind(f.entityKind, map), ...(f.appliesWhen ? ["not everyone has it"] : [])],
       confidence: f.confidence,
       evidence: f.evidence,
     })),
@@ -62,13 +62,24 @@ function itemsOf(map: ProductMap): Record<SectionId, Item[]> {
   };
 }
 
+const MAP_SECTION: Record<SectionId, MapSection> = {
+  entities: "entityKinds",
+  steps: "onboardingSteps",
+  events: "events",
+  traits: "traits",
+  facts: "facts",
+  glossary: "glossary",
+};
+
 /**
  * Backed by code that runs: verified evidence from a source file. Plans, docs and
  * tests describe intentions or checks, not what's built — except for glossary
- * terms, where docs are a fine source. (Older maps have no kind: trust verified.)
+ * terms, where docs are a fine source — and a type's declaration doesn't show
+ * where a fact's value is kept.
  */
-const provenBy = (e: Evidence, docsCount: boolean) => e.verified && (!e.kind || e.kind === "source" || (docsCount && e.kind === "docs"));
-const proven = (i: Item, section: SectionId) => i.evidence.some((e) => provenBy(e, section === "glossary"));
+const proven = (i: Item, section: SectionId) => i.evidence.some((e) => proves(e, MAP_SECTION[section]));
+/** Only type declarations from code that runs back this fact. */
+const typeOnly = (i: Item) => i.evidence.some((e) => e.verified && e.declaration);
 
 /** Ticked by default: proven by code and not low confidence. */
 const trusted = (i: Item, section: SectionId) => i.confidence !== "low" && proven(i, section);
@@ -323,9 +334,11 @@ export function LearnFromRepo({
                             <Badge tone={it.confidence === "high" ? "green" : it.confidence === "low" ? "red" : "amber"}>{it.confidence}</Badge>
                             {verified === 0 ? (
                               <Badge tone="red">no verified code</Badge>
-                            ) : !proven(it, s.id) ? (
+                            ) : proven(it, s.id) ? null : s.id === "facts" && typeOnly(it) ? (
+                              <Badge tone="amber">a type, not a value — check where it&apos;s stored</Badge>
+                            ) : (
                               <Badge tone="amber">docs/tests only — not proof it&apos;s built</Badge>
-                            ) : null}
+                            )}
                           </div>
                           {it.detail ? <p className="text-sm text-neutral-600 dark:text-neutral-400">{it.detail}</p> : null}
                           {it.evidence.length > 0 ? (
@@ -350,6 +363,7 @@ export function LearnFromRepo({
                                       )}
                                       {ev.verified ? <Badge tone="green">found in file</Badge> : <Badge tone="red">not found</Badge>}
                                       {ev.kind && ev.kind !== "source" ? <Badge>{ev.kind}</Badge> : null}
+                                      {ev.declaration ? <Badge>type declaration</Badge> : null}
                                     </div>
                                     <pre className="mt-1 whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{ev.excerpt}</pre>
                                   </li>

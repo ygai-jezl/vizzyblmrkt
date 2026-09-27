@@ -1,6 +1,7 @@
 import type { TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
+import { proves, type Evidence, type MapSection } from "./productMapSchema";
 import { listRepoAnalyses, startRepoAnalysis } from "./repoAnalysis";
 
 /**
@@ -12,7 +13,8 @@ import { listRepoAnalyses, startRepoAnalysis } from "./repoAnalysis";
 
 type Result = { status: number; body: unknown };
 
-const verified = (e: Array<{ verified: boolean }>) => e.some((x) => x.verified);
+/** Backed by code that runs (for a fact: where its value is kept, not just its type). */
+const backed = (evidence: Evidence[], section: MapSection) => evidence.some((e) => proves(e, section));
 
 export function summariseAnalysis(a: RepoAnalysis, connectionId: string) {
   const m = a.map;
@@ -29,10 +31,10 @@ export function summariseAnalysis(a: RepoAnalysis, connectionId: string) {
     map: m
       ? {
           summary: m.summary,
-          onboardingSteps: m.onboardingSteps.map((s) => ({ id: s.id, label: s.label, completion: s.completion, detection: s.detection, confidence: s.confidence, backedByCode: verified(s.evidence) })),
-          events: m.events.map((e) => ({ name: e.name, when: e.when, confidence: e.confidence, backedByCode: verified(e.evidence) })),
-          traits: m.traits.map((t) => ({ key: t.key, type: t.type, confidence: t.confidence, backedByCode: verified(t.evidence) })),
-          facts: m.facts.map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, confidence: f.confidence, backedByCode: verified(f.evidence) })),
+          onboardingSteps: m.onboardingSteps.map((s) => ({ id: s.id, label: s.label, completion: s.completion, detection: s.detection, confidence: s.confidence, backedByCode: backed(s.evidence, "onboardingSteps") })),
+          events: m.events.map((e) => ({ name: e.name, when: e.when, confidence: e.confidence, backedByCode: backed(e.evidence, "events") })),
+          traits: m.traits.map((t) => ({ key: t.key, type: t.type, confidence: t.confidence, backedByCode: backed(t.evidence, "traits") })),
+          facts: m.facts.map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, appliesWhen: f.appliesWhen || null, confidence: f.confidence, backedByCode: backed(f.evidence, "facts") })),
           glossary: m.glossary.map((g) => g.term),
           hooks: m.hooks.map((h) => ({ kind: h.kind, description: h.description })),
           warnings: m.warnings,

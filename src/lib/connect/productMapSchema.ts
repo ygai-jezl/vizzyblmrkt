@@ -29,6 +29,11 @@ export const EvidenceSchema = z.object({
    * step, event, trait, fact or hook exists.
    */
   kind: z.enum(["source", "docs", "test"]).optional(),
+  /**
+   * Set by the job: the excerpt declares a type (an interface, type alias, class
+   * or struct). A type names a shape, not a value — it doesn't prove a fact.
+   */
+  declaration: z.boolean().optional(),
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
@@ -106,6 +111,11 @@ export const MapFactSchema = z.object({
   description: text(500).default(""),
   /** Where the product keeps or computes it. */
   source: text(200).default(""),
+  /**
+   * When only some have it — it needs a feature, add-on, plan or setup step — who
+   * does, e.g. "brands with a product catalogue". Empty: every account has it.
+   */
+  appliesWhen: text(200).default(""),
   /** A value per entity of this kind (e.g. per brand), not per person. */
   entityKind,
   ...item,
@@ -194,6 +204,7 @@ function prepItem(x: unknown, section?: MapSection): unknown {
       const ev = { ...(e as Record<string, unknown>) };
       delete ev.verified;
       delete ev.kind;
+      delete ev.declaration;
       if (typeof ev.excerpt === "string") ev.excerpt = ev.excerpt.trim().slice(0, 240);
       if (typeof ev.line === "string" && /^\d+$/.test(ev.line)) ev.line = Number(ev.line);
       return ev;
@@ -214,6 +225,18 @@ const SECTION_SCHEMA: Record<MapSection, z.ZodType> = {
   hooks: MapHookSchema,
   entityKinds: MapEntityKindSchema,
 };
+
+/**
+ * Whether one piece of evidence proves an item is built: found in the file, in
+ * code that runs (docs count for glossary terms only) and, for a fact, more than
+ * a type's declaration — a fact needs where its value is stored or computed.
+ * Maps written before `kind` existed trust `verified`.
+ */
+export function proves(e: Evidence, section: MapSection): boolean {
+  if (!e.verified) return false;
+  if (section === "facts" && e.declaration) return false;
+  return !e.kind || e.kind === "source" || (section === "glossary" && e.kind === "docs");
+}
 
 /** Validate ONE model-written item for a section (evidence tidied, `verified` stripped). */
 export function parseMapItem(section: MapSection, raw: unknown): { ok: true; item: unknown } | { ok: false; reason: string } {

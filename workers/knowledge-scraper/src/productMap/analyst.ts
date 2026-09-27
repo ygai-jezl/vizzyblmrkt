@@ -48,6 +48,10 @@ export interface AnalysisPass {
   maxTurns?: number;
 }
 
+/** What makes a fact: one real value, one per variant, and who has it. */
+const FACT_RULES =
+  "A fact is ONE value: a stored field or column, or what a function returns. A type, interface or class name is not a fact — it describes a shape; find where a value of that shape is written or computed and cite that line. When a value comes in variants (per stage, per engine, per period), record one fact per variant, each with its own id — never one fact for the group. When only some accounts have it — it needs a feature, add-on, plan or setup step, or it's empty until something happens — say who in appliesWhen (e.g. \"brands with a product catalogue\"); leave appliesWhen empty only when every account has a value.";
+
 /**
  * One agent answering every question spreads itself thin (tested on a real
  * repo: it explored for its whole budget and recorded almost nothing). Four
@@ -74,7 +78,9 @@ export const ANALYSIS_PASSES: AnalysisPass[] = [
     sections: ["facts"],
     summary: false,
     focus:
-      "Find FACTS: numbers (or values) the product stores or computes about a user's account that would make a true, useful sentence in an email — scores, percentages, counts, rankings, trends. For each: id, label, unit, and source (the collection, table or function that holds or computes it, and how often it updates). Only real per-account data; say if it's computed on read. When the value belongs to one of several things a person can have (share of voice per brand), give it that entityKind (snake_case, e.g. brand).",
+      "Find FACTS: numbers (or values) the product stores or computes about a user's account that would make a true, useful sentence in an email — scores, percentages, counts, rankings, trends. For each: id, label, unit, and source (the collection, table or function that holds or computes it, and how often it updates). Only real per-account data; say if it's computed on read. " +
+      FACT_RULES +
+      " When the value belongs to one of several things a person can have (share of voice per brand), give it that entityKind (snake_case, e.g. brand).",
   },
   {
     id: "context",
@@ -161,7 +167,7 @@ const GENERAL_QUESTIONS = `YOUR QUESTIONS — answer each from the code, with ev
 2. Onboarding: what does the product consider the steps of getting started (checklists, setup wizards, "getting started" UI, progress hooks)? And can one person have several of the thing being set up (workspaces, brands, projects)? If so, record it in entityKinds and give per-thing steps an entityKind. For each step: a short snake_case id, a user-facing label, HOW completion is decided (the data condition, in plain words), the in-app route that completes it, and whether completion has a clear SERVER-side moment ("server_event": e.g. a record is created or a status set to completed in server code), can be derived from stored state ("reconcile"), or is only computed in the browser ("client_only").
 3. Events: meaningful user actions the product could report (e.g. brand.created, audit.completed, team.member_joined). Names: lower-case, dot-separated. Say when each happens in the code.
 4. Traits: per-user or per-account attributes worth branching on (plan/tier, role, account type…), with their type.
-5. Facts: numbers (or values) the product stores or computes about a user's account that would make a useful, TRUE sentence in an email (e.g. a score, a count, a percentage) — where they're stored or computed and their unit. Only real, per-account data the product has.
+5. Facts: numbers (or values) the product stores or computes about a user's account that would make a useful, TRUE sentence in an email (e.g. a score, a count, a percentage) — where they're stored or computed and their unit. Only real, per-account data the product has. ${FACT_RULES}
 6. Glossary: the product's own terms a writer should use (feature names, key concepts), with a one-line definition.
 7. Integration hooks: account deletion (and any grace period), marketing consent / email preferences (categories, unsubscribe), timezone and locale capture, and users who should never get lifecycle email (staff, invited team members, special account types) — hooks "deletion", "consent", "preferences", "timezone", "exit_rule".
 8. Warnings: gaps a developer should know (e.g. "timezone isn't stored", "onboarding is computed only in the browser").`;
@@ -191,7 +197,7 @@ ITEM FORMATS for record_findings:
  entityKinds: {"kind","label","plural","parent","multiple","membership","limit","description","confidence","evidence"}
  events: {"name","label","description","when","entityKind","confidence","evidence"}
  traits: {"key","type":"string|number|boolean|timestamp","label","description","confidence","evidence"}
- facts: {"id","label","type":"number|string|boolean","unit","description","source","entityKind","confidence","evidence"}
+ facts: {"id","label","type":"number|string|boolean","unit","description","source","appliesWhen","entityKind","confidence","evidence"}
  glossary: {"term","definition","confidence","evidence"}
  hooks: {"kind":"signup|deletion|consent|preferences|exit_rule|timezone|other","description","confidence","evidence"}
 Ids, fact ids and kinds: snake_case. entityKind: omit it for what's once per person. Keep it to what the code supports; quality over quantity.`;

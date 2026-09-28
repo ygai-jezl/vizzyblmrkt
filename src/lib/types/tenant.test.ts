@@ -139,12 +139,58 @@ describe("EmailStyleInputSchema (strict on write)", () => {
   });
 });
 
+describe("EmailStyleInputSchema header options (strict on write)", () => {
+  const style = {
+    logo: null,
+    companyName: "Example Co",
+    headerColor: "#7c3aed",
+    accentColor: "#ff6b35",
+  };
+  const ok = (over: Record<string, unknown>) => EmailStyleInputSchema.safeParse({ ...style, ...over }).success;
+
+  it("takes a colour 2 (lowercased) or null, and Auto / White / Black; both may be left out", () => {
+    expect(EmailStyleInputSchema.parse({ ...style, headerGradientColor: "#4F46E5" }).headerGradientColor).toBe("#4f46e5");
+    expect(ok({ headerGradientColor: null })).toBe(true);
+    for (const headerText of ["auto", "white", "black"]) expect(ok({ headerText })).toBe(true);
+    expect(EmailStyleInputSchema.parse(style)).not.toHaveProperty("headerGradientColor");
+  });
+
+  it("rejects a colour 2 that isn't #rrggbb and any other text choice", () => {
+    for (const headerGradientColor of ["purple", "#abc", ""]) expect(ok({ headerGradientColor })).toBe(false);
+    for (const headerText of ["pink", "Auto", "", null]) expect(ok({ headerText })).toBe(false);
+  });
+});
+
 describe("TenantSchema.emailStyle (lenient on read)", () => {
   it("reads a damaged value as undefined instead of throwing", () => {
     const field = TenantSchema.shape.emailStyle;
     expect(field.parse(undefined)).toBeUndefined();
     expect(field.parse({ headerColor: "red" })).toBeUndefined();
     expect(field.parse("nonsense")).toBeUndefined();
+  });
+
+  it("a damaged header option drops alone: the colours and logo still read", () => {
+    const field = TenantSchema.shape.emailStyle;
+    const stored = {
+      logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+      companyName: null,
+      headerColor: "#7c3aed",
+      accentColor: "#ff6b35",
+    };
+    const damaged = [
+      { headerGradientColor: "purple" },
+      { headerText: "pink" },
+      { headerGradientColor: null, headerText: "auto" },
+    ];
+    for (const bad of damaged) {
+      const read = field.parse({ ...stored, headerGradientColor: "#4f46e5", headerText: "white", ...bad })!;
+      expect(read).toMatchObject(stored);
+      for (const key of Object.keys(bad)) expect(read[key as keyof typeof read]).toBeUndefined();
+    }
+    expect(field.parse({ ...stored, headerGradientColor: "#4f46e5", headerText: "black" })).toMatchObject({
+      headerGradientColor: "#4f46e5",
+      headerText: "black",
+    });
   });
 });
 
@@ -165,6 +211,18 @@ describe("EmailStyleSuggestionSchema (strict on write)", () => {
   it("accepts a suggestion with or without a logo, lowercasing the colours", () => {
     expect(EmailStyleSuggestionSchema.parse(suggestion).headerColor).toBe("#0b1f3a");
     expect(ok({ logoId: null, companyName: "Example Co", source: "brand_kit", brief: "", notes: [] })).toBe(true);
+  });
+
+  it("takes the header options only when set, strictly: a #rrggbb colour 2, white or black text", () => {
+    const parsed = EmailStyleSuggestionSchema.parse({ ...suggestion, headerGradientColor: "#4F46E5", headerText: "white" });
+    expect(parsed).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white" });
+    expect(EmailStyleSuggestionSchema.parse(suggestion)).not.toHaveProperty("headerGradientColor");
+    expect(ok({ headerText: "black" })).toBe(true);
+    // Defaults are never stored: absent is solid / Auto.
+    expect(ok({ headerGradientColor: null })).toBe(false);
+    expect(ok({ headerText: "auto" })).toBe(false);
+    expect(ok({ headerGradientColor: "purple" })).toBe(false);
+    expect(ok({ headerText: "pink" })).toBe(false);
   });
 
   it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {

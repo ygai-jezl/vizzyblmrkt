@@ -297,6 +297,67 @@ describe("wrap with an Email style", () => {
     const out = wrap(`<p>x</p>${renderFooter(null)}`, null, { style: style() });
     expect(out.match(new RegExp(FOOTER_MARKER, "g"))).toHaveLength(1);
   });
+
+  // Pinned byte-for-byte: a solid header with automatic text colour must keep drawing exactly this.
+  it("pins today's band: logo and name on a dark header, the logo alone, the name alone on yellow", () => {
+    expect(renderHeaderBand(style())).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    expect(renderHeaderBand(style({ name: null, altName: "Example Workspace" }))).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="Example Workspace" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    expect(renderHeaderBand(style({ logo: null, headerColor: "#ffd400" }))).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#ffd400" style="width:100%;max-width:608px;margin:0 auto;background-color:#ffd400"><tr><td bgcolor="#ffd400" align="left" style="padding:16px 24px;background-color:#ffd400"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#000000">Acme Co</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+  });
+
+  describe("header options", () => {
+    const cell = (band: string) => band.match(/<td bgcolor="[^"]*" align="left" style="([^"]*)">/)?.[1];
+
+    it("a gradient paints only the cell, over colour 1 — which stays bgcolor and background-color everywhere", () => {
+      const band = renderHeaderBand(style({ headerColor: "#7c3aed", headerGradientColor: "#4f46e5" }));
+      expect(band.match(/bgcolor="#7c3aed"/g)).toHaveLength(2);
+      expect(band).toContain('max-width:608px;margin:0 auto;background-color:#7c3aed"');
+      expect(cell(band)).toBe(
+        "padding:16px 24px;background-color:#7c3aed;background-image:linear-gradient(135deg,#7c3aed,#4f46e5)",
+      );
+      expect(band.match(/linear-gradient/g)).toHaveLength(1);
+      expect(band).not.toMatch(/v:|vml/i);
+      expect(band).toContain('<!--[if mso]><table role="presentation" width="608"');
+    });
+
+    it("a forced white or black reaches the name span and the logo's alt text", () => {
+      const white = renderHeaderBand(style({ logo: null, headerColor: "#ffd400", headerText: "white" }));
+      expect(white).toContain('font-weight:700;color:#ffffff">Acme Co</span>');
+      const black = renderHeaderBand(style({ headerText: "black" }));
+      expect(black).toContain('font-weight:700;color:#000000">Acme Co</span>');
+      expect(imgTag(black)).toContain("color:#000000");
+    });
+
+    it("Auto text reads across the gradient, not just colour 1", () => {
+      const band = renderHeaderBand(style({ logo: null, headerColor: "#a78bfa", headerGradientColor: "#312e81" }));
+      expect(band).toContain('color:#ffffff">Acme Co</span>');
+    });
+
+    it("a bad colour 2 draws solid, with the text judged on what's drawn", () => {
+      const band = renderHeaderBand(style({ logo: null, headerColor: "#ffd400", headerGradientColor: "purple" }));
+      expect(band).toBe(renderHeaderBand(style({ logo: null, headerColor: "#ffd400" })));
+      expect(band).not.toContain("linear-gradient");
+      expect(band).toContain("color:#000000");
+    });
+
+    it("a header colour that isn't #rrggbb draws #111111 with white text", () => {
+      const band = renderHeaderBand(style({ logo: null, headerColor: "#fff" }));
+      expect(band.match(/bgcolor="#111111"/g)).toHaveLength(2);
+      expect(band).toContain('color:#ffffff">Acme Co</span>');
+    });
+  });
+
+  it("pins today's styled shell", () => {
+    expect(wrap("<p>x</p>", null, { style: style() })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>x</p>
+        </div>
+      </body></html>"
+    `);
+  });
 });
 
 describe("EmailLayoutSchema", () => {

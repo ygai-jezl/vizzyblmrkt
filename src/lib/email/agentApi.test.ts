@@ -25,7 +25,8 @@ const row = (id: string, filename: string, mimeType: string, isPrimary: boolean)
 const req = (token?: string) =>
   new Request("https://app.example.com/api/agent/email-style", { headers: token ? { "x-canvas-context": token } : {} });
 
-function world(): FakeFirestore {
+/** `over` adds to the saved style and the pending suggestion (e.g. header options). */
+function world(over: { emailStyle?: Record<string, unknown>; emailStyleSuggestion?: Record<string, unknown> } = {}): FakeFirestore {
   const db = new FakeFirestore();
   db.seed("tenants", "ten_A", {
     tenantName: "Example Co",
@@ -54,6 +55,7 @@ function world(): FakeFirestore {
       accentColor: "#00aa55",
       updatedAt: "2026-09-20T00:00:00.000Z",
       updatedBy: "usr_saver",
+      ...over.emailStyle,
     },
     emailStyleSuggestion: {
       logoId: null,
@@ -65,15 +67,53 @@ function world(): FakeFirestore {
       notes: [],
       suggestedBy: "usr_asker",
       suggestedAt: "2026-09-21T00:00:00.000Z",
+      ...over.emailStyleSuggestion,
     },
   });
   return db;
 }
 
+// Today's full answer for world(), pinned whole (see "pins today's full answer").
+const PINNED = {
+  status: 200,
+  body: {
+    url: "/admin/brand-kit/email-style",
+    canSuggest: true,
+    current: {
+      logo: { id: "logo_png", title: "logo_png file" },
+      companyName: null,
+      headerColor: "#222244",
+      buttonColor: "#00aa55",
+      updatedAt: "2026-09-20T00:00:00.000Z",
+    },
+    pending: {
+      logo: null,
+      companyName: "Example Co",
+      headerColor: "#000080",
+      buttonColor: "#00aa55",
+      source: "chat",
+      brief: "Make the header navy",
+      notes: [],
+      suggestedAt: "2026-09-21T00:00:00.000Z",
+    },
+    fromBrandKit: {
+      logo: { id: "logo_png", title: "logo_png file" },
+      companyName: null,
+      headerColor: "#0b1f3a",
+      buttonColor: "#0b1f3a",
+      notes: [],
+    },
+    logos: [{ id: "logo_png", title: "logo_png file", primary: true, format: "png" }],
+    note: "companyName null shows the logo alone. A suggestion changes nothing until an admin saves it on the page.",
+  },
+};
+
 beforeEach(() => {
   vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
   vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
   vi.stubEnv("CANVAS_CONTEXT_SIGNING_KEY", "test-only-canvas-key");
+  // Off unless a test turns it on, whatever the shell has.
+  vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
   brandLogos.listLogos.mockReset().mockResolvedValue([row("logo_webp", WEBP, "image/webp", false), row("logo_png", PNG, "image/png", true)]);
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -101,16 +141,70 @@ describe("Vizzy's Email style read", () => {
     });
   });
 
+  // Pinned whole: with no header options, this is exactly what Vizzy reads today.
+  it("pins today's full answer", async () => {
+    const r = await agentEmailStyle(admin, world());
+    expect(r).toEqual(PINNED);
+  });
+
   it("tells a member they can't suggest", async () => {
     expect((await agentEmailStyle(member, world())).body).toMatchObject({ canSuggest: false });
   });
 
   it("carries no people: not who asked, who saved, or an address", async () => {
-    const json = JSON.stringify((await agentEmailStyle(admin, world())).body);
-    expect(json).not.toContain("suggestedBy");
-    expect(json).not.toContain("updatedBy");
-    expect(json).not.toContain("usr_");
-    expect(json).not.toContain("@");
-    expect(json).not.toContain("Ada");
+    for (const flag of ["false", "true"]) {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", flag);
+      const json = JSON.stringify((await agentEmailStyle(admin, world())).body);
+      expect(json).not.toContain("suggestedBy");
+      expect(json).not.toContain("updatedBy");
+      expect(json).not.toContain("usr_");
+      expect(json).not.toContain("@");
+      expect(json).not.toContain("Ada");
+    }
+  });
+});
+
+describe("Vizzy's Email style read: header options", () => {
+  const OPTIONS = {
+    emailStyle: { headerGradientColor: "#4f46e5", headerText: "white" },
+    emailStyleSuggestion: { headerGradientColor: "#4f46e5", headerText: "black" },
+  };
+
+  it("flag off: exactly today's answer, even with options saved and suggested", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+    const r = await agentEmailStyle(admin, world(OPTIONS));
+    expect(r).toEqual(PINNED);
+    expect(JSON.stringify(r.body)).not.toMatch(/headerGradientColor|headerText|headerOptions/);
+  });
+
+  it("flag on: says so, and gives the saved and pending options", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const r = await agentEmailStyle(admin, world(OPTIONS));
+    expect(r.body).toMatchObject({
+      headerOptions: true,
+      current: { headerColor: "#222244", headerGradientColor: "#4f46e5", headerText: "white", buttonColor: "#00aa55" },
+      pending: { headerColor: "#000080", headerGradientColor: "#4f46e5", headerText: "black", buttonColor: "#00aa55" },
+      fromBrandKit: PINNED.body.fromBrandKit,
+    });
+    const { note } = r.body as { note: string };
+    expect(note.startsWith(PINNED.body.note)).toBe(true);
+    expect(note).toContain("headerGradientColor");
+    expect(note).toContain("Outlook");
+  });
+
+  it("flag on with no options: the defaults are spelled out (null = solid, auto)", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const { body } = (await agentEmailStyle(admin, world())) as { body: typeof PINNED.body };
+    expect(body.current).toEqual({ ...PINNED.body.current, headerGradientColor: null, headerText: "auto" });
+    expect(body.pending).toEqual({ ...PINNED.body.pending, headerGradientColor: null, headerText: "auto" });
+    expect(body.fromBrandKit).toEqual(PINNED.body.fromBrandKit);
+  });
+
+  it("flag on: a colour 2 equal to the header colour draws solid, so it reads as null", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const equal = { emailStyle: { headerGradientColor: "#222244" }, emailStyleSuggestion: { headerGradientColor: "#000080" } };
+    const { body } = (await agentEmailStyle(admin, world(equal))) as { body: typeof PINNED.body };
+    expect(body.current).toMatchObject({ headerColor: "#222244", headerGradientColor: null });
+    expect(body.pending).toMatchObject({ headerColor: "#000080", headerGradientColor: null });
   });
 });

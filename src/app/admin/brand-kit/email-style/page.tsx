@@ -5,7 +5,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { listLogos } from "@/lib/admin/brandLogos";
 import { BRAND_KIT_ROUTE, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
-import { isEmailStyleEnabled } from "@/lib/email/flags";
+import { isEmailHeaderOptionsEnabled, isEmailHeaderOptionsUiEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { styleFromBrandKit } from "@/lib/email/emailStyle";
 import { emailLinkOrigin } from "@/lib/email/footer";
 import { resolveFooterBrand } from "@/lib/email/sender";
@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic";
  * Brand › Email style. The logo, optional company name, header colour and button colour
  * that branded emails wear (lifecycle, launch welcome, invite and newsletter emails). Members
  * can view, including a pending Vizzy suggestion; only admins save or dismiss it. Flag-gated
- * (EMAIL_STYLE_ENABLED).
+ * (EMAIL_STYLE_ENABLED). The header options (a gradient, the header text colour) show only
+ * when EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on.
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -50,7 +51,10 @@ export default async function EmailStylePage() {
     byteSize,
   }));
   const saved = tenant?.emailStyle;
-  // Vizzy's pending suggestion, for the banner. Who asked stays on the server.
+  // Off, the page is exactly as without them: no controls, and Save sends no options (the PUT keeps the stored ones).
+  const headerOptions = isEmailHeaderOptionsEnabled() && isEmailHeaderOptionsUiEnabled();
+  // Vizzy's pending suggestion, for the banner. Who asked stays on the server. Its header
+  // options only come along with them on; off, the banner and Review are as without them.
   const suggestion = tenant?.emailStyleSuggestion;
   const pending = suggestion
     ? {
@@ -58,6 +62,8 @@ export default async function EmailStylePage() {
         companyName: suggestion.companyName,
         headerColor: suggestion.headerColor,
         accentColor: suggestion.accentColor,
+        ...(headerOptions && suggestion.headerGradientColor ? { headerGradientColor: suggestion.headerGradientColor } : {}),
+        ...(headerOptions && suggestion.headerText ? { headerText: suggestion.headerText } : {}),
         source: suggestion.source,
         brief: suggestion.brief,
         notes: suggestion.notes,
@@ -89,6 +95,9 @@ export default async function EmailStylePage() {
                 companyName: saved.companyName,
                 headerColor: saved.headerColor,
                 accentColor: saved.accentColor,
+                ...(headerOptions
+                  ? { headerGradientColor: saved.headerGradientColor ?? null, headerText: saved.headerText ?? "auto" }
+                  : {}),
               }
             : null
         }
@@ -101,6 +110,7 @@ export default async function EmailStylePage() {
         logoOrigin={logosOn ? emailLinkOrigin() : ""}
         canEdit={ctx.role === "admin"}
         logosUnavailable={logosUnavailable}
+        headerOptions={headerOptions}
       />
     </div>
   );

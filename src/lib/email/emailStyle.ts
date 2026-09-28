@@ -24,18 +24,33 @@ export interface ResolvedEmailStyle {
   altName: string;
   headerColor: string;
   accentColor: string;
+  /** The band fades from headerColor to this (top left to bottom right); absent = solid. */
+  headerGradientColor?: string;
+  /** The band's text colour, forced; absent = Auto (whichever reads better across the band). */
+  headerText?: "white" | "black";
 }
 
 /**
  * Map a saved (or, on the page, unsaved) style to what the renderers draw. The caller
  * supplies the logo URL — the server resolver checks it's this tenant's; the page builds
  * a preview one — and the name to fall back on (the footer's sender brand).
+ *
+ * The header options are only read with `headerOptions` (the caller's flag), and only a
+ * real one is set: no gradient, a gradient equal to the header colour and Auto text leave
+ * the keys out, so the result is exactly what it was without them.
  */
 export function resolveStoredStyle(
-  stored: Pick<EmailStyleInput, "logo" | "companyName" | "headerColor" | "accentColor"> | null | undefined,
+  stored:
+    | Pick<
+        EmailStyleInput,
+        "logo" | "companyName" | "headerColor" | "accentColor" | "headerGradientColor" | "headerText"
+      >
+    | null
+    | undefined,
   opts: {
     logoUrlFor: (logo: { id: string; filename: string }) => string | null;
     fallbackName: string;
+    headerOptions?: boolean;
   },
 ): ResolvedEmailStyle | null {
   if (!stored) return null;
@@ -44,6 +59,9 @@ export function resolveStoredStyle(
   if (!headerColor || !accentColor) return null;
   const name = cleanCompanyName(stored.companyName);
   const url = stored.logo ? opts.logoUrlFor(stored.logo) : null;
+  const gradient = opts.headerOptions ? normalizeHex(stored.headerGradientColor) : null;
+  const text =
+    opts.headerOptions && (stored.headerText === "white" || stored.headerText === "black") ? stored.headerText : null;
   return {
     logo:
       url && stored.logo
@@ -57,6 +75,8 @@ export function resolveStoredStyle(
     altName: name ?? cleanCompanyName(opts.fallbackName) ?? "",
     headerColor,
     accentColor,
+    ...(gradient && gradient !== headerColor ? { headerGradientColor: gradient } : {}),
+    ...(text ? { headerText: text } : {}),
   };
 }
 
@@ -84,6 +104,46 @@ export function contrastRatio(a: string, b: string): number {
 /** Black or white, whichever reads better on `bg` — never below 4.58:1. */
 export function readableOn(bg: string): "#000000" | "#ffffff" {
   return contrastRatio(bg, "#000000") >= contrastRatio(bg, "#ffffff") ? "#000000" : "#ffffff";
+}
+
+/**
+ * Black or white, whichever has the better WORST contrast across `bgs` (a gradient's stops).
+ * A tie goes to black, as in readableOn, so for one colour it's exactly readableOn.
+ */
+export function readableAcross(bgs: readonly string[]): "#000000" | "#ffffff" {
+  const worst = (ink: string) => Math.min(...bgs.map((bg) => contrastRatio(bg, ink)));
+  return worst("#000000") >= worst("#ffffff") ? "#000000" : "#ffffff";
+}
+
+// ── The header band's colours ────────────────────────────────────────────────
+
+type BandColours = Pick<ResolvedEmailStyle, "headerColor" | "headerGradientColor" | "headerText">;
+
+/** The renderer's safeHex check, repeated here because emailRender imports this file. */
+const BAND_HEX = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * The colours the band actually draws: the header colour (#111111 if it isn't #rrggbb),
+ * then colour 2 when it's a #rrggbb that differs from it. The text is judged against these,
+ * so it's never judged against a colour that isn't drawn.
+ */
+export function bandStops(style: BandColours): [string] | [string, string] {
+  const bg = BAND_HEX.test(style.headerColor) ? style.headerColor : "#111111";
+  const bg2 = style.headerGradientColor;
+  return bg2 && BAND_HEX.test(bg2) && bg2.toLowerCase() !== bg.toLowerCase() ? [bg, bg2] : [bg];
+}
+
+/** The band's text colour: the forced one, else whichever reads better across its stops. */
+export function bandInk(style: BandColours): "#000000" | "#ffffff" {
+  if (style.headerText === "white") return "#ffffff";
+  if (style.headerText === "black") return "#000000";
+  return readableAcross(bandStops(style));
+}
+
+/** The band text's worst contrast across the stops. The page warns below 3:1 (it's 18px bold). */
+export function bandTextContrast(style: BandColours): number {
+  const ink = bandInk(style);
+  return Math.min(...bandStops(style).map((bg) => contrastRatio(bg, ink)));
 }
 
 /**

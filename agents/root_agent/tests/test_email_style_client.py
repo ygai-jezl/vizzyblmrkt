@@ -64,6 +64,57 @@ def test_hide_company_name_sends_null():
     assert "companyName" not in es.build_suggest_payload("edit", "", company_name="  ")
 
 
+def test_a_gradient_header_sends_both_colours(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    es.suggest_style(
+        STATE,
+        "edit",
+        "make the header a purple-to-indigo gradient",
+        header_color="#7c3aed",
+        header_gradient_color=" #4F46E5 ",
+    )
+    assert calls[0]["payload"] == {
+        "kind": "email_style",
+        "action": "save_draft",
+        "mode": "edit",
+        "brief": "make the header a purple-to-indigo gradient",
+        "headerColor": "#7c3aed",
+        "headerGradientColor": "#4F46E5",
+    }
+
+
+def test_solid_header_sends_null_and_wins_over_a_colour_2():
+    p = es.build_suggest_payload("edit", "make the header solid again", header_gradient_color="#4f46e5", solid_header=True)
+    assert "headerGradientColor" in p and p["headerGradientColor"] is None
+
+
+def test_the_header_text_colour_is_lowercased(monkeypatch):
+    assert es.build_suggest_payload("edit", "", header_text_color=" White ")["headerText"] == "white"
+    assert es.build_suggest_payload("edit", "", header_text_color="AUTO")["headerText"] == "auto"
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    es.suggest_style(STATE, "edit", "make the header text black", header_text_color="Black")
+    assert calls[0]["payload"]["headerText"] == "black"
+
+
+def test_blank_header_options_send_nothing():
+    p = es.build_suggest_payload("edit", "", header_gradient_color="  ", header_text_color=" ")
+    assert not {"headerGradientColor", "headerText"} & set(p)
+    assert not {"headerGradientColor", "headerText"} & set(es.build_suggest_payload("edit", "make the header navy"))
+
+
+def test_header_options_switched_off_says_so_once(monkeypatch):
+    issue = "headerGradientColor/headerText: gradient headers and header text colour aren't switched on here yet"
+    _capture(monkeypatch, 400, {"error": "header_options_unavailable", "issues": [issue]})
+    out = es.suggest_style(STATE, "edit", "a purple-to-indigo gradient", "#7c3aed", header_gradient_color="#4f46e5")
+    assert out == {
+        "status": "error",
+        "code": "header_options_unavailable",
+        "issues": [issue],
+        # The app's issue says the same thing, so it isn't tacked on.
+        "message": "Gradient headers and header text colour aren't switched on in this environment yet.",
+    }
+
+
 def test_a_long_brief_is_cut_to_what_the_server_keeps():
     assert len(es.build_suggest_payload("edit", "x" * 4000)["brief"]) == 500
 
@@ -144,3 +195,13 @@ def test_root_routes_email_style_to_the_tools_as_a_suggestion():
     assert "suggest_email_style" in ROOT_SYSTEM_INSTRUCTION
     assert "only a suggestion" in ROOT_SYSTEM_INSTRUCTION
     assert "not one email in a journey" in ROOT_SYSTEM_INSTRUCTION
+    # Header options only when the read says they're on; logo clean-up stays on the page.
+    assert "header_gradient_color" in ROOT_SYSTEM_INSTRUCTION
+    assert "headerOptions" in ROOT_SYSTEM_INSTRUCTION
+    # The clean-up pointer sits under `headerOptions: true` (the page has it only then, for
+    # admins); without it, Vizzy says it isn't on and offers a transparent PNG instead.
+    on = ROOT_SYSTEM_INSTRUCTION.index("returns `headerOptions: true`")
+    cleanup = ROOT_SYSTEM_INSTRUCTION.index("an admin can remove a logo's white background")
+    off = ROOT_SYSTEM_INSTRUCTION.index("Without `headerOptions`, say those aren't switched on yet")
+    assert on < cleanup < off
+    assert "transparent PNG in Brand › Logos" in ROOT_SYSTEM_INSTRUCTION[off:]

@@ -6,11 +6,13 @@ import {
   fitLogoSize,
   logoHardToSee,
   paletteChips,
+  secondColourDefault,
   suggestionForReview,
   HEAVY_LOGO_BYTES,
   type EmailStyleLogoChoice,
   type PendingEmailStyleSuggestion,
 } from "./emailStyleForm";
+import { contrastRatio } from "@/lib/email/emailStyle";
 
 const px = (...pixels: Array<[number, number, number, number]>) => pixels.flat();
 
@@ -86,6 +88,119 @@ describe("emailStyleHints", () => {
   });
 });
 
+describe("emailStyleHints with the header options", () => {
+  const base = { logoBytes: 10_000, logoInk: "#ffffff", headerColor: "#0b1f3a", accentColor: "#0b1f3a" };
+
+  it("solid with Auto text adds nothing, text or not", () => {
+    expect(emailStyleHints({ ...base, headerGradientColor: null, headerText: "auto", showsText: true })).toEqual([]);
+    // Auto on a solid header is never below 4.58:1, even on a mid grey (only the light-header note).
+    expect(emailStyleHints({ ...base, logoInk: null, headerColor: "#777777", headerText: "auto", showsText: true })).toEqual([
+      expect.stringMatching(/dark mode/),
+    ]);
+  });
+
+  it("warns when a forced text colour is below 3:1, but only when the band shows text", () => {
+    const black = { ...base, headerColor: "#5b21b6", headerText: "black" as const };
+    expect(emailStyleHints({ ...black, showsText: true })).toEqual([
+      "Black text is hard to read on this header (2.3:1) — pick Auto, or a lighter header",
+    ]);
+    expect(emailStyleHints({ ...black, showsText: false })).toEqual([]);
+    expect(emailStyleHints(black)).toEqual([]);
+
+    expect(emailStyleHints({ ...base, logoInk: null, headerColor: "#ffd400", headerText: "white", showsText: true })).toEqual([
+      "White text is hard to read on this header (1.4:1) — pick Auto, or a darker header",
+      expect.stringMatching(/dark mode/),
+    ]);
+  });
+
+  it("forced black on the purple-to-indigo gradient reads well enough (3.3:1)", () => {
+    expect(
+      emailStyleHints({
+        ...base,
+        headerColor: "#7c3aed",
+        headerGradientColor: "#4f46e5",
+        headerText: "black",
+        showsText: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("Auto on a light-to-dark gradient warns about part of it", () => {
+    expect(
+      emailStyleHints({ ...base, logoInk: null, headerColor: "#ffd400", headerGradientColor: "#111111", showsText: true }),
+    ).toEqual([
+      "The header text is hard to read on part of the gradient (1.4:1) — pick two colours closer in lightness",
+      expect.stringMatching(/dark mode/),
+    ]);
+  });
+
+  it("a forced colour on a gradient Auto can't fix gets the gradient advice, not 'pick Auto'", () => {
+    // Auto picks white here too (1.4:1), so switching to it wouldn't help.
+    const gradient = { ...base, logoInk: null, headerColor: "#ffd400", headerGradientColor: "#111111", showsText: true };
+    expect(emailStyleHints({ ...gradient, headerText: "white" })).toEqual([
+      "The header text is hard to read on part of the gradient (1.4:1) — pick two colours closer in lightness",
+      expect.stringMatching(/dark mode/),
+    ]);
+    // Forced black is worse still (1.1:1), and Auto still can't reach 3:1.
+    expect(emailStyleHints({ ...gradient, headerText: "black" })).toEqual([
+      "The header text is hard to read on part of the gradient (1.1:1) — pick two colours closer in lightness",
+      expect.stringMatching(/dark mode/),
+    ]);
+    // Where Auto would read well (black, on two light colours), the advice is still to pick it.
+    expect(emailStyleHints({ ...gradient, headerGradientColor: "#ffe066", headerText: "white" })).toEqual([
+      "White text is hard to read on this header (1.3:1) — pick Auto, or a darker header",
+      expect.stringMatching(/dark mode/),
+    ]);
+  });
+
+  it("the logo warning fires on the gradient's worse colour", () => {
+    // A white logo: fine on navy, hard to see on the light end.
+    expect(emailStyleHints({ ...base, headerGradientColor: "#eeeeee" })).toEqual([
+      expect.stringMatching(/pick a darker header/),
+      expect.stringMatching(/dark mode/),
+    ]);
+    // A dark logo: fine on light grey (solid), hard to see on the navy end.
+    const dark = { ...base, logoInk: "#111111", headerColor: "#eeeeee" };
+    expect(emailStyleHints(dark)).toEqual([expect.stringMatching(/dark mode/)]);
+    expect(emailStyleHints({ ...dark, headerGradientColor: "#0b1f3a" })).toEqual([
+      expect.stringMatching(/pick a lighter header/),
+      expect.stringMatching(/dark mode/),
+    ]);
+  });
+
+  it("colour 2 equal to the header colour is a solid header", () => {
+    expect(emailStyleHints({ ...base, headerGradientColor: "#0b1f3a", showsText: true })).toEqual([]);
+  });
+});
+
+describe("secondColourDefault", () => {
+  const chips = [
+    { hex: "#7c3aed", name: "Purple" },
+    { hex: "#4f46e5", name: "Indigo" },
+  ];
+
+  it("starts from the first brand colour that isn't the header colour", () => {
+    expect(secondColourDefault(chips, "#7c3aed")).toBe("#4f46e5");
+    expect(secondColourDefault(chips, "#7C3AED")).toBe("#4f46e5");
+    expect(secondColourDefault(chips, "#0b1f3a")).toBe("#7c3aed");
+  });
+
+  it("with no other brand colour, the header 30% darker (lighter for a dark header)", () => {
+    expect(secondColourDefault([], "#7c3aed")).toBe("#5729a6");
+    expect(secondColourDefault([{ hex: "#7c3aed", name: "Purple" }], "#7c3aed")).toBe("#5729a6");
+    expect(secondColourDefault([], "#000000")).toBe("#4d4d4d");
+    // The page's own default header: darker would be #0c0c0c (1.04:1), which doesn't show.
+    expect(secondColourDefault([], "#111111")).toBe("#585858");
+    expect(secondColourDefault([], "#0b1f3a")).toBe("#546275");
+  });
+
+  it("with no other brand colour, the fade always shows (at least 1.5:1)", () => {
+    for (const header of ["#111111", "#1a1a1a", "#0b1f3a", "#333333", "#0000ff", "#7c3aed", "#ffd400", "#ffffff", "#777777"]) {
+      expect(contrastRatio(secondColourDefault([], header), header)).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+});
+
 describe("paletteChips", () => {
   it("normalises and dedupes palette then palettes, and caps the list", () => {
     const kit = {
@@ -123,12 +238,14 @@ describe("suggestionForReview", () => {
     suggestedAt: "2026-09-27T10:00:00.000Z",
   };
 
-  it("loads the suggestion as asked, with its notes", () => {
+  it("loads the suggestion as asked, with its notes (solid, Auto text when it has no header options)", () => {
     expect(suggestionForReview(suggestion, [logo()])).toEqual({
       logoId: "logo_1",
       companyName: "Example Co",
       headerColor: "#0b1f3a",
       accentColor: "#ff6b35",
+      headerGradientColor: null,
+      headerText: "auto",
       notes: ["A note from Vizzy"],
     });
     expect(suggestionForReview({ ...suggestion, logoId: null }, [logo()])).toMatchObject({ logoId: null, notes: ["A note from Vizzy"] });
@@ -161,6 +278,24 @@ describe("suggestionForReview", () => {
     expect(off.logoId).toBe("logo_1");
     expect(off.notes).toEqual(["A note from Vizzy", expect.stringMatching(/aren't switched on/)]);
     expect(off.notes.join(" ")).not.toMatch(/couldn't be loaded|try/);
+  });
+
+  it("carries the header options: the gradient's colour 2 and a forced text colour", () => {
+    const gradient = { ...suggestion, headerColor: "#7c3aed", headerGradientColor: "#4f46e5", headerText: "white" as const };
+    expect(suggestionForReview(gradient, [logo()])).toMatchObject({
+      headerColor: "#7c3aed",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+    // With no logo list too.
+    expect(suggestionForReview(gradient, [], { savedLogoId: "logo_1" })).toMatchObject({
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+    expect(suggestionForReview({ ...suggestion, headerText: "black" }, [logo()])).toMatchObject({
+      headerGradientColor: null,
+      headerText: "black",
+    });
   });
 
   it("never swaps the colours asked for, even for a hard-to-see logo", () => {

@@ -7,6 +7,8 @@ import { buildProductMapRunRequest } from "@/lib/knowledge/runJob";
 import { createConnection } from "./keys";
 import { SANDBOX_CATALOG } from "./sandbox";
 import { ANALYSES_PER_DAY, acceptProductMap, listRepoAnalyses, parseRepoUrl, startRepoAnalysis } from "./repoAnalysis";
+import { patchConnection } from "./adminApi";
+import { listCatalogRevisions } from "./catalogHistory";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", email: "jez@acme.test", role: "admin" };
 const NOW = Date.parse("2026-09-23T10:00:00Z");
@@ -182,6 +184,34 @@ describe("accepting a product map", () => {
     expect(r.ok && r.value.catalog.onboardingSteps.filter((s) => s.id === "run_audit")).toEqual([
       expect.objectContaining({ label: "Run an audit (from code)", order: 1 }),
     ]);
+  });
+
+  it("bumps the catalog's version, so a Catalog tab still open on the old copy can't save over what was added", async () => {
+    const { db, connection } = await withMap();
+    const r = await acceptProductMap(ctx, connection.id, "ra_done", { steps: ["invite_team"] }, { db, nowMs: NOW });
+    expect(r.ok).toBe(true);
+    const saved = await forTenant(ctx, db).productConnections.getById(connection.id);
+    expect(saved?.catalogRev).toBe(1);
+    const stale = await patchConnection(ctx, connection.id, { catalog: SANDBOX_CATALOG, catalogRev: 0 }, db);
+    expect(stale).toMatchObject({ status: 409, body: { error: "catalog_changed", catalogRev: 1 } });
+    const [version] = await listCatalogRevisions(ctx, connection.id, db);
+    expect(version).toMatchObject({ rev: 1, source: "learn", savedBy: "jez@acme.test", changes: ["Added step ‘Invite your team’"] });
+  });
+
+  it("adds to the catalog as it is at that moment, keeping a save that lands meanwhile", async () => {
+    const { db, connection } = await withMap();
+    db.onBeforeCommit = async () => {
+      await forTenant(ctx, db).productConnections.update(connection.id, {
+        catalog: { ...SANDBOX_CATALOG, glossary: [{ term: "Brand", definition: "A company you track" }] },
+        catalogRev: 5,
+      });
+    };
+    const r = await acceptProductMap(ctx, connection.id, "ra_done", { steps: ["invite_team"] }, { db });
+    expect(r.ok).toBe(true);
+    const saved = await forTenant(ctx, db).productConnections.getById(connection.id);
+    expect(saved?.catalogRev).toBe(6);
+    expect(saved?.catalog.glossary.map((g) => g.term)).toEqual(["Brand"]);
+    expect(saved?.catalog.onboardingSteps.map((s) => s.id)).toContain("invite_team");
   });
 
   it("refuses a non-https origin, a missing or malformed map, and another account", async () => {

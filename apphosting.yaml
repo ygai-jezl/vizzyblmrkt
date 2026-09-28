@@ -667,6 +667,14 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Catalog history: the Catalog tab lists the last 20 saved versions of a product's
+  # catalog (what changed, who, when) with Restore. Versions are recorded whatever
+  # this says; off hides the list and refuses a restore. Off in prod until verified
+  # on dev (apphosting.prod.yaml).
+  - variable: CATALOG_HISTORY_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

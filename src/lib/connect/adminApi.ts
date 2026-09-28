@@ -7,6 +7,7 @@ import {
   ConsentPolicySchema,
   ProductEnvironment,
   SandboxUserSchema,
+  type ConnectionCatalog,
   type ProductConnection,
 } from "@/lib/types/productConnection";
 import { assertSafeHttpsUrl } from "@/lib/security/ssrf";
@@ -19,7 +20,8 @@ import { sendConnectionWebhook } from "./webhookClient";
 import { eraseProductUser } from "./erase";
 import { productUserDocId } from "./profile";
 import { getUserView } from "./v2/users";
-import { isEntitiesEnabled } from "./v2/flags";
+import { isCatalogHistoryEnabled, isEntitiesEnabled } from "./v2/flags";
+import { getCatalogRevision, listCatalogRevisions, recordCatalogRevision } from "./catalogHistory";
 import {
   SANDBOX_CATALOG,
   SANDBOX_LINK_DOMAINS,
@@ -47,6 +49,7 @@ export function publicConnection(conn: ProductConnection, nowMs = Date.now()) {
   const { secretEnc: _s, prevSecretEnc: _p, ...rest } = conn;
   return {
     ...rest,
+    catalogRev: conn.catalogRev ?? 0,
     rotating: Boolean(conn.prevSecretExpiresAt && Date.parse(conn.prevSecretExpiresAt) > nowMs),
   };
 }
@@ -112,7 +115,11 @@ export async function getConnectionDetail(ctx: TenantContext, id: string, db?: F
   const conn = await loadConnection(ctx, id, db);
   if (!conn) return fail(404, "not_found");
   const diagnostics = await forTenant(ctx, db).connectionDiagnostics.getById(id);
-  return ok({ connection: publicConnection(conn), diagnostics, features: { entities: isEntitiesEnabled() } });
+  return ok({
+    connection: publicConnection(conn),
+    diagnostics,
+    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled() },
+  });
 }
 
 const EndpointInput = z.object({
@@ -131,6 +138,8 @@ const PatchInput = z
     linkDomains: z.array(z.string().min(1).max(253)).max(20).optional(),
     signupUrl: z.string().trim().max(2000).nullable().optional(),
     catalog: ConnectionCatalogSchema.optional(),
+    /** With `catalog`: the catalogRev it was edited from. A save from an older copy is refused. */
+    catalogRev: z.number().int().min(0).optional(),
     consentPolicy: ConsentPolicySchema.optional(),
     defaults: z.object({ timezone: z.string().max(64), locale: z.string().max(16) }).optional(),
   })
@@ -158,6 +167,9 @@ export async function patchConnection(
   if (!conn) return fail(404, "not_found");
   if (conn.status === "revoked") return fail(409, "connection_revoked");
   const p = parsed.data;
+  // A catalog save must say which version it was edited from. A page loaded before this check
+  // existed doesn't, and shows the detail as is (it doesn't know the code).
+  if (p.catalog && p.catalogRev === undefined) return fail(409, "catalog_page_outdated", "reload the page, then save again");
 
   if (conn.kind === "sandbox" && (p.contextEndpoint !== undefined || p.webhookEndpoint !== undefined)) {
     return fail(400, "sandbox_endpoints_fixed");
@@ -208,14 +220,118 @@ export async function patchConnection(
     ...(p.webhookEndpoint !== undefined ? { webhookEndpoint: p.webhookEndpoint } : {}),
     ...(linkDomains ? { linkDomains } : {}),
     ...(signupUrl !== undefined ? { signupUrl } : {}),
-    ...(p.catalog ? { catalog: p.catalog } : {}),
     ...(p.consentPolicy ? { consentPolicy: p.consentPolicy } : {}),
     ...(p.defaults ? { defaults: p.defaults } : {}),
     updatedAt: new Date().toISOString(),
   };
-  await forTenant(ctx, db).productConnections.update(id, patch);
-  invalidateConnectionCaches(conn.keyId, ctx.tenantId, id);
-  return ok({ connection: publicConnection({ ...conn, ...patch }) });
+  if (!p.catalog) {
+    await forTenant(ctx, db).productConnections.update(id, patch);
+    invalidateConnectionCaches(conn.keyId, ctx.tenantId, id);
+    return ok({ connection: publicConnection({ ...conn, ...patch }) });
+  }
+  const r = await writeCatalog(ctx, id, { catalog: p.catalog, baseRev: p.catalogRev ?? 0, patch, source: "editor" }, db);
+  return r.ok ? ok({ connection: publicConnection(r.connection) }) : r.result;
+}
+
+/**
+ * Replace a connection's catalog — only if it's still the version the change was
+ * made from (checked and written in one transaction), bumping catalogRev and
+ * recording the version in the catalog history. When it isn't, 409
+ * `catalog_changed` carries the current catalog so the page can carry its edits
+ * over onto it.
+ */
+async function writeCatalog(
+  ctx: TenantContext,
+  id: string,
+  change: {
+    catalog: ConnectionCatalog;
+    baseRev: number;
+    patch: Partial<ProductConnection>;
+    source: "editor" | "restore";
+    restoredFrom?: number;
+  },
+  db?: FirestoreLike,
+): Promise<{ ok: true; connection: ProductConnection } | { ok: false; result: ApiResult }> {
+  const seen: { before?: ProductConnection; conflict?: ProductConnection } = {};
+  const saved = await forTenant(ctx, db).productConnections.claim(id, (current) => {
+    seen.conflict = undefined;
+    seen.before = current;
+    if (current.status === "revoked") return null;
+    if ((current.catalogRev ?? 0) !== change.baseRev) {
+      seen.conflict = current;
+      return null;
+    }
+    return { ...change.patch, catalog: change.catalog, catalogRev: change.baseRev + 1 };
+  });
+  if (seen.conflict) {
+    const c = seen.conflict;
+    return { ok: false, result: { status: 409, body: { error: "catalog_changed", catalog: c.catalog, catalogRev: c.catalogRev ?? 0, updatedAt: c.updatedAt } } };
+  }
+  if (!saved || !seen.before) return { ok: false, result: seen.before ? fail(409, "connection_revoked") : fail(404, "not_found") };
+  invalidateConnectionCaches(saved.keyId, ctx.tenantId, id);
+  await recordCatalogRevision(
+    ctx,
+    {
+      connectionId: id,
+      before: { catalog: seen.before.catalog, rev: change.baseRev, savedAt: seen.before.updatedAt },
+      after: { catalog: saved.catalog, rev: change.baseRev + 1 },
+      source: change.source,
+      ...(change.restoredFrom !== undefined ? { restoredFrom: change.restoredFrom } : {}),
+      nowIso: saved.updatedAt,
+    },
+    db,
+  );
+  return { ok: true, connection: saved };
+}
+
+// ---- Catalog history ------------------------------------------------------------------
+
+/** The catalog's kept versions, newest first — what changed, who and when (not the catalogs themselves). */
+export async function getCatalogHistory(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
+  if (!isCatalogHistoryEnabled()) return fail(404, "not_found");
+  const conn = await loadConnection(ctx, id, db);
+  if (!conn) return fail(404, "not_found");
+  const rows = await listCatalogRevisions(ctx, id, db);
+  return ok({
+    catalogRev: conn.catalogRev ?? 0,
+    versions: rows.map((r) => ({
+      rev: r.rev,
+      savedAt: r.savedAt,
+      savedBy: r.savedBy,
+      source: r.source,
+      restoredFrom: r.restoredFrom ?? null,
+      changes: r.changes,
+    })),
+  });
+}
+
+const RestoreInput = z.object({ catalogRev: z.number().int().min(0) });
+
+/** Bring back an earlier version as a new one — refused, like a save, when the page's copy is out of date. */
+export async function restoreCatalogVersion(
+  ctx: TenantContext,
+  id: string,
+  rev: number,
+  input: unknown,
+  db?: FirestoreLike,
+): Promise<ApiResult> {
+  if (!isCatalogHistoryEnabled()) return fail(404, "not_found");
+  const parsed = RestoreInput.safeParse(input);
+  if (!parsed.success || !Number.isInteger(rev) || rev < 0) return fail(400, "invalid_input", parsed.success ? "rev" : zodReason(parsed.error));
+  const conn = await loadConnection(ctx, id, db);
+  if (!conn) return fail(404, "not_found");
+  if (conn.status === "revoked") return fail(409, "connection_revoked");
+  const version = await getCatalogRevision(ctx, id, rev, db);
+  if (!version) return fail(404, "version_not_found");
+  const catalog = ConnectionCatalogSchema.safeParse(version.catalog);
+  if (!catalog.success) return fail(422, "catalog_invalid", zodReason(catalog.error));
+  const r = await writeCatalog(
+    ctx,
+    id,
+    { catalog: catalog.data, baseRev: parsed.data.catalogRev, patch: { updatedAt: new Date().toISOString() }, source: "restore", restoredFrom: rev },
+    db,
+  );
+  return r.ok ? ok({ connection: publicConnection(r.connection) }) : r.result;
 }
 
 export async function revokeProductConnection(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {

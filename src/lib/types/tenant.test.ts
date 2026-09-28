@@ -330,6 +330,17 @@ describe("EmailStyleSuggestionSchema (strict on write)", () => {
     expect(ok({ headerImageId: { id: "hdr_spring" } })).toBe(false);
   });
 
+  it("takes a theme only when set, strictly: a look and font ids, as the Email style stores one", () => {
+    expect(EmailStyleSuggestionSchema.parse({ ...suggestion, theme: { preset: "modern" } }).theme).toEqual({ preset: "modern" });
+    expect(ok({ theme: { preset: "editorial", headingFont: "playfair-display", bodyFont: "arial" } })).toBe(true);
+    expect(EmailStyleSuggestionSchema.parse(suggestion)).not.toHaveProperty("theme");
+    expect(ok({ theme: null })).toBe(false);
+    expect(ok({ theme: "modern" })).toBe(false);
+    expect(ok({ theme: { preset: "brutalist" } })).toBe(false);
+    expect(ok({ theme: { preset: "modern", headingFont: "Inter" } })).toBe(false);
+    expect(ok({ theme: { preset: "modern", buttonRadius: 0 } })).toBe(false);
+  });
+
   it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {
     expect(ok({ headerColor: "navy" })).toBe(false);
     expect(ok({ companyName: "{{user.first_name}} Co" })).toBe(false);

@@ -2,12 +2,16 @@ import { getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandAsset } from "@/lib/types/brandAsset";
+import { EMAIL_THEME_PRESETS, type EmailTheme } from "@/lib/types/tenant";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { listLogos } from "@/lib/admin/brandLogos";
 import { listBrandAssets } from "@/lib/admin/brandAssets";
 import { BRAND_KIT_EMAIL_STYLE_ROUTE, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
+import { themeForForm } from "@/components/admin/brand-kit/emailStyleForm";
 import { isEmailHeaderImage, isEmailLogo, styleFromBrandKit } from "./emailStyle";
-import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled } from "./flags";
+import { EMAIL_FONT_LIST } from "./emailFonts";
+import { EMAIL_THEME_PRESET_SPECS, PILL_RADIUS } from "./emailThemes";
+import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled, isEmailThemesEnabled, isEmailWebFontsEnabled } from "./flags";
 
 /**
  * What Vizzy may READ to talk about and suggest the Email style: the saved style, the
@@ -15,7 +19,8 @@ import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled } from "./flags";
  * email can use. No people or addresses. Auth is the signed canvas capability token (the
  * tenant comes from it), gated by the Email style flag. The header options (a gradient, the
  * header text colour, and a header image an admin uploaded on the page) are in it only with
- * EMAIL_HEADER_OPTIONS_ENABLED on; off, it's exactly as without them.
+ * EMAIL_HEADER_OPTIONS_ENABLED on; off, it's exactly as without them. The theme (a look and two
+ * fonts, with the looks and fonts to pick from) likewise, only with EMAIL_THEMES_ENABLED on.
  */
 
 export type ApiResult = { status: number; body: unknown };
@@ -28,6 +33,44 @@ const IMAGE_NOTE =
   " headerImage replaces the logo and name with a banner uploaded on the page (null = the colour header; headerColor " +
   'stays behind it and shows when images are off). Suggest one by its id from headerImages, or "none"; only the page ' +
   "can upload one.";
+const THEME_NOTE =
+  " theme is a look from themePresets with a heading and a body font from fonts (by id): a look brings its own fonts " +
+  "unless fonts are picked too, and useBrandFonts takes them from Brand › Fonts where email has them. Outlook for " +
+  "Windows draws the corners and buttons square.";
+const WEB_FONTS_NOTE =
+  " A web font shows only in Apple Mail, Outlook for Mac and a few other inboxes; Gmail, Outlook.com and the rest show its fallback.";
+const WEB_FONTS_OFF_NOTE = " Web fonts aren't switched on yet, so every inbox shows a web font's fallback.";
+
+/** A theme with its fonts filled in (a look's own when left out); Classic with the system font for none. */
+function themeRead(theme: EmailTheme | undefined) {
+  return { theme: themeForForm(theme) };
+}
+
+/** The looks to pick from, as Vizzy can describe them. */
+function themePresets() {
+  return EMAIL_THEME_PRESETS.map((id) => {
+    const p = EMAIL_THEME_PRESET_SPECS[id];
+    return {
+      id,
+      label: p.label,
+      headingFont: p.headingFont,
+      bodyFont: p.bodyFont,
+      page: p.page === "tint" ? "a light tint of the button colour" : p.page,
+      card: p.cardRadius ? "rounded" : "square",
+      buttons: p.buttonRadius === PILL_RADIUS ? "pill" : p.buttonRadius ? "rounded" : "square",
+    };
+  });
+}
+
+/** The fonts to pick from: a safe one shows in every inbox; a web one only in a few, the rest show its fallback. */
+function fonts() {
+  return EMAIL_FONT_LIST.map((f) => ({
+    id: f.id,
+    label: f.label,
+    kind: f.web ? "web" : "safe",
+    fallback: f.web?.fallback ?? null,
+  }));
+}
 
 export function emailStyleAgentGate(req: Request): { ok: true; ctx: TenantContext } | { ok: false; result: ApiResult } {
   if (!isEmailStyleEnabled()) return { ok: false, result: { status: 503, body: { error: "unavailable" } } };
@@ -55,6 +98,7 @@ export async function emailHeaderImages(ctx: TenantContext): Promise<EmailHeader
 
 export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
   const headerOptions = isEmailHeaderOptionsEnabled();
+  const themes = isEmailThemesEnabled();
   const [tenant, logos, images] = await Promise.all([
     getTenantById(ctx.tenantId, db).catch(() => null),
     emailStyleLogos(ctx).catch(() => null),
@@ -94,6 +138,8 @@ export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): P
       canSuggest: ctx.role === "admin",
       // Vizzy may suggest a gradient, the header text colour and an uploaded header image too.
       ...(headerOptions ? { headerOptions: true } : {}),
+      // And a theme: a look, and a heading and a body font.
+      ...(themes ? { themes: true } : {}),
       // What branded emails wear now; null = today's plain look, with no header band.
       current: saved
         ? {
@@ -102,6 +148,7 @@ export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): P
             headerColor: saved.headerColor,
             ...optionsOf(saved, saved.headerImage?.id),
             buttonColor: saved.accentColor,
+            ...(themes ? themeRead(saved.theme) : {}),
             updatedAt: saved.updatedAt ?? null,
           }
         : null,
@@ -113,6 +160,7 @@ export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): P
             headerColor: pending.headerColor,
             ...optionsOf(pending, pending.headerImageId),
             buttonColor: pending.accentColor,
+            ...(themes ? themeRead(pending.theme) : {}),
             source: pending.source,
             brief: pending.brief,
             notes: pending.notes,
@@ -135,7 +183,11 @@ export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): P
       })),
       // The banners an admin uploaded on the page; pass an id, or "none" for the colour header.
       ...(headerOptions ? { headerImages: images.map((i) => ({ id: i.id, title: i.title })) } : {}),
-      note: headerOptions ? NOTE + OPTIONS_NOTE + IMAGE_NOTE : NOTE,
+      // The looks and fonts a theme is made of.
+      ...(themes ? { themePresets: themePresets(), fonts: fonts() } : {}),
+      note:
+        (headerOptions ? NOTE + OPTIONS_NOTE + IMAGE_NOTE : NOTE) +
+        (themes ? THEME_NOTE + (isEmailWebFontsEnabled() ? WEB_FONTS_NOTE : WEB_FONTS_OFF_NOTE) : ""),
     },
   };
 }

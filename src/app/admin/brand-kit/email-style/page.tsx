@@ -87,9 +87,12 @@ export default async function EmailStylePage() {
       console.error("[email-style] header images failed to load", err);
     }
   }
+  // Off, the page is exactly as without them: no Theme section, and Save sends no theme (the PUT keeps the stored one).
+  const themes = isEmailThemesEnabled();
+  const webFonts = themes && isEmailWebFontsEnabled();
   // Vizzy's pending suggestion, for the banner. Who asked stays on the server. Its header
-  // options (and header image) only come along with them on; off, the banner and Review are as
-  // without them.
+  // options (and header image), and its theme, only come along with them on; off, the banner
+  // and Review are as without them.
   const suggestion = tenant?.emailStyleSuggestion;
   const pending = suggestion
     ? {
@@ -100,15 +103,13 @@ export default async function EmailStylePage() {
         ...(headerOptions && suggestion.headerGradientColor ? { headerGradientColor: suggestion.headerGradientColor } : {}),
         ...(headerOptions && suggestion.headerText ? { headerText: suggestion.headerText } : {}),
         ...(headerOptions && suggestion.headerImageId ? { headerImageId: suggestion.headerImageId } : {}),
+        ...(themes && suggestion.theme ? { theme: suggestion.theme } : {}),
         source: suggestion.source,
         brief: suggestion.brief,
         notes: suggestion.notes,
         suggestedAt: suggestion.suggestedAt,
       }
     : null;
-  // Off, the page is exactly as without them: no Theme section, and Save sends no theme (the PUT keeps the stored one).
-  const themes = isEmailThemesEnabled();
-  const webFonts = themes && isEmailWebFontsEnabled();
   const phase3 = isNavV2Phase3Enabled();
 
   return (

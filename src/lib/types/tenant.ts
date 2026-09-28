@@ -589,7 +589,9 @@ export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 }
  * `suggestedAt` is the compare-and-clear key, so a Save or Dismiss never clears a newer one.
  * The header options are stored only when set (absent = solid / Auto / the colour header), and
  * strictly: a damaged one reads the whole suggestion as none, as for any other field. A header
- * image is by id only: its file and size come from the row on Review.
+ * image is by id only: its file and size come from the row on Review. The theme
+ * (EMAIL_THEMES_ENABLED) likewise: stored only when it isn't Classic with the system font,
+ * without the look's own fonts, and strictly.
  */
 export const EmailStyleSuggestionSchema = z.object({
   logoId: EmailStyleLogoSchema.shape.id.nullable(),
@@ -602,6 +604,8 @@ export const EmailStyleSuggestionSchema = z.object({
   headerText: z.enum(["white", "black"]).optional(),
   /** A header image (a `header` brand asset's id) in place of the logo and name; absent = the colour header. */
   headerImageId: EmailStyleLogoSchema.shape.id.optional(),
+  /** A look and two fonts, as the Email style stores one; absent = Classic with the system font. */
+  theme: EmailThemeSchema.optional(),
   source: z.enum(["brand_kit", "chat"]),
   /** What was asked for, in the asker's words. */
   brief: z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.brief),

@@ -49,6 +49,7 @@ import {
   secondColourDefault,
   suggestionForReview,
   themeForForm,
+  themeLabel,
   type BrandFontsForEmail,
   type EmailStyleLogoChoice,
   type FormTheme,
@@ -651,7 +652,8 @@ export function EmailStyleCard({
    * Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual.
    * Its header options too (the page only gets them with the options on): a solid suggestion
    * unticks Gradient and keeps Colour 2, as unticking does, and its header image picks Image
-   * with that banner, or Colour with none (a deleted one is Colour, with a note).
+   * with that banner, or Colour with none (a deleted one is Colour, with a note). With themes
+   * on, its theme as well: none picks Classic with the system font.
    */
   function review(s: PendingEmailStyleSuggestion) {
     const r = suggestionForReview(
@@ -659,6 +661,7 @@ export function EmailStyleCard({
       allLogos,
       listed ? undefined : { savedLogoId: savedLogo?.id ?? null, logosOff: logosUnavailable === "off" },
       headerOptions ? { images: listedImages, savedImageId: savedImage?.id ?? null } : undefined,
+      themes,
     );
     edit({
       logoId: r.logoId,
@@ -674,8 +677,10 @@ export function EmailStyleCard({
         : r.headerImageId
           ? { headerMode: "image" as const, headerImageId: r.headerImageId }
           : { headerMode: "colour" as const }),
+      ...(r.theme ? { theme: r.theme } : {}),
     });
     setNotes(r.notes);
+    setFontNotes([]);
     setReviewing(s.suggestedAt);
   }
 
@@ -804,6 +809,10 @@ export function EmailStyleCard({
             (headerImagesUnavailable && savedImage && savedImage.id === suggestion.headerImageId ? "Current header image" : null)
           }
           headerImagesUnavailable={headerImagesUnavailable}
+          theme={
+            // Named when it has one, or would take the saved one away (the page only gets it with themes on).
+            themes && (suggestion.theme || saved?.theme) ? themeLabel(suggestion.theme) : null
+          }
           canEdit={canEdit}
           reviewing={reviewing === suggestion.suggestedAt}
           disabled={busy !== null}
@@ -1179,6 +1188,7 @@ function SuggestionBanner({
   logosUnavailable,
   headerImageTitle,
   headerImagesUnavailable,
+  theme,
   canEdit,
   reviewing,
   disabled,
@@ -1194,6 +1204,8 @@ function SuggestionBanner({
   headerImageTitle: string | null;
   /** The header images couldn't be loaded, so one missing from the list isn't known to be deleted. */
   headerImagesUnavailable: boolean;
+  /** The suggested theme by name ("Modern (Inter / Inter)"); null = not named (themes off, or no change from none). */
+  theme: string | null;
   canEdit: boolean;
   /** It's loaded into the form. */
   reviewing: boolean;
@@ -1231,6 +1243,7 @@ function SuggestionBanner({
           {banner ? <SwatchLabel hex={suggestion.headerColor} label="Behind image" /> : null}
           {!banner && suggestion.headerText ? <span>Text: {suggestion.headerText}</span> : null}
           <SwatchLabel hex={suggestion.accentColor} label="Button" />
+          {theme ? <span>Theme: {theme}</span> : null}
           <span>
             Logo:{" "}
             {suggestion.logoId

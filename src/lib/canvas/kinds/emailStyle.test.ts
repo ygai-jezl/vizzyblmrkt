@@ -161,6 +161,8 @@ beforeEach(() => {
   vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
   // Off unless a test turns it on, whatever the shell has.
   vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+  vi.stubEnv("EMAIL_THEMES_ENABLED", "false");
+  vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "false");
   brandLogos.listLogos.mockReset().mockResolvedValue(LOGOS);
   brandAssets.listBrandAssets.mockReset().mockResolvedValue([]);
 });
@@ -894,5 +896,257 @@ describe("email_style canvas kind: header images", () => {
     const { suggestedAt: _b, ...b } = suggestionIn(without)!;
     expect(a).toEqual(b);
     expect(a).not.toHaveProperty("headerImageId");
+  });
+});
+
+describe("email_style canvas kind: themes", () => {
+  const on = () => vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+  const THEMES_OFF = {
+    ok: false,
+    status: 400,
+    error: "themes_unavailable",
+    issues: ["theme/headingFont/bodyFont/useBrandFonts: email themes and fonts aren't switched on here yet"],
+  };
+  const EDITORIAL = { preset: "editorial", headingFont: "playfair-display" };
+  // Brand › Fonts: a heading email has (Playfair Display), and a body font it doesn't.
+  const TYPOGRAPHY = {
+    styles: [
+      { id: "ts_1", name: "Heading", role: "heading", fontFamily: "Playfair Display Bold" },
+      { id: "ts_2", name: "Body", role: "body", fontFamily: "Example Sans" },
+    ],
+  };
+  const NOT_FOR_TEXT = "“Example Sans” isn't available for email yet, so text keeps the current font";
+  const tail = " It's only a suggestion: nothing changes until an admin reviews and saves it in Brand › Email style.";
+
+  it("flag off: a real look, font or Brand fonts is refused before anything is read, written or counted", async () => {
+    const db = world({ emailStyle: SAVED });
+    for (const input of [
+      { theme: "modern" },
+      { theme: "classic", headingFont: "inter" },
+      { bodyFont: "georgia" },
+      { useBrandFonts: true },
+    ]) {
+      expect(await author(db, { mode: "edit", ...input })).toEqual(THEMES_OFF);
+    }
+    expect(brandLogos.listLogos).not.toHaveBeenCalled();
+    expect(suggestionIn(db)).toBeUndefined();
+    expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
+    for (let i = 0; i < 5; i += 1) expect(await author(db, { mode: "brand_kit" })).toMatchObject({ ok: true });
+  });
+
+  it('flag off: "classic", the system font and no Brand fonts are today\'s look, so the answers are exactly today\'s', async () => {
+    const today = { theme: "classic", headingFont: "system", bodyFont: "system", useBrandFonts: false };
+    const db = world({ emailStyle: SAVED, emailStyleSuggestion: PENDING });
+    expect(await author(db, { mode: "edit", headerColor: "#000080", ...today }, admin, "Make the header navy")).toEqual(
+      PINNED_EDIT.answer,
+    );
+    expect(suggestionIn(db)).toEqual(PINNED_EDIT.suggestion);
+    const kit = world({ emailStyle: SAVED });
+    expect(await author(kit, { mode: "brand_kit", theme: "classic" })).toEqual(PINNED_BRAND_KIT.answer);
+    expect(suggestionIn(kit)).toEqual(PINNED_BRAND_KIT.suggestion);
+  });
+
+  it("flag off: nothing is carried over from a pending suggestion or saved style that has a theme", async () => {
+    const db = world({
+      emailStyle: { ...SAVED, theme: { preset: "modern" } },
+      emailStyleSuggestion: { ...PENDING, theme: EDITORIAL, notes: [NOT_FOR_TEXT] },
+    });
+    expect(await author(db, { mode: "edit", headerColor: "#000080", logo: "primary" }, admin, "Make the header navy")).toEqual({
+      ...PINNED_EDIT.answer,
+      warnings: [],
+      card: { ...PINNED_EDIT.answer.card, warnings: 0 },
+    });
+    expect(suggestionIn(db)).toEqual({ ...PINNED_EDIT.suggestion, notes: [] });
+    const kit = world({ emailStyle: { ...SAVED, theme: { preset: "modern" } } });
+    expect(await author(kit, { mode: "brand_kit" })).toEqual(PINNED_BRAND_KIT.answer);
+    expect(suggestionIn(kit)).toEqual(PINNED_BRAND_KIT.suggestion);
+  });
+
+  it("flag on, with no theme asked for or stored: exactly today's answers", async () => {
+    on();
+    vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+    const db = world({ emailStyle: SAVED, emailStyleSuggestion: PENDING });
+    expect(await author(db, { mode: "edit", headerColor: "#000080" }, admin, "Make the header navy")).toEqual(PINNED_EDIT.answer);
+    expect(suggestionIn(db)).toEqual(PINNED_EDIT.suggestion);
+    const kit = world({ emailStyle: SAVED });
+    expect(await author(kit, { mode: "brand_kit" })).toEqual(PINNED_BRAND_KIT.answer);
+    expect(suggestionIn(kit)).toEqual(PINNED_BRAND_KIT.suggestion);
+  });
+
+  // Pinned whole: a look with its own fonts, with web fonts off.
+  it("flag on: pins a Modern answer and suggestion", async () => {
+    on();
+    const db = world({ emailStyle: SAVED });
+    expect(await author(db, { mode: "edit", theme: "modern" }, admin, "Make my emails feel more modern")).toEqual({
+      ok: true,
+      id: "email_style",
+      status: "suggested",
+      url: "/admin/brand-kit/email-style",
+      summary:
+        'Suggested an Email style (header #222244, button #00aa55, theme Modern (Inter / Inter), your logo, the name "Example Co"). ' +
+        "Web fonts aren't switched on yet, so every inbox shows Segoe UI or Helvetica in place of Inter." +
+        tail,
+      warnings: [],
+      card: {
+        kind: "email_style",
+        id: "email_style",
+        title: "Email style suggestion",
+        url: "/admin/brand-kit/email-style",
+        stats: [
+          { label: "header", value: "#222244" },
+          { label: "button", value: "#00aa55" },
+          { label: "theme", value: "Modern (Inter / Inter)" },
+        ],
+        warnings: 0,
+        note: "Suggestion — nothing changes until an admin applies it.",
+        cta: "Review and apply",
+      },
+    });
+    expect(suggestionIn(db)).toEqual({
+      logoId: "logo_jpg",
+      companyName: "Example Co",
+      headerColor: "#222244",
+      accentColor: "#00aa55",
+      theme: { preset: "modern" },
+      source: "chat",
+      brief: "Make my emails feel more modern",
+      notes: [],
+      suggestedBy: "usr_admin",
+      suggestedAt: expect.any(String),
+    });
+    // It reads back, and the saved style is untouched.
+    expect((await getTenantById("ten_A", db))?.emailStyleSuggestion?.theme).toEqual({ preset: "modern" });
+    expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
+  });
+
+  it("flag on: with web fonts on, says which inboxes show them and what the rest show", async () => {
+    on();
+    vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+    const cases: Array<[string, string]> = [
+      ["modern", " Inter shows in Apple Mail and Outlook for Mac; Gmail, Outlook.com and most other inboxes show Segoe UI or Helvetica instead."],
+      ["editorial", " Lora shows in Apple Mail and Outlook for Mac; Gmail, Outlook.com and most other inboxes show Georgia instead."],
+      [
+        "friendly",
+        " Poppins and Nunito show in Apple Mail and Outlook for Mac; Gmail, Outlook.com and most other inboxes show Segoe UI or Helvetica instead.",
+      ],
+    ];
+    for (const [theme, line] of cases) {
+      __resetRateLimitState();
+      const r = await author(world({ emailStyle: SAVED }), { mode: "edit", theme });
+      if (!r.ok) throw new Error("expected a suggestion");
+      expect(r.summary).toContain(`).${line} It's only a suggestion`);
+    }
+    // Safe fonts only: nothing to say.
+    const safe = await author(world({ emailStyle: SAVED }), { mode: "edit", theme: "modern", headingFont: "arial", bodyFont: "verdana" });
+    if (!safe.ok) throw new Error("expected a suggestion");
+    expect(safe.summary).toContain('theme Modern (Arial / Verdana), your logo, the name "Example Co").' + tail);
+  });
+
+  it("flag on: fonts go over the look's own, and only differing ones are stored", async () => {
+    on();
+    const db = world({ emailStyle: SAVED });
+    const r = await author(db, { mode: "edit", theme: "editorial", headingFont: "playfair-display" });
+    expect(r).toMatchObject({ ok: true, card: { stats: [{}, {}, { label: "theme", value: "Editorial (Playfair Display / Georgia)" }] } });
+    expect(suggestionIn(db)?.theme).toEqual(EDITORIAL);
+    await author(db, { mode: "edit", theme: "editorial", headingFont: "lora", bodyFont: "georgia" });
+    expect(suggestionIn(db)?.theme).toEqual({ preset: "editorial" });
+    // A font alone keeps the look carried over (here, the pending Editorial).
+    await author(db, { mode: "edit", bodyFont: "arial" });
+    expect(suggestionIn(db)?.theme).toEqual({ preset: "editorial", bodyFont: "arial" });
+    // A look alone brings its own fonts.
+    await author(db, { mode: "edit", theme: "friendly" });
+    expect(suggestionIn(db)?.theme).toEqual({ preset: "friendly" });
+  });
+
+  it("flag on: edit carries the theme from the pending suggestion, then from the saved style", async () => {
+    on();
+    const fromPending = world({ emailStyle: { ...SAVED, theme: { preset: "modern" } }, emailStyleSuggestion: { ...PENDING, theme: EDITORIAL } });
+    const r = await author(fromPending, { mode: "edit", buttonColor: "#00aa55" });
+    expect(r).toMatchObject({ ok: true, card: { stats: [{}, {}, { label: "theme", value: "Editorial (Playfair Display / Georgia)" }] } });
+    expect(suggestionIn(fromPending)).toMatchObject({ headerColor: "#333333", accentColor: "#00aa55", theme: EDITORIAL });
+
+    const fromSaved = world({ emailStyle: { ...SAVED, theme: { preset: "modern", bodyFont: "lora" } } });
+    await author(fromSaved, { mode: "edit", buttonColor: "#ABC" });
+    expect(suggestionIn(fromSaved)).toMatchObject({ accentColor: "#aabbcc", theme: { preset: "modern", bodyFont: "lora" } });
+    expect(fromSaved.raw("tenants", "ten_A")?.emailStyle).toEqual({ ...SAVED, theme: { preset: "modern", bodyFont: "lora" } });
+  });
+
+  it('flag on: "classic" takes the theme away, and the answer says so', async () => {
+    on();
+    const db = world({ emailStyle: { ...SAVED, theme: { preset: "modern" } } });
+    const r = await author(db, { mode: "edit", theme: "classic" }, admin, "Go back to the classic look");
+    if (!r.ok) throw new Error("expected a suggestion");
+    expect(r.summary).toBe(
+      'Suggested an Email style (header #222244, button #00aa55, theme Classic (System / System), your logo, the name "Example Co").' +
+        tail,
+    );
+    expect(r.card.stats).toContainEqual({ label: "theme", value: "Classic (System / System)" });
+    expect(suggestionIn(db)).not.toHaveProperty("theme");
+    // Classic with other fonts is a theme.
+    await author(db, { mode: "edit", theme: "classic", bodyFont: "georgia" });
+    expect(suggestionIn(db)?.theme).toEqual({ preset: "classic", bodyFont: "georgia" });
+  });
+
+  it("flag on: brand_kit keeps the saved theme, not the pending one; an asked-for look goes on top", async () => {
+    on();
+    const db = world({ emailStyle: { ...SAVED, theme: { preset: "modern" } }, emailStyleSuggestion: { ...PENDING, theme: EDITORIAL } });
+    const r = await author(db, { mode: "brand_kit" });
+    expect(r).toMatchObject({ ok: true, card: { stats: [{ value: "#0b1f3a" }, { value: "#ff6b35" }, { label: "theme", value: "Modern (Inter / Inter)" }] } });
+    expect(suggestionIn(db)).toMatchObject({ headerColor: "#0b1f3a", source: "brand_kit", theme: { preset: "modern" } });
+    await author(db, { mode: "brand_kit", theme: "friendly" });
+    expect(suggestionIn(db)?.theme).toEqual({ preset: "friendly" });
+  });
+
+  it("flag on: useBrandFonts takes Brand's fonts where email has them, and says which it can't", async () => {
+    on();
+    const db = world({ emailStyle: { ...SAVED, theme: { preset: "modern" } }, brandTypography: TYPOGRAPHY });
+    const r = await author(db, { mode: "edit", useBrandFonts: true }, admin, "Use my brand fonts in emails");
+    expect(r).toMatchObject({
+      ok: true,
+      warnings: [NOT_FOR_TEXT],
+      card: { stats: [{}, {}, { label: "theme", value: "Modern (Playfair Display / Inter)" }], warnings: 1 },
+    });
+    expect(suggestionIn(db)).toMatchObject({ theme: { preset: "modern", headingFont: "playfair-display" }, notes: [NOT_FOR_TEXT] });
+
+    // Picking a logo keeps the font note; a font picked afterwards replaces it.
+    await author(db, { mode: "edit", logo: "primary" });
+    expect(suggestionIn(db)).toMatchObject({ logoId: "logo_png", notes: [NOT_FOR_TEXT] });
+    await author(db, { mode: "edit", bodyFont: "georgia" });
+    expect(suggestionIn(db)).toMatchObject({ theme: { preset: "modern", headingFont: "playfair-display", bodyFont: "georgia" }, notes: [] });
+
+    // A font given with it wins; with both given, Brand isn't asked.
+    await author(db, { mode: "edit", useBrandFonts: true, headingFont: "lora" });
+    expect(suggestionIn(db)).toMatchObject({ theme: { preset: "modern", headingFont: "lora", bodyFont: "georgia" }, notes: [NOT_FOR_TEXT] });
+    await author(db, { mode: "edit", useBrandFonts: true, headingFont: "inter", bodyFont: "inter" });
+    expect(suggestionIn(db)).toMatchObject({ theme: { preset: "modern" }, notes: [] });
+  });
+
+  it("flag on: useBrandFonts with no brand fonts keeps the fonts, with a note", async () => {
+    on();
+    __resetRateLimitState();
+    const db = world({ emailStyle: SAVED });
+    const r = await author(db, { mode: "edit", useBrandFonts: true });
+    expect(r).toMatchObject({ ok: true, warnings: ["No brand fonts yet — add text styles in Brand › Fonts"] });
+    expect(suggestionIn(db)).not.toHaveProperty("theme");
+  });
+
+  it("refuses an unknown look or font with an issue the agent can fix, flag on or off", async () => {
+    for (const flag of ["false", "true"]) {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", flag);
+      const db = world();
+      for (const [input, field] of [
+        [{ theme: "brutalist" }, "theme:"],
+        [{ theme: "Modern" }, "theme:"],
+        [{ headingFont: "comic-sans" }, "headingFont:"],
+        [{ bodyFont: "'Inter',sans-serif" }, "bodyFont:"],
+        [{ useBrandFonts: "yes" }, "useBrandFonts:"],
+      ] as const) {
+        const r = await author(db, { mode: "edit", ...input });
+        expect(r).toMatchObject({ ok: false, status: 400, error: "invalid_input" });
+        if (r.ok) throw new Error("expected a refusal");
+        expect(r.issues).toEqual([expect.stringContaining(field)]);
+      }
+      expect(suggestionIn(db)).toBeUndefined();
+    }
   });
 });

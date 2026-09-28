@@ -9,6 +9,7 @@ import {
   emailStyleSaveInput,
   fitLogoSize,
   headerAfterDelete,
+  isBrandFontNote,
   logoForSave,
   logoHardToSee,
   pageFontStack,
@@ -19,6 +20,7 @@ import {
   secondColourDefault,
   suggestionForReview,
   themeForForm,
+  themeLabel,
   HEAVY_LOGO_BYTES,
   type EmailStyleLogoChoice,
   type PendingEmailStyleSuggestion,
@@ -525,6 +527,24 @@ describe("suggestionForReview", () => {
       expect(suggestionForReview(banner, [logo()])).not.toHaveProperty("headerImageId");
     });
   });
+
+  describe("with themes on", () => {
+    it("loads the suggested theme with its fonts filled in; none is Classic with the system font", () => {
+      const themed = { ...suggestion, theme: { preset: "editorial" as const, headingFont: "playfair-display" as const } };
+      expect(suggestionForReview(themed, [logo()], undefined, undefined, true)).toMatchObject({
+        headerColor: "#0b1f3a",
+        theme: { preset: "editorial", headingFont: "playfair-display", bodyFont: "georgia" },
+        notes: ["A note from Vizzy"],
+      });
+      expect(suggestionForReview(suggestion, [logo()], undefined, undefined, true).theme).toEqual(presetTheme("classic"));
+    });
+
+    it("with themes off (not given), the theme is left as it is", () => {
+      const themed = { ...suggestion, theme: { preset: "modern" as const } };
+      expect(suggestionForReview(themed, [logo()])).not.toHaveProperty("theme");
+      expect(suggestionForReview(themed, [logo()], undefined, undefined, false)).not.toHaveProperty("theme");
+    });
+  });
 });
 
 describe("emailStyleSaveInput: what Save sends", () => {
@@ -615,6 +635,16 @@ describe("the form's theme", () => {
     expect(sameTheme(presetTheme("modern"), themeForForm({ preset: "modern" }))).toBe(true);
     expect(sameTheme(presetTheme("modern"), { ...presetTheme("modern"), bodyFont: "lora" })).toBe(false);
     expect(sameTheme(presetTheme("classic"), presetTheme("editorial"))).toBe(false);
+  });
+});
+
+describe("themeLabel", () => {
+  it("names the look, then the heading and body fonts; none is Classic", () => {
+    expect(themeLabel({ preset: "modern" })).toBe("Modern (Inter / Inter)");
+    expect(themeLabel({ preset: "editorial", headingFont: "playfair-display" })).toBe("Editorial (Playfair Display / Georgia)");
+    expect(themeLabel({ preset: "friendly", bodyFont: "trebuchet" })).toBe("Friendly (Poppins / Trebuchet MS)");
+    expect(themeLabel(null)).toBe("Classic (System / System)");
+    expect(themeLabel(undefined)).toBe("Classic (System / System)");
   });
 });
 
@@ -771,6 +801,28 @@ describe("brandFontsToEmail: Use brand fonts", () => {
         bodyFont: null,
         notes: ["No brand fonts yet — add text styles in Brand › Fonts"],
       });
+    }
+  });
+});
+
+describe("isBrandFontNote", () => {
+  it("knows Use brand fonts' notes, and nothing else", () => {
+    const style = (role: TextStyle["role"], fontFamily: string): TextStyle => ({ id: `ts_${role}`, name: role, role, fontFamily });
+    const notes = [
+      ...brandFontsToEmail(null, null).notes,
+      ...brandFontsToEmail({ styles: [style("heading", "Example Serif"), style("body", "Example Sans")] }, null).notes,
+      ...brandFontsToEmail({ styles: [style("heading", "Example Serif")] }, null).notes,
+    ];
+    expect(notes).toHaveLength(4);
+    for (const n of notes) expect(isBrandFontNote(n)).toBe(true);
+    for (const n of [
+      "An earlier note",
+      "No logos yet — add a PNG or JPG in Brand › Logos",
+      "Your header image is no longer available — upload or pick one in Brand › Email style",
+      "Your chosen logo is no longer available — pick another in Brand › Email style",
+      "isn't available for email yet",
+    ]) {
+      expect(isBrandFontNote(n)).toBe(false);
     }
   });
 });

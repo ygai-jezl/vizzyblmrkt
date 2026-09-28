@@ -116,6 +116,8 @@ beforeEach(() => {
   vi.stubEnv("CANVAS_CONTEXT_SIGNING_KEY", "test-only-canvas-key");
   // Off unless a test turns it on, whatever the shell has.
   vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+  vi.stubEnv("EMAIL_THEMES_ENABLED", "false");
+  vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "false");
   brandLogos.listLogos.mockReset().mockResolvedValue([row("logo_webp", WEBP, "image/webp", false), row("logo_png", PNG, "image/png", true)]);
   brandAssets.listBrandAssets.mockReset().mockResolvedValue([]);
 });
@@ -380,5 +382,103 @@ describe("Vizzy's Email style read: header images", () => {
     expect(json).not.toContain("ten_A");
     expect(json).not.toContain(SPRING);
     expect(json).not.toContain("@");
+  });
+});
+
+describe("Vizzy's Email style read: themes", () => {
+  const THEMES = {
+    emailStyle: { theme: { preset: "modern", bodyFont: "lora" } },
+    emailStyleSuggestion: { theme: { preset: "editorial", headingFont: "playfair-display" } },
+  };
+  const THEME_NOTE =
+    " theme is a look from themePresets with a heading and a body font from fonts (by id): a look brings its own fonts " +
+    "unless fonts are picked too, and useBrandFonts takes them from Brand › Fonts where email has them. Outlook for " +
+    "Windows draws the corners and buttons square.";
+  const PRESETS = [
+    { id: "classic", label: "Classic", headingFont: "system", bodyFont: "system", page: "#f6f6f6", card: "square", buttons: "rounded" },
+    { id: "modern", label: "Modern", headingFont: "inter", bodyFont: "inter", page: "#f3f4f6", card: "rounded", buttons: "pill" },
+    { id: "editorial", label: "Editorial", headingFont: "lora", bodyFont: "georgia", page: "#f7f3ec", card: "square", buttons: "square" },
+    {
+      id: "friendly",
+      label: "Friendly",
+      headingFont: "poppins",
+      bodyFont: "nunito",
+      page: "a light tint of the button colour",
+      card: "rounded",
+      buttons: "pill",
+    },
+  ];
+  const FONTS = [
+    { id: "system", label: "System", kind: "safe", fallback: null },
+    { id: "arial", label: "Arial", kind: "safe", fallback: null },
+    { id: "georgia", label: "Georgia", kind: "safe", fallback: null },
+    { id: "verdana", label: "Verdana", kind: "safe", fallback: null },
+    { id: "trebuchet", label: "Trebuchet MS", kind: "safe", fallback: null },
+    { id: "inter", label: "Inter", kind: "web", fallback: "Segoe UI or Helvetica" },
+    { id: "poppins", label: "Poppins", kind: "web", fallback: "Segoe UI or Helvetica" },
+    { id: "nunito", label: "Nunito", kind: "web", fallback: "Segoe UI or Helvetica" },
+    { id: "montserrat", label: "Montserrat", kind: "web", fallback: "Segoe UI or Helvetica" },
+    { id: "lora", label: "Lora", kind: "web", fallback: "Georgia" },
+    { id: "playfair-display", label: "Playfair Display", kind: "web", fallback: "Georgia" },
+  ];
+
+  it("flag off: exactly today's answer, even with a theme saved and suggested", async () => {
+    vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+    const r = await agentEmailStyle(admin, world(THEMES));
+    expect(r).toEqual(PINNED);
+    expect(JSON.stringify(r.body)).not.toMatch(/theme|font/i);
+  });
+
+  // Pinned whole: with the flag on (web fonts off), this is exactly what Vizzy reads.
+  it("flag on: pins the full answer, with the fonts filled in", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    expect(await agentEmailStyle(admin, world(THEMES))).toEqual({
+      status: 200,
+      body: {
+        ...PINNED.body,
+        themes: true,
+        current: { ...PINNED.body.current, theme: { preset: "modern", headingFont: "inter", bodyFont: "lora" } },
+        pending: { ...PINNED.body.pending, theme: { preset: "editorial", headingFont: "playfair-display", bodyFont: "georgia" } },
+        themePresets: PRESETS,
+        fonts: FONTS,
+        note: PINNED.body.note + THEME_NOTE + " Web fonts aren't switched on yet, so every inbox shows a web font's fallback.",
+      },
+    });
+  });
+
+  it("flag on: no theme reads as Classic with the system font, and a damaged font as the look's own", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    const classic = { preset: "classic", headingFont: "system", bodyFont: "system" };
+    const plain = (await agentEmailStyle(admin, world())).body as typeof PINNED.body & Record<string, unknown>;
+    expect(plain.current).toEqual({ ...PINNED.body.current, theme: classic });
+    expect(plain.pending).toEqual({ ...PINNED.body.pending, theme: classic });
+    const damaged = world({ emailStyle: { theme: { preset: "friendly", headingFont: "comic-sans" } } });
+    expect(((await agentEmailStyle(admin, damaged)).body as Record<string, unknown>).current).toMatchObject({
+      theme: { preset: "friendly", headingFont: "poppins", bodyFont: "nunito" },
+    });
+  });
+
+  it("flag on: with web fonts on too, only the note changes", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    const off = (await agentEmailStyle(admin, world(THEMES))).body as { note: string };
+    vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+    const on = (await agentEmailStyle(admin, world(THEMES))).body as { note: string };
+    expect(on).toEqual({
+      ...off,
+      note:
+        PINNED.body.note +
+        THEME_NOTE +
+        " A web font shows only in Apple Mail, Outlook for Mac and a few other inboxes; Gmail, Outlook.com and the rest show its fallback.",
+    });
+  });
+
+  it("flag on with the header options on too: both sets of fields, and both notes", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const body = (await agentEmailStyle(admin, world(THEMES))).body as Record<string, unknown> & { note: string };
+    expect(body).toMatchObject({ headerOptions: true, themes: true, headerImages: [], themePresets: PRESETS, fonts: FONTS });
+    expect(body.current).toMatchObject({ headerGradientColor: null, theme: { preset: "modern" } });
+    expect(body.note).toContain("headerImage replaces the logo");
+    expect(body.note).toContain(THEME_NOTE);
   });
 });

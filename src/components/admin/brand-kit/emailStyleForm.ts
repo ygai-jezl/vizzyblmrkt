@@ -111,6 +111,8 @@ export type ReviewedEmailStyle = BrandKitEmailStyle & {
   headerText: HeaderTextChoice;
   /** The header image to pick (null = the colour header); only there when `headers` was given. */
   headerImageId?: string | null;
+  /** The look and its fonts (none = Classic with the system font); only there when `themes` was given. */
+  theme?: FormTheme;
 };
 
 /**
@@ -124,12 +126,15 @@ export type ReviewedEmailStyle = BrandKitEmailStyle & {
  * header, and one that's since been deleted falls back to it with a note. With no header-image
  * list (`headers.images` null), the Header choice is locked and Save keeps the stored one, so
  * the saved choice stays, with a note when the suggestion asked for another.
+ *
+ * With themes on (`themes`), its theme too, the same way: none means Classic with the system font.
  */
 export function suggestionForReview(
   suggestion: PendingEmailStyleSuggestion,
   logos: readonly EmailStyleLogoChoice[],
   unlisted?: { savedLogoId: string | null; logosOff?: boolean },
   headers?: { images: readonly Pick<EmailHeaderImageChoice, "id">[] | null; savedImageId: string | null },
+  themes?: boolean,
 ): ReviewedEmailStyle {
   const notes = [...suggestion.notes];
   let logoId: string | null;
@@ -178,6 +183,7 @@ export function suggestionForReview(
     headerGradientColor: suggestion.headerGradientColor ?? null,
     headerText: suggestion.headerText ?? "auto",
     ...(headerImageId !== undefined ? { headerImageId } : {}),
+    ...(themes ? { theme: themeForForm(suggestion.theme) } : {}),
     notes,
   };
 }
@@ -453,6 +459,12 @@ export function themeForForm(theme: Partial<EmailTheme> | null | undefined): For
 export const sameTheme = (a: FormTheme, b: FormTheme) =>
   a.preset === b.preset && a.headingFont === b.headingFont && a.bodyFont === b.bodyFont;
 
+/** A theme by name, as Vizzy's card and the suggestion banner give it: "Modern (Inter / Inter)"; none is Classic. */
+export function themeLabel(theme: Partial<EmailTheme> | null | undefined): string {
+  const { preset, headingFont, bodyFont } = themeForForm(theme);
+  return `${EMAIL_THEME_PRESET_SPECS[preset].label} (${EMAIL_FONTS[headingFont].label} / ${EMAIL_FONTS[bodyFont].label})`;
+}
+
 /**
  * A font as the pickers list it, with where it shows: a safe font in every inbox; a web font
  * only in the few that load one (the rest show its safe font), or, while web fonts are off, in none.
@@ -532,6 +544,14 @@ export interface BrandFontsForEmail {
   notes: string[];
 }
 
+const NO_BRAND_FONTS = "No brand fonts yet — add text styles in Brand › Fonts";
+const NOT_FOR_EMAIL = "isn't available for email yet, so";
+
+/** Whether a note is one of brandFontsToEmail's: Vizzy's suggestion keeps them apart from its logo notes. */
+export function isBrandFontNote(note: string): boolean {
+  return note === NO_BRAND_FONTS || note.includes(`” ${NOT_FOR_EMAIL} `);
+}
+
 const HEADING_ROLES: readonly TextStyleRole[] = ["heading", "title"];
 const BODY_ROLES: readonly TextStyleRole[] = ["body"];
 
@@ -559,7 +579,7 @@ export function brandFontsToEmail(
   const heading = styledHeading ?? kit[0] ?? styledBody;
   const body = styledBody ?? kit[1] ?? kit[0] ?? styledHeading;
   if (!heading || !body) {
-    return { headingFont: null, bodyFont: null, notes: ["No brand fonts yet — add text styles in Brand › Fonts"] };
+    return { headingFont: null, bodyFont: null, notes: [NO_BRAND_FONTS] };
   }
   const headingFont = emailFontForFamily(heading);
   const bodyFont = emailFontForFamily(body);
@@ -568,7 +588,7 @@ export function brandFontsToEmail(
   if (!bodyFont) missing.set(body, [...(missing.get(body) ?? []), "text"]);
   const notes = [...missing].map(
     ([family, uses]) =>
-      `“${family}” isn't available for email yet, so ${andList(uses)} ${uses.join() === "text" ? "keeps" : "keep"} the current font`,
+      `“${family}” ${NOT_FOR_EMAIL} ${andList(uses)} ${uses.join() === "text" ? "keeps" : "keep"} the current font`,
   );
   return { headingFont, bodyFont, notes };
 }

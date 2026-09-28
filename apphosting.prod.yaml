@@ -733,16 +733,16 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # Email header options (see apphosting.yaml). Both have to be set: this file only
-  # overrides apphosting.yaml. Off, emails are exactly as today and Vizzy says the
-  # options aren't switched on yet when asked for a gradient or a forced text colour.
-  # OFF until verified on dev; flip with a chore(prod) PR after a prod smoke test.
+  # Email header options + header image (see apphosting.yaml): on in prod since
+  # 2026-09-28 (owner decision). Both have to be set: this file only overrides
+  # apphosting.yaml. Set both "false" here to switch them off (emails go back to the
+  # plain Email style header; saved options and images are kept).
   - variable: EMAIL_HEADER_OPTIONS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_EMAIL_HEADER_OPTIONS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

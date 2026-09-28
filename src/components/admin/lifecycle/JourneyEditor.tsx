@@ -363,7 +363,10 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           catalog={connection?.catalog}
           productName={waitlist ? (launch?.name ?? "your launch") : (connection?.name ?? "your product")}
           waitlist={waitlist}
-          brand={detail.sender.fromName ?? draft.settings.sender.fromName ?? "Your brand"}
+          // The footer's "sent by", resolved as the send does (a launch's journey uses the launch's sender).
+          brand={(waitlist ? null : draft.settings.sender.fromName?.trim()) || detail.footerBrand}
+          emailStyle={detail.emailStyle}
+          emailStyleEnabled={detail.features.emailStyle}
           postalAddress={detail.postalAddress}
           readOnly={readOnly}
           focusPoolId={focusPool}
@@ -381,6 +384,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           consentAtSend={detail.features.consentAtSend}
           optInAfterSignup={detail.features.optInAfterSignup}
           entities={detail.features.entities}
+          emailStyleEnabled={detail.features.emailStyle}
           onChange={(settings) => edit({ settings })}
         />
       ) : null}

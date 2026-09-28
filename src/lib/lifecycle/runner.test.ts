@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
+import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { suppressEmailCategory } from "@/lib/email/suppression";
 import type { EmailResult } from "@/lib/email";
 import type { ProductContext } from "@/lib/connect/protocol";
@@ -12,6 +13,7 @@ import {
   CONNECTION_ID,
   STEPS,
   T0,
+  TENANT_ID,
   contextStub,
   ctx,
   productContext,
@@ -511,5 +513,52 @@ describe("going live (LIFECYCLE_GO_LIVE_SWEEP)", () => {
     expect(await w.run(T0 + 73 * HOUR)).toBe("exited");
     expect(await w.get()).toMatchObject({ status: "exited", stopReason: "window_passed" });
     expect(w.sent).toHaveLength(0);
+  });
+});
+
+describe("Email style (EMAIL_STYLE_ENABLED)", () => {
+  const FILE = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
+  const STYLE = {
+    logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+    companyName: null,
+    headerColor: "#0b1f3a",
+    accentColor: "#1d4ed8",
+  };
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** Save the style, then send the (branded) welcome. */
+  async function styledWelcome() {
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    await throughWelcome(w);
+    return w.sent[0]!;
+  }
+
+  it("sends the band colour, this tenant's logo and the button colour", async () => {
+    const m = await styledWelcome();
+    expect(m.html).toContain('bgcolor="#0b1f3a"');
+    expect(m.html).toContain(`src="https://mk.test/api/brand-logo/${TENANT_ID}/${FILE}"`);
+    expect(m.html).toContain('<td bgcolor="#1d4ed8"');
+    expect(m.text).not.toContain("brand-logo");
+  });
+
+  it("with the Logos flag off, the band shows the name instead", async () => {
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "false");
+    const m = await styledWelcome();
+    expect(m.html).toContain('bgcolor="#0b1f3a"');
+    expect(m.html).not.toContain("<img");
+    expect(m.html).toContain(">Jez at Sandbox</span>");
+  });
+
+  it("flag off: no band, even with a style saved", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    const m = await styledWelcome();
+    expect(m.html).not.toContain("#0b1f3a");
+    expect(m.html).not.toContain("color-scheme");
+    expect(m.html).toContain('<td bgcolor="#111111"');
   });
 });

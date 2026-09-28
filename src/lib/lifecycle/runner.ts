@@ -21,6 +21,7 @@ import { isSuppressedFor } from "@/lib/email/suppression";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveFooterBrand } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import type { AiDraft } from "@/lib/types/lifecycle";
 import { decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
 import { nextNodeId } from "./graph";
@@ -447,6 +448,8 @@ async function deliver(
     privacyUrl,
     postalAddress,
   };
+  // Every version (standard, AI, test, shadow) wears the same Email style; null = today's look.
+  const style = resolveEmailStyle(tenant);
   const renderWith = (
     insight: ProductContext["insights"][number] | null,
     aiLine: string | null,
@@ -456,6 +459,7 @@ async function deliver(
       item: subject ? { ...item, subject } : item,
       values: buildRenderValues({ user, connection, rc, context, insight, aiLine, footer }),
       shadowFor: mode === "shadow" ? user.email : null,
+      style,
     });
 
   const standardInsight = pickInsight(context, usedInsightIds, nextStepOf(context, steps, connection.linkDomains)?.id ?? null);

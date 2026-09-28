@@ -1,3 +1,4 @@
+import { FieldValue } from "firebase-admin/firestore";
 import type {
   AggregateQueryLike,
   CollectionLike,
@@ -66,6 +67,14 @@ function stripUndefined(data: Doc): Doc {
   );
 }
 
+const isDeleteSentinel = (v: unknown) => v instanceof FieldValue && v.isEqual(FieldValue.delete());
+
+/** Store `value` at `key`, or remove the field when it's FieldValue.delete() (as Firestore does). */
+function put(obj: Doc, key: string, value: unknown): void {
+  if (isDeleteSentinel(value)) delete obj[key];
+  else obj[key] = value;
+}
+
 /**
  * update() semantics, like Firestore's: a key with dots is a FIELD PATH ("graph.nodes"
  * replaces the nested `nodes` of `graph`, leaving its siblings alone); other keys
@@ -75,7 +84,7 @@ function applyUpdate(cur: Doc, data: Doc): Doc {
   const next: Doc = { ...cur };
   for (const [key, value] of Object.entries(data)) {
     if (!key.includes(".")) {
-      next[key] = value;
+      put(next, key, value);
       continue;
     }
     const parts = key.split(".");
@@ -85,7 +94,7 @@ function applyUpdate(cur: Doc, data: Doc): Doc {
       obj[part] = child && typeof child === "object" && !Array.isArray(child) ? { ...(child as Doc) } : {};
       obj = obj[part] as Doc;
     }
-    obj[parts[parts.length - 1]!] = value;
+    put(obj, parts[parts.length - 1]!, value);
   }
   return next;
 }

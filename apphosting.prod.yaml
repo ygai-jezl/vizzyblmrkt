@@ -721,3 +721,15 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Email style (see apphosting.yaml). Both have to be set: this file only
+  # overrides apphosting.yaml. Off, Vizzy says Email style isn't switched on yet.
+  # OFF until verified on dev; flip with a chore(prod) PR after a prod smoke test.
+  - variable: EMAIL_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EMAIL_STYLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

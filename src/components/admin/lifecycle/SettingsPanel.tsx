@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import type { LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
+import { BRAND_KIT_EMAIL_STYLE_ROUTE } from "@/lib/content/brandKit";
 import { Badge, Field, Section, inputClass } from "../connect/ui";
 import { AboutSection } from "./AboutSection";
 
@@ -27,6 +29,7 @@ export function SettingsPanel({
   consentAtSend = false,
   optInAfterSignup = false,
   entities = false,
+  emailStyleEnabled = false,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -40,6 +43,8 @@ export function SettingsPanel({
   optInAfterSignup?: boolean;
   /** API v2 entities (CONNECT_ENTITIES_ENABLED): the About setting and the `entity.created` trigger. */
   entities?: boolean;
+  /** Links Sender to Brand › Email style (EMAIL_STYLE_ENABLED). */
+  emailStyleEnabled?: boolean;
 }) {
   const p = settings.sendPolicy;
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
@@ -93,6 +98,7 @@ export function SettingsPanel({
           <p className="text-sm">
             {sender.fromName ?? "Your brand"} {sender.fromEmail ? <span className="text-neutral-500">&lt;{sender.fromEmail}&gt;</span> : <span className="text-neutral-500">(the default address)</span>}
           </p>
+          {emailStyleEnabled ? <EmailStyleLink /> : null}
         </Section>
         <Section title="Tracking" description="On for welcome emails, as it has always been, so opens and clicks show in the launch's analytics.">
           <div className="flex gap-4 text-sm">
@@ -233,6 +239,7 @@ export function SettingsPanel({
             <input className={inputClass} type="email" disabled={readOnly} value={settings.sender.replyTo ?? ""} onChange={(e) => onChange({ ...settings, sender: { ...settings.sender, replyTo: e.target.value.trim() || null } })} />
           </Field>
         </div>
+        {emailStyleEnabled ? <EmailStyleLink /> : null}
       </Section>
 
       <Section title="Unsubscribe category" description="One-click unsubscribe stops this category only (the product is told, so it can mirror it). People can still opt out of everything.">
@@ -264,5 +271,18 @@ export function SettingsPanel({
         </div>
       </Section>
     </div>
+  );
+}
+
+/** The logo and colours every branded email wears are set once, for the whole brand. */
+function EmailStyleLink() {
+  return (
+    <p className="text-xs text-neutral-500">
+      Your logo and colours are set in{" "}
+      <Link href={BRAND_KIT_EMAIL_STYLE_ROUTE} className="underline underline-offset-2">
+        Brand › Email style
+      </Link>
+      .
+    </p>
   );
 }

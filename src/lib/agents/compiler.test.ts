@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { compileJourneyEmail, compileBroadcast } from "./compiler";
 import type { Signup } from "@/lib/types/signup";
 import type { Campaign } from "@/lib/types/campaign";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { htmlToText } from "@/lib/email/emailRender";
 
 const campaign = { waitlistName: "Beta" } as unknown as Campaign;
 
@@ -152,6 +154,144 @@ describe("mandatory footer (safety net + token resolution)", () => {
     expect(out.html).toContain('href="*|UNSUB|*"');
     expect(out.html).toContain('href="*|UPDATE_PROFILE|*"');
     expect(out.html).toContain('href="https://acme.test/privacy"');
+  });
+});
+
+// Pinned byte-for-byte: with no Email style saved, sends must stay exactly this.
+describe("today's output", () => {
+  const launch = { waitlistName: "Example Beta", productName: "Example" } as unknown as Campaign;
+  const footer = {
+    brand: "Example Co",
+    unsubscribeUrl: "https://waitlist.example.com/unsubscribe?u=tok",
+    managePreferencesUrl: "https://waitlist.example.com/preferences?u=tok",
+    privacyUrl: "https://example.com/privacy",
+  };
+
+  it("broadcast html", () => {
+    const out = compileBroadcast(
+      {
+        subject: "This week at {{waitlist_name}}",
+        body: '<h2>This week</h2>\n<p>Hi {{first_name}}, here\'s what\'s new.</p>\n<p><a href="https://example.com/blog/update">Read the update</a></p>',
+        heroImageUrl: "https://cdn.example.com/weekly.png",
+      },
+      launch,
+      footer,
+    );
+    expect(out.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/weekly.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <h2>This week</h2>
+      <p>Hi *|FNAME|*, here's what's new.</p>
+      <p><a href="https://example.com/blog/update">Read the update</a></p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="*|UPDATE_PROFILE|*" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="*|UNSUB|*" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  it("journey html and text", () => {
+    const signup = {
+      firstName: "Jo",
+      referralLink: "https://waitlist.example.com/beta?ref=abc123",
+      amountReferred: 2,
+    } as unknown as Signup;
+    const out = compileJourneyEmail(
+      {
+        subject: "You're on the {{waitlist_name}} list",
+        body: "Hi {{first_name}},\n\nYou're #{{current_rank}} on the {{waitlist_name}} list.\n\nShare your link to move up: {{referral_link}}",
+        heroImageUrl: "https://cdn.example.com/welcome.png",
+      },
+      { signup, campaign: launch, rank: 42, footer },
+    );
+    expect(out.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/welcome.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <p>Hi Jo,</p>
+      <p>You&#39;re #42 on the Example list.</p>
+      <p>Share your link to move up: https://waitlist.example.com/beta?ref=abc123</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="https://waitlist.example.com/preferences?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://waitlist.example.com/unsubscribe?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(out.text).toMatchInlineSnapshot(`
+      "Hi Jo,
+
+      You're #42 on the Example list.
+
+      Share your link to move up: https://waitlist.example.com/beta?ref=abc123
+      This email was sent by Example Co.
+      Manage preferences (https://waitlist.example.com/preferences?u=tok) | Unsubscribe (https://waitlist.example.com/unsubscribe?u=tok) | Privacy Policy (https://example.com/privacy)"
+    `);
+  });
+});
+
+describe("with an Email style", () => {
+  const launch = { waitlistName: "Example Beta", productName: "Example" } as unknown as Campaign;
+  const footer = {
+    brand: "Example Co",
+    unsubscribeUrl: "https://waitlist.example.com/unsubscribe?u=tok",
+    managePreferencesUrl: "https://waitlist.example.com/preferences?u=tok",
+    privacyUrl: "https://example.com/privacy",
+  };
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: { url: "https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png", width: 120, height: 40 },
+    name: "Example Co",
+    altName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#1d4ed8",
+    ...over,
+  });
+  const signup = { firstName: "Jo", amountReferred: 0 } as unknown as Signup;
+  const bodies = ["<p>Hi {{first_name}}</p>", "Hi {{first_name}}", `<p>Hi</p><div data-vzb-footer="1">Sent by {{sender_brand}}.</div>`];
+
+  it("no style (null or absent) is today's output", () => {
+    const content = { subject: "s", body: "<p>Hi {{first_name}}</p>", heroImageUrl: "https://cdn.example.com/a.png" };
+    expect(compileBroadcast(content, launch, footer, null)).toEqual(compileBroadcast(content, launch, footer));
+    expect(compileJourneyEmail(content, { signup, campaign: launch, footer }, null)).toEqual(
+      compileJourneyEmail(content, { signup, campaign: launch, footer }),
+    );
+  });
+
+  it("adds the band, with exactly one footer", () => {
+    for (const body of bodies) {
+      const b = compileBroadcast({ subject: "s", body }, launch, footer, style());
+      const j = compileJourneyEmail({ subject: "s", body }, { signup, campaign: launch, footer }, style());
+      for (const html of [b.html, j.html]) {
+        expect(html).toContain('bgcolor="#0b1f3a"');
+        expect(html.match(/data-vzb-footer/g)).toHaveLength(1);
+      }
+    }
+  });
+
+  it("keeps the journey's text/plain part exactly as it was", () => {
+    for (const body of bodies) {
+      const content = { subject: "s", body, heroImageUrl: "https://cdn.example.com/a.png" };
+      const plain = compileJourneyEmail(content, { signup, campaign: launch, footer });
+      const styled = compileJourneyEmail(content, { signup, campaign: launch, footer }, style({ logo: null, name: "Band Name", altName: "Band Name" }));
+      expect(styled.html).toContain(">Band Name</span>");
+      expect(styled.text).toBe(plain.text);
+    }
+  });
+
+  it("leads with the body, not the band's name, as the inbox snippet", () => {
+    const named = style({ logo: null, name: "Band Name", altName: "Band Name" });
+    const b = compileBroadcast({ subject: "s", body: "<p>Hi {{first_name}}, here's the news.</p>" }, launch, footer, named);
+    const j = compileJourneyEmail({ subject: "s", body: "Hi {{first_name}}, here's the news." }, { signup, campaign: launch, footer }, named);
+    expect(htmlToText(b.html)).toMatch(/^Hi \*\|FNAME\|\*, here's the news\. This email was sent by Example Co\./);
+    expect(htmlToText(j.html)).toMatch(/^Hi Jo, here's the news\. This email was sent by Example Co\./);
+    // A preheader of its own is used instead.
+    const own = compileJourneyEmail({ subject: "s", body: "<p>Hi</p>" }, { signup, campaign: launch, footer }, named, "Soon");
+    expect(htmlToText(own.html)).toMatch(/^Soon\nBand Name/);
+  });
+
+  it("escapes a | in the name, so MailChimp can't expand a tag in the band", () => {
+    const out = compileBroadcast({ subject: "s", body: "<p>Yo</p>" }, launch, footer, style({ name: "Acme *|UNSUB|*", altName: "Acme *|UNSUB|*" }));
+    expect(out.html).toContain(">Acme *&#124;UNSUB&#124;*</span>");
+    const logoOnly = compileBroadcast({ subject: "s", body: "<p>Yo</p>" }, launch, footer, style({ name: null, altName: "Acme *|UNSUB|*" }));
+    expect(logoOnly.html).toContain('alt="Acme *&#124;UNSUB&#124;*"');
+    // The only live tag left is the footer's own unsubscribe link.
+    expect(out.html.match(/\*\|UNSUB\|\*/g)).toEqual(["*|UNSUB|*"]);
+    expect(out.html).toContain('href="*|UNSUB|*"');
   });
 });
 

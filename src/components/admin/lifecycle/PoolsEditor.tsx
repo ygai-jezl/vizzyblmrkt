@@ -6,6 +6,7 @@ import type { ContentPool, PoolItem } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { renderLifecycleEmail, type RenderValues } from "@/lib/lifecycle/render";
 import { compileJourneyEmail } from "@/lib/agents/compiler";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
 import { ConditionList } from "./ConditionList";
@@ -16,7 +17,7 @@ import { Badge, Button, Field, inputClass } from "../connect/ui";
  * Content pools: the emails each Email step can send. A step sends the FIRST
  * email in its pool that the person hasn't had and is eligible for — so order
  * matters. Previews render with sample values through the same renderer the
- * runner uses.
+ * runner uses, wearing the same Email style.
  *
  * A launch's welcome journey (`waitlist`, engine move) uses the original
  * waitlist emails' merge tags, hero images and renderer, and a pool can be an
@@ -55,12 +56,18 @@ const WAITLIST_TOKENS = [
 ] as const;
 
 /** A welcome-journey email as it will look, rendered by the original engine's compiler. */
-function renderWaitlistPreview(item: PoolItem, launchName: string, brand: string): { subject: string; html: string } {
+function renderWaitlistPreview(
+  item: PoolItem,
+  launchName: string,
+  brand: string,
+  style: ResolvedEmailStyle | null,
+): { subject: string; html: string } {
   const signup = { id: "preview", firstName: "Alex", lastName: "Doe", email: "alex@example.com", amountReferred: 2, referralLink: "https://example.com/r/alex" } as unknown as Signup;
   const campaign = { id: "preview", waitlistName: launchName, productName: launchName } as unknown as Campaign;
   const c = compileJourneyEmail(
     { subject: item.subject, body: item.body, heroImageUrl: item.heroImageUrl ?? null },
     { signup, campaign, rank: 12, footer: { brand, unsubscribeUrl: "#", managePreferencesUrl: "#", privacyUrl: "#" } },
+    style,
   );
   return { subject: c.subject, html: c.html };
 }
@@ -85,6 +92,8 @@ export function PoolsEditor({
   catalog,
   productName,
   brand,
+  emailStyle = null,
+  emailStyleEnabled = false,
   postalAddress,
   readOnly,
   focusPoolId,
@@ -97,6 +106,10 @@ export function PoolsEditor({
   catalog: ConnectionCatalog | undefined;
   productName: string;
   brand: string;
+  /** The tenant's Email style, as the send resolves it; null = today's look. */
+  emailStyle?: ResolvedEmailStyle | null;
+  /** The Email style flag: shows how Branded and Letter differ. */
+  emailStyleEnabled?: boolean;
   postalAddress: string | null;
   readOnly: boolean;
   focusPoolId: string | null;
@@ -218,6 +231,8 @@ export function PoolsEditor({
                   count={current.items.length}
                   fields={fields}
                   values={values}
+                  emailStyle={emailStyle}
+                  emailStyleEnabled={emailStyleEnabled}
                   readOnly={readOnly}
                   waitlist={waitlist ? { launchName: productName, brand, arm: current.abTest ? (i === 0 ? "Control" : `Variant ${String.fromCharCode(65 + i)}`) : null } : null}
                   onChange={(next) => setItems(current, current.items.map((x, j) => (j === i ? next : x)))}
@@ -295,6 +310,8 @@ function ItemEditor({
   count,
   fields,
   values,
+  emailStyle,
+  emailStyleEnabled,
   readOnly,
   waitlist,
   onChange,
@@ -306,6 +323,8 @@ function ItemEditor({
   count: number;
   fields: FieldOption[];
   values: RenderValues;
+  emailStyle: ResolvedEmailStyle | null;
+  emailStyleEnabled: boolean;
   readOnly: boolean;
   /** A launch's welcome-journey email: its launch, brand, and A/B arm label. */
   waitlist: { launchName: string; brand: string; arm: string | null } | null;
@@ -318,9 +337,9 @@ function ItemEditor({
   const set = (patch: Partial<PoolItem>) => onChange({ ...item, ...patch });
   const rendered = useMemo(() => {
     if (!preview) return null;
-    if (waitlist) return { ...renderWaitlistPreview(item, waitlist.launchName, waitlist.brand), missing: [] as string[] };
-    return renderLifecycleEmail({ item, values });
-  }, [preview, item, values, waitlist]);
+    if (waitlist) return { ...renderWaitlistPreview(item, waitlist.launchName, waitlist.brand, emailStyle), missing: [] as string[] };
+    return renderLifecycleEmail({ item, values, style: emailStyle });
+  }, [preview, item, values, waitlist, emailStyle]);
   const eligibility = item.eligibility ?? { match: "all" as const, conditions: [] };
 
   return (
@@ -388,6 +407,9 @@ function ItemEditor({
                   <option value="ai_line">Reviewed</option>
                 </select>
               </Field>
+              {emailStyleEnabled ? (
+                <p className="col-span-3 text-xs text-neutral-500">Branded uses your Email style; Letter stays plain.</p>
+              ) : null}
             </div>
             )}
           </div>

@@ -1,18 +1,22 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
+import { EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
+import { isLogoUrlShape, readableOn, type ResolvedEmailStyle } from "./emailStyle";
 
 /**
  * Email HTML assembly — the SINGLE source of email-safe markup, shared by the send
  * compiler (src/lib/agents/compiler.ts) and the visual layout editor's preview so
  * "what you see" is byte-identical to "what is sent".
  *
- *  - wrap()               — the outer email document (centered 560px card + optional hero).
+ *  - wrap()               — the outer email document (centered 560px card + optional hero,
+ *                           and the Email style's header band above the card when given one).
  *  - renderEmailLayout()  — turn a block LAYOUT into email-safe (table + inline-style) inner HTML.
  *  - sanitizeEmailHtml()  — allowlist-sanitize author/AI HTML (defence in depth; the editor
  *                           preview is also sandboxed in an iframe).
  *
- * Pure + client-safe (no server imports, no Tiptap import). {{merge_tokens}} are emitted
- * VERBATIM — substitution happens downstream in the send path (mergeVars.ts).
+ * Pure + client-safe (no server imports, no Tiptap import, no env — the Email style arrives
+ * as data, already resolved). {{merge_tokens}} are emitted VERBATIM — substitution happens
+ * downstream in the send path (mergeVars.ts).
  */
 
 const FONT = "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
@@ -36,19 +40,108 @@ export function bodyToHtml(body: string): string {
   return looksHtml(body) ? body : paragraphize(escapeHtml(body));
 }
 
-export function wrap(inner: string, heroImageUrl: string | null): string {
+/**
+ * The outer email document. With no `style` it's today's shell byte for byte, and a
+ * `preheader` leads the card just as callers used to prepend it. With a style: light-only
+ * colour-scheme metas, then the preheader, then the header band (unless the body already
+ * shows a brand logo), then the card — so the band's name never becomes the inbox snippet.
+ * With a band and no preheader, the card's opening words become a hidden one for the same reason.
+ */
+export function wrap(
+  inner: string,
+  heroImageUrl: string | null,
+  opts: { style?: ResolvedEmailStyle | null; preheader?: string | null } = {},
+): string {
   // Guard + escape the hero URL (author/agent-controlled) so it can't break out of the
   // src attribute or inject markup into every recipient's inbox.
   const hero =
     heroImageUrl && isSafeHref(heroImageUrl)
       ? `<img src="${escapeAttr(heroImageUrl)}" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>`
       : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
-  <div style="font-family:${FONT};max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+  const pre = preheaderHtml(opts.preheader);
+  const style = opts.style ?? null;
+  const head = style ? COLOR_SCHEME_METAS : "";
+  const band = style && !hasOwnBrandLogo(inner) ? renderHeaderBand(style) : "";
+  const top = style ? `${pre || (band ? hiddenPreheader(openingWords(inner)) : "")}${band}\n  ` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${head}</head><body style="margin:0;background:#f6f6f6">
+  ${top}<div style="font-family:${FONT};max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
     ${hero}
-    ${inner}
+    ${style ? "" : pre}${inner}
   </div>
 </body></html>`;
+}
+
+// ── Email style header band ──────────────────────────────────────────────────
+
+/** Ask dark-mode clients that honour it to keep a styled email light — the band's colours were picked for light. */
+const COLOR_SCHEME_METAS = '<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">';
+
+/** A body that already shows a brand logo (hand-pasted or imported) gets no band, so the logo never appears twice. */
+function hasOwnBrandLogo(inner: string): boolean {
+  return inner.includes("/api/brand-logo/");
+}
+
+/** How much of the card's opening words a derived preheader carries: more than an inbox shows. */
+export const OPENING_WORDS_MAX = 150;
+
+/**
+ * The card's opening words as an inbox reads them: comments, CSS, tags and link URLs dropped
+ * (a block break reads as a space), entities kept as written so it's already HTML-safe, never
+ * cut mid-entity.
+ */
+function openingWords(inner: string): string {
+  return inner
+    .replace(/<!--[\s\S]*?-->|<(style|script|title)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/?(p|div|h\d|li|ul|ol|br|table|tr|td|blockquote)\b[^>]*>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/</g, "&lt;")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, OPENING_WORDS_MAX)
+    .replace(/&[#\w]*$/, "")
+    .trimEnd();
+}
+
+/** Escape a company name, and `|` too, so Mailchimp can't expand a `*|TAG|*` in it. */
+function escapeName(s: string): string {
+  return escapeHtml(s).replace(/\|/g, "&#124;");
+}
+
+/** Whole pixels within 1..max — the resolver already clamps; anything else drops the logo. */
+const sizeOk = (n: number, max: number) => Number.isInteger(n) && n >= 1 && n <= max;
+
+/**
+ * The header band: the logo and/or company name on the header colour, full width above the
+ * card (608px = the card's 560 + 24px padding each side). `bgcolor` sits on the table AND the
+ * cell, with a fixed-width MSO wrapper, so Outlook keeps the colour and the width. The logo
+ * carries width/height attributes and no link. A logo URL of the wrong shape (repeated here
+ * because previews run in the browser) falls back to the name — never a broken image.
+ */
+export function renderHeaderBand(style: ResolvedEmailStyle): string {
+  const bg = safeHex(style.headerColor, "#111111");
+  const ink = readableOn(bg);
+  const logo =
+    style.logo &&
+    isLogoUrlShape(style.logo.url) &&
+    sizeOk(style.logo.width, EMAIL_STYLE_LIMITS.logoWidth) &&
+    sizeOk(style.logo.height, EMAIL_STYLE_LIMITS.logoHeight)
+      ? style.logo
+      : null;
+  // Beside a logo, only a set company name shows; without one the band shows altName.
+  const text = logo ? style.name : style.altName;
+  const textStyle = `font-family:${FONT};font-size:18px;line-height:1.3;font-weight:700;color:${ink}`;
+  // With the name printed beside it, the logo's alt stays empty so blocked images
+  // don't show the name twice.
+  const alt = text ? "" : escapeName(style.altName);
+  const img = logo
+    ? `<img src="${escapeAttr(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${alt}" style="display:block;width:${logo.width}px;height:${logo.height}px;border:0;outline:none;text-decoration:none;${textStyle}" />`
+    : "";
+  const name = text ? `<span style="${textStyle}">${escapeName(text)}</span>` : "";
+  const content =
+    img && name
+      ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;padding-left:12px">${name}</td></tr></table>`
+      : img || name || "&nbsp;";
+  return `<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:608px;margin:0 auto;background-color:${bg}"><tr><td bgcolor="${bg}" align="left" style="padding:16px 24px;background-color:${bg}">${content}</td></tr></table><!--[if mso]></td></tr></table><![endif]-->`;
 }
 
 export function htmlToText(html: string): string {
@@ -187,7 +280,7 @@ function socialLabel(platform: string): string {
 }
 
 /** Only emit a colour we can trust into an inline style (defence in depth vs. Zod). */
-function safeHex(c: string | null | undefined, fallback: string): string {
+export function safeHex(c: string | null | undefined, fallback: string): string {
   return c && /^#[0-9a-fA-F]{6}$/.test(c) ? c : fallback;
 }
 
@@ -236,8 +329,8 @@ export function renderFooter(sectionBg?: string | null, opts: { withAddress?: bo
 }
 
 /**
- * A plain, founder-style shell for `letter` lifecycle emails: no card, no hero —
- * it should read like a personal note, not a newsletter.
+ * A plain, founder-style shell for `letter` lifecycle emails: no card, no hero and
+ * no Email style band — it should read like a personal note, not a newsletter.
  */
 export function wrapLetter(inner: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
@@ -249,8 +342,12 @@ export function wrapLetter(inner: string): string {
 
 /** A hidden inbox preheader (the preview line after the subject). */
 export function preheaderHtml(text: string | null | undefined): string {
-  if (!text) return "";
-  return `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">${escapeHtml(text)}</div>`;
+  return text ? hiddenPreheader(escapeHtml(text)) : "";
+}
+
+function hiddenPreheader(html: string): string {
+  if (!html) return "";
+  return `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">${html}</div>`;
 }
 
 /**

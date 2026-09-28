@@ -432,6 +432,89 @@ export type LearnedPatternRule = z.infer<typeof LearnedPatternRuleSchema>;
 export type LearnedChannelPatterns = z.infer<typeof LearnedChannelPatternsSchema>;
 export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
 
+/**
+ * Email style — the header band on branded emails (logo, optional company name, header
+ * colour) plus the button colour. TOP-LEVEL like brandVoice: `brandKit` is replaced wholesale
+ * on a PDF re-extract / Brand save, and the colours are COPIED here, so a re-extract never
+ * silently restyles live email. Strict on write (EmailStyleInputSchema, used by the admin PUT
+ * and the setter); lenient on read (TenantSchema catches a damaged value as "none", because
+ * every tenant read — incl. the delivery crons — parses the whole doc).
+ */
+export const EMAIL_STYLE_LIMITS = { logoWidth: 200, logoHeight: 48, companyName: 80 } as const;
+
+/** A logo file the email header may use: `<uuid>.png|jpg|jpeg`. WebP is left out — Outlook can't show it. */
+export const EMAIL_LOGO_FILENAME =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpe?g)$/;
+
+/** Control, invisible-format (e.g. U+2063, U+202E) and line/paragraph separator characters. */
+export const HIDDEN_NAME_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+
+/** Markup a company name may not carry: HTML, {{tokens}} and Mailchimp *|TAGS|*. */
+const NAME_MARKUP = /[<>]|\{\{|\}\}|\*\||\|\*/;
+
+export const HexColorSchema = z
+  .string()
+  .toLowerCase()
+  .regex(/^#[0-9a-f]{6}$/, "Use a #rrggbb colour");
+
+/** Clean it first with cleanCompanyName (src/lib/email/emailStyle.ts); this only validates. */
+export const CompanyNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(EMAIL_STYLE_LIMITS.companyName)
+  .refine((s) => !HIDDEN_NAME_CHARS.test(s), "The name has hidden characters")
+  .refine((s) => !NAME_MARKUP.test(s), "The name can't contain <, >, {{ }} or *| |*");
+
+/** A logo by reference (never a URL — that's derived at render time) with its display size. */
+export const EmailStyleLogoSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  filename: z.string().regex(EMAIL_LOGO_FILENAME),
+  width: z.number().int().min(1).max(EMAIL_STYLE_LIMITS.logoWidth),
+  height: z.number().int().min(1).max(EMAIL_STYLE_LIMITS.logoHeight),
+});
+export type EmailStyleLogo = z.infer<typeof EmailStyleLogoSchema>;
+
+export const EmailStyleInputSchema = z.object({
+  logo: EmailStyleLogoSchema.nullable(),
+  /** null = the logo alone (or the workspace's sender name when there's no logo). */
+  companyName: CompanyNameSchema.nullable(),
+  headerColor: HexColorSchema,
+  accentColor: HexColorSchema,
+});
+export type EmailStyleInput = z.infer<typeof EmailStyleInputSchema>;
+
+export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
+  updatedAt: z.string().max(40).optional(),
+  /** Firebase UID of the admin who saved it. */
+  updatedBy: z.string().max(128).optional(),
+});
+export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
+
+export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 } as const;
+
+/**
+ * An Email style Vizzy suggested (from chat or the brand kit), waiting for an admin to Review
+ * and Save it. Sends never read it. It has no logo size: the page measures the logo on Review.
+ * `suggestedAt` is the compare-and-clear key, so a Save or Dismiss never clears a newer one.
+ */
+export const EmailStyleSuggestionSchema = z.object({
+  logoId: EmailStyleLogoSchema.shape.id.nullable(),
+  companyName: CompanyNameSchema.nullable(),
+  headerColor: HexColorSchema,
+  accentColor: HexColorSchema,
+  source: z.enum(["brand_kit", "chat"]),
+  /** What was asked for, in the asker's words. */
+  brief: z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.brief),
+  notes: z
+    .array(z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.note))
+    .max(EMAIL_STYLE_SUGGESTION_LIMITS.notes),
+  /** Firebase UID of who asked Vizzy, or "agent". Never shown on the page or sent to Vizzy. */
+  suggestedBy: z.string().min(1).max(128),
+  suggestedAt: z.string().min(1).max(40),
+});
+export type EmailStyleSuggestion = z.infer<typeof EmailStyleSuggestionSchema>;
+
 export const TenantSchema = z.object({
   id: z.string(),
   tenantName: z.string(),
@@ -483,6 +566,10 @@ export const TenantSchema = z.object({
   brandTypography: BrandTypographySchema.optional(),
   /** Learned post-performance patterns (per-channel, versioned) from the Distribute feedback loop. */
   learnedPostPatterns: LearnedPostPatternsSchema.optional(),
+  /** Email style (header band + button colour). A damaged value reads as none, never a throw. */
+  emailStyle: StoredEmailStyleSchema.optional().catch(undefined),
+  /** A pending Email style suggestion from Vizzy, for an admin to apply. Damaged reads as none. */
+  emailStyleSuggestion: EmailStyleSuggestionSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

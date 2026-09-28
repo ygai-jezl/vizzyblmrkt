@@ -56,6 +56,29 @@ describe("tenant registry", () => {
     expect(all.map((t) => t.region).sort()).toEqual(["asia", "eu", "us"]);
   });
 
+  it("a damaged emailStyle reads as none and never breaks a tenant read (the crons use listAllTenants)", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ emailStyle: { headerColor: "red" } }));
+    db.seed("tenants", "ten_B", tenant());
+
+    const one = await getTenantById("ten_A", db);
+    expect(one?.id).toBe("ten_A");
+    expect(one?.emailStyle).toBeUndefined();
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_A", "ten_B"]);
+    expect(all.every((t) => t.emailStyle === undefined)).toBe(true);
+  });
+
+  it("a damaged emailStyleSuggestion reads as none and the tenant still loads", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ emailStyleSuggestion: { headerColor: "navy", brief: "x".repeat(4000) } }));
+
+    const one = await getTenantById("ten_A", db);
+    expect(one?.id).toBe("ten_A");
+    expect(one?.emailStyleSuggestion).toBeUndefined();
+    expect((await listAllTenants(db)).map((t) => t.id)).toEqual(["ten_A"]);
+  });
+
   it("listAllTenants returns an empty list when there are no tenants", async () => {
     expect(await listAllTenants(new FakeFirestore())).toEqual([]);
   });

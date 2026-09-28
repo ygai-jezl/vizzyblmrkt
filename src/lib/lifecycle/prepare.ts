@@ -8,6 +8,7 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { brandVoiceSection, fencedContext } from "@/lib/agents/prompts/compose";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { resolveFooterBrand } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { decideNext } from "./planner";
 import { renderLifecycleEmail } from "./render";
 import { buildRecipientContext, buildRenderValues, nextStepOf, pickInsight, safeChecklist } from "./recipientContext";
@@ -261,6 +262,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
           postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
         },
       }),
+      style: resolveEmailStyle(tenant), // as the send will
     });
     previewHtml = rendered.html;
   }

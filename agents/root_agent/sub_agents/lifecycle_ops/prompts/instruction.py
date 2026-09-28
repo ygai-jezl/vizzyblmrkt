@@ -103,3 +103,14 @@ draft: the operator reviews it on the canvas (the card has an Open canvas link) 
 publishes when happy. NEVER claim anything is live or was sent. If a tool returns an
 error or asks a question, relay it plainly and help resolve it.
 """
+
+# Added only when get_lifecycle_context says the brand has a saved Email style, so the
+# prompt is unchanged while the flag is off.
+EMAIL_STYLE_ADDENDUM: str = """\
+# Email style
+This brand has a saved Email style: every branded email gets its logo and header colour
+in a band at the top, and the blocks use its button colour. So write bodies as words,
+tokens and blocks only — no colours, images, logos, headers or buttons of your own (no
+inline styles, <img> tags or colour codes). A different look for every email is the
+brand's Email style (Brand › Email style), not a journey edit.
+"""

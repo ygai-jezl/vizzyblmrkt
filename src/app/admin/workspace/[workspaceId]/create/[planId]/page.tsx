@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import { headers } from "next/headers";
 import { getContentPlan, listTemplates } from "@/lib/tenant/workspaceContent";
 import { isEbookUiEnabled } from "@/lib/content/create/ebook";
@@ -9,6 +9,9 @@ import { getPrimaryLogo } from "@/lib/admin/brandLogos";
 import { brandLogoAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
 import { platformOrigin } from "@/lib/platform/origin";
 import { originFromHeaders } from "@/lib/http/origin";
+import { isEmailStyleEnabled } from "@/lib/email/flags";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 
 export const dynamic = "force-dynamic";
@@ -23,9 +26,16 @@ export default async function ContentPlanPage({
   const { workspaceId, planId } = await params;
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
-  const [plan, templates] = await Promise.all([
+  const [plan, templates, emailPreview] = await Promise.all([
     getContentPlan(ctx, workspaceId, planId),
     listTemplates(ctx, workspaceId),
+    // The Email style and footer "sent by" newsletter previews wear, as the send does.
+    // Flag off: no tenant read.
+    isEmailStyleEnabled()
+      ? getTenantById(ctx.tenantId)
+          .then((tenant) => ({ style: resolveEmailStyle(tenant), footerBrand: resolveFooterBrand(tenant, null) }))
+          .catch(() => null)
+      : null,
   ]);
   if (!plan) notFound();
 
@@ -76,6 +86,8 @@ export default async function ContentPlanPage({
         templates={templateOptions}
         brandName={ws.name}
         primaryLogoUrl={primaryLogoUrl}
+        emailStyle={emailPreview?.style ?? null}
+        footerBrand={emailPreview?.footerBrand ?? null}
       />
     </div>
   );

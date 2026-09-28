@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
-import { isBrandKitLogosEnabled, BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
+import { isBrandKitLogosEnabled, BRAND_KIT_ROUTE, BRAND_KIT_EMAIL_STYLE_ROUTE } from "@/lib/content/brandKit";
+import { isEmailStyleEnabled } from "@/lib/email/flags";
 import { listLogos } from "@/lib/admin/brandLogos";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { LogosGallery } from "@/components/admin/brand-kit/LogosGallery";
@@ -36,10 +37,21 @@ export default async function BrandKitLogosPage() {
           <ChevronLeft size={14} /> Brand Kit
         </Link>
         <h1 className="mt-1 text-lg font-semibold">Logos</h1>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Upload your corporate logos to reuse across your brand. The primary logo is used as
-          the default header in your emails.
-        </p>
+        {isEmailStyleEnabled() ? (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Upload your corporate logos to reuse across your brand. Choose which logo your emails use
+            in{" "}
+            <Link href={BRAND_KIT_EMAIL_STYLE_ROUTE} className="underline underline-offset-2">
+              Brand › Email style
+            </Link>
+            .
+          </p>
+        ) : (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Upload your corporate logos to reuse across your brand. The primary logo is used as
+            the default header in your emails.
+          </p>
+        )}
       </div>
       <LogosGallery initialLogos={logos} tenantId={ctx.tenantId} />
     </div>

@@ -16,6 +16,7 @@ import {
   renderFooter,
   hasFooter,
 } from "@/lib/email/emailRender";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 
 /**
  * Agent 4 — deterministic compiler / QA gate. Turns authored EmailContent into a
@@ -23,6 +24,9 @@ import {
  *   - compileBroadcast    → MailChimp campaign HTML (merge TAGS, audience-wide)
  *   - compileJourneyEmail → fully-rendered HTML for ONE recipient (Mandrill)
  * and runs a light brand-safety check (strictest for ENTERPRISE_TRUST).
+ *
+ * An optional resolved Email style adds the header band (see wrap()); none =
+ * today's output. Pure: the style arrives as data, never read from env here.
  */
 export interface CompiledEmail {
   subject: string;
@@ -36,6 +40,7 @@ export function compileBroadcast(
   content: EmailContent,
   campaign: Campaign,
   footer?: FooterMergeValues,
+  style?: ResolvedEmailStyle | null,
 ): CompiledEmail {
   const subject = toMailchimpMergeTags(content.subject, campaign, footer);
   const bodyHasFooter = hasFooter(content.body); // check the RAW body (pre-translation)
@@ -49,15 +54,21 @@ export function compileBroadcast(
   }
   return {
     subject,
-    html: wrap(inner, content.heroImageUrl ?? null),
+    // The band goes on after the merge-tag pass, so {{…}} in a company name stays literal.
+    html: wrap(inner, content.heroImageUrl ?? null, { style }),
     warnings: qaWarnings(content, campaign),
   };
 }
 
-/** Journey step: render every {{var}} for the specific recipient. */
+/**
+ * Journey step: render every {{var}} for the specific recipient. A `preheader` (plain text)
+ * sets the inbox preview; with a style and none, wrap() derives it from the body.
+ */
 export function compileJourneyEmail(
   content: EmailContent,
   mergeCtx: MergeContext,
+  style?: ResolvedEmailStyle | null,
+  preheader?: string | null,
 ): CompiledEmail {
   // Subject is plain text (Mandrill's subject field) — render raw.
   const subject = renderMergeVars(content.subject, mergeCtx);
@@ -79,11 +90,13 @@ export function compileJourneyEmail(
     const footerHtml = renderMergeVars(renderFooter(null), mergeCtx, escapeHtml);
     inner = bodyHtml + footerHtml;
   }
-  const html = wrap(inner, content.heroImageUrl ?? null);
+  const hero = content.heroImageUrl ?? null;
+  // text/plain comes from the plain document: the band and the preheader aren't copy.
+  const unstyled = wrap(inner, hero);
   return {
     subject,
-    html,
-    text: htmlToText(html),
+    html: style || preheader ? wrap(inner, hero, { style, preheader }) : unstyled,
+    text: htmlToText(unstyled),
     warnings: qaWarnings(content, mergeCtx.campaign),
   };
 }

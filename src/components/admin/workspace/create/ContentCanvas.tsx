@@ -33,6 +33,7 @@ import { AddNodePalette } from "./AddNodePalette";
 import { EmailLayoutEditor } from "./email-layout/EmailLayoutEditor";
 import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
 
 /**
@@ -87,6 +88,8 @@ export function ContentCanvas({
   templates,
   brandName,
   primaryLogoUrl,
+  emailStyle = null,
+  footerBrand = null,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -96,6 +99,10 @@ export function ContentCanvas({
   /** Absolute public URL of the tenant's primary brand logo, or null — defaulted into
    *  the header of newly-seeded email layouts (see EmailLayoutEditor). */
   primaryLogoUrl?: string | null;
+  /** The tenant's resolved Email style, so email previews match the send; null = today's look. */
+  emailStyle?: ResolvedEmailStyle | null;
+  /** The footer's "sent by" brand, as the send resolves it; null = a placeholder. */
+  footerBrand?: string | null;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -673,6 +680,7 @@ export function ContentCanvas({
           <ContentPreviewModal
             node={previewNode}
             brandName={brandName}
+            emailStyle={emailStyle}
             workspaceId={workspaceId}
             fullEbook={previewNode.channel === "ebook" ? initial.ebookDraft ?? null : null}
             onClose={() => setPreviewFor(null)}
@@ -690,6 +698,8 @@ export function ContentCanvas({
             workspaceId={workspaceId}
             planId={planId}
             primaryLogoUrl={primaryLogoUrl}
+            emailStyle={emailStyle}
+            footerBrand={footerBrand}
             onSave={async (layout: EmailLayout, body: string) => {
               // Layout is the source of truth; body is its rendered HTML. Build the next
               // node list explicitly (setState is async → stale closure) and PERSIST it

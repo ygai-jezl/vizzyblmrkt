@@ -101,6 +101,44 @@ describe("Vizzy's Email style read", () => {
     });
   });
 
+  // Pinned whole: with no header options, this is exactly what Vizzy reads today.
+  it("pins today's full answer", async () => {
+    const r = await agentEmailStyle(admin, world());
+    expect(r).toEqual({
+      status: 200,
+      body: {
+        url: "/admin/brand-kit/email-style",
+        canSuggest: true,
+        current: {
+          logo: { id: "logo_png", title: "logo_png file" },
+          companyName: null,
+          headerColor: "#222244",
+          buttonColor: "#00aa55",
+          updatedAt: "2026-09-20T00:00:00.000Z",
+        },
+        pending: {
+          logo: null,
+          companyName: "Example Co",
+          headerColor: "#000080",
+          buttonColor: "#00aa55",
+          source: "chat",
+          brief: "Make the header navy",
+          notes: [],
+          suggestedAt: "2026-09-21T00:00:00.000Z",
+        },
+        fromBrandKit: {
+          logo: { id: "logo_png", title: "logo_png file" },
+          companyName: null,
+          headerColor: "#0b1f3a",
+          buttonColor: "#0b1f3a",
+          notes: [],
+        },
+        logos: [{ id: "logo_png", title: "logo_png file", primary: true, format: "png" }],
+        note: "companyName null shows the logo alone. A suggestion changes nothing until an admin saves it on the page.",
+      },
+    });
+  });
+
   it("tells a member they can't suggest", async () => {
     expect((await agentEmailStyle(member, world())).body).toMatchObject({ canSuggest: false });
   });

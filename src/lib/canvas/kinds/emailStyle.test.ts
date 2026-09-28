@@ -248,6 +248,85 @@ describe("email_style canvas kind", () => {
     });
   });
 
+  // Pinned whole: with no header options, this is exactly what Vizzy answers and stores today.
+  it("pins today's brand_kit answer and suggestion", async () => {
+    const db = world({ emailStyle: SAVED });
+    expect(await author(db, { mode: "brand_kit" })).toEqual({
+      ok: true,
+      id: "email_style",
+      status: "suggested",
+      url: "/admin/brand-kit/email-style",
+      summary:
+        "Suggested an Email style (header #0b1f3a, button #ff6b35, your logo). It's only a suggestion: " +
+        "nothing changes until an admin reviews and saves it in Brand › Email style.",
+      warnings: [],
+      card: {
+        kind: "email_style",
+        id: "email_style",
+        title: "Email style suggestion",
+        url: "/admin/brand-kit/email-style",
+        stats: [
+          { label: "header", value: "#0b1f3a" },
+          { label: "button", value: "#ff6b35" },
+        ],
+        warnings: 0,
+        note: "Suggestion — nothing changes until an admin applies it.",
+        cta: "Review and apply",
+      },
+    });
+    expect(suggestionIn(db)).toEqual({
+      logoId: "logo_png",
+      companyName: null,
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      source: "brand_kit",
+      brief: "Use my brand kit for my emails",
+      notes: [],
+      suggestedBy: "usr_admin",
+      suggestedAt: expect.any(String),
+    });
+    expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
+  });
+
+  it("pins today's edit answer and suggestion", async () => {
+    const db = world({ emailStyle: SAVED, emailStyleSuggestion: PENDING });
+    expect(await author(db, { mode: "edit", headerColor: "#000080" }, admin, "Make the header navy")).toEqual({
+      ok: true,
+      id: "email_style",
+      status: "suggested",
+      url: "/admin/brand-kit/email-style",
+      summary:
+        'Suggested an Email style (header #000080, button #cc0000, your logo, the name "Pending Co"). ' +
+        "It's only a suggestion: nothing changes until an admin reviews and saves it in Brand › Email style.",
+      warnings: ["An earlier note"],
+      card: {
+        kind: "email_style",
+        id: "email_style",
+        title: "Email style suggestion",
+        url: "/admin/brand-kit/email-style",
+        stats: [
+          { label: "header", value: "#000080" },
+          { label: "button", value: "#cc0000" },
+        ],
+        warnings: 1,
+        note: "Suggestion — nothing changes until an admin applies it.",
+        cta: "Review and apply",
+      },
+    });
+    expect(suggestionIn(db)).toEqual({
+      logoId: "logo_png",
+      companyName: "Pending Co",
+      headerColor: "#000080",
+      accentColor: "#cc0000",
+      source: "chat",
+      brief: "Make the header navy",
+      notes: ["An earlier note"],
+      suggestedBy: "usr_admin",
+      suggestedAt: expect.any(String),
+    });
+    expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
+  });
+
   it("is rate-limited per tenant: the 6th in a burst gets 429", async () => {
     const db = world();
     for (let i = 0; i < 5; i += 1) expect(await author(db, { mode: "brand_kit" })).toMatchObject({ ok: true });

@@ -100,6 +100,23 @@ describe("invite email", () => {
       expect(render(style("#1d4ed8")).html).toContain(`border-top:1px solid #ededed;font-family:${FONT};font-size:12px`);
     });
 
+    it("with web fonts, the HTML carries their block and the text never does", () => {
+      const web: ResolvedEmailStyle = {
+        ...style("#1d4ed8"),
+        theme: { preset: "modern", headingFont: "inter", bodyFont: "inter", webFontOrigin: "https://app.example.com" },
+      };
+      const out = render(web);
+      expect(out.html).toContain("<!--[if !mso]><!--><style data-vzb-fonts>");
+      expect(out.html).toContain('<div class="vzb-card" style=');
+      expect(out.text).not.toContain("@font-face");
+      expect(out.text).not.toContain("vzb-");
+      expect(out.text).toBe(render().text);
+      expect(out.subject).toBe(render().subject);
+      // The preheader is still the opening words, and the button still its label.
+      expect(out.html.match(/<div style="display:none;[^"]*">([^<]*)<\/div>/)?.[1]).toMatch(/^Hi Amara &lt;b&gt;, Thanks for waiting\./);
+      expect(button(out.html)).toContain("border-radius:999px;");
+    });
+
     it("no style (null or absent) keeps today's #111 button", () => {
       expect(render(null)).toEqual(render());
       expect(button(render().html)).toContain("background:#111;color:#fff;");

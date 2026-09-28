@@ -48,8 +48,10 @@ export function isEmailThemesEnabled(): boolean {
 
 /**
  * Server flag — web fonts (needs EMAIL_THEMES_ENABLED). On: a theme with a web font (Inter,
- * Lora, …) tells the renderers where the font files are, for the inboxes that load them (Apple
- * Mail, Outlook for Mac and a few others). Off: every theme draws its safe fonts only.
+ * Lora, …) tells the renderers where the font files are (public/email-fonts/), so its emails
+ * gain a `<head>` block that loads them in the inboxes that do (Apple Mail, Outlook for Mac and
+ * a few others), and Mandrill sends those with inline_css off. Off: every theme draws its safe
+ * fonts only, with no head block.
  */
 export function isEmailWebFontsEnabled(): boolean {
   return process.env.EMAIL_WEB_FONTS_ENABLED === "true";

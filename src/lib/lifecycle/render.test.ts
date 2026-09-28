@@ -613,6 +613,22 @@ describe("renderLifecycleEmail", () => {
         expect(appended.html).toContain(`border-top:1px solid #ededed;${BODY_FONT}font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br />1 Example Street, London`);
       });
 
+      it("with web fonts, the HTML carries their block and the text part never does", () => {
+        const web: ResolvedEmailStyle = {
+          ...style,
+          theme: { preset: "modern", headingFont: "inter", bodyFont: "inter", webFontOrigin: "https://app.example.com" },
+        };
+        const input = { item: item({ body, previewText: "{{onboarding.steps_remaining}} step left" }), values: pinned };
+        const r = renderLifecycleEmail({ ...input, style: web });
+        expect(r.html).toContain("<style data-vzb-fonts>");
+        expect(r.text).not.toContain("@font-face");
+        expect(r.text).not.toContain("vzb-");
+        expect(r.text).toBe(renderLifecycleEmail({ ...input, style }).text);
+        // A letter never takes a theme, so never the block either.
+        const letter = renderLifecycleEmail({ ...input, item: item({ body, format: "letter" }), style: web });
+        expect(letter.html).not.toContain("<style");
+      });
+
       it("a letter is unchanged", () => {
         const letter = { item: item({ body, format: "letter", previewText: "Soon" }), values: pinned, shadowFor: "alex@example.com" };
         expect(renderLifecycleEmail({ ...letter, style: themed("modern") })).toEqual(renderLifecycleEmail({ ...letter, style }));

@@ -371,6 +371,26 @@ describe("with an Email style", () => {
     );
   });
 
+  it("with web fonts, the HTML carries their block and the text part never does", () => {
+    const web = style({ theme: { preset: "friendly", headingFont: "poppins", bodyFont: "nunito", webFontOrigin: "https://app.example.com" } });
+    const merge = { signup, campaign: launch, rank: 7, footer };
+    for (const body of bodies) {
+      const content = { subject: "s", body, heroImageUrl: "https://cdn.example.com/a.png" };
+      const j = compileJourneyEmail(content, merge, web);
+      expect(j.html).toContain("<!--[if !mso]><!--><style data-vzb-fonts>");
+      expect(j.html).toContain('class="vzb-card"');
+      expect(j.text).not.toContain("@font-face");
+      expect(j.text).not.toContain("vzb-");
+      expect(j.text).toBe(compileJourneyEmail(content, merge).text);
+      // The inbox snippet is the body's opening words, never the CSS.
+      expect(j.html.match(/<div style="display:none;[^"]*">([^<]*)<\/div>/)?.[1]).not.toMatch(/font|vzb/);
+    }
+    // Broadcasts carry it too (Mailchimp inlines no CSS unless a campaign asks it to).
+    const b = compileBroadcast({ subject: "s", body: "<p>Hi {{first_name}}</p>" }, launch, footer, web);
+    expect(b.html).toContain("<style data-vzb-fonts>");
+    expect(b.html).toContain("url(https://app.example.com/email-fonts/poppins-700.v1.woff2)");
+  });
+
   it("escapes a | in the name, so MailChimp can't expand a tag in the band", () => {
     const out = compileBroadcast({ subject: "s", body: "<p>Yo</p>" }, launch, footer, style({ name: "Acme *|UNSUB|*", altName: "Acme *|UNSUB|*" }));
     expect(out.html).toContain(">Acme *&#124;UNSUB&#124;*</span>");

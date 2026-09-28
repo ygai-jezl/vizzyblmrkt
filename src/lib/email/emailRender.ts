@@ -1,7 +1,7 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
 import { EMAIL_HEADER_IMAGE_LIMITS, EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
-import { FONT, fontFor } from "./emailFonts";
+import { FONT, WEB_FONT_CLASSES, fontFor, hasWebFonts, webFontHead } from "./emailFonts";
 import { themeTokens, type EmailThemeTokens } from "./emailThemes";
 import {
   bandInk,
@@ -90,6 +90,8 @@ export function wrap(
  * keeps 24px each side so it stays 608 wide, like the band. With no band the card has all four
  * corners and page colour above it; under a band (which takes the top corners) it has the
  * bottom two. Page colour shows below it either way. Outlook for Windows draws square corners.
+ * A theme with web fonts (and where to load them) adds their `<head>` block and the card's
+ * class its rules target (webFontHead in emailFonts.ts); the inline fonts stay safe stacks.
  */
 function themedShell(
   style: ResolvedEmailStyle,
@@ -100,9 +102,10 @@ function themedShell(
   const r = theme.cardRadius;
   const corners = r ? `;border-radius:${parts.band ? `0 0 ${r}px ${r}px` : `${r}px`}` : "";
   const margin = parts.band ? "0 auto 24px" : "24px auto";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${parts.head}</head><body style="margin:0;background:${page}">
+  const cardClass = hasWebFonts(style) ? ` class="${WEB_FONT_CLASSES.card}"` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${parts.head}${webFontHead(style)}</head><body style="margin:0;background:${page}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${page}" style="width:100%;background-color:${page}"><tr><td>
-  ${parts.top}<div style="font-family:${fontFor(style, "body")};max-width:560px;margin:${margin};padding:${theme.padY}px 24px;line-height:${theme.lineHeight};color:#111;background:#fff${corners}">
+  ${parts.top}<div${cardClass} style="font-family:${fontFor(style, "body")};max-width:560px;margin:${margin};padding:${theme.padY}px 24px;line-height:${theme.lineHeight};color:#111;background:#fff${corners}">
     ${parts.hero}
     ${parts.inner}
   </div>
@@ -161,6 +164,11 @@ function bandFrame(bg: string, cell: string, corners = ""): string {
   return `<!--[if mso]><table role="presentation" width="${BAND_WIDTH}" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:${BAND_WIDTH}px;margin:0 auto;background-color:${bg}${corners}"><tr>${cell}</tr></table><!--[if mso]></td></tr></table><![endif]-->`;
 }
 
+/** The web font block's heading class, as an attribute (" class=…"), when the email carries the block; else "". */
+function headingClass(style: ResolvedEmailStyle): string {
+  return hasWebFonts(style) ? ` class="${WEB_FONT_CLASSES.heading}"` : "";
+}
+
 /** With a theme whose card is rounded, the band takes the card's top corners (";border-radius:…"); else "". */
 function bandCorners(style: ResolvedEmailStyle): string {
   const r = themeTokens(style)?.cardRadius ?? 0;
@@ -186,7 +194,8 @@ function bandCorners(style: ResolvedEmailStyle): string {
  * sizes by attributes; everyone else follows `height:auto`, so it stays fluid on phones.
  *
  * With a theme, the name and alt text take its heading font, and a rounded card's top corners
- * move up to the band (a full-width banner is rounded to match).
+ * move up to the band (a full-width banner is rounded to match). With web fonts, the name and
+ * the images carry the class the `<head>` block's heading rule targets.
  */
 export function renderHeaderBand(style: ResolvedEmailStyle): string {
   const image =
@@ -216,10 +225,11 @@ export function renderHeaderBand(style: ResolvedEmailStyle): string {
   // With the name printed beside it, the logo's alt stays empty so blocked images
   // don't show the name twice.
   const alt = text ? "" : escapeName(style.altName);
+  const cls = headingClass(style);
   const img = logo
-    ? `<img src="${escapeAttr(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${alt}" style="display:block;width:${logo.width}px;height:${logo.height}px;border:0;outline:none;text-decoration:none;${textStyle}" />`
+    ? `<img${cls} src="${escapeAttr(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${alt}" style="display:block;width:${logo.width}px;height:${logo.height}px;border:0;outline:none;text-decoration:none;${textStyle}" />`
     : "";
-  const name = text ? `<span style="${textStyle}">${escapeName(text)}</span>` : "";
+  const name = text ? `<span${cls} style="${textStyle}">${escapeName(text)}</span>` : "";
   const content =
     img && name
       ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;padding-left:12px">${name}</td></tr></table>`
@@ -242,7 +252,7 @@ function renderImageBand(style: ResolvedEmailStyle, image: NonNullable<ResolvedE
   const size = tall ? `margin:0 auto;width:${width}px;max-width:100%` : `width:100%;max-width:${BAND_WIDTH}px`;
   const corners = bandCorners(style);
   // A full-width banner fills the rounded corners, so it's rounded too; a narrower one sits inside them.
-  const img = `<img src="${escapeAttr(image.url)}" width="${width}" height="${height}" alt="${escapeName(style.altName)}" style="display:block;${size};height:auto;border:0;outline:none;text-decoration:none;${textStyle}${tall ? "" : corners}" />`;
+  const img = `<img${headingClass(style)} src="${escapeAttr(image.url)}" width="${width}" height="${height}" alt="${escapeName(style.altName)}" style="display:block;${size};height:auto;border:0;outline:none;text-decoration:none;${textStyle}${tall ? "" : corners}" />`;
   return bandFrame(bg, `<td bgcolor="${bg}" align="center" style="padding:0;background-color:${bg}${corners}">${img}</td>`, corners);
 }
 

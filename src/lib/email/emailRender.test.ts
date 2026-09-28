@@ -11,7 +11,7 @@ import {
   FOOTER_MARKER,
 } from "./emailRender";
 import { readableOn, resolveStoredStyle, type ResolvedEmailStyle } from "./emailStyle";
-import { EMAIL_FONTS, FONT } from "./emailFonts";
+import { EMAIL_FONTS, FONT, webFontHead } from "./emailFonts";
 import { EMAIL_THEME_PRESET_SPECS } from "./emailThemes";
 import { EmailLayoutSchema, type EmailLayout } from "@/lib/types/emailLayout";
 import type { EmailFontId, EmailThemePreset } from "@/lib/types/tenant";
@@ -805,6 +805,136 @@ describe("with a theme", () => {
   it("a letter stays plain", () => {
     expect(wrapLetter("<p>Hi Jo,</p>")).toContain(`font-family:${FONT};font-size:15px`);
     expect(wrapLetter("<p>Hi Jo,</p>")).not.toContain("<table");
+  });
+});
+
+describe("with web fonts", () => {
+  const ORIGIN = "https://app.example.com";
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const BANNER_URL = "https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png";
+  const WEB_FAMILIES = ["Inter", "Poppins", "Nunito", "Montserrat", "Lora", "Playfair"];
+  const base: ResolvedEmailStyle = {
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+  };
+  /** A theme as the resolver gives it: `webFontOrigin` only with web fonts on (null = off). */
+  const themed = (
+    preset: EmailThemePreset,
+    fonts: { headingFont?: EmailFontId; bodyFont?: EmailFontId } = {},
+    over: Partial<ResolvedEmailStyle> = {},
+    origin: string | null = ORIGIN,
+  ): ResolvedEmailStyle => ({
+    ...base,
+    ...over,
+    theme: {
+      preset,
+      headingFont: fonts.headingFont ?? EMAIL_THEME_PRESET_SPECS[preset].headingFont,
+      bodyFont: fonts.bodyFont ?? EMAIL_THEME_PRESET_SPECS[preset].bodyFont,
+      ...(origin !== null ? { webFontOrigin: origin } : {}),
+    },
+  });
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+      { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+      { id: "f1", kind: "footer", text: "", sectionBg: "#fafafa" },
+    ],
+  });
+  /** Every inline font-family in the document. */
+  const inlineFonts = (html: string) => [...html.matchAll(/style="[^"]*?font-family:([^;"]*)/g)].map((m) => m[1]!);
+  /** The email as it is without web fonts: the block and the classes it targets taken out. */
+  const withoutWebFonts = (html: string, style: ResolvedEmailStyle) =>
+    html.replace(webFontHead(style), "").replaceAll(' class="vzb-card"', "").replaceAll(' class="vzb-h"', "");
+
+  it("web fonts off, or a theme with safe fonts only: no <style>, no classes, and the email is the themed one", () => {
+    const cases: Array<[ResolvedEmailStyle, ResolvedEmailStyle]> = [
+      [themed("modern", {}, {}, null), themed("modern", {}, {}, null)],
+      // An origin with nothing to load (the resolver wouldn't set one) changes nothing either.
+      [themed("editorial", { headingFont: "georgia" }), themed("editorial", { headingFont: "georgia" }, {}, null)],
+      [themed("classic", { headingFont: "trebuchet", bodyFont: "arial" }), themed("classic", { headingFont: "trebuchet", bodyFont: "arial" }, {}, null)],
+    ];
+    for (const [style, plain] of cases) {
+      const out = wrap(renderEmailLayout(layout, { style }), "https://cdn.example.com/hero.png", { style, preheader: "Soon" });
+      expect(out).not.toContain("<style");
+      expect(out).not.toContain('class="vzb-');
+      expect(out).not.toContain("email-fonts");
+      expect(out).toBe(wrap(renderEmailLayout(layout, { style: plain }), "https://cdn.example.com/hero.png", { style: plain, preheader: "Soon" }));
+      expect(renderHeaderBand({ ...style, headerImage: { url: BANNER_URL, width: 1200, height: 400 } })).not.toContain("class=");
+    }
+  });
+
+  it("Modern: the block in <head> behind !mso, the card and the band's name and logo classed; nothing else changes", () => {
+    const style = themed("modern");
+    const out = wrap(renderEmailLayout(layout, { style }), null, { style });
+    const head = out.slice(0, out.indexOf("</head>"));
+    expect(head).toContain(`<meta name="supported-color-schemes" content="light only">${webFontHead(style)}`);
+    expect(head.endsWith("</style><!--<![endif]-->")).toBe(true);
+    expect(out.match(/<style/g)).toHaveLength(1);
+    expect(out.indexOf("<!--[if !mso]><!-->")).toBeLessThan(out.indexOf("<style data-vzb-fonts>"));
+    expect(out).toContain('<div class="vzb-card" style="font-family:\'Segoe UI\',Helvetica,Arial,sans-serif;max-width:560px;');
+    expect(out).toContain('<img class="vzb-h" src="https://app.example.com/api/brand-logo/');
+    expect(out).toContain('<span class="vzb-h" style="font-family:');
+    expect(out.match(/ class="vzb-card"/g)).toHaveLength(1);
+    expect(out.match(/ class="vzb-h"/g)).toHaveLength(2);
+    // Take the block and the classes out and it's the email with web fonts off, byte for byte.
+    const off = themed("modern", {}, {}, null);
+    expect(withoutWebFonts(out, style)).toBe(wrap(renderEmailLayout(layout, { style: off }), null, { style: off }));
+  });
+
+  it("no inline font-family ever lists a web family, so Outlook for Windows never meets one", () => {
+    const pairs: Array<[EmailFontId, EmailFontId]> = [
+      ["inter", "inter"],
+      ["poppins", "nunito"],
+      ["lora", "georgia"],
+      ["playfair-display", "montserrat"],
+      ["system", "lora"],
+    ];
+    for (const [headingFont, bodyFont] of pairs) {
+      for (const over of [{}, { logo: null }, { headerImage: { url: BANNER_URL, width: 1200, height: 400 } }]) {
+        const render = (style: ResolvedEmailStyle) =>
+          wrap(renderEmailLayout(layout, { style }) + renderFooter(null, { style }), "https://cdn.example.com/hero.png", {
+            style,
+            preheader: "Soon",
+          });
+        const style = themed("friendly", { headingFont, bodyFont }, over);
+        const out = render(style);
+        expect(out).toContain("<style data-vzb-fonts>");
+        const fonts = inlineFonts(out);
+        expect(fonts.length).toBeGreaterThan(4);
+        for (const font of fonts) for (const family of WEB_FAMILIES) expect(font).not.toContain(family);
+        // Web families appear only inside the block.
+        for (const family of WEB_FAMILIES) expect(out.replace(webFontHead(style), "")).not.toContain(family);
+        expect(withoutWebFonts(out, style)).toBe(render(themed("friendly", { headingFont, bodyFont }, over, null)));
+      }
+    }
+  });
+
+  it("the banner's alt text takes the heading class; the name alone does too", () => {
+    const banner = renderHeaderBand(themed("modern", {}, { headerImage: { url: BANNER_URL, width: 1200, height: 400 } }));
+    expect(banner).toContain(`<img class="vzb-h" src="${BANNER_URL}"`);
+    expect(banner.match(/class=/g)).toHaveLength(1);
+    const name = renderHeaderBand(themed("editorial", {}, { logo: null }));
+    expect(name).toContain('<span class="vzb-h" style="font-family:Georgia,');
+    expect(name.match(/class=/g)).toHaveLength(1);
+  });
+
+  it("with no band (the body shows its own logo) the card still carries the class and the block", () => {
+    const style = themed("friendly");
+    const out = wrap(`<p><img src="${LOGO_URL}" alt=""></p>`, null, { style });
+    expect(out).toContain("<style data-vzb-fonts>");
+    expect(out).toContain('<div class="vzb-card" style=');
+    expect(out).not.toContain('class="vzb-h"');
+  });
+
+  it("no style, a style with no theme and a letter never carry it", () => {
+    for (const html of [wrap("<p>x</p>", null), wrap("<p>x</p>", null, { style: base }), wrapLetter("<p>Hi Jo,</p>")]) {
+      expect(html).not.toContain("<style");
+      expect(html).not.toContain('class="vzb-');
+    }
   });
 });
 

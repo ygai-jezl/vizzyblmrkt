@@ -196,6 +196,26 @@ describe("sendEmail — delivery safety (timeouts, ambiguity, tracking, headers)
     for (const call of fetchMock.mock.calls) expect(JSON.parse(call[1].body).message).not.toHaveProperty("inline_css");
   });
 
+  it("sends inline_css: false only with the web font block, and changes nothing else", async () => {
+    process.env.EMAIL_FROM = "Example <noreply@example.com>";
+    const fetchMock = stubFetch(ok);
+    const plain = "<!doctype html><html><head></head><body><p>Hi</p></body></html>";
+    const block = "<!--[if !mso]><!--><style data-vzb-fonts>\n@font-face{font-family:'Inter'}\n</style><!--<![endif]-->";
+    const withFonts = `<!doctype html><html><head>${block}</head><body><p>Hi</p></body></html>`;
+    const msg = { to: "maya@example.com", subject: "Hi", text: "Hi", tags: ["journey"] };
+    await sendEmail({ ...msg, html: plain });
+    await sendEmail({ ...msg, html: withFonts });
+    // The word alone (say, in pasted copy) isn't the block.
+    await sendEmail({ ...msg, html: "<p>data-vzb-fonts</p>" });
+    const [a, b, c] = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).message);
+    expect(a).not.toHaveProperty("inline_css");
+    expect(c).not.toHaveProperty("inline_css");
+    expect(b).toEqual({ ...a, html: withFonts, inline_css: false });
+    expect(fetchMock.mock.calls[1]![1].body).toBe(
+      JSON.stringify({ key: "md-key", message: { ...a, html: withFonts, inline_css: false } }),
+    );
+  });
+
   it("marks a timeout as ambiguous (may have been sent; never resend)", async () => {
     vi.stubGlobal(
       "fetch",

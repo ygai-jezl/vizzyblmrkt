@@ -1,3 +1,5 @@
+import { carriesWebFonts } from "./emailFonts";
+
 /**
  * Minimal transactional email abstraction. Provider precedence: MailChimp
  * Transactional (Mandrill) when MANDRILL_API_KEY is set, else Resend when
@@ -84,6 +86,11 @@ export async function sendEmail(msg: EmailMessage): Promise<EmailResult> {
 /**
  * MailChimp Transactional (Mandrill). Mandrill needs the from-address split into
  * email + display name, so we parse EMAIL_FROM ("Name <addr>" or bare "addr").
+ *
+ * HTML carrying the web font block (a theme's fonts, see emailFonts.webFontHead)
+ * is sent with `inline_css: false`, so an account default can't write its rules
+ * into inline styles, where Outlook for Windows would see a font it doesn't have.
+ * Everything else leaves the key out, exactly as before.
  */
 async function sendViaMandrill(
   msg: EmailMessage,
@@ -122,6 +129,7 @@ async function sendViaMandrill(
           ...(msg.subaccount ? { subaccount: msg.subaccount } : {}),
           ...(msg.metadata ? { metadata: msg.metadata } : {}),
           ...(msg.tags && msg.tags.length ? { tags: msg.tags } : {}),
+          ...(carriesWebFonts(msg.html) ? { inline_css: false } : {}),
         },
       }),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),

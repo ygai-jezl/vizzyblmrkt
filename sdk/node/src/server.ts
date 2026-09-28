@@ -190,7 +190,7 @@ export interface ContextFact {
 
 export interface ContextInsight {
   id: string;
-  /** A complete, TRUE sentence — the only place numbers about the user appear. */
+  /** A complete, TRUE sentence — the only way an email says what the user's numbers mean. */
   sentence: string;
   factIds?: string[];
   weight?: number;

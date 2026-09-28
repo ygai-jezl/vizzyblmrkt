@@ -18,7 +18,7 @@ export default function ApiReferencePage() {
         .
       </Lead>
       <P>
-        What YouGrow sends <em>you</em> — the optional context request and webhooks — is under <strong>Webhooks</strong>.
+        What YouGrow sends <em>you</em> — the context request and webhooks — is under <strong>Webhooks</strong>.
         For how the pieces fit together, with examples, start with{" "}
         <Link className="underline" href="/developers/users">
           sending users

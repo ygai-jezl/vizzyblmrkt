@@ -288,8 +288,10 @@ app.post("/yougrow/context", express.raw({ type: "application/json" }), async (r
   const v = await verifier.verify({ headers: req.headers, rawBody: req.body, direction: "context" });
   if (!v.ok) return res.status(401).end();
 
-  const { userId } = JSON.parse(req.body.toString("utf8"));
-  const u = await loadOnboardingState(userId);
+  // entity is { id, kind } when the email is about one of the user's entities
+  // (a workspace, a project…): answer for that one. Otherwise it's absent.
+  const { userId, entity } = JSON.parse(req.body.toString("utf8"));
+  const u = await loadOnboardingState(userId, entity);
   res.type("json").send(
     contextResponse({
       steps: u.steps, // [{ id, label, done, url }]

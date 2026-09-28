@@ -11,6 +11,7 @@ import { __resetConnectionCaches as __resetIngestCaches } from "./connectionAuth
 import { createProductConnection, fireSandbox } from "./adminApi";
 import { outboundIssuer, publishedJwks } from "./outboundSigner";
 import { bearerToken, verifyOutboundToken } from "./outboundToken";
+import { ContextRequestSchema } from "./protocol";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", email: "jez@yougrow.test", role: "admin" };
 const NOW = Date.parse("2026-09-21T12:00:00Z");
@@ -100,13 +101,15 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
     const jwks = await publishedJwks();
     let signatureOk = false;
     let secretWorks = true;
+    let sentBody: unknown = null;
     const r = await fetchProductContext(
       conn,
-      { userId: "u1", purpose: "send" },
+      { userId: "u1", purpose: "send", entity: { id: "ws_1", kind: "workspace" } },
       {
         nowMs: NOW,
         fetchImpl: async (_url, init) => {
           const headers = new Headers(init?.headers);
+          sentBody = JSON.parse(String(init?.body));
           signatureOk =
             verifyOutboundToken({
               token: bearerToken(headers.get("authorization")),
@@ -127,6 +130,9 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
 
     expect(signatureOk).toBe(true);
     expect(secretWorks).toBe(false);
+    // The request names the entity the email is about, and parses as the documented request.
+    expect(sentBody).toMatchObject({ userId: "u1", purpose: "send", entity: { id: "ws_1", kind: "workspace" } });
+    expect(ContextRequestSchema.safeParse(sentBody).success).toBe(true);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.context.steps[0]!.url).toBe("https://app.acme.test/brand");

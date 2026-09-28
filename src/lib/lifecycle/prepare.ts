@@ -135,7 +135,13 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
 
   const res = await (deps.fetchContext ?? fetchProductContext)(
     connection,
-    { userId: user.externalUserId, purpose: "prepare", journeyId: journey.id, nodeId: leased.nodeId },
+    {
+      userId: user.externalUserId,
+      purpose: "prepare",
+      journeyId: journey.id,
+      nodeId: leased.nodeId,
+      ...(entities?.entity ? { entity: { id: entities.entity.id, kind: entities.entity.entity.kind } } : {}),
+    },
     { db: deps.db, nowMs },
   );
   const context = res.ok ? res.context : null;

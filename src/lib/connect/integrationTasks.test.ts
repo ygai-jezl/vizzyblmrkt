@@ -41,7 +41,8 @@ describe("integration tasks", () => {
     const t = Object.fromEntries(buildIntegrationTasks({ map, health: null, contextEnabled: false, invites: true }).map((x) => [x.id, x]));
     expect(t.signup!.action).toContain("PATCH the user with `signedUpAt`");
     expect(t.steps!.action).toContain("Include `steps`");
-    expect(t.context!.title).toContain("(optional)");
+    expect(t.context!.title).toContain("show people their results");
+    expect(t.context!.action).toContain("the only way an email says what their numbers mean");
     expect(t.deletion!.action).toContain("`DELETE /api/v2/users/{userId}`");
     expect(t.preferences!.action).toContain("`subscribed: false`");
     expect(t.timezone!.action).toContain("`timezone`");
@@ -151,7 +152,9 @@ describe("prompt for the customer's coding agent", () => {
     expect(phase1).not.toContain("[Personalisation]");
     const phase2 = p.slice(p.indexOf("## Phase 2"), p.indexOf("## Reference"));
     expect(phase2).toContain("[Personalisation] Report onboarding steps and facts");
-    expect(phase2).toContain("[Personalisation] Build the context endpoint (optional)");
+    expect(phase2).toContain("[Personalisation] Build the context endpoint — for emails that show people their results");
+    expect(phase2).toContain("**Ask me** before deciding");
+    expect(phase2).not.toMatch(/Skip it unless/);
     expect(p).toContain("Treat them as leads, not facts");
   });
 

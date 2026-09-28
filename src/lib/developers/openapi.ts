@@ -448,7 +448,7 @@ function webhooks(origin: string): Json {
     contextRequest: {
       post: {
         operationId: "contextRequest",
-        summary: "Context request (optional)",
+        summary: "Context request",
         description: `Only while you've set a context endpoint: just before a journey acts for a user, YouGrow asks your server for their live state. Answer within your timeout (2 seconds by default, 5 at most). If it fails 3 times in a row, YouGrow uses the stored state for 15 minutes before asking again. ${verify} \`dir\` is \`context\`.`,
         security: [{ bearerAuth: [] }],
         parameters: [keyIdHeader],
@@ -457,7 +457,14 @@ function webhooks(origin: string): Json {
           content: body("ContextRequest", {
             send: {
               summary: "Before an email",
-              value: { userId: "user_123", purpose: "send", journeyId: "lcj_4f8a2c", nodeId: "email_2", requestId: "b5c1e6d2-8a0f-4c1e-9d55-3f1a2b7c9e10" },
+              value: {
+                userId: "user_123",
+                purpose: "send",
+                journeyId: "lcj_4f8a2c",
+                nodeId: "email_2",
+                entity: { id: "proj_42", kind: "project" },
+                requestId: "b5c1e6d2-8a0f-4c1e-9d55-3f1a2b7c9e10",
+              },
             },
           }),
         },
@@ -539,7 +546,7 @@ export function openApiSpec(origin: string): Json {
         "- **Out-of-order writes:** send `updatedAt` (when you read the state), and a write older than the newest one applied is skipped: `200 {\"applied\": false, \"reason\": \"stale_write\"}` — a success, not a conflict.",
         `- **Limits:** 600 requests a minute and 20,000 an hour per key (a batch counts as one), ${kb(V2_LIMITS.maxBodyBytes)} per request, ${V2_LIMITS.maxBatch} users per batch.`,
         "- **Errors:** a `400` lists each problem in `fields` — fix it rather than retry. Retry a `429` after `Retry-After`, and a `5xx` or a network error with backoff. Where API v2 isn't switched on, every endpoint answers `404 api_disabled`.",
-        "- **What YouGrow sends you** — the optional context request and webhooks — is under Webhooks. Each carries an ES256 JWT for you to verify.",
+        "- **What YouGrow sends you** — the context request and webhooks — is under Webhooks. Each carries an ES256 JWT for you to verify.",
         "",
         `Guides and examples: ${o}/developers. API v1 (\`POST /api/v1/events\`, HMAC-signed) was removed on 2026-09-25.`,
       ].join("\n"),

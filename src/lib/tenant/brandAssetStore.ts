@@ -9,7 +9,7 @@ import {
   isAllowedScreenshotType,
   sniffImageMime,
 } from "@/lib/workspace/assetStore";
-import type { BrandAssetCategory } from "@/lib/types/brandAsset";
+import type { BrandAssetKind } from "@/lib/types/brandAsset";
 
 /**
  * Private storage for tenant BRAND ASSETS — ICONS + GRAPHICS (Brand Kit → Icons / Graphics),
@@ -20,6 +20,8 @@ import type { BrandAssetCategory } from "@/lib/types/brandAsset";
  * asset proxy away from the sibling logos / fonts / brand PDFs. Only the FILENAME is stored on the
  * doc; the full key is reconstructed from the tenantId + category. Raster-only (PNG/JPG/WebP) so
  * the bytes are directly ingestible by the image model. Type trusted from the magic-byte sniff.
+ * Email header images live here too (`brand/{tenantId}/headers/{file}`); their upload route
+ * narrows them to PNG/JPEG before storing.
  *
  * NOT the same as `src/lib/tenant/brandAsset.ts` (the brand-guideline PDF store).
  */
@@ -40,12 +42,12 @@ export const MAX_ASSET_BYTES = MAX_SCREENSHOT_BYTES;
 /** A stored asset filename: `<uuid>.<ext>` — reuse the anchored screenshot regex (no `/`/`..`). */
 export const ASSET_FILENAME = SCREENSHOT_FILENAME;
 
-/** The GCS sub-prefix per category (`icons/`, `graphics/`) — pluralised for readability. */
-function segmentFor(category: BrandAssetCategory): string {
+/** The GCS sub-prefix per category (`icons/`, `graphics/`, `headers/`) — pluralised for readability. */
+function segmentFor(category: BrandAssetKind): string {
   return `${category}s`;
 }
 
-function keyFor(tenantId: string, category: BrandAssetCategory, filename: string): string {
+function keyFor(tenantId: string, category: BrandAssetKind, filename: string): string {
   return `brand/${tenantId}/${segmentFor(category)}/${filename}`;
 }
 
@@ -55,7 +57,7 @@ export type StoreAssetResult =
 
 export async function storeBrandAsset(
   tenantId: string,
-  category: BrandAssetCategory,
+  category: BrandAssetKind,
   bytes: Buffer,
   mimeType: string,
 ): Promise<StoreAssetResult> {
@@ -89,7 +91,7 @@ export interface BrandAssetBytes {
 
 export async function readBrandAsset(
   tenantId: string,
-  category: BrandAssetCategory,
+  category: BrandAssetKind,
   filename: string,
 ): Promise<BrandAssetBytes | null> {
   if (!ASSET_FILENAME.test(filename)) return null;
@@ -110,7 +112,7 @@ export async function readBrandAsset(
 
 export async function deleteBrandAssetBytes(
   tenantId: string,
-  category: BrandAssetCategory,
+  category: BrandAssetKind,
   filename: string,
 ): Promise<void> {
   if (!ASSET_FILENAME.test(filename)) return;

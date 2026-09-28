@@ -5,12 +5,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EmailStyleInputSchema, HEADER_TEXT_CHOICES, type EmailStyleInput, type HeaderTextChoice } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
-import { BRAND_KIT_LOGOS_ROUTE, brandLogoAbsoluteUrl, brandLogoPublicUrl } from "@/lib/content/brandKit";
+import {
+  BRAND_KIT_LOGOS_ROUTE,
+  brandLogoAbsoluteUrl,
+  brandLogoPublicUrl,
+  emailHeaderImageAbsoluteUrl,
+  emailHeaderImagePublicUrl,
+} from "@/lib/content/brandKit";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 import {
   bandStops,
   cleanCompanyName,
   isEmailLogo,
+  isHeaderImageUrlShape,
   isLogoUrlShape,
   resolveStoredStyle,
   type BrandKitEmailStyle,
@@ -21,6 +28,8 @@ import {
   brandKitWithLogo,
   emailStyleHints,
   fitLogoSize,
+  headerAfterDelete,
+  logoForSave,
   secondColourDefault,
   suggestionForReview,
   type EmailStyleLogoChoice,
@@ -29,12 +38,16 @@ import {
 } from "./emailStyleForm";
 import { hasWhiteBackground } from "./logoCleanup";
 import { LogoCleanupPanel } from "./LogoCleanupPanel";
+import { HeaderImagePicker } from "./HeaderImagePicker";
+import type { EmailHeaderImageChoice } from "./headerImage";
 
 /**
  * Brand › Email style: the header band (logo, optional company name, header colour) and the
  * button colour that branded emails wear, plus, with the header options on, a gradient and
- * the header text colour, and an admin's logo clean-up (a new, transparent or white copy of
- * the picked logo, saved to Brand › Logos). "Use brand kit" fills it in from Brand; nothing
+ * the header text colour, an admin's logo clean-up (a new, transparent or white copy of
+ * the picked logo, saved to Brand › Logos), and a Header choice: Colour (all of that) or
+ * Image (a banner uploaded here, on the header colour, in place of the logo and name; the
+ * colour-header fields are hidden but kept). "Use brand kit" fills it in from Brand; nothing
  * changes until an admin saves. The preview goes through the lifecycle renderer, so it matches
  * the send. A banner shows Vizzy's pending suggestion: Review loads it into the form and Save
  * applies it, or Dismiss drops it. Members see it all read-only.
@@ -71,9 +84,12 @@ interface Draft {
   gradient: boolean;
   headerColor2: string;
   headerText: HeaderTextChoice;
+  /** Colour (logo and name on the header colour) or Image (a banner). The picked banner is kept in Colour. */
+  headerMode: "colour" | "image";
+  headerImageId: string | null;
 }
 
-/** Nothing saved yet: no logo, no name, today's near-black, solid, Auto text. */
+/** Nothing saved yet: no logo, no name, today's near-black, solid, Auto text, the colour header. */
 const BLANK: Draft = {
   logoId: null,
   companyName: "",
@@ -82,6 +98,8 @@ const BLANK: Draft = {
   gradient: false,
   headerColor2: "",
   headerText: "auto",
+  headerMode: "colour",
+  headerImageId: null,
 };
 
 const HEADER_TEXT_LABELS: Record<HeaderTextChoice, string> = { auto: "Auto", white: "White", black: "Black" };
@@ -95,10 +113,19 @@ interface LogoSample {
   whiteBackground: boolean | null;
 }
 
-/** `logos` is null when the list couldn't be loaded: the saved logo is kept, not taken as deleted. */
-function toDraft(style: EmailStyleInput | null, logos: readonly EmailStyleLogoChoice[] | null): Draft {
+/**
+ * `logos` (and `images`) is null when the list couldn't be loaded: the saved logo (or header
+ * image) is kept, not taken as deleted. A saved header image that's since been deleted leaves
+ * Image mode with none picked, so Save asks for one (or Colour).
+ */
+function toDraft(
+  style: EmailStyleInput | null,
+  logos: readonly EmailStyleLogoChoice[] | null,
+  images: readonly EmailHeaderImageChoice[] | null,
+): Draft {
   if (!style) return BLANK;
   const logoId = style.logo?.id ?? null;
+  const imageId = style.headerImage?.id ?? null;
   return {
     logoId: logoId && (!logos || logos.some((l) => l.id === logoId)) ? logoId : null,
     companyName: style.companyName ?? "",
@@ -107,6 +134,8 @@ function toDraft(style: EmailStyleInput | null, logos: readonly EmailStyleLogoCh
     gradient: !!style.headerGradientColor,
     headerColor2: style.headerGradientColor ?? "",
     headerText: style.headerText ?? "auto",
+    headerMode: style.headerImage ? "image" : "colour",
+    headerImageId: imageId && (!images || images.some((i) => i.id === imageId)) ? imageId : null,
   };
 }
 
@@ -117,7 +146,9 @@ const sameDraft = (a: Draft, b: Draft) =>
   a.accentColor === b.accentColor &&
   a.gradient === b.gradient &&
   (!a.gradient || a.headerColor2 === b.headerColor2) &&
-  a.headerText === b.headerText;
+  a.headerText === b.headerText &&
+  a.headerMode === b.headerMode &&
+  (a.headerMode !== "image" || a.headerImageId === b.headerImageId);
 
 /**
  * Load a logo from its same-origin URL (the logo route sends no CORS headers, so a canvas
@@ -176,6 +207,32 @@ function mergeLogos(
   return out;
 }
 
+/** Load a header image from its same-origin URL, once, to confirm it loads (its size comes from the row). */
+function checkBanner(src: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img.naturalWidth > 0 && img.naturalHeight > 0);
+    img.onerror = () => resolve(false);
+    img.src = src;
+  });
+}
+
+/** The header images the card works from: those uploaded here (newest first) ahead of the page's, each once, minus those deleted here. */
+function mergeImages(
+  added: readonly EmailHeaderImageChoice[],
+  images: readonly EmailHeaderImageChoice[],
+  removed: readonly string[],
+): EmailHeaderImageChoice[] {
+  const seen = new Set<string>(removed);
+  const out: EmailHeaderImageChoice[] = [];
+  for (const i of [...added, ...images]) {
+    if (seen.has(i.id)) continue;
+    seen.add(i.id);
+    out.push(i);
+  }
+  return out;
+}
+
 /** A short welcome email, rendered as a real branded lifecycle email. */
 const SAMPLE_ITEM = {
   subject: "Welcome",
@@ -213,6 +270,9 @@ export function EmailStyleCard({
   canEdit,
   logosUnavailable,
   headerOptions,
+  headerImages,
+  headerImagesUnavailable,
+  headerImageOrigin,
 }: {
   /** The saved style; null = none, so emails have today's look. */
   initial: EmailStyleInput | null;
@@ -236,18 +296,35 @@ export function EmailStyleCard({
   /** Why there's no logo list — Logos is off, or it failed to load — so `logos` is empty but the saved logo may not be. */
   logosUnavailable: "off" | "failed" | false;
   /**
-   * The header options (Gradient, Header text, logo clean-up) are on. Off, the page is as
-   * without them: no controls, and Save sends neither key, so the server keeps whatever is stored.
+   * The header options (Gradient, Header text, logo clean-up, the Header choice) are on. Off,
+   * the page is as without them: no controls, and Save sends none of their keys, so the server
+   * keeps whatever is stored.
    */
   headerOptions: boolean;
+  /** This tenant's usable header images, newest first (empty with the header options off). The card adds any uploaded here. */
+  headerImages: EmailHeaderImageChoice[];
+  /** The header images couldn't be loaded: the Header choice is locked, and Save leaves the stored one as it is. */
+  headerImagesUnavailable: boolean;
+  /** The origin emails load the header image from; empty = the preview shows the colour header, as the send would. */
+  headerImageOrigin: string;
 }) {
   // Logos cleaned up here, and the primary the server kept in place when one was added.
   const [added, setAdded] = useState<EmailStyleLogoChoice[]>([]);
   const [pinned, setPinned] = useState<string | null>(null);
   const allLogos = useMemo(() => mergeLogos(added, logos, pinned), [added, logos, pinned]);
   const listed = logosUnavailable ? null : allLogos;
+  // Header images uploaded or deleted here.
+  const [addedImages, setAddedImages] = useState<EmailHeaderImageChoice[]>([]);
+  const [removedImages, setRemovedImages] = useState<string[]>([]);
+  const allImages = useMemo(
+    () => mergeImages(addedImages, headerImages, removedImages),
+    [addedImages, headerImages, removedImages],
+  );
+  // The Header choice works only with the list: without it, Save leaves the stored image alone.
+  const imagesListed = headerOptions && !headerImagesUnavailable;
+  const listedImages = headerImagesUnavailable ? null : allImages;
   const [saved, setSaved] = useState<EmailStyleInput | null>(initial);
-  const [draft, setDraft] = useState<Draft>(() => toDraft(initial, listed));
+  const [draft, setDraft] = useState<Draft>(() => toDraft(initial, listed, listedImages));
   // With nothing saved, the preview shows today's look until the admin starts a style.
   const [started, setStarted] = useState(initial !== null);
   // The saved logo starts at its saved size, so the preview doesn't flicker while it's re-measured.
@@ -257,16 +334,19 @@ export function EmailStyleCard({
       : {},
   );
   const sampling = useRef(new Map<string, Promise<LogoSample | null>>());
+  // Header images loaded once each, to confirm they load.
+  const [bannerChecks, setBannerChecks] = useState<Record<string, "ok" | "failed">>({});
+  const bannerChecking = useRef(new Map<string, Promise<boolean>>());
   const [notes, setNotes] = useState<string[]>([]);
   // The suggestion (by suggestedAt) loaded into the form, and the one applied or dismissed here.
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [handled, setHandled] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "kit" | "save" | "reset" | "dismiss" | "logo">(null);
+  const [busy, setBusy] = useState<null | "kit" | "save" | "reset" | "dismiss" | "logo" | "image">(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const router = useRouter();
-  const dirty = saved ? !sameDraft(draft, toDraft(saved, listed)) : started;
+  const dirty = saved ? !sameDraft(draft, toDraft(saved, listed, listedImages)) : started;
   const suggestion = pending && pending.suggestedAt !== handled ? pending : null;
 
   // Save is explicit; warn before losing unsaved edits (as the Colours page does).
@@ -296,6 +376,22 @@ export function EmailStyleCard({
     [tenantId],
   );
 
+  /** Load a header image once; later calls share the first load. */
+  const checkImage = useCallback(
+    (image: { id: string; filename: string }) => {
+      let p = bannerChecking.current.get(image.id);
+      if (!p) {
+        p = checkBanner(emailHeaderImagePublicUrl(tenantId, image.filename)).then((ok) => {
+          setBannerChecks((prev) => ({ ...prev, [image.id]: ok ? "ok" : "failed" }));
+          return ok;
+        });
+        bannerChecking.current.set(image.id, p);
+      }
+      return p;
+    },
+    [tenantId],
+  );
+
   const selected = allLogos.find((l) => l.id === draft.logoId) ?? null;
   // With no list, the saved logo is offered as saved; Save sends it unchanged and the server re-checks it.
   const savedLogo = listed ? null : (saved?.logo ?? null);
@@ -307,42 +403,82 @@ export function EmailStyleCard({
   const logoSample = measured && measured !== "failed" ? measured : null;
   const logoState = !selected ? "none" : !measured ? "checking" : measured === "failed" ? "failed" : "ready";
 
-  const input: EmailStyleInput = {
-    logo:
+  // Image mode: the banner picked from the list, or, with no list, the saved one as it is.
+  const imageMode = headerOptions && draft.headerMode === "image";
+  const savedImage = saved?.headerImage ?? null;
+  const pickedRow = imageMode ? (allImages.find((i) => i.id === draft.headerImageId) ?? null) : null;
+  const pickedImage =
+    pickedRow ?? (imageMode && !listedImages && savedImage && savedImage.id === draft.headerImageId ? savedImage : null);
+  useEffect(() => {
+    if (pickedImage) void checkImage(pickedImage);
+  }, [pickedImage, checkImage]);
+  const bannerCheck = pickedImage ? bannerChecks[pickedImage.id] : undefined;
+  const imageState = !pickedImage ? "none" : !bannerCheck ? "checking" : bannerCheck === "failed" ? "failed" : "ready";
+  const headerImage = pickedImage
+    ? { id: pickedImage.id, filename: pickedImage.filename, width: pickedImage.width, height: pickedImage.height }
+    : null;
+
+  // The logo is kept for the colour header in Image mode too (logoForSave says how).
+  const logoPlan = logoForSave({
+    imageMode,
+    logoState,
+    measured:
       selected && logoSample
         ? { id: selected.id, filename: selected.filename, width: logoSample.width, height: logoSample.height }
-        : kept,
+        : null,
+    kept,
+    saved,
+  });
+  const input: EmailStyleInput = {
+    logo: logoPlan.logo,
     companyName: cleanCompanyName(draft.companyName),
     headerColor: draft.headerColor,
     accentColor: draft.accentColor,
-    // Both keys, always, while the options are on: null = solid, "auto" = Auto.
+    // The keys, always, while the options are on: null = solid, "auto" = Auto, a null image =
+    // the colour header. With no image list, the image is left out, so the server keeps it.
     ...(headerOptions
-      ? { headerGradientColor: draft.gradient ? draft.headerColor2 : null, headerText: draft.headerText }
+      ? {
+          headerGradientColor: draft.gradient ? draft.headerColor2 : null,
+          headerText: draft.headerText,
+          ...(imagesListed ? { headerImage } : {}),
+        }
       : {}),
   };
   const check = EmailStyleInputSchema.safeParse(input);
+  // Image mode holds Save until the picked banner has loaded (only when it's sent).
+  const imageHold = imageMode && imagesListed && imageState !== "ready";
   // The header's colours as the band draws them, for the logo clean-up's tiles and hint.
   const stops = bandStops({ headerColor: draft.headerColor, headerGradientColor: input.headerGradientColor ?? undefined });
   const nameError = check.success ? null : (check.error.issues.find((i) => i.path[0] === "companyName")?.message ?? null);
 
   const previewStyle = started
-    ? resolveStoredStyle(input, {
-        logoUrlFor: (l) => {
-          const url = logoOrigin ? brandLogoAbsoluteUrl(logoOrigin, tenantId, l.filename) : "";
-          return url && isLogoUrlShape(url) ? url : null;
+    ? resolveStoredStyle(
+        // The banner shows even when Save leaves it out (no list): it's the one stored.
+        { ...input, headerImage },
+        {
+          logoUrlFor: (l) => {
+            const url = logoOrigin ? brandLogoAbsoluteUrl(logoOrigin, tenantId, l.filename) : "";
+            return url && isLogoUrlShape(url) ? url : null;
+          },
+          headerImageUrlFor: (i) => {
+            const url = headerImageOrigin ? emailHeaderImageAbsoluteUrl(headerImageOrigin, tenantId, i.filename) : "";
+            return url && isHeaderImageUrlShape(url) ? url : null;
+          },
+          fallbackName,
+          headerOptions,
         },
-        fallbackName,
-        headerOptions,
-      })
+      )
     : null;
   const previewHtml = renderLifecycleEmail({ item: SAMPLE_ITEM, values: sampleValues(fallbackName), style: previewStyle }).html;
   const header = !previewStyle
     ? "No header — today's look"
-    : previewStyle.logo
-      ? previewStyle.name
-        ? "Header: logo and name"
-        : "Header: logo only"
-      : "Header: name only";
+    : previewStyle.headerImage
+      ? "Header: image"
+      : previewStyle.logo
+        ? previewStyle.name
+          ? "Header: logo and name"
+          : "Header: logo only"
+        : "Header: name only";
 
   const hints = started
     ? emailStyleHints({
@@ -356,6 +492,14 @@ export function EmailStyleCard({
               headerText: draft.headerText,
               // As the band draws it: beside a logo only a company name shows; without one, the name.
               showsText: !!previewStyle && !!(previewStyle.logo ? previewStyle.name : previewStyle.altName),
+            }
+          : {}),
+        // Image mode: the banner's hints in place of the logo and text ones.
+        ...(imageMode
+          ? {
+              headerImage: pickedImage
+                ? { width: pickedImage.width, height: pickedImage.height, byteSize: pickedRow?.byteSize ?? null }
+                : null,
             }
           : {}),
       })
@@ -383,6 +527,8 @@ export function EmailStyleCard({
         // Brand has no gradient: back to solid, with Auto text.
         gradient: false,
         headerText: "auto",
+        // Nor a banner: the colour header (left as it is when the image list couldn't be loaded).
+        ...(imagesListed ? { headerMode: "colour" as const } : {}),
       });
       setNotes(listed ? kit.notes : []);
       setReviewing(null);
@@ -399,16 +545,49 @@ export function EmailStyleCard({
     setStatus(`Added “${title}” to Brand › Logos and picked it. Save to use it in emails.`);
   }
 
+  /** A banner uploaded here: it joins the list and is picked. The Email style changes on Save. */
+  function addHeaderImage(image: EmailHeaderImageChoice) {
+    setAddedImages((prev) => [image, ...prev]);
+    edit({ headerMode: "image", headerImageId: image.id });
+    setStatus(`Uploaded “${image.title}”. Save to use it in emails.`);
+  }
+
+  /**
+   * A banner deleted here leaves the list. If the saved style used it, the server has put the
+   * style back on its header colour (`cleared`), so the saved copy here follows; a form that
+   * had it picked goes back to the saved header — Colour once cleared, else the saved banner
+   * (headerAfterDelete).
+   */
+  function removeHeaderImage(id: string, cleared: boolean) {
+    const title = allImages.find((i) => i.id === id)?.title;
+    setRemovedImages((prev) => [...prev, id]);
+    if (cleared) {
+      setSaved((s) => {
+        if (!s) return s;
+        const { headerImage: _deleted, ...rest } = s;
+        return rest;
+      });
+    }
+    const savedHeader = toDraft(saved, listed, listedImages);
+    setDraft((d) => headerAfterDelete(d, { id, cleared }, savedHeader));
+    setError(null);
+    setStatus(
+      cleared ? "Deleted. Your emails use the header colour again." : title ? `Deleted “${title}”.` : "Deleted.",
+    );
+  }
+
   /**
    * Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual.
    * Its header options too (the page only gets them with the options on): a solid suggestion
-   * unticks Gradient and keeps Colour 2, as unticking does.
+   * unticks Gradient and keeps Colour 2, as unticking does, and its header image picks Image
+   * with that banner, or Colour with none (a deleted one is Colour, with a note).
    */
   function review(s: PendingEmailStyleSuggestion) {
     const r = suggestionForReview(
       s,
       allLogos,
       listed ? undefined : { savedLogoId: savedLogo?.id ?? null, logosOff: logosUnavailable === "off" },
+      headerOptions ? { images: listedImages, savedImageId: savedImage?.id ?? null } : undefined,
     );
     edit({
       logoId: r.logoId,
@@ -418,6 +597,12 @@ export function EmailStyleCard({
       gradient: r.headerGradientColor !== null,
       ...(r.headerGradientColor ? { headerColor2: r.headerGradientColor } : {}),
       headerText: r.headerText,
+      // Colour keeps the picked banner, as switching to Colour does.
+      ...(r.headerImageId === undefined
+        ? {}
+        : r.headerImageId
+          ? { headerMode: "image" as const, headerImageId: r.headerImageId }
+          : { headerMode: "colour" as const }),
     });
     setNotes(r.notes);
     setReviewing(s.suggestedAt);
@@ -442,7 +627,7 @@ export function EmailStyleCard({
       if (reviewing === s.suggestedAt) {
         // Back to the saved style.
         setReviewing(null);
-        setDraft(toDraft(saved, listed));
+        setDraft(toDraft(saved, listed, listedImages));
         setStarted(saved !== null);
         setNotes([]);
       }
@@ -473,6 +658,7 @@ export function EmailStyleCard({
       });
       const data = (await res.json().catch(() => ({}))) as {
         emailStyle?: EmailStyleInput;
+        error?: string;
         message?: string;
         issues?: Array<{ message: string }>;
       };
@@ -480,12 +666,15 @@ export function EmailStyleCard({
         setError(
           res.status === 403
             ? "Only an admin can change the Email style."
-            : (data.message ?? data.issues?.[0]?.message ?? "Couldn't save — try again."),
+            : data.error === "invalid_logo" && imageMode
+              ? // The Logo fieldset is hidden, so say where to fix it.
+                "The logo kept for your colour header can't be used any more — switch to Colour and pick another, or No logo."
+              : (data.message ?? data.issues?.[0]?.message ?? "Couldn't save — try again."),
         );
         return;
       }
       setSaved(data.emailStyle);
-      setDraft(toDraft(data.emailStyle, listed));
+      setDraft(toDraft(data.emailStyle, listed, listedImages));
       setNotes([]);
       if (reviewing) {
         setHandled(reviewing);
@@ -537,6 +726,11 @@ export function EmailStyleCard({
             (savedLogo && savedLogo.id === suggestion.logoId ? "Current logo" : null)
           }
           logosUnavailable={logosUnavailable}
+          headerImageTitle={
+            allImages.find((i) => i.id === suggestion.headerImageId)?.title ??
+            (headerImagesUnavailable && savedImage && savedImage.id === suggestion.headerImageId ? "Current header image" : null)
+          }
+          headerImagesUnavailable={headerImagesUnavailable}
           canEdit={canEdit}
           reviewing={reviewing === suggestion.suggestedAt}
           disabled={busy !== null}
@@ -565,83 +759,142 @@ export function EmailStyleCard({
           </ul>
         ) : null}
 
-        <fieldset className="space-y-2">
-          <legend className={LABEL}>Logo</legend>
-          <p className={HINT}>PNG or JPG. It sits on the header colour, up to 48 px tall.</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <LogoOption
-              label="No logo"
-              checked={!selected && !kept}
-              disabled={disabled}
-              onSelect={() => edit({ logoId: null })}
-            />
-            {savedLogo ? (
-              <LogoOption
-                label="Current logo"
-                src={brandLogoPublicUrl(tenantId, savedLogo.filename)}
-                checked={kept !== null}
+        {headerOptions ? (
+          <fieldset className="space-y-2">
+            <legend className={LABEL}>Header</legend>
+            <p id="email-style-mode-hint" className={HINT}>
+              {headerImagesUnavailable
+                ? "Your header images couldn't be loaded — try again later."
+                : "Colour: your logo and name on the header colour. Image: a banner of your own, full width."}
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {(["colour", "image"] as const).map((mode) => (
+                <label
+                  key={mode}
+                  className={`flex items-center gap-2 text-sm ${
+                    disabled || !imagesListed ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="email-style-header-mode"
+                    checked={draft.headerMode === mode}
+                    disabled={disabled || !imagesListed}
+                    aria-describedby="email-style-mode-hint"
+                    onChange={() => edit({ headerMode: mode })}
+                  />
+                  {mode === "colour" ? "Colour" : "Image"}
+                </label>
+              ))}
+            </div>
+            {imageMode && imagesListed ? (
+              <HeaderImagePicker
+                images={allImages}
+                selectedId={draft.headerImageId}
+                inUseId={savedImage?.id ?? null}
+                tenantId={tenantId}
+                headerColor={draft.headerColor}
+                canEdit={canEdit}
                 disabled={disabled}
-                onSelect={() => edit({ logoId: savedLogo.id })}
+                onSelect={(id) => edit({ headerImageId: id })}
+                onUploaded={addHeaderImage}
+                onDeleted={removeHeaderImage}
+                onBusy={(on) => setBusy(on ? "image" : null)}
               />
             ) : null}
-            {allLogos.map((l) => {
-              const usable = isEmailLogo(l);
-              return (
+            {imageMode && imagesListed && imageState === "none" ? (
+              <p className={HINT}>Pick or upload a header image, or choose Colour.</p>
+            ) : null}
+            {imageMode && imagesListed && imageState === "checking" ? <p className={HINT}>Checking your image…</p> : null}
+            {imageMode && imagesListed && imageState === "failed" ? (
+              <p role="alert" className={ERROR}>
+                We couldn&rsquo;t load this image. Pick another, or choose Colour.
+              </p>
+            ) : null}
+          </fieldset>
+        ) : null}
+
+        {!imageMode ? (
+          <fieldset className="space-y-2">
+            <legend className={LABEL}>Logo</legend>
+            <p className={HINT}>PNG or JPG. It sits on the header colour, up to 48 px tall.</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <LogoOption
+                label="No logo"
+                checked={!selected && !kept}
+                disabled={disabled}
+                onSelect={() => edit({ logoId: null })}
+              />
+              {savedLogo ? (
                 <LogoOption
-                  key={l.id}
-                  label={l.title}
-                  src={brandLogoPublicUrl(tenantId, l.filename)}
-                  badge={l.isPrimary ? "Primary" : undefined}
-                  reason={usable ? undefined : l.mimeType === "image/webp" ? "WebP — Outlook can't show it" : "Email needs a PNG or JPG"}
-                  checked={selected?.id === l.id}
-                  disabled={disabled || !usable}
-                  onSelect={() => edit({ logoId: l.id })}
+                  label="Current logo"
+                  src={brandLogoPublicUrl(tenantId, savedLogo.filename)}
+                  checked={kept !== null}
+                  disabled={disabled}
+                  onSelect={() => edit({ logoId: savedLogo.id })}
                 />
-              );
-            })}
-          </div>
-          {logosUnavailable === "off" ? (
-            <p className={HINT}>Logos aren&rsquo;t switched on in this environment, so emails show your name in the header.</p>
-          ) : !listed ? (
-            <p className={HINT}>Your logos couldn&rsquo;t be loaded, so you can&rsquo;t pick another right now. Try again later.</p>
-          ) : allLogos.length === 0 ? (
-            <p className={HINT}>
-              No logos yet — add a PNG or JPG in{" "}
-              <Link href={BRAND_KIT_LOGOS_ROUTE} className="underline underline-offset-2">
-                Brand › Logos
-              </Link>
-              .
-            </p>
-          ) : null}
-          {logoState === "checking" ? <p className={HINT}>Checking your logo…</p> : null}
-          {logoState === "failed" ? (
-            <p role="alert" className={ERROR}>
-              We couldn&rsquo;t load this logo. Pick another, or choose No logo.
-            </p>
-          ) : null}
-          {headerOptions && canEdit && listed && selected && isEmailLogo(selected) && logoState !== "failed" ? (
-            <LogoCleanupPanel
-              key={selected.id}
-              logo={selected}
-              tenantId={tenantId}
-              stops={stops}
-              whiteBackground={logoSample?.whiteBackground ?? null}
-              disabled={disabled}
-              onBusy={(on) => setBusy(on ? "logo" : null)}
-              onPrimaryPinned={setPinned}
-              onAdded={addLogo}
-            />
-          ) : null}
-        </fieldset>
+              ) : null}
+              {allLogos.map((l) => {
+                const usable = isEmailLogo(l);
+                return (
+                  <LogoOption
+                    key={l.id}
+                    label={l.title}
+                    src={brandLogoPublicUrl(tenantId, l.filename)}
+                    badge={l.isPrimary ? "Primary" : undefined}
+                    reason={usable ? undefined : l.mimeType === "image/webp" ? "WebP — Outlook can't show it" : "Email needs a PNG or JPG"}
+                    checked={selected?.id === l.id}
+                    disabled={disabled || !usable}
+                    onSelect={() => edit({ logoId: l.id })}
+                  />
+                );
+              })}
+            </div>
+            {logosUnavailable === "off" ? (
+              <p className={HINT}>Logos aren&rsquo;t switched on in this environment, so emails show your name in the header.</p>
+            ) : !listed ? (
+              <p className={HINT}>Your logos couldn&rsquo;t be loaded, so you can&rsquo;t pick another right now. Try again later.</p>
+            ) : allLogos.length === 0 ? (
+              <p className={HINT}>
+                No logos yet — add a PNG or JPG in{" "}
+                <Link href={BRAND_KIT_LOGOS_ROUTE} className="underline underline-offset-2">
+                  Brand › Logos
+                </Link>
+                .
+              </p>
+            ) : null}
+            {logoState === "checking" ? <p className={HINT}>Checking your logo…</p> : null}
+            {logoState === "failed" ? (
+              <p role="alert" className={ERROR}>
+                We couldn&rsquo;t load this logo. Pick another, or choose No logo.
+              </p>
+            ) : null}
+            {headerOptions && canEdit && listed && selected && isEmailLogo(selected) && logoState !== "failed" ? (
+              <LogoCleanupPanel
+                key={selected.id}
+                logo={selected}
+                tenantId={tenantId}
+                stops={stops}
+                whiteBackground={logoSample?.whiteBackground ?? null}
+                disabled={disabled}
+                onBusy={(on) => setBusy(on ? "logo" : null)}
+                onPrimaryPinned={setPinned}
+                onAdded={addLogo}
+              />
+            ) : null}
+          </fieldset>
+        ) : null}
 
         <div className="space-y-1">
           <label htmlFor="email-style-name" className={LABEL}>
             Company name <span className="font-normal text-neutral-500">(optional)</span>
           </label>
           <p id="email-style-name-hint" className={HINT}>
-            {selected
-              ? "Shown beside your logo. Leave blank if your logo already shows your name."
-              : `With no logo, the header shows this name, or “${fallbackName}” if it's blank.`}
+            {imageMode
+              ? `Shown in place of the image when images are off, or “${fallbackName}” if it's blank.`
+              : selected
+                ? "Shown beside your logo. Leave blank if your logo already shows your name."
+                : `With no logo, the header shows this name, or “${fallbackName}” if it's blank.`}
           </p>
           <input
             id="email-style-name"
@@ -664,13 +917,17 @@ export function EmailStyleCard({
           <ColourField
             id="email-style-header"
             label="Header colour"
-            hint="Behind your logo at the top of each email."
+            hint={
+              imageMode
+                ? "Behind your image, and what readers see when images are off."
+                : "Behind your logo at the top of each email."
+            }
             value={draft.headerColor}
             chips={palette}
             disabled={disabled}
             onChange={(headerColor) => edit({ headerColor })}
           />
-          {headerOptions ? (
+          {headerOptions && !imageMode ? (
             <label
               className={`flex w-fit items-center gap-2 text-sm ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
             >
@@ -696,7 +953,7 @@ export function EmailStyleCard({
               Gradient
             </label>
           ) : null}
-          {headerOptions && draft.gradient ? (
+          {headerOptions && !imageMode && draft.gradient ? (
             <ColourField
               id="email-style-header-2"
               label="Colour 2"
@@ -708,7 +965,7 @@ export function EmailStyleCard({
             />
           ) : null}
         </div>
-        {headerOptions ? (
+        {headerOptions && !imageMode ? (
           <fieldset className="space-y-2">
             <legend className={LABEL}>Header text</legend>
             <p id="email-style-text-hint" className={HINT}>
@@ -758,9 +1015,7 @@ export function EmailStyleCard({
             <button
               type="button"
               onClick={save}
-              disabled={
-                disabled || !(dirty || reviewing) || !check.success || logoState === "checking" || logoState === "failed"
-              }
+              disabled={disabled || !(dirty || reviewing) || !check.success || logoPlan.blocked !== null || imageHold}
               className="rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
             >
               {busy === "save" ? "Saving…" : "Save"}
@@ -768,6 +1023,9 @@ export function EmailStyleCard({
             <button type="button" onClick={reset} disabled={disabled || !saved} className={BTN}>
               {busy === "reset" ? "Resetting…" : "Reset to default"}
             </button>
+            {imageMode && logoPlan.blocked === "checking" ? (
+              <span className={HINT}>Checking the logo kept for your colour header…</span>
+            ) : null}
             <span role="status" className="text-xs text-neutral-500">
               {status}
             </span>
@@ -805,6 +1063,8 @@ function SuggestionBanner({
   suggestion,
   logoTitle,
   logosUnavailable,
+  headerImageTitle,
+  headerImagesUnavailable,
   canEdit,
   reviewing,
   disabled,
@@ -816,6 +1076,10 @@ function SuggestionBanner({
   logoTitle: string | null;
   /** Logos is off, or the list couldn't be loaded, so a logo missing from it isn't known to be deleted. */
   logosUnavailable: "off" | "failed" | false;
+  /** The suggested header image's name; null when there's none, or it's been deleted or couldn't be loaded. */
+  headerImageTitle: string | null;
+  /** The header images couldn't be loaded, so one missing from the list isn't known to be deleted. */
+  headerImagesUnavailable: boolean;
   canEdit: boolean;
   /** It's loaded into the form. */
   reviewing: boolean;
@@ -823,6 +1087,9 @@ function SuggestionBanner({
   onReview: () => void;
   onDismiss: () => void;
 }) {
+  // A banner that's still there: it ignores the gradient and a forced text colour, so neither is
+  // shown, as Vizzy's card has it. A deleted one reviews as Colour, where both apply.
+  const banner = !!suggestion.headerImageId && (headerImageTitle !== null || headerImagesUnavailable);
   return (
     <section
       aria-label="Email style suggestion"
@@ -838,8 +1105,17 @@ function SuggestionBanner({
           </p>
         ) : null}
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <SwatchLabel hex={suggestion.headerColor} to={suggestion.headerGradientColor} label="Header" />
-          {suggestion.headerText ? <span>Text: {suggestion.headerText}</span> : null}
+          {banner ? null : (
+            <SwatchLabel hex={suggestion.headerColor} to={suggestion.headerGradientColor} label="Header" />
+          )}
+          {suggestion.headerImageId ? (
+            <span>
+              Header image:{" "}
+              {headerImageTitle ?? (headerImagesUnavailable ? "one that couldn't be loaded" : "one that's been deleted")}
+            </span>
+          ) : null}
+          {banner ? <SwatchLabel hex={suggestion.headerColor} label="Behind image" /> : null}
+          {!banner && suggestion.headerText ? <span>Text: {suggestion.headerText}</span> : null}
           <SwatchLabel hex={suggestion.accentColor} label="Button" />
           <span>
             Logo:{" "}

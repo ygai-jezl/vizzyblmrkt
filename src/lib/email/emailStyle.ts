@@ -1,4 +1,5 @@
 import {
+  EMAIL_HEADER_IMAGE_LIMITS,
   EMAIL_LOGO_FILENAME,
   EMAIL_STYLE_LIMITS,
   HIDDEN_NAME_CHARS,
@@ -6,6 +7,7 @@ import {
   type EmailStyleInput,
 } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
+import type { BrandAsset } from "@/lib/types/brandAsset";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 
 /**
@@ -28,6 +30,11 @@ export interface ResolvedEmailStyle {
   headerGradientColor?: string;
   /** The band's text colour, forced; absent = Auto (whichever reads better across the band). */
   headerText?: "white" | "black";
+  /**
+   * A checked, absolute header image URL with its pixel size: a full-width banner in place of
+   * the logo and name, on the header colour. Absent = the colour header (logo, name, gradient).
+   */
+  headerImage?: { url: string; width: number; height: number };
 }
 
 /**
@@ -37,18 +44,21 @@ export interface ResolvedEmailStyle {
  *
  * The header options are only read with `headerOptions` (the caller's flag), and only a
  * real one is set: no gradient, a gradient equal to the header colour and Auto text leave
- * the keys out, so the result is exactly what it was without them.
+ * the keys out, so the result is exactly what it was without them. A header image is set
+ * only when `headerImageUrlFor` (checked by the caller, like the logo's) gives a URL; the
+ * gradient and text keys stay alongside it, for when the image is dropped.
  */
 export function resolveStoredStyle(
   stored:
     | Pick<
         EmailStyleInput,
-        "logo" | "companyName" | "headerColor" | "accentColor" | "headerGradientColor" | "headerText"
+        "logo" | "companyName" | "headerColor" | "accentColor" | "headerGradientColor" | "headerText" | "headerImage"
       >
     | null
     | undefined,
   opts: {
     logoUrlFor: (logo: { id: string; filename: string }) => string | null;
+    headerImageUrlFor?: (image: { id: string; filename: string }) => string | null;
     fallbackName: string;
     headerOptions?: boolean;
   },
@@ -62,6 +72,8 @@ export function resolveStoredStyle(
   const gradient = opts.headerOptions ? normalizeHex(stored.headerGradientColor) : null;
   const text =
     opts.headerOptions && (stored.headerText === "white" || stored.headerText === "black") ? stored.headerText : null;
+  const image = opts.headerOptions && stored.headerImage ? stored.headerImage : null;
+  const imageUrl = image && opts.headerImageUrlFor ? opts.headerImageUrlFor(image) : null;
   return {
     logo:
       url && stored.logo
@@ -77,6 +89,15 @@ export function resolveStoredStyle(
     accentColor,
     ...(gradient && gradient !== headerColor ? { headerGradientColor: gradient } : {}),
     ...(text ? { headerText: text } : {}),
+    ...(image && imageUrl
+      ? {
+          headerImage: {
+            url: imageUrl,
+            width: clampInt(image.width, EMAIL_HEADER_IMAGE_LIMITS.width),
+            height: clampInt(image.height, EMAIL_HEADER_IMAGE_LIMITS.height),
+          },
+        }
+      : {}),
   };
 }
 
@@ -162,12 +183,13 @@ export function accentFor(
   return accent;
 }
 
-// ── Logo URLs ────────────────────────────────────────────────────────────────
+// ── Image URLs (logos, header images) ────────────────────────────────────────
 
 const LOGO_PATH = /^\/api\/brand-logo\/([^/]+)\/([^/]+)$/;
+const HEADER_IMAGE_PATH = /^\/api\/brand-asset\/header\/([^/]+)\/([^/]+)$/;
 
-/** https, our public logo route, a PNG/JPEG file, and nothing else (no query, hash or credentials). */
-function parseLogoUrl(url: string): { href: string; tenantSegment: string } | null {
+/** https, one of our public image routes (`path`), a PNG/JPEG file, and nothing else (no query, hash or credentials). */
+function parseImageUrl(url: string, path: RegExp): { href: string; tenantSegment: string } | null {
   if (typeof url !== "string" || /[?#\s\\]/.test(url)) return null;
   let u: URL;
   try {
@@ -176,19 +198,30 @@ function parseLogoUrl(url: string): { href: string; tenantSegment: string } | nu
     return null;
   }
   if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash) return null;
-  const m = LOGO_PATH.exec(u.pathname);
+  const m = path.exec(u.pathname);
   if (!m || !EMAIL_LOGO_FILENAME.test(m[2]!)) return null;
   return { href: u.href, tenantSegment: m[1]! };
 }
 
 /** The tenant-agnostic check — what the shell can repeat in the browser for previews. */
 export function isLogoUrlShape(url: string): boolean {
-  return parseLogoUrl(url) !== null;
+  return parseImageUrl(url, LOGO_PATH) !== null;
 }
 
 /** The full check, run once by the server resolver: the logo must be THIS tenant's. */
 export function safeLogoUrl(url: string, tenantId: string): string | null {
-  const parsed = parseLogoUrl(url);
+  const parsed = parseImageUrl(url, LOGO_PATH);
+  return parsed && parsed.tenantSegment === encodeURIComponent(tenantId) ? parsed.href : null;
+}
+
+/** The tenant-agnostic check for a header image (the public /api/brand-asset/header/… route). */
+export function isHeaderImageUrlShape(url: string): boolean {
+  return parseImageUrl(url, HEADER_IMAGE_PATH) !== null;
+}
+
+/** The full check, run once by the server resolver: the header image must be THIS tenant's. */
+export function safeHeaderImageUrl(url: string, tenantId: string): string | null {
+  const parsed = parseImageUrl(url, HEADER_IMAGE_PATH);
   return parsed && parsed.tenantSegment === encodeURIComponent(tenantId) ? parsed.href : null;
 }
 
@@ -233,6 +266,22 @@ const DEFAULT_HEADER = "#111111";
 /** A logo Outlook can show: PNG or JPEG. */
 export function isEmailLogo(logo: Pick<BrandLogo, "filename" | "mimeType">): boolean {
   return (logo.mimeType === "image/png" || logo.mimeType === "image/jpeg") && EMAIL_LOGO_FILENAME.test(logo.filename);
+}
+
+/**
+ * A header image an email may use: a `header` brand asset, PNG or JPEG, with the pixel size
+ * read at upload (whole pixels, within the stored limits). The band's size comes from the row.
+ */
+export function isEmailHeaderImage<T extends Pick<BrandAsset, "category" | "filename" | "mimeType" | "width" | "height">>(
+  row: T,
+): row is T & { width: number; height: number } {
+  const inRange = (n: unknown, max: number) => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= max;
+  return (
+    row.category === "header" &&
+    isEmailLogo(row) && // PNG/JPEG and a `<uuid>.png|jpg|jpeg` file, as for logos
+    inRange(row.width, EMAIL_HEADER_IMAGE_LIMITS.width) &&
+    inRange(row.height, EMAIL_HEADER_IMAGE_LIMITS.height)
+  );
 }
 
 /**

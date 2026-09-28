@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Region } from "@/lib/types/tenant";
-import { BrandAssetSchema, type BrandAsset, type BrandAssetCategory } from "@/lib/types/brandAsset";
+import { BrandAssetSchema, type BrandAsset, type BrandAssetKind } from "@/lib/types/brandAsset";
 
 /**
  * Registry helpers for the tenant's uploaded brand ASSETS — ICONS + GRAPHICS (Brand Kit →
- * Icons / Graphics). ONE collection discriminated by `category`. Mirrors src/lib/admin/brandLogos.ts.
+ * Icons / Graphics), and Email style's header images. ONE collection discriminated by
+ * `category`. Mirrors src/lib/admin/brandLogos.ts.
  * Bytes live in GCS via src/lib/tenant/brandAssetStore.ts; this owns the `brand_assets` rows.
  * Category-filtered reads use the (tenantId, category, createdAt) composite index.
  */
@@ -15,7 +16,7 @@ export const MAX_ASSETS_PER_CATEGORY = 100;
 /** All of the tenant's assets in a category, newest first. */
 export async function listBrandAssets(
   ctx: TenantContext,
-  category: BrandAssetCategory,
+  category: BrandAssetKind,
 ): Promise<BrandAsset[]> {
   return forTenant(ctx).brandAssets.find({
     where: [["category", "==", category]],
@@ -36,7 +37,7 @@ export async function getBrandAsset(ctx: TenantContext, id: string): Promise<Bra
  */
 export async function countBrandAssetsUpTo(
   ctx: TenantContext,
-  category: BrandAssetCategory,
+  category: BrandAssetKind,
   limit: number,
 ): Promise<number> {
   const rows = await forTenant(ctx).brandAssets.find({

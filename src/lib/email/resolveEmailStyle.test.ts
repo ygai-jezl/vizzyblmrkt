@@ -95,12 +95,87 @@ describe("resolveEmailStyle", () => {
       });
     });
 
+    // Pinned whole: with the flag on, a stored gradient and text colour resolve to exactly this.
+    it("flag on: pins today's style with a gradient and a forced text colour", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      expect(resolveEmailStyle(withOptions())).toStrictEqual({
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+        headerGradientColor: "#4f46e5",
+        headerText: "white",
+      });
+    });
+
+    it("flag off: a key the style doesn't know yet (headerImage) changes nothing — exactly today's style", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+      const headerImage = { id: "hdr_1", filename: "7c9e6679-7425-40de-944b-e07fc1f90ae7.png", width: 1200, height: 300 };
+      const today = {
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+      };
+      // Built outside the registry, so the raw key reaches the resolver's own read.
+      const raw = { ...tenant(), emailStyle: { ...STYLE, headerImage } as unknown as StoredEmailStyle };
+      expect(resolveEmailStyle(raw)).toStrictEqual(today);
+      expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, headerImage } }))).toStrictEqual(today);
+    });
+
     it("a damaged option drops alone and the rest of the style still resolves", () => {
       vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
       // Built outside the registry, so the resolver's own lenient read is what drops them.
       const damaged = { ...STYLE, headerGradientColor: "purple", headerText: "pink" } as unknown as StoredEmailStyle;
       const bad = { ...tenant(), emailStyle: damaged };
       expect(resolveEmailStyle(bad)).toStrictEqual(resolveEmailStyle(tenant()));
+    });
+  });
+
+  describe("header image", () => {
+    const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+    const withImage = () => tenant({ emailStyle: { ...STYLE, headerImage: IMAGE } });
+    const BANNER_URL = `https://app.example.com/api/brand-asset/header/ten_A/${IMAGE.filename}`;
+
+    it("flag off: ignored — exactly today's style", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+      expect(resolveEmailStyle(withImage())).toStrictEqual(resolveEmailStyle(tenant()));
+    });
+
+    it("flag on: this tenant's absolute banner URL on the public brand-asset route, with the stored size", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      expect(resolveEmailStyle(withImage())).toStrictEqual({
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+        headerImage: { url: BANNER_URL, width: 1200, height: 300 },
+      });
+    });
+
+    it("flag on: kept with the Logos flag off (the brand-asset route isn't gated on it)", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "false");
+      expect(resolveEmailStyle(withImage())).toMatchObject({ logo: null, headerImage: { url: BANNER_URL } });
+    });
+
+    it("no https origin → no banner, so the email shows the colour band", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "");
+      vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "");
+      expect(resolveEmailStyle(withImage())).not.toHaveProperty("headerImage");
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "http://localhost:3000");
+      expect(resolveEmailStyle(withImage())).not.toHaveProperty("headerImage");
+    });
+
+    it("a damaged stored image reads as the colour header, and the rest still resolves", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      const damaged = { ...STYLE, headerImage: { ...IMAGE, filename: "x.webp" } } as unknown as StoredEmailStyle;
+      expect(resolveEmailStyle({ ...tenant(), emailStyle: damaged })).toStrictEqual(resolveEmailStyle(tenant()));
+      expect(resolveEmailStyle(tenant({ emailStyle: damaged }))).toStrictEqual(resolveEmailStyle(tenant()));
     });
   });
 

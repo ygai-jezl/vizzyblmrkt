@@ -1,7 +1,14 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
-import { EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
+import { EMAIL_HEADER_IMAGE_LIMITS, EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
-import { bandInk, bandStops, isLogoUrlShape, type ResolvedEmailStyle } from "./emailStyle";
+import {
+  bandInk,
+  bandStops,
+  isHeaderImageUrlShape,
+  isLogoUrlShape,
+  readableOn,
+  type ResolvedEmailStyle,
+} from "./emailStyle";
 
 /**
  * Email HTML assembly — the SINGLE source of email-safe markup, shared by the send
@@ -107,8 +114,19 @@ function escapeName(s: string): string {
   return escapeHtml(s).replace(/\|/g, "&#124;");
 }
 
-/** Whole pixels within 1..max — the resolver already clamps; anything else drops the logo. */
+/** Whole pixels within 1..max — the resolver already clamps; anything else drops the logo (or the header image). */
 const sizeOk = (n: number, max: number) => Number.isInteger(n) && n >= 1 && n <= max;
+
+/** The band's width: the card's 560 + 24px padding each side. */
+const BAND_WIDTH = 608;
+
+/**
+ * The band's frame around its one cell: a fixed-width MSO wrapper and a full-width table,
+ * both on the header colour, so Outlook keeps the colour and the width.
+ */
+function bandFrame(bg: string, cell: string): string {
+  return `<!--[if mso]><table role="presentation" width="${BAND_WIDTH}" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:${BAND_WIDTH}px;margin:0 auto;background-color:${bg}"><tr>${cell}</tr></table><!--[if mso]></td></tr></table><![endif]-->`;
+}
 
 /**
  * The header band: the logo and/or company name on the header colour, full width above the
@@ -120,8 +138,23 @@ const sizeOk = (n: number, max: number) => Number.isInteger(n) && n >= 1 && n <=
  * With a gradient, only the cell (which fills the band) gains a 135deg linear-gradient over
  * its background-color. No VML: every Outlook and Gmail on Android show the header colour
  * as a solid band. The text is the forced colour, else whichever reads better across both.
+ *
+ * With a header image (checked the same way: shape and size, else the band above), the band
+ * is that banner alone, full width with no padding, on the plain header colour — no logo,
+ * name, link, gradient or forced text. Its alt is the name, styled in whichever of black or
+ * white reads on the header colour, so blocked images still show it. The `height` attribute
+ * (the banner's height at 608 wide, from the stored size) is for Outlook for Windows, which
+ * sizes by attributes; everyone else follows `height:auto`, so it stays fluid on phones.
  */
 export function renderHeaderBand(style: ResolvedEmailStyle): string {
+  const image =
+    style.headerImage &&
+    isHeaderImageUrlShape(style.headerImage.url) &&
+    sizeOk(style.headerImage.width, EMAIL_HEADER_IMAGE_LIMITS.width) &&
+    sizeOk(style.headerImage.height, EMAIL_HEADER_IMAGE_LIMITS.height)
+      ? style.headerImage
+      : null;
+  if (image) return renderImageBand(style, image);
   const [bg, bg2] = bandStops(style);
   const ink = bandInk(style);
   // The cell alone: it fills the band, so painting the table too would draw the gradient twice.
@@ -149,7 +182,23 @@ export function renderHeaderBand(style: ResolvedEmailStyle): string {
     img && name
       ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;padding-left:12px">${name}</td></tr></table>`
       : img || name || "&nbsp;";
-  return `<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:608px;margin:0 auto;background-color:${bg}"><tr><td bgcolor="${bg}" align="left" style="padding:16px 24px;${fill}">${content}</td></tr></table><!--[if mso]></td></tr></table><![endif]-->`;
+  return bandFrame(bg, `<td bgcolor="${bg}" align="left" style="padding:16px 24px;${fill}">${content}</td>`);
+}
+
+/** The Image-mode band (see renderHeaderBand): the banner alone, on the plain header colour. */
+function renderImageBand(style: ResolvedEmailStyle, image: NonNullable<ResolvedEmailStyle["headerImage"]>): string {
+  // The header colour alone: the gradient and a forced text colour belong to the colour band.
+  const [bg] = bandStops({ headerColor: style.headerColor });
+  const textStyle = `font-family:${FONT};font-size:18px;line-height:1.3;font-weight:700;color:${readableOn(bg)}`;
+  const fullHeight = Math.max(1, Math.round((BAND_WIDTH * image.height) / image.width));
+  // Never taller than the band is wide: a portrait-shaped image shrinks to fit a
+  // BAND_WIDTH square (centred on the header colour) instead of filling an inbox.
+  const tall = fullHeight > BAND_WIDTH;
+  const width = tall ? Math.max(1, Math.round((BAND_WIDTH * BAND_WIDTH) / fullHeight)) : BAND_WIDTH;
+  const height = tall ? BAND_WIDTH : fullHeight;
+  const size = tall ? `margin:0 auto;width:${width}px;max-width:100%` : `width:100%;max-width:${BAND_WIDTH}px`;
+  const img = `<img src="${escapeAttr(image.url)}" width="${width}" height="${height}" alt="${escapeName(style.altName)}" style="display:block;${size};height:auto;border:0;outline:none;text-decoration:none;${textStyle}" />`;
+  return bandFrame(bg, `<td bgcolor="${bg}" align="center" style="padding:0;background-color:${bg}">${img}</td>`);
 }
 
 export function htmlToText(html: string): string {

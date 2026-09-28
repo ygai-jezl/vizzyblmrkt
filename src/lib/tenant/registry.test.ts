@@ -90,6 +90,28 @@ describe("tenant registry", () => {
     expect(b?.headerText).toBeUndefined();
   });
 
+  it("a damaged header image drops alone: the Email style still loads with its colours and logo", async () => {
+    const style = {
+      logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+      companyName: null,
+      headerColor: "#7c3aed",
+      accentColor: "#ff6b35",
+    };
+    const image = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ emailStyle: { ...style, headerImage: { ...image, filename: "x.webp" } } }));
+    db.seed("tenants", "ten_B", tenant({ emailStyle: { ...style, headerImage: image } }));
+
+    const a = (await getTenantById("ten_A", db))?.emailStyle;
+    expect(a).toMatchObject(style);
+    expect(a?.headerImage).toBeUndefined();
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_A", "ten_B"]);
+    expect(all.find((t) => t.id === "ten_A")?.emailStyle).toMatchObject(style);
+    expect(all.find((t) => t.id === "ten_A")?.emailStyle?.headerImage).toBeUndefined();
+    expect(all.find((t) => t.id === "ten_B")?.emailStyle).toMatchObject({ ...style, headerImage: image });
+  });
+
   it("a damaged emailStyleSuggestion reads as none and the tenant still loads", async () => {
     const db = new FakeFirestore();
     db.seed("tenants", "ten_A", tenant({ emailStyleSuggestion: { headerColor: "navy", brief: "x".repeat(4000) } }));
@@ -125,6 +147,31 @@ describe("tenant registry", () => {
       headerGradientColor: "#4f46e5",
       headerText: "white",
     });
+  });
+
+  it("a suggestion with a bad header image id reads as none (it's strict) and the tenant still loads", async () => {
+    const suggestion = {
+      logoId: null,
+      companyName: null,
+      headerColor: "#7c3aed",
+      accentColor: "#ff6b35",
+      source: "chat",
+      brief: "Use my Spring banner as the email header",
+      notes: [],
+      suggestedBy: "usr_admin",
+      suggestedAt: "2026-09-28T10:00:00.000Z",
+    };
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ emailStyleSuggestion: { ...suggestion, headerImageId: "../hdr" } }));
+    db.seed("tenants", "ten_B", tenant({ emailStyleSuggestion: { ...suggestion, headerImageId: "hdr_spring" } }));
+
+    const one = await getTenantById("ten_A", db);
+    expect(one?.id).toBe("ten_A");
+    expect(one?.emailStyleSuggestion).toBeUndefined();
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_A", "ten_B"]);
+    expect(all.find((t) => t.id === "ten_A")?.emailStyleSuggestion).toBeUndefined();
+    expect(all.find((t) => t.id === "ten_B")?.emailStyleSuggestion).toMatchObject({ headerImageId: "hdr_spring" });
   });
 
   it("listAllTenants returns an empty list when there are no tenants", async () => {

@@ -860,11 +860,14 @@ env:
       - RUNTIME
   # Email header options, on top of Email style (needs EMAIL_STYLE_ENABLED): a
   # gradient header, a chosen header text colour (Auto / White / Black), the logo
-  # clean-up on the Email style page, and Vizzy suggesting the first two. The server
-  # flag gates them in sends and previews, the Save API and Vizzy's tools. Off: emails
-  # exactly as today, no new page controls, and saved options are kept (a Save keeps
-  # them). The client mirror shows the page controls (with the server flag) and is read
-  # at BUILD time. The logo clean-up also needs BRAND_KIT_LOGOS_ENABLED.
+  # clean-up on the Email style page, and Vizzy suggesting the first two; plus a custom
+  # header image (uploaded on the Email style page and served publicly from
+  # /api/brand-asset/header/…), and Vizzy switching to one. The server flag gates them
+  # in sends and previews, the Save API, the header image upload/delete routes and
+  # Vizzy's tools. Off: emails exactly as today, no new page controls, and saved options
+  # are kept (a Save keeps them). The client mirror shows the page controls (with the
+  # server flag) and is read at BUILD time. The logo clean-up also needs
+  # BRAND_KIT_LOGOS_ENABLED.
   # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
   - variable: EMAIL_HEADER_OPTIONS_ENABLED
     value: "true"

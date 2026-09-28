@@ -4,6 +4,8 @@ import {
   brandKitWithLogo,
   emailStyleHints,
   fitLogoSize,
+  headerAfterDelete,
+  logoForSave,
   logoHardToSee,
   paletteChips,
   secondColourDefault,
@@ -173,6 +175,162 @@ describe("emailStyleHints with the header options", () => {
   });
 });
 
+describe("emailStyleHints in Image mode (a header image)", () => {
+  // A logo hard to see on this header, and forced black text on navy: both warn in Colour mode.
+  const colour = {
+    logoBytes: HEAVY_LOGO_BYTES + 1,
+    logoInk: "#111111",
+    headerColor: "#0b1f3a",
+    accentColor: "#0b1f3a",
+    headerText: "black" as const,
+    showsText: true,
+  };
+  const banner = { width: 1200, height: 300, byteSize: 100_000 };
+
+  it("drops the logo and header-text hints", () => {
+    expect(emailStyleHints(colour)).toHaveLength(3);
+    expect(emailStyleHints({ ...colour, headerImage: banner })).toEqual([]);
+    // With none picked yet, too.
+    expect(emailStyleHints({ ...colour, headerImage: null })).toEqual([]);
+  });
+
+  it("keeps the link hint, and adds the banner's own (weight over 300 KB, narrow, tall), first", () => {
+    expect(emailStyleHints({ ...colour, accentColor: "#FFD400", headerImage: banner })).toEqual([
+      expect.stringMatching(/too light for text links/),
+    ]);
+    expect(emailStyleHints({ ...colour, headerImage: { ...banner, byteSize: 300 * 1024 + 1 } })).toEqual([
+      expect.stringMatching(/over 300 KB, so it may load slowly on phones/),
+    ]);
+    expect(
+      emailStyleHints({ ...colour, accentColor: "#FFD400", headerImage: { width: 500, height: 400, byteSize: null } }),
+    ).toEqual([
+      expect.stringMatching(/under 600px wide/),
+      expect.stringMatching(/tall for a header \(480 px/),
+      expect.stringMatching(/too light for text links/),
+    ]);
+  });
+
+  it("keeps the dark-mode hint for a light header colour, gradient or not, and not for a dark one", () => {
+    const light = { ...colour, logoInk: null, headerColor: "#eeeeee", headerGradientColor: "#0b1f3a" };
+    expect(emailStyleHints({ ...light, headerImage: banner })).toEqual([expect.stringMatching(/dark mode/)]);
+    // A dark header colour with a light Colour 2: the gradient isn't drawn behind a banner.
+    const dark = { ...colour, logoInk: null, headerColor: "#0b1f3a", headerGradientColor: "#eeeeee" };
+    expect(emailStyleHints(dark)).toEqual(expect.arrayContaining([expect.stringMatching(/dark mode/)]));
+    expect(emailStyleHints({ ...dark, headerImage: banner })).toEqual([]);
+  });
+});
+
+describe("logoForSave", () => {
+  const measured = { id: "logo_2", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 30 };
+  const savedLogo = { id: "logo_1", filename: "7c9e6679-7425-40de-944b-e07fc1f90ae7.png", width: 100, height: 40 };
+  const saved = { logo: savedLogo };
+
+  it("Colour mode is as ever: the measured logo, else the kept one; checking or failed blocks", () => {
+    expect(logoForSave({ imageMode: false, logoState: "ready", measured, kept: null, saved })).toEqual({
+      logo: measured,
+      blocked: null,
+    });
+    expect(logoForSave({ imageMode: false, logoState: "none", measured: null, kept: savedLogo, saved })).toEqual({
+      logo: savedLogo,
+      blocked: null,
+    });
+    expect(logoForSave({ imageMode: false, logoState: "none", measured: null, kept: null, saved })).toEqual({
+      logo: null,
+      blocked: null,
+    });
+    expect(logoForSave({ imageMode: false, logoState: "checking", measured: null, kept: null, saved }).blocked).toBe(
+      "checking",
+    );
+    expect(logoForSave({ imageMode: false, logoState: "failed", measured: null, kept: null, saved }).blocked).toBe(
+      "failed",
+    );
+  });
+
+  it("Image mode: a logo that won't load sends the saved one and doesn't block", () => {
+    expect(logoForSave({ imageMode: true, logoState: "failed", measured: null, kept: null, saved })).toEqual({
+      logo: savedLogo,
+      blocked: null,
+    });
+    // Never null in place of a saved logo; with none saved there's nothing to keep.
+    expect(logoForSave({ imageMode: true, logoState: "failed", measured: null, kept: null, saved }).logo).not.toBeNull();
+    expect(logoForSave({ imageMode: true, logoState: "failed", measured: null, kept: null, saved: null })).toEqual({
+      logo: null,
+      blocked: null,
+    });
+  });
+
+  it("Image mode: checking holds the Save; ready sends the measured logo; none sends the kept one", () => {
+    expect(logoForSave({ imageMode: true, logoState: "checking", measured: null, kept: null, saved }).blocked).toBe(
+      "checking",
+    );
+    expect(logoForSave({ imageMode: true, logoState: "ready", measured, kept: null, saved })).toEqual({
+      logo: measured,
+      blocked: null,
+    });
+    expect(logoForSave({ imageMode: true, logoState: "none", measured: null, kept: savedLogo, saved })).toEqual({
+      logo: savedLogo,
+      blocked: null,
+    });
+    expect(logoForSave({ imageMode: true, logoState: "none", measured: null, kept: null, saved })).toEqual({
+      logo: null,
+      blocked: null,
+    });
+  });
+});
+
+describe("headerAfterDelete", () => {
+  const draft = { companyName: "Example Co", headerMode: "image" as const, headerImageId: "img_b" };
+  const savedA = { headerMode: "image" as const, headerImageId: "img_a" };
+  const savedColour = { headerMode: "colour" as const, headerImageId: null };
+
+  it("a form that hadn't picked the deleted banner is unchanged", () => {
+    expect(headerAfterDelete(draft, { id: "img_c", cleared: false }, savedA)).toBe(draft);
+  });
+
+  it("an unused banner picked but not saved: back to the saved banner, not Colour", () => {
+    expect(headerAfterDelete(draft, { id: "img_b", cleared: false }, savedA)).toEqual({
+      companyName: "Example Co",
+      headerMode: "image",
+      headerImageId: "img_a",
+    });
+  });
+
+  it("the saved style has no banner (or the saved one isn't listed): as the saved style", () => {
+    expect(headerAfterDelete(draft, { id: "img_b", cleared: false }, savedColour)).toEqual({
+      companyName: "Example Co",
+      headerMode: "colour",
+      headerImageId: null,
+    });
+    expect(
+      headerAfterDelete(draft, { id: "img_b", cleared: false }, { headerMode: "image", headerImageId: null }),
+    ).toEqual({ companyName: "Example Co", headerMode: "image", headerImageId: null });
+  });
+
+  it("the banner the saved style used (cleared): Colour", () => {
+    const picked = { ...draft, headerImageId: "img_a" };
+    expect(headerAfterDelete(picked, { id: "img_a", cleared: true }, savedA)).toEqual({
+      companyName: "Example Co",
+      headerMode: "colour",
+      headerImageId: null,
+    });
+    // Cleared by the server though the page's saved copy named another: still Colour.
+    expect(headerAfterDelete(draft, { id: "img_b", cleared: true }, savedA)).toEqual({
+      companyName: "Example Co",
+      headerMode: "colour",
+      headerImageId: null,
+    });
+  });
+
+  it("a form on Colour stays on Colour", () => {
+    const colour = { ...draft, headerMode: "colour" as const };
+    expect(headerAfterDelete(colour, { id: "img_b", cleared: false }, savedA)).toEqual({
+      companyName: "Example Co",
+      headerMode: "colour",
+      headerImageId: "img_a",
+    });
+  });
+});
+
 describe("secondColourDefault", () => {
   const chips = [
     { hex: "#7c3aed", name: "Purple" },
@@ -301,5 +459,60 @@ describe("suggestionForReview", () => {
   it("never swaps the colours asked for, even for a hard-to-see logo", () => {
     const dark = { ...suggestion, headerColor: "#111111" };
     expect(suggestionForReview(dark, [logo()])).toMatchObject({ headerColor: "#111111", accentColor: "#ff6b35" });
+  });
+
+  describe("with the header options on (a header image list)", () => {
+    const images = [{ id: "hdr_spring" }, { id: "hdr_autumn" }];
+    const banner = { ...suggestion, headerImageId: "hdr_spring" };
+
+    it("picks the suggested banner, or the colour header when it has none", () => {
+      expect(suggestionForReview(banner, [logo()], undefined, { images, savedImageId: null })).toEqual({
+        logoId: "logo_1",
+        companyName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+        headerGradientColor: null,
+        headerText: "auto",
+        headerImageId: "hdr_spring",
+        notes: ["A note from Vizzy"],
+      });
+      expect(suggestionForReview(suggestion, [logo()], undefined, { images, savedImageId: "hdr_autumn" })).toMatchObject({
+        headerImageId: null,
+        notes: ["A note from Vizzy"],
+      });
+    });
+
+    it("a deleted banner falls back to the colour header with a note", () => {
+      const gone = suggestionForReview({ ...banner, headerImageId: "hdr_deleted" }, [logo()], undefined, {
+        images,
+        savedImageId: "hdr_autumn",
+      });
+      expect(gone.headerImageId).toBeNull();
+      expect(gone.notes).toEqual(["A note from Vizzy", "The suggested header image has been deleted, so the header uses its colour"]);
+      // With a deleted logo too, both notes.
+      expect(suggestionForReview({ ...banner, headerImageId: "hdr_deleted" }, [], undefined, { images: [], savedImageId: null }).notes)
+        .toEqual(["A note from Vizzy", expect.stringMatching(/logo has been deleted/), expect.stringMatching(/header image has been deleted/)]);
+    });
+
+    it("with no header image list, the saved header stays, with a note only when the suggestion asked for another", () => {
+      expect(suggestionForReview(banner, [logo()], undefined, { images: null, savedImageId: "hdr_spring" })).toMatchObject({
+        headerImageId: "hdr_spring",
+        notes: ["A note from Vizzy"],
+      });
+      expect(suggestionForReview(suggestion, [logo()], undefined, { images: null, savedImageId: null })).toMatchObject({
+        headerImageId: null,
+        notes: ["A note from Vizzy"],
+      });
+      const other = suggestionForReview(banner, [logo()], undefined, { images: null, savedImageId: "hdr_autumn" });
+      expect(other.headerImageId).toBe("hdr_autumn");
+      expect(other.notes).toEqual(["A note from Vizzy", expect.stringMatching(/header images couldn't be loaded/)]);
+      const colour = suggestionForReview(suggestion, [logo()], undefined, { images: null, savedImageId: "hdr_autumn" });
+      expect(colour.headerImageId).toBe("hdr_autumn");
+      expect(colour.notes).toHaveLength(2);
+    });
+
+    it("with the header options off (no list given), the header is left as it is", () => {
+      expect(suggestionForReview(banner, [logo()])).not.toHaveProperty("headerImageId");
+    });
   });
 });

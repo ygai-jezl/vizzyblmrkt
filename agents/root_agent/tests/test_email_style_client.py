@@ -102,8 +102,53 @@ def test_blank_header_options_send_nothing():
     assert not {"headerGradientColor", "headerText"} & set(es.build_suggest_payload("edit", "make the header navy"))
 
 
+def test_a_header_image_is_sent_by_its_id(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    es.suggest_style(STATE, "edit", "use my Spring banner as the email header", header_image=" hdr_Spring1 ")
+    assert calls[0]["payload"] == {
+        "kind": "email_style",
+        "action": "save_draft",
+        "mode": "edit",
+        "brief": "use my Spring banner as the email header",
+        # Ids are case-sensitive, so only the spaces go.
+        "headerImage": "hdr_Spring1",
+    }
+
+
+def test_none_goes_back_to_the_colour_header(monkeypatch):
+    assert es.build_suggest_payload("edit", "", header_image="none")["headerImage"] == "none"
+    assert es.build_suggest_payload("edit", "", header_image=" None ")["headerImage"] == "none"
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    es.suggest_style(STATE, "edit", "go back to the colour header", header_image="none")
+    assert calls[0]["payload"]["headerImage"] == "none"
+
+
+def test_a_blank_header_image_sends_nothing():
+    assert "headerImage" not in es.build_suggest_payload("edit", "", header_image="  ")
+    assert "headerImage" not in es.build_suggest_payload("edit", "make the header navy", "#000080")
+
+
+def test_header_images_errors_become_plain_messages(monkeypatch):
+    issue = "headerImage: not one of your header images — upload one in Brand › Email style"
+    _capture(monkeypatch, 400, {"error": "invalid_header_image", "issues": [issue]})
+    out = es.suggest_style(STATE, "edit", "use my Spring banner", header_image="hdr_gone")
+    assert out == {
+        "status": "error",
+        "code": "invalid_header_image",
+        "issues": [issue],
+        "message": f"That header image can't be used: {issue}",
+    }
+    _capture(monkeypatch, 503, {"error": "header_images_unavailable"})
+    for out in (es.get_style(STATE), es.suggest_style(STATE, "edit", "", header_image="hdr_spring")):
+        assert out["code"] == "header_images_unavailable"
+        assert out["message"] == "I couldn't read your header images just now. Please try again."
+
+
 def test_header_options_switched_off_says_so_once(monkeypatch):
-    issue = "headerGradientColor/headerText: gradient headers and header text colour aren't switched on here yet"
+    issue = (
+        "headerGradientColor/headerText/headerImage: gradient headers, header text colour and header "
+        "images aren't switched on here yet"
+    )
     _capture(monkeypatch, 400, {"error": "header_options_unavailable", "issues": [issue]})
     out = es.suggest_style(STATE, "edit", "a purple-to-indigo gradient", "#7c3aed", header_gradient_color="#4f46e5")
     assert out == {
@@ -111,8 +156,12 @@ def test_header_options_switched_off_says_so_once(monkeypatch):
         "code": "header_options_unavailable",
         "issues": [issue],
         # The app's issue says the same thing, so it isn't tacked on.
-        "message": "Gradient headers and header text colour aren't switched on in this environment yet.",
+        "message": (
+            "Gradient headers, header text colour and header images aren't switched on in this environment yet."
+        ),
     }
+    out = es.suggest_style(STATE, "edit", "use my Spring banner", header_image="hdr_spring")
+    assert out["message"].count("header images") == 1
 
 
 def test_a_long_brief_is_cut_to_what_the_server_keeps():
@@ -205,3 +254,13 @@ def test_root_routes_email_style_to_the_tools_as_a_suggestion():
     off = ROOT_SYSTEM_INSTRUCTION.index("Without `headerOptions`, say those aren't switched on yet")
     assert on < cleanup < off
     assert "transparent PNG in Brand › Logos" in ROOT_SYSTEM_INSTRUCTION[off:]
+    # A header image by id (or "none") only under `headerOptions: true`; Vizzy can't upload one.
+    assert "header_image" in ROOT_SYSTEM_INSTRUCTION
+    assert "headerImages" in ROOT_SYSTEM_INSTRUCTION
+    image = ROOT_SYSTEM_INSTRUCTION.index("`header_image` = an id from `headerImages`")
+    upload = ROOT_SYSTEM_INSTRUCTION.index("point the operator to Brand › Email style to upload a banner")
+    assert on < image < upload < off
+    # A banner in use hides the gradient, text colour, logo and name: Vizzy asks before dropping it.
+    hides = ROOT_SYSTEM_INSTRUCTION.index("the banner hides the logo, name, gradient and header text colour")
+    drop = ROOT_SYSTEM_INSTRUCTION.index('also send `header_image` "none"')
+    assert upload < hides < drop < off

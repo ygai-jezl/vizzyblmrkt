@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const brandLogos = vi.hoisted(() => ({ listLogos: vi.fn() }));
 vi.mock("@/lib/admin/brandLogos", () => brandLogos);
+const brandAssets = vi.hoisted(() => ({ listBrandAssets: vi.fn() }));
+vi.mock("@/lib/admin/brandAssets", () => brandAssets);
 
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -115,6 +117,7 @@ beforeEach(() => {
   // Off unless a test turns it on, whatever the shell has.
   vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
   brandLogos.listLogos.mockReset().mockResolvedValue([row("logo_webp", WEBP, "image/webp", false), row("logo_png", PNG, "image/png", true)]);
+  brandAssets.listBrandAssets.mockReset().mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -192,11 +195,64 @@ describe("Vizzy's Email style read: header options", () => {
     expect(note).toContain("Outlook");
   });
 
-  it("flag on with no options: the defaults are spelled out (null = solid, auto)", async () => {
+  // Pinned whole: with the flag on, this is exactly what Vizzy reads (with no header images yet).
+  it("flag on: pins today's full answer", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    expect(await agentEmailStyle(admin, world(OPTIONS))).toEqual({
+      status: 200,
+      body: {
+        url: "/admin/brand-kit/email-style",
+        canSuggest: true,
+        headerOptions: true,
+        current: {
+          logo: { id: "logo_png", title: "logo_png file" },
+          companyName: null,
+          headerColor: "#222244",
+          headerGradientColor: "#4f46e5",
+          headerText: "white",
+          headerImage: null,
+          buttonColor: "#00aa55",
+          updatedAt: "2026-09-20T00:00:00.000Z",
+        },
+        pending: {
+          logo: null,
+          companyName: "Example Co",
+          headerColor: "#000080",
+          headerGradientColor: "#4f46e5",
+          headerText: "black",
+          headerImage: null,
+          buttonColor: "#00aa55",
+          source: "chat",
+          brief: "Make the header navy",
+          notes: [],
+          suggestedAt: "2026-09-21T00:00:00.000Z",
+        },
+        fromBrandKit: {
+          logo: { id: "logo_png", title: "logo_png file" },
+          companyName: null,
+          headerColor: "#0b1f3a",
+          buttonColor: "#0b1f3a",
+          notes: [],
+        },
+        logos: [{ id: "logo_png", title: "logo_png file", primary: true, format: "png" }],
+        headerImages: [],
+        note:
+          "companyName null shows the logo alone. A suggestion changes nothing until an admin saves it on the page. " +
+          "headerGradientColor fades the header from headerColor to it, top left to bottom right (null = solid; " +
+          "Outlook and Gmail on Android show headerColor alone), and headerText is auto (black or white, whichever " +
+          "reads better), white or black. headerImage replaces the logo and name with a banner uploaded on the page " +
+          "(null = the colour header; headerColor stays behind it and shows when images are off). Suggest one by its " +
+          'id from headerImages, or "none"; only the page can upload one.',
+      },
+    });
+  });
+
+  it("flag on with no options: the defaults are spelled out (null = solid, auto, null = the colour header)", async () => {
     vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
     const { body } = (await agentEmailStyle(admin, world())) as { body: typeof PINNED.body };
-    expect(body.current).toEqual({ ...PINNED.body.current, headerGradientColor: null, headerText: "auto" });
-    expect(body.pending).toEqual({ ...PINNED.body.pending, headerGradientColor: null, headerText: "auto" });
+    const defaults = { headerGradientColor: null, headerText: "auto", headerImage: null };
+    expect(body.current).toEqual({ ...PINNED.body.current, ...defaults });
+    expect(body.pending).toEqual({ ...PINNED.body.pending, ...defaults });
     expect(body.fromBrandKit).toEqual(PINNED.body.fromBrandKit);
   });
 
@@ -206,5 +262,86 @@ describe("Vizzy's Email style read: header options", () => {
     const { body } = (await agentEmailStyle(admin, world(equal))) as { body: typeof PINNED.body };
     expect(body.current).toMatchObject({ headerColor: "#222244", headerGradientColor: null });
     expect(body.pending).toMatchObject({ headerColor: "#000080", headerGradientColor: null });
+  });
+});
+
+describe("Vizzy's Email style read: header images", () => {
+  const SPRING = "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg";
+  const AUTUMN = "9b2c7d4e-1a3f-4b5c-8d6e-7f8091a2b3c4.png";
+  const header = (id: string, filename: string, mimeType: string, over: Record<string, unknown> = {}) => ({
+    id,
+    tenantId: "ten_A",
+    category: "header",
+    filename,
+    mimeType,
+    title: `${id} title`,
+    byteSize: 50_000,
+    width: 1200,
+    height: 300,
+    createdAt: "2026-09-10T00:00:00.000Z",
+    ...over,
+  });
+  // Newest first, as listBrandAssets returns them; the last three aren't header images an email can use.
+  const HEADERS = [
+    header("hdr_spring", SPRING, "image/jpeg", { title: "Spring banner", createdAt: "2026-09-12T00:00:00.000Z" }),
+    header("hdr_autumn", AUTUMN, "image/png", { title: "Autumn banner" }),
+    header("hdr_webp", WEBP, "image/webp"),
+    header("icon_1", PNG, "image/png", { category: "icon" }),
+    header("hdr_nosize", SPRING, "image/jpeg", { width: undefined, height: undefined }),
+  ];
+  const IMAGES = {
+    emailStyle: { headerImage: { id: "hdr_autumn", filename: AUTUMN, width: 1200, height: 300 } },
+    emailStyleSuggestion: { headerImageId: "hdr_spring" },
+  };
+  beforeEach(() => {
+    brandAssets.listBrandAssets.mockResolvedValue(HEADERS);
+  });
+
+  it("flag off: exactly today's answer, with nothing listed, even with an image saved and suggested", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+    const r = await agentEmailStyle(admin, world(IMAGES));
+    expect(r).toEqual(PINNED);
+    expect(JSON.stringify(r.body)).not.toMatch(/headerImage|hdr_/);
+    expect(brandAssets.listBrandAssets).not.toHaveBeenCalled();
+  });
+
+  it("flag on: lists the usable header images newest first, and names the saved and suggested ones", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const r = await agentEmailStyle(admin, world(IMAGES));
+    expect(brandAssets.listBrandAssets).toHaveBeenCalledWith(admin, "header");
+    expect(r.status).toBe(200);
+    const body = r.body as Record<string, unknown>;
+    expect(body.headerImages).toEqual([
+      { id: "hdr_spring", title: "Spring banner" },
+      { id: "hdr_autumn", title: "Autumn banner" },
+    ]);
+    expect(body.current).toMatchObject({ headerImage: { id: "hdr_autumn", title: "Autumn banner" }, headerColor: "#222244" });
+    expect(body.pending).toMatchObject({ headerImage: { id: "hdr_spring", title: "Spring banner" }, headerColor: "#000080" });
+  });
+
+  it("flag on: a suggested image that's since been deleted keeps its id, with no title", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const { body } = (await agentEmailStyle(admin, world({ emailStyleSuggestion: { headerImageId: "hdr_deleted" } }))) as {
+      body: Record<string, unknown>;
+    };
+    expect(body.pending).toMatchObject({ headerImage: { id: "hdr_deleted", title: null } });
+    expect(body.current).toMatchObject({ headerImage: null });
+  });
+
+  it("flag on: 503 when the header images can't be listed", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    brandAssets.listBrandAssets.mockRejectedValue(new Error("index building"));
+    expect(await agentEmailStyle(admin, world())).toEqual({ status: 503, body: { error: "header_images_unavailable" } });
+  });
+
+  it("carries no people or tenant data with images listed: not who asked, who saved, or the rows' tenant", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const json = JSON.stringify((await agentEmailStyle(admin, world(IMAGES))).body);
+    expect(json).not.toContain("suggestedBy");
+    expect(json).not.toContain("updatedBy");
+    expect(json).not.toContain("usr_");
+    expect(json).not.toContain("ten_A");
+    expect(json).not.toContain(SPRING);
+    expect(json).not.toContain("@");
   });
 });

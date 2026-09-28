@@ -7,9 +7,10 @@ capability token (`ctxToken` in session state); the app takes the tenant and the
 role from that token, never from here.
 
 The Email style is brand-wide (logo, company name, header and button colours on
-every branded email, plus a gradient header and the header text colour where the
-app's header options are on). Vizzy only ever saves a SUGGESTION through the canvas
-endpoint: nothing changes until an admin saves it on Brand › Email style.
+every branded email, plus a gradient header, the header text colour and a header
+image an admin uploaded where the app's header options are on). Vizzy only ever saves
+a SUGGESTION through the canvas endpoint: nothing changes until an admin saves it on
+Brand › Email style. Vizzy never uploads a header image; only the page can.
 """
 
 from __future__ import annotations
@@ -45,9 +46,13 @@ _ERRORS = {
     "invalid_logo": "That logo can't be used",
     "tenant_not_found": "I couldn't find this account.",
     "logos_unavailable": "I couldn't read your logos just now. Please try again.",
-    # EMAIL_HEADER_OPTIONS_ENABLED is off: only a real gradient or forced text colour is refused.
+    "invalid_header_image": "That header image can't be used",
+    "header_images_unavailable": "I couldn't read your header images just now. Please try again.",
+    # EMAIL_HEADER_OPTIONS_ENABLED is off: only a real gradient, forced text colour or header
+    # image id is refused.
     "header_options_unavailable": (
-        "Gradient headers and header text colour aren't switched on in this environment yet."
+        "Gradient headers, header text colour and header images aren't switched on in this "
+        "environment yet."
     ),
     "network_error": "I couldn't reach the app just now. Please try again.",
 }
@@ -111,6 +116,7 @@ def build_suggest_payload(
     header_gradient_color: str = "",
     solid_header: bool = False,
     header_text_color: str = "",
+    header_image: str = "",
 ) -> dict:
     """The canvas request: only the fields the operator asked for, so the rest are kept."""
     payload: dict = {
@@ -129,6 +135,11 @@ def build_suggest_payload(
     # "auto", "white" or "black"; the app checks it.
     if (header_text_color or "").strip():
         payload["headerText"] = header_text_color.strip().lower()
+    # A banner's id from the read's headerImages (ids are case-sensitive), or "none" for
+    # the colour header; the app checks it.
+    image = (header_image or "").strip()
+    if image:
+        payload["headerImage"] = "none" if image.lower() == "none" else image
     if (button_color or "").strip():
         payload["buttonColor"] = button_color.strip()
     if (logo or "").strip():
@@ -181,6 +192,7 @@ def suggest_style(
     header_gradient_color: str = "",
     solid_header: bool = False,
     header_text_color: str = "",
+    header_image: str = "",
 ) -> dict:
     """Save an Email style SUGGESTION for an admin to review. Never raises."""
     got = _base_and_token(state)
@@ -198,6 +210,7 @@ def suggest_style(
         header_gradient_color,
         solid_header,
         header_text_color,
+        header_image,
     )
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
     return parse_suggest_response(status_code, body_text)

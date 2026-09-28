@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BookOpenCheck, ChevronDown, ChevronRight, GitBranch, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { proves, type MapSection, type ProductMap } from "@/lib/connect/productMapSchema";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
-import { api, errorText, timeAgo, type PublicConnection } from "./api";
+import { api, errorText, timeAgo, type ConnectionCatalog, type PublicConnection } from "./api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "./ui";
 import { GitHubRepoChooser } from "./GitHubRepoChooser";
 import { CopyAgentPrompt } from "./CopyAgentPrompt";
@@ -84,6 +84,22 @@ const typeOnly = (i: Item) => i.evidence.some((e) => e.verified && e.declaration
 /** Ticked by default: proven by code and not low confidence. */
 const trusted = (i: Item, section: SectionId) => i.confidence !== "low" && proven(i, section);
 
+/** Glossary terms match whatever their case (as adding them does). */
+const matchKey = (section: SectionId, key: string) => (section === "glossary" ? key.toLowerCase() : key);
+
+/** What the catalog already has, per section: the id adding would match → what the catalog calls it. */
+function inCatalog(c: ConnectionCatalog): Record<SectionId, Map<string, string>> {
+  const m = <T,>(items: T[] | undefined, key: (t: T) => string, name: (t: T) => string) => new Map((items ?? []).map((t) => [key(t), name(t)]));
+  return {
+    entities: m(c.entityKinds, (k) => k.kind, (k) => k.plural || k.kind),
+    steps: m(c.onboardingSteps, (s) => s.id, (s) => s.label),
+    events: m(c.events, (e) => e.name, (e) => e.label || e.name),
+    traits: m(c.traits, (t) => t.key, (t) => t.label || t.key),
+    facts: m(c.facts, (f) => f.id, (f) => f.label),
+    glossary: m(c.glossary, (g) => g.term.toLowerCase(), (g) => g.term),
+  };
+}
+
 const SECTIONS: Array<{ id: SectionId; title: string; description: string }> = [
   {
     id: "entities",
@@ -135,6 +151,8 @@ export function LearnFromRepo({
   );
   const map = latest?.map ?? null;
   const items = useMemo(() => (map ? itemsOf(map) : null), [map]);
+  const existing = useMemo(() => inCatalog(connection.catalog), [connection.catalog]);
+  const already = (s: SectionId, key: string) => existing[s].get(matchKey(s, key));
 
   const load = useCallback(async () => {
     const r = await api<{ analyses: RepoAnalysis[] }>(`/api/admin/connections/${connection.id}/learn`);
@@ -153,12 +171,13 @@ export function LearnFromRepo({
     return () => clearInterval(t);
   }, [latest, load]);
 
-  // Pre-tick the trustworthy items whenever a new map arrives.
+  // Pre-tick the trustworthy items the catalog doesn't have yet whenever a new map (or catalog) arrives:
+  // one it has is only replaced when a person ticks it.
   useEffect(() => {
     if (!items) return;
-    const pick = (s: SectionId) => new Set(items[s].filter((i) => trusted(i, s)).map((i) => i.key));
+    const pick = (s: SectionId) => new Set(items[s].filter((i) => trusted(i, s) && !existing[s].has(matchKey(s, i.key))).map((i) => i.key));
     setSelected({ entities: pick("entities"), steps: pick("steps"), events: pick("events"), traits: pick("traits"), facts: pick("facts"), glossary: pick("glossary") });
-  }, [items]);
+  }, [items, existing]);
 
   const start = async () => {
     setBusy(true);
@@ -321,6 +340,7 @@ export function LearnFromRepo({
                 {items[s.id].map((it) => {
                   const id = `${s.id}:${it.key}`;
                   const verified = it.evidence.filter((e) => e.verified).length;
+                  const ours = already(s.id, it.key);
                   return (
                     <li key={id} className="py-2">
                       <div className="flex items-start gap-2">
@@ -332,6 +352,9 @@ export function LearnFromRepo({
                               <Badge key={b}>{b}</Badge>
                             ))}
                             <Badge tone={it.confidence === "high" ? "green" : it.confidence === "low" ? "red" : "amber"}>{it.confidence}</Badge>
+                            {ours !== undefined ? (
+                              <Badge tone="amber">in your catalog{ours ? ` as ‘${ours}’` : ""} — ticking replaces it</Badge>
+                            ) : null}
                             {verified === 0 ? (
                               <Badge tone="red">no verified code</Badge>
                             ) : proven(it, s.id) ? null : s.id === "facts" && typeOnly(it) ? (
@@ -389,7 +412,10 @@ export function LearnFromRepo({
           </Section>
 
           {canEdit ? (
-            <Section title="Add to the catalog" description="Existing catalog entries with the same id are replaced; everything else is added.">
+            <Section
+              title="Add to the catalog"
+              description="Ticked items are added. Ones already in your catalog start unticked: tick one only to replace yours with what was found."
+            >
               <Field label="Your app's web address" hint="Turns the step routes above into links in emails. It's added to the connection's allowed link domains.">
                 <input className={inputClass} value={origin} placeholder="https://app.example.com" onChange={(e) => setOrigin(e.target.value)} />
               </Field>

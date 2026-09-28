@@ -28,6 +28,7 @@ import {
   isHeaderImageUrlShape,
   isLogoUrlShape,
   resolveStoredStyle,
+  withoutHeaderImage,
   type BrandKitEmailStyle,
 } from "@/lib/email/emailStyle";
 import { EMAIL_FONT_LIST, isEmailFontId } from "@/lib/email/emailFonts";
@@ -51,11 +52,13 @@ import {
   suggestionForReview,
   themeForForm,
   themeLabel,
+  transactionalPreviewHtml,
   type BrandFontsForEmail,
   type EmailStyleLogoChoice,
   type FormTheme,
   type PaletteChip,
   type PendingEmailStyleSuggestion,
+  type PreviewEmail,
 } from "./emailStyleForm";
 import { hasWhiteBackground } from "./logoCleanup";
 import { LogoCleanupPanel } from "./LogoCleanupPanel";
@@ -80,6 +83,9 @@ import type { EmailHeaderImageChoice } from "./headerImage";
  *
  * With layout buttons following the Email style, the Button colour hint says it colours the
  * buttons in Create email layouts too.
+ *
+ * With the sign-up confirmation and offboarding emails wearing it, the preview switches between
+ * the welcome email and those two, drawn as they send: always the colour header, never a banner.
  */
 
 const FIELD =
@@ -312,6 +318,7 @@ export function EmailStyleCard({
   fontOrigin,
   fromBrandFonts,
   layouts = false,
+  transactional = false,
 }: {
   /** The saved style; null = none, so emails have today's look. */
   initial: EmailStyleInput | null;
@@ -359,6 +366,11 @@ export function EmailStyleCard({
   fromBrandFonts: BrandFontsForEmail | null;
   /** Layout buttons follow the Email style (EMAIL_LAYOUT_STYLE_ENABLED): only the Button colour hint changes. */
   layouts?: boolean;
+  /**
+   * The sign-up confirmation and offboarding emails wear the Email style
+   * (EMAIL_STYLE_TRANSACTIONAL_ENABLED): the preview can show them too. Off, it's the welcome email alone.
+   */
+  transactional?: boolean;
 }) {
   // Logos cleaned up here, and the primary the server kept in place when one was added.
   const [added, setAdded] = useState<EmailStyleLogoChoice[]>([]);
@@ -400,6 +412,9 @@ export function EmailStyleCard({
   const [error, setError] = useState<string | null>(null);
   // The preview as Apple Mail sees it (web fonts loaded) or as Gmail and Outlook.com do.
   const [fontView, setFontView] = useState<"apple" | "gmail">("apple");
+  // Which email the preview shows; the welcome email alone unless the other two wear the style.
+  const [previewEmail, setPreviewEmail] = useState<PreviewEmail>("welcome");
+  const shown = transactional ? previewEmail : "welcome";
 
   const router = useRouter();
   const dirty = saved ? !sameDraft(draft, toDraft(saved, listed, listedImages)) : started;
@@ -522,13 +537,18 @@ export function EmailStyleCard({
         },
       )
     : null;
-  const previewHtml = renderLifecycleEmail({ item: SAMPLE_ITEM, values: sampleValues(fallbackName), style: previewStyle }).html;
-  const header = !previewStyle
+  // The confirmation and offboarding emails draw the colour header even when the style has a banner.
+  const shownStyle = shown === "welcome" ? previewStyle : withoutHeaderImage(previewStyle);
+  const previewHtml =
+    shown === "welcome"
+      ? renderLifecycleEmail({ item: SAMPLE_ITEM, values: sampleValues(fallbackName), style: previewStyle }).html
+      : transactionalPreviewHtml(shown, previewStyle, fallbackName);
+  const header = !shownStyle
     ? "No header — today's look"
-    : previewStyle.headerImage
+    : shownStyle.headerImage
       ? "Header: image"
-      : previewStyle.logo
-        ? previewStyle.name
+      : shownStyle.logo
+        ? shownStyle.name
           ? "Header: logo and name"
           : "Header: logo only"
         : "Header: name only";
@@ -1149,41 +1169,87 @@ export function EmailStyleCard({
             {dirty ? " · not saved yet" : ""}
           </span>
         </div>
+        {transactional ? (
+          <PreviewPills label="Preview email" options={PREVIEW_EMAILS} value={previewEmail} onChange={setPreviewEmail} />
+        ) : null}
         {themes && webFonts ? (
-          <div role="group" aria-label="Preview as" className="flex flex-wrap gap-1.5">
-            {(
-              [
-                ["apple", "As Apple Mail sees it"],
-                ["gmail", "As Gmail & Outlook.com see it"],
-              ] as const
-            ).map(([view, label]) => (
-              <button
-                key={view}
-                type="button"
-                aria-pressed={fontView === view}
-                onClick={() => setFontView(view)}
-                className={`rounded-full border px-3 py-1 text-xs ${
-                  fontView === view
-                    ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
-                    : "border-neutral-300 dark:border-neutral-700"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <PreviewPills label="Preview as" options={FONT_VIEWS} value={fontView} onChange={setFontView} />
         ) : null}
         <iframe
-          title="Preview of a branded email"
+          title={PREVIEW_ABOUT[shown].title}
           sandbox=""
           srcDoc={previewHtml}
           className="h-[480px] w-full rounded-md border border-neutral-200 bg-white dark:border-neutral-800"
         />
-        <p className={HINT}>A sample welcome email. Letters stay plain, with no header.</p>
+        <p className={HINT}>{PREVIEW_ABOUT[shown].caption}</p>
+        {shown !== "welcome" && previewStyle?.headerImage ? (
+          <p className={HINT}>This email shows the colour header, not your image, so it doesn&rsquo;t look like a campaign.</p>
+        ) : null}
         {themes && webFonts && fontView === "gmail" ? (
           <p className={HINT}>Outlook for Windows also shows square corners.</p>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** The preview's emails, in the switch's order (the switch shows only with them styled). */
+const PREVIEW_EMAILS = [
+  ["welcome", "Welcome"],
+  ["confirmation", "Sign-up confirmation"],
+  ["offboarding", "Offboarding"],
+] as const;
+
+/** The preview's frame title and the line under it, for each email. */
+const PREVIEW_ABOUT: Record<PreviewEmail, { title: string; caption: string }> = {
+  welcome: {
+    title: "Preview of a branded email",
+    caption: "A sample welcome email. Letters stay plain, with no header.",
+  },
+  confirmation: {
+    title: "Preview of the sign-up confirmation email",
+    caption: "A sample sign-up confirmation email. Only its look changes: its words stay the same.",
+  },
+  offboarding: {
+    title: "Preview of the offboarding email",
+    caption: "A sample offboarding email, with the default words. Only its look changes: a launch's own words stay the same.",
+  },
+};
+
+const FONT_VIEWS = [
+  ["apple", "As Apple Mail sees it"],
+  ["gmail", "As Gmail & Outlook.com see it"],
+] as const;
+
+/** A row of pill buttons above the preview, one pressed: what it shows. */
+function PreviewPills<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<readonly [T, string]>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap gap-1.5">
+      {options.map(([option, text]) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={value === option}
+          onClick={() => onChange(option)}
+          className={`rounded-full border px-3 py-1 text-xs ${
+            value === option
+              ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
+              : "border-neutral-300 dark:border-neutral-700"
+          }`}
+        >
+          {text}
+        </button>
+      ))}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   isEmailHeaderOptionsUiEnabled,
   isEmailLayoutStyleEnabled,
   isEmailStyleEnabled,
+  isEmailStyleTransactionalEnabled,
   isEmailThemesEnabled,
   isEmailWebFontsEnabled,
 } from "@/lib/email/flags";
@@ -35,6 +36,9 @@ export const dynamic = "force-dynamic";
  * and a body font, "Use brand fonts") shows only with EMAIL_THEMES_ENABLED, and the preview's
  * "As Apple Mail sees it" / "As Gmail & Outlook.com see it" only with EMAIL_WEB_FONTS_ENABLED too.
  * With EMAIL_LAYOUT_STYLE_ENABLED, the Button colour hint says it colours Create layout buttons too.
+ * With EMAIL_STYLE_TRANSACTIONAL_ENABLED the sign-up confirmation and offboarding emails wear it
+ * too (always the colour header, never a banner): the page names them, and the preview switches
+ * between the welcome email and those two.
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -113,6 +117,11 @@ export default async function EmailStylePage() {
       }
     : null;
   const phase3 = isNavV2Phase3Enabled();
+  // Off, the page is as without it: the welcome email alone in the preview, and today's list of emails.
+  const transactional = isEmailStyleTransactionalEnabled();
+  const emails = transactional
+    ? "lifecycle, launch welcome, invite, newsletter, sign-up confirmation and offboarding emails"
+    : "lifecycle, launch welcome, invite and newsletter emails";
 
   return (
     <div className="space-y-5">
@@ -125,8 +134,7 @@ export default async function EmailStylePage() {
         </Link>
         <h1 className="mt-1 text-lg font-semibold">Email style</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Your logo and colours on branded emails: lifecycle, launch welcome, invite and newsletter emails.
-          Letters stay plain.
+          {`Your logo and colours on branded emails: ${emails}. Letters stay plain.`}
         </p>
       </div>
       <EmailStyleCard
@@ -166,6 +174,7 @@ export default async function EmailStylePage() {
         fontOrigin={webFonts ? emailLinkOrigin() : ""}
         fromBrandFonts={themes ? brandFontsToEmail(tenant?.brandTypography, tenant?.brandKit?.fonts) : null}
         layouts={isEmailLayoutStyleEnabled()}
+        transactional={transactional}
       />
     </div>
   );

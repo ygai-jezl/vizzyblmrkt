@@ -23,19 +23,27 @@ import {
   isEmailLogo,
   luminance,
   readableOn,
+  withoutHeaderImage,
   type BrandKitEmailStyle,
   type EmailStyleLogoOption,
+  type ResolvedEmailStyle,
 } from "@/lib/email/emailStyle";
 import { EMAIL_FONTS, EMAIL_FONT_LIST, emailFontFileUrl, isEmailFontId, isWebFont } from "@/lib/email/emailFonts";
 import { EMAIL_THEME_PRESET_SPECS, compactTheme, isEmailThemePreset } from "@/lib/email/emailThemes";
+import {
+  defaultOffboardingBody,
+  defaultOffboardingSubject,
+  offboardingEmail,
+  verificationEmail,
+} from "@/lib/email/templates";
 import { bannerWarnings, type EmailHeaderImageChoice } from "./headerImage";
 
 /**
  * Pure helpers for the Brand › Email style page (EmailStyleCard): sizing a logo for the
  * header, the logo-on-header contrast check, "Use brand kit" with the logo in view, reviewing
  * a Vizzy suggestion, a gradient's starting colour, the page's hints, the theme (its fonts,
- * "Use brand fonts") and what a Save sends. Client-safe; only the canvas read itself lives in
- * the component.
+ * "Use brand fonts"), what a Save sends, and the preview's sign-up confirmation and offboarding
+ * emails. Client-safe; only the canvas read itself lives in the component.
  */
 
 /** A logo the page can offer: what "Use brand kit" needs, plus its name and size on disk. */
@@ -601,4 +609,48 @@ export function brandFontsToEmail(
       `“${family}” ${NOT_FOR_EMAIL} ${andList(uses)} ${uses.join() === "text" ? "keeps" : "keep"} the current font`,
   );
   return { headingFont, bodyFont, notes };
+}
+
+// ── Sign-up confirmation and offboarding (EMAIL_STYLE_TRANSACTIONAL_ENABLED) ──
+
+/** The emails the preview can show. Only the welcome email unless these two wear the style. */
+export type PreviewEmail = "welcome" | "confirmation" | "offboarding";
+
+/** Who signs up in the samples. */
+const SAMPLE_PERSON = { firstName: "Alex", email: "alex@example.com" };
+
+/**
+ * The sign-up confirmation or offboarding email's HTML as it sends with this style, from sample
+ * details: Alex signs up for a launch named `brand`, in English, and the offboarding email has
+ * the default words. Always the colour header: a header image is left out, as it is at send
+ * (resolveTransactionalEmailStyle). No style = today's plain email.
+ */
+export function transactionalPreviewHtml(
+  email: Exclude<PreviewEmail, "welcome">,
+  style: ResolvedEmailStyle | null,
+  brand: string,
+): string {
+  const shown = withoutHeaderImage(style);
+  if (email === "confirmation") {
+    return verificationEmail({
+      to: SAMPLE_PERSON.email,
+      waitlistName: brand,
+      verifyUrl: "https://example.com/confirm?token=preview",
+      firstName: SAMPLE_PERSON.firstName,
+      locale: "en",
+      style: shown,
+    }).html;
+  }
+  // The default words' two merge tokens, as the send fills them in.
+  const fill = (copy: string) =>
+    copy.replace(/\{\{\s*(first_name|waitlist_name)\s*\}\}/g, (_m, token: string) =>
+      token === "first_name" ? SAMPLE_PERSON.firstName : brand,
+    );
+  return offboardingEmail({
+    to: SAMPLE_PERSON.email,
+    subject: fill(defaultOffboardingSubject("en")),
+    body: fill(defaultOffboardingBody("en")),
+    locale: "en",
+    style: shown,
+  }).html;
 }

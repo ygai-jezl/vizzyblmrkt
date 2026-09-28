@@ -22,11 +22,14 @@ import {
   suggestionForReview,
   themeForForm,
   themeLabel,
+  transactionalPreviewHtml,
   HEAVY_LOGO_BYTES,
   type EmailStyleLogoChoice,
   type PendingEmailStyleSuggestion,
 } from "./emailStyleForm";
-import { contrastRatio } from "@/lib/email/emailStyle";
+import { contrastRatio, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { offboardingEmail, verificationEmail } from "@/lib/email/templates";
+import { wrap } from "@/lib/email/emailRender";
 import { EmailStyleInputSchema, type TextStyle } from "@/lib/types/tenant";
 
 const px = (...pixels: Array<[number, number, number, number]>) => pixels.flat();
@@ -857,5 +860,82 @@ describe("the page's own web fonts (the theme tiles)", () => {
     expect(pageFontStack("inter", false)).toBe("'Segoe UI',Helvetica,Arial,sans-serif");
     expect(pageFontStack("lora", true)).toBe("'Email Lora',Georgia,'Times New Roman',Times,serif");
     expect(pageFontStack("georgia", true)).toBe("Georgia,'Times New Roman',Times,serif");
+  });
+});
+
+describe("transactionalPreviewHtml: the preview's sign-up confirmation and offboarding emails", () => {
+  const STYLE: ResolvedEmailStyle = {
+    logo: {
+      url: "https://app.example.com/api/brand-logo/ten_A/0f8fad5b-d9cb-469f-a165-70867728950e.png",
+      width: 120,
+      height: 40,
+    },
+    name: null,
+    altName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+  };
+  const BANNER = {
+    url: "https://app.example.com/api/brand-asset/header/ten_A/7c9e6679-7425-40de-944b-e07fc1f90ae7.png",
+    width: 1200,
+    height: 400,
+  };
+
+  it("with no style, is today's plain email, as it sends", () => {
+    expect(transactionalPreviewHtml("confirmation", null, "Example Co")).toBe(
+      verificationEmail({
+        to: "alex@example.com",
+        waitlistName: "Example Co",
+        verifyUrl: "https://example.com/confirm?token=preview",
+        firstName: "Alex",
+        locale: "en",
+      }).html,
+    );
+    const plain = transactionalPreviewHtml("offboarding", null, "Example Co");
+    expect(plain).toBe(
+      offboardingEmail({
+        to: "alex@example.com",
+        subject: "You're off the waitlist for Example Co 🎉",
+        body:
+          "Hi Alex,\n\nGreat news — you've been moved off the Example Co waitlist and now have access.\n\n" +
+          "Thanks for being an early supporter!",
+        locale: "en",
+      }).html,
+    );
+    expect(plain).not.toContain("{{");
+  });
+
+  it("wears the style: the colour header, the button colour, the sample person and launch", () => {
+    const confirm = transactionalPreviewHtml("confirmation", STYLE, "Example Co");
+    expect(confirm).toContain('bgcolor="#0b1f3a"');
+    expect(confirm).toContain('alt="Example Co"');
+    expect(confirm).toContain('<td bgcolor="#ff6b35" style="background:#ff6b35;border-radius:8px">');
+    expect(confirm).toContain("<p>Hi Alex,</p>");
+    expect(confirm).toContain("the <strong>Example Co</strong> waitlist");
+    const off = transactionalPreviewHtml("offboarding", STYLE, "Example Co");
+    expect(off).toContain('bgcolor="#0b1f3a"');
+    expect(off).toContain("Hi Alex,<br><br>Great news — you&#39;ve been moved off the Example Co waitlist");
+    expect(off).not.toContain("{{");
+  });
+
+  it("draws the colour header even when the style has a banner, as the send does", () => {
+    // The welcome email draws that banner.
+    expect(wrap("<p>Hi</p>", null, { style: { ...STYLE, headerImage: BANNER } })).toContain(BANNER.url);
+    for (const email of ["confirmation", "offboarding"] as const) {
+      const html = transactionalPreviewHtml(email, { ...STYLE, headerImage: BANNER }, "Example Co");
+      expect(html).not.toContain(BANNER.url);
+      expect(html).toBe(transactionalPreviewHtml(email, STYLE, "Example Co"));
+    }
+  });
+
+  it("carries the theme, and the web fonts' head block when the style loads them", () => {
+    const html = transactionalPreviewHtml(
+      "confirmation",
+      { ...STYLE, theme: { preset: "modern", headingFont: "inter", bodyFont: "inter", webFontOrigin: "https://app.example.com" } },
+      "Example Co",
+    );
+    expect(html).toContain('bgcolor="#f3f4f6"');
+    expect(html).toContain("<style data-vzb-fonts>");
+    expect(html).toContain("url(https://app.example.com/email-fonts/inter-400.v1.woff2)");
   });
 });

@@ -9,10 +9,23 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tenant")>();
   return { ...actual, getTenantById: vi.fn(async () => tenantRegistry.tenant) };
 });
+// Lets a test make the styled render throw; everything else is the real template.
+const render = vi.hoisted(() => ({ styledThrows: false }));
+vi.mock("./templates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./templates")>();
+  return {
+    ...actual,
+    offboardingEmail: (opts: Parameters<typeof actual.offboardingEmail>[0]) => {
+      if (opts.style && render.styledThrows) throw new Error("styled render failed");
+      return actual.offboardingEmail(opts);
+    },
+  };
+});
 
 import { processEmailJobs } from "./delivery";
 import { sendEmail } from "@/lib/email";
 import { suppressEmail } from "./suppression";
+import { resolveEmailStyle } from "./resolveEmailStyle";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 
@@ -182,5 +195,84 @@ describe("the offboarding email, as sent today", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[1]![0]).toEqual(send.mock.calls[0]![0]);
     expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({ status: "done", emailSentAt: expect.any(String) });
+  });
+});
+
+describe("the offboarding email, with EMAIL_STYLE_TRANSACTIONAL_ENABLED", () => {
+  const LOGO = "https://app.example.com/api/brand-logo/ten_A/0f8fad5b-d9cb-469f-a165-70867728950e.png";
+  let plain: Record<string, unknown>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    render.styledThrows = false;
+    send.mockResolvedValue({ sent: true, provider: "mandrill", id: "m_1" });
+    tenantRegistry.tenant = TENANT;
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+    vi.stubEnv("EMAIL_LINK_ORIGIN", "https://app.example.com");
+    // Today's payload, from the pins above, to compare against.
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "false");
+    await processEmailJobs(ctx, 25, world());
+    plain = send.mock.calls[0]![0];
+    send.mockClear();
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("wears the colour header and the card, never the saved banner; subject, text and sender unchanged", async () => {
+    expect(resolveEmailStyle(TENANT as never)).toHaveProperty("headerImage"); // the brand's other emails show it
+    const db = world();
+    expect(await processEmailJobs(ctx, 25, db)).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    const sent = send.mock.calls[0]![0];
+    const { html, ...rest } = sent;
+    const { html: plainHtml, ...plainRest } = plain;
+    expect(rest).toEqual(plainRest);
+    expect(html).not.toBe(plainHtml);
+    expect(html).toContain('<td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a">');
+    expect(html).toContain(`<img src="${LOGO}"`);
+    expect(html).not.toContain("/api/brand-asset/header/");
+    expect(html).toContain("<div>Hi Maya,<br><br>Great news — you&#39;ve been moved off the Example Beta waitlist");
+    expect(html).not.toContain("data-vzb-footer");
+    expect(html).not.toContain("{{");
+    expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({ status: "done", mandrillMessageId: "m_1" });
+  });
+
+  it("in Arabic: right to left, with the header on the right", async () => {
+    await processEmailJobs(ctx, 25, world({ locale: "ar" }));
+    const { html } = send.mock.calls[0]![0];
+    expect(html).toContain('<html lang="ar" dir="rtl">');
+    expect(html).toContain('<td bgcolor="#0b1f3a" dir="rtl" align="right"');
+  });
+
+  it("sends nothing to a suppressed address, and the job is done", async () => {
+    const db = world();
+    await suppressEmail(ctx, { email: "maya@example.com", reason: "unsubscribe", source: "footer" }, db);
+    expect(await processEmailJobs(ctx, 25, db)).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    expect(send).not.toHaveBeenCalled();
+    expect(db.raw("email_jobs", "offboard:s1")).toMatchObject({ status: "done", emailSentAt: null });
+  });
+
+  it("with no Email style saved, a damaged one or the Email style off: today's email, exactly", async () => {
+    tenantRegistry.tenant = { ...TENANT, emailStyle: undefined };
+    await processEmailJobs(ctx, 25, world());
+    tenantRegistry.tenant = { ...TENANT, emailStyle: { ...TENANT.emailStyle, headerColor: "red" } };
+    await processEmailJobs(ctx, 25, world());
+    tenantRegistry.tenant = TENANT;
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    await processEmailJobs(ctx, 25, world());
+    expect(send).toHaveBeenCalledTimes(3);
+    for (const [payload] of send.mock.calls) expect(payload).toEqual(plain);
+  });
+
+  it("a styled render that throws sends today's email instead", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render.styledThrows = true;
+    const db = world();
+    expect(await processEmailJobs(ctx, 25, db)).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0]).toEqual(plain);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("styled offboarding email failed"), expect.any(Error));
+    warn.mockRestore();
   });
 });

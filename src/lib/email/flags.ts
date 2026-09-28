@@ -1,8 +1,9 @@
 /**
  * Email style flags (logo, company name and colours on branded emails), the header
  * options on top of it (a gradient header, a chosen header text colour, a header image,
- * logo clean-up), themes (a look and two fonts, with web fonts on their own flag), and
- * Create layout buttons that follow it. Pure + client-safe. Each is ON in dev
+ * logo clean-up), themes (a look and two fonts, with web fonts on their own flag), Create
+ * layout buttons that follow it, and the sign-up confirmation and offboarding emails wearing
+ * it. Pure + client-safe. Each is ON in dev
  * (apphosting.yaml) and set explicitly in prod (apphosting.prod.yaml). Renderers never
  * read these: they get the style as data.
  */
@@ -66,4 +67,15 @@ export function isEmailWebFontsEnabled(): boolean {
  */
 export function isEmailLayoutStyleEnabled(): boolean {
   return process.env.EMAIL_LAYOUT_STYLE_ENABLED === "true";
+}
+
+/**
+ * Server flag — the sign-up confirmation (double opt-in) and offboarding emails (needs
+ * EMAIL_STYLE_ENABLED). On: both wear the Email style's colour header (never a banner), button
+ * colour, card and theme, with the same subject, copy, text part and sender, and an offboarding
+ * email skips a suppressed address, as journey emails do. Off: both are today's plain emails,
+ * sent exactly as today.
+ */
+export function isEmailStyleTransactionalEnabled(): boolean {
+  return process.env.EMAIL_STYLE_TRANSACTIONAL_ENABLED === "true";
 }

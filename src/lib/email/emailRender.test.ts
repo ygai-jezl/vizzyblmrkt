@@ -1102,6 +1102,61 @@ describe("layout buttons that follow the Email style", () => {
   });
 });
 
+describe("wrap with a language (lang and dir)", () => {
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+    ...over,
+  });
+
+  it("writes neither unless given, so every caller today is unchanged", () => {
+    for (const s of [null, style()]) {
+      expect(wrap("<p>x</p>", null, { style: s, lang: null, dir: null })).toBe(wrap("<p>x</p>", null, { style: s }));
+      expect(wrap("<p>x</p>", null, { style: s, lang: "", dir: undefined })).toBe(wrap("<p>x</p>", null, { style: s }));
+    }
+    expect(renderHeaderBand(style(), {})).toBe(renderHeaderBand(style()));
+    expect(renderHeaderBand(style(), { dir: "ltr" })).toBe(renderHeaderBand(style()));
+    expect(wrap("<p>x</p>", null, { style: style(), dir: "ltr" })).toContain(renderHeaderBand(style()));
+  });
+
+  it("on <html> and on the card, since Gmail and others drop <html>", () => {
+    const out = wrap("<p>x</p>", null, { style: style(), lang: "en", dir: "ltr" });
+    expect(out).toContain('<html lang="en" dir="ltr"><head>');
+    expect(out).toContain('<div lang="en" dir="ltr" style="font-family:');
+    expect(wrap("<p>x</p>", null, { lang: "ja" })).toContain('<html lang="ja"><head>');
+    expect(wrap("<p>x</p>", null, { lang: 'en" onload="x' })).toContain('<html lang="en&quot; onload=&quot;x">');
+  });
+
+  it("with a theme, on the themed shell's <html> and card too", () => {
+    const themed = style({ theme: { preset: "modern", headingFont: "inter", bodyFont: "inter" } });
+    const out = wrap("<p>x</p>", null, { style: themed, lang: "ar", dir: "rtl" });
+    expect(out).toContain('<html lang="ar" dir="rtl"><head>');
+    expect(out).toMatch(/<div lang="ar" dir="rtl" style="font-family:[^"]*;padding:32px 24px;/);
+    expect(out).toContain('dir="rtl" align="right" style="padding:16px 24px;background-color:#123456;border-radius:12px 12px 0 0"');
+  });
+
+  // Pinned: a right-to-left email's band reads right to left, the logo on the right with the gap on its left.
+  it("rtl: the colour band is right-aligned and reads right to left", () => {
+    expect(renderHeaderBand(style(), { dir: "rtl" })).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" dir="rtl" align="right" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-right:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    const nameOnly = renderHeaderBand(style({ logo: null }), { dir: "rtl" });
+    expect(nameOnly).toContain('<td bgcolor="#123456" dir="rtl" align="right" style="padding:16px 24px;background-color:#123456"><span');
+    expect(wrap("<p>x</p>", null, { style: style(), lang: "ar", dir: "rtl" })).toContain(renderHeaderBand(style(), { dir: "rtl" }));
+  });
+
+  it("rtl: a banner stays centred", () => {
+    const headerImage = {
+      url: "https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png",
+      width: 1200,
+      height: 300,
+    };
+    expect(renderHeaderBand(style({ headerImage }), { dir: "rtl" })).toBe(renderHeaderBand(style({ headerImage })));
+  });
+});
+
 describe("EmailLayoutSchema", () => {
   it("round-trips a full layout and rejects a bad hex colour", () => {
     const parsed = EmailLayoutSchema.parse({

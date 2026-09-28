@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TenantSchema, type StoredEmailStyle, type Tenant } from "@/lib/types/tenant";
-import { resolveEmailStyle } from "./resolveEmailStyle";
+import { resolveEmailStyle, resolveTransactionalEmailStyle } from "./resolveEmailStyle";
 
 const FILE = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
 const STYLE: StoredEmailStyle = {
@@ -288,5 +288,50 @@ describe("resolveEmailStyle", () => {
       "Example Team",
     );
     expect(resolveEmailStyle(tenant())!.altName).toBe("Example Co");
+  });
+});
+
+describe("resolveTransactionalEmailStyle (the confirmation and offboarding emails)", () => {
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const withImage = () => tenant({ emailStyle: { ...STYLE, headerImage: IMAGE } });
+  beforeEach(() => vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true"));
+
+  it("flag off: null, whatever is saved — today's plain emails", () => {
+    for (const flag of ["false", ""]) {
+      vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", flag);
+      expect(resolveTransactionalEmailStyle(tenant())).toBeNull();
+      expect(resolveTransactionalEmailStyle(withImage())).toBeNull();
+    }
+  });
+
+  it("flag on: the tenant's Email style", () => {
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+    expect(resolveTransactionalEmailStyle(tenant())).toStrictEqual(resolveEmailStyle(tenant()));
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    const themed = tenant({ emailStyle: { ...STYLE, headerGradientColor: "#4f46e5", theme: { preset: "editorial" } } });
+    expect(resolveTransactionalEmailStyle(themed)).toStrictEqual(resolveEmailStyle(themed));
+    expect(resolveTransactionalEmailStyle(themed)).toMatchObject({ headerGradientColor: "#4f46e5", theme: { preset: "editorial" } });
+  });
+
+  it("flag on: never the banner — the colour header, with the logo and everything else as saved", () => {
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+    expect(resolveEmailStyle(withImage())).toHaveProperty("headerImage");
+    expect(resolveTransactionalEmailStyle(withImage())).toStrictEqual({
+      logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+      name: null,
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    });
+  });
+
+  it("flag on: still null with the Email style off, nothing saved, a damaged style or no tenant", () => {
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+    expect(resolveTransactionalEmailStyle(tenant({ emailStyle: undefined }))).toBeNull();
+    expect(resolveTransactionalEmailStyle({ ...tenant(), emailStyle: { ...STYLE, headerColor: "red" } })).toBeNull();
+    expect(resolveTransactionalEmailStyle(null)).toBeNull();
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    expect(resolveTransactionalEmailStyle(tenant())).toBeNull();
   });
 });

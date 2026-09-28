@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 
 /**
  * The double opt-in confirmation email as the signup route sends it today, pinned whole. A
@@ -42,6 +43,8 @@ const m = vi.hoisted(() => ({
   createSignup: vi.fn(),
   deleteSignup: vi.fn(async () => undefined),
   resolveTenantForRequest: vi.fn(),
+  tenant: null as unknown,
+  styledThrows: false,
 }));
 vi.mock("@/lib/tenant", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tenant")>();
@@ -50,10 +53,21 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
     resolveTenantForRequest: m.resolveTenantForRequest,
     forTenant: () => ({ campaigns: { getById: async () => CAMPAIGN }, signups: { delete: m.deleteSignup } }),
     creditReferral: vi.fn(),
-    getTenantById: vi.fn(async () => TENANT),
+    getTenantById: vi.fn(async () => m.tenant),
   };
 });
 vi.mock("@/lib/email", () => ({ sendEmail: m.sendEmail }));
+// Lets a test make the styled render throw; everything else is the real template.
+vi.mock("@/lib/email/templates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/email/templates")>();
+  return {
+    ...actual,
+    verificationEmail: (opts: Parameters<typeof actual.verificationEmail>[0]) => {
+      if (opts.style && m.styledThrows) throw new Error("styled render failed");
+      return actual.verificationEmail(opts);
+    },
+  };
+});
 vi.mock("@/lib/waitlist/signupService", () => ({ createSignup: m.createSignup }));
 vi.mock("@/lib/waitlist/postSignup", () => ({ buildSharePayload: vi.fn(async () => ({})) }));
 vi.mock("@/lib/security/recaptcha", () => ({ verifyRecaptcha: vi.fn(async () => ({ ok: true, skipped: true })) }));
@@ -89,6 +103,8 @@ const post = (body: Record<string, unknown>) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.tenant = TENANT;
+  m.styledThrows = false;
   vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
   vi.stubEnv("FIRESTORE_EMULATOR_HOST", "");
   m.resolveTenantForRequest.mockResolvedValue({ tenantId: "ten_A", region: "us", source: "tenant_param" });
@@ -188,5 +204,59 @@ describe("POST /api/waitlist/[campaignId]/signup: the confirmation email, as sen
     m.createSignup.mockResolvedValue({ alreadyJoined: false, signup: signup({ status: "verified_active", verificationToken: null }), totalSignups: 12 });
     expect((await post({ email: "maya@example.com" })).status).toBe(201);
     expect(m.sendEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/waitlist/[campaignId]/signup: with EMAIL_STYLE_TRANSACTIONAL_ENABLED", () => {
+  const HEADER_IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const URL_HTML = "https://waitlist.example.com/api/waitlist/camp_1/verify?token=tok%20abc%2F123&amp;t=ten_A";
+  let plain: Record<string, unknown>;
+
+  beforeEach(async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    vi.stubEnv("EMAIL_LINK_ORIGIN", "https://app.example.com");
+    // Today's payload, from the pins above, to compare against.
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "false");
+    await post({ email: "maya@example.com", firstName: "Maya" });
+    plain = m.sendEmail.mock.calls[0]![0];
+    m.sendEmail.mockClear();
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+  });
+
+  it("wears the colour header, never the saved banner, with the link escaped; subject, text and sender unchanged", async () => {
+    m.tenant = { ...TENANT, emailStyle: { ...TENANT.emailStyle, headerImage: HEADER_IMAGE } };
+    expect(resolveEmailStyle(m.tenant as never)).toHaveProperty("headerImage"); // the brand's other emails show it
+    const res = await post({ email: "maya@example.com", firstName: "Maya" });
+    expect(res.status).toBe(201);
+    const { html, ...rest } = m.sendEmail.mock.calls[0]![0];
+    const { html: plainHtml, ...plainRest } = plain;
+    expect(rest).toEqual(plainRest);
+    expect(html).not.toBe(plainHtml);
+    expect(html).toContain('<td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><span');
+    expect(html).toContain(">Example Co</span>");
+    expect(html).not.toContain("/api/brand-asset/header/");
+    expect(html).toContain(`<td bgcolor="#ff6b35" style="background:#ff6b35;border-radius:8px"><a href="${URL_HTML}"`);
+    expect(html).toContain(`<br>${URL_HTML}</p>`);
+    expect(html).not.toContain("&t=ten_A");
+    expect(html).not.toContain("data-vzb-footer");
+    expect(m.deleteSignup).not.toHaveBeenCalled();
+  });
+
+  it("with no Email style saved: today's email, exactly", async () => {
+    m.tenant = { ...TENANT, emailStyle: undefined };
+    await post({ email: "maya@example.com", firstName: "Maya" });
+    expect(m.sendEmail.mock.calls[0]![0]).toEqual(plain);
+  });
+
+  it("a styled render that throws sends today's email instead, and the signup stands", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    m.styledThrows = true;
+    const res = await post({ email: "maya@example.com", firstName: "Maya" });
+    expect(res.status).toBe(201);
+    expect(m.sendEmail).toHaveBeenCalledTimes(1);
+    expect(m.sendEmail.mock.calls[0]![0]).toEqual(plain);
+    expect(m.deleteSignup).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("styled verification email failed"), expect.any(Error));
+    warn.mockRestore();
   });
 });

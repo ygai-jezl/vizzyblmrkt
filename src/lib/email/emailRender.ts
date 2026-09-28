@@ -56,11 +56,19 @@ export function bodyToHtml(body: string): string {
  * shows a brand logo), then the card — so the band's name never becomes the inbox snippet.
  * With a band and no preheader, the card's opening words become a hidden one for the same reason.
  * A style with a theme gets the themed shell (see themedShell); without one it's today's.
+ *
+ * `lang` and `dir` (the email's language) are written only when given, on `<html>` and on the
+ * card too, since Gmail and others drop `<html>`. With `dir: "rtl"` the band sits on the right.
  */
 export function wrap(
   inner: string,
   heroImageUrl: string | null,
-  opts: { style?: ResolvedEmailStyle | null; preheader?: string | null } = {},
+  opts: {
+    style?: ResolvedEmailStyle | null;
+    preheader?: string | null;
+    lang?: string | null;
+    dir?: "ltr" | "rtl" | null;
+  } = {},
 ): string {
   // Guard + escape the hero URL (author/agent-controlled) so it can't break out of the
   // src attribute or inject markup into every recipient's inbox.
@@ -71,16 +79,24 @@ export function wrap(
   const pre = preheaderHtml(opts.preheader);
   const style = opts.style ?? null;
   const head = style ? COLOR_SCHEME_METAS : "";
-  const band = style && !hasOwnBrandLogo(inner) ? renderHeaderBand(style) : "";
+  const band = style && !hasOwnBrandLogo(inner) ? renderHeaderBand(style, { dir: opts.dir }) : "";
   const top = style ? `${pre || (band ? hiddenPreheader(openingWords(inner)) : "")}${band}\n  ` : "";
+  const lang = langAttrs(opts);
   const theme = themeTokens(style);
-  if (style && theme) return themedShell(style, theme, { head, top, hero, inner, band: band !== "" });
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${head}</head><body style="margin:0;background:#f6f6f6">
-  ${top}<div style="font-family:${FONT};max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+  if (style && theme) return themedShell(style, theme, { head, top, hero, inner, band: band !== "", lang });
+  return `<!doctype html><html${lang}><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${head}</head><body style="margin:0;background:#f6f6f6">
+  ${top}<div${lang} style="font-family:${FONT};max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
     ${hero}
     ${style ? "" : pre}${inner}
   </div>
 </body></html>`;
+}
+
+/** ` lang="…" dir="…"` for whichever of the two is given; "" for neither (today's markup). */
+function langAttrs(opts: { lang?: string | null; dir?: "ltr" | "rtl" | null }): string {
+  const lang = opts.lang ? ` lang="${escapeAttr(opts.lang)}"` : "";
+  const dir = opts.dir === "ltr" || opts.dir === "rtl" ? ` dir="${opts.dir}"` : "";
+  return lang + dir;
 }
 
 /**
@@ -97,16 +113,16 @@ export function wrap(
 function themedShell(
   style: ResolvedEmailStyle,
   theme: EmailThemeTokens,
-  parts: { head: string; top: string; hero: string; inner: string; band: boolean },
+  parts: { head: string; top: string; hero: string; inner: string; band: boolean; lang: string },
 ): string {
   const page = safeHex(theme.pageColor, "#f6f6f6");
   const r = theme.cardRadius;
   const corners = r ? `;border-radius:${parts.band ? `0 0 ${r}px ${r}px` : `${r}px`}` : "";
   const margin = parts.band ? "0 auto 24px" : "24px auto";
   const cardClass = hasWebFonts(style) ? ` class="${WEB_FONT_CLASSES.card}"` : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${parts.head}${webFontHead(style)}</head><body style="margin:0;background:${page}">
+  return `<!doctype html><html${parts.lang}><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${parts.head}${webFontHead(style)}</head><body style="margin:0;background:${page}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${page}" style="width:100%;background-color:${page}"><tr><td>
-  ${parts.top}<div${cardClass} style="font-family:${fontFor(style, "body")};max-width:560px;margin:${margin};padding:${theme.padY}px 24px;line-height:${theme.lineHeight};color:#111;background:#fff${corners}">
+  ${parts.top}<div${cardClass}${parts.lang} style="font-family:${fontFor(style, "body")};max-width:560px;margin:${margin};padding:${theme.padY}px 24px;line-height:${theme.lineHeight};color:#111;background:#fff${corners}">
     ${parts.hero}
     ${parts.inner}
   </div>
@@ -197,8 +213,11 @@ function bandCorners(style: ResolvedEmailStyle): string {
  * With a theme, the name and alt text take its heading font, and a rounded card's top corners
  * move up to the band (a full-width banner is rounded to match). With web fonts, the name and
  * the images carry the class the `<head>` block's heading rule targets.
+ *
+ * With `dir: "rtl"` (a right-to-left email) the colour band's cell is right-aligned and reads
+ * right to left, so the logo sits on the right with the name to its left; the banner stays centred.
  */
-export function renderHeaderBand(style: ResolvedEmailStyle): string {
+export function renderHeaderBand(style: ResolvedEmailStyle, opts: { dir?: "ltr" | "rtl" | null } = {}): string {
   const image =
     style.headerImage &&
     isHeaderImageUrlShape(style.headerImage.url) &&
@@ -231,12 +250,14 @@ export function renderHeaderBand(style: ResolvedEmailStyle): string {
     ? `<img${cls} src="${escapeAttr(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${alt}" style="display:block;width:${logo.width}px;height:${logo.height}px;border:0;outline:none;text-decoration:none;${textStyle}" />`
     : "";
   const name = text ? `<span${cls} style="${textStyle}">${escapeName(text)}</span>` : "";
+  const rtl = opts.dir === "rtl";
   const content =
     img && name
-      ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;padding-left:12px">${name}</td></tr></table>`
+      ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;${rtl ? "padding-right" : "padding-left"}:12px">${name}</td></tr></table>`
       : img || name || "&nbsp;";
   const corners = bandCorners(style);
-  return bandFrame(bg, `<td bgcolor="${bg}" align="left" style="padding:16px 24px;${fill}${corners}">${content}</td>`, corners);
+  const align = rtl ? 'dir="rtl" align="right"' : 'align="left"';
+  return bandFrame(bg, `<td bgcolor="${bg}" ${align} style="padding:16px 24px;${fill}${corners}">${content}</td>`, corners);
 }
 
 /** The Image-mode band (see renderHeaderBand): the banner alone, on the plain header colour. */

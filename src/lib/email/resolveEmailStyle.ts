@@ -4,10 +4,17 @@ import {
   isEmailHeaderOptionsEnabled,
   isEmailLayoutStyleEnabled,
   isEmailStyleEnabled,
+  isEmailStyleTransactionalEnabled,
   isEmailThemesEnabled,
   isEmailWebFontsEnabled,
 } from "./flags";
-import { resolveStoredStyle, safeHeaderImageUrl, safeLogoUrl, type ResolvedEmailStyle } from "./emailStyle";
+import {
+  resolveStoredStyle,
+  safeHeaderImageUrl,
+  safeLogoUrl,
+  withoutHeaderImage,
+  type ResolvedEmailStyle,
+} from "./emailStyle";
 import { emailLinkOrigin } from "./footer";
 import { resolveFooterBrand } from "./sender";
 
@@ -45,4 +52,15 @@ export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEm
     fontOrigin: linkOrigin,
     layouts: isEmailLayoutStyleEnabled(),
   });
+}
+
+/**
+ * The Email style the sign-up confirmation and offboarding emails wear, or null for today's
+ * plain emails (EMAIL_STYLE_TRANSACTIONAL_ENABLED off, or whatever makes resolveEmailStyle
+ * null). Always the colour header, never the banner: the confirmation email decides whether a
+ * signup counts, and neither should look like a campaign. It's the tenant's style, never a
+ * journey's (neither email belongs to one).
+ */
+export function resolveTransactionalEmailStyle(tenant: Tenant | null | undefined): ResolvedEmailStyle | null {
+  return isEmailStyleTransactionalEnabled() ? withoutHeaderImage(resolveEmailStyle(tenant)) : null;
 }

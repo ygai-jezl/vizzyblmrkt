@@ -15,7 +15,9 @@ import {
   safeHeaderImageUrl,
   safeLogoUrl,
   styleFromBrandKit,
+  withoutHeaderImage,
   type EmailStyleLogoOption,
+  type ResolvedEmailStyle,
 } from "./emailStyle";
 import type { BrandKit } from "@/lib/types/tenant";
 
@@ -536,5 +538,26 @@ describe("styleFromBrandKit", () => {
     const s = styleFromBrandKit({ palette: [{ hex: "#2f6feb", role: "primary" }] }, []);
     expect(s.logoId).toBeNull();
     expect(s.notes).toEqual(["No logos yet — add a PNG or JPG in Brand › Logos"]);
+  });
+});
+
+describe("withoutHeaderImage", () => {
+  const style: ResolvedEmailStyle = {
+    logo: null,
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+    headerGradientColor: "#4f46e5",
+  };
+
+  it("drops only the banner, so the colour header (gradient and all) draws in its place", () => {
+    const banner = { url: headerUrl("ten_A"), width: 1200, height: 300 };
+    expect(withoutHeaderImage({ ...style, headerImage: banner })).toStrictEqual(style);
+  });
+
+  it("changes nothing without one", () => {
+    expect(withoutHeaderImage(style)).toBe(style);
+    expect(withoutHeaderImage(null)).toBeNull();
   });
 });

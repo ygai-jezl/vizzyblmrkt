@@ -138,6 +138,17 @@ export function resolveStoredStyle(
   };
 }
 
+/**
+ * The style with the colour header (logo, name, gradient) in place of any header image. The
+ * sign-up confirmation and offboarding emails draw this: a banner can fill a 608px square
+ * above the one button that matters. Without a header image it's the same style.
+ */
+export function withoutHeaderImage(style: ResolvedEmailStyle | null): ResolvedEmailStyle | null {
+  if (!style?.headerImage) return style;
+  const { headerImage, ...rest } = style;
+  return rest;
+}
+
 /** A saved (or unsaved) theme as the renderers draw it; null = none (Classic with the system font). */
 function resolveTheme(
   raw: unknown,

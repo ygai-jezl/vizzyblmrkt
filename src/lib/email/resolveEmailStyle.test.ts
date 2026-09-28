@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TenantSchema, type StoredEmailStyle, type Tenant } from "@/lib/types/tenant";
-import { resolveEmailStyle, resolveTransactionalEmailStyle } from "./resolveEmailStyle";
+import { resolveEmailStyle, resolveJourneyEmailStyle, resolveTransactionalEmailStyle } from "./resolveEmailStyle";
+import { themeTokens, tint } from "./emailThemes";
 
 const FILE = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
 const STYLE: StoredEmailStyle = {
@@ -333,5 +334,110 @@ describe("resolveTransactionalEmailStyle (the confirmation and offboarding email
     expect(resolveTransactionalEmailStyle(null)).toBeNull();
     vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
     expect(resolveTransactionalEmailStyle(tenant())).toBeNull();
+  });
+});
+
+describe("resolveJourneyEmailStyle (a lifecycle journey's sends and previews)", () => {
+  const LOGO = { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 };
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const CUSTOM = { headerColor: "#1e3a8a", accentColor: "#f97316" };
+  const damaged: unknown[] = [
+    null,
+    "navy",
+    42,
+    { headerColor: "#1e3a8a" },
+    { headerColor: "navy", accentColor: "#f97316" },
+    { ...CUSTOM, headerColor: undefined },
+  ];
+
+  it("flag off: exactly the brand's style, whatever the journey stores", () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    for (const flag of ["false", ""]) {
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", flag);
+      for (const override of [undefined, CUSTOM, { ...CUSTOM, headerGradientColor: "#4f46e5" }, ...damaged]) {
+        expect(resolveJourneyEmailStyle(tenant(), override)).toStrictEqual(resolveEmailStyle(tenant()));
+      }
+      expect(resolveJourneyEmailStyle(tenant({ emailStyle: undefined }), CUSTOM)).toBeNull();
+    }
+  });
+
+  it("null with the Email style off, even for a journey with its own style", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    expect(resolveJourneyEmailStyle(tenant(), CUSTOM)).toBeNull();
+    expect(resolveJourneyEmailStyle(tenant({ emailStyle: undefined }), CUSTOM)).toBeNull();
+  });
+
+  it("flag on: no style, or an unreadable one, is the brand's", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    for (const override of [undefined, ...damaged]) {
+      expect(resolveJourneyEmailStyle(tenant(), override)).toStrictEqual(resolveEmailStyle(tenant()));
+    }
+    expect(resolveJourneyEmailStyle(null, CUSTOM)).toBeNull();
+  });
+
+  it("flag on: the journey's colours on the colour header, with the brand's logo and never its banner", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const brand = tenant({ emailStyle: { ...STYLE, companyName: "Acme", headerGradientColor: "#4f46e5", headerImage: IMAGE } });
+    expect(resolveEmailStyle(brand)).toHaveProperty("headerImage");
+    expect(resolveJourneyEmailStyle(brand, CUSTOM)).toStrictEqual({ logo: LOGO, name: "Acme", altName: "Acme", ...CUSTOM });
+  });
+
+  it("flag on: the journey's gradient and header text need the header options flag too", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const options = { ...CUSTOM, headerGradientColor: "#4F46E5", headerText: "white" };
+    expect(resolveJourneyEmailStyle(tenant(), options)).toStrictEqual({
+      logo: LOGO,
+      name: null,
+      altName: "Example Co",
+      ...CUSTOM,
+    });
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    expect(resolveJourneyEmailStyle(tenant(), options)).toStrictEqual({
+      logo: LOGO,
+      name: null,
+      altName: "Example Co",
+      ...CUSTOM,
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+    // A damaged gradient drops alone.
+    expect(resolveJourneyEmailStyle(tenant(), { ...CUSTOM, headerGradientColor: "purple" })).toMatchObject(CUSTOM);
+    expect(resolveJourneyEmailStyle(tenant(), { ...CUSTOM, headerGradientColor: "purple" })).not.toHaveProperty(
+      "headerGradientColor",
+    );
+  });
+
+  it("flag on: the brand's theme and layout bit carry over, and Friendly tints from the journey's button colour", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    const friendly = tenant({ emailStyle: { ...STYLE, theme: { preset: "friendly" } } });
+    const journey = resolveJourneyEmailStyle(friendly, CUSTOM)!;
+    expect(journey).toStrictEqual({
+      logo: LOGO,
+      name: null,
+      altName: "Example Co",
+      ...CUSTOM,
+      theme: { preset: "friendly", headingFont: "poppins", bodyFont: "nunito", webFontOrigin: "https://app.example.com" },
+      layouts: true,
+    });
+    expect(themeTokens(journey)!.pageColor).toBe(tint(CUSTOM.accentColor, 0.94));
+    expect(themeTokens(resolveEmailStyle(friendly))!.pageColor).toBe(tint(STYLE.accentColor, 0.94));
+  });
+
+  it("flag on: with no brand style saved, the journey's colours on a name band", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const bare = tenant({ emailStyle: undefined, emailSenderConfig: { senderName: "Example Team" } });
+    expect(resolveJourneyEmailStyle(bare, CUSTOM)).toStrictEqual({
+      logo: null,
+      name: null,
+      altName: "Example Team",
+      ...CUSTOM,
+    });
+    expect(resolveJourneyEmailStyle(bare, undefined)).toBeNull();
   });
 });

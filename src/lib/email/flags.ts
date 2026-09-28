@@ -2,8 +2,8 @@
  * Email style flags (logo, company name and colours on branded emails), the header
  * options on top of it (a gradient header, a chosen header text colour, a header image,
  * logo clean-up), themes (a look and two fonts, with web fonts on their own flag), Create
- * layout buttons that follow it, and the sign-up confirmation and offboarding emails wearing
- * it. Pure + client-safe. Each is ON in dev
+ * layout buttons that follow it, the sign-up confirmation and offboarding emails wearing
+ * it, and a lifecycle journey's own colours over it. Pure + client-safe. Each is ON in dev
  * (apphosting.yaml) and set explicitly in prod (apphosting.prod.yaml). Renderers never
  * read these: they get the style as data.
  */
@@ -78,4 +78,16 @@ export function isEmailLayoutStyleEnabled(): boolean {
  */
 export function isEmailStyleTransactionalEnabled(): boolean {
   return process.env.EMAIL_STYLE_TRANSACTIONAL_ENABLED === "true";
+}
+
+/**
+ * Server flag — journey styles (needs EMAIL_STYLE_ENABLED; a journey's gradient and header text
+ * also need EMAIL_HEADER_OPTIONS_ENABLED). On: a lifecycle journey (a product journey, or a launch
+ * welcome journey on the new engine) can wear its own header and button colours on the colour
+ * header, with the brand's logo, name and theme and never a banner: set in its draft, live on
+ * Publish. Off: every journey wears the brand's Email style, and stored journey styles are kept,
+ * so this is a kill switch.
+ */
+export function isEmailJourneyStyleEnabled(): boolean {
+  return process.env.EMAIL_JOURNEY_STYLE_ENABLED === "true";
 }

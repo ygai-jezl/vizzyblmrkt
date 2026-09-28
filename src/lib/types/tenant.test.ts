@@ -6,6 +6,8 @@ import {
   PaletteGroupSchema,
   EmailStyleInputSchema,
   EmailStyleSuggestionSchema,
+  JourneyEmailStyleSchema,
+  StoredJourneyStyleSchema,
 } from "./tenant";
 
 describe("TenantSchema.gitConnections", () => {
@@ -286,6 +288,50 @@ describe("Email style theme", () => {
     }
     // Keys a later build might add are dropped, never a failed read.
     expect(field.parse({ ...style, theme: { preset: "friendly", corners: 4 } })!.theme).toEqual({ preset: "friendly" });
+  });
+});
+
+describe("Journey email style", () => {
+  const style = { headerColor: "#0B1F3A", accentColor: "#ff6b35" };
+
+  it("on write: two colours, and a gradient and header text only when set", () => {
+    expect(JourneyEmailStyleSchema.parse(style)).toStrictEqual({ headerColor: "#0b1f3a", accentColor: "#ff6b35" });
+    const all = { ...style, headerGradientColor: "#4F46E5", headerText: "white" };
+    expect(JourneyEmailStyleSchema.parse(all)).toStrictEqual({
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+  });
+
+  it("on write: refuses bad colours, Auto or null (absent means those), and anything the brand's style owns", () => {
+    const ok = (over: Record<string, unknown>) => JourneyEmailStyleSchema.safeParse({ ...style, ...over }).success;
+    expect(ok({ headerColor: "navy" })).toBe(false);
+    expect(ok({ accentColor: undefined })).toBe(false);
+    expect(ok({ headerGradientColor: "purple" })).toBe(false);
+    expect(ok({ headerGradientColor: null })).toBe(false);
+    expect(ok({ headerText: "auto" })).toBe(false);
+    expect(ok({ headerImage: { id: "hdr_1" } })).toBe(false);
+    expect(ok({ logo: null })).toBe(false);
+    expect(ok({ theme: { preset: "modern" } })).toBe(false);
+    expect(JourneyEmailStyleSchema.safeParse(null).success).toBe(false);
+  });
+
+  it("on read: a damaged gradient or text drops alone, and a damaged style reads as none instead of throwing", () => {
+    // (toEqual: the dropped keys read as undefined, which a Firestore write leaves out.)
+    expect(StoredJourneyStyleSchema.parse({ ...style, headerGradientColor: "purple", headerText: "pink" })).toEqual({
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    });
+    for (const bad of [undefined, null, "navy", 42, [], {}, { headerColor: "#0b1f3a" }, { ...style, accentColor: "orange" }]) {
+      expect(StoredJourneyStyleSchema.parse(bad)).toBeUndefined();
+    }
+    // Keys a later build might add are dropped, never a failed read.
+    expect(StoredJourneyStyleSchema.parse({ ...style, headerImage: { id: "hdr_1" } })).toStrictEqual({
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    });
   });
 });
 

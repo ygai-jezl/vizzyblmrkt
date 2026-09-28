@@ -7,6 +7,7 @@ import {
   type EmailFontId,
   type EmailStyleInput,
   type EmailThemePreset,
+  type StoredJourneyStyle,
 } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandAsset } from "@/lib/types/brandAsset";
@@ -147,6 +148,45 @@ export function withoutHeaderImage(style: ResolvedEmailStyle | null): ResolvedEm
   if (!style?.headerImage) return style;
   const { headerImage, ...rest } = style;
   return rest;
+}
+
+/**
+ * A journey's own look over the brand's resolved style (`base`), as its sends and previews draw
+ * it. Shared by the server (resolveJourneyEmailStyle) and the journey editor's preview. The
+ * journey's header and button colours, gradient and header text (these two only with
+ * `headerOptions`, the caller's flag) on the colour header, with the brand's logo, name, theme and
+ * layout bit. Never the brand's banner, gradient or text colour: a Custom journey draws only its
+ * own header. A theme holds no colours, so Friendly's page tints from the journey's button colour.
+ *
+ * No override, or one whose colours don't read, is `base` itself (the same object). With no brand
+ * style, the journey's colours on a name band (`fallbackName`, as the brand's would use).
+ */
+export function applyJourneyStyle(
+  base: ResolvedEmailStyle | null,
+  override: StoredJourneyStyle | null | undefined,
+  opts: { fallbackName: string; headerOptions?: boolean },
+): ResolvedEmailStyle | null {
+  if (!override) return base;
+  const own = resolveStoredStyle(
+    {
+      logo: null,
+      companyName: base?.name ?? null,
+      headerColor: override.headerColor,
+      accentColor: override.accentColor,
+      headerGradientColor: override.headerGradientColor,
+      headerText: override.headerText,
+    },
+    { logoUrlFor: () => null, fallbackName: opts.fallbackName, headerOptions: opts.headerOptions },
+  );
+  if (!own) return base;
+  if (!base) return own;
+  return {
+    ...own,
+    logo: base.logo,
+    altName: base.altName,
+    ...(base.theme ? { theme: base.theme } : {}),
+    ...(base.layouts ? { layouts: true as const } : {}),
+  };
 }
 
 /** A saved (or unsaved) theme as the renderers draw it; null = none (Classic with the system font). */

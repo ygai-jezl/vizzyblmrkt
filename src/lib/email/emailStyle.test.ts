@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   accentFor,
+  applyJourneyStyle,
   bandInk,
   bandStops,
   bandTextContrast,
@@ -20,6 +21,7 @@ import {
   type ResolvedEmailStyle,
 } from "./emailStyle";
 import type { BrandKit } from "@/lib/types/tenant";
+import { themeTokens, tint } from "./emailThemes";
 
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const logoUrl = (tenant: string, file = `${UUID}.png`, origin = "https://app.example.com") =>
@@ -559,5 +561,95 @@ describe("withoutHeaderImage", () => {
   it("changes nothing without one", () => {
     expect(withoutHeaderImage(style)).toBe(style);
     expect(withoutHeaderImage(null)).toBeNull();
+  });
+});
+
+describe("applyJourneyStyle", () => {
+  const base: ResolvedEmailStyle = {
+    logo: { url: logoUrl("ten_A"), width: 120, height: 40 },
+    name: null,
+    altName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+  };
+  const custom = { headerColor: "#1e3a8a", accentColor: "#f97316" };
+  const opts = { fallbackName: "Example Co", headerOptions: true };
+
+  it("no override is the brand's style itself", () => {
+    expect(applyJourneyStyle(base, undefined, opts)).toBe(base);
+    expect(applyJourneyStyle(base, null, opts)).toBe(base);
+    expect(applyJourneyStyle(null, undefined, opts)).toBeNull();
+  });
+
+  it("draws the journey's colours with the brand's logo and names", () => {
+    expect(applyJourneyStyle(base, custom, opts)).toStrictEqual({ ...base, ...custom });
+    const named = { ...base, name: "Acme", altName: "Acme" };
+    expect(applyJourneyStyle(named, custom, opts)).toStrictEqual({ ...named, ...custom });
+  });
+
+  it("the alt name is the brand's, whatever name the caller falls back on", () => {
+    const nameBand = { ...base, logo: null };
+    for (const fallbackName of ["Example Co", "Someone Else", ""]) {
+      expect(applyJourneyStyle(base, custom, { ...opts, fallbackName })!.altName).toBe("Example Co");
+      expect(applyJourneyStyle(nameBand, custom, { ...opts, fallbackName })).toMatchObject({ logo: null, altName: "Example Co" });
+    }
+  });
+
+  it("a gradient and header text only with headerOptions; equal stops draw solid", () => {
+    const options = { ...custom, headerGradientColor: "#4f46e5", headerText: "white" as const };
+    expect(applyJourneyStyle(base, options, opts)).toStrictEqual({ ...base, ...options });
+    expect(applyJourneyStyle(base, options, { ...opts, headerOptions: false })).toStrictEqual({ ...base, ...custom });
+    expect(applyJourneyStyle(base, options, { fallbackName: "Example Co" })).toStrictEqual({ ...base, ...custom });
+    expect(applyJourneyStyle(base, { ...custom, headerGradientColor: custom.headerColor }, opts)).toStrictEqual({
+      ...base,
+      ...custom,
+    });
+  });
+
+  it("passes the brand's logo, theme and layout bit through, and drops its banner, gradient and text colour", () => {
+    const brand: ResolvedEmailStyle = {
+      ...base,
+      headerGradientColor: "#4f46e5",
+      headerText: "black",
+      headerImage: { url: headerUrl("ten_A"), width: 1200, height: 300 },
+      theme: { preset: "modern", headingFont: "inter", bodyFont: "lora", webFontOrigin: "https://app.example.com" },
+      layouts: true,
+    };
+    expect(applyJourneyStyle(brand, custom, opts)).toStrictEqual({
+      logo: brand.logo,
+      name: null,
+      altName: "Example Co",
+      ...custom,
+      theme: brand.theme,
+      layouts: true,
+    });
+  });
+
+  it("Friendly's page tints from the journey's button colour, not the brand's", () => {
+    const friendly: ResolvedEmailStyle = { ...base, theme: { preset: "friendly", headingFont: "poppins", bodyFont: "nunito" } };
+    const journey = applyJourneyStyle(friendly, custom, opts);
+    expect(themeTokens(journey)!.pageColor).toBe(tint(custom.accentColor, 0.94));
+    expect(themeTokens(journey)!.pageColor).not.toBe(themeTokens(friendly)!.pageColor);
+  });
+
+  it("an override whose colours don't read is the brand's style", () => {
+    const bad = [
+      { headerColor: "navy", accentColor: "#f97316" },
+      { headerColor: "#1e3a8a", accentColor: "" },
+      { headerColor: "#1e3a8a" },
+    ] as unknown as Parameters<typeof applyJourneyStyle>[1][];
+    for (const override of bad) {
+      expect(applyJourneyStyle(base, override, opts)).toBe(base);
+      expect(applyJourneyStyle(null, override, opts)).toBeNull();
+    }
+  });
+
+  it("with no brand style, the journey's colours on a name band", () => {
+    expect(applyJourneyStyle(null, custom, opts)).toStrictEqual({
+      logo: null,
+      name: null,
+      altName: "Example Co",
+      ...custom,
+    });
   });
 });

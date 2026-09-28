@@ -581,6 +581,40 @@ export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
 });
 export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
 
+/**
+ * A journey's own look (EMAIL_JOURNEY_STYLE_ENABLED), for lifecycle journeys: product journeys,
+ * and launch welcome journeys on the new engine. Its header and button colours, and a gradient
+ * and header text (these two draw only with EMAIL_HEADER_OPTIONS_ENABLED), in place of the
+ * brand's; the brand's logo, name and theme stay, and there's never a banner. No style = the
+ * brand's Email style. The gradient and text are stored only when set (absent = solid / Auto).
+ * Strict on write (JourneyEmailStyleSchema: the human draft route and Vizzy's kind); lenient on
+ * read (StoredJourneyStyleSchema), because the style is echoed in every draft, journey and export
+ * parse, and a damaged one must read as the brand's rather than fail the journey around it.
+ */
+export const JourneyEmailStyleSchema = z
+  .object({
+    headerColor: HexColorSchema,
+    accentColor: HexColorSchema,
+    /** The header fades from headerColor to this; absent = solid. */
+    headerGradientColor: HexColorSchema.optional(),
+    /** Absent = Auto. */
+    headerText: z.enum(["white", "black"]).optional(),
+  })
+  .strict();
+export type JourneyEmailStyle = z.infer<typeof JourneyEmailStyleSchema>;
+
+/** A stored journey style: a damaged gradient or text drops alone; anything else damaged reads as none. */
+export const StoredJourneyStyleSchema = z
+  .object({
+    headerColor: HexColorSchema,
+    accentColor: HexColorSchema,
+    headerGradientColor: HexColorSchema.optional().catch(undefined),
+    headerText: z.enum(["white", "black"]).optional().catch(undefined),
+  })
+  .optional()
+  .catch(undefined);
+export type StoredJourneyStyle = NonNullable<z.infer<typeof StoredJourneyStyleSchema>>;
+
 export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 } as const;
 
 /**

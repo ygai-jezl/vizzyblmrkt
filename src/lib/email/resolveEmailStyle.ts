@@ -1,7 +1,8 @@
-import { StoredEmailStyleSchema, type Tenant } from "@/lib/types/tenant";
+import { StoredEmailStyleSchema, StoredJourneyStyleSchema, type Tenant } from "@/lib/types/tenant";
 import { brandLogoAbsoluteUrl, emailHeaderImageAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
 import {
   isEmailHeaderOptionsEnabled,
+  isEmailJourneyStyleEnabled,
   isEmailLayoutStyleEnabled,
   isEmailStyleEnabled,
   isEmailStyleTransactionalEnabled,
@@ -9,6 +10,7 @@ import {
   isEmailWebFontsEnabled,
 } from "./flags";
 import {
+  applyJourneyStyle,
   resolveStoredStyle,
   safeHeaderImageUrl,
   safeLogoUrl,
@@ -63,4 +65,27 @@ export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEm
  */
 export function resolveTransactionalEmailStyle(tenant: Tenant | null | undefined): ResolvedEmailStyle | null {
   return isEmailStyleTransactionalEnabled() ? withoutHeaderImage(resolveEmailStyle(tenant)) : null;
+}
+
+/**
+ * The Email style one lifecycle journey's sends and previews wear (a product journey, or a launch
+ * welcome journey on the new engine), given its live `emailStyle` (`override`, read leniently here:
+ * anything unreadable is the brand's style). Null while EMAIL_STYLE_ENABLED is off. While
+ * EMAIL_JOURNEY_STYLE_ENABLED is off it's exactly resolveEmailStyle(tenant), whatever is stored, so
+ * that flag is a kill switch. On, a journey with its own style draws its colours on the colour
+ * header, with the brand's logo, name and theme (applyJourneyStyle); its gradient and header text
+ * need EMAIL_HEADER_OPTIONS_ENABLED too.
+ */
+export function resolveJourneyEmailStyle(
+  tenant: Tenant | null | undefined,
+  override: unknown,
+): ResolvedEmailStyle | null {
+  if (!isEmailStyleEnabled()) return null;
+  const base = resolveEmailStyle(tenant);
+  if (!isEmailJourneyStyleEnabled() || !tenant) return base;
+  const parsed = StoredJourneyStyleSchema.safeParse(override);
+  return applyJourneyStyle(base, parsed.success ? parsed.data : null, {
+    fallbackName: resolveFooterBrand(tenant, null),
+    headerOptions: isEmailHeaderOptionsEnabled(),
+  });
 }

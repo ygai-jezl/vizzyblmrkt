@@ -440,9 +440,10 @@ export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
  * and the setter); lenient on read (TenantSchema catches a damaged value as "none", because
  * every tenant read — incl. the delivery crons — parses the whole doc).
  *
- * Header options (EMAIL_HEADER_OPTIONS_ENABLED): a gradient's second colour and a forced
- * header text colour. Stored only when set: absent = a solid header / Auto text. Absent in a
- * Save = keep what's stored. A damaged stored option drops alone; the band still draws.
+ * Header options (EMAIL_HEADER_OPTIONS_ENABLED): a gradient's second colour, a forced header
+ * text colour, and a header image (a banner in place of the logo and name). Stored only when
+ * set: absent = a solid header / Auto text / the colour header. Absent in a Save = keep what's
+ * stored. A damaged stored option drops alone; the band still draws (a damaged image = Colour).
  */
 export const EMAIL_STYLE_LIMITS = { logoWidth: 200, logoHeight: 48, companyName: 80 } as const;
 
@@ -485,6 +486,19 @@ export const EmailStyleLogoSchema = z.object({
 });
 export type EmailStyleLogo = z.infer<typeof EmailStyleLogoSchema>;
 
+/**
+ * A header image by reference (never a URL — that's derived at render time): a `header` brand
+ * asset, with the pixel size read from the file at upload. PNG/JPEG only, as for logos.
+ */
+export const EmailStyleHeaderImageSchema = z.object({
+  /** The brand_assets row id. */
+  id: EmailStyleLogoSchema.shape.id,
+  filename: z.string().regex(EMAIL_LOGO_FILENAME),
+  width: z.number().int().min(1).max(EMAIL_HEADER_IMAGE_LIMITS.width),
+  height: z.number().int().min(1).max(EMAIL_HEADER_IMAGE_LIMITS.height),
+});
+export type EmailStyleHeaderImage = z.infer<typeof EmailStyleHeaderImageSchema>;
+
 /** The band's text colour: "auto" is black or white, whichever reads better across the band. */
 export const HEADER_TEXT_CHOICES = ["auto", "white", "black"] as const;
 export const HeaderTextSchema = z.enum(HEADER_TEXT_CHOICES);
@@ -500,6 +514,8 @@ export const EmailStyleInputSchema = z.object({
   headerGradientColor: HexColorSchema.nullable().optional(),
   /** Absent = keep what's stored. */
   headerText: HeaderTextSchema.optional(),
+  /** A banner in place of the logo and name; null = the colour header. Absent = keep what's stored. */
+  headerImage: EmailStyleHeaderImageSchema.nullable().optional(),
 });
 export type EmailStyleInput = z.infer<typeof EmailStyleInputSchema>;
 
@@ -510,6 +526,8 @@ export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
   // Never stored as a default (null, "auto"), and read per field: a damaged one drops alone.
   headerGradientColor: HexColorSchema.optional().catch(undefined),
   headerText: z.enum(["white", "black"]).optional().catch(undefined),
+  /** Present = Image mode; absent = the colour header. A damaged one (say a .webp) reads as Colour. */
+  headerImage: EmailStyleHeaderImageSchema.optional().catch(undefined),
 });
 export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
 

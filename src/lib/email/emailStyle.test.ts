@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   accentFor,
   bandInk,
@@ -7,10 +7,12 @@ import {
   cleanCompanyName,
   contrastRatio,
   isEmailHeaderImage,
+  isHeaderImageUrlShape,
   isLogoUrlShape,
   readableAcross,
   readableOn,
   resolveStoredStyle,
+  safeHeaderImageUrl,
   safeLogoUrl,
   styleFromBrandKit,
   type EmailStyleLogoOption,
@@ -20,6 +22,8 @@ import type { BrandKit } from "@/lib/types/tenant";
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const logoUrl = (tenant: string, file = `${UUID}.png`, origin = "https://app.example.com") =>
   `${origin}/api/brand-logo/${tenant}/${file}`;
+const headerUrl = (tenant: string, file = `${UUID}.jpg`, origin = "https://app.example.com") =>
+  `${origin}/api/brand-asset/header/${tenant}/${file}`;
 
 describe("contrast", () => {
   it("black on white is 21:1", () => {
@@ -131,6 +135,41 @@ describe("logo URLs", () => {
     expect(isLogoUrlShape(logoUrl("ten_B"))).toBe(true);
     expect(isLogoUrlShape(logoUrl("ten_B", undefined, "http://app.example.com"))).toBe(false);
     expect(isLogoUrlShape("https://ok.example.com/a.png")).toBe(false);
+  });
+});
+
+describe("header image URLs", () => {
+  it("accepts this tenant's https PNG/JPEG header image", () => {
+    expect(safeHeaderImageUrl(headerUrl("ten_A"), "ten_A")).toBe(headerUrl("ten_A"));
+    expect(safeHeaderImageUrl(headerUrl("ten_A", `${UUID}.png`), "ten_A")).toBe(headerUrl("ten_A", `${UUID}.png`));
+    expect(safeHeaderImageUrl(headerUrl("ten_A", `${UUID}.jpeg`), "ten_A")).toBe(headerUrl("ten_A", `${UUID}.jpeg`));
+  });
+
+  it("matches the tenant segment as the URL builder encodes it", () => {
+    expect(safeHeaderImageUrl(headerUrl("ten%2FA"), "ten/A")).toBe(headerUrl("ten%2FA"));
+    expect(safeHeaderImageUrl(headerUrl("ten%2FA"), "ten%2FA")).toBeNull();
+  });
+
+  it("rejects another tenant, http, WebP, a query, a hash, credentials and any other route", () => {
+    expect(safeHeaderImageUrl(headerUrl("ten_B"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", undefined, "http://app.example.com"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", `${UUID}.webp`), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", "banner.jpg"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`${headerUrl("ten_A")}?v=1`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`${headerUrl("ten_A")}#x`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", undefined, "https://u:p@app.example.com"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(logoUrl("ten_A", `${UUID}.jpg`), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`https://app.example.com/api/brand-asset/graphic/ten_A/${UUID}.jpg`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`https://app.example.com/api/brand-asset/header/ten_A/x/${UUID}.jpg`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`/api/brand-asset/header/ten_A/${UUID}.jpg`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl("javascript:alert(1)", "ten_A")).toBeNull();
+  });
+
+  it("the tenant-agnostic shape check passes any tenant's header image but nothing else", () => {
+    expect(isHeaderImageUrlShape(headerUrl("ten_B"))).toBe(true);
+    expect(isHeaderImageUrlShape(headerUrl("ten_B", undefined, "http://app.example.com"))).toBe(false);
+    expect(isHeaderImageUrlShape(logoUrl("ten_B"))).toBe(false);
+    expect(isLogoUrlShape(headerUrl("ten_B"))).toBe(false);
   });
 });
 
@@ -248,6 +287,47 @@ describe("resolveStoredStyle", () => {
       expect(resolveStoredStyle({ ...stored, headerGradientColor: null, headerText: "auto" }, on)).toStrictEqual(today);
       expect(resolveStoredStyle({ ...stored, headerGradientColor: "#0B1F3A" }, on)).toStrictEqual(today);
       expect(resolveStoredStyle({ ...stored, headerGradientColor: "purple" }, on)).toStrictEqual(today);
+    });
+  });
+
+  describe("header image", () => {
+    const today = resolveStoredStyle(stored, opts);
+    const image = { id: "hdr_1", filename: `${UUID}.jpg`, width: 1200, height: 300 };
+    const on = { ...opts, headerOptions: true, headerImageUrlFor: () => headerUrl("ten_A") };
+
+    it("sets the checked URL and the stored size with headerOptions on", () => {
+      const urlFor = vi.fn(() => headerUrl("ten_A"));
+      expect(resolveStoredStyle({ ...stored, headerImage: image }, { ...on, headerImageUrlFor: urlFor })).toStrictEqual({
+        ...today,
+        headerImage: { url: headerUrl("ten_A"), width: 1200, height: 300 },
+      });
+      expect(urlFor).toHaveBeenCalledWith(image);
+    });
+
+    it("adds no key with headerOptions off, no URL builder, no URL, or no image", () => {
+      const withImage = { ...stored, headerImage: image };
+      expect(resolveStoredStyle(withImage, { ...on, headerOptions: undefined })).toStrictEqual(today);
+      expect(resolveStoredStyle(withImage, { ...on, headerOptions: false })).toStrictEqual(today);
+      expect(resolveStoredStyle(withImage, { ...opts, headerOptions: true })).toStrictEqual(today);
+      expect(resolveStoredStyle(withImage, { ...on, headerImageUrlFor: () => null })).toStrictEqual(today);
+      expect(resolveStoredStyle(stored, on)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, headerImage: null }, on)).toStrictEqual(today);
+    });
+
+    it("keeps the gradient and text keys alongside, for when the image is dropped", () => {
+      const all = { ...stored, headerGradientColor: "#4f46e5", headerText: "white" as const, headerImage: image };
+      expect(resolveStoredStyle(all, on)).toMatchObject({
+        headerGradientColor: "#4f46e5",
+        headerText: "white",
+        headerImage: { url: headerUrl("ten_A") },
+      });
+    });
+
+    it("keeps the size within 1200 × 2400, in whole pixels", () => {
+      const odd = { ...stored, headerImage: { ...image, width: 1200.4, height: 0.2 } };
+      expect(resolveStoredStyle(odd, on)!.headerImage).toMatchObject({ width: 1200, height: 1 });
+      const big = { ...stored, headerImage: { ...image, width: 5000, height: 9999 } };
+      expect(resolveStoredStyle(big, on)!.headerImage).toMatchObject({ width: 1200, height: 2400 });
     });
   });
 });

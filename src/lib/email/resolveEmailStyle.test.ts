@@ -134,6 +134,51 @@ describe("resolveEmailStyle", () => {
     });
   });
 
+  describe("header image", () => {
+    const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+    const withImage = () => tenant({ emailStyle: { ...STYLE, headerImage: IMAGE } });
+    const BANNER_URL = `https://app.example.com/api/brand-asset/header/ten_A/${IMAGE.filename}`;
+
+    it("flag off: ignored — exactly today's style", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+      expect(resolveEmailStyle(withImage())).toStrictEqual(resolveEmailStyle(tenant()));
+    });
+
+    it("flag on: this tenant's absolute banner URL on the public brand-asset route, with the stored size", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      expect(resolveEmailStyle(withImage())).toStrictEqual({
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+        headerImage: { url: BANNER_URL, width: 1200, height: 300 },
+      });
+    });
+
+    it("flag on: kept with the Logos flag off (the brand-asset route isn't gated on it)", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "false");
+      expect(resolveEmailStyle(withImage())).toMatchObject({ logo: null, headerImage: { url: BANNER_URL } });
+    });
+
+    it("no https origin → no banner, so the email shows the colour band", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "");
+      vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "");
+      expect(resolveEmailStyle(withImage())).not.toHaveProperty("headerImage");
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "http://localhost:3000");
+      expect(resolveEmailStyle(withImage())).not.toHaveProperty("headerImage");
+    });
+
+    it("a damaged stored image reads as the colour header, and the rest still resolves", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      const damaged = { ...STYLE, headerImage: { ...IMAGE, filename: "x.webp" } } as unknown as StoredEmailStyle;
+      expect(resolveEmailStyle({ ...tenant(), emailStyle: damaged })).toStrictEqual(resolveEmailStyle(tenant()));
+      expect(resolveEmailStyle(tenant({ emailStyle: damaged }))).toStrictEqual(resolveEmailStyle(tenant()));
+    });
+  });
+
   it("altName is the company name when set, else the sender name, else the tenant name", () => {
     expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, companyName: "Acme" } }))).toMatchObject({
       name: "Acme",

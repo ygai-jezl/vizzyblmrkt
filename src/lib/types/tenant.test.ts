@@ -161,6 +161,36 @@ describe("EmailStyleInputSchema header options (strict on write)", () => {
   });
 });
 
+describe("EmailStyleInputSchema header image (strict on write)", () => {
+  const style = {
+    logo: null,
+    companyName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+  };
+  const image = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const ok = (over: Record<string, unknown>) => EmailStyleInputSchema.safeParse({ ...style, ...over }).success;
+  const withImage = (over: Record<string, unknown>) => ok({ headerImage: { ...image, ...over } });
+
+  it("takes an image by reference, null (the colour header), or no key (keep what's stored)", () => {
+    expect(EmailStyleInputSchema.parse({ ...style, headerImage: image }).headerImage).toEqual(image);
+    expect(ok({ headerImage: null })).toBe(true);
+    expect(EmailStyleInputSchema.parse(style)).not.toHaveProperty("headerImage");
+    expect(withImage({ filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.png", width: 1, height: 2400 })).toBe(true);
+  });
+
+  it("rejects a WebP or non-uuid file, a bad id, and a size that isn't whole pixels within 1200 × 2400", () => {
+    expect(withImage({ filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.webp" })).toBe(false);
+    expect(withImage({ filename: "../banner.jpg" })).toBe(false);
+    expect(withImage({ id: "a/b" })).toBe(false);
+    expect(withImage({ width: 1201 })).toBe(false);
+    expect(withImage({ height: 2401 })).toBe(false);
+    expect(withImage({ width: 0 })).toBe(false);
+    expect(withImage({ height: 300.5 })).toBe(false);
+    expect(ok({ headerImage: "https://app.example.com/banner.jpg" })).toBe(false);
+  });
+});
+
 describe("TenantSchema.emailStyle (lenient on read)", () => {
   it("reads a damaged value as undefined instead of throwing", () => {
     const field = TenantSchema.shape.emailStyle;
@@ -191,6 +221,24 @@ describe("TenantSchema.emailStyle (lenient on read)", () => {
       headerGradientColor: "#4f46e5",
       headerText: "black",
     });
+  });
+
+  it("a damaged header image drops alone (the style reads as Colour): the colours, logo and options still read", () => {
+    const field = TenantSchema.shape.emailStyle;
+    const stored = {
+      logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+      companyName: null,
+      headerColor: "#7c3aed",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+    };
+    const image = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+    for (const headerImage of [{ ...image, filename: "x.webp" }, { ...image, width: 5000 }, null, "banner.jpg"]) {
+      const read = field.parse({ ...stored, headerImage })!;
+      expect(read).toMatchObject(stored);
+      expect(read.headerImage).toBeUndefined();
+    }
+    expect(field.parse({ ...stored, headerImage: image })!.headerImage).toEqual(image);
   });
 });
 

@@ -89,7 +89,8 @@ describe("setTenantEmailStyle: header options", () => {
   it("stores a gradient and a forced text colour, lowercased, with a plain write", async () => {
     const db = seeded();
     const tx = vi.spyOn(db, "runTransaction");
-    const input: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "black" };
+    // All three option keys given, so nothing is carried over.
+    const input: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "black", headerImage: null };
     const stored = await setTenantEmailStyle("ten_A", input, db);
 
     const raw = db.raw("tenants", "ten_A")!;
@@ -176,6 +177,101 @@ describe("setTenantEmailStyle: header options", () => {
     const raw = db.raw("tenants", "ten_A")!;
     expect(raw).not.toHaveProperty("emailStyleSuggestion");
     expect(raw.emailStyle).toMatchObject(OPTIONS);
+    expect(tx).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("setTenantEmailStyle: header image", () => {
+  const BANNER = "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg";
+  const IMAGE = { id: "hdr_1", filename: BANNER, width: 1200, height: 300 };
+  const OPTIONS = { headerGradientColor: "#4f46e5", headerText: "white" } as const;
+
+  it("stores the image by reference, with a plain write when every option is given", async () => {
+    const db = seeded();
+    const tx = vi.spyOn(db, "runTransaction");
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: IMAGE }, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a", headerImage: IMAGE });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(tx).not.toHaveBeenCalled();
+    expect((await getTenantById("ten_A", db))?.emailStyle?.headerImage).toEqual(IMAGE);
+  });
+
+  it("null removes it (the colour header), storing exactly the document a Save without images stores", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS, headerImage: IMAGE }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: null }, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).not.toHaveProperty("headerImage");
+    expect(stored).toEqual(raw.emailStyle);
+    const plain = seeded();
+    await setTenantEmailStyle("ten_A", STYLE, plain);
+    const unstamped = (style: unknown) => ({ ...(style as Record<string, unknown>), updatedAt: "x" });
+    expect(unstamped(raw.emailStyle)).toEqual(unstamped(plain.raw("tenants", "ten_A")!.emailStyle));
+  });
+
+  it("a Save that leaves it out keeps it (with the gradient and text colour), and returns it", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS, headerImage: IMAGE }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerColor: "#000080" }, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      ...STYLE,
+      headerColor: "#000080",
+      ...OPTIONS,
+      headerImage: IMAGE,
+      updatedAt: expect.any(String),
+      updatedBy: "usr_admin",
+    });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("a Save with the gradient and text but no image key re-reads in a transaction and carries the image over", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, headerImage: IMAGE }, db);
+    const tx = vi.spyOn(db, "runTransaction");
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: "#4F46E5", headerText: "black" }, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "black", headerImage: IMAGE });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(tx).toHaveBeenCalledTimes(1);
+  });
+
+  it("a damaged stored image never blocks a Save that leaves it out: it's dropped", async () => {
+    const db = seeded({
+      emailStyle: { ...STYLE, headerColor: "#0b1f3a", headerText: "white", headerImage: { ...IMAGE, filename: "x.webp" } },
+    });
+    const stored = await setTenantEmailStyle("ten_A", STYLE, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).not.toHaveProperty("headerImage");
+    expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a", headerText: "white" });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("refuses an image the read would drop", async () => {
+    const db = seeded();
+    for (const headerImage of [{ ...IMAGE, filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.webp" }, { ...IMAGE, width: 1201 }]) {
+      await expect(setTenantEmailStyle("ten_A", { ...STYLE, headerImage }, db)).rejects.toThrow();
+    }
+    expect(db.raw("tenants", "ten_A")).not.toHaveProperty("emailStyle");
+  });
+
+  it("applying a suggestion keeps the image and clears the suggestion, in one transaction", async () => {
+    const db = seeded({ emailStyleSuggestion: SUGGESTION });
+    await setTenantEmailStyle("ten_A", { ...STYLE, headerImage: IMAGE }, db);
+    const tx = vi.spyOn(db, "runTransaction");
+    await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: null, headerText: "auto" }, db, {
+      clearSuggestionAt: SUGGESTION.suggestedAt,
+    });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw).not.toHaveProperty("emailStyleSuggestion");
+    expect(raw.emailStyle).toMatchObject({ headerImage: IMAGE });
     expect(tx).toHaveBeenCalledTimes(1);
   });
 });

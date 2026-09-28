@@ -2,7 +2,13 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { forTenant, getTenantById, TenantIsolationError, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import { JourneyEmailStyleSchema, type StoredJourneyStyle, type Tenant } from "@/lib/types/tenant";
+import {
+  JourneyEmailStyleSchema,
+  StoredJourneyStyleSchema,
+  type JourneyEmailStyle,
+  type StoredJourneyStyle,
+  type Tenant,
+} from "@/lib/types/tenant";
 import {
   DeliveryMode,
   isWaitlistJourney,
@@ -294,6 +300,43 @@ export async function saveLifecycleDraft(
   });
   if (!saved) return fail(404, "not_found");
   return ok({ journey: saved, issues: checked.issues });
+}
+
+/**
+ * Set ONLY the draft's journey style (`settings.emailStyle`): Vizzy's journey_style kind. `next` gets
+ * the style stored now (read leniently; null = the brand's) and returns the one to store (null = the
+ * brand's, which leaves no key). It runs in a transaction on the fresh doc, so a draft save racing it
+ * can't lose it and nothing else in the draft changes. The published version and the journey's live
+ * style are untouched: Publish makes it live.
+ */
+export async function setLifecycleDraftEmailStyle(
+  ctx: TenantContext,
+  journeyId: string,
+  next: (stored: StoredJourneyStyle | null) => JourneyEmailStyle | null,
+  deps: { db?: FirestoreLike; nowMs?: number; authoredBy?: "human" | "agent" } = {},
+): Promise<ServiceResult<LifecycleJourney>> {
+  const updatedAt = new Date(deps.nowMs ?? Date.now()).toISOString();
+  let invalid = null as string | null;
+  const saved = await forTenant(ctx, deps.db).lifecycleJourneys.claim(journeyId, (current) => {
+    // A retried transaction runs this again on the fresher doc.
+    invalid = null;
+    if (current.status === "archived") return null;
+    const style = JourneyEmailStyleSchema.nullable().safeParse(
+      next(StoredJourneyStyleSchema.parse(storedJourneyEmailStyle(current)) ?? null),
+    );
+    if (!style.success) {
+      invalid = zodReason(style.error);
+      return null;
+    }
+    return {
+      draft: { ...current.draft, settings: withJourneyEmailStyle(current.draft.settings, style.data) },
+      updatedAt,
+      ...(deps.authoredBy === "agent" ? { authoredBy: "agent" as const } : {}),
+    };
+  });
+  if (invalid) return fail(400, "invalid_style", invalid);
+  if (!saved) return fail(404, "not_found");
+  return ok(saved);
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   customJourneyStyle,
   draftForSave,
+  isJourneyDraftCard,
   journeyBannerNote,
   journeyPreviewStyle,
   journeyStyleHints,
@@ -233,5 +234,19 @@ describe("publishConfirmText", () => {
       "Publish these changes? People already in the journey stay on the version they started with, and their next email uses the new email style.",
     );
     expect(publishConfirmText({ publishedVersion: null, deliveryMode: "shadow" }, true)).toBe("Publish and start the journey in shadow mode?");
+  });
+});
+
+describe("isJourneyDraftCard (the editor's reload, from its docked chat or the Ask Vizzy panel)", () => {
+  it("is a draft card of this journey: its style, Vizzy's edits, or a launch's welcome emails", () => {
+    for (const kind of ["journey_style", "lifecycle", "journey"]) {
+      expect(isJourneyDraftCard({ kind, id: "lcj_1" }, "lcj_1")).toBe(true);
+      expect(isJourneyDraftCard({ kind, id: "lcj_2" }, "lcj_1")).toBe(false);
+    }
+  });
+
+  it("isn't another kind's card, even one with the same id", () => {
+    expect(isJourneyDraftCard({ kind: "email_style", id: "email_style" }, "lcj_1")).toBe(false);
+    expect(isJourneyDraftCard({ kind: "content_plan", id: "lcj_1" }, "lcj_1")).toBe(false);
   });
 });

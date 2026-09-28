@@ -5,7 +5,7 @@ import { agentLifecycleContext, agentLifecycleJourney } from "./agentApi";
 import { CONNECTION_ID, TENANT_ID, publishOnboarding, seedUser, seedWorld } from "./testing/fixtures";
 
 /**
- * What Lifecycle Ops reads, pinned whole. Journey styles will add a `journeyStyle` key to the
+ * What Lifecycle Ops reads, pinned whole. Journey styles add a `journeyStyle` key to the
  * context (only with EMAIL_JOURNEY_STYLE_ENABLED on) and an `emailStyle` to a draft's settings
  * (only once one is set). With neither, both answers must stay exactly this.
  */
@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.stubEnv("LIFECYCLE_ENABLED", "true");
   vi.stubEnv("LIFECYCLE_CHAT_AUTHORING_ENABLED", "true");
   vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+  vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -136,6 +137,20 @@ describe("Lifecycle Ops' context, as read today", () => {
       emailStyle: { logo: null, companyName: null, headerColor: "#0b1f3a", accentColor: "#ff6b35" },
     });
     expect((await agentLifecycleContext(agent, db)).body).toEqual({ ...off, emailStyle: { configured: true } });
+  });
+
+  it("with journey styles on too, adds only that a journey can wear its own style", async () => {
+    const { db } = await world();
+    const off = (await agentLifecycleContext(agent, db)).body as Record<string, unknown>;
+    // Journey styles need the Email style: alone, the answer is the pin.
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    expect((await agentLifecycleContext(agent, db)).body).toEqual(off);
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    expect((await agentLifecycleContext(agent, db)).body).toEqual({
+      ...off,
+      emailStyle: { configured: false },
+      journeyStyle: { enabled: true },
+    });
   });
 });
 

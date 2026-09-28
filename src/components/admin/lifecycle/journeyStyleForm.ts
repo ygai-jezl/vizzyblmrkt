@@ -161,3 +161,16 @@ export function publishConfirmText(
     ? "Publish these changes? People already in the journey stay on the version they started with, and their next email uses the new email style."
     : "Publish these changes? People already in the journey stay on the version they started with.";
 }
+
+/**
+ * The chat cards that hold a lifecycle journey's draft: Vizzy's edits (`lifecycle`), a launch's
+ * welcome emails drafted on the launch (`journey`, on the new engine) and a journey's own email
+ * style (`journey_style`). Each card's id is its journey's, so the editor reloads for the one in
+ * view, from its docked chat or the Ask Vizzy panel.
+ */
+const JOURNEY_DRAFT_CARDS = new Set(["lifecycle", "journey", "journey_style"]);
+
+/** Whether a card Vizzy saved in chat is a draft of the journey `journeyId`, so its editor reloads. */
+export function isJourneyDraftCard(card: { kind: string; id: string }, journeyId: string): boolean {
+  return JOURNEY_DRAFT_CARDS.has(card.kind) && card.id === journeyId;
+}

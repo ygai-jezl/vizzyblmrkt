@@ -6,6 +6,7 @@ import {
   createLifecycleJourney,
   publishLifecycleJourney,
   saveLifecycleDraft,
+  setLifecycleDraftEmailStyle,
   setLifecycleJourneyStatus,
   updateLifecycleDelivery,
 } from "./service";
@@ -260,5 +261,76 @@ describe("a journey's own email style: kept by draft saves, made live by publish
     expect(raw(db, journey.id).draft).toEqual(before.draft);
     const version = db.raw("lifecycle_versions", `${journey.id}_v1`) as { settings: Record<string, unknown> };
     expect(version.settings).not.toHaveProperty("emailStyle");
+  });
+});
+
+describe("setLifecycleDraftEmailStyle (Vizzy's journey_style kind)", () => {
+  const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+  type RawJourney = { draft: { settings: Record<string, unknown>; pools: Array<{ items: Array<{ subject: string }> }> }; emailStyle?: unknown };
+  const raw = (db: FakeFirestore, id: string) => db.raw("lifecycle_journeys", id) as RawJourney;
+
+  it("hands `next` the stored style, read leniently, and writes only the draft's style", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    const seen: unknown[] = [];
+    const doc = structuredClone(raw(db, journey.id));
+    doc.draft.settings.emailStyle = { ...NAVY, headerGradientColor: "not a colour" };
+    db.seed("lifecycle_journeys", journey.id, doc);
+    const before = structuredClone(raw(db, journey.id));
+    const r = await setLifecycleDraftEmailStyle(ctx, journey.id, (stored) => (seen.push(stored), { ...NAVY, accentColor: "#f59e0b" }), {
+      db,
+      authoredBy: "agent",
+    });
+    expect(r.ok).toBe(true);
+    expect(seen).toEqual([NAVY]);
+    expect(raw(db, journey.id).draft).toEqual({ ...before.draft, settings: { ...before.draft.settings, emailStyle: { ...NAVY, accentColor: "#f59e0b" } } });
+    expect(raw(db, journey.id)).not.toHaveProperty("emailStyle");
+
+    // Null is the brand's: no key. A damaged stored style reads as none.
+    await setLifecycleDraftEmailStyle(ctx, journey.id, () => null, { db });
+    expect(raw(db, journey.id).draft.settings).not.toHaveProperty("emailStyle");
+    doc.draft.settings.emailStyle = { headerColor: "navy" };
+    db.seed("lifecycle_journeys", journey.id, doc);
+    await setLifecycleDraftEmailStyle(ctx, journey.id, (stored) => (seen.push(stored), null), { db });
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  it("refuses a style that isn't valid, and writes nothing", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    const before = structuredClone(raw(db, journey.id));
+    const r = await setLifecycleDraftEmailStyle(ctx, journey.id, () => ({ headerColor: "navy", accentColor: "#ff6b35" }), { db });
+    expect(r).toMatchObject({ ok: false, status: 400, error: "invalid_style" });
+    expect(raw(db, journey.id)).toEqual(before);
+  });
+
+  it("a draft body saved between its read and its write keeps both", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    const draft = structuredClone(journey.draft);
+    draft.pools[0]!.items[0]!.subject = "Edited in the editor";
+    db.onBeforeCommit = async () => {
+      await saveLifecycleDraft(ctx, journey.id, draft, { db });
+    };
+    expect((await setLifecycleDraftEmailStyle(ctx, journey.id, () => NAVY, { db })).ok).toBe(true);
+    expect(raw(db, journey.id).draft.settings.emailStyle).toEqual(NAVY);
+    expect(raw(db, journey.id).draft.pools[0]!.items[0]!.subject).toBe("Edited in the editor");
+  });
+
+  it("404s an archived journey (also one archived mid-write) and another tenant's", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    db.onBeforeCommit = async () => {
+      await forTenant(system, db).lifecycleJourneys.update(journey.id, { status: "archived" });
+    };
+    expect(await setLifecycleDraftEmailStyle(ctx, journey.id, () => NAVY, { db })).toMatchObject({ ok: false, status: 404 });
+    expect(raw(db, journey.id).draft.settings).not.toHaveProperty("emailStyle");
+    db.seed("lifecycle_journeys", "lcj_foreign", { ...raw(db, journey.id), status: "active", tenantId: "ten_other" });
+    expect(await setLifecycleDraftEmailStyle(ctx, "lcj_foreign", () => NAVY, { db })).toMatchObject({ ok: false, status: 404 });
+    expect(raw(db, "lcj_foreign").draft.settings).not.toHaveProperty("emailStyle");
   });
 });

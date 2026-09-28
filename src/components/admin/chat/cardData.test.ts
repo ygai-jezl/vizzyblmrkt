@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { asCard } from "./cardData";
+import { describe, expect, it, vi } from "vitest";
+import { asCard, cardListeners } from "./cardData";
 
 const card = (over: Record<string, unknown> = {}) => ({
   card: {
@@ -49,5 +49,34 @@ describe("asCard", () => {
     expect(asCard(card({ id: 7 }))).toBeNull();
     expect(asCard({ status: "ok" })).toBeNull();
     expect(asCard(undefined)).toBeNull();
+  });
+});
+
+describe("cardListeners", () => {
+  const saved = asCard(card())!;
+  it("tells every listener until it unsubscribes", () => {
+    const hub = cardListeners();
+    const a: string[] = [];
+    const b: string[] = [];
+    const offA = hub.add((c) => a.push(c.id));
+    hub.add((c) => b.push(c.id));
+    hub.emit(saved);
+    offA();
+    hub.emit(saved);
+    expect(a).toEqual(["email_style"]);
+    expect(b).toEqual(["email_style", "email_style"]);
+  });
+
+  it("a listener that throws doesn't stop the others", () => {
+    const hub = cardListeners();
+    const heard: string[] = [];
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    hub.add(() => {
+      throw new Error("boom");
+    });
+    hub.add((c) => heard.push(c.id));
+    expect(() => hub.emit(saved)).not.toThrow();
+    expect(heard).toEqual(["email_style"]);
+    quiet.mockRestore();
   });
 });

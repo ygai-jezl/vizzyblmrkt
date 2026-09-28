@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { launchInView, vizzyPageLabel, vizzySuggestions, programmeInView, homePrompts } from "./vizzy";
+import { launchInView, vizzyPageLabel, vizzySuggestions, programmeInView, homePrompts, journeyInView, shellChatContext } from "./vizzy";
 
 describe("vizzyPageLabel", () => {
   it("joins the breadcrumb", () => {
@@ -76,5 +76,57 @@ describe("Insights starter (phase 4 follow-up)", () => {
       "Which content brings signups?",
     ]);
     expect(vizzySuggestions("launches")).not.toContain("Which content brings signups?");
+  });
+});
+
+describe("journeyInView (journey styles)", () => {
+  it("reads the lifecycle journey id, a product journey's or a launch's welcome journey's", () => {
+    expect(journeyInView("/admin/lifecycle/lcj_abcdefghijklmnopqrstuvwxyz234567")).toBe("lcj_abcdefghijklmnopqrstuvwxyz234567");
+    expect(journeyInView(`/admin/lifecycle/lcjw_${"a".repeat(40)}/`)).toBe(`lcjw_${"a".repeat(40)}`);
+    expect(journeyInView("/admin/lifecycle")).toBeNull();
+    expect(journeyInView("/admin/launches/beta")).toBeNull();
+  });
+
+  it("gives none for an id the chat's envelope can't carry", () => {
+    expect(journeyInView("/admin/lifecycle/lcj%7Bx%7D")).toBeNull();
+    expect(journeyInView(`/admin/lifecycle/${"a".repeat(65)}`)).toBeNull();
+    expect(journeyInView("/admin/lifecycle/a.b")).toBeNull();
+  });
+});
+
+describe("shellChatContext", () => {
+  const JOURNEY = "/admin/lifecycle/lcj_abc";
+  it("without journeyInContext, is exactly what the panel sent before", () => {
+    for (const path of [JOURNEY, "/admin/launches/beta/signups", "/admin/workspace/ws1/create/plan1", "/admin"]) {
+      expect(shellChatContext(path, "Page", { phase4: false })).toEqual({ page: "Page", campaignId: launchInView(path) });
+      expect(shellChatContext(path, "Page", { phase4: true, journeyInContext: false })).toEqual({
+        page: "Page",
+        campaignId: launchInView(path),
+        ...programmeInView(path),
+      });
+    }
+    expect(shellChatContext(JOURNEY, "Page", { phase4: true })).not.toHaveProperty("journeyId");
+  });
+
+  it("with it, names the journey in view, and an empty id elsewhere (never left out)", () => {
+    expect(shellChatContext(JOURNEY, "Journeys › Onboarding", { phase4: false, journeyInContext: true })).toEqual({
+      page: "Journeys › Onboarding",
+      campaignId: "",
+      journeyId: "lcj_abc",
+    });
+    // The panel's one conversation moves on from a journey page: Vizzy is told there's none now.
+    expect(shellChatContext("/admin/launches/beta", "Page", { phase4: false, journeyInContext: true })).toEqual({
+      page: "Page",
+      campaignId: "beta",
+      journeyId: "",
+    });
+    // And off a launch page, that there's no launch either (its welcome journey isn't "this journey").
+    for (const path of ["/admin/lifecycle", "/admin", "/admin/launches/new"]) {
+      expect(shellChatContext(path, "Page", { phase4: false, journeyInContext: true })).toEqual({
+        page: "Page",
+        campaignId: "",
+        journeyId: "",
+      });
+    }
   });
 });

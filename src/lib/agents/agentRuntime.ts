@@ -92,9 +92,11 @@ export function contextEnvelope(
     traceId,
   };
   if (extras?.ctxToken) payload.ctxToken = extras.ctxToken;
-  if (extras?.campaignId) payload.campaignId = extras.campaignId;
+  // Both kept when empty: the agent keeps every key it's sent, so "" is how a chat that
+  // moved off a launch or journey page clears the one it named before.
+  if (typeof extras?.campaignId === "string") payload.campaignId = extras.campaignId;
   if (extras?.connectionId) payload.connectionId = extras.connectionId;
-  if (extras?.journeyId) payload.journeyId = extras.journeyId;
+  if (typeof extras?.journeyId === "string") payload.journeyId = extras.journeyId;
   if (extras?.page) payload.page = extras.page;
   if (extras?.workspaceId) payload.workspaceId = extras.workspaceId;
   if (extras?.planId) payload.planId = extras.planId;

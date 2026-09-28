@@ -16,8 +16,16 @@ import { AnalyticsPanel } from "./AnalyticsPanel";
 import { GeneratePanel } from "./GeneratePanel";
 import { CopyJourneyPanel } from "./CopyJourneyPanel";
 import { LifecycleChatPanel } from "./LifecycleChatPanel";
+import { useShell } from "../nav/ShellProvider";
 import { fieldOptions, issueText, waitlistFieldOptions, type GraphIssue, type JourneyDetail } from "./model";
-import { draftForSave, journeyPreviewStyle, publishConfirmText, sameJourneyStyle, withSavedJourneyStyle } from "./journeyStyleForm";
+import {
+  draftForSave,
+  isJourneyDraftCard,
+  journeyPreviewStyle,
+  publishConfirmText,
+  sameJourneyStyle,
+  withSavedJourneyStyle,
+} from "./journeyStyleForm";
 
 /**
  * One lifecycle journey: the canvas, its content, settings and delivery, the
@@ -29,6 +37,7 @@ import { draftForSave, journeyPreviewStyle, publishConfirmText, sameJourneyStyle
  * With journey styles on, Settings holds the journey's own Email style: the Content
  * preview wears the draft's, Save sends it only once its control is touched (so an
  * older tab can't undo Vizzy's), and Publish makes it live for every next email.
+ * Vizzy can set it from the docked chat or the Ask Vizzy panel, and the editor reloads.
  */
 
 type Tab = "canvas" | "content" | "settings" | "delivery" | "people" | "preview" | "results";
@@ -91,6 +100,17 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   useEffect(() => {
     void load();
   }, [load]);
+
+  // With journey styles on, the Ask Vizzy panel names this journey too: reload for its drafts of it
+  // (a launch's welcome journey has no docked chat).
+  const subscribe = useShell()?.onCanvasSaved ?? null;
+  const journeyStyles = Boolean(detail?.features.journeyEmailStyle);
+  useEffect(() => {
+    if (!journeyStyles || !subscribe) return;
+    return subscribe((card) => {
+      if (isJourneyDraftCard(card, journeyId)) onChatSaved(card);
+    });
+  }, [journeyStyles, subscribe, journeyId, onChatSaved]);
 
   // Warn before leaving with unsaved changes.
   useEffect(() => {

@@ -78,3 +78,36 @@ export function launchInView(pathname: string): string | null {
     return null;
   }
 }
+
+/**
+ * The lifecycle journey in view on /admin/lifecycle/{id} (a product journey, or a launch's
+ * welcome journey), for Vizzy's journey tools. Only an id the chat's [ctx:{…}] envelope carries
+ * (the chat route's rule: letters, digits, _ and -, at most 64); anything else is none.
+ */
+export function journeyInView(pathname: string): string | null {
+  const m = /^\/admin\/lifecycle\/([A-Za-z0-9_-]{1,64})(?:\/|$)/.exec(pathname);
+  return m ? m[1]! : null;
+}
+
+/**
+ * What the Ask Vizzy panel's chat tells Vizzy about the page: its breadcrumb (`page`), the launch
+ * in view, the programme and plan in view (nav v2 phase 4), and, with `journeyInContext` (journey
+ * styles on and an admin, a server prop), the lifecycle journey in view. Without it, exactly as before.
+ *
+ * The panel keeps one conversation across pages and Vizzy keeps each id it's given, so off a
+ * journey page the journey is "" (none), never left out: a journey from an earlier page would
+ * otherwise still be "this journey" on a launch page or Home. The launch is "" off a launch page
+ * for the same reason, since Vizzy styles the launch in view's welcome journey.
+ */
+export function shellChatContext(
+  pathname: string,
+  page: string,
+  opts: { phase4: boolean; journeyInContext?: boolean },
+): { page: string; campaignId: string | null; workspaceId?: string | null; planId?: string | null; journeyId?: string } {
+  return {
+    page,
+    campaignId: opts.journeyInContext ? (launchInView(pathname) ?? "") : launchInView(pathname),
+    ...(opts.phase4 ? programmeInView(pathname) : {}),
+    ...(opts.journeyInContext ? { journeyId: journeyInView(pathname) ?? "" } : {}),
+  };
+}

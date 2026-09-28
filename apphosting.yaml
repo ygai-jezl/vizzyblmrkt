@@ -868,7 +868,7 @@ env:
   # are kept (a Save keeps them). The client mirror shows the page controls (with the
   # server flag) and is read at BUILD time. The logo clean-up also needs
   # BRAND_KIT_LOGOS_ENABLED.
-  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  # ENABLED on dev and in prod (apphosting.prod.yaml sets both explicitly).
   - variable: EMAIL_HEADER_OPTIONS_ENABLED
     value: "true"
     availability:

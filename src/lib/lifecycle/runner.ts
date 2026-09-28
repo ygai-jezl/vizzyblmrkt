@@ -215,7 +215,7 @@ export async function processEnrolment(
       await repo.lifecycleEnrolments.update(enrolmentId, { entityId: entities.entity.id });
       log("entity_chosen", entities.entity.id);
     }
-    const user = entities ? viewedUser(stored, entities) : stored;
+    const user = entities ? viewedUser(stored, entities, connection.catalog) : stored;
     const policy = settings.sendPolicy;
     const anchorMs = Date.parse(leased.anchorAt);
     if (policy.hardStopDays !== null && nowMs > anchorMs + policy.hardStopDays * DAY_MS) return await stop("hard_stop");

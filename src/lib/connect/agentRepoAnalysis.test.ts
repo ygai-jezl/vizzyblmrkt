@@ -24,14 +24,26 @@ describe("Vizzy's view of a repo analysis", () => {
       stats: { files: 10, items: 2, verifiedItems: 1, turns: 3, toolCalls: 5, inputTokens: 1, outputTokens: 1, submitted: true, dropped: 0, evidence: 1, verifiedEvidence: 1 },
       map: {
         summary: "Acme.",
-        facts: [{ id: "visibility", label: "Visibility", evidence: [{ path: "src/secret-sauce.ts", excerpt: "const PRIVATE_ALGO = 42", verified: true }] }],
+        facts: [
+          { id: "visibility", label: "Visibility", evidence: [{ path: "src/secret-sauce.ts", excerpt: "const PRIVATE_ALGO = 42", verified: true }] },
+          {
+            id: "stage_score",
+            label: "Stage score",
+            appliesWhen: "teams with a catalogue",
+            evidence: [{ path: "src/scores.ts", excerpt: "export interface StageScore {", verified: true, kind: "source", declaration: true }],
+          },
+        ],
         hooks: [{ kind: "timezone", description: "Timezone isn't stored." }],
       },
     });
     const r = await agentGetRepoAnalysis(ctx, connection.id, db);
     expect(r.status).toBe(200);
     const body = r.body as { analysis: { map: { facts: unknown[]; hooks: unknown[] }; reviewUrl: string } };
-    expect(body.analysis.map.facts).toEqual([{ id: "visibility", label: "Visibility", unit: null, source: "", confidence: "medium", backedByCode: true }]);
+    expect(body.analysis.map.facts).toEqual([
+      { id: "visibility", label: "Visibility", unit: null, source: "", appliesWhen: null, confidence: "medium", backedByCode: true },
+      // A type's declaration isn't where a value is kept.
+      { id: "stage_score", label: "Stage score", unit: null, source: "", appliesWhen: "teams with a catalogue", confidence: "medium", backedByCode: false },
+    ]);
     expect(body.analysis.reviewUrl).toBe(`/admin/products/${connection.id}`);
     const text = JSON.stringify(r.body);
     expect(text).not.toContain("PRIVATE_ALGO");

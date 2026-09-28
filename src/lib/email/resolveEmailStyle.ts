@@ -1,6 +1,12 @@
 import { StoredEmailStyleSchema, type Tenant } from "@/lib/types/tenant";
 import { brandLogoAbsoluteUrl, emailHeaderImageAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
-import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled, isEmailThemesEnabled, isEmailWebFontsEnabled } from "./flags";
+import {
+  isEmailHeaderOptionsEnabled,
+  isEmailLayoutStyleEnabled,
+  isEmailStyleEnabled,
+  isEmailThemesEnabled,
+  isEmailWebFontsEnabled,
+} from "./flags";
 import { resolveStoredStyle, safeHeaderImageUrl, safeLogoUrl, type ResolvedEmailStyle } from "./emailStyle";
 import { emailLinkOrigin } from "./footer";
 import { resolveFooterBrand } from "./sender";
@@ -17,6 +23,7 @@ import { resolveFooterBrand } from "./sender";
  * public brand-asset route isn't gated), but with no https origin it's dropped: the colour band.
  * The saved theme is ignored while EMAIL_THEMES_ENABLED is off; with EMAIL_WEB_FONTS_ENABLED
  * on too, a web font's files come from the same https origin (none = its safe fonts only).
+ * Create layout buttons follow the style only with EMAIL_LAYOUT_STYLE_ENABLED on.
  */
 export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEmailStyle | null {
   if (!isEmailStyleEnabled() || !tenant?.emailStyle) return null;
@@ -36,5 +43,6 @@ export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEm
     themes: isEmailThemesEnabled(),
     webFonts: isEmailWebFontsEnabled(),
     fontOrigin: linkOrigin,
+    layouts: isEmailLayoutStyleEnabled(),
   });
 }

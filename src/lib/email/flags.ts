@@ -1,9 +1,10 @@
 /**
  * Email style flags (logo, company name and colours on branded emails), the header
  * options on top of it (a gradient header, a chosen header text colour, a header image,
- * logo clean-up), and themes (a look and two fonts, with web fonts on their own flag).
- * Pure + client-safe. Each is ON in dev (apphosting.yaml) and set explicitly in prod
- * (apphosting.prod.yaml). Renderers never read these: they get the style as data.
+ * logo clean-up), themes (a look and two fonts, with web fonts on their own flag), and
+ * Create layout buttons that follow it. Pure + client-safe. Each is ON in dev
+ * (apphosting.yaml) and set explicitly in prod (apphosting.prod.yaml). Renderers never
+ * read these: they get the style as data.
  */
 
 /**
@@ -55,4 +56,14 @@ export function isEmailThemesEnabled(): boolean {
  */
 export function isEmailWebFontsEnabled(): boolean {
   return process.env.EMAIL_WEB_FONTS_ENABLED === "true";
+}
+
+/**
+ * Server flag — layout buttons (needs EMAIL_STYLE_ENABLED). On: a button in a Create email layout
+ * takes the Email style's button colour (with a readable label) and, with a theme, its button
+ * shape, unless the button is set to its own colour. Off: every button draws as built. The saved
+ * colours are never rewritten, so this is a kill switch.
+ */
+export function isEmailLayoutStyleEnabled(): boolean {
+  return process.env.EMAIL_LAYOUT_STYLE_ENABLED === "true";
 }

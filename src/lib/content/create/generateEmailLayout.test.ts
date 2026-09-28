@@ -79,6 +79,28 @@ describe("generateEmailLayout", () => {
     expect(copy.html.length).toBeLessThanOrEqual(8000);
   });
 
+  it("drops any styleSource the model emits, so its buttons follow the Email style; their colours stay", async () => {
+    mocked.mockResolvedValue(
+      JSON.stringify({
+        blocks: [
+          { id: "t", kind: "text", role: "copy", html: "" },
+          { id: "b1", kind: "button", label: "Go", href: "", bg: "#4f46e5", color: "#ffffff", radius: 6, styleSource: "own" },
+          { id: "b2", kind: "button", label: "Also", href: "", bg: "#ff6b35", color: "#111111", radius: 24, styleSource: "email_style" },
+          { id: "b3", kind: "button", label: "Later", href: "", styleSource: "tinted" },
+        ],
+      }),
+    );
+    const layout = await generateEmailLayout(base);
+    const buttons = layout!.blocks.filter((b) => b.kind === "button");
+    expect(buttons).toHaveLength(3);
+    for (const b of buttons) expect("styleSource" in b).toBe(false);
+    expect(buttons.map((b) => b.kind === "button" && [b.bg, b.color, b.radius])).toEqual([
+      ["#4f46e5", "#ffffff", 6],
+      ["#ff6b35", "#111111", 24],
+      ["#111111", "#ffffff", 8],
+    ]);
+  });
+
   it("returns null on unparseable / empty output", async () => {
     mocked.mockResolvedValue("sorry, no JSON here");
     expect(await generateEmailLayout(base)).toBeNull();

@@ -604,7 +604,7 @@ describe("renderLifecycleEmail", () => {
         expect(r.html).toContain(`<h2 style="margin:0 0 12px;font-family:${EMAIL_FONTS.georgia.safeStack};font-size:22px;`);
         expect(r.html).toContain(`<div style="${BODY_FONT}font-size:16px;line-height:1.6;`);
         expect(r.html).not.toContain(FONT);
-        // The layout's own button keeps its colour and corners (following the Email style comes later).
+        // Without the layouts bit, the layout's own button keeps its colour and corners.
         expect(r.html).toContain('<td style="background:#4f46e5;border-radius:8px">');
         expect(r.text).toBe(plain.text);
         // The appended footer, with the address, when the layout has none.
@@ -633,6 +633,53 @@ describe("renderLifecycleEmail", () => {
         const letter = { item: item({ body, format: "letter", previewText: "Soon" }), values: pinned, shadowFor: "alex@example.com" };
         expect(renderLifecycleEmail({ ...letter, style: themed("modern") })).toEqual(renderLifecycleEmail({ ...letter, style }));
         expect(renderLifecycleEmail({ ...letter, style: themed("modern") })).toEqual(renderLifecycleEmail(letter));
+      });
+    });
+
+    describe("with layout buttons that follow the Email style", () => {
+      const following: ResolvedEmailStyle = { ...style, layouts: true };
+      const saved = (l = layout) => ({ item: item({ layout: l, previewText: null }), values: pinned });
+
+      it("a saved layout's button takes the button colour with a readable label; nothing else changes", () => {
+        const plain = renderLifecycleEmail({ ...saved(), style });
+        const r = renderLifecycleEmail({ ...saved(), style: following });
+        const cell = '<td bgcolor="#1d4ed8" style="background:#1d4ed8;border-radius:8px">';
+        expect(r.html).toContain(
+          `${cell}<a href="https://app.example.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Open Example App</a>`,
+        );
+        expect(r.html.replace(cell, '<td style="background:#4f46e5;border-radius:8px">')).toBe(plain.html);
+        expect(r.subject).toBe(plain.subject);
+        expect(r.text).toBe(plain.text);
+        // A light button colour gets a black label.
+        const yellow = renderLifecycleEmail({ ...saved(), style: { ...following, accentColor: "#ffd400" } });
+        expect(yellow.html).toContain('<td bgcolor="#ffd400" style="background:#ffd400;border-radius:8px">');
+        expect(yellow.html).toContain("color:#000000;text-decoration:none\">Open Example App</a>");
+      });
+
+      it("with a theme the button takes its shape; a button on its own colour stays as built", () => {
+        const pill = renderLifecycleEmail({
+          ...saved(),
+          style: { ...following, theme: { preset: "modern", headingFont: "georgia", bodyFont: "verdana" } },
+        });
+        expect(pill.html).toContain('<td bgcolor="#1d4ed8" style="background:#1d4ed8;border-radius:999px"><a href="https://app.example.com/"');
+        const own = EmailLayoutSchema.parse({
+          blocks: layout.blocks.map((b) => (b.kind === "button" ? { ...b, styleSource: "own" } : b)),
+        });
+        expect(renderLifecycleEmail({ ...saved(own), style: following })).toEqual(renderLifecycleEmail({ ...saved(), style }));
+      });
+
+      it("a body without a layout, and a letter, are unchanged", () => {
+        const input = {
+          item: item({ body, previewText: "{{onboarding.steps_remaining}} step left" }),
+          values: pinned,
+          shadowFor: "alex@example.com",
+        };
+        expect(renderLifecycleEmail({ ...input, style: following })).toEqual(renderLifecycleEmail({ ...input, style }));
+        const letter = { item: item({ body, format: "letter", previewText: "Soon" }), values: pinned };
+        expect(renderLifecycleEmail({ ...letter, style: following })).toEqual(renderLifecycleEmail(letter));
+        // A letter with a saved layout (only an import makes one) keeps its buttons as built too.
+        const letterLayout = { item: item({ layout, format: "letter", previewText: null }), values: pinned };
+        expect(renderLifecycleEmail({ ...letterLayout, style: following })).toEqual(renderLifecycleEmail(letterLayout));
       });
     });
   });

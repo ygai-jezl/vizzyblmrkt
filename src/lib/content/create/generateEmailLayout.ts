@@ -47,9 +47,12 @@ function normalize(layout: EmailLayout, currentBody: string): EmailLayout | null
   // Reserve TWO slots: normalize may add BOTH a synthesized copy block (unshift
   // below) AND the mandatory footer (ensureFooterLast). Reserving one would let a
   // no-text AI layout overflow MAX_EMAIL_BLOCKS and fail re-validation → null.
-  const blocks: EmailBlock[] = layout.blocks
-    .slice(0, MAX_EMAIL_BLOCKS - 2)
-    .map((b) => ({ ...b, id: `${b.kind}_${randomUUID()}` }) as EmailBlock);
+  const blocks: EmailBlock[] = layout.blocks.slice(0, MAX_EMAIL_BLOCKS - 2).map((b) => {
+    const block = { ...b, id: `${b.kind}_${randomUUID()}` } as EmailBlock;
+    // An AI button follows the Email style: only the editor's Own colour switch opts one out.
+    if (block.kind === "button") delete block.styleSource;
+    return block;
+  });
 
   // Pick the copy target: first text block already flagged copy, else the first text block.
   let copyIdx = blocks.findIndex((b) => b.kind === "text" && b.role === "copy");

@@ -420,6 +420,26 @@ describe("resolveStoredStyle", () => {
       expect(r).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white", theme: { preset: "modern" } });
     });
   });
+
+  describe("layouts", () => {
+    const today = resolveStoredStyle(stored, opts);
+
+    it("adds the bit only with layouts on", () => {
+      expect(resolveStoredStyle(stored, { ...opts, layouts: true })).toStrictEqual({ ...today, layouts: true });
+      expect(resolveStoredStyle(stored, { ...opts, layouts: false })).toStrictEqual(today);
+      expect(resolveStoredStyle(stored, opts)).not.toHaveProperty("layouts");
+    });
+
+    it("needs a style: nothing saved, or a damaged one, is still null", () => {
+      expect(resolveStoredStyle(null, { ...opts, layouts: true })).toBeNull();
+      expect(resolveStoredStyle({ ...stored, accentColor: "orange" }, { ...opts, layouts: true })).toBeNull();
+    });
+
+    it("sits alongside a theme", () => {
+      const r = resolveStoredStyle({ ...stored, theme: { preset: "editorial" } }, { ...opts, themes: true, layouts: true });
+      expect(r).toMatchObject({ layouts: true, theme: { preset: "editorial" } });
+    });
+  });
 });
 
 describe("styleFromBrandKit", () => {

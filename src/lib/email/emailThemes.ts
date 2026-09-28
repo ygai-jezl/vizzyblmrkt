@@ -101,6 +101,18 @@ export function themeTokens(
   };
 }
 
+/**
+ * The corners a Create layout button that follows the Email style takes from the theme, or null
+ * to keep its own. Classic is today's look, so with any fonts it leaves each button's own corners
+ * (its 8px is only the default of the buttons the renderers draw themselves).
+ */
+export function layoutButtonRadius(
+  style: Pick<ResolvedEmailStyle, "theme" | "accentColor"> | null | undefined,
+): number | null {
+  const tokens = themeTokens(style);
+  return tokens && style?.theme?.preset !== "classic" ? tokens.buttonRadius : null;
+}
+
 /** `amount` of the way from `hex` to white; Classic's page colour when `hex` isn't a colour. */
 export function tint(hex: string | null | undefined, amount: number): string {
   const h = normalizeHex(hex);

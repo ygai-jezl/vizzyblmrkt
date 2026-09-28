@@ -46,6 +46,12 @@ export interface ResolvedEmailStyle {
    * web fonts are on and one of the two is a web font. Absent = Classic with the system font.
    */
   theme?: { preset: EmailThemePreset; headingFont: EmailFontId; bodyFont: EmailFontId; webFontOrigin?: string };
+  /**
+   * Buttons in a Create email layout follow this style: the button colour with a readable label,
+   * and the theme's button shape (Classic keeps each button's own corners). A button set to its
+   * own colour doesn't. Absent = every layout button as built.
+   */
+  layouts?: true;
 }
 
 /**
@@ -62,6 +68,8 @@ export interface ResolvedEmailStyle {
  * The theme works the same way with `themes`: Classic with the system font, an unknown preset
  * or no theme leave the key out. An unknown font is the preset's. With `webFonts`, a theme with
  * a web font gets `fontOrigin` (only an https one) as its `webFontOrigin`.
+ *
+ * `layouts` (the caller's flag) sets the bit that makes layout buttons follow the style.
  */
 export function resolveStoredStyle(
   stored:
@@ -86,6 +94,7 @@ export function resolveStoredStyle(
     themes?: boolean;
     webFonts?: boolean;
     fontOrigin?: string;
+    layouts?: boolean;
   },
 ): ResolvedEmailStyle | null {
   if (!stored) return null;
@@ -125,6 +134,7 @@ export function resolveStoredStyle(
         }
       : {}),
     ...(theme ? { theme } : {}),
+    ...(opts.layouts ? { layouts: true as const } : {}),
   };
 }
 

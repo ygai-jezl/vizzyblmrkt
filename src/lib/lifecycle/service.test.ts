@@ -72,6 +72,33 @@ describe("lifecycle journey service", () => {
     expect(r).toMatchObject({ ok: false, status: 400, error: "invalid_draft" });
   });
 
+  it("a draft whose layout button carries a styleSource from a later build still publishes, with the button as built", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    // The draft as a rolled-back build would have left it: past the schema, straight into the doc.
+    const raw = structuredClone(db.raw("lifecycle_journeys", journey.id)) as {
+      draft: { pools: Array<{ items: Array<Record<string, unknown>> }> };
+    };
+    raw.draft.pools[0]!.items[0]!.layout = {
+      blocks: [
+        { id: "t1", kind: "text", role: "copy", html: "<p>Hi {{user.first_name|there}}</p>" },
+        { id: "b1", kind: "button", label: "Open the app", href: "https://app.example.com/", bg: "#4f46e5", radius: 6, styleSource: "tinted" },
+        { id: "b2", kind: "button", label: "Our own", href: "https://app.example.com/own", bg: "#0b1f3a", styleSource: "own" },
+        { id: "f1", kind: "footer", text: "" },
+      ],
+    };
+    db.seed("lifecycle_journeys", journey.id, raw);
+
+    const r = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(r.ok).toBe(true);
+    const version = await forTenant(system, db).lifecycleVersions.getById(`${journey.id}_v1`);
+    const blocks = version!.pools[0]!.items[0]!.layout!.blocks;
+    expect(blocks[1]).toMatchObject({ kind: "button", bg: "#4f46e5", color: "#ffffff", radius: 6 });
+    expect(blocks[1]!.kind === "button" && blocks[1]!.styleSource).toBeUndefined();
+    expect(blocks[2]).toMatchObject({ kind: "button", bg: "#0b1f3a", styleSource: "own" });
+  });
+
   it("can only be activated once published; pausing keeps it paused across publishes", async () => {
     const db = new FakeFirestore();
     seedWorld(db);

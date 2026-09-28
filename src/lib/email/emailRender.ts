@@ -2,8 +2,9 @@ import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailL
 import { EMAIL_HEADER_IMAGE_LIMITS, EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
 import { FONT, WEB_FONT_CLASSES, fontFor, hasWebFonts, webFontHead } from "./emailFonts";
-import { themeTokens, type EmailThemeTokens } from "./emailThemes";
+import { layoutButtonRadius, themeTokens, type EmailThemeTokens } from "./emailThemes";
 import {
+  accentFor,
   bandInk,
   bandStops,
   isHeaderImageUrlShape,
@@ -503,15 +504,17 @@ function renderInner(block: EmailBlock, style: ResolvedEmailStyle | null): strin
     }
     case "button": {
       const href = isSafeHref(block.href) ? block.href : "#";
-      return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:${safeHex(
-        block.bg,
-        "#111111",
-      )};border-radius:${block.radius}px"><a href="${escapeAttr(
+      // With the style's `layouts` bit, a button not set to its own colour follows the style: the
+      // button colour (bgcolor too, for Outlook), a readable label, and the theme's button shape
+      // (with no theme or Classic, its own corners). Otherwise it's exactly as built.
+      const accent = style?.layouts && block.styleSource !== "own" ? accentFor(style, "button") : null;
+      const cell = accent
+        ? `<td bgcolor="${accent}" style="background:${accent};border-radius:${layoutButtonRadius(style) ?? block.radius}px">`
+        : `<td style="background:${safeHex(block.bg, "#111111")};border-radius:${block.radius}px">`;
+      const ink = accent ? readableOn(accent) : safeHex(block.color, "#ffffff");
+      return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr>${cell}<a href="${escapeAttr(
         href,
-      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${fontFor(style, "body")};font-size:15px;font-weight:600;color:${safeHex(
-        block.color,
-        "#ffffff",
-      )};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
+      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${fontFor(style, "body")};font-size:15px;font-weight:600;color:${ink};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
     }
     case "divider":
       return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:${block.thickness}px solid ${safeHex(
@@ -551,9 +554,10 @@ function renderBlock(block: EmailBlock, style: ResolvedEmailStyle | null): strin
  * Render a block layout to email-safe INNER HTML (no <html>/<body> — pass through
  * wrap() to get the full document / preview). Blocks stack full-width inside wrap()'s
  * centered 560px card. With a `style` that has a theme, text, buttons and the footer take
- * its body font and headings its heading font; without one it's today's HTML. Saved
- * snapshots (the editor's Save, the template thumbnail) render with no style, so they
- * never bake a theme in.
+ * its body font and headings its heading font; with its `layouts` bit, buttons not set to
+ * their own colour take its button colour and shape; without either it's today's HTML.
+ * Saved snapshots (the editor's Save, the template thumbnail) render with no style, so they
+ * never bake a theme or a colour in.
  */
 export function renderEmailLayout(layout: EmailLayout, opts: { style?: ResolvedEmailStyle | null } = {}): string {
   const style = opts.style ?? null;

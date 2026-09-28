@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { EMAIL_THEME_PRESETS } from "@/lib/types/tenant";
-import { compactTheme, EMAIL_THEME_PRESET_SPECS, isEmailThemePreset, PILL_RADIUS, themeTokens, tint } from "./emailThemes";
+import {
+  compactTheme,
+  EMAIL_THEME_PRESET_SPECS,
+  isEmailThemePreset,
+  layoutButtonRadius,
+  PILL_RADIUS,
+  themeTokens,
+  tint,
+} from "./emailThemes";
 
 const theme = (preset: (typeof EMAIL_THEME_PRESETS)[number]) =>
   ({ preset, headingFont: "system", bodyFont: "system" }) as const;
@@ -73,6 +81,25 @@ describe("themeTokens", () => {
   it("an unknown preset (a style built by hand) → null", () => {
     const style = { accentColor, theme: { preset: "brutalist" } } as unknown as Parameters<typeof themeTokens>[0];
     expect(themeTokens(style)).toBeNull();
+  });
+});
+
+describe("layoutButtonRadius", () => {
+  const accentColor = "#4f46e5";
+
+  it("the look's button shape for Modern, Editorial and Friendly, with any fonts", () => {
+    expect(layoutButtonRadius({ accentColor, theme: theme("modern") })).toBe(PILL_RADIUS);
+    expect(layoutButtonRadius({ accentColor, theme: theme("editorial") })).toBe(0);
+    expect(layoutButtonRadius({ accentColor, theme: { ...theme("friendly"), bodyFont: "georgia" } })).toBe(PILL_RADIUS);
+  });
+
+  it("null with no theme, Classic with any fonts, or an unknown preset: the button keeps its own corners", () => {
+    expect(layoutButtonRadius(null)).toBeNull();
+    expect(layoutButtonRadius({ accentColor })).toBeNull();
+    expect(layoutButtonRadius({ accentColor, theme: theme("classic") })).toBeNull();
+    expect(layoutButtonRadius({ accentColor, theme: { preset: "classic", headingFont: "lora", bodyFont: "georgia" } })).toBeNull();
+    const style = { accentColor, theme: { preset: "brutalist" } } as unknown as Parameters<typeof layoutButtonRadius>[0];
+    expect(layoutButtonRadius(style)).toBeNull();
   });
 });
 

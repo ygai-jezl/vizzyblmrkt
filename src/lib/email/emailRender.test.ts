@@ -10,7 +10,7 @@ import {
   wrapLetter,
   FOOTER_MARKER,
 } from "./emailRender";
-import { readableOn, resolveStoredStyle, type ResolvedEmailStyle } from "./emailStyle";
+import { contrastRatio, readableOn, resolveStoredStyle, type ResolvedEmailStyle } from "./emailStyle";
 import { EMAIL_FONTS, FONT, webFontHead } from "./emailFonts";
 import { EMAIL_THEME_PRESET_SPECS } from "./emailThemes";
 import { EmailLayoutSchema, type EmailLayout } from "@/lib/types/emailLayout";
@@ -532,6 +532,21 @@ describe("today's layouts, footer and shells", () => {
     `);
   });
 
+  it("buttons stay exactly the pin with no style, a style without the layouts bit, or the bit and every button on its own colour", () => {
+    const pin = renderEmailLayout(layout);
+    const own = EmailLayoutSchema.parse({
+      blocks: layout.blocks.map((b) => (b.kind === "button" ? { ...b, styleSource: "own" } : b)),
+    });
+    expect(renderEmailLayout(layout, {})).toBe(pin);
+    expect(renderEmailLayout(layout, { style: null })).toBe(pin);
+    expect(renderEmailLayout(layout, { style: style() })).toBe(pin);
+    expect(renderEmailLayout(own)).toBe(pin);
+    expect(renderEmailLayout(own, { style: style() })).toBe(pin);
+    expect(renderEmailLayout(own, { style: style({ layouts: true }) })).toBe(pin);
+    // An accent that isn't a colour (the resolver never gives one) keeps them as built too.
+    expect(renderEmailLayout(layout, { style: style({ layouts: true, accentColor: "orange" }) })).toBe(pin);
+  });
+
   it("pins the Create preview shell (a layout in wrap), with and without a style", () => {
     const inner = renderEmailLayout(
       EmailLayoutSchema.parse({
@@ -782,7 +797,7 @@ describe("with a theme", () => {
     expect(html).toContain(`padding:12px 24px;${body}font-size:15px;`); // the button's label
     expect(html).toContain(`<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;${body}`);
     expect(html).not.toContain(FONT);
-    // Only fonts change: the button keeps its own colour and corners (following the Email style comes later).
+    // Only fonts change: without the layouts bit the button keeps its own colour and corners.
     expect(html.replaceAll(EMAIL_FONTS.verdana.safeStack, FONT).replaceAll(EMAIL_FONTS.georgia.safeStack, FONT)).toBe(
       renderEmailLayout(layout),
     );
@@ -935,6 +950,121 @@ describe("with web fonts", () => {
       expect(html).not.toContain("<style");
       expect(html).not.toContain('class="vzb-');
     }
+  });
+});
+
+describe("layout buttons that follow the Email style", () => {
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: null,
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ffd400",
+    layouts: true,
+    ...over,
+  });
+  const theme = (preset: EmailThemePreset): ResolvedEmailStyle["theme"] => ({
+    preset,
+    headingFont: EMAIL_THEME_PRESET_SPECS[preset].headingFont,
+    bodyFont: EMAIL_THEME_PRESET_SPECS[preset].bodyFont,
+  });
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+      { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 6 },
+      { id: "b2", kind: "button", label: "Book a call", href: "javascript:alert(1)", align: "right", bg: "#ff6b35", color: "#111111", radius: 24, sectionBg: "#fff7ed", styleSource: "email_style" },
+      { id: "b3", kind: "button", label: "Our own", href: "https://example.com/own", align: "left", bg: "#0b1f3a", color: "#ffffff", radius: 4, styleSource: "own" },
+      { id: "f1", kind: "footer", text: "" },
+    ],
+  });
+  /** A button's cell and link, found by its label. */
+  const button = (html: string, label: string) => html.match(new RegExp(`<td[^>]*><a [^>]*>${label}</a>`))?.[0] ?? "";
+  const cell = (bg: string, radius: number) => `<td bgcolor="${bg}" style="background:${bg};border-radius:${radius}px">`;
+  const link = (href: string, font: string, ink: string, label: string) =>
+    `<a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${font};font-size:15px;font-weight:600;color:${ink};text-decoration:none">${label}</a>`;
+
+  it("on #ffd400: the button colour with bgcolor, a black label, and the theme's button shape", () => {
+    const font = EMAIL_FONTS.inter.safeStack;
+    const html = renderEmailLayout(layout, { style: style({ theme: theme("modern") }) });
+    expect(button(html, "Get started")).toBe(cell("#ffd400", 999) + link("https://example.com/start", font, "#000000", "Get started"));
+    // "email_style" is the same as absent; an unsafe href is still "#".
+    expect(button(html, "Book a call")).toBe(cell("#ffd400", 999) + link("#", font, "#000000", "Book a call"));
+    // Editorial's buttons are square.
+    const editorial = renderEmailLayout(layout, { style: style({ theme: theme("editorial") }) });
+    expect(button(editorial, "Get started")).toBe(
+      cell("#ffd400", 0) + link("https://example.com/start", EMAIL_FONTS.georgia.safeStack, "#000000", "Get started"),
+    );
+  });
+
+  it("with no theme, each button keeps its own corners and today's font", () => {
+    const html = renderEmailLayout(layout, { style: style() });
+    expect(button(html, "Get started")).toBe(cell("#ffd400", 6) + link("https://example.com/start", FONT, "#000000", "Get started"));
+    expect(button(html, "Book a call")).toBe(cell("#ffd400", 24) + link("#", FONT, "#000000", "Book a call"));
+  });
+
+  it("Classic, with any fonts, keeps each button's own corners, as with no theme: only the fonts change", () => {
+    for (const fonts of [{ bodyFont: "georgia" }, { headingFont: "lora", bodyFont: "inter" }] as const) {
+      const html = renderEmailLayout(layout, { style: style({ theme: { ...theme("classic")!, ...fonts } }) });
+      const font = EMAIL_FONTS[fonts.bodyFont].safeStack;
+      expect(button(html, "Get started")).toBe(cell("#ffd400", 6) + link("https://example.com/start", font, "#000000", "Get started"));
+      expect(button(html, "Book a call")).toBe(cell("#ffd400", 24) + link("#", font, "#000000", "Book a call"));
+    }
+    const georgia = renderEmailLayout(layout, { style: style({ theme: { ...theme("classic")!, bodyFont: "georgia" } }) });
+    expect(georgia.replaceAll(EMAIL_FONTS.georgia.safeStack, FONT)).toBe(renderEmailLayout(layout, { style: style() }));
+    // A square button stays square: Classic's 8px is the next-step button's, not a layout button's.
+    const square = EmailLayoutSchema.parse({
+      blocks: [{ id: "b1", kind: "button", label: "Go", href: "https://example.com/go", bg: "#4f46e5", radius: 0 }],
+    });
+    const classic = style({ accentColor: "#1d4ed8", theme: { ...theme("classic")!, bodyFont: "georgia" } });
+    expect(renderEmailLayout(square, { style: classic })).toContain(cell("#1d4ed8", 0));
+  });
+
+  it("a dark button colour gets a white label, and every label reads at 4.5:1 or better", () => {
+    for (const accentColor of ["#0b1f3a", "#1d4ed8", "#ff6b35", "#ffd400", "#ffffff", "#777777"]) {
+      const html = renderEmailLayout(layout, { style: style({ accentColor }) });
+      expect(button(html, "Get started")).toBe(
+        cell(accentColor, 6) + link("https://example.com/start", FONT, readableOn(accentColor), "Get started"),
+      );
+      expect(contrastRatio(accentColor, readableOn(accentColor))).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(button(renderEmailLayout(layout, { style: style({ accentColor: "#0b1f3a" }) }), "Get started")).toContain(
+      "color:#ffffff;",
+    );
+  });
+
+  it("a button on its own colour, and every other block, draw exactly as without the layouts bit", () => {
+    for (const s of [style(), style({ theme: theme("friendly") })]) {
+      const { layouts: _bit, ...noBit } = s;
+      const lines = renderEmailLayout(layout, { style: s }).split("\n");
+      const without = renderEmailLayout(layout, { style: noBit }).split("\n");
+      expect(lines).toHaveLength(without.length);
+      lines.forEach((line, i) => {
+        if (/Get started|Book a call/.test(line)) expect(line).not.toBe(without[i]);
+        else expect(line).toBe(without[i]);
+      });
+      expect(button(lines.join("\n"), "Our own")).toContain('<td style="background:#0b1f3a;border-radius:4px">');
+    }
+    // The section band around a following button stays.
+    expect(renderEmailLayout(layout, { style: style() })).toContain(
+      `<div style="background:#fff7ed;padding:16px 16px 1px"><div style="text-align:right;margin:0 0 16px">`,
+    );
+  });
+
+  it("a styleSource from a later build reads as absent, so the button follows", () => {
+    const later = EmailLayoutSchema.parse({
+      blocks: [{ id: "b1", kind: "button", label: "Go", href: "https://example.com/go", bg: "#4f46e5", styleSource: "tinted" }],
+    });
+    expect(renderEmailLayout(later, { style: style() })).toContain(cell("#ffd400", 8));
+  });
+
+  it("the Create preview shell: a following button in a themed card", () => {
+    const s = style({ theme: theme("friendly"), accentColor: "#1d4ed8" });
+    const out = wrap(renderEmailLayout(layout, { style: s }), null, { style: s });
+    expect(button(out, "Get started")).toBe(
+      cell("#1d4ed8", 999) + link("https://example.com/start", EMAIL_FONTS.nunito.safeStack, "#ffffff", "Get started"),
+    );
+    expect(button(out, "Our own")).toContain('<td style="background:#0b1f3a;border-radius:4px">');
   });
 });
 

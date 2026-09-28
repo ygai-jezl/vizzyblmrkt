@@ -250,6 +250,35 @@ describe("resolveEmailStyle", () => {
     });
   });
 
+  describe("layout buttons", () => {
+    const today = {
+      logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+      name: null,
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    };
+
+    it("flag off: no bit — exactly today's style", () => {
+      for (const flag of ["false", ""]) {
+        vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", flag);
+        expect(resolveEmailStyle(tenant())).toStrictEqual(today);
+      }
+    });
+
+    it("flag on: the bit is set, and nothing else changes", () => {
+      vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+      expect(resolveEmailStyle(tenant())).toStrictEqual({ ...today, layouts: true });
+    });
+
+    it("flag on: still null with the Email style off or nothing saved", () => {
+      vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+      expect(resolveEmailStyle(tenant({ emailStyle: undefined }))).toBeNull();
+      vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+      expect(resolveEmailStyle(tenant())).toBeNull();
+    });
+  });
+
   it("altName is the company name when set, else the sender name, else the tenant name", () => {
     expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, companyName: "Acme" } }))).toMatchObject({
       name: "Acme",

@@ -213,6 +213,18 @@ describe("EmailStyleSuggestionSchema (strict on write)", () => {
     expect(ok({ logoId: null, companyName: "Example Co", source: "brand_kit", brief: "", notes: [] })).toBe(true);
   });
 
+  it("takes the header options only when set, strictly: a #rrggbb colour 2, white or black text", () => {
+    const parsed = EmailStyleSuggestionSchema.parse({ ...suggestion, headerGradientColor: "#4F46E5", headerText: "white" });
+    expect(parsed).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white" });
+    expect(EmailStyleSuggestionSchema.parse(suggestion)).not.toHaveProperty("headerGradientColor");
+    expect(ok({ headerText: "black" })).toBe(true);
+    // Defaults are never stored: absent is solid / Auto.
+    expect(ok({ headerGradientColor: null })).toBe(false);
+    expect(ok({ headerText: "auto" })).toBe(false);
+    expect(ok({ headerGradientColor: "purple" })).toBe(false);
+    expect(ok({ headerText: "pink" })).toBe(false);
+  });
+
   it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {
     expect(ok({ headerColor: "navy" })).toBe(false);
     expect(ok({ companyName: "{{user.first_name}} Co" })).toBe(false);

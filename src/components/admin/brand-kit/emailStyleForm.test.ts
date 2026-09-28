@@ -238,12 +238,14 @@ describe("suggestionForReview", () => {
     suggestedAt: "2026-09-27T10:00:00.000Z",
   };
 
-  it("loads the suggestion as asked, with its notes", () => {
+  it("loads the suggestion as asked, with its notes (solid, Auto text when it has no header options)", () => {
     expect(suggestionForReview(suggestion, [logo()])).toEqual({
       logoId: "logo_1",
       companyName: "Example Co",
       headerColor: "#0b1f3a",
       accentColor: "#ff6b35",
+      headerGradientColor: null,
+      headerText: "auto",
       notes: ["A note from Vizzy"],
     });
     expect(suggestionForReview({ ...suggestion, logoId: null }, [logo()])).toMatchObject({ logoId: null, notes: ["A note from Vizzy"] });
@@ -276,6 +278,24 @@ describe("suggestionForReview", () => {
     expect(off.logoId).toBe("logo_1");
     expect(off.notes).toEqual(["A note from Vizzy", expect.stringMatching(/aren't switched on/)]);
     expect(off.notes.join(" ")).not.toMatch(/couldn't be loaded|try/);
+  });
+
+  it("carries the header options: the gradient's colour 2 and a forced text colour", () => {
+    const gradient = { ...suggestion, headerColor: "#7c3aed", headerGradientColor: "#4f46e5", headerText: "white" as const };
+    expect(suggestionForReview(gradient, [logo()])).toMatchObject({
+      headerColor: "#7c3aed",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+    // With no logo list too.
+    expect(suggestionForReview(gradient, [], { savedLogoId: "logo_1" })).toMatchObject({
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+    expect(suggestionForReview({ ...suggestion, headerText: "black" }, [logo()])).toMatchObject({
+      headerGradientColor: null,
+      headerText: "black",
+    });
   });
 
   it("never swaps the colours asked for, even for a hard-to-see logo", () => {

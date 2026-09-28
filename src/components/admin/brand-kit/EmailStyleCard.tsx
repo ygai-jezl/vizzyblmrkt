@@ -399,14 +399,26 @@ export function EmailStyleCard({
     setStatus(`Added “${title}” to Brand › Logos and picked it. Save to use it in emails.`);
   }
 
-  /** Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual. */
+  /**
+   * Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual.
+   * Its header options too (the page only gets them with the options on): a solid suggestion
+   * unticks Gradient and keeps Colour 2, as unticking does.
+   */
   function review(s: PendingEmailStyleSuggestion) {
     const r = suggestionForReview(
       s,
       allLogos,
       listed ? undefined : { savedLogoId: savedLogo?.id ?? null, logosOff: logosUnavailable === "off" },
     );
-    edit({ logoId: r.logoId, companyName: r.companyName ?? "", headerColor: r.headerColor, accentColor: r.accentColor });
+    edit({
+      logoId: r.logoId,
+      companyName: r.companyName ?? "",
+      headerColor: r.headerColor,
+      accentColor: r.accentColor,
+      gradient: r.headerGradientColor !== null,
+      ...(r.headerGradientColor ? { headerColor2: r.headerGradientColor } : {}),
+      headerText: r.headerText,
+    });
     setNotes(r.notes);
     setReviewing(s.suggestedAt);
   }
@@ -826,7 +838,8 @@ function SuggestionBanner({
           </p>
         ) : null}
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <SwatchLabel hex={suggestion.headerColor} label="Header" />
+          <SwatchLabel hex={suggestion.headerColor} to={suggestion.headerGradientColor} label="Header" />
+          {suggestion.headerText ? <span>Text: {suggestion.headerText}</span> : null}
           <SwatchLabel hex={suggestion.accentColor} label="Button" />
           <span>
             Logo:{" "}
@@ -862,15 +875,16 @@ function SuggestionBanner({
   );
 }
 
-function SwatchLabel({ hex, label }: { hex: string; label: string }) {
+/** A colour, or with `to` a gradient from `hex` to it (as the band fades), with its hex codes. */
+function SwatchLabel({ hex, to, label }: { hex: string; to?: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
         aria-hidden
         className="h-3.5 w-3.5 rounded-sm border border-neutral-300 dark:border-neutral-700"
-        style={{ backgroundColor: hex }}
+        style={to ? { backgroundColor: hex, backgroundImage: `linear-gradient(135deg,${hex},${to})` } : { backgroundColor: hex }}
       />
-      {label} <span className="font-mono">{hex}</span>
+      {label} <span className="font-mono">{to ? `${hex} → ${to}` : hex}</span>
     </span>
   );
 }

@@ -100,6 +100,33 @@ describe("tenant registry", () => {
     expect((await listAllTenants(db)).map((t) => t.id)).toEqual(["ten_A"]);
   });
 
+  it("a suggestion with a damaged header option reads as none (it's strict) and the tenant still loads", async () => {
+    const suggestion = {
+      logoId: null,
+      companyName: null,
+      headerColor: "#7c3aed",
+      accentColor: "#ff6b35",
+      source: "chat",
+      brief: "Make the header a gradient",
+      notes: [],
+      suggestedBy: "usr_admin",
+      suggestedAt: "2026-09-28T10:00:00.000Z",
+    };
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ emailStyleSuggestion: { ...suggestion, headerGradientColor: "purple" } }));
+    db.seed("tenants", "ten_B", tenant({ emailStyleSuggestion: { ...suggestion, headerGradientColor: "#4f46e5", headerText: "white" } }));
+
+    const one = await getTenantById("ten_A", db);
+    expect(one?.id).toBe("ten_A");
+    expect(one?.emailStyleSuggestion).toBeUndefined();
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_A", "ten_B"]);
+    expect(all.find((t) => t.id === "ten_B")?.emailStyleSuggestion).toMatchObject({
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+  });
+
   it("listAllTenants returns an empty list when there are no tenants", async () => {
     expect(await listAllTenants(new FakeFirestore())).toEqual([]);
   });

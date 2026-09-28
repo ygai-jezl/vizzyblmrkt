@@ -92,18 +92,24 @@ export function brandKitWithLogo(kit: BrandKitEmailStyle, ink: string | null): B
 /** A pending Vizzy suggestion as the page shows it: who asked is left out. */
 export type PendingEmailStyleSuggestion = Omit<EmailStyleSuggestion, "suggestedBy">;
 
+/** A reviewed suggestion as the form loads it, with its header options (null = solid, "auto" = Auto). */
+export type ReviewedEmailStyle = BrandKitEmailStyle & {
+  headerGradientColor: string | null;
+  headerText: HeaderTextChoice;
+};
+
 /**
  * Review a Vizzy suggestion: its values for the form, exactly as asked (a hard-to-see logo
  * gets the page's warning, never a colour swap). A logo that's since been deleted, or that
  * email can't show, falls back to no logo with a note. With no logo list (`unlisted`: Logos is
  * off, or the list failed to load), only the saved logo is known: any other suggested logo
- * leaves the saved one.
+ * leaves the saved one. A suggestion is a whole style, so no header options means solid, Auto.
  */
 export function suggestionForReview(
   suggestion: PendingEmailStyleSuggestion,
   logos: readonly EmailStyleLogoChoice[],
   unlisted?: { savedLogoId: string | null; logosOff?: boolean },
-): BrandKitEmailStyle {
+): ReviewedEmailStyle {
   const notes = [...suggestion.notes];
   let logoId: string | null;
   if (unlisted) {
@@ -133,6 +139,8 @@ export function suggestionForReview(
     companyName: suggestion.companyName,
     headerColor: suggestion.headerColor,
     accentColor: suggestion.accentColor,
+    headerGradientColor: suggestion.headerGradientColor ?? null,
+    headerText: suggestion.headerText ?? "auto",
     notes,
   };
 }

@@ -53,7 +53,8 @@ export default async function EmailStylePage() {
   const saved = tenant?.emailStyle;
   // Off, the page is exactly as without them: no controls, and Save sends no options (the PUT keeps the stored ones).
   const headerOptions = isEmailHeaderOptionsEnabled() && isEmailHeaderOptionsUiEnabled();
-  // Vizzy's pending suggestion, for the banner. Who asked stays on the server.
+  // Vizzy's pending suggestion, for the banner. Who asked stays on the server. Its header
+  // options only come along with them on; off, the banner and Review are as without them.
   const suggestion = tenant?.emailStyleSuggestion;
   const pending = suggestion
     ? {
@@ -61,6 +62,8 @@ export default async function EmailStylePage() {
         companyName: suggestion.companyName,
         headerColor: suggestion.headerColor,
         accentColor: suggestion.accentColor,
+        ...(headerOptions && suggestion.headerGradientColor ? { headerGradientColor: suggestion.headerGradientColor } : {}),
+        ...(headerOptions && suggestion.headerText ? { headerText: suggestion.headerText } : {}),
         source: suggestion.source,
         brief: suggestion.brief,
         notes: suggestion.notes,

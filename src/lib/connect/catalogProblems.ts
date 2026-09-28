@@ -97,6 +97,22 @@ export function catalogProblems(catalog: ConnectionCatalog): CatalogProblems {
   return out;
 }
 
+/** Peel defaults, optionals and nullables off a schema to reach the type inside. */
+type Def = { type: string; innerType?: Node; element?: Node; shape?: Record<string, Node> };
+type Node = { _zod: { def: Def; bag?: { maximum?: number } } };
+const inner = (n: Node | undefined): Node | undefined => {
+  while (n && ["default", "optional", "nullable", "prefault"].includes(n._zod.def.type)) n = n._zod.def.innerType;
+  return n;
+};
+
+/** The most characters a text field takes (the server's limit), so the page can say so before a save. */
+export function fieldLimit(list: string, field: string): number | null {
+  const lists = (ConnectionCatalogSchema as unknown as Node)._zod.def.shape ?? {};
+  const item = inner(inner(lists[list])?._zod.def.element);
+  const f = inner(item?._zod.def.shape?.[field]);
+  return f?._zod.def.type === "string" && typeof f._zod.bag?.maximum === "number" ? f._zod.bag.maximum : null;
+}
+
 /** "facts.6.label: …" from the server (a check the page didn't make) → that field's key, if it names one. */
 export function serverProblemKey(detail: string | undefined): string | null {
   const m = /^catalog\.([A-Za-z]+)\.(\d+)\.([A-Za-z]+):/.exec(detail ?? "");

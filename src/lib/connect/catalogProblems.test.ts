@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { z } from "zod";
 import { ConnectionCatalogSchema, type ConnectionCatalog } from "@/lib/types/productConnection";
-import { catalogProblems, fieldLabel, serverProblemKey } from "./catalogProblems";
+import { catalogProblems, fieldLabel, fieldLimit, serverProblemKey } from "./catalogProblems";
 
 const cat = (c: z.input<typeof ConnectionCatalogSchema>) => ConnectionCatalogSchema.parse(c);
 const FACT = { id: "share_of_voice", label: "Share of voice", type: "number" as const, unit: "%", description: "", source: "" };
@@ -54,5 +54,20 @@ describe("catalog problems", () => {
     expect(serverProblemKey("catalog.facts.6.label: Invalid input")).toBe("facts.6.label");
     expect(serverProblemKey("name: Invalid input")).toBeNull();
     expect(serverProblemKey(undefined)).toBeNull();
+  });
+});
+
+describe("field limits", () => {
+  it("reads each text field's limit from the schema the server checks", () => {
+    expect(fieldLimit("facts", "label")).toBe(120);
+    expect(fieldLimit("facts", "source")).toBe(500);
+    expect(fieldLimit("facts", "unit")).toBe(20);
+    expect(fieldLimit("glossary", "definition")).toBe(500);
+  });
+
+  it("has none for fields that aren't text, or don't exist", () => {
+    expect(fieldLimit("onboardingSteps", "order")).toBeNull();
+    expect(fieldLimit("facts", "nope")).toBeNull();
+    expect(fieldLimit("nope", "label")).toBeNull();
   });
 });

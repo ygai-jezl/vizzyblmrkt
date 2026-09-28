@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EmailStyleInputSchema, type EmailStyleInput } from "@/lib/types/tenant";
+import { EmailStyleInputSchema, HEADER_TEXT_CHOICES, type EmailStyleInput, type HeaderTextChoice } from "@/lib/types/tenant";
 import { BRAND_KIT_LOGOS_ROUTE, brandLogoAbsoluteUrl, brandLogoPublicUrl } from "@/lib/content/brandKit";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 import {
@@ -19,6 +19,7 @@ import {
   brandKitWithLogo,
   emailStyleHints,
   fitLogoSize,
+  secondColourDefault,
   suggestionForReview,
   type EmailStyleLogoChoice,
   type PaletteChip,
@@ -27,10 +28,11 @@ import {
 
 /**
  * Brand › Email style: the header band (logo, optional company name, header colour) and the
- * button colour that branded emails wear. "Use brand kit" fills it in from Brand; nothing
- * changes until an admin saves. The preview goes through the lifecycle renderer, so it
- * matches the send. A banner shows Vizzy's pending suggestion: Review loads it into the form
- * and Save applies it, or Dismiss drops it. Members see it all read-only.
+ * button colour that branded emails wear, plus, with the header options on, a gradient and
+ * the header text colour. "Use brand kit" fills it in from Brand; nothing changes until an
+ * admin saves. The preview goes through the lifecycle renderer, so it matches the send. A
+ * banner shows Vizzy's pending suggestion: Review loads it into the form and Save applies it,
+ * or Dismiss drops it. Members see it all read-only.
  */
 
 const FIELD =
@@ -60,10 +62,24 @@ interface Draft {
   companyName: string;
   headerColor: string;
   accentColor: string;
+  /** The header options (only shown and sent with `headerOptions`). Colour 2 is kept while unticked. */
+  gradient: boolean;
+  headerColor2: string;
+  headerText: HeaderTextChoice;
 }
 
-/** Nothing saved yet: no logo, no name, today's near-black. */
-const BLANK: Draft = { logoId: null, companyName: "", headerColor: "#111111", accentColor: "#111111" };
+/** Nothing saved yet: no logo, no name, today's near-black, solid, Auto text. */
+const BLANK: Draft = {
+  logoId: null,
+  companyName: "",
+  headerColor: "#111111",
+  accentColor: "#111111",
+  gradient: false,
+  headerColor2: "",
+  headerText: "auto",
+};
+
+const HEADER_TEXT_LABELS: Record<HeaderTextChoice, string> = { auto: "Auto", white: "White", black: "Black" };
 
 interface LogoSample {
   width: number;
@@ -81,6 +97,9 @@ function toDraft(style: EmailStyleInput | null, logos: readonly EmailStyleLogoCh
     companyName: style.companyName ?? "",
     headerColor: style.headerColor,
     accentColor: style.accentColor,
+    gradient: !!style.headerGradientColor,
+    headerColor2: style.headerGradientColor ?? "",
+    headerText: style.headerText ?? "auto",
   };
 }
 
@@ -88,7 +107,10 @@ const sameDraft = (a: Draft, b: Draft) =>
   a.logoId === b.logoId &&
   cleanCompanyName(a.companyName) === cleanCompanyName(b.companyName) &&
   a.headerColor === b.headerColor &&
-  a.accentColor === b.accentColor;
+  a.accentColor === b.accentColor &&
+  a.gradient === b.gradient &&
+  (!a.gradient || a.headerColor2 === b.headerColor2) &&
+  a.headerText === b.headerText;
 
 /**
  * Load a logo from its same-origin URL (the logo route sends no CORS headers, so a canvas
@@ -160,6 +182,7 @@ export function EmailStyleCard({
   logoOrigin,
   canEdit,
   logosUnavailable,
+  headerOptions,
 }: {
   /** The saved style; null = none, so emails have today's look. */
   initial: EmailStyleInput | null;
@@ -182,6 +205,11 @@ export function EmailStyleCard({
   canEdit: boolean;
   /** Why there's no logo list — Logos is off, or it failed to load — so `logos` is empty but the saved logo may not be. */
   logosUnavailable: "off" | "failed" | false;
+  /**
+   * The header options (Gradient, Header text) are on. Off, the page is as without them: no
+   * controls, and Save sends neither key, so the server keeps whatever is stored.
+   */
+  headerOptions: boolean;
 }) {
   const listed = logosUnavailable ? null : logos;
   const [saved, setSaved] = useState<EmailStyleInput | null>(initial);
@@ -251,6 +279,10 @@ export function EmailStyleCard({
     companyName: cleanCompanyName(draft.companyName),
     headerColor: draft.headerColor,
     accentColor: draft.accentColor,
+    // Both keys, always, while the options are on: null = solid, "auto" = Auto.
+    ...(headerOptions
+      ? { headerGradientColor: draft.gradient ? draft.headerColor2 : null, headerText: draft.headerText }
+      : {}),
   };
   const check = EmailStyleInputSchema.safeParse(input);
   const nameError = check.success ? null : (check.error.issues.find((i) => i.path[0] === "companyName")?.message ?? null);
@@ -262,6 +294,7 @@ export function EmailStyleCard({
           return url && isLogoUrlShape(url) ? url : null;
         },
         fallbackName,
+        headerOptions,
       })
     : null;
   const previewHtml = renderLifecycleEmail({ item: SAMPLE_ITEM, values: sampleValues(fallbackName), style: previewStyle }).html;
@@ -279,6 +312,14 @@ export function EmailStyleCard({
         logoInk: logoSample?.ink ?? null,
         headerColor: draft.headerColor,
         accentColor: draft.accentColor,
+        ...(headerOptions
+          ? {
+              headerGradientColor: input.headerGradientColor,
+              headerText: draft.headerText,
+              // As the band draws it: beside a logo only a company name shows; without one, the name.
+              showsText: !!previewStyle && !!(previewStyle.logo ? previewStyle.name : previewStyle.altName),
+            }
+          : {}),
       })
     : [];
 
@@ -301,6 +342,9 @@ export function EmailStyleCard({
         companyName: kit.companyName ?? "",
         headerColor: kit.headerColor,
         accentColor: kit.accentColor,
+        // Brand has no gradient: back to solid, with Auto text.
+        gradient: false,
+        headerText: "auto",
       });
       setNotes(listed ? kit.notes : []);
       setReviewing(null);
@@ -545,15 +589,81 @@ export function EmailStyleCard({
           ) : null}
         </div>
 
-        <ColourField
-          id="email-style-header"
-          label="Header colour"
-          hint="Behind your logo at the top of each email."
-          value={draft.headerColor}
-          chips={palette}
-          disabled={disabled}
-          onChange={(headerColor) => edit({ headerColor })}
-        />
+        <div className="space-y-3">
+          <ColourField
+            id="email-style-header"
+            label="Header colour"
+            hint="Behind your logo at the top of each email."
+            value={draft.headerColor}
+            chips={palette}
+            disabled={disabled}
+            onChange={(headerColor) => edit({ headerColor })}
+          />
+          {headerOptions ? (
+            <label
+              className={`flex w-fit items-center gap-2 text-sm ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+            >
+              <input
+                type="checkbox"
+                checked={draft.gradient}
+                disabled={disabled}
+                onChange={(e) =>
+                  edit(
+                    e.target.checked
+                      ? {
+                          gradient: true,
+                          // Keep a Colour 2 picked earlier; otherwise start from the brand colours.
+                          headerColor2:
+                            draft.headerColor2 && draft.headerColor2 !== draft.headerColor
+                              ? draft.headerColor2
+                              : secondColourDefault(palette, draft.headerColor),
+                        }
+                      : { gradient: false },
+                  )
+                }
+              />
+              Gradient
+            </label>
+          ) : null}
+          {headerOptions && draft.gradient ? (
+            <ColourField
+              id="email-style-header-2"
+              label="Colour 2"
+              hint="Fades from the header colour (top left) to this one (bottom right). Outlook and Gmail on Android show the header colour alone, so make sure it works by itself."
+              value={draft.headerColor2}
+              chips={palette}
+              disabled={disabled}
+              onChange={(headerColor2) => edit({ headerColor2 })}
+            />
+          ) : null}
+        </div>
+        {headerOptions ? (
+          <fieldset className="space-y-2">
+            <legend className={LABEL}>Header text</legend>
+            <p id="email-style-text-hint" className={HINT}>
+              For your company name, and the logo&rsquo;s name when images are off. Auto picks black or white,
+              whichever reads better.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {HEADER_TEXT_CHOICES.map((choice) => (
+                <label
+                  key={choice}
+                  className={`flex items-center gap-2 text-sm ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                >
+                  <input
+                    type="radio"
+                    name="email-style-header-text"
+                    checked={draft.headerText === choice}
+                    disabled={disabled}
+                    aria-describedby="email-style-text-hint"
+                    onChange={() => edit({ headerText: choice })}
+                  />
+                  {HEADER_TEXT_LABELS[choice]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
         <ColourField
           id="email-style-button"
           label="Button colour"

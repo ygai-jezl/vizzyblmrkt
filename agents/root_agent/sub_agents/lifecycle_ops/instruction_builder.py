@@ -1,9 +1,11 @@
 """Dynamic instruction for the Lifecycle Ops sub-agent.
 
 Prepends the operator language directive (the shared session `locale`, set by the
-root agent's `[ctx:]` envelope callback) onto the static instruction, and notes the
-journey page the operator is chatting from, if any. Pure / ADK-free —
-ReadonlyContext stays under TYPE_CHECKING — so it remains unit-testable without ADK.
+root agent's `[ctx:]` envelope callback) onto the static instruction, notes the
+journey page the operator is chatting from, if any, and adds the Email style rule
+when the brand has a style saved (`emailStyleConfigured`, written by every
+get_lifecycle_context read). Pure / ADK-free — ReadonlyContext stays under
+TYPE_CHECKING — so it remains unit-testable without ADK.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...context.language import language_directive
-from .prompts.instruction import LIFECYCLE_OPS_INSTRUCTION
+from .prompts.instruction import EMAIL_STYLE_ADDENDUM, LIFECYCLE_OPS_INSTRUCTION
 
 if TYPE_CHECKING:
     from google.adk.agents.readonly_context import ReadonlyContext
@@ -34,4 +36,6 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
             f"{state.get('connectionId') or 'unknown'}). Requests to change \"this journey\" "
             "mean that one: read it with get_lifecycle_journey before editing."
         )
+    if state and state.get("emailStyleConfigured"):
+        parts.append(EMAIL_STYLE_ADDENDUM)
     return "\n\n".join(parts)

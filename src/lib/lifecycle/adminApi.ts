@@ -36,7 +36,9 @@ import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectLifecycleDraft } from "./architect";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type ExportWhich } from "./transfer";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
-import { resolveSender } from "@/lib/email/sender";
+import { resolveFooterBrand, resolveSender } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { isEmailStyleEnabled } from "@/lib/email/flags";
 import { countHeldWaitlistEnrolments } from "./waitlist/enrol";
 import { runWaitlistEnrolmentNow } from "./waitlist/runner";
 import { setJourneyState } from "@/lib/journey/service";
@@ -129,9 +131,12 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       version: version ? { version: version.version, publishedAt: version.publishedAt, publishedBy: version.publishedBy ?? null } : null,
       issues: validateLifecycleDraft(journey.draft, NO_CATALOG, { audience: "waitlist" }).issues,
       sender: { verified: true, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
+      // Previews wear what the send does: the launch's footer brand and the Email style.
+      footerBrand: resolveFooterBrand(tenant, campaign),
+      emailStyle: resolveEmailStyle(tenant),
       postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
       modeCeiling: "live",
-      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false, entities: false },
+      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false, entities: false, emailStyle: isEmailStyleEnabled() },
     });
   }
   const [connection, version, tenant] = await Promise.all([
@@ -160,6 +165,9 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
     version: version ? { version: version.version, publishedAt: version.publishedAt, publishedBy: version.publishedBy ?? null } : null,
     issues: connection ? validateLifecycleDraft(journey.draft, connection.catalog).issues : [],
     sender: { verified: sender.verified, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
+    // The footer brand when the journey names no sender (as the runner falls back), and the Email style.
+    footerBrand: resolveFooterBrand(tenant, null),
+    emailStyle: resolveEmailStyle(tenant),
     postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
     modeCeiling: lifecycleModeCeiling(),
     features: {
@@ -168,6 +176,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       consentAtSend: isLifecycleConsentAtSendEnabled(),
       optInAfterSignup: isLifecycleOptInAfterSignupEnabled(),
       entities: isEntitiesEnabled(),
+      emailStyle: isEmailStyleEnabled(),
     },
   });
 }

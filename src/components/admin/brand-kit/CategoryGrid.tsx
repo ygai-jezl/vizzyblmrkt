@@ -12,6 +12,7 @@ import {
   BarChart3,
   Compass,
   FileText,
+  Mail,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import {
   BRAND_KIT_COLOURS_ROUTE,
   BRAND_KIT_ICONS_ROUTE,
   BRAND_KIT_GRAPHICS_ROUTE,
+  BRAND_KIT_EMAIL_STYLE_ROUTE,
   isBrandVoiceUiEnabled,
   isBrandKitLogosUiEnabled,
   isContentSteeringUiEnabled,
@@ -31,6 +33,7 @@ import {
   isBrandColorsUiEnabled,
   isBrandAssetsUiEnabled,
 } from "@/lib/content/brandKit";
+import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 
 interface Category {
   key: string;
@@ -71,6 +74,10 @@ const CATEGORIES: Category[] = [
     icon: MessageSquareQuote,
     href: isBrandVoiceUiEnabled() ? BRAND_KIT_VOICE_ROUTE : undefined,
   },
+  // Hidden (not "Soon") while the Email style flag is off.
+  ...(isEmailStyleUiEnabled()
+    ? [{ key: "email-style", label: "Email style", icon: Mail, href: BRAND_KIT_EMAIL_STYLE_ROUTE }]
+    : []),
   { key: "images", label: "Images", icon: Images, href: BRAND_KIT_IMAGES_ROUTE },
   {
     key: "content-steering",

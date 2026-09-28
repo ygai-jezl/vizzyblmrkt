@@ -229,8 +229,8 @@ env:
   #
   # Brand Kit → Logos — the tenant's uploaded corporate-logo library + the primary-logo email
   # wiring. Server flag gates the /admin/brand-kit/logos page + routes; the NEXT_PUBLIC mirror
-  # (BUILD-inlined) lights up the "Logos" tile. ENABLED on dev; keep OFF in prod until the
-  # brand_logos composite index is live (prod yaml is standalone, so absence = OFF there).
+  # (BUILD-inlined) lights up the "Logos" tile. ENABLED on dev and in prod. Prod inherits this
+  # file, so a flag missing from apphosting.prod.yaml takes the value here, not OFF.
   - variable: BRAND_KIT_LOGOS_ENABLED
     value: "true"
     availability:
@@ -838,6 +838,22 @@ env:
   # lifecycle editor's welcome-journey mode and (D5) the launch's "Email engine"
   # panel. Read at BUILD time by client components.
   - variable: NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Email style: a logo, company name and colours on branded emails (Brand › Email
+  # style), and Vizzy's suggestions for it. The server flag gates the style in
+  # sends and previews, the page, its APIs and Vizzy's tools. Off: emails exactly
+  # as today, page 404, APIs 503, and saved styles are kept. The client mirror
+  # shows the Brand tile and is read at BUILD time. The logo also needs
+  # BRAND_KIT_LOGOS_ENABLED and the https EMAIL_LINK_ORIGIN above.
+  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  - variable: EMAIL_STYLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EMAIL_STYLE_ENABLED
     value: "true"
     availability:
       - BUILD

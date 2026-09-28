@@ -18,6 +18,7 @@ import { isSuppressed } from "@/lib/email/suppression";
 import { journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveSender } from "@/lib/email/sender";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { compileJourneyEmail } from "@/lib/agents/compiler";
 import { syncSignupToWeekly } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
@@ -278,6 +279,7 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   const email = compileJourneyEmail(
     { subject: d.item.subject, body: d.item.body, heroImageUrl: d.item.heroImageUrl ?? null },
     { signup, campaign, rank: s.rank, footer },
+    resolveEmailStyle(tenant),
   );
 
   // Claim: the day's send slot + pendingSend, in one transaction.

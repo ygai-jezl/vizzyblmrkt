@@ -149,6 +149,10 @@ def get_context(state: "dict | None") -> dict:
     status_code, body_text = _request("GET", base + CONTEXT_PATH, token)
     body = _json(body_text)
     if 200 <= status_code < 300:
+        # Written on every successful read (the key is absent with the flag off), so a
+        # stale True can't outlive a flag-off. The instruction builder reads it.
+        style = body.get("emailStyle")
+        state["emailStyleConfigured"] = isinstance(style, dict) and bool(style.get("configured"))
         return {"status": "success", **body}
     return error_result(status_code, body)
 

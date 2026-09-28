@@ -18,6 +18,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.LIFECYCLE_ENABLED;
   delete process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED;
+  delete process.env.EMAIL_STYLE_ENABLED;
 });
 
 describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
@@ -124,6 +125,21 @@ describe("agent read endpoints", () => {
     expect(text).not.toContain("@customer.test");
     expect(text).not.toContain("alex");
     expect(text).toContain("verifiedSendingDomains");
+  });
+
+  it("context: says whether an Email style is saved, and only while the flag is on", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const tenant = db.raw("tenants", adminCtx.tenantId)!;
+    db.seed("tenants", adminCtx.tenantId, {
+      ...tenant,
+      emailStyle: { logo: null, companyName: null, headerColor: "#0b1f3a", accentColor: "#ff6b35" },
+    });
+    expect((await agentLifecycleContext(agent, db)).body).not.toHaveProperty("emailStyle");
+    process.env.EMAIL_STYLE_ENABLED = "true";
+    expect((await agentLifecycleContext(agent, db)).body).toMatchObject({ emailStyle: { configured: true } });
+    db.seed("tenants", adminCtx.tenantId, tenant);
+    expect((await agentLifecycleContext(agent, db)).body).toMatchObject({ emailStyle: { configured: false } });
   });
 
   it("journey: the draft without test recipients or the shadow inbox", async () => {

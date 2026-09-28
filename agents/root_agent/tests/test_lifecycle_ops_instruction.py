@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import types
 
 from root_agent_pkg.sub_agents.lifecycle_ops.instruction_builder import build_lifecycle_ops_instruction
-from root_agent_pkg.sub_agents.lifecycle_ops.prompts.instruction import LIFECYCLE_OPS_INSTRUCTION
+from root_agent_pkg.sub_agents.lifecycle_ops.prompts.instruction import EMAIL_STYLE_ADDENDUM, LIFECYCLE_OPS_INSTRUCTION
+from root_agent_pkg.sub_agents.lifecycle_ops.tools import lifecycle_client as lc
 
 
 def _ctx(state):
@@ -43,3 +45,29 @@ def test_repo_learning_is_read_only_and_human_accepted():
     assert "only READS the code" in text
     assert "never say or imply we change it" in text
     assert "cannot accept items into the catalog yourself" in text
+
+
+def test_email_style_rule_only_when_a_style_is_saved():
+    assert build_lifecycle_ops_instruction(_ctx({})) == LIFECYCLE_OPS_INSTRUCTION
+    assert build_lifecycle_ops_instruction(_ctx({"emailStyleConfigured": False})) == LIFECYCLE_OPS_INSTRUCTION
+    out = build_lifecycle_ops_instruction(_ctx({"emailStyleConfigured": True}))
+    assert out == LIFECYCLE_OPS_INSTRUCTION + "\n\n" + EMAIL_STYLE_ADDENDUM
+    assert EMAIL_STYLE_ADDENDUM.startswith("# Email style")
+    assert "no colours, images, logos, headers or buttons of your own" in EMAIL_STYLE_ADDENDUM
+
+
+def test_every_context_read_rewrites_the_email_style_flag(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
+    state = {"ctxToken": "tok", "emailStyleConfigured": True}
+    replies = iter([{"connections": []}, {"emailStyle": {"configured": True}}, {"emailStyle": {"configured": False}}])
+    monkeypatch.setattr(lc, "_request", lambda *_a, **_k: (200, json.dumps(next(replies))))
+
+    # A flag-off context has no emailStyle key, so a stale True from earlier goes.
+    lc.get_context(state)
+    assert state["emailStyleConfigured"] is False
+    assert build_lifecycle_ops_instruction(_ctx(state)) == LIFECYCLE_OPS_INSTRUCTION
+    lc.get_context(state)
+    assert state["emailStyleConfigured"] is True
+    lc.get_context(state)
+    assert state["emailStyleConfigured"] is False
+

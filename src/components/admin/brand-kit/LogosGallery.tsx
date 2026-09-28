@@ -125,6 +125,12 @@ export function LogosGallery({
     setError(null);
     try {
       const res = await fetch(`/api/admin/brand-kit/logos/${logo.id}`, { method: "DELETE" });
+      if (res.status === 403) {
+        // A member deleting the Email style's logo: the server says why.
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        setError(data.message ?? "Only an admin can delete this logo.");
+        return;
+      }
       if (!res.ok) throw new Error();
       // No manual promotion: the effective primary (primaryId) derives the newest logo when
       // none is flagged — matching the server's getPrimaryLogo — so it recomputes on its own.

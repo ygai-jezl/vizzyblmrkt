@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { TenantSchema, BrandVoiceSchema, BrandKitSchema, PaletteGroupSchema } from "./tenant";
+import {
+  TenantSchema,
+  BrandVoiceSchema,
+  BrandKitSchema,
+  PaletteGroupSchema,
+  EmailStyleInputSchema,
+  EmailStyleSuggestionSchema,
+} from "./tenant";
 
 describe("TenantSchema.gitConnections", () => {
   const field = TenantSchema.shape.gitConnections;
@@ -93,5 +100,91 @@ describe("BrandKitSchema colours (palette + palettes)", () => {
     expect(
       PaletteGroupSchema.safeParse({ id: "x", name: "n", source: "twitter", colors: [] }).success,
     ).toBe(false);
+  });
+});
+
+describe("EmailStyleInputSchema (strict on write)", () => {
+  const style = {
+    logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+    companyName: "Example Co",
+    headerColor: "#0B1F3A",
+    accentColor: "#ff6b35",
+  };
+  const ok = (over: Record<string, unknown>) => EmailStyleInputSchema.safeParse({ ...style, ...over }).success;
+  const logo = (over: Record<string, unknown>) => ok({ logo: { ...style.logo, ...over } });
+
+  it("accepts a full style, a null logo and a null name, lowercasing the colours", () => {
+    expect(EmailStyleInputSchema.parse(style).headerColor).toBe("#0b1f3a");
+    expect(ok({ logo: null, companyName: null })).toBe(true);
+  });
+
+  it("rejects a colour that isn't #rrggbb", () => {
+    for (const headerColor of ["red", "#abc", "#0b1f3acc", "0b1f3a", "#0b1f3g"]) expect(ok({ headerColor })).toBe(false);
+  });
+
+  it("rejects markup, merge syntax and hidden characters in the name, and names over 80", () => {
+    const bad = ["<b>Acme</b>", "Acme {{first_name}}", "Acme }}", "*|FNAME|*", "Acme |* x", "Ac\u202Eme", "", "a".repeat(81)];
+    for (const companyName of bad) expect(ok({ companyName })).toBe(false);
+    expect(ok({ companyName: "Smith & Sons | Est. 1900" })).toBe(true);
+  });
+
+  it("rejects a WebP or non-uuid logo file, fractional sizes and sizes over 200x48", () => {
+    expect(logo({ filename: "0f8fad5b-d9cb-469f-a165-70867728950e.webp" })).toBe(false);
+    expect(logo({ filename: "../logo.png" })).toBe(false);
+    expect(logo({ id: "a/b" })).toBe(false);
+    expect(logo({ width: 120.5 })).toBe(false);
+    expect(logo({ width: 201 })).toBe(false);
+    expect(logo({ height: 49 })).toBe(false);
+    expect(logo({ height: 0 })).toBe(false);
+  });
+});
+
+describe("TenantSchema.emailStyle (lenient on read)", () => {
+  it("reads a damaged value as undefined instead of throwing", () => {
+    const field = TenantSchema.shape.emailStyle;
+    expect(field.parse(undefined)).toBeUndefined();
+    expect(field.parse({ headerColor: "red" })).toBeUndefined();
+    expect(field.parse("nonsense")).toBeUndefined();
+  });
+});
+
+describe("EmailStyleSuggestionSchema (strict on write)", () => {
+  const suggestion = {
+    logoId: "logo_1",
+    companyName: null,
+    headerColor: "#0B1F3A",
+    accentColor: "#ff6b35",
+    source: "chat",
+    brief: "Make the header navy",
+    notes: ["No logos yet — add a PNG or JPG in Brand › Logos"],
+    suggestedBy: "usr_admin",
+    suggestedAt: "2026-09-27T10:00:00.000Z",
+  };
+  const ok = (over: Record<string, unknown>) => EmailStyleSuggestionSchema.safeParse({ ...suggestion, ...over }).success;
+
+  it("accepts a suggestion with or without a logo, lowercasing the colours", () => {
+    expect(EmailStyleSuggestionSchema.parse(suggestion).headerColor).toBe("#0b1f3a");
+    expect(ok({ logoId: null, companyName: "Example Co", source: "brand_kit", brief: "", notes: [] })).toBe(true);
+  });
+
+  it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {
+    expect(ok({ headerColor: "navy" })).toBe(false);
+    expect(ok({ companyName: "{{user.first_name}} Co" })).toBe(false);
+    expect(ok({ logoId: "a/b" })).toBe(false);
+    expect(ok({ source: "email" })).toBe(false);
+    expect(ok({ brief: "a".repeat(501) })).toBe(false);
+    expect(ok({ notes: ["a", "b", "c", "d", "e", "f"] })).toBe(false);
+    expect(ok({ notes: ["a".repeat(201)] })).toBe(false);
+    expect(ok({ suggestedAt: "" })).toBe(false);
+    expect(ok({ suggestedBy: "" })).toBe(false);
+  });
+});
+
+describe("TenantSchema.emailStyleSuggestion (lenient on read)", () => {
+  it("reads a damaged value as undefined instead of throwing", () => {
+    const field = TenantSchema.shape.emailStyleSuggestion;
+    expect(field.parse(undefined)).toBeUndefined();
+    expect(field.parse({ headerColor: "#0b1f3a" })).toBeUndefined();
+    expect(field.parse(42)).toBeUndefined();
   });
 });

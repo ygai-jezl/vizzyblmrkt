@@ -7,6 +7,8 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
 });
 
 import { sendEmail } from "@/lib/email";
+import { getTenantById } from "@/lib/tenant";
+import type { Tenant } from "@/lib/types/tenant";
 import { processEmailJobs } from "@/lib/email/delivery";
 import { suppressEmail } from "@/lib/email/suppression";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -104,5 +106,17 @@ describe("sending an invite", () => {
     await processEmailJobs(ctx, 25, db);
     expect(send).not.toHaveBeenCalled();
     expect(db.raw("invites", inviteId)).toMatchObject({ status: "cancelled" });
+  });
+
+  it("wears the saved Email style when it's switched on", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    const { db } = await queuedWave();
+    const emailStyle = { logo: null, companyName: null, headerColor: "#0b1f3a", accentColor: "#1d4ed8" };
+    vi.mocked(getTenantById).mockResolvedValueOnce({ id: "ten_A", tenantName: "Fernlight Co", emailStyle } as unknown as Tenant);
+    await processEmailJobs(ctx, 25, db);
+    const html = String(send.mock.calls[0]![0].html);
+    expect(html).toContain('bgcolor="#0b1f3a"');
+    expect(html).toContain(">Fernlight Co</span>");
+    expect(html).toContain("background:#1d4ed8;color:#ffffff;");
   });
 });

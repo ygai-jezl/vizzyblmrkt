@@ -13,7 +13,8 @@ import {
   type EmailLayout,
 } from "@/lib/types/emailLayout";
 import type { EmailTemplate } from "@/lib/types/emailTemplate";
-import { wrap, renderEmailLayout } from "@/lib/email/emailRender";
+import { wrap, renderEmailLayout, escapeHtml } from "@/lib/email/emailRender";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { Modal } from "@/components/admin/email/Modal";
 import { ADMIN_THEME_ROOT_ID } from "@/lib/theme";
 import { imageModelOverride, type ImageModelSlug } from "@/lib/content/create/imageModels";
@@ -68,6 +69,8 @@ export function EmailLayoutEditor({
   workspaceId,
   planId,
   primaryLogoUrl,
+  emailStyle = null,
+  footerBrand = null,
   onSave,
   onClose,
 }: {
@@ -77,6 +80,10 @@ export function EmailLayoutEditor({
   /** Absolute public URL of the tenant's primary brand logo, or null — defaulted into a
    *  fresh layout's header + a preset's empty logo slot. */
   primaryLogoUrl?: string | null;
+  /** The tenant's resolved Email style: the preview's band; null = today's look. */
+  emailStyle?: ResolvedEmailStyle | null;
+  /** The footer's "sent by" brand, as the send resolves it; null = a placeholder. */
+  footerBrand?: string | null;
   onSave: (layout: EmailLayout, body: string) => void;
   onClose: () => void;
 }) {
@@ -137,16 +144,21 @@ export function EmailLayoutEditor({
   }
 
   // Preview substitutes the footer's internal tokens with friendly placeholders
-  // (they're resolved per-recipient at send, not author-editable).
-  const previewHtml = useMemo(
-    () =>
-      wrap(renderEmailLayout(layout), null)
-        .replaceAll("{{sender_brand}}", "Your Brand")
+  // (they're resolved per-recipient at send, not author-editable). As at send, the
+  // Email style's band goes on after the tokens, so a name in it is never substituted.
+  const previewHtml = useMemo(() => {
+    // A function replacer, so a `$&` or `$'` in the brand is inserted as written.
+    const brand = footerBrand ? escapeHtml(footerBrand) : "Your Brand";
+    return wrap(
+      renderEmailLayout(layout)
+        .replaceAll("{{sender_brand}}", () => brand)
         .replaceAll("{{manage_preferences_url}}", "#")
         .replaceAll("{{unsubscribe_url}}", "#")
         .replaceAll("{{privacy_url}}", "#"),
-    [layout],
-  );
+      null,
+      { style: emailStyle },
+    );
+  }, [layout, emailStyle, footerBrand]);
   const selected = layout.blocks.find((b) => b.id === selectedId) ?? null;
 
   function addBlock(kind: EmailBlockKind) {

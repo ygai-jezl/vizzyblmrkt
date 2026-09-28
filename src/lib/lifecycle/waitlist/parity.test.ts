@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
+import { setTenantEmailStyle } from "@/lib/tenant/control";
 import type { EmailMessage, EmailResult } from "@/lib/email";
 import type { Signup } from "@/lib/types/signup";
 import type { JourneyGraph, JourneyNode } from "@/lib/types/journey";
+import type { EmailStyleInput } from "@/lib/types/tenant";
 import { enrollSignupInActiveJourney, processEmailJobs } from "@/lib/email/delivery";
 import { convertLegacyJourney } from "./convert";
 import { enrolWaitlistSignup } from "./enrol";
@@ -178,10 +180,11 @@ const PROMOTED: JourneyGraph = {
 
 // ---- Running each engine ---------------------------------------------------------------------
 
-async function runOriginal(graph: JourneyGraph): Promise<void> {
+async function runOriginal(graph: JourneyGraph, style: EmailStyleInput | null): Promise<void> {
   engine = "legacy";
   const db = new FakeFirestore();
   seedLaunch(db);
+  if (style) await setTenantEmailStyle(TENANT_ID, style, db);
   const people = seedPeople(db);
   db.seed("journeys", `journey_${CAMPAIGN_ID}`, { tenantId: TENANT_ID, campaignId: CAMPAIGN_ID, status: "active", graph, createdAt: new Date(T0).toISOString(), updatedAt: new Date(T0).toISOString() });
   vi.setSystemTime(T0);
@@ -199,10 +202,11 @@ async function runOriginal(graph: JourneyGraph): Promise<void> {
   expect(failed).toEqual([]);
 }
 
-async function runLifecycle(graph: JourneyGraph): Promise<void> {
+async function runLifecycle(graph: JourneyGraph, style: EmailStyleInput | null): Promise<void> {
   engine = "lifecycle";
   const db = new FakeFirestore();
   seedLaunch(db);
+  if (style) await setTenantEmailStyle(TENANT_ID, style, db);
   const people = seedPeople(db);
   const { draft, report } = convertLegacyJourney({ graph });
   expect(report.blocking).toEqual([]);
@@ -249,9 +253,9 @@ function comparable(s: Sent) {
   };
 }
 
-async function expectParity(graph: JourneyGraph): Promise<{ emails: number }> {
-  await runOriginal(graph);
-  await runLifecycle(graph);
+async function expectParity(graph: JourneyGraph, style: EmailStyleInput | null = null): Promise<{ emails: number }> {
+  await runOriginal(graph, style);
+  await runLifecycle(graph, style);
   const byPerson = (e: Sent["engine"]) => {
     const map = new Map<string, Sent[]>();
     for (const s of outbox.filter((x) => x.engine === e)) map.set(s.msg.to, [...(map.get(s.msg.to) ?? []), s]);
@@ -293,5 +297,19 @@ describe("golden parity: the original engine and the lifecycle engine send the s
   it("a decided A/B test, back-to-back emails and a sequence hand-off", async () => {
     const { emails } = await expectParity(PROMOTED);
     expect(emails).toBe(PEOPLE.length * 3);
+  });
+
+  it("with an Email style saved, both engines send the same band", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+    const file = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
+    const style = { logo: { id: "logo_1", filename: file, width: 120, height: 40 }, companyName: "Fernlight", headerColor: "#0b1f3a", accentColor: "#1d4ed8" };
+    const { emails } = await expectParity(TIMING, style);
+    expect(emails).toBe(PEOPLE.length * 2);
+    for (const s of outbox) {
+      expect(s.msg.html).toContain('bgcolor="#0b1f3a"');
+      expect(s.msg.html).toContain(`src="https://mk.test/api/brand-logo/${TENANT_ID}/${file}"`);
+      expect(s.msg.text).not.toContain("brand-logo");
+    }
   });
 });

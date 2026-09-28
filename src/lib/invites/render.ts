@@ -1,5 +1,6 @@
 import { compileJourneyEmail } from "@/lib/agents/compiler";
-import { escapeHtml, looksHtml } from "@/lib/email/emailRender";
+import { OPENING_WORDS_MAX, escapeHtml, looksHtml } from "@/lib/email/emailRender";
+import { accentFor, readableOn, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { MergeContext } from "@/lib/email/mergeVars";
 import { getMessage } from "@/lib/i18n/messages";
 
@@ -14,6 +15,10 @@ import { getMessage } from "@/lib/i18n/messages";
  *
  * Unknown tags render blank in the journey compiler, so invite tags are swapped
  * for inert placeholders first and replaced in the finished HTML and text.
+ *
+ * With an Email style the invite gets the header band and its button takes the
+ * button colour (label in black or white, whichever reads); without one it's
+ * today's email byte for byte.
  */
 
 const INVITE_TAG_RE = /\{\{\s*(invite_link|product_name|invite_expires_days)\s*\}\}/g;
@@ -51,6 +56,8 @@ export interface RenderInviteInput {
   productName: string;
   expiresInDays: number;
   locale?: string | null;
+  /** The tenant's resolved Email style; null/absent = today's look. */
+  style?: ResolvedEmailStyle | null;
 }
 
 function fill(s: string, values: Record<InviteTag, string>): string {
@@ -61,19 +68,27 @@ function fill(s: string, values: Record<InviteTag, string>): string {
 
 export function renderInviteEmail(input: RenderInviteInput): { subject: string; html: string; text: string } {
   const toPlaceholders = (s: string) => s.replace(INVITE_TAG_RE, (_m, tag: InviteTag) => PLACEHOLDER[tag]);
-  const compiled = compileJourneyEmail(
-    {
-      subject: toPlaceholders(input.subject),
-      body: toPlaceholders(ensureInviteLink(input.body)),
-      heroImageUrl: input.heroImageUrl ?? null,
-    },
-    input.merge,
-  );
+  const content = {
+    subject: toPlaceholders(input.subject),
+    body: toPlaceholders(ensureInviteLink(input.body)),
+    heroImageUrl: input.heroImageUrl ?? null,
+  };
   const days = String(input.expiresInDays);
   const cta = getMessage(input.locale, "email.invite.cta").replace(/\{\{\s*product_name\s*\}\}/g, input.productName);
+  let compiled = compileJourneyEmail(content, input.merge);
+  if (input.style) {
+    // The inbox preview: the opening words, the button read as its label. The one wrap() would
+    // derive keeps the link's placeholder, which would put a hidden button in it.
+    const words = fill(compiled.text ?? "", { invite_link: cta, product_name: input.productName, invite_expires_days: days });
+    const preheader = words.replace(/\s+/g, " ").trim().slice(0, OPENING_WORDS_MAX);
+    compiled = compileJourneyEmail(content, input.merge, input.style, preheader);
+  }
+  // No style keeps today's literal #111/#fff.
+  const accent = accentFor(input.style, "button");
+  const colors = accent ? `background:${accent};color:${readableOn(accent)}` : "background:#111;color:#fff";
   const button =
     `<a href="${escapeHtml(input.inviteUrl)}" target="_blank" rel="noopener noreferrer" ` +
-    `style="background:#111;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:600">` +
+    `style="${colors};text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:600">` +
     `${escapeHtml(cta)}</a>`;
   return {
     // Plain text; strip CR/LF so no value can smuggle in an extra header.

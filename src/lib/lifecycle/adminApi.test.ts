@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
+import { setTenantEmailStyle } from "@/lib/tenant/control";
+import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import {
   enrolByHand,
   getJourneyDetail,
@@ -17,7 +19,8 @@ import { __resetConnectionCaches as __resetIngestCaches } from "@/lib/connect/co
 import { productUserDocId } from "@/lib/connect/profile";
 import { SANDBOX_CATALOG } from "@/lib/connect/sandbox";
 import { processEnrolment } from "./runner";
-import { CONNECTION_ID, T0, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
+import { CONNECTION_ID, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
+import { publishWaitlist, seedLaunch } from "./waitlist/testing/fixtures";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -160,5 +163,56 @@ describe("lifecycle admin API", () => {
     });
     // Anyone who isn't one of the Sandbox's test users is still refused.
     expect(await enrolByHand(ctx, journey.id, { userId: "stranger" }, db, T0)).toMatchObject({ status: 404, body: { error: "user_not_found" } });
+  });
+});
+
+describe("journey detail: what the previews need to match the send", () => {
+  const FILE = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
+  const STYLE = {
+    logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+    companyName: null,
+    headerColor: "#0b1f3a",
+    accentColor: "#1d4ed8",
+  };
+  type Detail = { emailStyle: unknown; footerBrand: string; features: { emailStyle: boolean } };
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("flag off: no Email style, even with one saved", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    const { db, journey } = await setup();
+    await setTenantEmailStyle(TENANT_ID, STYLE, db);
+    const detail = (await getJourneyDetail(ctx, journey.id, db)).body as Detail;
+    expect(detail.emailStyle).toBeNull();
+    expect(detail.features.emailStyle).toBe(false);
+  });
+
+  it("flag on: the style the send resolves, logo and all", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+    const { db, journey } = await setup();
+    await setTenantEmailStyle(TENANT_ID, STYLE, db);
+    const detail = (await getJourneyDetail(ctx, journey.id, db)).body as Detail;
+    expect(detail.features.emailStyle).toBe(true);
+    expect(detail.emailStyle).toEqual(resolveEmailStyle(await getTenantById(TENANT_ID, db)));
+    expect(detail.emailStyle).toMatchObject({ headerColor: "#0b1f3a", logo: { url: `https://mk.test/api/brand-logo/${TENANT_ID}/${FILE}` } });
+  });
+
+  it("footerBrand: the sending name, else the workspace name — never a placeholder", async () => {
+    const { db, journey } = await setup();
+    expect(((await getJourneyDetail(ctx, journey.id, db)).body as Detail).footerBrand).toBe("Jez at Sandbox");
+    const tenant = db.raw("tenants", TENANT_ID)!;
+    const { senderName, ...unnamed } = tenant.emailSenderConfig as Record<string, unknown>;
+    db.seed("tenants", TENANT_ID, { ...tenant, emailSenderConfig: unnamed });
+    expect(((await getJourneyDetail(ctx, journey.id, db)).body as Detail).footerBrand).toBe("Sandbox Co");
+  });
+
+  it("a launch's welcome journey: the launch's sender name and the style", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    const db = new FakeFirestore();
+    seedLaunch(db, { emailFromName: "The Fernlight team" });
+    const { journey } = await publishWaitlist(db);
+    await setTenantEmailStyle(TENANT_ID, STYLE, db);
+    const detail = (await getJourneyDetail(ctx, journey.id, db)).body as Detail;
+    expect(detail).toMatchObject({ footerBrand: "The Fernlight team", features: { emailStyle: true }, emailStyle: { headerColor: "#0b1f3a" } });
   });
 });

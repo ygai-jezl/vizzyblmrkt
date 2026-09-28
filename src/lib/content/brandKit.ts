@@ -124,6 +124,8 @@ export const BRAND_KIT_FONTS_ROUTE = "/admin/brand-kit/fonts";
 export const BRAND_KIT_COLOURS_ROUTE = "/admin/brand-kit/colours";
 export const BRAND_KIT_ICONS_ROUTE = "/admin/brand-kit/icons";
 export const BRAND_KIT_GRAPHICS_ROUTE = "/admin/brand-kit/graphics";
+/** Brand › Email style (gated by EMAIL_STYLE_ENABLED, see src/lib/email/flags.ts). */
+export const BRAND_KIT_EMAIL_STYLE_ROUTE = "/admin/brand-kit/email-style";
 
 /**
  * The DERIVED URL for an image asset's bytes, served through the authenticated

@@ -9,6 +9,7 @@ import type {
   WaitConfig,
 } from "@/lib/types/lifecycle";
 import type { ConditionOperator } from "@/lib/types/journey";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { CONDITION_FIELDS } from "@/lib/journey/conditions";
 
 /**
@@ -45,9 +46,13 @@ export interface JourneyDetail {
   version: { version: number; publishedAt: string; publishedBy: string | null } | null;
   issues: GraphIssue[];
   sender: { verified: boolean; fromEmail: string | null; fromName: string | null };
+  /** The footer's "sent by" brand when the journey names no sender (launches: the launch's sender). */
+  footerBrand: string;
+  /** The Email style previews wear, as the send does; null = today's look (or the flag is off). */
+  emailStyle: ResolvedEmailStyle | null;
   postalAddress: string | null;
   modeCeiling: "test" | "shadow" | "live";
-  features: { chatAuthoring: boolean; aiLines: boolean; consentAtSend: boolean; optInAfterSignup: boolean; entities: boolean };
+  features: { chatAuthoring: boolean; aiLines: boolean; consentAtSend: boolean; optInAfterSignup: boolean; entities: boolean; emailStyle: boolean };
 }
 
 export type EnrolmentRow = LifecycleEnrolment & {

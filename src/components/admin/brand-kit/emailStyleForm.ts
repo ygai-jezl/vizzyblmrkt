@@ -1,6 +1,8 @@
 import {
   EMAIL_STYLE_LIMITS,
   type BrandKit,
+  type EmailStyleInput,
+  type EmailStyleLogo,
   type EmailStyleSuggestion,
   type HeaderTextChoice,
 } from "@/lib/types/tenant";
@@ -17,12 +19,13 @@ import {
   type BrandKitEmailStyle,
   type EmailStyleLogoOption,
 } from "@/lib/email/emailStyle";
+import { bannerWarnings } from "./headerImage";
 
 /**
  * Pure helpers for the Brand › Email style page (EmailStyleCard): sizing a logo for the
  * header, the logo-on-header contrast check, "Use brand kit" with the logo in view, reviewing
- * a Vizzy suggestion, a gradient's starting colour, and the page's hints. Client-safe; only
- * the canvas read itself lives in the component.
+ * a Vizzy suggestion, a gradient's starting colour, the page's hints, and the logo a Save
+ * sends. Client-safe; only the canvas read itself lives in the component.
  */
 
 /** A logo the page can offer: what "Use brand kit" needs, plus its name and size on disk. */
@@ -145,11 +148,19 @@ export function suggestionForReview(
   };
 }
 
+const LINK_HINT = "This button colour is too light for text links, so links stay dark. Buttons still use it, with dark text";
+const DARK_MODE_HINT = "Gmail's phone apps may darken a light header in dark mode — check it on your phone after saving";
+
 /**
  * What the page warns about for the style being edited. With a gradient, the logo and the
  * light-header checks run across both colours (the logo warns on the worse one), and the
  * header text is checked too, when the band shows any (`showsText`): a forced colour or a
  * gradient can take it below 3:1. Never blocks a Save.
+ *
+ * With a header image (`headerImage` set, Image mode) the band is the banner on the plain
+ * header colour, so the logo and header-text checks don't apply: the banner's own warnings
+ * (narrow, tall, heavy) come first, then the link hint, and the dark-mode hint for the header
+ * colour alone, which shows behind a transparent banner and whenever images are off.
  */
 export function emailStyleHints(input: {
   logoBytes: number | null;
@@ -162,7 +173,19 @@ export function emailStyleHints(input: {
   headerText?: HeaderTextChoice;
   /** The band shows text: a company name, or the name in place of a logo. */
   showsText?: boolean;
+  /**
+   * Image mode: the picked banner's size (a null byte size skips the weight hint), or null
+   * with none picked yet. Absent = the colour header.
+   */
+  headerImage?: { width: number; height: number; byteSize: number | null } | null;
 }): string[] {
+  if (input.headerImage !== undefined) {
+    const hints = input.headerImage ? bannerWarnings(input.headerImage) : [];
+    if (!accentFor({ accentColor: input.accentColor }, "link")) hints.push(LINK_HINT);
+    const [bg] = bandStops({ headerColor: input.headerColor });
+    if (readableOn(bg) === "#000000") hints.push(DARK_MODE_HINT);
+    return hints;
+  }
   const hints: string[] = [];
   const band = {
     headerColor: input.headerColor,
@@ -200,13 +223,70 @@ export function emailStyleHints(input: {
   if (input.logoBytes !== null && input.logoBytes > HEAVY_LOGO_BYTES) {
     hints.push("This logo is over 200 KB, so it may load slowly — a smaller PNG or JPG is better");
   }
-  if (!accentFor({ accentColor: input.accentColor }, "link")) {
-    hints.push("This button colour is too light for text links, so links stay dark. Buttons still use it, with dark text");
-  }
-  if (stops.some((bg) => readableOn(bg) === "#000000")) {
-    hints.push("Gmail's phone apps may darken a light header in dark mode — check it on your phone after saving");
-  }
+  if (!accentFor({ accentColor: input.accentColor }, "link")) hints.push(LINK_HINT);
+  if (stops.some((bg) => readableOn(bg) === "#000000")) hints.push(DARK_MODE_HINT);
   return hints;
+}
+
+/** Where the picked logo is: none picked, being measured, failed to load, or measured. */
+export type LogoState = "none" | "checking" | "failed" | "ready";
+
+/**
+ * The logo a Save sends, and what holds the Save back. In Colour mode, as ever: the measured
+ * logo, else the one kept while the list is unavailable, and a logo still checking or failed
+ * blocks the Save (the Logo fieldset says why). In Image mode that fieldset is hidden, but the
+ * logo is kept for the colour header: one still checking holds the Save (the page says so by
+ * Save), and one that won't load sends the SAVED logo unchanged (the server re-checks it)
+ * rather than block a Save for a reason the admin can't see, and never becomes null in place
+ * of a saved logo. Switching back to Colour shows the failure as usual.
+ */
+export function logoForSave(input: {
+  imageMode: boolean;
+  logoState: LogoState;
+  /** The picked logo with its measured size; null until it's measured. */
+  measured: EmailStyleLogo | null;
+  /** The saved logo, kept as it is while the logo list is unavailable; else null. */
+  kept: EmailStyleLogo | null;
+  saved: Pick<EmailStyleInput, "logo"> | null;
+}): { logo: EmailStyleLogo | null; blocked: "checking" | "failed" | null } {
+  const logo = input.measured ?? input.kept;
+  if (!input.imageMode) {
+    return {
+      logo,
+      blocked: input.logoState === "checking" || input.logoState === "failed" ? input.logoState : null,
+    };
+  }
+  if (input.logoState === "checking") return { logo, blocked: "checking" };
+  if (input.logoState === "failed") return { logo: input.saved?.logo ?? null, blocked: null };
+  return { logo, blocked: null };
+}
+
+/** The form's Header choice: Colour or Image, and the banner picked for Image. */
+export interface HeaderChoice {
+  headerMode: "colour" | "image";
+  headerImageId: string | null;
+}
+
+/**
+ * The form's Header choice after a banner is deleted. A form that hadn't picked it is
+ * unchanged. One that had goes back to the saved style's header (`saved`, as the form shows
+ * the saved style): Colour when the delete cleared the saved style's banner (`cleared`), else
+ * the saved banner the delete left alone — so a later Save doesn't quietly drop it — or Colour
+ * when the saved style has none. A form on Colour stays on Colour.
+ */
+export function headerAfterDelete<D extends HeaderChoice>(
+  draft: D,
+  deleted: { id: string; cleared: boolean },
+  saved: HeaderChoice,
+): D {
+  if (draft.headerImageId !== deleted.id) return draft;
+  const back: HeaderChoice =
+    deleted.cleared || saved.headerImageId === deleted.id ? { headerMode: "colour", headerImageId: null } : saved;
+  return {
+    ...draft,
+    headerMode: draft.headerMode === "image" ? back.headerMode : "colour",
+    headerImageId: back.headerImageId,
+  };
 }
 
 /** A made-up Colour 2 differs from the header by at least this contrast, so the fade shows. */

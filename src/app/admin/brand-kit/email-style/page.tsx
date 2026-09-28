@@ -4,15 +4,17 @@ import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { listLogos } from "@/lib/admin/brandLogos";
+import { listBrandAssets } from "@/lib/admin/brandAssets";
 import { BRAND_KIT_ROUTE, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
 import { isEmailHeaderOptionsEnabled, isEmailHeaderOptionsUiEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
-import { styleFromBrandKit } from "@/lib/email/emailStyle";
+import { isEmailHeaderImage, styleFromBrandKit } from "@/lib/email/emailStyle";
 import { emailLinkOrigin } from "@/lib/email/footer";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { EmailStyleCard } from "@/components/admin/brand-kit/EmailStyleCard";
 import { paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
+import type { EmailHeaderImageChoice } from "@/components/admin/brand-kit/headerImage";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +22,9 @@ export const dynamic = "force-dynamic";
  * Brand › Email style. The logo, optional company name, header colour and button colour
  * that branded emails wear (lifecycle, launch welcome, invite and newsletter emails). Members
  * can view, including a pending Vizzy suggestion; only admins save or dismiss it. Flag-gated
- * (EMAIL_STYLE_ENABLED). The header options (a gradient, the header text colour) show only
- * when EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on.
+ * (EMAIL_STYLE_ENABLED). The header options (a gradient, the header text colour, and a Header
+ * choice of Colour or Image, with the header images uploaded there) show only when
+ * EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on.
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -53,6 +56,29 @@ export default async function EmailStylePage() {
   const saved = tenant?.emailStyle;
   // Off, the page is exactly as without them: no controls, and Save sends no options (the PUT keeps the stored ones).
   const headerOptions = isEmailHeaderOptionsEnabled() && isEmailHeaderOptionsUiEnabled();
+  // The header images an email can use, newest first. No list (it failed) isn't "none": the
+  // card locks the Header choice and Save keeps the stored image.
+  let headerImages: EmailHeaderImageChoice[] = [];
+  let headerImagesUnavailable = false;
+  if (headerOptions) {
+    try {
+      headerImages = (await listBrandAssets(ctx, "header"))
+        .filter(isEmailHeaderImage)
+        .map(({ id, title, filename, mimeType, byteSize, width, height, createdAt }) => ({
+          id,
+          title,
+          filename,
+          mimeType,
+          byteSize,
+          width,
+          height,
+          createdAt,
+        }));
+    } catch (err) {
+      headerImagesUnavailable = true;
+      console.error("[email-style] header images failed to load", err);
+    }
+  }
   // Vizzy's pending suggestion, for the banner. Who asked stays on the server. Its header
   // options only come along with them on; off, the banner and Review are as without them.
   const suggestion = tenant?.emailStyleSuggestion;
@@ -96,7 +122,11 @@ export default async function EmailStylePage() {
                 headerColor: saved.headerColor,
                 accentColor: saved.accentColor,
                 ...(headerOptions
-                  ? { headerGradientColor: saved.headerGradientColor ?? null, headerText: saved.headerText ?? "auto" }
+                  ? {
+                      headerGradientColor: saved.headerGradientColor ?? null,
+                      headerText: saved.headerText ?? "auto",
+                      headerImage: saved.headerImage ?? null,
+                    }
                   : {}),
               }
             : null
@@ -111,6 +141,9 @@ export default async function EmailStylePage() {
         canEdit={ctx.role === "admin"}
         logosUnavailable={logosUnavailable}
         headerOptions={headerOptions}
+        headerImages={headerImages}
+        headerImagesUnavailable={headerImagesUnavailable}
+        headerImageOrigin={headerOptions ? emailLinkOrigin() : ""}
       />
     </div>
   );

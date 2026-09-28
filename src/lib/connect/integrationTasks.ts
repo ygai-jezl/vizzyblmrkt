@@ -62,10 +62,11 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
   },
   context: {
     severity: "personalisation",
-    title: "Build the context endpoint (optional)",
+    title: "Build the context endpoint — for emails that show people their results",
     action:
-      "Only if some values change too fast to send: answer our signed request for one user with their live steps, next step, facts and insight sentences, and hold or exit when needed.",
-    ifSkipped: "Emails still send, using the state you've sent — just without insight sentences, or values fresher than your last write.",
+      "Answer our signed request for one user — or, when the email is about one of their entities, that one — with insight sentences (true sentences about their own results: the only way an email says what their numbers mean), their live steps and facts, and hold or exit when needed.",
+    ifSkipped:
+      "Emails still send, but never tell anyone what their own results mean: no insight sentences, no personal line built on them, and no holding an email until there's something to say.",
   },
   deletion: {
     severity: "compliance",

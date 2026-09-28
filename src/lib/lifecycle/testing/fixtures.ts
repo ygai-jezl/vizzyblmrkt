@@ -173,9 +173,10 @@ export function productContext(over: Partial<ProductContext> & { done?: string[]
 }
 
 export function contextStub(get: () => ProductContext | null) {
-  const calls: Array<{ userId: string; purpose: string }> = [];
-  const fetchContext = async (_c: unknown, input: { userId: string; purpose: string }): Promise<ContextResult> => {
-    calls.push({ userId: input.userId, purpose: input.purpose });
+  type Entity = { id: string; kind: string } | null;
+  const calls: Array<{ userId: string; purpose: string; entity?: Entity }> = [];
+  const fetchContext = async (_c: unknown, input: { userId: string; purpose: string; entity?: Entity }): Promise<ContextResult> => {
+    calls.push({ userId: input.userId, purpose: input.purpose, ...(input.entity !== undefined ? { entity: input.entity } : {}) });
     const context = get();
     return context
       ? { ok: true, context, warnings: [], latencyMs: 1 }

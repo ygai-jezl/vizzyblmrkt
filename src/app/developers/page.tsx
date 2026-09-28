@@ -37,8 +37,8 @@ export default function DevelopersHome() {
           </Link>
         </li>
         <li>
-          <strong>The context endpoint (optional)</strong> — if some values change too fast to send, we can ask your server
-          for them just before we email someone.{" "}
+          <strong>The context endpoint</strong> — how an email tells someone what their own results mean. Just before we
+          email them, we ask your server for true sentences about their numbers, and it can hold or stop the email.{" "}
           <Link className="underline" href="/developers/context-endpoint">
             Context endpoint →
           </Link>
@@ -72,7 +72,8 @@ export default function DevelopersHome() {
           writes arrive in the connection&apos;s <strong>Events</strong> tab.
         </li>
         <li>
-          Optional: build a context endpoint for values that change too fast to send, add its URL in the connection&apos;s{" "}
+          If your emails should tell people what their results mean, build a context endpoint, add its URL in the
+          connection&apos;s{" "}
           <strong>Settings</strong>, and press <strong>Test connection</strong>.
         </li>
         <li>

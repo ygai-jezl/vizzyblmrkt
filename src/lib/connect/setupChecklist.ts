@@ -58,8 +58,9 @@ export function setupSteps(input: SetupInput): SetupStep[] {
     },
     {
       id: "context",
-      label: "Answer the context request (optional)",
-      detail: "Only for values that change too fast to send: before each email we ask your product for that person's latest facts.",
+      label: "Answer the context request — for emails about people's results",
+      detail:
+        "Before each email we ask your product about that person (or the entity the email is about): insight sentences on their results — the only way an email says what their numbers mean — and whether to hold or stop it.",
       done: input.guide.contextEndpoint === "done",
       optional: true,
       tab: "test",

@@ -6,18 +6,21 @@ export default function ContextEndpointDocs() {
     <article>
       <H1>The context endpoint</H1>
       <Lead>
-        Optional. When you set one, YouGrow asks your server for a user&apos;s live state just before it emails them. Your
-        answer decides which branch of the journey they take, fills in their checklist and next step, and supplies the
-        true facts an email may mention.
+        When you set one, YouGrow asks your server about one user just before it emails them. It&apos;s how an email tells
+        someone something true about their own results — a score, a count, a finished job, how they compare — in your
+        words, and how your product keeps the final say: hold or stop an email at the moment it would go.
       </Lead>
       <Note>
-        <strong>You may not need one.</strong> Journeys run on the state you{" "}
+        <strong>What you lose without one.</strong> Journeys still run on the state you{" "}
         <Link className="underline" href="/developers/users">
           send
-        </Link>{" "}
-        — steps and facts included. A context endpoint is for what&apos;s <em>true right now</em>: numbers that change too
-        fast to send, and insight sentences only your product can write. It&apos;s also how your product keeps the final
-        say: you can hold or stop email for anyone, at the moment it would be sent.
+        </Link>
+        , and a template can print a bare fact you&apos;ve sent. But no email can say what a person&apos;s own numbers mean
+        — an insight sentence such as &ldquo;Your last report found 3 issues, down from 9 last week&rdquo; — because only
+        your product can write it and keep it true. Nor can you hold an email until there&apos;s something to say (while a
+        first result is still being produced), or stop one at the last moment. Build it if your emails should show people
+        their results; skip it only if they&apos;ll only ever nudge steps.{" "}
+        <strong>Coding agents:</strong> don&apos;t decide this for the product owner — say what they&apos;d lose, and ask.
       </Note>
 
       <H2 id="setup">What you need in place</H2>
@@ -72,6 +75,7 @@ X-YouGrow-Key-Id: <your key id>
   "purpose": "send",
   "journeyId": "lcj_…",
   "nodeId": "cond_1",
+  "entity": { "id": "proj_42", "kind": "project" },
   "requestId": "b5c1e6d2-…"
 }`}</Code>
       <Fields
@@ -79,6 +83,18 @@ X-YouGrow-Key-Id: <your key id>
           ["userId", "string", "Your own id for the user — the userId you use in the API."],
           ["purpose", "string", <><C>send</C>, <C>prepare</C> or <C>test</C>. You can answer them all the same way.</>],
           ["journeyId / nodeId", "string?", "Which journey and step is asking — useful in your logs."],
+          [
+            "entity",
+            "object?",
+            <>
+              When the email is about one of the user&apos;s{" "}
+              <Link className="underline" href="/developers/users#entities">
+                entities
+              </Link>{" "}
+              (a workspace, a project, a brand — whatever they have several of): its <C>id</C> and <C>kind</C>, as you sent
+              them. Answer for that one: its steps, facts and insights. Absent: answer for the person.
+            </>,
+          ],
           ["requestId", "string", <>Unique per request; it&apos;s also the token&apos;s <C>jti</C>.</>],
         ]}
       />
@@ -136,7 +152,14 @@ X-YouGrow-Key-Id: <your key id>
       <Fields
         rows={[
           ["id", "string", "Stable id; each insight is used at most once per user."],
-          ["sentence", "string", <>A complete, <strong>true</strong> sentence, ≤ 300 chars. This is the only place numbers about the user appear in an email.</>],
+          [
+            "sentence",
+            "string",
+            <>
+              A complete, <strong>true</strong> sentence, ≤ 300 chars — the only way an email says what someone&apos;s numbers
+              mean. (A template can print a bare fact with <C>{"{{fact.<id>}}"}</C>; the sentence about it comes from here.)
+            </>,
+          ],
           ["factIds", "string[]", "The facts it's based on."],
           ["weight", "0–1", "How strong it is (default 0.5). Stronger insights are used first."],
           ["supportsStep", "string?", "A step id this insight encourages — preferred when that step is the next one."],

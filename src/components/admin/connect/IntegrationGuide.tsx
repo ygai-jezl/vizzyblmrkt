@@ -80,7 +80,7 @@ export function IntegrationGuide({ connection }: { connection: PublicConnection 
         <ul className="grid gap-1 text-sm sm:grid-cols-2">
           <li className="flex items-center gap-2"><Tick s={guide.status.catalog} /> Catalog has onboarding steps</li>
           <li className="flex items-center gap-2"><Tick s={guide.status.eventsReceived} /> Users are arriving</li>
-          <li className="flex items-center gap-2"><Tick s={guide.status.contextEndpoint} /> Context endpoint tested OK (optional)</li>
+          <li className="flex items-center gap-2"><Tick s={guide.status.contextEndpoint} /> Context endpoint tested OK (for emails about results)</li>
           <li className="flex items-center gap-2"><Tick s={guide.status.webhookEndpoint} /> Webhook endpoint set (optional)</li>
         </ul>
         <p className="text-sm">
@@ -161,8 +161,8 @@ export function IntegrationGuide({ connection }: { connection: PublicConnection 
       ) : null}
 
       <Section
-        title="Optional: the context endpoint"
-        description="Only if some values change too fast to send. We call it just before emailing someone and use its answer over the stored state — see the docs for the format and how to verify our requests."
+        title="The context endpoint — for emails about people's results"
+        description="We call it just before emailing someone. Its insight sentences are the only way an email says what someone's own numbers mean, it can hold or stop the email, and its answer is used over the stored state — see the docs for the format and how to verify our requests."
       >
         <h4 className="text-xs font-semibold uppercase text-neutral-500">steps</h4>
         <ul className="space-y-1 text-sm">

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import {
   clearTenantEmailStyleLogo,
@@ -79,6 +79,103 @@ describe("setTenantEmailStyle", () => {
 
     expect(db.raw("tenants", "ten_A")).not.toHaveProperty("emailStyle");
     expect((await getTenantById("ten_A", db))?.emailStyle).toBeUndefined();
+  });
+});
+
+describe("setTenantEmailStyle: header options", () => {
+  const OPTIONS = { headerGradientColor: "#4f46e5", headerText: "white" } as const;
+
+  it("stores a gradient and a forced text colour, lowercased, with a plain write", async () => {
+    const db = seeded();
+    const tx = vi.spyOn(db, "runTransaction");
+    const input: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "black" };
+    const stored = await setTenantEmailStyle("ten_A", input, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a", headerGradientColor: "#4f46e5", headerText: "black" });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(tx).not.toHaveBeenCalled();
+  });
+
+  it("null and \"auto\" remove them: the defaults are stored as no key", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: null, headerText: "auto" }, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).not.toHaveProperty("headerGradientColor");
+    expect(raw.emailStyle).not.toHaveProperty("headerText");
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("a colour 2 equal to the header colour is solid: stored as no key, replacing a stored gradient", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: "#0b1f3a" }, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).not.toHaveProperty("headerGradientColor");
+    expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a", headerText: "white" });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("a Save that leaves them out keeps the stored ones, and returns them", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerColor: "#000080" }, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      ...STYLE,
+      headerColor: "#000080",
+      ...OPTIONS,
+      updatedAt: expect.any(String),
+      updatedBy: "usr_admin",
+    });
+    expect(stored).toEqual(raw.emailStyle);
+    expect((await getTenantById("ten_A", db))?.emailStyle).toMatchObject(OPTIONS);
+  });
+
+  it("keeps one option and replaces the other", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS }, db);
+    await setTenantEmailStyle("ten_A", { ...STYLE, headerText: "auto" }, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toMatchObject({ headerGradientColor: "#4f46e5" });
+    expect(raw.emailStyle).not.toHaveProperty("headerText");
+  });
+
+  it("a damaged stored option never blocks a Save that leaves it out: it's dropped", async () => {
+    const db = seeded({
+      emailStyle: { ...STYLE, headerColor: "#0b1f3a", headerGradientColor: "purple", headerText: "white" },
+    });
+    const stored = await setTenantEmailStyle("ten_A", STYLE, db);
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).not.toHaveProperty("headerGradientColor");
+    expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a", headerText: "white" });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("refuses a colour 2 that isn't #rrggbb or another text choice", async () => {
+    const db = seeded();
+    await expect(setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: "purple" }, db)).rejects.toThrow();
+    const pink = { ...STYLE, headerText: "pink" } as unknown as EmailStyleInput;
+    await expect(setTenantEmailStyle("ten_A", pink, db)).rejects.toThrow();
+    expect(db.raw("tenants", "ten_A")).not.toHaveProperty("emailStyle");
+  });
+
+  it("applying a suggestion keeps the options and clears it, in one transaction", async () => {
+    const db = seeded({ emailStyleSuggestion: SUGGESTION });
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS }, db);
+    const tx = vi.spyOn(db, "runTransaction");
+    await setTenantEmailStyle("ten_A", STYLE, db, { clearSuggestionAt: SUGGESTION.suggestedAt });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw).not.toHaveProperty("emailStyleSuggestion");
+    expect(raw.emailStyle).toMatchObject(OPTIONS);
+    expect(tx).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,7 +1,7 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
 import { EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
-import { isLogoUrlShape, readableOn, type ResolvedEmailStyle } from "./emailStyle";
+import { bandInk, bandStops, isLogoUrlShape, type ResolvedEmailStyle } from "./emailStyle";
 
 /**
  * Email HTML assembly — the SINGLE source of email-safe markup, shared by the send
@@ -116,10 +116,18 @@ const sizeOk = (n: number, max: number) => Number.isInteger(n) && n >= 1 && n <=
  * cell, with a fixed-width MSO wrapper, so Outlook keeps the colour and the width. The logo
  * carries width/height attributes and no link. A logo URL of the wrong shape (repeated here
  * because previews run in the browser) falls back to the name — never a broken image.
+ *
+ * With a gradient, only the cell (which fills the band) gains a 135deg linear-gradient over
+ * its background-color. No VML: every Outlook and Gmail on Android show the header colour
+ * as a solid band. The text is the forced colour, else whichever reads better across both.
  */
 export function renderHeaderBand(style: ResolvedEmailStyle): string {
-  const bg = safeHex(style.headerColor, "#111111");
-  const ink = readableOn(bg);
+  const [bg, bg2] = bandStops(style);
+  const ink = bandInk(style);
+  // The cell alone: it fills the band, so painting the table too would draw the gradient twice.
+  const fill = bg2
+    ? `background-color:${bg};background-image:linear-gradient(135deg,${bg},${bg2})`
+    : `background-color:${bg}`;
   const logo =
     style.logo &&
     isLogoUrlShape(style.logo.url) &&
@@ -141,7 +149,7 @@ export function renderHeaderBand(style: ResolvedEmailStyle): string {
     img && name
       ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;padding-left:12px">${name}</td></tr></table>`
       : img || name || "&nbsp;";
-  return `<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:608px;margin:0 auto;background-color:${bg}"><tr><td bgcolor="${bg}" align="left" style="padding:16px 24px;background-color:${bg}">${content}</td></tr></table><!--[if mso]></td></tr></table><![endif]-->`;
+  return `<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:608px;margin:0 auto;background-color:${bg}"><tr><td bgcolor="${bg}" align="left" style="padding:16px 24px;${fill}">${content}</td></tr></table><!--[if mso]></td></tr></table><![endif]-->`;
 }
 
 export function htmlToText(html: string): string {

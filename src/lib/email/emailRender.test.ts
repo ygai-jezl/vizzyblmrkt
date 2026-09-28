@@ -305,6 +305,48 @@ describe("wrap with an Email style", () => {
     expect(renderHeaderBand(style({ logo: null, headerColor: "#ffd400" }))).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#ffd400" style="width:100%;max-width:608px;margin:0 auto;background-color:#ffd400"><tr><td bgcolor="#ffd400" align="left" style="padding:16px 24px;background-color:#ffd400"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#000000">Acme Co</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
   });
 
+  describe("header options", () => {
+    const cell = (band: string) => band.match(/<td bgcolor="[^"]*" align="left" style="([^"]*)">/)?.[1];
+
+    it("a gradient paints only the cell, over colour 1 — which stays bgcolor and background-color everywhere", () => {
+      const band = renderHeaderBand(style({ headerColor: "#7c3aed", headerGradientColor: "#4f46e5" }));
+      expect(band.match(/bgcolor="#7c3aed"/g)).toHaveLength(2);
+      expect(band).toContain('max-width:608px;margin:0 auto;background-color:#7c3aed"');
+      expect(cell(band)).toBe(
+        "padding:16px 24px;background-color:#7c3aed;background-image:linear-gradient(135deg,#7c3aed,#4f46e5)",
+      );
+      expect(band.match(/linear-gradient/g)).toHaveLength(1);
+      expect(band).not.toMatch(/v:|vml/i);
+      expect(band).toContain('<!--[if mso]><table role="presentation" width="608"');
+    });
+
+    it("a forced white or black reaches the name span and the logo's alt text", () => {
+      const white = renderHeaderBand(style({ logo: null, headerColor: "#ffd400", headerText: "white" }));
+      expect(white).toContain('font-weight:700;color:#ffffff">Acme Co</span>');
+      const black = renderHeaderBand(style({ headerText: "black" }));
+      expect(black).toContain('font-weight:700;color:#000000">Acme Co</span>');
+      expect(imgTag(black)).toContain("color:#000000");
+    });
+
+    it("Auto text reads across the gradient, not just colour 1", () => {
+      const band = renderHeaderBand(style({ logo: null, headerColor: "#a78bfa", headerGradientColor: "#312e81" }));
+      expect(band).toContain('color:#ffffff">Acme Co</span>');
+    });
+
+    it("a bad colour 2 draws solid, with the text judged on what's drawn", () => {
+      const band = renderHeaderBand(style({ logo: null, headerColor: "#ffd400", headerGradientColor: "purple" }));
+      expect(band).toBe(renderHeaderBand(style({ logo: null, headerColor: "#ffd400" })));
+      expect(band).not.toContain("linear-gradient");
+      expect(band).toContain("color:#000000");
+    });
+
+    it("a header colour that isn't #rrggbb draws #111111 with white text", () => {
+      const band = renderHeaderBand(style({ logo: null, headerColor: "#fff" }));
+      expect(band.match(/bgcolor="#111111"/g)).toHaveLength(2);
+      expect(band).toContain('color:#ffffff">Acme Co</span>');
+    });
+  });
+
   it("pins today's styled shell", () => {
     expect(wrap("<p>x</p>", null, { style: style() })).toMatchInlineSnapshot(`
       "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">

@@ -69,6 +69,27 @@ describe("tenant registry", () => {
     expect(all.every((t) => t.emailStyle === undefined)).toBe(true);
   });
 
+  it("a damaged header option drops alone: the Email style still loads with its colours and logo", async () => {
+    const style = {
+      logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+      companyName: null,
+      headerColor: "#7c3aed",
+      accentColor: "#ff6b35",
+    };
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ emailStyle: { ...style, headerGradientColor: "purple", headerText: "white" } }));
+    db.seed("tenants", "ten_B", tenant({ emailStyle: { ...style, headerGradientColor: "#4f46e5", headerText: "pink" } }));
+
+    const a = (await getTenantById("ten_A", db))?.emailStyle;
+    expect(a).toMatchObject({ ...style, headerText: "white" });
+    expect(a?.headerGradientColor).toBeUndefined();
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_A", "ten_B"]);
+    const b = all.find((t) => t.id === "ten_B")?.emailStyle;
+    expect(b).toMatchObject({ ...style, headerGradientColor: "#4f46e5" });
+    expect(b?.headerText).toBeUndefined();
+  });
+
   it("a damaged emailStyleSuggestion reads as none and the tenant still loads", async () => {
     const db = new FakeFirestore();
     db.seed("tenants", "ten_A", tenant({ emailStyleSuggestion: { headerColor: "navy", brief: "x".repeat(4000) } }));

@@ -439,6 +439,10 @@ export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
  * silently restyles live email. Strict on write (EmailStyleInputSchema, used by the admin PUT
  * and the setter); lenient on read (TenantSchema catches a damaged value as "none", because
  * every tenant read — incl. the delivery crons — parses the whole doc).
+ *
+ * Header options (EMAIL_HEADER_OPTIONS_ENABLED): a gradient's second colour and a forced
+ * header text colour. Stored only when set: absent = a solid header / Auto text. Absent in a
+ * Save = keep what's stored. A damaged stored option drops alone; the band still draws.
  */
 export const EMAIL_STYLE_LIMITS = { logoWidth: 200, logoHeight: 48, companyName: 80 } as const;
 
@@ -475,12 +479,21 @@ export const EmailStyleLogoSchema = z.object({
 });
 export type EmailStyleLogo = z.infer<typeof EmailStyleLogoSchema>;
 
+/** The band's text colour: "auto" is black or white, whichever reads better across the band. */
+export const HEADER_TEXT_CHOICES = ["auto", "white", "black"] as const;
+export const HeaderTextSchema = z.enum(HEADER_TEXT_CHOICES);
+export type HeaderTextChoice = z.infer<typeof HeaderTextSchema>;
+
 export const EmailStyleInputSchema = z.object({
   logo: EmailStyleLogoSchema.nullable(),
   /** null = the logo alone (or the workspace's sender name when there's no logo). */
   companyName: CompanyNameSchema.nullable(),
   headerColor: HexColorSchema,
   accentColor: HexColorSchema,
+  /** The band fades from headerColor to this; null = solid. Absent = keep what's stored. */
+  headerGradientColor: HexColorSchema.nullable().optional(),
+  /** Absent = keep what's stored. */
+  headerText: HeaderTextSchema.optional(),
 });
 export type EmailStyleInput = z.infer<typeof EmailStyleInputSchema>;
 
@@ -488,6 +501,9 @@ export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
   updatedAt: z.string().max(40).optional(),
   /** Firebase UID of the admin who saved it. */
   updatedBy: z.string().max(128).optional(),
+  // Never stored as a default (null, "auto"), and read per field: a damaged one drops alone.
+  headerGradientColor: HexColorSchema.optional().catch(undefined),
+  headerText: z.enum(["white", "black"]).optional().catch(undefined),
 });
 export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
 

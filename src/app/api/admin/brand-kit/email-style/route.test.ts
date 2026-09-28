@@ -142,6 +142,63 @@ describe("PUT /api/admin/brand-kit/email-style", () => {
   });
 });
 
+describe("PUT header options (gradient, header text colour)", () => {
+  const options = { headerGradientColor: "#4F46E5", headerText: "white" };
+  // What the setter returns when it kept options already stored.
+  const keptOptions = {
+    ...style,
+    headerGradientColor: "#4f46e5",
+    headerText: "white",
+    updatedAt: "2026-09-27T00:00:00.000Z",
+  };
+
+  it("flag off: ignored even when sent — the setter keeps what's stored — and left out of the response", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+    control.setTenantEmailStyle.mockResolvedValueOnce(keptOptions);
+    const res = await PUT(req("PUT", { ...style, ...options }));
+    expect(res.status).toBe(200);
+    expect(control.setTenantEmailStyle).toHaveBeenCalledWith("ten_A", style, undefined, { updatedBy: "usr_admin" });
+    const body = await res.json();
+    expect(body.emailStyle).toEqual({ ...style, updatedAt: "2026-09-27T00:00:00.000Z" });
+
+    // Off, even a value the flag-on parse would refuse is simply dropped.
+    expect((await PUT(req("PUT", { ...style, headerGradientColor: "purple", headerText: "pink" }))).status).toBe(200);
+    expect(control.setTenantEmailStyle.mock.calls[1]![1]).toEqual(style);
+  });
+
+  it("flag on: passed through (colour 2 lowercased), and the response carries them", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    control.setTenantEmailStyle.mockResolvedValueOnce(keptOptions);
+    const res = await PUT(req("PUT", { ...style, ...options }));
+    expect(res.status).toBe(200);
+    expect(control.setTenantEmailStyle).toHaveBeenCalledWith(
+      "ten_A",
+      { ...style, headerGradientColor: "#4f46e5", headerText: "white" },
+      undefined,
+      { updatedBy: "usr_admin" },
+    );
+    expect((await res.json()).emailStyle).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white" });
+
+    await PUT(req("PUT", { ...style, headerGradientColor: null, headerText: "auto" }));
+    expect(control.setTenantEmailStyle.mock.calls[1]![1]).toEqual({
+      ...style,
+      headerGradientColor: null,
+      headerText: "auto",
+    });
+  });
+
+  it.each([
+    ["a colour 2 that isn't #rrggbb", { headerGradientColor: "purple" }],
+    ["another text choice", { headerText: "pink" }],
+  ])("flag on: 400s for %s", async (_label, over) => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const res = await PUT(req("PUT", { ...style, ...over }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_input" });
+    expect(control.setTenantEmailStyle).not.toHaveBeenCalled();
+  });
+});
+
 describe("DELETE /api/admin/brand-kit/email-style", () => {
   it("clears the style for an admin", async () => {
     const res = await DELETE(req("DELETE"));

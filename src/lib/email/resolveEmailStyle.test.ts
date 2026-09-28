@@ -73,6 +73,37 @@ describe("resolveEmailStyle", () => {
     expect(resolveEmailStyle(tenant())!.logo).toBeNull();
   });
 
+  describe("header options", () => {
+    const withOptions = () => tenant({ emailStyle: { ...STYLE, headerGradientColor: "#4f46e5", headerText: "white" } });
+
+    it("flag off: the saved gradient and text colour are ignored — exactly today's style", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+      expect(resolveEmailStyle(withOptions())).toStrictEqual(resolveEmailStyle(tenant()));
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "");
+      expect(resolveEmailStyle(withOptions())).not.toHaveProperty("headerGradientColor");
+    });
+
+    it("flag on: they're drawn; a solid header with Auto text is still exactly today's", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      expect(resolveEmailStyle(withOptions())).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white" });
+      expect(resolveEmailStyle(tenant())).toStrictEqual({
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+      });
+    });
+
+    it("a damaged option drops alone and the rest of the style still resolves", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      // Built outside the registry, so the resolver's own lenient read is what drops them.
+      const damaged = { ...STYLE, headerGradientColor: "purple", headerText: "pink" } as unknown as StoredEmailStyle;
+      const bad = { ...tenant(), emailStyle: damaged };
+      expect(resolveEmailStyle(bad)).toStrictEqual(resolveEmailStyle(tenant()));
+    });
+  });
+
   it("altName is the company name when set, else the sender name, else the tenant name", () => {
     expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, companyName: "Acme" } }))).toMatchObject({
       name: "Acme",

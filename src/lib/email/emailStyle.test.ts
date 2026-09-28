@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   accentFor,
+  bandInk,
+  bandStops,
+  bandTextContrast,
   cleanCompanyName,
   contrastRatio,
   isLogoUrlShape,
+  readableAcross,
   readableOn,
   resolveStoredStyle,
   safeLogoUrl,
@@ -38,6 +42,47 @@ describe("contrast", () => {
   it("puts black on a light accent and white on a dark one", () => {
     expect(readableOn("#ffd400")).toBe("#000000");
     expect(readableOn("#0b1f3a")).toBe("#ffffff");
+  });
+});
+
+describe("the header band's colours", () => {
+  it("readableAcross one colour is exactly readableOn, over a sweep of backgrounds", () => {
+    const steps = [0, 0x22, 0x44, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xcc, 0xee, 0xff];
+    const hex = (n: number) => n.toString(16).padStart(2, "0");
+    for (const r of steps)
+      for (const g of steps)
+        for (const b of steps) {
+          const bg = `#${hex(r)}${hex(g)}${hex(b)}`;
+          expect(readableAcross([bg])).toBe(readableOn(bg));
+        }
+  });
+
+  it("across a light-to-dark gradient, picks by the worse stop", () => {
+    // Black reads on the light violet alone, but only 1.8:1 on the dark end; white is 2.7:1 at worst.
+    expect(readableOn("#a78bfa")).toBe("#000000");
+    expect(readableAcross(["#a78bfa", "#312e81"])).toBe("#ffffff");
+    expect(bandInk({ headerColor: "#a78bfa", headerGradientColor: "#312e81" })).toBe("#ffffff");
+    expect(readableAcross(["#ffd400", "#f5b700"])).toBe("#000000");
+  });
+
+  it("a forced text colour wins, and bandTextContrast is its worst contrast across the stops", () => {
+    const white = { headerColor: "#ffd400", headerText: "white" as const };
+    expect(bandInk(white)).toBe("#ffffff");
+    expect(bandTextContrast(white)).toBeLessThan(3);
+    const black = { headerColor: "#7c3aed", headerGradientColor: "#4f46e5", headerText: "black" as const };
+    expect(bandInk(black)).toBe("#000000");
+    expect(bandTextContrast(black)).toBeCloseTo(contrastRatio("#4f46e5", "#000000"), 5);
+    expect(bandTextContrast(black)).toBeGreaterThan(3);
+    expect(bandTextContrast({ headerColor: "#5b21b6", headerText: "black" })).toBeLessThan(3);
+  });
+
+  it("bandStops: what the band draws — a bad colour 2 is dropped, a bad header draws #111111", () => {
+    expect(bandStops({ headerColor: "#7c3aed", headerGradientColor: "#4f46e5" })).toEqual(["#7c3aed", "#4f46e5"]);
+    expect(bandStops({ headerColor: "#7c3aed" })).toEqual(["#7c3aed"]);
+    expect(bandStops({ headerColor: "#ffd400", headerGradientColor: "purple" })).toEqual(["#ffd400"]);
+    expect(bandStops({ headerColor: "#ffd400", headerGradientColor: "#FFD400" })).toEqual(["#ffd400"]);
+    expect(bandStops({ headerColor: "#fff", headerGradientColor: "#4f46e5" })).toEqual(["#111111", "#4f46e5"]);
+    expect(bandStops({ headerColor: "red" })).toEqual(["#111111"]);
   });
 });
 
@@ -150,6 +195,28 @@ describe("resolveStoredStyle", () => {
   it("keeps the logo within 200×48", () => {
     const big = { ...stored, logo: { ...stored.logo, width: 999.6, height: 0.2 } };
     expect(resolveStoredStyle(big, opts)!.logo).toMatchObject({ width: 200, height: 1 });
+  });
+
+  describe("header options", () => {
+    const today = resolveStoredStyle(stored, opts);
+    const options = { headerGradientColor: "#4F46E5", headerText: "white" as const };
+
+    it("sets a gradient and a forced text colour with headerOptions on", () => {
+      expect(resolveStoredStyle({ ...stored, ...options }, { ...opts, headerOptions: true })).toStrictEqual({
+        ...today,
+        headerGradientColor: "#4f46e5",
+        headerText: "white",
+      });
+    });
+
+    it("adds no keys with headerOptions off, for the defaults, or for equal stops", () => {
+      expect(resolveStoredStyle({ ...stored, ...options }, opts)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, ...options }, { ...opts, headerOptions: false })).toStrictEqual(today);
+      const on = { ...opts, headerOptions: true };
+      expect(resolveStoredStyle({ ...stored, headerGradientColor: null, headerText: "auto" }, on)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, headerGradientColor: "#0B1F3A" }, on)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, headerGradientColor: "purple" }, on)).toStrictEqual(today);
+    });
   });
 });
 

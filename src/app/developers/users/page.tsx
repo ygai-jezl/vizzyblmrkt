@@ -84,7 +84,7 @@ Content-Type: application/json
 
       <H3>With the Node SDK</H3>
       <P>
-        <C>@yougrowai/node</C> 0.3.0 and later: it handles the auth, retries network errors, <C>429</C> and <C>5xx</C>{" "}
+        <C>@yougrowai/node</C> 0.3.0 and later (0.5.0 for <C>entities</C>): it handles the auth, retries network errors, <C>429</C> and <C>5xx</C>{" "}
         responses, and splits big batches. It works from ES modules and CommonJS (<C>require</C>).
       </P>
       <Code title="yougrow.ts">{`// npm install @yougrowai/node

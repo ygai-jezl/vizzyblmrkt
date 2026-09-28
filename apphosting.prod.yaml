@@ -620,10 +620,10 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Entities (see apphosting.yaml) stay off until they're verified on dev. It has
-  # to be set: this file only overrides apphosting.yaml.
+  # Entities (see apphosting.yaml): on in prod since 2026-09-28 (owner decision).
+  # Set "false" here to switch them off.
   - variable: CONNECT_ENTITIES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

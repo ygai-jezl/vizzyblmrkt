@@ -125,7 +125,7 @@ describe("prompt for the customer's coding agent", () => {
     expect(p).toContain("**Ask me** to set our webhook URL in YouGrow");
     expect(p).toContain("**ask me** to add our test accounts there");
     expect(p).toContain("Never ask me to paste the secret into this chat");
-    expect(p).toContain("npm install @yougrowai/node@^0.4.0");
+    expect(p).toContain("npm install @yougrowai/node@^0.5.0");
   });
 
   it("uses the proposed steps and facts before anything is accepted into the catalog", () => {
@@ -178,7 +178,7 @@ describe("prompt for the customer's coding agent", () => {
     expect(p).toContain("https://yougrow.test/developers/openapi.json");
     expect(p).toContain("Don't clone or read YouGrow's own source code");
     expect(p).toContain("`YOUGROW_ORIGIN` (value `https://yougrow.test`)");
-    expect(p).toContain("0.4.0 or later");
+    expect(p).toContain("0.5.0 or later");
     expect(p).toContain('`const { YouGrow } = require("@yougrowai/node")`');
   });
 

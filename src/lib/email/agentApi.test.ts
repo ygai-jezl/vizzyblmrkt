@@ -150,6 +150,43 @@ describe("Vizzy's Email style read", () => {
     expect(r).toEqual(PINNED);
   });
 
+  // Pinned whole: themes and layout buttons will add fields only with their flags on. With nothing
+  // saved or suggested, this is exactly what Vizzy reads today, with the header options off and on.
+  it("pins today's full answer with nothing saved or suggested", async () => {
+    const db = world();
+    db.seed("tenants", "ten_A", { ...db.raw("tenants", "ten_A"), emailStyle: undefined, emailStyleSuggestion: undefined });
+    const bare = {
+      url: "/admin/brand-kit/email-style",
+      canSuggest: true,
+      current: null,
+      pending: null,
+      fromBrandKit: PINNED.body.fromBrandKit,
+      logos: PINNED.body.logos,
+    };
+    expect(await agentEmailStyle(admin, db)).toEqual({ status: 200, body: { ...bare, note: PINNED.body.note } });
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    expect(await agentEmailStyle(admin, db)).toEqual({
+      status: 200,
+      body: {
+        url: bare.url,
+        canSuggest: true,
+        headerOptions: true,
+        current: null,
+        pending: null,
+        fromBrandKit: bare.fromBrandKit,
+        logos: bare.logos,
+        headerImages: [],
+        note:
+          "companyName null shows the logo alone. A suggestion changes nothing until an admin saves it on the page. " +
+          "headerGradientColor fades the header from headerColor to it, top left to bottom right (null = solid; " +
+          "Outlook and Gmail on Android show headerColor alone), and headerText is auto (black or white, whichever " +
+          "reads better), white or black. headerImage replaces the logo and name with a banner uploaded on the page " +
+          "(null = the colour header; headerColor stays behind it and shows when images are off). Suggest one by its " +
+          'id from headerImages, or "none"; only the page can upload one.',
+      },
+    });
+  });
+
   it("tells a member they can't suggest", async () => {
     expect((await agentEmailStyle(member, world())).body).toMatchObject({ canSuggest: false });
   });

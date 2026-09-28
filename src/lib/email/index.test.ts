@@ -138,6 +138,64 @@ describe("sendEmail — delivery safety (timeouts, ambiguity, tracking, headers)
     });
   });
 
+  // Pinned whole: web fonts will add `inline_css: false`, but only for HTML carrying their block.
+  // Every payload today, with every field set or none, must stay exactly this.
+  it("pins today's Mandrill request body, with every field and with none", async () => {
+    process.env.EMAIL_FROM = "Example <noreply@example.com>";
+    const fetchMock = stubFetch(ok);
+    await sendEmail({
+      to: "maya@example.com",
+      subject: "Confirm your spot",
+      html: "<!doctype html><html><body><p>Hi</p></body></html>",
+      text: "Hi",
+      replyTo: "ada@example.com",
+      fromEmail: "ada@example.com",
+      fromName: "Ada at Example",
+      track: { opens: true, clicks: false },
+      metadata: { tenantId: "ten_A", journeyId: "j_1" },
+      tags: ["journey", "node-email1"],
+      listUnsubscribe: { url: "https://app.example.com/api/unsubscribe?u=tok", oneClick: true },
+      subaccount: "ten_A",
+      headers: { "Feedback-ID": "journey:ten_A" },
+    });
+    // Compared as the string sent, so the key order is pinned too.
+    expect(fetchMock.mock.calls[0]![1].body).toBe(JSON.stringify({
+      key: "md-key",
+      message: {
+        subject: "Confirm your spot",
+        html: "<!doctype html><html><body><p>Hi</p></body></html>",
+        text: "Hi",
+        from_email: "ada@example.com",
+        from_name: "Ada at Example",
+        to: [{ email: "maya@example.com", type: "to" }],
+        headers: {
+          "Feedback-ID": "journey:ten_A",
+          "Reply-To": "ada@example.com",
+          "List-Unsubscribe": "<https://app.example.com/api/unsubscribe?u=tok>",
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+        track_opens: true,
+        track_clicks: false,
+        subaccount: "ten_A",
+        metadata: { tenantId: "ten_A", journeyId: "j_1" },
+        tags: ["journey", "node-email1"],
+      },
+    }));
+
+    await sendEmail({ to: "maya@example.com", subject: "Hi", html: "<p>x</p>" });
+    expect(fetchMock.mock.calls[1]![1].body).toBe(JSON.stringify({
+      key: "md-key",
+      message: {
+        subject: "Hi",
+        html: "<p>x</p>",
+        from_email: "noreply@example.com",
+        from_name: "Example",
+        to: [{ email: "maya@example.com", type: "to" }],
+      },
+    }));
+    for (const call of fetchMock.mock.calls) expect(JSON.parse(call[1].body).message).not.toHaveProperty("inline_css");
+  });
+
   it("marks a timeout as ambiguous (may have been sent; never resend)", async () => {
     vi.stubGlobal(
       "fetch",

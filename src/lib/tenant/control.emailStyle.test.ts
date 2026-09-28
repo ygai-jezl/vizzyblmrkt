@@ -276,6 +276,68 @@ describe("setTenantEmailStyle: header image", () => {
   });
 });
 
+// Pinned whole: a theme is coming to the Email style behind a flag, and a Save must keep storing
+// exactly this, for the bodies Brand › Email style sends today (EmailStyleCard's `input`).
+describe("setTenantEmailStyle: today's Saves from the page", () => {
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const stamp = { updatedAt: expect.any(String), updatedBy: "usr_admin" };
+
+  it("header options on: all three header keys, at their defaults", async () => {
+    const db = seeded();
+    const body: EmailStyleInput = { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: null };
+    const stored = await setTenantEmailStyle("ten_A", body, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(raw.brandVoice).toEqual({ summary: "Warm" });
+  });
+
+  it("header options on: a gradient, forced text and a banner", async () => {
+    const db = seeded();
+    const body: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "white", headerImage: IMAGE };
+    const stored = await setTenantEmailStyle("ten_A", body, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+      headerImage: IMAGE,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("header options off: the four keys alone, keeping what's stored", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: "#4f46e5", headerText: "white", headerImage: IMAGE }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, logo: null, headerColor: "#000080" }, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: null,
+      companyName: "Example Co",
+      headerColor: "#000080",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+      headerImage: IMAGE,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+});
+
 describe("clearTenantEmailStyleLogo", () => {
   it("nulls the logo when the deleted file is the one in use, keeping the rest of the style", async () => {
     const db = seeded();

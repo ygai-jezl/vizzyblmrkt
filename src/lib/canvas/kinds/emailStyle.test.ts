@@ -342,6 +342,51 @@ describe("email_style canvas kind", () => {
     expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
   });
 
+  // Pinned whole: themes are coming to the kind behind a flag, and with it off, an edit from
+  // Brand (nothing saved or suggested) and every refusal must stay exactly this.
+  it("pins today's edit from Brand, with nothing saved or suggested", async () => {
+    const db = world();
+    const r = await author(db, { mode: "edit", buttonColor: "#FF6B35", logo: "none", companyName: "Example Co" }, admin, "Orange buttons");
+    expect(r).toEqual({
+      ...PINNED_BRAND_KIT.answer,
+      summary:
+        'Suggested an Email style (header #0b1f3a, button #ff6b35, no logo, the name "Example Co"). ' +
+        "It's only a suggestion: nothing changes until an admin reviews and saves it in Brand › Email style.",
+    });
+    expect(suggestionIn(db)).toEqual({
+      logoId: null,
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      source: "chat",
+      brief: "Orange buttons",
+      notes: [],
+      suggestedBy: "usr_admin",
+      suggestedAt: expect.any(String),
+    });
+    expect(db.raw("tenants", "ten_A")).not.toHaveProperty("emailStyle");
+  });
+
+  it("pins today's refusals", async () => {
+    const db = world();
+    expect(await author(db, { mode: "brand_kit" }, member)).toEqual({ ok: false, status: 403, error: "forbidden" });
+    expect(await author(db, { mode: "edit", headerColor: "navy" })).toEqual({
+      ok: false,
+      status: 400,
+      error: "invalid_input",
+      issues: ["headerColor: Use a #rrggbb colour"],
+    });
+    expect(await author(db, { mode: "edit", logo: "logo_webp" })).toEqual({
+      ok: false,
+      status: 400,
+      error: "invalid_logo",
+      issues: ["logo: that logo isn't a PNG or JPG, which Outlook needs — pick another"],
+    });
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    expect(await author(db, { mode: "edit", headerColor: "#000080" })).toEqual({ ok: false, status: 503, error: "unavailable" });
+    expect(suggestionIn(db)).toBeUndefined();
+  });
+
   it("is rate-limited per tenant: the 6th in a burst gets 429", async () => {
     const db = world();
     for (let i = 0; i < 5; i += 1) expect(await author(db, { mode: "brand_kit" })).toMatchObject({ ok: true });

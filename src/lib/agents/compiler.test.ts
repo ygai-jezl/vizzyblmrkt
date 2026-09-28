@@ -284,6 +284,69 @@ describe("with an Email style", () => {
     expect(htmlToText(own.html)).toMatch(/^Soon\nBand Name/);
   });
 
+  // Pinned byte-for-byte: a themed footer is coming behind a flag, and with it off (or no theme
+  // saved) styled broadcasts and journey emails, with the appended footer, must stay exactly this.
+  it("pins today's styled journey email: an HTML body, then a plain one, each with the appended footer", () => {
+    const merge = { signup: { firstName: "Jo", amountReferred: 0 } as unknown as Signup, campaign: launch, rank: 7, footer };
+    const html = compileJourneyEmail({ subject: "You're #{{current_rank}}", body: "<p>Hi {{first_name}}, you're #{{current_rank}}.</p>" }, merge, style());
+    expect(html.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Hi Jo, you're #7. This email was sent by Example Co. Manage preferences &nbsp;|&nbsp; Unsubscribe &nbsp;|&nbsp; Privacy Policy</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Example Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>Hi Jo, you're #7.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="https://waitlist.example.com/preferences?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://waitlist.example.com/unsubscribe?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(html.text).toMatchInlineSnapshot(`
+      "Hi Jo, you're #7.
+      This email was sent by Example Co.
+      Manage preferences (https://waitlist.example.com/preferences?u=tok) | Unsubscribe (https://waitlist.example.com/unsubscribe?u=tok) | Privacy Policy (https://example.com/privacy)"
+    `);
+    const plain = compileJourneyEmail(
+      { subject: "s", body: "Hi {{first_name}},\n\nYou're #{{current_rank}}.", heroImageUrl: "https://cdn.example.com/welcome.png" },
+      merge,
+      style(),
+      "You moved up",
+    );
+    expect(plain.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">You moved up</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Example Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/welcome.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <p>Hi Jo,</p>
+      <p>You&#39;re #7.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="https://waitlist.example.com/preferences?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://waitlist.example.com/unsubscribe?u=tok" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(plain.text).toMatchInlineSnapshot(`
+      "Hi Jo,
+
+      You're #7.
+      This email was sent by Example Co.
+      Manage preferences (https://waitlist.example.com/preferences?u=tok) | Unsubscribe (https://waitlist.example.com/unsubscribe?u=tok) | Privacy Policy (https://example.com/privacy)"
+    `);
+  });
+
+  it("pins today's styled broadcast, with the appended footer", () => {
+    const out = compileBroadcast(
+      { subject: "This week", body: "<h2>This week</h2>\n<p>Hi {{first_name}}, here's what's new.</p>", heroImageUrl: "https://cdn.example.com/weekly.png" },
+      launch,
+      footer,
+      style(),
+    );
+    expect(out.html).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">This week Hi *|FNAME|*, here's what's new. This email was sent by Example Co. Manage preferences &nbsp;|&nbsp; Unsubscribe &nbsp;|&nbsp; Privacy Polic</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Example Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/weekly.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <h2>This week</h2>
+      <p>Hi *|FNAME|*, here's what's new.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="*|UPDATE_PROFILE|*" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="*|UNSUB|*" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
   it("escapes a | in the name, so MailChimp can't expand a tag in the band", () => {
     const out = compileBroadcast({ subject: "s", body: "<p>Yo</p>" }, launch, footer, style({ name: "Acme *|UNSUB|*", altName: "Acme *|UNSUB|*" }));
     expect(out.html).toContain(">Acme *&#124;UNSUB&#124;*</span>");

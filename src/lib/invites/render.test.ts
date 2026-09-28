@@ -85,6 +85,53 @@ describe("invite email", () => {
       expect(render(null)).toEqual(render());
       expect(button(render().html)).toContain("background:#111;color:#fff;");
     });
+
+    // Pinned byte-for-byte: a themed button and footer are coming behind a flag, and with it off
+    // (or no theme saved) a styled invite must stay exactly this.
+    it("pins today's styled html and text", () => {
+      const out = renderInviteEmail({
+        ...defaultInviteCopy("en"),
+        merge: {
+          ...merge,
+          signup: { id: "sig_2", firstName: "Amara", email: "amara@example.test" } as Signup,
+          footer: {
+            brand: "Fernlight",
+            unsubscribeUrl: "https://waitlist.example.com/unsubscribe?u=t",
+            managePreferencesUrl: "https://waitlist.example.com/preferences?u=t",
+            privacyUrl: "https://example.com/privacy",
+          },
+        },
+        inviteUrl: URL_,
+        productName: "Fernlight",
+        expiresInDays: 30,
+        locale: "en",
+        style: style("#ffd400"),
+      });
+      expect(out.subject).toBe("You're in: Fernlight is ready for you");
+      expect(out.html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Hi Amara, Thanks for waiting. Fernlight is ready, and as one of the first on the Fernlight list, you&#39;re invited in. Join Fernlight Your invite link wo</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Fernlight</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <p>Hi Amara,</p>
+        <p>Thanks for waiting. Fernlight is ready, and as one of the first on the Fernlight list, you&#39;re invited in.</p>
+        <p><a href="https://waitlist.example.com/invite/abc.def" target="_blank" rel="noopener noreferrer" style="background:#ffd400;color:#000000;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:600">Join Fernlight</a></p>
+        <p>Your invite link works for 30 days.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Fernlight.<br /><a href="https://waitlist.example.com/preferences?u=t" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://waitlist.example.com/unsubscribe?u=t" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+          </div>
+        </body></html>"
+      `);
+      expect(out.text).toMatchInlineSnapshot(`
+        "Hi Amara,
+
+        Thanks for waiting. Fernlight is ready, and as one of the first on the Fernlight list, you're invited in.
+
+        https://waitlist.example.com/invite/abc.def
+
+        Your invite link works for 30 days.
+        This email was sent by Fernlight.
+        Manage preferences (https://waitlist.example.com/preferences?u=t) | Unsubscribe (https://waitlist.example.com/unsubscribe?u=t) | Privacy Policy (https://example.com/privacy)"
+      `);
+    });
   });
 
   // Pinned byte-for-byte: with no Email style saved, invites must stay exactly this.

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
+import { LifecycleSettingsSchema } from "@/lib/types/lifecycle";
 import { saveLifecycleDraft } from "./service";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, JOURNEY_DOCUMENT_FORMAT } from "./transfer";
 import { CONNECTION_ID, ctx, publishOnboarding, seedWorld } from "./testing/fixtures";
@@ -86,6 +87,113 @@ describe("journey transfer", () => {
     expect(huge).toMatchObject({ ok: false, status: 413 });
     const noConn = await importJourneyDocument(ctx, { connectionId: "pcn_nope", document: doc }, { db });
     expect(noConn).toMatchObject({ ok: false, status: 404, error: "connection_not_found" });
+  });
+
+  // Pinned: a journey style is coming to a draft's settings behind a flag. A journey without one
+  // must keep exporting exactly this, and new settings carry no such key.
+  it("pins today's export document and the default settings", async () => {
+    const { db, journey } = await world();
+    const r = await exportJourneyDocument(ctx, journey.id, { db, nowMs: T });
+    if (!r.ok) throw new Error("export failed");
+    const { draft, ...head } = r.value;
+    expect(head).toEqual({
+      format: JOURNEY_DOCUMENT_FORMAT,
+      formatVersion: 1,
+      exportedAt: "2026-09-22T12:00:00.000Z",
+      name: "Onboarding",
+      sourceVersion: 1,
+    });
+    expect(Object.keys(draft)).toEqual(["graph", "pools", "settings"]);
+    const v1 = (await forTenant(ctx, db).lifecycleVersions.getById(`${journey.id}_v1`))!;
+    expect(draft.graph).toEqual(v1.graph);
+    expect(draft.pools).toEqual(v1.pools);
+    expect(draft.settings).toMatchInlineSnapshot(`
+      {
+        "about": {
+          "fact": null,
+          "includeJoined": false,
+          "kind": null,
+          "maxListed": 5,
+          "mode": "person",
+          "pick": "focus",
+        },
+        "category": {
+          "key": "onboarding",
+          "label": "Onboarding tips",
+        },
+        "entry": {
+          "requireMarketingConsent": false,
+        },
+        "sendPolicy": {
+          "days": [
+            1,
+            2,
+            3,
+            4,
+            5,
+          ],
+          "fallbackTimezone": "Europe/London",
+          "hardStopDays": 12,
+          "startHour": 9,
+          "startMinute": 0,
+          "windowMinutes": 90,
+        },
+        "sender": {},
+        "tracking": {
+          "clicks": false,
+          "opens": false,
+        },
+        "trigger": {
+          "event": "user.signed_up",
+          "maxEventAgeHours": 72,
+        },
+      }
+    `);
+
+    const defaults = LifecycleSettingsSchema.parse({});
+    expect(defaults).not.toHaveProperty("emailStyle");
+    expect(defaults).toMatchInlineSnapshot(`
+      {
+        "about": {
+          "fact": null,
+          "includeJoined": false,
+          "kind": null,
+          "maxListed": 5,
+          "mode": "person",
+          "pick": "focus",
+        },
+        "category": {
+          "key": "onboarding",
+          "label": "Onboarding tips",
+        },
+        "entry": {
+          "requireMarketingConsent": false,
+        },
+        "sendPolicy": {
+          "days": [
+            1,
+            2,
+            3,
+            4,
+            5,
+          ],
+          "fallbackTimezone": "Europe/London",
+          "hardStopDays": 12,
+          "startHour": 9,
+          "startMinute": 0,
+          "windowMinutes": 90,
+        },
+        "sender": {},
+        "tracking": {
+          "clicks": false,
+          "opens": false,
+        },
+        "trigger": {
+          "event": "user.signed_up",
+          "maxEventAgeHours": 72,
+        },
+      }
+    `);
   });
 
   it("can't reach another account's journeys or connections", async () => {

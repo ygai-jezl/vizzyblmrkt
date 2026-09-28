@@ -7,6 +7,7 @@ import {
   renderHeaderBand,
   renderFooter,
   preheaderHtml,
+  wrapLetter,
   FOOTER_MARKER,
 } from "./emailRender";
 import { readableOn, type ResolvedEmailStyle } from "./emailStyle";
@@ -469,6 +470,143 @@ describe("wrap with an Email style", () => {
         <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
           
           <p>x</p>
+        </div>
+      </body></html>"
+    `);
+  });
+});
+
+// Pinned byte-for-byte: themes, fonts and layout buttons that follow the Email style are coming
+// behind flags, and with them off (or no theme saved) every block, footer and shell must stay this.
+describe("today's layouts, footer and shells", () => {
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+    ...over,
+  });
+  // Every block kind, with buttons in the default #111111, the presets' #4f46e5 and a brand palette colour.
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome, {{first_name}}", level: 1, align: "center" },
+      { id: "h2", kind: "heading", html: "What's <new>", level: 2, align: "left", color: "#0b1f3a", sectionBg: "#f5f5f5" },
+      { id: "h3", kind: "heading", html: "Small print", level: 3, align: "right" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi {{first_name}}, here's <strong>the news</strong>.</p>" },
+      { id: "t2", kind: "text", html: "<p>Coloured copy</p>", color: "#333333", sectionBg: "#eef2ff" },
+      { id: "i1", kind: "image", src: "https://cdn.example.com/hero.png", alt: "Hero", href: "https://example.com/launch", width: 560, align: "center" },
+      { id: "i2", kind: "image", src: "https://cdn.example.com/badge.png", alt: "", href: null, width: 120, align: "left" },
+      { id: "b1", kind: "button", label: "Get started", href: "{{hub_url}}", align: "center", bg: "#111111", color: "#ffffff", radius: 8 },
+      { id: "b2", kind: "button", label: "See what's new", href: "https://example.com/new", align: "left", bg: "#4f46e5", color: "#ffffff", radius: 6 },
+      { id: "b3", kind: "button", label: "Book a call", href: "https://example.com/book", align: "right", bg: "#ff6b35", color: "#111111", radius: 24, sectionBg: "#fff7ed" },
+      { id: "d1", kind: "divider", color: "#e5e5e5", thickness: 1 },
+      { id: "d2", kind: "divider", color: "#4f46e5", thickness: 3, sectionBg: "#f5f5f5" },
+      { id: "s1", kind: "spacer", height: 24 },
+      { id: "so", kind: "social", align: "center", links: [{ platform: "x", url: "https://example.com/social/x" }, { platform: "linkedin", url: "https://example.com/social/linkedin" }] },
+      { id: "f1", kind: "footer", text: "", sectionBg: "#fafafa" },
+    ],
+  });
+
+  it("pins every block kind", () => {
+    expect(renderEmailLayout(layout)).toMatchInlineSnapshot(`
+      "<h1 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:28px;line-height:1.3;font-weight:700;color:#111111;text-align:center">Welcome, {{first_name}}</h1>
+      <div style="background:#f5f5f5;padding:16px 16px 1px"><h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#0b1f3a;text-align:left">What&#39;s &lt;new&gt;</h2></div>
+      <h3 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#111111;text-align:right">Small print</h3>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Hi {{first_name}}, here's <strong>the news</strong>.</p></div>
+      <div style="background:#eef2ff;padding:16px 16px 1px"><div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#333333;margin:0 0 16px"><p>Coloured copy</p></div></div>
+      <div style="text-align:center;margin:0 0 16px"><a href="https://example.com/launch" target="_blank" rel="noopener noreferrer"><img src="https://cdn.example.com/hero.png" alt="Hero" width="560" style="display:inline-block;width:560px;max-width:100%;height:auto;border:0;border-radius:8px" /></a></div>
+      <div style="text-align:left;margin:0 0 16px"><img src="https://cdn.example.com/badge.png" alt="" width="120" style="display:inline-block;width:120px;max-width:100%;height:auto;border:0;border-radius:8px" /></div>
+      <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#111111;border-radius:8px"><a href="{{hub_url}}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Get started</a></td></tr></table></div>
+      <div style="text-align:left;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:6px"><a href="https://example.com/new" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">See what&#39;s new</a></td></tr></table></div>
+      <div style="background:#fff7ed;padding:16px 16px 1px"><div style="text-align:right;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#ff6b35;border-radius:24px"><a href="https://example.com/book" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#111111;text-decoration:none">Book a call</a></td></tr></table></div></div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:1px solid #e5e5e5;font-size:0;line-height:0">&nbsp;</td></tr></table>
+      <div style="background:#f5f5f5;padding:16px 16px 1px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:3px solid #4f46e5;font-size:0;line-height:0">&nbsp;</td></tr></table></div>
+      <div style="height:24px;line-height:24px;font-size:0">&nbsp;</div>
+      <div style="text-align:center;margin:8px 0 16px"><a href="https://example.com/social/x" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:0 6px"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%225%22%20fill%3D%22%238a8a8a%22%2F%3E%3Ctext%20x%3D%2212%22%20y%3D%2217%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-size%3D%2210%22%20font-weight%3D%22700%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%3E%F0%9D%95%8F%3C%2Ftext%3E%3C%2Fsvg%3E" alt="X" width="24" height="24" style="display:inline-block;border:0" /></a><a href="https://example.com/social/linkedin" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:0 6px"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%225%22%20fill%3D%22%238a8a8a%22%2F%3E%3Ctext%20x%3D%2212%22%20y%3D%2217%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-size%3D%2210%22%20font-weight%3D%22700%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%3Ein%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Linkedin" width="24" height="24" style="display:inline-block;border:0" /></a></div>
+      <div style="background:#fafafa;padding:16px 16px 1px"><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div></div>"
+    `);
+  });
+
+  it("pins the Create preview shell (a layout in wrap), with and without a style", () => {
+    const inner = renderEmailLayout(
+      EmailLayoutSchema.parse({
+        blocks: [
+          { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+          { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+          { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+          { id: "f1", kind: "footer", text: "" },
+        ],
+      }),
+    );
+    expect(wrap(inner, null)).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome</h2>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Hi there.</p></div>
+      <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://example.com/start" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Get started</a></td></tr></table></div>
+      <div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap(inner, null, { style: style() })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Welcome Hi there. Get started This email was sent by {{sender_brand}}. Manage preferences &nbsp;|&nbsp; Unsubscribe &nbsp;|&nbsp; Privacy Policy</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome</h2>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Hi there.</p></div>
+      <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://example.com/start" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Get started</a></td></tr></table></div>
+      <div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  it("pins the footer: plain, on a section colour, and with the postal address", () => {
+    expect(renderFooter()).toMatchInlineSnapshot(`"<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>"`);
+    expect(renderFooter("#f5f5f5")).toMatchInlineSnapshot(`"<div style="background:#f5f5f5;padding:16px 16px 1px"><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div></div>"`);
+    expect(renderFooter(null, { withAddress: true })).toMatchInlineSnapshot(`"<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br />{{postal_address}}<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>"`);
+  });
+
+  it("pins the styled shell with a preheader and a hero, the name alone, and a body with its own logo", () => {
+    expect(wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style: style(), preheader: "Your week in brief" })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Your week in brief</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/hero.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <p>x</p>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap("<p>x</p>", null, { style: style({ logo: null }) })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>x</p>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap(`<p><img src="${LOGO_URL}" alt=""></p>`, null, { style: style() })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" alt=""></p>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  it("pins the letter shell", () => {
+    expect(wrapLetter("<p>Hi Jo,</p>\n<p>Just a note.</p>")).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;max-width:560px;margin:0 auto;padding:24px;color:#111">
+          <p>Hi Jo,</p>
+      <p>Just a note.</p>
         </div>
       </body></html>"
     `);

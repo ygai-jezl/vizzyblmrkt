@@ -408,6 +408,162 @@ describe("renderLifecycleEmail", () => {
       expect(r.html.match(/2 steps left/g)).toHaveLength(1);
     });
   });
+
+  // Pinned byte-for-byte: themes and layout buttons that follow the Email style are coming behind
+  // flags; with them off, a styled email, a saved layout and a letter must stay exactly this.
+  describe("today's output with an Email style, a saved layout and a letter", () => {
+    const LOGO_URL = "https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png";
+    const style: ResolvedEmailStyle = {
+      logo: { url: LOGO_URL, width: 120, height: 40 },
+      name: "Example Co",
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#1d4ed8",
+    };
+    const pinned = values({
+      product: { name: "Example App" },
+      nextStep: { label: "Run your first audit", url: "https://app.example.com/audits?new=1" },
+      checklist: [
+        { label: "Add your brand", done: true, url: "https://app.example.com/brand" },
+        { label: "Run an audit", done: false, url: "https://app.example.com/audits?new=1" },
+      ],
+      insight: { sentence: "ChatGPT mentioned you in 3 of 10 answers.", aiLine: null },
+      entities: {
+        count: 3,
+        rows: [
+          { name: "Acme", done: 3, total: 3, facts: [{ label: "Share of voice", value: "12%" }] },
+          { name: "Beta", done: 1, total: 3, facts: [] },
+        ],
+        more: 1,
+      },
+      footer: {
+        brand: "Example Co",
+        unsubscribeUrl: "https://app.example.com/unsubscribe?u=tok123",
+        managePreferencesUrl: "https://app.example.com/preferences?u=tok123",
+        privacyUrl: "https://example.com/privacy",
+        postalAddress: "1 Example Street, London",
+      },
+    });
+    const body = [
+      "<p>Hi {{user.first_name|there}},</p>",
+      "{{block.checklist}}",
+      "{{block.entities}}",
+      "{{block.insight}}",
+      "{{block.next_step}}",
+    ].join("\n");
+    const layout = EmailLayoutSchema.parse({
+      blocks: [
+        { id: "h1", kind: "heading", html: "Welcome, {{user.first_name|there}}", level: 2, align: "left" },
+        { id: "t1", kind: "text", role: "copy", html: "<p>Here's where you are in {{product.name}}.</p>" },
+        { id: "b1", kind: "button", label: "Open {{product.name}}", href: "https://app.example.com/", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+        { id: "f1", kind: "footer", text: "", sectionBg: "#f5f5f5" },
+      ],
+    });
+
+    it("branded, with every block, in shadow mode", () => {
+      const r = renderLifecycleEmail({
+        item: item({ subject: "Welcome, {{user.first_name|there}}", body, previewText: "{{onboarding.steps_remaining}} step left" }),
+        values: pinned,
+        shadowFor: "alex@example.com",
+        style,
+      });
+      expect(r.missing).toEqual([]);
+      expect(r.html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">1 step left</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Example Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <div style="margin:0 0 16px;padding:10px 12px;background:#fff7d6;border:1px solid #f0d78c;border-radius:6px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;color:#6b5500">Shadow mode — in live mode this email would go to <strong>alex@example.com</strong>.</div><p>Hi Alex,</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse"><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">✓</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#8a8a8a;text-decoration:line-through">Add your brand</td></tr><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;text-decoration:underline">Run an audit</a></td></tr></table>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse;width:100%"><tr><td style="padding:6px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111;border-bottom:1px solid #eee"><strong>Acme</strong> — 3 of 3 steps done · Share of voice: 12%</td></tr><tr><td style="padding:6px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111;border-bottom:1px solid #eee"><strong>Beta</strong> — 1 of 3 steps done</td></tr><tr><td style="padding:6px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#8a8a8a">and 1 more</td></tr></table>
+        <div style="margin:8px 0 16px;padding:12px 14px;border-left:3px solid #1d4ed8;background:#f6f6f6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111">ChatGPT mentioned you in 3 of 10 answers.</div>
+        <div style="margin:8px 0 20px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td bgcolor="#1d4ed8" style="background:#1d4ed8;border-radius:8px"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Run your first audit →</a></td></tr></table></div><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br />1 Example Street, London<br /><a href="https://app.example.com/preferences?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://app.example.com/unsubscribe?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+          </div>
+        </body></html>"
+      `);
+      expect(r.text).toMatchInlineSnapshot(`
+        "Shadow mode — in live mode this email would go to alex@example.com.
+        Hi Alex,
+
+        ✓Add your brand☐Run an audit (https://app.example.com/audits?new=1)
+        Acme — 3 of 3 steps done · Share of voice: 12%Beta — 1 of 3 steps doneand 1 more
+        ChatGPT mentioned you in 3 of 10 answers.
+
+        Run your first audit → (https://app.example.com/audits?new=1)
+        This email was sent by Example Co.
+        1 Example Street, London
+        Manage preferences (https://app.example.com/preferences?u=tok123) | Unsubscribe (https://app.example.com/unsubscribe?u=tok123) | Privacy Policy (https://example.com/privacy)"
+      `);
+    });
+
+    it("a saved layout, with and without a style", () => {
+      const plain = renderLifecycleEmail({ item: item({ layout, previewText: null }), values: pinned });
+      expect(plain.html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome, Alex</h2>
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Here's where you are in Example App.</p></div>
+        <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://app.example.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Open Example App</a></td></tr></table></div>
+        <div style="background:#f5f5f5;padding:16px 16px 1px"><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="https://app.example.com/preferences?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://app.example.com/unsubscribe?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div></div>
+          </div>
+        </body></html>"
+      `);
+      expect(plain.text).toMatchInlineSnapshot(`
+        "Welcome, Alex
+
+        Here's where you are in Example App.
+
+        Open Example App (https://app.example.com/)
+
+        This email was sent by Example Co.
+        Manage preferences (https://app.example.com/preferences?u=tok123) | Unsubscribe (https://app.example.com/unsubscribe?u=tok123) | Privacy Policy (https://example.com/privacy)"
+      `);
+      expect(renderLifecycleEmail({ item: item({ layout, previewText: null }), values: pinned, style }).html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Welcome, Alex Here's where you are in Example App. Open Example App This email was sent by Example Co. Manage preferences &nbsp;|&nbsp; Unsubscribe</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Example Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome, Alex</h2>
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Here's where you are in Example App.</p></div>
+        <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://app.example.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Open Example App</a></td></tr></table></div>
+        <div style="background:#f5f5f5;padding:16px 16px 1px"><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br /><a href="https://app.example.com/preferences?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://app.example.com/unsubscribe?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div></div>
+          </div>
+        </body></html>"
+      `);
+    });
+
+    it("a saved layout without a footer block gets the footer with the address", () => {
+      const noFooter = EmailLayoutSchema.parse({ blocks: layout.blocks.filter((b) => b.kind !== "footer") });
+      const r = renderLifecycleEmail({ item: item({ layout: noFooter, previewText: null }), values: pinned, style });
+      expect(r.html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Welcome, Alex Here's where you are in Example App. Open Example App This email was sent by Example Co. 1 Example Street, London Manage preferences</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/ten_1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Example Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome, Alex</h2>
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Here's where you are in Example App.</p></div>
+        <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://app.example.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Open Example App</a></td></tr></table></div><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br />1 Example Street, London<br /><a href="https://app.example.com/preferences?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://app.example.com/unsubscribe?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+          </div>
+        </body></html>"
+      `);
+    });
+
+    it("a letter with a style", () => {
+      const r = renderLifecycleEmail({ item: item({ body, format: "letter", previewText: null }), values: pinned, style });
+      expect(r.html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;max-width:560px;margin:0 auto;padding:24px;color:#111">
+            <p>Hi Alex,</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse"><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">✓</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#8a8a8a;text-decoration:line-through">Add your brand</td></tr><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline">Run an audit</a></td></tr></table>
+        <p style="margin:0 0 16px"><strong>Acme</strong> — 3 of 3 steps done · Share of voice: 12%<br><strong>Beta</strong> — 1 of 3 steps done<br>and 1 more</p>
+        <p style="margin:0 0 16px">ChatGPT mentioned you in 3 of 10 answers.</p>
+        <p style="margin:0 0 16px"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer">Run your first audit →</a></p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br />1 Example Street, London<br /><a href="https://app.example.com/preferences?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://app.example.com/unsubscribe?u=tok123" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+          </div>
+        </body></html>"
+      `);
+    });
+  });
 });
 
 describe("entities (the brand, workspace or project an email is about)", () => {

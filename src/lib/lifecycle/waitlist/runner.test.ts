@@ -3,6 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { EmailMessage, EmailResult } from "@/lib/email";
 import { suppressionDocId } from "@/lib/email/suppression";
+import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { allocateVariant } from "@/lib/journey/allocation";
 import type { Signup } from "@/lib/types/signup";
 import type { WaitlistEnrolment } from "@/lib/types/lifecycle";
@@ -317,5 +318,40 @@ describe("waitlist journeys on the lifecycle engine", () => {
     const w = await world();
     const e: WaitlistEnrolment = await w.enrolment();
     expect(e.versionId).toBe(w.version.id);
+  });
+});
+
+// Pinned byte-for-byte: themes and journey styles are coming behind flags, and with them off a
+// launch's welcome on this engine, for a tenant with an Email style, must stay exactly this. The
+// signed unsubscribe token carries the signing time, so it's masked.
+describe("waitlist journeys on the lifecycle engine: today's styled send", () => {
+  const STYLE = {
+    logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 },
+    companyName: null,
+    headerColor: "#0b1f3a",
+    accentColor: "#1d4ed8",
+  };
+  const masked = (s: string | undefined) => (s ?? "").replace(/([?&]u=)[^"&\s)]+/g, "$1<token>");
+
+  it("pins the welcome's html and text", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    expect(await w.run()).toBe("sent");
+    expect(masked(w.sent[0]!.html)).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Hi Ada, you&#39;re #1. This email was sent by Jez at Sandbox. Manage preferences &nbsp;|&nbsp; Unsubscribe &nbsp;|&nbsp; Privacy Policy</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><img src="https://mk.test/api/brand-logo/ten_life/0f8fad5b-d9cb-469f-a165-70867728950e.png" width="120" height="40" alt="Jez at Sandbox" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.test/hero.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <p>Hi Ada, you&#39;re #1.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Jez at Sandbox.<br /><a href="https://mk.test/unsubscribe?u=<token>" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://mk.test/unsubscribe?u=<token>" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://sandbox.test/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(masked(w.sent[0]!.text)).toMatchInlineSnapshot(`
+      "Hi Ada, you're #1.
+      This email was sent by Jez at Sandbox.
+      Manage preferences (https://mk.test/unsubscribe?u=<token>) | Unsubscribe (https://mk.test/unsubscribe?u=<token>) | Privacy Policy (https://sandbox.test/privacy)"
+    `);
   });
 });

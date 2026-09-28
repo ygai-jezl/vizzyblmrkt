@@ -318,6 +318,29 @@ describe("approvals preview with an Email style", () => {
     expect(e1.previewHtml).toContain(AI_LINE_MARKER);
   });
 
+  // Pinned byte-for-byte: themes and journey styles are coming behind flags, and with them off
+  // the approvals preview of a branded email must stay exactly this.
+  it("pins today's branded preview", async () => {
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    const sendAt = await booked(w);
+    w.setContext(productContext({ done: STEPS.map((s) => s.id) }));
+    await w.prepare(sendAt - 12 * HOUR);
+    expect(await w.prepare(sendAt - 12 * HOUR + MIN)).toMatchObject({ prepared: 1 });
+    // The line's marker is invisible, so it's shown by name.
+    expect((await w.draft("e1", "education")).previewHtml?.replaceAll(AI_LINE_MARKER, "[AI_LINE_MARKER]")).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">What the numbers mean, and what to do next</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><img src="https://mk.test/api/brand-logo/ten_life/0f8fad5b-d9cb-469f-a165-70867728950e.png" width="120" height="40" alt="Jez at Sandbox" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>Hi Alex,</p>
+      <p>You're set up — here's how to read what you're seeing.</p>
+      <div style="margin:8px 0 16px;padding:12px 14px;border-left:3px solid #1d4ed8;background:#f6f6f6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111">ChatGPT mentioned you in 3 of 10 answers. [AI_LINE_MARKER]</div><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Jez at Sandbox.<br />1 High Street, London<br /><a href="#" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="#" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="#" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
   it("a letter's preview stays plain", async () => {
     const w = await world();
     await setTenantEmailStyle(TENANT_ID, STYLE, w.db);

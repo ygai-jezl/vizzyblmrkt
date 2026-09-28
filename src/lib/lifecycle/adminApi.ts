@@ -2,6 +2,7 @@ import { z } from "zod";
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { LifecycleEnrolment, LifecycleJourney } from "@/lib/types/lifecycle";
+import type { Tenant } from "@/lib/types/tenant";
 import { ConsentBasis } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
 import { productUserDocId } from "@/lib/connect/profile";
@@ -38,7 +39,8 @@ import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type Ex
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { resolveFooterBrand, resolveSender } from "@/lib/email/sender";
 import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
-import { isEmailStyleEnabled } from "@/lib/email/flags";
+import { isEmailHeaderOptionsEnabled, isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
+import { paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
 import { countHeldWaitlistEnrolments } from "./waitlist/enrol";
 import { runWaitlistEnrolmentNow } from "./waitlist/runner";
 import { setJourneyState } from "@/lib/journey/service";
@@ -108,6 +110,20 @@ export async function createJourney(ctx: TenantContext, input: unknown, db?: Fir
   return fromService(await createLifecycleJourney(ctx, input, { db }), (v) => v, 201);
 }
 
+/**
+ * What the journey editor's Email style section and its preview need (EMAIL_JOURNEY_STYLE_ENABLED,
+ * over EMAIL_STYLE_ENABLED): the flag, whether a journey's gradient and header text draw (header
+ * options), the brand's colours as quick picks, and the name a band falls back on, as
+ * resolveJourneyEmailStyle has it. Null while either is off, so the detail is as before.
+ */
+function journeyStyleDetail(tenant: Tenant | null) {
+  if (!isEmailStyleEnabled() || !isEmailJourneyStyleEnabled()) return null;
+  return {
+    features: { journeyEmailStyle: true, emailHeaderOptions: isEmailHeaderOptionsEnabled() },
+    journeyStyle: { palette: paletteChips(tenant?.brandKit), fallbackName: resolveFooterBrand(tenant, null) },
+  };
+}
+
 export async function getJourneyDetail(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
   const journey = await loadJourney(ctx, id, db);
   if (!journey) return fail(404, "not_found");
@@ -122,6 +138,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       countHeldWaitlistEnrolments(ctx, id, db).catch(() => 0),
     ]);
     const sender = resolveSender(tenant, campaign);
+    const own = journeyStyleDetail(tenant);
     return ok({
       journey,
       audience: "waitlist",
@@ -136,7 +153,8 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       emailStyle: resolveEmailStyle(tenant),
       postalAddress: tenant?.emailSenderConfig?.postalAddress ?? null,
       modeCeiling: "live",
-      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false, entities: false, emailStyle: isEmailStyleEnabled() },
+      features: { chatAuthoring: false, aiLines: false, consentAtSend: false, optInAfterSignup: false, entities: false, emailStyle: isEmailStyleEnabled(), ...own?.features },
+      ...(own ? { journeyStyle: own.journeyStyle } : {}),
     });
   }
   const [connection, version, tenant] = await Promise.all([
@@ -145,6 +163,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
     getTenantById(ctx.tenantId, db).catch(() => null),
   ]);
   const sender = lifecycleSender(tenant, journey.draft.settings.sender);
+  const own = journeyStyleDetail(tenant);
   return ok({
     journey,
     audience: "product",
@@ -177,7 +196,9 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       optInAfterSignup: isLifecycleOptInAfterSignupEnabled(),
       entities: isEntitiesEnabled(),
       emailStyle: isEmailStyleEnabled(),
+      ...own?.features,
     },
+    ...(own ? { journeyStyle: own.journeyStyle } : {}),
   });
 }
 

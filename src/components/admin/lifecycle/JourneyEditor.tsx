@@ -17,6 +17,7 @@ import { GeneratePanel } from "./GeneratePanel";
 import { CopyJourneyPanel } from "./CopyJourneyPanel";
 import { LifecycleChatPanel } from "./LifecycleChatPanel";
 import { fieldOptions, issueText, waitlistFieldOptions, type GraphIssue, type JourneyDetail } from "./model";
+import { draftForSave, journeyPreviewStyle, publishConfirmText, sameJourneyStyle, withSavedJourneyStyle } from "./journeyStyleForm";
 
 /**
  * One lifecycle journey: the canvas, its content, settings and delivery, the
@@ -24,6 +25,10 @@ import { fieldOptions, issueText, waitlistFieldOptions, type GraphIssue, type Jo
  * nothing reaches anyone until an admin publishes. A launch's welcome journey
  * (engine move) is edited here too, in its waitlist mode: signup conditions,
  * waitlist merge tags, A/B tests and any-time sending.
+ *
+ * With journey styles on, Settings holds the journey's own Email style: the Content
+ * preview wears the draft's, Save sends it only once its control is touched (so an
+ * older tab can't undo Vizzy's), and Publish makes it live for every next email.
  */
 
 type Tab = "canvas" | "content" | "settings" | "delivery" | "people" | "preview" | "results";
@@ -53,6 +58,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const [generating, setGenerating] = useState(false);
   const [copying, setCopying] = useState(false);
   const [staleFromChat, setStaleFromChat] = useState(false);
+  // The Email style control was touched since the draft loaded (journey styles on).
+  const [styleTouched, setStyleTouched] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<JourneyDetail>(`/api/admin/lifecycle/journeys/${journeyId}`);
@@ -63,6 +70,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
     setName(r.data.journey.name);
     setDirty(false);
     setStaleFromChat(false);
+    setStyleTouched(false);
     setCanvasKey((k) => k + 1);
   }, [journeyId]);
 
@@ -106,31 +114,52 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
     [waitlist, detail?.connection?.catalog],
   );
   const journey = detail?.journey;
+  // The journey's own Email style (journey styles on): what its Settings section and the preview work from.
+  const ownStyle = (detail?.features.journeyEmailStyle && detail.journeyStyle) || null;
+  // The Content preview wears the draft's own style over the brand's, as sends will once it's published.
+  const previewStyle = useMemo(
+    () =>
+      detail && ownStyle
+        ? journeyPreviewStyle(detail.emailStyle, draft?.settings.emailStyle, {
+            fallbackName: ownStyle.fallbackName,
+            headerOptions: Boolean(detail.features.emailHeaderOptions),
+          })
+        : (detail?.emailStyle ?? null),
+    [detail, ownStyle, draft?.settings.emailStyle],
+  );
 
-  const save = async (): Promise<boolean> => {
-    if (!draft || !journey) return false;
+  /** Save the draft; the saved journey, or null when it didn't save. */
+  const save = async (): Promise<LifecycleJourney | null> => {
+    if (!draft || !journey) return null;
     setBusy("save");
     setMsg(null);
     const r = await api<{ journey: LifecycleJourney; issues: GraphIssue[] }>(`/api/admin/lifecycle/journeys/${journey.id}/draft`, {
       method: "PUT",
-      body: JSON.stringify(draft),
+      body: JSON.stringify(draftForSave(draft, styleTouched)),
     });
     setBusy(null);
     if (!r.ok) {
       setMsg({ tone: "err", text: errorText(r.data) });
-      return false;
+      return null;
     }
     setIssues(r.data.issues);
     setDetail((d) => (d ? { ...d, journey: r.data.journey, issues: r.data.issues } : d));
     setDirty(false);
+    // Show the style the save kept (Vizzy may have set one since this draft loaded).
+    if (ownStyle) {
+      setDraft((d) => (d ? { ...d, settings: withSavedJourneyStyle(d.settings, r.data.journey.draft.settings.emailStyle) } : d));
+      setStyleTouched(false);
+    }
     setMsg({ tone: "ok", text: r.data.issues.length ? "Draft saved — fix the issues below before publishing." : "Draft saved." });
-    return true;
+    return r.data.journey;
   };
 
   const publish = async () => {
     if (!journey) return;
-    if (dirty && !(await save())) return;
-    if (!window.confirm(journey.publishedVersion ? "Publish these changes? People already in the journey stay on the version they started with." : `Publish and start the journey in ${journey.deliveryMode} mode?`)) return;
+    const current = dirty ? await save() : journey;
+    if (!current) return;
+    const styleChanged = Boolean(ownStyle) && !sameJourneyStyle(current.draft.settings.emailStyle, current.emailStyle);
+    if (!window.confirm(publishConfirmText(current, styleChanged))) return;
     setBusy("publish");
     const r = await api<{ journey: LifecycleJourney; version: { version: number } }>(`/api/admin/lifecycle/journeys/${journey.id}/publish`, { method: "POST" });
     setBusy(null);
@@ -171,6 +200,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const connection = detail.connection;
   const launch = detail.launch;
   const tabs = waitlist ? TABS.filter((t) => t.id !== "preview") : TABS;
+  const styleChangedSincePublish =
+    Boolean(ownStyle && journey.publishedVersion) && !sameJourneyStyle(draft.settings.emailStyle, journey.emailStyle);
 
   return (
     <div className="space-y-4">
@@ -365,7 +396,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           waitlist={waitlist}
           // The footer's "sent by", resolved as the send does (a launch's journey uses the launch's sender).
           brand={(waitlist ? null : draft.settings.sender.fromName?.trim()) || detail.footerBrand}
-          emailStyle={detail.emailStyle}
+          emailStyle={previewStyle}
           emailStyleEnabled={detail.features.emailStyle}
           postalAddress={detail.postalAddress}
           readOnly={readOnly}
@@ -385,6 +416,20 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           optInAfterSignup={detail.features.optInAfterSignup}
           entities={detail.features.entities}
           emailStyleEnabled={detail.features.emailStyle}
+          journeyStyle={
+            ownStyle
+              ? {
+                  brand: detail.emailStyle,
+                  palette: ownStyle.palette,
+                  headerOptions: Boolean(detail.features.emailHeaderOptions),
+                  changedSincePublish: styleChangedSincePublish,
+                  onChange: (emailStyle) => {
+                    setStyleTouched(true);
+                    edit({ settings: { ...draft.settings, emailStyle } });
+                  },
+                }
+              : null
+          }
           onChange={(settings) => edit({ settings })}
         />
       ) : null}

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { setTenantEmailStyle } from "@/lib/tenant/control";
-import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { resolveEmailStyle, resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { journeyPreviewStyle } from "@/components/admin/lifecycle/journeyStyleForm";
 import {
   enrolByHand,
   generateJourneyDraft,
@@ -216,6 +217,104 @@ describe("journey detail: what the previews need to match the send", () => {
     await setTenantEmailStyle(TENANT_ID, STYLE, db);
     const detail = (await getJourneyDetail(ctx, journey.id, db)).body as Detail;
     expect(detail).toMatchObject({ footerBrand: "The Fernlight team", features: { emailStyle: true }, emailStyle: { headerColor: "#0b1f3a" } });
+  });
+});
+
+describe("journey detail: the journey's own Email style section", () => {
+  const STYLE = { logo: null, companyName: null, headerColor: "#0b1f3a", accentColor: "#1d4ed8" };
+  const PALETTE = [{ hex: "#0B1F3A", name: "Navy" }, { hex: "#ff6b35" }];
+  type Detail = {
+    audience: string;
+    emailStyle: Parameters<typeof journeyPreviewStyle>[0];
+    features: Record<string, boolean>;
+    journeyStyle?: { palette: Array<{ hex: string; name: string }>; fallbackName: string };
+  };
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A product journey and a launch's welcome journey, in one workspace with a palette. */
+  async function bothKinds() {
+    const db = new FakeFirestore();
+    seedLaunch(db, { emailFromName: "The Fernlight team" });
+    const { journey: product } = await publishOnboarding(db);
+    const { journey: welcome } = await publishWaitlist(db);
+    db.seed("tenants", TENANT_ID, { ...db.raw("tenants", TENANT_ID)!, brandKit: { palette: PALETTE } });
+    await setTenantEmailStyle(TENANT_ID, STYLE, db);
+    const details = async () =>
+      [(await getJourneyDetail(ctx, product.id, db)).body, (await getJourneyDetail(ctx, welcome.id, db)).body] as Detail[];
+    return { db, details };
+  }
+
+  it("with the flag off (or the Email style off), neither kind has it, and the detail is as before", async () => {
+    for (const [emailStyle, journeyStyle] of [["true", "false"], ["false", "true"], ["false", "false"]]) {
+      vi.stubEnv("EMAIL_STYLE_ENABLED", emailStyle);
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", journeyStyle);
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      const { details } = await bothKinds();
+      for (const detail of await details()) {
+        expect(detail).not.toHaveProperty("journeyStyle");
+        expect(Object.keys(detail.features)).toStrictEqual([
+          "chatAuthoring",
+          "aiLines",
+          "consentAtSend",
+          "optInAfterSignup",
+          "entities",
+          "emailStyle",
+        ]);
+      }
+    }
+  });
+
+  it("with it on, both kinds have the brand's colours, the band's fallback name and the header options flag", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const { details } = await bothKinds();
+    expect((await details()).map((d) => d.audience)).toStrictEqual(["product", "waitlist"]);
+    for (const detail of await details()) {
+      expect(detail.features).toMatchObject({ emailStyle: true, journeyEmailStyle: true, emailHeaderOptions: false });
+      expect(detail.journeyStyle).toStrictEqual({
+        palette: [
+          { hex: "#0b1f3a", name: "Navy" },
+          { hex: "#ff6b35", name: "#ff6b35" },
+        ],
+        // The workspace's sending name, as the send falls back on for a launch's journey too.
+        fallbackName: "Jez at Sandbox",
+      });
+    }
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    for (const detail of await details()) expect(detail.features.emailHeaderOptions).toBe(true);
+  });
+
+  it("the editor's preview of a draft style is what the send draws once it's published", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const { db, details } = await bothKinds();
+    const tenant = await getTenantById(TENANT_ID, db);
+    const drafts = [
+      undefined,
+      null,
+      { headerColor: "#1e3a8a", accentColor: "#f97316" },
+      { headerColor: "#1e3a8a", accentColor: "#f97316", headerGradientColor: "#4f46e5", headerText: "white" },
+      { headerColor: "navy", accentColor: "#f97316" },
+    ];
+    for (const detail of await details()) {
+      for (const draftStyle of drafts) {
+        const preview = journeyPreviewStyle(detail.emailStyle, draftStyle, {
+          fallbackName: detail.journeyStyle!.fallbackName,
+          headerOptions: detail.features.emailHeaderOptions!,
+        });
+        expect(preview).toStrictEqual(resolveJourneyEmailStyle(tenant, draftStyle));
+      }
+    }
+    // …with no brand style saved too: the journey's colours on the name band.
+    db.seed("tenants", TENANT_ID, { ...db.raw("tenants", TENANT_ID)!, emailStyle: null });
+    const bare = await getTenantById(TENANT_ID, db);
+    for (const detail of await details()) {
+      const custom = drafts[2];
+      const preview = journeyPreviewStyle(detail.emailStyle, custom, { fallbackName: detail.journeyStyle!.fallbackName, headerOptions: true });
+      expect(preview).toStrictEqual(resolveJourneyEmailStyle(bare, custom));
+      expect(preview).toMatchObject({ logo: null, altName: "Jez at Sandbox", headerColor: "#1e3a8a" });
+    }
   });
 });
 

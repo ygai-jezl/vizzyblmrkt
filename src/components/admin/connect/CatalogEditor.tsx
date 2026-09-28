@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { describeChanges, rebaseCatalog } from "@/lib/connect/catalogChanges";
 import { api, errorText, type ConnectionCatalog, type ConnectionDiagnostics, type PublicConnection } from "./api";
+import { CatalogHistory } from "./CatalogHistory";
 import { Banner, Button, Section, inputClass } from "./ui";
 
 /** Catalogs saved before facts (or entity kinds) existed have none. */
@@ -30,6 +31,7 @@ export function CatalogEditor({
   canEdit,
   onSaved,
   entities = false,
+  history = false,
   onDirtyChange,
 }: {
   connection: PublicConnection;
@@ -38,6 +40,8 @@ export function CatalogEditor({
   onSaved: () => void;
   /** API v2 entities are on: name the things people have several of, and which steps and facts are per one. */
   entities?: boolean;
+  /** Catalog history is on (CATALOG_HISTORY_ENABLED): list saved versions, with Restore. */
+  history?: boolean;
   /** Whether there are unsaved edits — the page asks before leaving the tab. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -128,6 +132,24 @@ export function CatalogEditor({
     setNewer(null);
     setNotes(r.notes);
     setMsg({ tone: "info", text: "Your edits are now on top of the latest version. Check them, then save." });
+  }
+
+  async function restore(rev: number) {
+    setMsg(null);
+    const r = await api<SaveReply>(`/api/admin/connections/${connection.id}/catalog-history/${rev}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ catalogRev: base.rev }),
+    });
+    if (r.data.error === "catalog_changed" && r.data.catalog) {
+      adopt({ catalog: withLists(r.data.catalog), rev: r.data.catalogRev ?? 0 });
+      setMsg({ tone: "err", text: "The catalog changed since this page loaded, so nothing was restored. Here's the latest — restore again if you still want to." });
+      return;
+    }
+    if (!r.ok || !r.data.connection) return setMsg({ tone: "err", text: errorText(r.data) });
+    const saved = { catalog: withLists(r.data.connection.catalog), rev: r.data.connection.catalogRev ?? 0 };
+    adopt(saved);
+    setMsg({ tone: "ok", text: `Restored version ${rev}, saved as version ${saved.rev}.` });
+    onSaved();
   }
 
   const row = "grid gap-2 sm:grid-cols-[1fr_1fr_2fr_auto]";
@@ -360,6 +382,8 @@ export function CatalogEditor({
           </Button>
         </div>
       ) : null}
+
+      {history ? <CatalogHistory connectionId={connection.id} currentRev={base.rev} canEdit={canEdit} dirty={dirty} onRestore={restore} /> : null}
     </div>
   );
 }

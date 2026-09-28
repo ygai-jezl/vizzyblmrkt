@@ -8,6 +8,7 @@ import { ConnectionCatalogSchema, type ConnectionCatalog, type ProductConnection
 import type { AnalysisRepo, RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { ProductMapSchema, type ProductMap } from "./productMapSchema";
 import { zodReason } from "./protocol";
+import { recordCatalogRevision } from "./catalogHistory";
 import { invalidateConnectionCaches } from "./connectionAuth";
 
 /**
@@ -271,6 +272,18 @@ export async function acceptProductMap(
   if (seen.invalid) return fail(422, "catalog_invalid", seen.invalid);
   if (!saved || !seen.before) return fail(404, "not_found");
   invalidateConnectionCaches(saved.keyId, ctx.tenantId, connectionId);
+  const before = seen.before;
+  await recordCatalogRevision(
+    ctx,
+    {
+      connectionId,
+      before: { catalog: before.catalog, rev: before.catalogRev ?? 0, savedAt: before.updatedAt },
+      after: { catalog: saved.catalog, rev: saved.catalogRev ?? 0 },
+      source: "learn",
+      nowIso,
+    },
+    deps.db,
+  );
   const accepted = { steps: steps.length, events: events.length, traits: traits.length, facts: facts.length, glossary: glossary.length, entityKinds: entityKinds.length };
   await repo.repoAnalyses.update(analysisId, { acceptedAt: nowIso, acceptedBy: ctx.email ?? ctx.userId ?? null, accepted });
   return { ok: true, value: { catalog: saved.catalog, linkDomains: saved.linkDomains, accepted } };

@@ -28,6 +28,8 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
   const [diagnostics, setDiagnostics] = useState<ConnectionDiagnostics | null>(null);
   /** API v2 entities are on (CONNECT_ENTITIES_ENABLED): the catalog can name them. */
   const [entities, setEntities] = useState(false);
+  /** Catalog history is on (CATALOG_HISTORY_ENABLED). */
+  const [catalogHistory, setCatalogHistory] = useState(false);
   /** The Catalog tab has unsaved edits. */
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     const r = await api<{
       connection: PublicConnection;
       diagnostics: ConnectionDiagnostics | null;
-      features?: { entities?: boolean };
+      features?: { entities?: boolean; catalogHistory?: boolean };
     }>(
       `/api/admin/connections/${connectionId}`,
     );
@@ -46,6 +48,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     setConnection(r.data.connection);
     setDiagnostics(r.data.diagnostics);
     setEntities(Boolean(r.data.features?.entities));
+    setCatalogHistory(Boolean(r.data.features?.catalogHistory));
     // ?tab=learn (etc.) opens a tab directly — e.g. from the setup wizard.
     const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
     const valid: Tab[] = ["setup", "sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
@@ -142,6 +145,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
           diagnostics={diagnostics}
           canEdit={canEdit}
           entities={entities}
+          history={catalogHistory}
           onDirtyChange={setCatalogDirty}
           onSaved={() => void load()}
         />

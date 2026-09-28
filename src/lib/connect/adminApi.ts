@@ -20,7 +20,8 @@ import { sendConnectionWebhook } from "./webhookClient";
 import { eraseProductUser } from "./erase";
 import { productUserDocId } from "./profile";
 import { getUserView } from "./v2/users";
-import { isEntitiesEnabled } from "./v2/flags";
+import { isCatalogHistoryEnabled, isEntitiesEnabled } from "./v2/flags";
+import { getCatalogRevision, listCatalogRevisions, recordCatalogRevision } from "./catalogHistory";
 import {
   SANDBOX_CATALOG,
   SANDBOX_LINK_DOMAINS,
@@ -117,7 +118,7 @@ export async function getConnectionDetail(ctx: TenantContext, id: string, db?: F
   return ok({
     connection: publicConnection(conn),
     diagnostics,
-    features: { entities: isEntitiesEnabled() },
+    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled() },
   });
 }
 
@@ -228,13 +229,14 @@ export async function patchConnection(
     invalidateConnectionCaches(conn.keyId, ctx.tenantId, id);
     return ok({ connection: publicConnection({ ...conn, ...patch }) });
   }
-  const r = await writeCatalog(ctx, id, { catalog: p.catalog, baseRev: p.catalogRev ?? 0, patch }, db);
+  const r = await writeCatalog(ctx, id, { catalog: p.catalog, baseRev: p.catalogRev ?? 0, patch, source: "editor" }, db);
   return r.ok ? ok({ connection: publicConnection(r.connection) }) : r.result;
 }
 
 /**
  * Replace a connection's catalog — only if it's still the version the change was
- * made from (checked and written in one transaction), bumping catalogRev. When it isn't, 409
+ * made from (checked and written in one transaction), bumping catalogRev and
+ * recording the version in the catalog history. When it isn't, 409
  * `catalog_changed` carries the current catalog so the page can carry its edits
  * over onto it.
  */
@@ -245,6 +247,8 @@ async function writeCatalog(
     catalog: ConnectionCatalog;
     baseRev: number;
     patch: Partial<ProductConnection>;
+    source: "editor" | "restore";
+    restoredFrom?: number;
   },
   db?: FirestoreLike,
 ): Promise<{ ok: true; connection: ProductConnection } | { ok: false; result: ApiResult }> {
@@ -265,7 +269,69 @@ async function writeCatalog(
   }
   if (!saved || !seen.before) return { ok: false, result: seen.before ? fail(409, "connection_revoked") : fail(404, "not_found") };
   invalidateConnectionCaches(saved.keyId, ctx.tenantId, id);
+  await recordCatalogRevision(
+    ctx,
+    {
+      connectionId: id,
+      before: { catalog: seen.before.catalog, rev: change.baseRev, savedAt: seen.before.updatedAt },
+      after: { catalog: saved.catalog, rev: change.baseRev + 1 },
+      source: change.source,
+      ...(change.restoredFrom !== undefined ? { restoredFrom: change.restoredFrom } : {}),
+      nowIso: saved.updatedAt,
+    },
+    db,
+  );
   return { ok: true, connection: saved };
+}
+
+// ---- Catalog history ------------------------------------------------------------------
+
+/** The catalog's kept versions, newest first — what changed, who and when (not the catalogs themselves). */
+export async function getCatalogHistory(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
+  if (!isCatalogHistoryEnabled()) return fail(404, "not_found");
+  const conn = await loadConnection(ctx, id, db);
+  if (!conn) return fail(404, "not_found");
+  const rows = await listCatalogRevisions(ctx, id, db);
+  return ok({
+    catalogRev: conn.catalogRev ?? 0,
+    versions: rows.map((r) => ({
+      rev: r.rev,
+      savedAt: r.savedAt,
+      savedBy: r.savedBy,
+      source: r.source,
+      restoredFrom: r.restoredFrom ?? null,
+      changes: r.changes,
+    })),
+  });
+}
+
+const RestoreInput = z.object({ catalogRev: z.number().int().min(0) });
+
+/** Bring back an earlier version as a new one — refused, like a save, when the page's copy is out of date. */
+export async function restoreCatalogVersion(
+  ctx: TenantContext,
+  id: string,
+  rev: number,
+  input: unknown,
+  db?: FirestoreLike,
+): Promise<ApiResult> {
+  if (!isCatalogHistoryEnabled()) return fail(404, "not_found");
+  const parsed = RestoreInput.safeParse(input);
+  if (!parsed.success || !Number.isInteger(rev) || rev < 0) return fail(400, "invalid_input", parsed.success ? "rev" : zodReason(parsed.error));
+  const conn = await loadConnection(ctx, id, db);
+  if (!conn) return fail(404, "not_found");
+  if (conn.status === "revoked") return fail(409, "connection_revoked");
+  const version = await getCatalogRevision(ctx, id, rev, db);
+  if (!version) return fail(404, "version_not_found");
+  const catalog = ConnectionCatalogSchema.safeParse(version.catalog);
+  if (!catalog.success) return fail(422, "catalog_invalid", zodReason(catalog.error));
+  const r = await writeCatalog(
+    ctx,
+    id,
+    { catalog: catalog.data, baseRev: parsed.data.catalogRev, patch: { updatedAt: new Date().toISOString() }, source: "restore", restoredFrom: rev },
+    db,
+  );
+  return r.ok ? ok({ connection: publicConnection(r.connection) }) : r.result;
 }
 
 export async function revokeProductConnection(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {

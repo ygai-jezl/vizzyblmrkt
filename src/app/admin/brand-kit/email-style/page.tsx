@@ -6,14 +6,20 @@ import { getTenantById } from "@/lib/tenant";
 import { listLogos } from "@/lib/admin/brandLogos";
 import { listBrandAssets } from "@/lib/admin/brandAssets";
 import { BRAND_KIT_ROUTE, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
-import { isEmailHeaderOptionsEnabled, isEmailHeaderOptionsUiEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
+import {
+  isEmailHeaderOptionsEnabled,
+  isEmailHeaderOptionsUiEnabled,
+  isEmailStyleEnabled,
+  isEmailThemesEnabled,
+  isEmailWebFontsEnabled,
+} from "@/lib/email/flags";
 import { isEmailHeaderImage, styleFromBrandKit } from "@/lib/email/emailStyle";
 import { emailLinkOrigin } from "@/lib/email/footer";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { EmailStyleCard } from "@/components/admin/brand-kit/EmailStyleCard";
-import { paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
+import { brandFontsToEmail, paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
 import type { EmailHeaderImageChoice } from "@/components/admin/brand-kit/headerImage";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +30,9 @@ export const dynamic = "force-dynamic";
  * can view, including a pending Vizzy suggestion; only admins save or dismiss it. Flag-gated
  * (EMAIL_STYLE_ENABLED). The header options (a gradient, the header text colour, and a Header
  * choice of Colour or Image, with the header images uploaded there) show only when
- * EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on.
+ * EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on. The Theme (a look, a heading
+ * and a body font, "Use brand fonts") shows only with EMAIL_THEMES_ENABLED, and the preview's
+ * "As Apple Mail sees it" / "As Gmail & Outlook.com see it" only with EMAIL_WEB_FONTS_ENABLED too.
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -98,6 +106,9 @@ export default async function EmailStylePage() {
         suggestedAt: suggestion.suggestedAt,
       }
     : null;
+  // Off, the page is exactly as without them: no Theme section, and Save sends no theme (the PUT keeps the stored one).
+  const themes = isEmailThemesEnabled();
+  const webFonts = themes && isEmailWebFontsEnabled();
   const phase3 = isNavV2Phase3Enabled();
 
   return (
@@ -130,6 +141,7 @@ export default async function EmailStylePage() {
                       headerImage: saved.headerImage ?? null,
                     }
                   : {}),
+                ...(themes ? { theme: saved.theme ?? null } : {}),
               }
             : null
         }
@@ -146,6 +158,10 @@ export default async function EmailStylePage() {
         headerImages={headerImages}
         headerImagesUnavailable={headerImagesUnavailable}
         headerImageOrigin={headerOptions ? emailLinkOrigin() : ""}
+        themes={themes}
+        webFonts={webFonts}
+        fontOrigin={webFonts ? emailLinkOrigin() : ""}
+        fromBrandFonts={themes ? brandFontsToEmail(tenant?.brandTypography, tenant?.brandKit?.fonts) : null}
       />
     </div>
   );

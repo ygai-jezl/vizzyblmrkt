@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EmailStyleInputSchema, HEADER_TEXT_CHOICES, type EmailStyleInput, type HeaderTextChoice } from "@/lib/types/tenant";
+import {
+  EMAIL_THEME_PRESETS,
+  EmailStyleInputSchema,
+  HEADER_TEXT_CHOICES,
+  type EmailFontId,
+  type EmailStyleInput,
+  type EmailThemePreset,
+  type HeaderTextChoice,
+} from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import {
   BRAND_KIT_LOGOS_ROUTE,
@@ -22,17 +30,28 @@ import {
   resolveStoredStyle,
   type BrandKitEmailStyle,
 } from "@/lib/email/emailStyle";
+import { EMAIL_FONT_LIST, isEmailFontId } from "@/lib/email/emailFonts";
+import { EMAIL_THEME_PRESET_SPECS, PILL_RADIUS, compactTheme, tint } from "@/lib/email/emailThemes";
 import { renderLifecycleEmail, type RenderValues } from "@/lib/lifecycle/render";
 import {
   averageInk,
   brandKitWithLogo,
+  emailFontOption,
   emailStyleHints,
+  emailStyleSaveInput,
   fitLogoSize,
   headerAfterDelete,
   logoForSave,
+  pageFontStack,
+  pageWebFontFaces,
+  presetTheme,
+  sameTheme,
   secondColourDefault,
   suggestionForReview,
+  themeForForm,
+  type BrandFontsForEmail,
   type EmailStyleLogoChoice,
+  type FormTheme,
   type PaletteChip,
   type PendingEmailStyleSuggestion,
 } from "./emailStyleForm";
@@ -51,6 +70,11 @@ import type { EmailHeaderImageChoice } from "./headerImage";
  * changes until an admin saves. The preview goes through the lifecycle renderer, so it matches
  * the send. A banner shows Vizzy's pending suggestion: Review loads it into the form and Save
  * applies it, or Dismiss drops it. Members see it all read-only.
+ *
+ * With themes on, a Theme section too: four looks (tiles drawn in each one's page colour, card,
+ * button and heading font), a heading and a body font labelled with where each shows, and "Use
+ * brand fonts" from Brand › Fonts. With web fonts on as well, the preview shows the email as
+ * Apple Mail sees it (web fonts loaded) or as Gmail and Outlook.com do (their safe fonts).
  */
 
 const FIELD =
@@ -87,9 +111,11 @@ interface Draft {
   /** Colour (logo and name on the header colour) or Image (a banner). The picked banner is kept in Colour. */
   headerMode: "colour" | "image";
   headerImageId: string | null;
+  /** The look and its fonts (only shown and sent with `themes`). */
+  theme: FormTheme;
 }
 
-/** Nothing saved yet: no logo, no name, today's near-black, solid, Auto text, the colour header. */
+/** Nothing saved yet: no logo, no name, today's near-black, solid, Auto text, the colour header, Classic. */
 const BLANK: Draft = {
   logoId: null,
   companyName: "",
@@ -100,6 +126,7 @@ const BLANK: Draft = {
   headerText: "auto",
   headerMode: "colour",
   headerImageId: null,
+  theme: presetTheme("classic"),
 };
 
 const HEADER_TEXT_LABELS: Record<HeaderTextChoice, string> = { auto: "Auto", white: "White", black: "Black" };
@@ -136,6 +163,7 @@ function toDraft(
     headerText: style.headerText ?? "auto",
     headerMode: style.headerImage ? "image" : "colour",
     headerImageId: imageId && (!images || images.some((i) => i.id === imageId)) ? imageId : null,
+    theme: themeForForm(style.theme),
   };
 }
 
@@ -148,7 +176,8 @@ const sameDraft = (a: Draft, b: Draft) =>
   (!a.gradient || a.headerColor2 === b.headerColor2) &&
   a.headerText === b.headerText &&
   a.headerMode === b.headerMode &&
-  (a.headerMode !== "image" || a.headerImageId === b.headerImageId);
+  (a.headerMode !== "image" || a.headerImageId === b.headerImageId) &&
+  sameTheme(a.theme, b.theme);
 
 /**
  * Load a logo from its same-origin URL (the logo route sends no CORS headers, so a canvas
@@ -273,6 +302,10 @@ export function EmailStyleCard({
   headerImages,
   headerImagesUnavailable,
   headerImageOrigin,
+  themes,
+  webFonts,
+  fontOrigin,
+  fromBrandFonts,
 }: {
   /** The saved style; null = none, so emails have today's look. */
   initial: EmailStyleInput | null;
@@ -307,6 +340,17 @@ export function EmailStyleCard({
   headerImagesUnavailable: boolean;
   /** The origin emails load the header image from; empty = the preview shows the colour header, as the send would. */
   headerImageOrigin: string;
+  /**
+   * Themes are on (EMAIL_THEMES_ENABLED): the Theme section shows and Save sends `theme`. Off,
+   * the page is as without them, and Save sends no theme key, so the server keeps what's stored.
+   */
+  themes: boolean;
+  /** Web fonts are on too (EMAIL_WEB_FONTS_ENABLED): the preview can show them, and the tiles use them. */
+  webFonts: boolean;
+  /** The origin emails load web fonts from; empty = the preview shows the safe fonts, as the send would. */
+  fontOrigin: string;
+  /** What "Use brand fonts" fills in; null with themes off. */
+  fromBrandFonts: BrandFontsForEmail | null;
 }) {
   // Logos cleaned up here, and the primary the server kept in place when one was added.
   const [added, setAdded] = useState<EmailStyleLogoChoice[]>([]);
@@ -338,12 +382,16 @@ export function EmailStyleCard({
   const [bannerChecks, setBannerChecks] = useState<Record<string, "ok" | "failed">>({});
   const bannerChecking = useRef(new Map<string, Promise<boolean>>());
   const [notes, setNotes] = useState<string[]>([]);
+  // Why "Use brand fonts" left a font as it was, shown by its button.
+  const [fontNotes, setFontNotes] = useState<string[]>([]);
   // The suggestion (by suggestedAt) loaded into the form, and the one applied or dismissed here.
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [handled, setHandled] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "kit" | "save" | "reset" | "dismiss" | "logo" | "image">(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The preview as Apple Mail sees it (web fonts loaded) or as Gmail and Outlook.com do.
+  const [fontView, setFontView] = useState<"apple" | "gmail">("apple");
 
   const router = useRouter();
   const dirty = saved ? !sameDraft(draft, toDraft(saved, listed, listedImages)) : started;
@@ -429,21 +477,14 @@ export function EmailStyleCard({
     kept,
     saved,
   });
-  const input: EmailStyleInput = {
+  // The header options' keys, always, while they're on; with no image list, the image is left
+  // out, so the server keeps it. The theme only while themes are on.
+  const input = emailStyleSaveInput(draft, {
     logo: logoPlan.logo,
-    companyName: cleanCompanyName(draft.companyName),
-    headerColor: draft.headerColor,
-    accentColor: draft.accentColor,
-    // The keys, always, while the options are on: null = solid, "auto" = Auto, a null image =
-    // the colour header. With no image list, the image is left out, so the server keeps it.
-    ...(headerOptions
-      ? {
-          headerGradientColor: draft.gradient ? draft.headerColor2 : null,
-          headerText: draft.headerText,
-          ...(imagesListed ? { headerImage } : {}),
-        }
-      : {}),
-  };
+    headerOptions,
+    headerImage: imagesListed ? headerImage : undefined,
+    themes,
+  });
   const check = EmailStyleInputSchema.safeParse(input);
   // Image mode holds Save until the picked banner has loaded (only when it's sent).
   const imageHold = imageMode && imagesListed && imageState !== "ready";
@@ -454,7 +495,7 @@ export function EmailStyleCard({
   const previewStyle = started
     ? resolveStoredStyle(
         // The banner shows even when Save leaves it out (no list): it's the one stored.
-        { ...input, headerImage },
+        { ...input, headerImage, theme: compactTheme(draft.theme) },
         {
           logoUrlFor: (l) => {
             const url = logoOrigin ? brandLogoAbsoluteUrl(logoOrigin, tenantId, l.filename) : "";
@@ -466,6 +507,10 @@ export function EmailStyleCard({
           },
           fallbackName,
           headerOptions,
+          themes,
+          // "As Gmail & Outlook.com see it": no web fonts, as those inboxes show it.
+          webFonts: webFonts && fontView === "apple",
+          fontOrigin,
         },
       )
     : null;
@@ -502,6 +547,9 @@ export function EmailStyleCard({
                 : null,
             }
           : {}),
+        ...(themes
+          ? { theme: { headingFont: draft.theme.headingFont, bodyFont: draft.theme.bodyFont, webFonts } }
+          : {}),
       })
     : [];
 
@@ -535,6 +583,29 @@ export function EmailStyleCard({
     } finally {
       setBusy(null);
     }
+  }
+
+  /** A look or font picked here: any "Use brand fonts" notes no longer apply. */
+  function editTheme(theme: FormTheme) {
+    edit({ theme });
+    setFontNotes([]);
+  }
+
+  /** "Use brand fonts": the fonts Brand maps to, each only when email has it; the look stays as it is. */
+  function applyBrandFonts() {
+    if (!fromBrandFonts) return;
+    const { headingFont, bodyFont, notes: why } = fromBrandFonts;
+    if (headingFont || bodyFont) {
+      edit({
+        theme: {
+          ...draft.theme,
+          ...(headingFont ? { headingFont } : {}),
+          ...(bodyFont ? { bodyFont } : {}),
+        },
+      });
+      setStatus("Filled in your brand fonts. Save to use them in emails.");
+    }
+    setFontNotes(why);
   }
 
   /** A logo cleaned up here: it joins the list and is picked. The Email style changes on Save. */
@@ -676,6 +747,7 @@ export function EmailStyleCard({
       setSaved(data.emailStyle);
       setDraft(toDraft(data.emailStyle, listed, listedImages));
       setNotes([]);
+      setFontNotes([]);
       if (reviewing) {
         setHandled(reviewing);
         // A newer suggestion survives the Save, and this page can't tell: fetch whatever is pending now.
@@ -705,6 +777,7 @@ export function EmailStyleCard({
       setDraft(BLANK);
       setStarted(false);
       setNotes([]);
+      setFontNotes([]);
       setReviewing(null);
       setStatus("Reset. Your emails have today's look.");
     } catch {
@@ -1002,6 +1075,20 @@ export function EmailStyleCard({
           onChange={(accentColor) => edit({ accentColor })}
         />
 
+        {themes ? (
+          <ThemeFields
+            theme={draft.theme}
+            accentColor={draft.accentColor}
+            webFonts={webFonts}
+            canEdit={canEdit}
+            disabled={disabled}
+            onPreset={(preset) => editTheme(presetTheme(preset))}
+            onFont={(role, id) => editTheme({ ...draft.theme, [role]: id })}
+            onBrandFonts={fromBrandFonts ? applyBrandFonts : null}
+            brandFontNotes={fontNotes}
+          />
+        ) : null}
+
         {hints.length ? (
           <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
             {hints.map((h) => (
@@ -1046,6 +1133,30 @@ export function EmailStyleCard({
             {dirty ? " · not saved yet" : ""}
           </span>
         </div>
+        {themes && webFonts ? (
+          <div role="group" aria-label="Preview as" className="flex flex-wrap gap-1.5">
+            {(
+              [
+                ["apple", "As Apple Mail sees it"],
+                ["gmail", "As Gmail & Outlook.com see it"],
+              ] as const
+            ).map(([view, label]) => (
+              <button
+                key={view}
+                type="button"
+                aria-pressed={fontView === view}
+                onClick={() => setFontView(view)}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  fontView === view
+                    ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
+                    : "border-neutral-300 dark:border-neutral-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <iframe
           title="Preview of a branded email"
           sandbox=""
@@ -1053,6 +1164,9 @@ export function EmailStyleCard({
           className="h-[480px] w-full rounded-md border border-neutral-200 bg-white dark:border-neutral-800"
         />
         <p className={HINT}>A sample welcome email. Letters stay plain, with no header.</p>
+        {themes && webFonts && fontView === "gmail" ? (
+          <p className={HINT}>Outlook for Windows also shows square corners.</p>
+        ) : null}
       </div>
     </div>
   );
@@ -1162,6 +1276,189 @@ function SwatchLabel({ hex, to, label }: { hex: string; to?: string; label: stri
       />
       {label} <span className="font-mono">{to ? `${hex} → ${to}` : hex}</span>
     </span>
+  );
+}
+
+/** What each look is, under its tile. */
+const PRESET_NOTES: Record<EmailThemePreset, string> = {
+  classic: "Today's look",
+  modern: "Rounded card, pill buttons",
+  editorial: "Serif, square corners",
+  friendly: "Round, on a tint of your button colour",
+};
+
+/**
+ * The Theme section: the four looks as tiles (each drawn in its page colour, card corners,
+ * button shape and heading font, with the button colour), the two fonts, and "Use brand fonts".
+ * Picking a look gives its own fonts; the pickers change either after.
+ */
+function ThemeFields({
+  theme,
+  accentColor,
+  webFonts,
+  canEdit,
+  disabled,
+  onPreset,
+  onFont,
+  onBrandFonts,
+  brandFontNotes,
+}: {
+  theme: FormTheme;
+  /** The button colour: the tiles' buttons, and Friendly's page tint. */
+  accentColor: string;
+  webFonts: boolean;
+  canEdit: boolean;
+  disabled: boolean;
+  onPreset: (preset: EmailThemePreset) => void;
+  onFont: (role: "headingFont" | "bodyFont", id: EmailFontId) => void;
+  /** null = nothing to fill it in from (themes off). */
+  onBrandFonts: (() => void) | null;
+  /** Why "Use brand fonts" left a font as it was. */
+  brandFontNotes: string[];
+}) {
+  // The web fonts' bold faces, so each tile's "Aa" is in its heading font (only with web fonts on, as in emails).
+  const faces = useMemo(() => (webFonts ? pageWebFontFaces() : ""), [webFonts]);
+  return (
+    <fieldset className="space-y-3">
+      <legend className={LABEL}>Theme</legend>
+      {faces ? <style dangerouslySetInnerHTML={{ __html: faces }} /> : null}
+      <p id="email-style-theme-hint" className={HINT}>
+        The look of every branded email: the page around it, its corners, button shape, spacing and fonts.
+      </p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {EMAIL_THEME_PRESETS.map((preset) => {
+          const spec = EMAIL_THEME_PRESET_SPECS[preset];
+          const checked = theme.preset === preset;
+          return (
+            <label
+              key={preset}
+              className={`flex flex-col gap-2 rounded-md border p-2 text-sm ${
+                checked ? "border-neutral-900 dark:border-neutral-100" : "border-neutral-200 dark:border-neutral-800"
+              } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:border-neutral-400 dark:hover:border-neutral-600"}`}
+            >
+              {/* A small email, at half size: the page, the card, "Aa" in the heading font, a button. */}
+              <span
+                aria-hidden
+                className="grid h-16 place-items-center overflow-hidden rounded"
+                style={{ backgroundColor: spec.page === "tint" ? tint(accentColor, 0.94) : spec.page }}
+              >
+                <span
+                  className="flex w-3/4 flex-col items-start gap-1.5 px-2 py-2"
+                  style={{ backgroundColor: "#ffffff", borderRadius: spec.cardRadius / 2 }}
+                >
+                  <span
+                    className="text-base font-bold leading-none"
+                    style={{ color: "#111111", fontFamily: pageFontStack(spec.headingFont, webFonts) }}
+                  >
+                    Aa
+                  </span>
+                  <span
+                    className="block h-2.5 w-10"
+                    style={{
+                      backgroundColor: accentColor,
+                      borderRadius: spec.buttonRadius === PILL_RADIUS ? PILL_RADIUS : spec.buttonRadius / 2,
+                    }}
+                  />
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="email-style-theme"
+                  checked={checked}
+                  disabled={disabled}
+                  aria-describedby="email-style-theme-hint"
+                  onChange={() => onPreset(preset)}
+                />
+                <span className="min-w-0 flex-1 truncate">{spec.label}</span>
+              </span>
+              <span className={HINT}>{PRESET_NOTES[preset]}</span>
+            </label>
+          );
+        })}
+      </div>
+      <FontSelect
+        id="email-style-heading-font"
+        label="Heading font"
+        hint="Headings, and your name in the header."
+        value={theme.headingFont}
+        webFonts={webFonts}
+        disabled={disabled}
+        onChange={(id) => onFont("headingFont", id)}
+      />
+      <FontSelect
+        id="email-style-body-font"
+        label="Body font"
+        hint="Text, buttons and the footer."
+        value={theme.bodyFont}
+        webFonts={webFonts}
+        disabled={disabled}
+        onChange={(id) => onFont("bodyFont", id)}
+      />
+      {canEdit && onBrandFonts ? (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-neutral-300 p-3 dark:border-neutral-700">
+          <p className={HINT}>Use the heading and body fonts from Brand › Fonts, where email has them.</p>
+          <button type="button" onClick={onBrandFonts} disabled={disabled} className={`shrink-0 font-medium ${BTN}`}>
+            Use brand fonts
+          </button>
+        </div>
+      ) : null}
+      {brandFontNotes.length ? (
+        <ul className="space-y-1 rounded-md border border-neutral-200 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:text-neutral-300">
+          {brandFontNotes.map((n) => (
+            <li key={n}>{n}.</li>
+          ))}
+        </ul>
+      ) : null}
+    </fieldset>
+  );
+}
+
+/** A font picker: every email font, each labelled with where it shows. */
+function FontSelect({
+  id,
+  label,
+  hint,
+  value,
+  webFonts,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  /** Where in the email the font shows. */
+  hint: string;
+  value: EmailFontId;
+  webFonts: boolean;
+  disabled: boolean;
+  onChange: (id: EmailFontId) => void;
+}) {
+  const hintId = `${id}-hint`;
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className={LABEL}>
+        {label}
+      </label>
+      <p id={hintId} className={HINT}>
+        {hint}
+      </p>
+      <select
+        id={id}
+        className={INPUT}
+        value={value}
+        disabled={disabled}
+        aria-describedby={hintId}
+        onChange={(e) => {
+          if (isEmailFontId(e.target.value)) onChange(e.target.value);
+        }}
+      >
+        {EMAIL_FONT_LIST.map((f) => (
+          <option key={f.id} value={f.id}>
+            {emailFontOption(f.id, webFonts)}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

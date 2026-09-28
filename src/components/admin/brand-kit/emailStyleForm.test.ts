@@ -1,20 +1,30 @@
 import { describe, it, expect } from "vitest";
 import {
   averageInk,
+  brandFontsToEmail,
   brandKitWithLogo,
+  emailFontForFamily,
+  emailFontOption,
   emailStyleHints,
+  emailStyleSaveInput,
   fitLogoSize,
   headerAfterDelete,
   logoForSave,
   logoHardToSee,
+  pageFontStack,
+  pageWebFontFaces,
   paletteChips,
+  presetTheme,
+  sameTheme,
   secondColourDefault,
   suggestionForReview,
+  themeForForm,
   HEAVY_LOGO_BYTES,
   type EmailStyleLogoChoice,
   type PendingEmailStyleSuggestion,
 } from "./emailStyleForm";
 import { contrastRatio } from "@/lib/email/emailStyle";
+import { EmailStyleInputSchema, type TextStyle } from "@/lib/types/tenant";
 
 const px = (...pixels: Array<[number, number, number, number]>) => pixels.flat();
 
@@ -514,5 +524,275 @@ describe("suggestionForReview", () => {
     it("with the header options off (no list given), the header is left as it is", () => {
       expect(suggestionForReview(banner, [logo()])).not.toHaveProperty("headerImageId");
     });
+  });
+});
+
+describe("emailStyleSaveInput: what Save sends", () => {
+  const LOGO = { id: "logo_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.png", width: 120, height: 40 };
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3302.jpg", width: 1200, height: 300 };
+  const draft = {
+    companyName: "  Example   Co ",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+    gradient: false,
+    headerColor2: "#4f46e5",
+    headerText: "auto" as const,
+    theme: presetTheme("classic"),
+  };
+
+  // Byte for byte what the page sent before themes: JSON.stringify keeps key order, so these are exact.
+  it("themes off: today's bodies, with no theme key, whatever the form's theme", () => {
+    for (const theme of [presetTheme("classic"), presetTheme("modern"), { ...presetTheme("friendly"), bodyFont: "lora" as const }]) {
+      const d = { ...draft, theme };
+      expect(JSON.stringify(emailStyleSaveInput(d, { logo: LOGO, headerOptions: false, themes: false }))).toBe(
+        `{"logo":${JSON.stringify(LOGO)},"companyName":"Example Co","headerColor":"#0b1f3a","accentColor":"#ff6b35"}`,
+      );
+      expect(JSON.stringify(emailStyleSaveInput(d, { logo: null, headerOptions: true, headerImage: null, themes: false }))).toBe(
+        '{"logo":null,"companyName":"Example Co","headerColor":"#0b1f3a","accentColor":"#ff6b35",' +
+          '"headerGradientColor":null,"headerText":"auto","headerImage":null}',
+      );
+    }
+  });
+
+  it("themes off, header options as today: a gradient, a banner, and no image list leaving the image out", () => {
+    const d = { ...draft, gradient: true, headerText: "white" as const };
+    expect(emailStyleSaveInput(d, { logo: LOGO, headerOptions: true, headerImage: IMAGE, themes: false })).toEqual({
+      logo: LOGO,
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+      headerImage: IMAGE,
+    });
+    const unlisted = emailStyleSaveInput(d, { logo: LOGO, headerOptions: true, headerImage: undefined, themes: false });
+    expect(unlisted).not.toHaveProperty("headerImage");
+    expect(Object.keys(unlisted)).toEqual(["logo", "companyName", "headerColor", "accentColor", "headerGradientColor", "headerText"]);
+  });
+
+  it("themes on: the theme last, compacted as it's stored (null = Classic with the system font)", () => {
+    const body = (theme: ReturnType<typeof presetTheme>) =>
+      emailStyleSaveInput({ ...draft, theme }, { logo: null, headerOptions: true, headerImage: null, themes: true });
+    expect(JSON.stringify(body(presetTheme("classic")))).toBe(
+      '{"logo":null,"companyName":"Example Co","headerColor":"#0b1f3a","accentColor":"#ff6b35",' +
+        '"headerGradientColor":null,"headerText":"auto","headerImage":null,"theme":null}',
+    );
+    expect(body(presetTheme("modern")).theme).toEqual({ preset: "modern" });
+    expect(body({ ...presetTheme("editorial"), headingFont: "playfair-display" }).theme).toEqual({
+      preset: "editorial",
+      headingFont: "playfair-display",
+    });
+    expect(body({ ...presetTheme("classic"), bodyFont: "georgia" }).theme).toEqual({ preset: "classic", bodyFont: "georgia" });
+    // What the Save API parses strictly.
+    expect(EmailStyleInputSchema.safeParse(body({ ...presetTheme("friendly"), headingFont: "inter" })).success).toBe(true);
+    expect(
+      emailStyleSaveInput({ ...draft, theme: presetTheme("modern") }, { logo: null, headerOptions: false, themes: true }),
+    ).toEqual({ logo: null, companyName: "Example Co", headerColor: "#0b1f3a", accentColor: "#ff6b35", theme: { preset: "modern" } });
+  });
+});
+
+describe("the form's theme", () => {
+  it("a look comes with its own fonts", () => {
+    expect(presetTheme("classic")).toEqual({ preset: "classic", headingFont: "system", bodyFont: "system" });
+    expect(presetTheme("modern")).toEqual({ preset: "modern", headingFont: "inter", bodyFont: "inter" });
+    expect(presetTheme("editorial")).toEqual({ preset: "editorial", headingFont: "lora", bodyFont: "georgia" });
+    expect(presetTheme("friendly")).toEqual({ preset: "friendly", headingFont: "poppins", bodyFont: "nunito" });
+  });
+
+  it("a saved theme fills in the look's own fonts; none, or a damaged one, is Classic", () => {
+    expect(themeForForm({ preset: "editorial", bodyFont: "verdana" })).toEqual({
+      preset: "editorial",
+      headingFont: "lora",
+      bodyFont: "verdana",
+    });
+    expect(themeForForm(null)).toEqual(presetTheme("classic"));
+    expect(themeForForm(undefined)).toEqual(presetTheme("classic"));
+    expect(themeForForm({ preset: "retro" as never })).toEqual(presetTheme("classic"));
+    expect(themeForForm({ preset: "modern", headingFont: "comic-sans" as never })).toEqual(presetTheme("modern"));
+  });
+
+  it("the same look and fonts are the same theme", () => {
+    expect(sameTheme(presetTheme("modern"), themeForForm({ preset: "modern" }))).toBe(true);
+    expect(sameTheme(presetTheme("modern"), { ...presetTheme("modern"), bodyFont: "lora" })).toBe(false);
+    expect(sameTheme(presetTheme("classic"), presetTheme("editorial"))).toBe(false);
+  });
+});
+
+describe("emailFontOption: where each font shows", () => {
+  it("a safe font shows in every inbox", () => {
+    expect(emailFontOption("system", true)).toBe("System — All inboxes");
+    expect(emailFontOption("georgia", false)).toBe("Georgia — All inboxes");
+    expect(emailFontOption("trebuchet", true)).toBe("Trebuchet MS — All inboxes");
+  });
+
+  it("a web font shows in Apple Mail and Outlook for Mac, and others see its safe font", () => {
+    expect(emailFontOption("inter", true)).toBe("Inter — Apple Mail & Outlook for Mac · others see Segoe UI or Helvetica");
+    expect(emailFontOption("playfair-display", true)).toBe(
+      "Playfair Display — Apple Mail & Outlook for Mac · others see Georgia",
+    );
+  });
+
+  it("with web fonts off, a web font shows as its safe font everywhere", () => {
+    expect(emailFontOption("poppins", false)).toBe("Poppins — shows as Segoe UI or Helvetica for now");
+    expect(emailFontOption("lora", false)).toBe("Lora — shows as Georgia for now");
+  });
+});
+
+describe("emailStyleHints with a theme", () => {
+  const base = { logoBytes: 10_000, logoInk: "#ffffff", headerColor: "#0b1f3a", accentColor: "#0b1f3a" };
+  const theme = (headingFont: string, bodyFont: string, webFonts: boolean) =>
+    ({ theme: { headingFont, bodyFont, webFonts } }) as Pick<Parameters<typeof emailStyleHints>[0], "theme">;
+
+  it("safe fonts add nothing, and no theme is as before", () => {
+    expect(emailStyleHints({ ...base, ...theme("system", "system", true) })).toEqual([]);
+    expect(emailStyleHints({ ...base, ...theme("georgia", "verdana", false) })).toEqual([]);
+    expect(emailStyleHints(base)).toEqual([]);
+  });
+
+  it("with web fonts on: what Gmail and Outlook.com show instead, each font once, last", () => {
+    expect(emailStyleHints({ ...base, ...theme("inter", "inter", true) })).toEqual([
+      "Gmail, Outlook.com and most other inboxes show Segoe UI or Helvetica in place of Inter — see “As Gmail & Outlook.com see it”",
+    ]);
+    expect(emailStyleHints({ ...base, ...theme("lora", "poppins", true) })).toEqual([
+      "Gmail, Outlook.com and most other inboxes show Georgia and Segoe UI or Helvetica in place of Lora and Poppins — see “As Gmail & Outlook.com see it”",
+    ]);
+    expect(emailStyleHints({ ...base, ...theme("poppins", "nunito", true) })[0]).toMatch(
+      /show Segoe UI or Helvetica in place of Poppins and Nunito/,
+    );
+    // After the style's own hints.
+    expect(emailStyleHints({ ...base, accentColor: "#FFD400", ...theme("lora", "georgia", true) })).toEqual([
+      expect.stringMatching(/too light for text links/),
+      expect.stringMatching(/show Georgia in place of Lora/),
+    ]);
+  });
+
+  it("with web fonts off: every inbox shows the safe font", () => {
+    expect(emailStyleHints({ ...base, ...theme("system", "montserrat", false) })).toEqual([
+      "Web fonts aren't switched on yet, so every inbox shows Segoe UI or Helvetica in place of Montserrat",
+    ]);
+  });
+
+  it("in Image mode too, after the banner's hints", () => {
+    expect(
+      emailStyleHints({
+        ...base,
+        headerImage: { width: 1200, height: 300, byteSize: 10_000 },
+        ...theme("playfair-display", "arial", true),
+      }),
+    ).toEqual([expect.stringMatching(/show Georgia in place of Playfair Display/)]);
+  });
+});
+
+describe("emailFontForFamily", () => {
+  it("matches an email font by its name or id, ignoring case and weight words", () => {
+    expect(emailFontForFamily("Inter")).toBe("inter");
+    expect(emailFontForFamily("inter")).toBe("inter");
+    expect(emailFontForFamily("Playfair Display")).toBe("playfair-display");
+    expect(emailFontForFamily("playfair-display")).toBe("playfair-display");
+    expect(emailFontForFamily("Trebuchet MS")).toBe("trebuchet");
+    expect(emailFontForFamily("Trebuchet")).toBe("trebuchet");
+    expect(emailFontForFamily("Montserrat Semi Bold")).toBe("montserrat");
+    expect(emailFontForFamily("Lora Italic")).toBe("lora");
+    expect(emailFontForFamily("System")).toBe("system");
+  });
+
+  it("anything else isn't an email font", () => {
+    expect(emailFontForFamily("Interstate")).toBeNull();
+    expect(emailFontForFamily("Open Sans")).toBeNull();
+    expect(emailFontForFamily("Playfair")).toBeNull();
+    expect(emailFontForFamily("Bold")).toBeNull();
+    expect(emailFontForFamily("  ")).toBeNull();
+  });
+});
+
+describe("brandFontsToEmail: Use brand fonts", () => {
+  const style = (role: TextStyle["role"], fontFamily: string | null): TextStyle => ({
+    id: `ts_${role}`,
+    name: role,
+    role,
+    fontFamily,
+    size: 16,
+  });
+
+  it("a Heading style for headings, a Body style for text", () => {
+    expect(brandFontsToEmail({ styles: [style("body", "Nunito"), style("heading", "Montserrat")] }, ["Lora"])).toEqual({
+      headingFont: "montserrat",
+      bodyFont: "nunito",
+      notes: [],
+    });
+  });
+
+  it("a Title style when there's no Heading one; styles with no font don't count", () => {
+    expect(
+      brandFontsToEmail({ styles: [style("heading", null), style("title", "Playfair Display"), style("body", "Georgia")] }, null),
+    ).toEqual({ headingFont: "playfair-display", bodyFont: "georgia", notes: [] });
+  });
+
+  it("then the guideline fonts: the first for headings, the second (else the first) for text", () => {
+    expect(brandFontsToEmail(null, ["Poppins", "Inter"])).toEqual({ headingFont: "poppins", bodyFont: "inter", notes: [] });
+    expect(brandFontsToEmail({ styles: [] }, ["Lora"])).toEqual({ headingFont: "lora", bodyFont: "lora", notes: [] });
+    expect(brandFontsToEmail({ styles: [style("heading", "Lora")] }, ["Montserrat", "Inter"])).toMatchObject({
+      headingFont: "lora",
+      bodyFont: "inter",
+    });
+  });
+
+  it("one brand font is used for both", () => {
+    expect(brandFontsToEmail({ styles: [style("body", "Inter")] }, [])).toEqual({ headingFont: "inter", bodyFont: "inter", notes: [] });
+    expect(brandFontsToEmail({ styles: [style("title", "Lora")] }, [])).toMatchObject({ headingFont: "lora", bodyFont: "lora" });
+  });
+
+  it("a font email doesn't have (an uploaded one, say) keeps the form's, with a note", () => {
+    expect(brandFontsToEmail({ styles: [style("heading", "Example Sans"), style("body", "Inter")] }, [])).toEqual({
+      headingFont: null,
+      bodyFont: "inter",
+      notes: ["“Example Sans” isn't available for email yet, so headings keep the current font"],
+    });
+    expect(brandFontsToEmail({ styles: [style("heading", "Lora"), style("body", "Open Sans")] }, [])).toEqual({
+      headingFont: "lora",
+      bodyFont: null,
+      notes: ["“Open Sans” isn't available for email yet, so text keeps the current font"],
+    });
+    expect(brandFontsToEmail(null, ["Example Sans"])).toEqual({
+      headingFont: null,
+      bodyFont: null,
+      notes: ["“Example Sans” isn't available for email yet, so headings and text keep the current font"],
+    });
+    expect(brandFontsToEmail(null, ["Example Serif", "Example Sans"]).notes).toHaveLength(2);
+  });
+
+  it("no brand fonts at all says where to add them", () => {
+    for (const [typography, kit] of [
+      [null, null],
+      [{ styles: [style("heading", null), style("caption", "Inter")] }, ["  "]],
+    ] as const) {
+      expect(brandFontsToEmail(typography, kit)).toEqual({
+        headingFont: null,
+        bodyFont: null,
+        notes: ["No brand fonts yet — add text styles in Brand › Fonts"],
+      });
+    }
+  });
+});
+
+describe("the page's own web fonts (the theme tiles)", () => {
+  it("a bold face for each web font, from this origin, under the page's own family names", () => {
+    const css = pageWebFontFaces();
+    const faces = css.split("\n");
+    expect(faces).toHaveLength(6);
+    expect(faces[0]).toBe(
+      "@font-face{font-family:'Email Inter';font-style:normal;font-weight:700;" +
+        "src:url(/email-fonts/inter-700.v1.woff2) format('woff2');font-display:swap}",
+    );
+    expect(css).toContain("url(/email-fonts/playfair-display-700.v1.woff2)");
+    expect(css).not.toContain("?");
+    expect(css).not.toMatch(/https?:/);
+  });
+
+  it("draws a web font in its own family only with web fonts on; a safe font as its stack", () => {
+    expect(pageFontStack("inter", true)).toBe("'Email Inter','Segoe UI',Helvetica,Arial,sans-serif");
+    expect(pageFontStack("inter", false)).toBe("'Segoe UI',Helvetica,Arial,sans-serif");
+    expect(pageFontStack("lora", true)).toBe("'Email Lora',Georgia,'Times New Roman',Times,serif");
+    expect(pageFontStack("georgia", true)).toBe("Georgia,'Times New Roman',Times,serif");
   });
 });

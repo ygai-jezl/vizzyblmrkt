@@ -173,12 +173,13 @@ describe("journeys about entities, in the runner (CONNECT_ENTITIES_ENABLED)", ()
     });
     let now = T0;
     const sends = sendStub();
-    const deps = { db, now: () => now, send: sends.send, fetchContext: contextStub(() => null).fetchContext };
+    const ctx = contextStub(() => null);
+    const deps = { db, now: () => now, send: sends.send, fetchContext: ctx.fetchContext };
     const run = (enrolmentId: string, at: number) => {
       now = at;
       return processEnrolment(system, enrolmentId, deps);
     };
-    return { db, user, journey, version, sent: sends.sent, run };
+    return { db, user, journey, version, sent: sends.sent, contextCalls: ctx.calls, run };
   }
 
   it("about one brand (focus): the welcome's next step is the brand they're furthest along with", async () => {
@@ -188,6 +189,8 @@ describe("journeys about entities, in the runner (CONNECT_ENTITIES_ENABLED)", ()
     await w.run(id, T0);
     expect(await w.run(id, T0 + 15 * MIN)).toBe("sent");
     expect(w.sent[0]!.html).toContain("Monitor prompts →"); // Acme's next step, not "Add your brand"
+    // The product's context endpoint is told which one, so its insights are about Acme.
+    expect(w.contextCalls).toEqual([{ userId: "alex", purpose: "send", entity: { id: "acme", kind: "brand" } }]);
   });
 
   it("about each brand: one enrolment per brand, at most one email a day, and a removed brand ends its own", async () => {
@@ -219,5 +222,6 @@ describe("journeys about entities, in the runner (CONNECT_ENTITIES_ENABLED)", ()
     await w.run(id, T0);
     expect(await w.run(id, T0 + 15 * MIN)).toBe("sent");
     expect(w.sent[0]!.html).toContain("Add your brand →");
+    expect(w.contextCalls).toEqual([{ userId: "alex", purpose: "send" }]);
   });
 });

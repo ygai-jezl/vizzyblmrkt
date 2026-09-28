@@ -283,12 +283,13 @@ await yg.users.batch(items);                          // any number: the SDK sen
       </P>
       <H3>And the context endpoint?</H3>
       <P>
-        You don&apos;t need one: journeys use the state you send. If a value changes too fast to send — a number that moves
-        by the minute — a{" "}
+        Journeys run on the state you send, and a template can print a fact you&apos;ve sent. What only a{" "}
         <Link className="underline" href="/developers/context-endpoint">
           context endpoint
         </Link>{" "}
-        lets YouGrow fetch it at the moment of sending. Use the same step and fact ids in both.
+        can do: supply insight sentences — what someone&apos;s own results mean, in your words, the only way an email says
+        it — and hold or stop an email at the moment it would go. Build it if your emails should show people their results;
+        skip it only if they&apos;ll only ever nudge steps. Use the same step and fact ids in both.
       </P>
 
       <H2 id="entities">When people have several of something</H2>

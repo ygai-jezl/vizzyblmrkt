@@ -21,7 +21,7 @@ export const DOC_PAGES: DocPage[] = [
     slug: "",
     path: "/developers",
     label: "Overview",
-    summary: "How a connection works (your users' state, the optional context endpoint and webhooks), getting started, and the Node SDK.",
+    summary: "How a connection works (your users' state, the context endpoint and webhooks), getting started, and the Node SDK.",
   },
   {
     slug: "connect-your-code",

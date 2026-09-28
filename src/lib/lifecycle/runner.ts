@@ -303,7 +303,14 @@ export async function processEnrolment(
       } else {
         const res = await (deps.fetchContext ?? fetchProductContext)(
           connection,
-          { userId: user.externalUserId, purpose: "send", journeyId: journey.id, nodeId: startCursor },
+          {
+            userId: user.externalUserId,
+            purpose: "send",
+            journeyId: journey.id,
+            nodeId: startCursor,
+            // Only when the email is about one entity: products that don't send entities never see the field.
+            ...(entities?.entity ? { entity: { id: entities.entity.id, kind: entities.entity.entity.kind } } : {}),
+          },
           { db: deps.db, nowMs },
         );
         await noteContextHealth(scope, res);

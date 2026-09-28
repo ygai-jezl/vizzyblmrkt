@@ -109,6 +109,8 @@ export const ContextRequestSchema = z.object({
   purpose: ContextPurpose,
   journeyId: z.string().max(64).nullable().optional(),
   nodeId: z.string().max(64).nullable().optional(),
+  /** When the email is about one of the user's entities (a workspace, a brand, a project…): which one, in the product's own id and kind. */
+  entity: z.object({ id: z.string().max(128), kind: z.string().max(40) }).nullable().optional(),
   requestId: z.string().min(1).max(64),
 });
 export type ContextRequest = z.infer<typeof ContextRequestSchema>;

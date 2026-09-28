@@ -38,7 +38,7 @@ const TOKENS = [
   ["{{next_step.label}} / {{next_step.url}}", "The person's next onboarding step"],
   ["{{onboarding.steps_remaining}}", "Steps still to do"],
   ["{{trait.plan}}", "Any trait the product sends"],
-  ["{{fact.share_of_voice}}", "A fact from the product's context"],
+  ["{{fact.share_of_voice}}", "A fact's value, as the product sent it (or its context endpoint returned it)"],
   ["{{block.checklist}}", "✓/☐ onboarding checklist"],
   ["{{block.next_step}}", "Button (or link, in letters) to the next step"],
   ["{{block.insight}}", "The product's insight for this person"],

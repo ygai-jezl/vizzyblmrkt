@@ -52,6 +52,8 @@ export interface ContextRequestInput {
   purpose: ContextPurpose;
   journeyId?: string | null;
   nodeId?: string | null;
+  /** The entity the email is about (API v2 entities), so the product answers for that one. */
+  entity?: { id: string; kind: string } | null;
 }
 
 export interface ContextClientDeps {

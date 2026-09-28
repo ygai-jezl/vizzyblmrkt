@@ -151,7 +151,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     }
     if (t.id === "context") {
       body.push(
-        "Skip it unless a value changes too fast to send, or you want insight sentences in emails. If you build it: return `steps` and `facts` with the same ids as above, and `nextStep` = the first step not done. Verify our request first (see the protocol essentials) — in Node, `createVerifier` from `@yougrowai/node/server` does all of it.",
+        "**Ask me** before deciding: don't skip this by default, and not on freshness grounds alone. It's the only way our emails can tell users what their own results mean (insight sentences we write and keep true), and the only way to hold an email until there's something to say — e.g. while a first result is still being produced. Skip it only if our emails will never need to say what a user's results mean. If we build it: return `steps` and `facts` with the same ids as above, `nextStep` = the first step not done, and `insights` (true sentences, each with the `factIds` it rests on); when the request names an `entity`, answer for that one. Verify our request first (see the protocol essentials) — in Node, `createVerifier` from `@yougrowai/node/server` does all of it.",
       );
     }
     step(`[${SEVERITY_LABEL[t.severity]}] ${t.title}${t.status === "done" ? " — already working, just check it" : ""}`, body, doneWhen(t.id, user, p.productName));
@@ -200,6 +200,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     "- Server-side only: never call YouGrow from a browser or a mobile app.",
     "- Await every call. The SDK sends each one straight away, with no queue to flush, so nothing is lost when a serverless function (Cloud Functions, Lambda, Vercel) returns. It retries network errors, 429 and 5xx itself. Use a Node runtime for the SDK — not an edge runtime.",
     "- Existing users: sending them with their real `signedUpAt` is safe (sign-up journeys only enrol people inside their window), so a backfill is optional; it lets later sequences reach them.",
+    "- Don't leave out a part YouGrow asks for (the context endpoint, webhooks, entities) on your own judgement: say what we'd lose, and ask me.",
     "- Add tests for each part, and keep changes small and reviewable.",
     "",
     "### Protocol essentials",
@@ -214,7 +215,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     "- Rate limits per key: 600 requests a minute and 20,000 an hour; a batch counts as one request.",
     `- Our requests to you (the context endpoint, webhooks) carry \`Authorization: Bearer <JWT>\`, ES256, with keys at \`${o}/.well-known/jwks.json\`. Check \`iss\` = \`${o}\`, \`aud\` = your key id, \`dir\` (\`context\` or \`webhook\`), \`exp\`, and \`body_sha256\` = base64url SHA-256 of the raw request body. Verify before parsing.`,
     "- Webhook types: `email_preferences.updated` (an unsubscribe from one of our emails: record it as an opt-out), `email.suppressed` (`reason` `hard_bounce` or `complaint`: record a complaint as an objection to marketing) and `connection.test`. Reply 2xx to anything else. API writes never trigger a webhook, and an opt-out made in our emails holds whatever you send, so echoing the change back in your next PATCH is harmless.",
-    `- Context response (only if you build the optional context endpoint): \`{ asOf, steps, nextStep, facts, insights, consent?, hold?, exit? }\` — at most 20 steps, 50 facts and 20 insights, ${kb(LIMITS.maxContextBytes)}, within the connection's timeout (2 seconds by default).`,
+    `- Context endpoint (when we build it): our request is \`{ userId, purpose, journeyId, nodeId, entity, requestId }\` — \`entity\` is \`{ id, kind }\` when the email is about one of the user's \`entities\` (answer for that one); absent otherwise. Respond \`{ asOf, steps, nextStep, facts, insights, consent?, hold?, exit? }\` — at most 20 steps, 50 facts and 20 insights, ${kb(LIMITS.maxContextBytes)}, within the connection's timeout (2 seconds by default).`,
     ...(p.docs
       ? [
           `- JSON Schemas for each body, generated from YouGrow's own validators: ${o}/developers/schema/user-patch.json, ${o}/developers/schema/batch-request.json, ${o}/developers/schema/event.json, ${o}/developers/schema/context-response.json, ${o}/developers/schema/webhook.json. Test vectors for verifying our tokens: ${o}/developers/test-vectors.json.`,

@@ -848,7 +848,7 @@ env:
   # as today, page 404, APIs 503, and saved styles are kept. The client mirror
   # shows the Brand tile and is read at BUILD time. The logo also needs
   # BRAND_KIT_LOGOS_ENABLED and the https EMAIL_LINK_ORIGIN above.
-  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  # ENABLED on dev and in prod (apphosting.prod.yaml sets both explicitly).
   - variable: EMAIL_STYLE_ENABLED
     value: "true"
     availability:

@@ -201,6 +201,24 @@ describe("the sandbox end to end", () => {
     expect(conn.health).toMatchObject({ consecutiveContextFailures: 0, lastContextOkAt: expect.any(String) });
   });
 
+  it("tests the context endpoint about one entity, and lists the user's entities to pick from", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "sandbox");
+    const now = new Date().toISOString();
+    db.seed("product_users", productUserDocId(connection.id, "sandbox_alex"), {
+      tenantId: ctxA.tenantId,
+      connectionId: connection.id,
+      externalUserId: "sandbox_alex",
+      status: "active",
+      entities: { brand_1: { kind: "brand", name: "Acme", parentId: null, role: "owner", steps: {}, facts: {}, activeAt: null, firstSeenAt: now, updatedAt: now } },
+    });
+    const r = await testContext(ctxA, connection.id, { userId: "sandbox_alex", entity: { id: "brand_1", kind: "brand" } }, { db });
+    expect(r.body).toMatchObject({ ok: true, entities: [{ id: "brand_1", kind: "brand", name: "Acme" }] });
+
+    const bad = await testContext(ctxA, connection.id, { userId: "sandbox_alex", entity: { id: "no spaces", kind: "brand" } }, { db });
+    expect(bad.status).toBe(400);
+  });
+
   it("delivers a signed test webhook into the sandbox inbox", async () => {
     const db = new FakeFirestore();
     const { connection } = await create(db, "sandbox");

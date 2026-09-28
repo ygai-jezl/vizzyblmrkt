@@ -79,21 +79,28 @@ export function CatalogEditor({
       {showKinds ? (
         <Section
           title="Things people have several of"
-          description="Workspaces, brands, projects — whatever your product lets one person have several of. Your server sends them as entities, and each journey says which of them its emails are about."
+          description="Workspaces, brands, projects — whatever your product lets one person have several of. For each kind: the id your server sends as its kind, what emails call one and several, and what it sits inside (a brand inside a workspace). Then mark the steps and facts below that are per one of them. Your server sends them as entities, and each journey says which of them its emails are about."
         >
           {cat.entityKinds.map((k, i) => (
             <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]">
-              <input className={`${inputClass} font-mono`} disabled={disabled} value={k.kind} placeholder="brand" aria-label="Kind (as your server sends it)"
+              <input className={`${inputClass} font-mono`} disabled={disabled} value={k.kind}
+                placeholder="Kind id your server sends — e.g. brand" aria-label="Kind id"
+                title="The kind exactly as your server sends it in entities: lower case, letters, digits and _"
                 onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, kind: e.target.value.trim().toLowerCase() } : x)))} />
-              <input className={inputClass} disabled={disabled} value={k.label} placeholder="brand" aria-label="One"
+              <input className={inputClass} disabled={disabled} value={k.label}
+                placeholder="What emails call one — e.g. brand" aria-label="What emails call one"
+                title="How emails and journeys name one of them, e.g. “your brand Acme”"
                 onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, label: e.target.value } : x)))} />
-              <input className={inputClass} disabled={disabled} value={k.plural} placeholder="brands" aria-label="Several"
+              <input className={inputClass} disabled={disabled} value={k.plural}
+                placeholder="What emails call several — e.g. brands" aria-label="What emails call several"
+                title="How emails and journeys name several of them, e.g. “all 3 of your brands”"
                 onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, plural: e.target.value } : x)))} />
               <select className={inputClass} disabled={disabled} aria-label="Sits inside" value={k.parent ?? ""}
+                title="Whether one sits inside another kind, e.g. a brand inside a workspace"
                 onChange={(e) => update("entityKinds", cat.entityKinds.map((x) => (x === k ? { ...x, parent: e.target.value || null } : x)))}>
-                <option value="">Top level</option>
+                <option value="">Not inside another kind</option>
                 {cat.entityKinds.filter((x) => x !== k).map((x) => (
-                  <option key={x.kind} value={x.kind}>Inside a {x.label}</option>
+                  <option key={x.kind} value={x.kind}>Inside a {x.label || x.kind}</option>
                 ))}
               </select>
               <Button tone="danger" disabled={disabled} aria-label="Remove kind" onClick={() => update("entityKinds", cat.entityKinds.filter((x) => x !== k))}>

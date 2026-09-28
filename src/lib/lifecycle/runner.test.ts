@@ -21,6 +21,7 @@ import {
   seedUser,
   seedWorld,
   sendStub,
+  setJourneyStyle,
   system,
 } from "./testing/fixtures";
 
@@ -612,5 +613,100 @@ describe("Email style (EMAIL_STYLE_ENABLED)", () => {
         </div>
       </body></html>"
     `);
+  });
+
+  describe("a journey's own style (EMAIL_JOURNEY_STYLE_ENABLED)", () => {
+    const CUSTOM = { headerColor: "#14532d", accentColor: "#c2410c" };
+    beforeEach(() => vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true"));
+
+    /** A styled tenant's world, with Custom in the journey's draft (published unless told not to). */
+    async function customWorld(opts: { publish?: boolean } = {}) {
+      const w = await world();
+      await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+      await setJourneyStyle(w.db, w.journey.id, CUSTOM, { publish: opts.publish, nowMs: T0 - 30 * MIN });
+      return w;
+    }
+
+    it("a journey on the brand's style sends the brand's look, byte for byte", async () => {
+      const brand = await styledWelcome();
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      const today = await styledWelcome();
+      expect(masked(brand.html)).toBe(masked(today.html));
+    });
+
+    it("a Custom style saved in the draft only keeps the brand's look", async () => {
+      const w = await customWorld({ publish: false });
+      const stored = (await forTenant(system, w.db).lifecycleJourneys.getById(w.journey.id))!;
+      expect(stored.draft.settings.emailStyle).toEqual(CUSTOM);
+      expect(stored.emailStyle ?? null).toBeNull();
+      await throughWelcome(w);
+      const m = w.sent[0]!;
+      expect(m.html).toContain('bgcolor="#0b1f3a"');
+      expect(m.html).toContain('<td bgcolor="#1d4ed8"');
+      expect(m.html).not.toContain(CUSTOM.headerColor);
+      expect(m.html).not.toContain(CUSTOM.accentColor);
+    });
+
+    it("once published, the journey's colours on the brand's logo, in every mode", async () => {
+      for (const mode of ["test", "shadow", "live"] as const) {
+        const w = await world({ mode, shadowInbox: mode === "shadow" ? "ops@sandbox.test" : undefined });
+        await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+        await setJourneyStyle(w.db, w.journey.id, CUSTOM, { nowMs: T0 - 30 * MIN });
+        await throughWelcome(w);
+        const m = w.sent[0]!;
+        expect(m.html).toContain(`<td bgcolor="${CUSTOM.headerColor}" align="left"`);
+        expect(m.html).toContain(`src="https://mk.test/api/brand-logo/${TENANT_ID}/${FILE}" width="120" height="40" alt="Jez at Sandbox"`);
+        expect(m.html).toContain(`<td bgcolor="${CUSTOM.accentColor}"`);
+        expect(m.html).not.toContain("#0b1f3a");
+        expect(m.html).not.toContain("#1d4ed8");
+        expect(m.text).not.toContain(CUSTOM.headerColor);
+      }
+    });
+
+    it("after publishing, an enrolment still on v1 gets Custom on its next email", async () => {
+      const w = await world();
+      await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+      const next = await throughWelcome(w);
+      const v1 = (await w.get()).versionId;
+      await setJourneyStyle(w.db, w.journey.id, CUSTOM, { nowMs: T0 + HOUR });
+      expect((await w.get()).versionId).toBe(v1);
+      w.setContext(productContext({ done: ALL_DONE }));
+      expect(await w.run(next)).toBe("sent");
+      const [before, after] = w.sent;
+      expect(before!.html).toContain('bgcolor="#0b1f3a"');
+      expect(after!.subject).toBe("How to read your first results");
+      expect(after!.html).toContain(`bgcolor="${CUSTOM.headerColor}"`);
+      expect(after!.html).toContain(`border-left:3px solid ${CUSTOM.accentColor}`);
+      expect(after!.html).toContain(`/api/brand-logo/${TENANT_ID}/${FILE}`);
+      expect(after!.html).not.toContain("#0b1f3a");
+      expect(after!.html).not.toContain("#1d4ed8");
+    });
+
+    it("a letter stays plain", async () => {
+      const w = await customWorld();
+      const next = await throughWelcome(w);
+      expect(await w.run(next)).toBe("sent");
+      expect((await w.get()).sentItems.map((s) => s.itemId)).toEqual(["w", "r1"]);
+      expect(w.sent[0]!.html).toContain(`bgcolor="${CUSTOM.headerColor}"`);
+      const letter = w.sent[1]!;
+      expect(letter.html).not.toContain(CUSTOM.headerColor);
+      expect(letter.html).not.toContain(CUSTOM.accentColor);
+      expect(letter.html).not.toContain("color-scheme");
+    });
+
+    // With either flag off, a stored journey style changes nothing: the welcome is the pinned one.
+    it.each([
+      ["EMAIL_JOURNEY_STYLE_ENABLED", "the brand's"],
+      ["EMAIL_STYLE_ENABLED", "today's unstyled"],
+    ])("with %s off and a journey style stored, the welcome is %s, byte for byte", async (flag) => {
+      const w = await customWorld();
+      expect((await forTenant(system, w.db).lifecycleJourneys.getById(w.journey.id))?.emailStyle).toEqual(CUSTOM);
+      vi.stubEnv(flag, "false");
+      await throughWelcome(w);
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      const pinned = await styledWelcome();
+      expect(masked(w.sent[0]!.html)).toBe(masked(pinned.html));
+      expect(masked(w.sent[0]!.text)).toBe(masked(pinned.text));
+    });
   });
 });

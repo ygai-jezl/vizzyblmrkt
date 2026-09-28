@@ -10,7 +10,7 @@ import type { WaitlistEnrolment } from "@/lib/types/lifecycle";
 import { enrolUser } from "../enrol";
 import { processEnrolment } from "../runner";
 import { setLifecycleJourneyStatus } from "../service";
-import { publishOnboarding, seedUser, sendStub } from "../testing/fixtures";
+import { publishOnboarding, seedUser, sendStub, setJourneyStyle } from "../testing/fixtures";
 import { enrolWaitlistSignup, releaseHeldWaitlistEnrolments } from "./enrol";
 import { waitlistEnrolmentId } from "./ids";
 import { drainWaitlistTenant, processWaitlistEnrolment } from "./runner";
@@ -353,5 +353,72 @@ describe("waitlist journeys on the lifecycle engine: today's styled send", () =>
       This email was sent by Jez at Sandbox.
       Manage preferences (https://mk.test/unsubscribe?u=<token>) | Unsubscribe (https://mk.test/unsubscribe?u=<token>) | Privacy Policy (https://sandbox.test/privacy)"
     `);
+  });
+});
+
+// A launch's welcome journey on this engine in its own look (EMAIL_JOURNEY_STYLE_ENABLED): live from
+// Publish, for everyone already part-way through too. The original engine has no journey style.
+describe("waitlist journeys on the lifecycle engine: a journey's own style", () => {
+  const FILE = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
+  const STYLE = {
+    logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+    companyName: null,
+    headerColor: "#0b1f3a",
+    accentColor: "#1d4ed8",
+  };
+  const CUSTOM = { headerColor: "#14532d", accentColor: "#c2410c" };
+  const masked = (s: string | undefined) => (s ?? "").replace(/([?&]u=)[^"&\s)]+/g, "$1<token>");
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+  });
+
+  /** A styled tenant's launch, with Custom in its welcome journey's draft (published unless told not to). */
+  async function styled(custom?: { publish?: boolean }) {
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    if (custom) await setJourneyStyle(w.db, w.journey.id, CUSTOM, { publish: custom.publish, nowMs: T0 - HOUR / 2 });
+    return w;
+  }
+  /** The welcome a launch on the brand's style sends today (pinned above). */
+  async function brandWelcome(): Promise<EmailMessage> {
+    const w = await styled();
+    expect(await w.run()).toBe("sent");
+    return w.sent[0]!;
+  }
+
+  it("a Custom style saved in the draft only keeps the brand's look", async () => {
+    const w = await styled({ publish: false });
+    expect(await w.run()).toBe("sent");
+    expect(masked(w.sent[0]!.html)).toBe(masked((await brandWelcome()).html));
+  });
+
+  it("after publishing, someone still on v1 gets Custom on their next email", async () => {
+    const w = await styled();
+    expect(await w.run()).toBe("sent");
+    await setJourneyStyle(w.db, w.journey.id, CUSTOM, { nowMs: T0 + HOUR });
+    expect((await w.enrolment()).versionId).toBe(w.version.id);
+    w.setNow(T0 + 24 * HOUR);
+    expect(await w.run()).toBe("sent");
+    const [before, after] = w.sent;
+    expect(before!.html).toContain('bgcolor="#0b1f3a"');
+    expect(after!.subject).toBe("Try the voice chat");
+    expect(after!.html).toContain(`<td bgcolor="${CUSTOM.headerColor}" align="left"`);
+    expect(after!.html).toContain(`src="https://mk.test/api/brand-logo/${TENANT_ID}/${FILE}"`);
+    expect(after!.html).not.toContain("#0b1f3a");
+    expect(after!.text).not.toContain(CUSTOM.headerColor);
+  });
+
+  // With either flag off, a stored journey style changes nothing: the welcome is the pinned one.
+  it.each(["EMAIL_JOURNEY_STYLE_ENABLED", "EMAIL_STYLE_ENABLED"])("with %s off and a journey style stored, the welcome is today's, byte for byte", async (flag) => {
+    const w = await styled({});
+    expect((await forTenant(system, w.db).lifecycleJourneys.getById(w.journey.id))?.emailStyle).toEqual(CUSTOM);
+    vi.stubEnv(flag, "false");
+    expect(await w.run()).toBe("sent");
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+    const pinned = await brandWelcome();
+    expect(masked(w.sent[0]!.html)).toBe(masked(pinned.html));
+    expect(masked(w.sent[0]!.text)).toBe(masked(pinned.text));
   });
 });

@@ -312,4 +312,14 @@ describe("golden parity: the original engine and the lifecycle engine send the s
       expect(s.msg.text).not.toContain("brand-logo");
     }
   });
+
+  it("with journey styles on and the journey on the brand's style, both engines still send the same band", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_KIT_LOGOS_ENABLED", "true");
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const style = { logo: { id: "logo_1", filename: "0f8fad5b-d9cb-469f-a165-70867728950e.png", width: 120, height: 40 }, companyName: "Fernlight", headerColor: "#0b1f3a", accentColor: "#1d4ed8" };
+    const { emails } = await expectParity(TIMING, style);
+    expect(emails).toBe(PEOPLE.length * 2);
+    for (const s of outbox) expect(s.msg.html).toContain('bgcolor="#0b1f3a"');
+  });
 });

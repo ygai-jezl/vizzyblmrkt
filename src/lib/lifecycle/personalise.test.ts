@@ -10,7 +10,7 @@ import { processEnrolment, runEnrolmentNow } from "./runner";
 import { prepareDueDrafts } from "./prepare";
 import { countWaitingApprovals, decideApproval, listApprovals, type ApprovalView } from "./approvals";
 import { AI_LINE_MARKER, draftDocId } from "./drafts";
-import { STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
+import { STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, setJourneyStyle, system } from "./testing/fixtures";
 
 const MIN = 60_000;
 const HOUR = 3600_000;
@@ -350,6 +350,57 @@ describe("approvals preview with an Email style", () => {
     expect(r1.previewHtml).toContain(AI_LINE_MARKER);
     expect(r1.previewHtml).not.toContain("#0b1f3a");
     expect(r1.previewHtml).not.toContain("color-scheme");
+  });
+
+  describe("with a journey style (EMAIL_JOURNEY_STYLE_ENABLED)", () => {
+    const CUSTOM = { headerColor: "#14532d", accentColor: "#c2410c" };
+    beforeEach(() => vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true"));
+
+    /** A styled tenant's world, with Custom in the journey's draft (published unless told not to). */
+    async function styled(custom?: { publish?: boolean }) {
+      const w = await world();
+      await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+      if (custom) await setJourneyStyle(w.db, w.journey.id, CUSTOM, { publish: custom.publish, nowMs: T0 });
+      return w;
+    }
+    /** The branded education email's (E1's) approvals preview, as the pin above prepares it. */
+    async function e1Preview(w: Awaited<ReturnType<typeof world>>): Promise<string> {
+      const sendAt = await booked(w);
+      w.setContext(productContext({ done: STEPS.map((s) => s.id) }));
+      await w.prepare(sendAt - 12 * HOUR);
+      expect(await w.prepare(sendAt - 12 * HOUR + MIN)).toMatchObject({ prepared: 1 });
+      return (await w.draft("e1", "education")).previewHtml!;
+    }
+
+    it("a published Custom style is in the preview, as the send will", async () => {
+      const html = await e1Preview(await styled({}));
+      expect(html).toContain(`<td bgcolor="${CUSTOM.headerColor}" align="left"`);
+      expect(html).toContain(`border-left:3px solid ${CUSTOM.accentColor}`);
+      expect(html).toContain(`/api/brand-logo/${TENANT_ID}/`);
+      expect(html).not.toContain("#0b1f3a");
+      expect(html).toContain(AI_LINE_MARKER);
+    });
+
+    it("a Custom style in the draft only keeps the brand's preview", async () => {
+      const html = await e1Preview(await styled({ publish: false }));
+      expect(html).toBe(await e1Preview(await styled()));
+    });
+
+    it("a letter's preview stays plain", async () => {
+      const w = await styled({});
+      const sendAt = await booked(w);
+      await w.prepare(sendAt - 12 * HOUR);
+      const r1 = await w.draft();
+      expect(r1.previewHtml).toContain(AI_LINE_MARKER);
+      expect(r1.previewHtml).not.toContain(CUSTOM.headerColor);
+      expect(r1.previewHtml).not.toContain("color-scheme");
+    });
+
+    it("with the flag off and a journey style stored, the preview is the pinned one", async () => {
+      const w = await styled({});
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      expect(await e1Preview(w)).toBe(await e1Preview(await styled()));
+    });
   });
 });
 

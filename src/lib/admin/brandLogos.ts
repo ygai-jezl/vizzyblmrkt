@@ -36,6 +36,21 @@ export async function getPrimaryLogo(ctx: TenantContext): Promise<BrandLogo | nu
 }
 
 /**
+ * Keep today's primary where it is before an upload: with none flagged, flag the derived one
+ * (the newest), which the upload would otherwise replace. An already-flagged primary is left
+ * as it is, and nothing is ever un-flagged. Decided from the stored list, never a page's copy
+ * of it. Returns the primary's id, or null when the tenant has no logos. THROWS on failure,
+ * so the caller can skip its upload.
+ */
+export async function pinPrimaryLogo(ctx: TenantContext): Promise<string | null> {
+  const logos = await listLogos(ctx);
+  const primary = logos.find((l) => l.isPrimary) ?? logos[0];
+  if (!primary) return null;
+  if (!primary.isPrimary) await forTenant(ctx).logos.update(primary.id, { isPrimary: true });
+  return primary.id;
+}
+
+/**
  * Fast, index-free logo count (bounded by `limit`, i.e. it returns min(actual, limit)). Uses
  * NO orderBy, so it relies only on the automatic single-field tenantId index and works even
  * while the (tenantId, createdAt) composite index is still building — the upload route uses

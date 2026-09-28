@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EmailStyleInputSchema, HEADER_TEXT_CHOICES, type EmailStyleInput, type HeaderTextChoice } from "@/lib/types/tenant";
+import type { BrandLogo } from "@/lib/types/brandLogo";
 import { BRAND_KIT_LOGOS_ROUTE, brandLogoAbsoluteUrl, brandLogoPublicUrl } from "@/lib/content/brandKit";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 import {
+  bandStops,
   cleanCompanyName,
   isEmailLogo,
   isLogoUrlShape,
@@ -25,14 +27,17 @@ import {
   type PaletteChip,
   type PendingEmailStyleSuggestion,
 } from "./emailStyleForm";
+import { hasWhiteBackground } from "./logoCleanup";
+import { LogoCleanupPanel } from "./LogoCleanupPanel";
 
 /**
  * Brand › Email style: the header band (logo, optional company name, header colour) and the
  * button colour that branded emails wear, plus, with the header options on, a gradient and
- * the header text colour. "Use brand kit" fills it in from Brand; nothing changes until an
- * admin saves. The preview goes through the lifecycle renderer, so it matches the send. A
- * banner shows Vizzy's pending suggestion: Review loads it into the form and Save applies it,
- * or Dismiss drops it. Members see it all read-only.
+ * the header text colour, and an admin's logo clean-up (a new, transparent or white copy of
+ * the picked logo, saved to Brand › Logos). "Use brand kit" fills it in from Brand; nothing
+ * changes until an admin saves. The preview goes through the lifecycle renderer, so it matches
+ * the send. A banner shows Vizzy's pending suggestion: Review loads it into the form and Save
+ * applies it, or Dismiss drops it. Members see it all read-only.
  */
 
 const FIELD =
@@ -86,6 +91,8 @@ interface LogoSample {
   height: number;
   /** The average colour of the logo's opaque pixels; null when the canvas couldn't be read. */
   ink: string | null;
+  /** Its corners are opaque white (the clean-up hint); null when not known, as for `ink`. */
+  whiteBackground: boolean | null;
 }
 
 /** `logos` is null when the list couldn't be loaded: the saved logo is kept, not taken as deleted. */
@@ -114,22 +121,24 @@ const sameDraft = (a: Draft, b: Draft) =>
 
 /**
  * Load a logo from its same-origin URL (the logo route sends no CORS headers, so a canvas
- * can only read it same-origin) for its display size and average colour. Null if it won't
- * load; `ink` is null if the canvas can't be read, which just skips the contrast hint.
+ * can only read it same-origin) for its display size, average colour and whether it has a
+ * white background. Null if it won't load; `ink` and `whiteBackground` are null if the canvas
+ * can't be read, which just skips their hints.
  */
 function sampleLogo(src: string): Promise<LogoSample | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       const size = fitLogoSize(img.naturalWidth, img.naturalHeight);
-      resolve(size ? { ...size, ink: readInk(img) } : null);
+      resolve(size ? { ...size, ...readPixels(img) } : null);
     };
     img.onerror = () => resolve(null);
     img.src = src;
   });
 }
 
-function readInk(img: HTMLImageElement): string | null {
+/** Both from one small (64px) read of the logo. */
+function readPixels(img: HTMLImageElement): Pick<LogoSample, "ink" | "whiteBackground"> {
   try {
     const scale = Math.min(1, 64 / Math.max(img.naturalWidth, img.naturalHeight));
     const w = Math.max(1, Math.round(img.naturalWidth * scale));
@@ -138,12 +147,33 @@ function readInk(img: HTMLImageElement): string | null {
     canvas.width = w;
     canvas.height = h;
     const g = canvas.getContext("2d");
-    if (!g) return null;
+    if (!g) return { ink: null, whiteBackground: null };
     g.drawImage(img, 0, 0, w, h);
-    return averageInk(g.getImageData(0, 0, w, h).data);
+    const rgba = g.getImageData(0, 0, w, h).data;
+    return { ink: averageInk(rgba), whiteBackground: hasWhiteBackground(rgba, w, h) };
   } catch {
-    return null; // a tainted or unsupported canvas: no hint, never an error
+    return { ink: null, whiteBackground: null }; // a tainted or unsupported canvas: no hints, never an error
   }
+}
+
+/**
+ * The logos the card works from: those cleaned up here (newest first) ahead of the page's,
+ * each once (a refresh after a reviewed Save sends the new ones too), with a primary pinned
+ * here flagged.
+ */
+function mergeLogos(
+  added: readonly EmailStyleLogoChoice[],
+  logos: readonly EmailStyleLogoChoice[],
+  pinned: string | null,
+): EmailStyleLogoChoice[] {
+  const seen = new Set<string>();
+  const out: EmailStyleLogoChoice[] = [];
+  for (const l of [...added, ...logos]) {
+    if (seen.has(l.id)) continue;
+    seen.add(l.id);
+    out.push(pinned && l.isPrimary !== (l.id === pinned) ? { ...l, isPrimary: l.id === pinned } : l);
+  }
+  return out;
 }
 
 /** A short welcome email, rendered as a real branded lifecycle email. */
@@ -191,7 +221,7 @@ export function EmailStyleCard({
    * refreshes the page the banner updates without wiping unsaved edits.
    */
   pending: PendingEmailStyleSuggestion | null;
-  /** This tenant's logos, newest first. */
+  /** This tenant's logos, newest first. The card adds any it cleans up. */
   logos: EmailStyleLogoChoice[];
   /** What "Use brand kit" fills in, before the logo is measured. */
   fromBrandKit: BrandKitEmailStyle;
@@ -206,26 +236,32 @@ export function EmailStyleCard({
   /** Why there's no logo list — Logos is off, or it failed to load — so `logos` is empty but the saved logo may not be. */
   logosUnavailable: "off" | "failed" | false;
   /**
-   * The header options (Gradient, Header text) are on. Off, the page is as without them: no
-   * controls, and Save sends neither key, so the server keeps whatever is stored.
+   * The header options (Gradient, Header text, logo clean-up) are on. Off, the page is as
+   * without them: no controls, and Save sends neither key, so the server keeps whatever is stored.
    */
   headerOptions: boolean;
 }) {
-  const listed = logosUnavailable ? null : logos;
+  // Logos cleaned up here, and the primary the server kept in place when one was added.
+  const [added, setAdded] = useState<EmailStyleLogoChoice[]>([]);
+  const [pinned, setPinned] = useState<string | null>(null);
+  const allLogos = useMemo(() => mergeLogos(added, logos, pinned), [added, logos, pinned]);
+  const listed = logosUnavailable ? null : allLogos;
   const [saved, setSaved] = useState<EmailStyleInput | null>(initial);
   const [draft, setDraft] = useState<Draft>(() => toDraft(initial, listed));
   // With nothing saved, the preview shows today's look until the admin starts a style.
   const [started, setStarted] = useState(initial !== null);
   // The saved logo starts at its saved size, so the preview doesn't flicker while it's re-measured.
   const [samples, setSamples] = useState<Record<string, LogoSample | "failed">>(() =>
-    initial?.logo ? { [initial.logo.id]: { width: initial.logo.width, height: initial.logo.height, ink: null } } : {},
+    initial?.logo
+      ? { [initial.logo.id]: { width: initial.logo.width, height: initial.logo.height, ink: null, whiteBackground: null } }
+      : {},
   );
   const sampling = useRef(new Map<string, Promise<LogoSample | null>>());
   const [notes, setNotes] = useState<string[]>([]);
   // The suggestion (by suggestedAt) loaded into the form, and the one applied or dismissed here.
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [handled, setHandled] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "kit" | "save" | "reset" | "dismiss">(null);
+  const [busy, setBusy] = useState<null | "kit" | "save" | "reset" | "dismiss" | "logo">(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -260,7 +296,7 @@ export function EmailStyleCard({
     [tenantId],
   );
 
-  const selected = logos.find((l) => l.id === draft.logoId) ?? null;
+  const selected = allLogos.find((l) => l.id === draft.logoId) ?? null;
   // With no list, the saved logo is offered as saved; Save sends it unchanged and the server re-checks it.
   const savedLogo = listed ? null : (saved?.logo ?? null);
   const kept = savedLogo && savedLogo.id === draft.logoId ? savedLogo : null;
@@ -285,6 +321,8 @@ export function EmailStyleCard({
       : {}),
   };
   const check = EmailStyleInputSchema.safeParse(input);
+  // The header's colours as the band draws them, for the logo clean-up's tiles and hint.
+  const stops = bandStops({ headerColor: draft.headerColor, headerGradientColor: input.headerGradientColor ?? undefined });
   const nameError = check.success ? null : (check.error.issues.find((i) => i.path[0] === "companyName")?.message ?? null);
 
   const previewStyle = started
@@ -333,7 +371,7 @@ export function EmailStyleCard({
   async function applyBrandKit() {
     setBusy("kit");
     try {
-      const logo = logos.find((l) => l.id === fromBrandKit.logoId) ?? null;
+      const logo = allLogos.find((l) => l.id === fromBrandKit.logoId) ?? null;
       const s = logo ? await sample(logo) : null;
       const kit = brandKitWithLogo(fromBrandKit, s?.ink ?? null);
       edit({
@@ -353,11 +391,19 @@ export function EmailStyleCard({
     }
   }
 
+  /** A logo cleaned up here: it joins the list and is picked. The Email style changes on Save. */
+  function addLogo(logo: BrandLogo) {
+    const { id, filename, mimeType, isPrimary, createdAt, title, byteSize } = logo;
+    setAdded((prev) => [{ id, filename, mimeType, isPrimary, createdAt, title, byteSize }, ...prev]);
+    edit({ logoId: id });
+    setStatus(`Added “${title}” to Brand › Logos and picked it. Save to use it in emails.`);
+  }
+
   /** Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual. */
   function review(s: PendingEmailStyleSuggestion) {
     const r = suggestionForReview(
       s,
-      logos,
+      allLogos,
       listed ? undefined : { savedLogoId: savedLogo?.id ?? null, logosOff: logosUnavailable === "off" },
     );
     edit({ logoId: r.logoId, companyName: r.companyName ?? "", headerColor: r.headerColor, accentColor: r.accentColor });
@@ -475,7 +521,7 @@ export function EmailStyleCard({
         <SuggestionBanner
           suggestion={suggestion}
           logoTitle={
-            logos.find((l) => l.id === suggestion.logoId)?.title ??
+            allLogos.find((l) => l.id === suggestion.logoId)?.title ??
             (savedLogo && savedLogo.id === suggestion.logoId ? "Current logo" : null)
           }
           logosUnavailable={logosUnavailable}
@@ -526,7 +572,7 @@ export function EmailStyleCard({
                 onSelect={() => edit({ logoId: savedLogo.id })}
               />
             ) : null}
-            {logos.map((l) => {
+            {allLogos.map((l) => {
               const usable = isEmailLogo(l);
               return (
                 <LogoOption
@@ -546,7 +592,7 @@ export function EmailStyleCard({
             <p className={HINT}>Logos aren&rsquo;t switched on in this environment, so emails show your name in the header.</p>
           ) : !listed ? (
             <p className={HINT}>Your logos couldn&rsquo;t be loaded, so you can&rsquo;t pick another right now. Try again later.</p>
-          ) : logos.length === 0 ? (
+          ) : allLogos.length === 0 ? (
             <p className={HINT}>
               No logos yet — add a PNG or JPG in{" "}
               <Link href={BRAND_KIT_LOGOS_ROUTE} className="underline underline-offset-2">
@@ -560,6 +606,19 @@ export function EmailStyleCard({
             <p role="alert" className={ERROR}>
               We couldn&rsquo;t load this logo. Pick another, or choose No logo.
             </p>
+          ) : null}
+          {headerOptions && canEdit && listed && selected && isEmailLogo(selected) && logoState !== "failed" ? (
+            <LogoCleanupPanel
+              key={selected.id}
+              logo={selected}
+              tenantId={tenantId}
+              stops={stops}
+              whiteBackground={logoSample?.whiteBackground ?? null}
+              disabled={disabled}
+              onBusy={(on) => setBusy(on ? "logo" : null)}
+              onPrimaryPinned={setPinned}
+              onAdded={addLogo}
+            />
           ) : null}
         </fieldset>
 

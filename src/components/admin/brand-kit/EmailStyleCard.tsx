@@ -579,13 +579,15 @@ export function EmailStyleCard({
   /**
    * Load Vizzy's suggestion into the form, as asked; the logo is measured and checked as usual.
    * Its header options too (the page only gets them with the options on): a solid suggestion
-   * unticks Gradient and keeps Colour 2, as unticking does.
+   * unticks Gradient and keeps Colour 2, as unticking does, and its header image picks Image
+   * with that banner, or Colour with none (a deleted one is Colour, with a note).
    */
   function review(s: PendingEmailStyleSuggestion) {
     const r = suggestionForReview(
       s,
       allLogos,
       listed ? undefined : { savedLogoId: savedLogo?.id ?? null, logosOff: logosUnavailable === "off" },
+      headerOptions ? { images: listedImages, savedImageId: savedImage?.id ?? null } : undefined,
     );
     edit({
       logoId: r.logoId,
@@ -595,6 +597,12 @@ export function EmailStyleCard({
       gradient: r.headerGradientColor !== null,
       ...(r.headerGradientColor ? { headerColor2: r.headerGradientColor } : {}),
       headerText: r.headerText,
+      // Colour keeps the picked banner, as switching to Colour does.
+      ...(r.headerImageId === undefined
+        ? {}
+        : r.headerImageId
+          ? { headerMode: "image" as const, headerImageId: r.headerImageId }
+          : { headerMode: "colour" as const }),
     });
     setNotes(r.notes);
     setReviewing(s.suggestedAt);
@@ -718,6 +726,11 @@ export function EmailStyleCard({
             (savedLogo && savedLogo.id === suggestion.logoId ? "Current logo" : null)
           }
           logosUnavailable={logosUnavailable}
+          headerImageTitle={
+            allImages.find((i) => i.id === suggestion.headerImageId)?.title ??
+            (headerImagesUnavailable && savedImage && savedImage.id === suggestion.headerImageId ? "Current header image" : null)
+          }
+          headerImagesUnavailable={headerImagesUnavailable}
           canEdit={canEdit}
           reviewing={reviewing === suggestion.suggestedAt}
           disabled={busy !== null}
@@ -1050,6 +1063,8 @@ function SuggestionBanner({
   suggestion,
   logoTitle,
   logosUnavailable,
+  headerImageTitle,
+  headerImagesUnavailable,
   canEdit,
   reviewing,
   disabled,
@@ -1061,6 +1076,10 @@ function SuggestionBanner({
   logoTitle: string | null;
   /** Logos is off, or the list couldn't be loaded, so a logo missing from it isn't known to be deleted. */
   logosUnavailable: "off" | "failed" | false;
+  /** The suggested header image's name; null when there's none, or it's been deleted or couldn't be loaded. */
+  headerImageTitle: string | null;
+  /** The header images couldn't be loaded, so one missing from the list isn't known to be deleted. */
+  headerImagesUnavailable: boolean;
   canEdit: boolean;
   /** It's loaded into the form. */
   reviewing: boolean;
@@ -1068,6 +1087,9 @@ function SuggestionBanner({
   onReview: () => void;
   onDismiss: () => void;
 }) {
+  // A banner that's still there: it ignores the gradient and a forced text colour, so neither is
+  // shown, as Vizzy's card has it. A deleted one reviews as Colour, where both apply.
+  const banner = !!suggestion.headerImageId && (headerImageTitle !== null || headerImagesUnavailable);
   return (
     <section
       aria-label="Email style suggestion"
@@ -1083,8 +1105,17 @@ function SuggestionBanner({
           </p>
         ) : null}
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <SwatchLabel hex={suggestion.headerColor} to={suggestion.headerGradientColor} label="Header" />
-          {suggestion.headerText ? <span>Text: {suggestion.headerText}</span> : null}
+          {banner ? null : (
+            <SwatchLabel hex={suggestion.headerColor} to={suggestion.headerGradientColor} label="Header" />
+          )}
+          {suggestion.headerImageId ? (
+            <span>
+              Header image:{" "}
+              {headerImageTitle ?? (headerImagesUnavailable ? "one that couldn't be loaded" : "one that's been deleted")}
+            </span>
+          ) : null}
+          {banner ? <SwatchLabel hex={suggestion.headerColor} label="Behind image" /> : null}
+          {!banner && suggestion.headerText ? <span>Text: {suggestion.headerText}</span> : null}
           <SwatchLabel hex={suggestion.accentColor} label="Button" />
           <span>
             Logo:{" "}

@@ -19,7 +19,7 @@ import {
   type BrandKitEmailStyle,
   type EmailStyleLogoOption,
 } from "@/lib/email/emailStyle";
-import { bannerWarnings } from "./headerImage";
+import { bannerWarnings, type EmailHeaderImageChoice } from "./headerImage";
 
 /**
  * Pure helpers for the Brand › Email style page (EmailStyleCard): sizing a logo for the
@@ -99,6 +99,8 @@ export type PendingEmailStyleSuggestion = Omit<EmailStyleSuggestion, "suggestedB
 export type ReviewedEmailStyle = BrandKitEmailStyle & {
   headerGradientColor: string | null;
   headerText: HeaderTextChoice;
+  /** The header image to pick (null = the colour header); only there when `headers` was given. */
+  headerImageId?: string | null;
 };
 
 /**
@@ -107,11 +109,17 @@ export type ReviewedEmailStyle = BrandKitEmailStyle & {
  * email can't show, falls back to no logo with a note. With no logo list (`unlisted`: Logos is
  * off, or the list failed to load), only the saved logo is known: any other suggested logo
  * leaves the saved one. A suggestion is a whole style, so no header options means solid, Auto.
+ *
+ * With the header options on (`headers`), its header too: no header image means the colour
+ * header, and one that's since been deleted falls back to it with a note. With no header-image
+ * list (`headers.images` null), the Header choice is locked and Save keeps the stored one, so
+ * the saved choice stays, with a note when the suggestion asked for another.
  */
 export function suggestionForReview(
   suggestion: PendingEmailStyleSuggestion,
   logos: readonly EmailStyleLogoChoice[],
   unlisted?: { savedLogoId: string | null; logosOff?: boolean },
+  headers?: { images: readonly Pick<EmailHeaderImageChoice, "id">[] | null; savedImageId: string | null },
 ): ReviewedEmailStyle {
   const notes = [...suggestion.notes];
   let logoId: string | null;
@@ -137,6 +145,21 @@ export function suggestionForReview(
       );
     }
   }
+  let headerImageId: string | null | undefined;
+  if (headers) {
+    const asked = suggestion.headerImageId ?? null;
+    if (!headers.images) {
+      headerImageId = headers.savedImageId;
+      if (asked !== headers.savedImageId) {
+        notes.push("Your header images couldn't be loaded, so the suggested header isn't used — try Review again later");
+      }
+    } else if (asked && !headers.images.some((i) => i.id === asked)) {
+      headerImageId = null;
+      notes.push("The suggested header image has been deleted, so the header uses its colour");
+    } else {
+      headerImageId = asked;
+    }
+  }
   return {
     logoId,
     companyName: suggestion.companyName,
@@ -144,6 +167,7 @@ export function suggestionForReview(
     accentColor: suggestion.accentColor,
     headerGradientColor: suggestion.headerGradientColor ?? null,
     headerText: suggestion.headerText ?? "auto",
+    ...(headerImageId !== undefined ? { headerImageId } : {}),
     notes,
   };
 }

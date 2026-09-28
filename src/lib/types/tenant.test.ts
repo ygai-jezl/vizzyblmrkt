@@ -273,6 +273,16 @@ describe("EmailStyleSuggestionSchema (strict on write)", () => {
     expect(ok({ headerText: "pink" })).toBe(false);
   });
 
+  it("takes a header image by id only when set: absent is the colour header", () => {
+    expect(EmailStyleSuggestionSchema.parse({ ...suggestion, headerImageId: "hdr_spring" })).toMatchObject({ headerImageId: "hdr_spring" });
+    expect(EmailStyleSuggestionSchema.parse(suggestion)).not.toHaveProperty("headerImageId");
+    expect(ok({ headerImageId: null })).toBe(false);
+    expect(ok({ headerImageId: "" })).toBe(false);
+    expect(ok({ headerImageId: "a/b" })).toBe(false);
+    expect(ok({ headerImageId: "x".repeat(65) })).toBe(false);
+    expect(ok({ headerImageId: { id: "hdr_spring" } })).toBe(false);
+  });
+
   it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {
     expect(ok({ headerColor: "navy" })).toBe(false);
     expect(ok({ companyName: "{{user.first_name}} Co" })).toBe(false);

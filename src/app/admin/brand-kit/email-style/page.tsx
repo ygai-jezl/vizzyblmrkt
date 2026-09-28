@@ -80,7 +80,8 @@ export default async function EmailStylePage() {
     }
   }
   // Vizzy's pending suggestion, for the banner. Who asked stays on the server. Its header
-  // options only come along with them on; off, the banner and Review are as without them.
+  // options (and header image) only come along with them on; off, the banner and Review are as
+  // without them.
   const suggestion = tenant?.emailStyleSuggestion;
   const pending = suggestion
     ? {
@@ -90,6 +91,7 @@ export default async function EmailStylePage() {
         accentColor: suggestion.accentColor,
         ...(headerOptions && suggestion.headerGradientColor ? { headerGradientColor: suggestion.headerGradientColor } : {}),
         ...(headerOptions && suggestion.headerText ? { headerText: suggestion.headerText } : {}),
+        ...(headerOptions && suggestion.headerImageId ? { headerImageId: suggestion.headerImageId } : {}),
         source: suggestion.source,
         brief: suggestion.brief,
         notes: suggestion.notes,

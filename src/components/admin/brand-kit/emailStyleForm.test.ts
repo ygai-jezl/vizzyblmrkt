@@ -460,4 +460,59 @@ describe("suggestionForReview", () => {
     const dark = { ...suggestion, headerColor: "#111111" };
     expect(suggestionForReview(dark, [logo()])).toMatchObject({ headerColor: "#111111", accentColor: "#ff6b35" });
   });
+
+  describe("with the header options on (a header image list)", () => {
+    const images = [{ id: "hdr_spring" }, { id: "hdr_autumn" }];
+    const banner = { ...suggestion, headerImageId: "hdr_spring" };
+
+    it("picks the suggested banner, or the colour header when it has none", () => {
+      expect(suggestionForReview(banner, [logo()], undefined, { images, savedImageId: null })).toEqual({
+        logoId: "logo_1",
+        companyName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+        headerGradientColor: null,
+        headerText: "auto",
+        headerImageId: "hdr_spring",
+        notes: ["A note from Vizzy"],
+      });
+      expect(suggestionForReview(suggestion, [logo()], undefined, { images, savedImageId: "hdr_autumn" })).toMatchObject({
+        headerImageId: null,
+        notes: ["A note from Vizzy"],
+      });
+    });
+
+    it("a deleted banner falls back to the colour header with a note", () => {
+      const gone = suggestionForReview({ ...banner, headerImageId: "hdr_deleted" }, [logo()], undefined, {
+        images,
+        savedImageId: "hdr_autumn",
+      });
+      expect(gone.headerImageId).toBeNull();
+      expect(gone.notes).toEqual(["A note from Vizzy", "The suggested header image has been deleted, so the header uses its colour"]);
+      // With a deleted logo too, both notes.
+      expect(suggestionForReview({ ...banner, headerImageId: "hdr_deleted" }, [], undefined, { images: [], savedImageId: null }).notes)
+        .toEqual(["A note from Vizzy", expect.stringMatching(/logo has been deleted/), expect.stringMatching(/header image has been deleted/)]);
+    });
+
+    it("with no header image list, the saved header stays, with a note only when the suggestion asked for another", () => {
+      expect(suggestionForReview(banner, [logo()], undefined, { images: null, savedImageId: "hdr_spring" })).toMatchObject({
+        headerImageId: "hdr_spring",
+        notes: ["A note from Vizzy"],
+      });
+      expect(suggestionForReview(suggestion, [logo()], undefined, { images: null, savedImageId: null })).toMatchObject({
+        headerImageId: null,
+        notes: ["A note from Vizzy"],
+      });
+      const other = suggestionForReview(banner, [logo()], undefined, { images: null, savedImageId: "hdr_autumn" });
+      expect(other.headerImageId).toBe("hdr_autumn");
+      expect(other.notes).toEqual(["A note from Vizzy", expect.stringMatching(/header images couldn't be loaded/)]);
+      const colour = suggestionForReview(suggestion, [logo()], undefined, { images: null, savedImageId: "hdr_autumn" });
+      expect(colour.headerImageId).toBe("hdr_autumn");
+      expect(colour.notes).toHaveLength(2);
+    });
+
+    it("with the header options off (no list given), the header is left as it is", () => {
+      expect(suggestionForReview(banner, [logo()])).not.toHaveProperty("headerImageId");
+    });
+  });
 });

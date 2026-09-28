@@ -537,8 +537,9 @@ export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 }
  * An Email style Vizzy suggested (from chat or the brand kit), waiting for an admin to Review
  * and Save it. Sends never read it. It has no logo size: the page measures the logo on Review.
  * `suggestedAt` is the compare-and-clear key, so a Save or Dismiss never clears a newer one.
- * The header options are stored only when set (absent = solid / Auto), and strictly: a damaged
- * one reads the whole suggestion as none, as for any other field.
+ * The header options are stored only when set (absent = solid / Auto / the colour header), and
+ * strictly: a damaged one reads the whole suggestion as none, as for any other field. A header
+ * image is by id only: its file and size come from the row on Review.
  */
 export const EmailStyleSuggestionSchema = z.object({
   logoId: EmailStyleLogoSchema.shape.id.nullable(),
@@ -549,6 +550,8 @@ export const EmailStyleSuggestionSchema = z.object({
   headerGradientColor: HexColorSchema.optional(),
   /** Absent = Auto. */
   headerText: z.enum(["white", "black"]).optional(),
+  /** A header image (a `header` brand asset's id) in place of the logo and name; absent = the colour header. */
+  headerImageId: EmailStyleLogoSchema.shape.id.optional(),
   source: z.enum(["brand_kit", "chat"]),
   /** What was asked for, in the asker's words. */
   brief: z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.brief),

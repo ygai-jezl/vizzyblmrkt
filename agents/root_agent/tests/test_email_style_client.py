@@ -164,6 +164,95 @@ def test_header_options_switched_off_says_so_once(monkeypatch):
     assert out["message"].count("header images") == 1
 
 
+def test_a_theme_and_fonts_are_sent_as_lowercase_ids(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    es.suggest_style(
+        STATE,
+        "edit",
+        "make my emails feel more editorial, with Playfair headings",
+        theme=" Editorial ",
+        heading_font="Playfair-Display",
+        body_font=" GEORGIA ",
+    )
+    assert calls[0]["payload"] == {
+        "kind": "email_style",
+        "action": "save_draft",
+        "mode": "edit",
+        "brief": "make my emails feel more editorial, with Playfair headings",
+        "theme": "editorial",
+        "headingFont": "playfair-display",
+        "bodyFont": "georgia",
+    }
+    # A font alone keeps the look.
+    assert es.build_suggest_payload("edit", "", body_font="inter") == {
+        "kind": "email_style",
+        "action": "save_draft",
+        "mode": "edit",
+        "brief": "",
+        "bodyFont": "inter",
+    }
+
+
+def test_a_font_given_by_its_label_is_sent_as_its_id():
+    for given, sent in (
+        ("Playfair Display", "playfair-display"),
+        (" playfair_display ", "playfair-display"),
+        ("Trebuchet MS", "trebuchet"),
+        ("trebuchet", "trebuchet"),
+        ("Inter", "inter"),
+    ):
+        p = es.build_suggest_payload("edit", "", heading_font=given, body_font=given)
+        assert p["headingFont"] == sent and p["bodyFont"] == sent
+    # A font email doesn't have is sent the same way, for the app to refuse.
+    assert es.build_suggest_payload("edit", "", heading_font="Comic Sans")["headingFont"] == "comic-sans"
+
+
+def test_use_brand_fonts_sends_true_only_when_asked(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    es.suggest_style(STATE, "edit", "use my brand fonts in emails", use_brand_fonts=True)
+    assert calls[0]["payload"] == {
+        "kind": "email_style",
+        "action": "save_draft",
+        "mode": "edit",
+        "brief": "use my brand fonts in emails",
+        "useBrandFonts": True,
+    }
+    # A font given as well rides along; the app lets it win.
+    p = es.build_suggest_payload("edit", "", heading_font="lora", use_brand_fonts=True)
+    assert p["useBrandFonts"] is True and p["headingFont"] == "lora"
+    assert "useBrandFonts" not in es.build_suggest_payload("edit", "make the header navy", "#000080")
+
+
+def test_blank_theme_fields_send_nothing():
+    keys = {"theme", "headingFont", "bodyFont", "useBrandFonts"}
+    assert not keys & set(es.build_suggest_payload("edit", "", theme="  ", heading_font=" ", body_font=""))
+    assert not keys & set(es.build_suggest_payload("edit", "make the header navy", "#000080", "#ff6b35"))
+    assert not keys & set(es.build_suggest_payload("brand_kit", "use my brand kit"))
+
+
+def test_themes_switched_off_says_so_once(monkeypatch):
+    issue = "theme/headingFont/bodyFont/useBrandFonts: email themes and fonts aren't switched on here yet"
+    _capture(monkeypatch, 400, {"error": "themes_unavailable", "issues": [issue]})
+    out = es.suggest_style(STATE, "edit", "make my emails feel more editorial", theme="editorial")
+    assert out == {
+        "status": "error",
+        "code": "themes_unavailable",
+        "issues": [issue],
+        # The app's issue says the same thing, so it isn't tacked on.
+        "message": "Email themes and fonts aren't switched on in this environment yet.",
+    }
+    out = es.suggest_style(STATE, "edit", "use my brand fonts in emails", use_brand_fonts=True)
+    assert out["message"].count("switched on") == 1
+
+
+def test_an_unknown_font_is_relayed_with_the_apps_issue(monkeypatch):
+    issue = "headingFont: Invalid enum value"
+    _capture(monkeypatch, 400, {"error": "invalid_input", "issues": [issue]})
+    out = es.suggest_style(STATE, "edit", "use Comic Sans for headings", heading_font="comic-sans")
+    assert out["code"] == "invalid_input"
+    assert out["message"] == f"Some of the style wasn't valid: {issue}"
+
+
 def test_a_long_brief_is_cut_to_what_the_server_keeps():
     assert len(es.build_suggest_payload("edit", "x" * 4000)["brief"]) == 500
 
@@ -264,3 +353,33 @@ def test_root_routes_email_style_to_the_tools_as_a_suggestion():
     hides = ROOT_SYSTEM_INSTRUCTION.index("the banner hides the logo, name, gradient and header text colour")
     drop = ROOT_SYSTEM_INSTRUCTION.index('also send `header_image` "none"')
     assert upload < hides < drop < off
+
+
+def test_root_routes_themes_and_fonts_to_the_suggestion_only_when_on():
+    bullet = next(line for line in ROOT_SYSTEM_INSTRUCTION.splitlines() if "**Email style**" in line)
+    # One sentence, after the header options' and before the relay rule.
+    options_off = bullet.index("Without `headerOptions`, say those aren't switched on yet")
+    on = bullet.index("When `get_email_style` returns `themes: true`")
+    off = bullet.index("without `themes`, say themes and fonts aren't switched on yet.")
+    relay = bullet.index("If a tool says it isn't switched on")
+    assert options_off < on < off < relay
+    themes = bullet[on:off]
+    assert themes.count(". ") == 0
+    for words in (
+        "make my emails feel more editorial",
+        '`theme` "editorial"',
+        "`themePresets`",
+        "`heading_font`",
+        "`body_font`",
+        "`fonts`",
+        "`use_brand_fonts`",
+        "use my brand fonts in emails",
+    ):
+        assert words in themes
+    # Web fonts reach few inboxes, and Vizzy says so, as the read's note has it: while web
+    # fonts are off (themes on), every inbox shows the fallback.
+    note = themes.index("what the read's `note` says about web fonts")
+    few = themes.index("only in Apple Mail, Outlook for Mac and a few other inboxes")
+    web_off = themes.index("while web fonts aren't switched on every inbox shows the fallback")
+    assert note < few < web_off
+    assert "fallback" in themes

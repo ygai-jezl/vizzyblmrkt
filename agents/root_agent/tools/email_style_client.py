@@ -8,7 +8,8 @@ role from that token, never from here.
 
 The Email style is brand-wide (logo, company name, header and button colours on
 every branded email, plus a gradient header, the header text colour and a header
-image an admin uploaded where the app's header options are on). Vizzy only ever saves
+image an admin uploaded where the app's header options are on, and a theme, a look
+with a heading and a body font, where its themes are on). Vizzy only ever saves
 a SUGGESTION through the canvas endpoint: nothing changes until an admin saves it on
 Brand › Email style. Vizzy never uploads a header image; only the page can.
 """
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -54,10 +56,13 @@ _ERRORS = {
         "Gradient headers, header text colour and header images aren't switched on in this "
         "environment yet."
     ),
+    # EMAIL_THEMES_ENABLED is off: only a look other than Classic, a font other than the
+    # system font, or "use brand fonts" is refused.
+    "themes_unavailable": "Email themes and fonts aren't switched on in this environment yet.",
     "network_error": "I couldn't reach the app just now. Please try again.",
 }
 # Whole on their own: the app's issue only says the same thing again.
-_NO_DETAIL = {"header_options_unavailable"}
+_NO_DETAIL = {"header_options_unavailable", "themes_unavailable"}
 
 
 def _request(method: str, url: str, token: str, payload: "dict | None" = None) -> "tuple[int, str]":
@@ -105,6 +110,16 @@ def error_result(status_code: int, body: dict) -> dict:
     }
 
 
+# A font's label where it isn't its id with dashes for spaces ("Trebuchet MS" is "trebuchet").
+_FONT_LABEL_IDS = {"trebuchet-ms": "trebuchet"}
+
+
+def _font_id(value: str) -> str:
+    """A font id from the read's `fonts`, or its label ("Playfair Display" → "playfair-display")."""
+    font = re.sub(r"[\s_]+", "-", value.strip().lower())
+    return _FONT_LABEL_IDS.get(font, font)
+
+
 def build_suggest_payload(
     mode: str,
     brief: str,
@@ -117,6 +132,10 @@ def build_suggest_payload(
     solid_header: bool = False,
     header_text_color: str = "",
     header_image: str = "",
+    theme: str = "",
+    heading_font: str = "",
+    body_font: str = "",
+    use_brand_fonts: bool = False,
 ) -> dict:
     """The canvas request: only the fields the operator asked for, so the rest are kept."""
     payload: dict = {
@@ -149,6 +168,17 @@ def build_suggest_payload(
         payload["companyName"] = None
     elif (company_name or "").strip():
         payload["companyName"] = company_name.strip()
+    # A look ("classic", "modern", "editorial" or "friendly") and font ids from the read's
+    # `fonts` (a label is sent as its id), all lowercase; the app checks them.
+    if (theme or "").strip():
+        payload["theme"] = theme.strip().lower()
+    if (heading_font or "").strip():
+        payload["headingFont"] = _font_id(heading_font)
+    if (body_font or "").strip():
+        payload["bodyFont"] = _font_id(body_font)
+    # The fonts from Brand › Fonts where email has them; a font given as well wins.
+    if use_brand_fonts:
+        payload["useBrandFonts"] = True
     return payload
 
 
@@ -193,6 +223,10 @@ def suggest_style(
     solid_header: bool = False,
     header_text_color: str = "",
     header_image: str = "",
+    theme: str = "",
+    heading_font: str = "",
+    body_font: str = "",
+    use_brand_fonts: bool = False,
 ) -> dict:
     """Save an Email style SUGGESTION for an admin to review. Never raises."""
     got = _base_and_token(state)
@@ -211,6 +245,10 @@ def suggest_style(
         solid_header,
         header_text_color,
         header_image,
+        theme,
+        heading_font,
+        body_font,
+        use_brand_fonts,
     )
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
     return parse_suggest_response(status_code, body_text)

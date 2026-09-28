@@ -56,6 +56,10 @@ def test_suggest_email_style_asks_for_the_mode_and_brief_only():
         "logo",
         "company_name",
         "hide_company_name",
+        "theme",
+        "heading_font",
+        "body_font",
+        "use_brand_fonts",
     }
     assert sorted(required) == ["brief", "mode"]
 

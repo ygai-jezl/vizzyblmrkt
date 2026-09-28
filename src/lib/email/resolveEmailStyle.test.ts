@@ -179,6 +179,77 @@ describe("resolveEmailStyle", () => {
     });
   });
 
+  describe("theme", () => {
+    const today = {
+      logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+      name: null,
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    };
+    const withTheme = (theme: unknown) => tenant({ emailStyle: { ...STYLE, theme } });
+
+    it("flag off: a saved theme is ignored — exactly today's style, with web fonts on or off", () => {
+      for (const flag of ["false", ""]) {
+        vi.stubEnv("EMAIL_THEMES_ENABLED", flag);
+        expect(resolveEmailStyle(withTheme({ preset: "modern", bodyFont: "lora" }))).toStrictEqual(today);
+        vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+        expect(resolveEmailStyle(withTheme({ preset: "modern", bodyFont: "lora" }))).toStrictEqual(today);
+        vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "");
+      }
+    });
+
+    it("flag on: drawn with its safe fonts only while web fonts are off", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      expect(resolveEmailStyle(withTheme({ preset: "modern", bodyFont: "lora" }))).toStrictEqual({
+        ...today,
+        theme: { preset: "modern", headingFont: "inter", bodyFont: "lora" },
+      });
+    });
+
+    it("flag on with web fonts: the font files come from the email link origin, https only", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+      expect(resolveEmailStyle(withTheme({ preset: "modern" }))!.theme).toStrictEqual({
+        preset: "modern",
+        headingFont: "inter",
+        bodyFont: "inter",
+        webFontOrigin: "https://app.example.com",
+      });
+      // A safe-only theme needs no files.
+      expect(resolveEmailStyle(withTheme({ preset: "classic", bodyFont: "georgia" }))!.theme).not.toHaveProperty(
+        "webFontOrigin",
+      );
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "http://localhost:3000");
+      expect(resolveEmailStyle(withTheme({ preset: "modern" }))!.theme).not.toHaveProperty("webFontOrigin");
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "");
+      expect(resolveEmailStyle(withTheme({ preset: "modern" }))!.theme).not.toHaveProperty("webFontOrigin");
+    });
+
+    it("flag on: Classic with the system font, or a damaged theme, is exactly today's style", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+      expect(resolveEmailStyle(withTheme({ preset: "classic" }))).toStrictEqual(today);
+      expect(resolveEmailStyle(tenant())).toStrictEqual(today);
+      for (const damaged of [{ preset: "brutalist" }, "modern", null, { preset: "classic", headingFont: "comic-sans" }]) {
+        const style = { ...STYLE, theme: damaged } as unknown as StoredEmailStyle;
+        // Built outside the registry, so the resolver's own lenient read is what drops it.
+        expect(resolveEmailStyle({ ...tenant(), emailStyle: style })).toStrictEqual(today);
+        expect(resolveEmailStyle(tenant({ emailStyle: style }))).toStrictEqual(today);
+      }
+    });
+
+    it("flag on: an unknown font reads as the preset's", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      const style = { ...STYLE, theme: { preset: "editorial", headingFont: "comic-sans" } } as unknown as StoredEmailStyle;
+      expect(resolveEmailStyle({ ...tenant(), emailStyle: style })!.theme).toStrictEqual({
+        preset: "editorial",
+        headingFont: "lora",
+        bodyFont: "georgia",
+      });
+    });
+  });
+
   it("altName is the company name when set, else the sender name, else the tenant name", () => {
     expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, companyName: "Acme" } }))).toMatchObject({
       name: "Acme",

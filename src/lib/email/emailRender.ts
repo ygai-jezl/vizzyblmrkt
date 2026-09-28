@@ -1,6 +1,7 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
 import { EMAIL_HEADER_IMAGE_LIMITS, EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
+import { FONT } from "./emailFonts";
 import {
   bandInk,
   bandStops,
@@ -25,8 +26,6 @@ import {
  * as data, already resolved). {{merge_tokens}} are emitted VERBATIM — substitution happens
  * downstream in the send path (mergeVars.ts).
  */
-
-const FONT = "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
 
 // ── Moved verbatim from compiler.ts (send path re-imports these) ─────────────
 

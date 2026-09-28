@@ -330,6 +330,96 @@ describe("resolveStoredStyle", () => {
       expect(resolveStoredStyle(big, on)!.headerImage).toMatchObject({ width: 1200, height: 2400 });
     });
   });
+
+  describe("theme", () => {
+    const today = resolveStoredStyle(stored, opts);
+    const on = { ...opts, themes: true };
+    const withTheme = (theme: unknown) => ({ ...stored, theme }) as Parameters<typeof resolveStoredStyle>[0];
+
+    it("adds no key with themes off, no theme, Classic with the system font, or a damaged theme", () => {
+      const modern = withTheme({ preset: "modern" });
+      expect(resolveStoredStyle(modern, opts)).toStrictEqual(today);
+      expect(resolveStoredStyle(modern, { ...opts, themes: false, webFonts: true, fontOrigin: "https://app.example.com" })).toStrictEqual(today);
+      const none = [
+        undefined,
+        null,
+        { preset: "classic" },
+        { preset: "classic", headingFont: "system", bodyFont: "system" },
+        { preset: "classic", headingFont: "comic-sans" },
+        { preset: "brutalist", headingFont: "inter" },
+        { headingFont: "inter" },
+        "modern",
+      ];
+      for (const theme of none) expect(resolveStoredStyle(withTheme(theme), on)).toStrictEqual(today);
+    });
+
+    it("sets the preset and both fonts, the preset's own when left out", () => {
+      expect(resolveStoredStyle(withTheme({ preset: "editorial" }), on)).toStrictEqual({
+        ...today,
+        theme: { preset: "editorial", headingFont: "lora", bodyFont: "georgia" },
+      });
+      expect(resolveStoredStyle(withTheme({ preset: "classic", bodyFont: "georgia" }), on)!.theme).toStrictEqual({
+        preset: "classic",
+        headingFont: "system",
+        bodyFont: "georgia",
+      });
+    });
+
+    it("an unknown font falls back to the preset's", () => {
+      const theme = { preset: "friendly", headingFont: "comic-sans", bodyFont: "'Inter',serif" };
+      expect(resolveStoredStyle(withTheme(theme), on)!.theme).toStrictEqual({
+        preset: "friendly",
+        headingFont: "poppins",
+        bodyFont: "nunito",
+      });
+    });
+
+    it("holds no colours, so the style's own button colour stays the only one", () => {
+      const r = resolveStoredStyle(withTheme({ preset: "friendly" }), on)!;
+      expect(Object.keys(r.theme!)).toEqual(["preset", "headingFont", "bodyFont"]);
+      expect(r.accentColor).toBe("#ff6b35");
+    });
+
+    it("webFontOrigin: only with webFonts, a web font among the two, and an https origin", () => {
+      const fonts = { ...on, webFonts: true, fontOrigin: "https://app.example.com" };
+      expect(resolveStoredStyle(withTheme({ preset: "modern" }), fonts)!.theme).toStrictEqual({
+        preset: "modern",
+        headingFont: "inter",
+        bodyFont: "inter",
+        webFontOrigin: "https://app.example.com",
+      });
+      // One web font is enough.
+      const lora = withTheme({ preset: "editorial", bodyFont: "verdana" });
+      expect(resolveStoredStyle(lora, fonts)!.theme!.webFontOrigin).toBe("https://app.example.com");
+      expect(resolveStoredStyle(lora, { ...fonts, fontOrigin: "https://app.example.com/" })!.theme!.webFontOrigin).toBe(
+        "https://app.example.com",
+      );
+
+      const safeOnly = withTheme({ preset: "editorial", headingFont: "georgia", bodyFont: "verdana" });
+      expect(resolveStoredStyle(safeOnly, fonts)!.theme).not.toHaveProperty("webFontOrigin");
+      for (const off of [
+        { ...fonts, webFonts: false },
+        { ...fonts, webFonts: undefined },
+        { ...fonts, fontOrigin: undefined },
+        { ...fonts, fontOrigin: "" },
+        { ...fonts, fontOrigin: "http://localhost:3000" },
+        { ...fonts, fontOrigin: "https://user:pass@app.example.com" },
+        { ...fonts, fontOrigin: "not a url" },
+      ]) {
+        expect(resolveStoredStyle(withTheme({ preset: "modern" }), off)!.theme).toStrictEqual({
+          preset: "modern",
+          headingFont: "inter",
+          bodyFont: "inter",
+        });
+      }
+    });
+
+    it("sits alongside the header options", () => {
+      const all = withTheme({ preset: "modern" });
+      const r = resolveStoredStyle({ ...all!, headerGradientColor: "#4f46e5", headerText: "white" }, { ...on, headerOptions: true });
+      expect(r).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white", theme: { preset: "modern" } });
+    });
+  });
 });
 
 describe("styleFromBrandKit", () => {

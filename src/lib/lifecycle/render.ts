@@ -12,6 +12,7 @@ import {
   wrapLetter,
 } from "@/lib/email/emailRender";
 import { accentFor, readableOn, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { FONT } from "@/lib/email/emailFonts";
 import type { FooterMergeValues } from "@/lib/email/mergeVars";
 import type { PoolItem } from "@/lib/types/lifecycle";
 import type { TraitValue } from "@/lib/types/productUser";
@@ -72,7 +73,6 @@ export interface RenderedEmail {
 }
 
 const TOKEN_RE = /\{\{\s*([A-Za-z_][\w.]*)\s*(?:\|([^}]*))?\}\}/g;
-const FONT = "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
 
 function valueFor(key: string, v: RenderValues): string | undefined {
   const dot = key.indexOf(".");

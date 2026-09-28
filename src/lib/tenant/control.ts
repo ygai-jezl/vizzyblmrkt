@@ -24,6 +24,7 @@ import {
   type LearnedChannelPatterns,
 } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
+import { compactTheme } from "@/lib/email/emailThemes";
 
 /**
  * Control-plane writes — the `tenants` registry lives in the (default) database,
@@ -148,7 +149,8 @@ export async function setTenantBrandVoice(
  * A header option the input leaves out (gradient, text colour, header image) is KEPT from
  * what's stored, so a page without those controls (the flag is off) can't wipe them. That Save
  * re-reads the doc in a transaction; a damaged stored option is dropped there, never thrown,
- * so it can't block a Save.
+ * so it can't block a Save. The theme works the same way: stored without the preset's own
+ * fonts, as no key for Classic with the system font (or null), and kept when left out.
  * With `clearSuggestionAt` (an admin applied Vizzy's suggestion), the same transaction clears
  * the pending suggestion too, but only if it's still that one, so a newer suggestion survives.
  */
@@ -164,13 +166,15 @@ export async function setTenantEmailStyle(
     await ref.update({ emailStyle: FieldValue.delete(), updatedAt: now });
     return null;
   }
-  const { headerGradientColor, headerText, headerImage, ...rest } = EmailStyleInputSchema.parse(style);
+  const { headerGradientColor, headerText, headerImage, theme, ...rest } = EmailStyleInputSchema.parse(style);
+  const storedTheme = compactTheme(theme);
   // Only real options become keys (both colours are lowercased by now). The stored shape still checks the stamp.
   const given = StoredEmailStyleSchema.parse({
     ...rest,
     ...(headerGradientColor && headerGradientColor !== rest.headerColor ? { headerGradientColor } : {}),
     ...(headerText && headerText !== "auto" ? { headerText } : {}),
     ...(headerImage ? { headerImage } : {}),
+    ...(storedTheme ? { theme: storedTheme } : {}),
     updatedAt: now,
     ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
   });
@@ -178,16 +182,21 @@ export async function setTenantEmailStyle(
     headerGradientColor: headerGradientColor === undefined,
     headerText: headerText === undefined,
     headerImage: headerImage === undefined,
+    theme: theme === undefined,
   };
   const clearAt = opts.clearSuggestionAt;
-  if (!keep.headerGradientColor && !keep.headerText && !keep.headerImage && !clearAt) {
+  if (!keep.headerGradientColor && !keep.headerText && !keep.headerImage && !keep.theme && !clearAt) {
     await ref.update({ emailStyle: given, updatedAt: now });
     return given;
   }
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.data();
-    const next: StoredEmailStyle = { ...given, ...keptHeaderOptions(data?.emailStyle, keep) };
+    const next: StoredEmailStyle = {
+      ...given,
+      ...keptHeaderOptions(data?.emailStyle, keep),
+      ...keptTheme(data?.emailStyle, keep.theme),
+    };
     const write = { emailStyle: next, updatedAt: now };
     const matches = !!clearAt && pendingSuggestedAt(data) === clearAt;
     tx.update(ref, matches ? { ...write, emailStyleSuggestion: FieldValue.delete() } : write);
@@ -212,6 +221,14 @@ function keptHeaderOptions(
     ...(headerText ? { headerText } : {}),
     ...(headerImage ? { headerImage } : {}),
   };
+}
+
+/** The stored theme a Save leaves out, read leniently (a damaged one is dropped) and compacted as a Save stores it. */
+function keptTheme(raw: unknown, keep: boolean): Pick<StoredEmailStyle, "theme"> {
+  if (!keep) return {};
+  const stored = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const theme = compactTheme(StoredEmailStyleSchema.shape.theme.parse(stored.theme));
+  return theme ? { theme } : {};
 }
 
 /** The pending suggestion's compare-and-clear key, read off the raw doc. */

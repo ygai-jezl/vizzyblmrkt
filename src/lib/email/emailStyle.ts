@@ -4,11 +4,15 @@ import {
   EMAIL_STYLE_LIMITS,
   HIDDEN_NAME_CHARS,
   type BrandKit,
+  type EmailFontId,
   type EmailStyleInput,
+  type EmailThemePreset,
 } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandAsset } from "@/lib/types/brandAsset";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
+import { isEmailFontId, isWebFont } from "./emailFonts";
+import { EMAIL_THEME_PRESET_SPECS, isEmailThemePreset } from "./emailThemes";
 
 /**
  * Email style — the pure half. Pure + client-safe (no env, no server imports): shared by
@@ -35,6 +39,13 @@ export interface ResolvedEmailStyle {
    * the logo and name, on the header colour. Absent = the colour header (logo, name, gradient).
    */
   headerImage?: { url: string; width: number; height: number };
+  /**
+   * A look (page colour, corners, button shape, spacing: themeTokens in emailThemes.ts) and two
+   * font ids (fontFor in emailFonts.ts). It holds no colours, so a style's own button colour
+   * tints Friendly's page. `webFontOrigin` (https) is where the web font files are, set only when
+   * web fonts are on and one of the two is a web font. Absent = Classic with the system font.
+   */
+  theme?: { preset: EmailThemePreset; headingFont: EmailFontId; bodyFont: EmailFontId; webFontOrigin?: string };
 }
 
 /**
@@ -47,12 +58,23 @@ export interface ResolvedEmailStyle {
  * the keys out, so the result is exactly what it was without them. A header image is set
  * only when `headerImageUrlFor` (checked by the caller, like the logo's) gives a URL; the
  * gradient and text keys stay alongside it, for when the image is dropped.
+ *
+ * The theme works the same way with `themes`: Classic with the system font, an unknown preset
+ * or no theme leave the key out. An unknown font is the preset's. With `webFonts`, a theme with
+ * a web font gets `fontOrigin` (only an https one) as its `webFontOrigin`.
  */
 export function resolveStoredStyle(
   stored:
     | Pick<
         EmailStyleInput,
-        "logo" | "companyName" | "headerColor" | "accentColor" | "headerGradientColor" | "headerText" | "headerImage"
+        | "logo"
+        | "companyName"
+        | "headerColor"
+        | "accentColor"
+        | "headerGradientColor"
+        | "headerText"
+        | "headerImage"
+        | "theme"
       >
     | null
     | undefined,
@@ -61,6 +83,9 @@ export function resolveStoredStyle(
     headerImageUrlFor?: (image: { id: string; filename: string }) => string | null;
     fallbackName: string;
     headerOptions?: boolean;
+    themes?: boolean;
+    webFonts?: boolean;
+    fontOrigin?: string;
   },
 ): ResolvedEmailStyle | null {
   if (!stored) return null;
@@ -74,6 +99,7 @@ export function resolveStoredStyle(
     opts.headerOptions && (stored.headerText === "white" || stored.headerText === "black") ? stored.headerText : null;
   const image = opts.headerOptions && stored.headerImage ? stored.headerImage : null;
   const imageUrl = image && opts.headerImageUrlFor ? opts.headerImageUrlFor(image) : null;
+  const theme = opts.themes ? resolveTheme(stored.theme, opts) : null;
   return {
     logo:
       url && stored.logo
@@ -98,7 +124,35 @@ export function resolveStoredStyle(
           },
         }
       : {}),
+    ...(theme ? { theme } : {}),
   };
+}
+
+/** A saved (or unsaved) theme as the renderers draw it; null = none (Classic with the system font). */
+function resolveTheme(
+  raw: unknown,
+  opts: { webFonts?: boolean; fontOrigin?: string },
+): NonNullable<ResolvedEmailStyle["theme"]> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { preset, headingFont, bodyFont } = raw as { preset?: unknown; headingFont?: unknown; bodyFont?: unknown };
+  if (!isEmailThemePreset(preset)) return null;
+  const spec = EMAIL_THEME_PRESET_SPECS[preset];
+  const heading = isEmailFontId(headingFont) ? headingFont : spec.headingFont;
+  const body = isEmailFontId(bodyFont) ? bodyFont : spec.bodyFont;
+  if (preset === "classic" && heading === "system" && body === "system") return null;
+  const origin = opts.webFonts && (isWebFont(heading) || isWebFont(body)) ? httpsOrigin(opts.fontOrigin) : null;
+  return { preset, headingFont: heading, bodyFont: body, ...(origin ? { webFontOrigin: origin } : {}) };
+}
+
+/** An https origin (no credentials), or null: an inbox won't load fonts from anything else. */
+function httpsOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && !u.username && !u.password ? u.origin : null;
+  } catch {
+    return null;
+  }
 }
 
 function clampInt(n: number, max: number): number {

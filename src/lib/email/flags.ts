@@ -1,7 +1,7 @@
 /**
- * Email style flags (logo, company name and colours on branded emails), and the header
+ * Email style flags (logo, company name and colours on branded emails), the header
  * options on top of it (a gradient header, a chosen header text colour, a header image,
- * logo clean-up).
+ * logo clean-up), and themes (a look and two fonts, with web fonts on their own flag).
  * Pure + client-safe. Each is ON in dev (apphosting.yaml) and set explicitly in prod
  * (apphosting.prod.yaml). Renderers never read these: they get the style as data.
  */
@@ -35,4 +35,22 @@ export function isEmailHeaderOptionsEnabled(): boolean {
 /** Client mirror — the page shows the header options only when this and the server flag are on. */
 export function isEmailHeaderOptionsUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_EMAIL_HEADER_OPTIONS_ENABLED === "true";
+}
+
+/**
+ * Server flag — themes (needs EMAIL_STYLE_ENABLED). On: sends and previews draw a saved theme
+ * (one of four looks, a heading and a body font), and the Save API takes it. Off: the resolver
+ * ignores it, so emails are exactly as without it, and a Save keeps what's stored (a kill switch).
+ */
+export function isEmailThemesEnabled(): boolean {
+  return process.env.EMAIL_THEMES_ENABLED === "true";
+}
+
+/**
+ * Server flag — web fonts (needs EMAIL_THEMES_ENABLED). On: a theme with a web font (Inter,
+ * Lora, …) tells the renderers where the font files are, for the inboxes that load them (Apple
+ * Mail, Outlook for Mac and a few others). Off: every theme draws its safe fonts only.
+ */
+export function isEmailWebFontsEnabled(): boolean {
+  return process.env.EMAIL_WEB_FONTS_ENABLED === "true";
 }

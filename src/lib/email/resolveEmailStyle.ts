@@ -1,6 +1,6 @@
 import { StoredEmailStyleSchema, type Tenant } from "@/lib/types/tenant";
 import { brandLogoAbsoluteUrl, emailHeaderImageAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
-import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled } from "./flags";
+import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled, isEmailThemesEnabled, isEmailWebFontsEnabled } from "./flags";
 import { resolveStoredStyle, safeHeaderImageUrl, safeLogoUrl, type ResolvedEmailStyle } from "./emailStyle";
 import { emailLinkOrigin } from "./footer";
 import { resolveFooterBrand } from "./sender";
@@ -15,6 +15,8 @@ import { resolveFooterBrand } from "./sender";
  * header options (gradient, text colour, header image) are ignored while
  * EMAIL_HEADER_OPTIONS_ENABLED is off. The header image doesn't need the Logos flag (its
  * public brand-asset route isn't gated), but with no https origin it's dropped: the colour band.
+ * The saved theme is ignored while EMAIL_THEMES_ENABLED is off; with EMAIL_WEB_FONTS_ENABLED
+ * on too, a web font's files come from the same https origin (none = its safe fonts only).
  */
 export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEmailStyle | null {
   if (!isEmailStyleEnabled() || !tenant?.emailStyle) return null;
@@ -31,5 +33,8 @@ export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEm
         : null,
     fallbackName: resolveFooterBrand(tenant, null),
     headerOptions: isEmailHeaderOptionsEnabled(),
+    themes: isEmailThemesEnabled(),
+    webFonts: isEmailWebFontsEnabled(),
+    fontOrigin: linkOrigin,
   });
 }

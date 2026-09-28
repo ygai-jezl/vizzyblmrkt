@@ -242,6 +242,53 @@ describe("TenantSchema.emailStyle (lenient on read)", () => {
   });
 });
 
+describe("Email style theme", () => {
+  const style = {
+    logo: null,
+    companyName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+  };
+  const ok = (theme: unknown) => EmailStyleInputSchema.safeParse({ ...style, theme }).success;
+
+  it("on write: a preset and font ids, null (no theme), or no key (keep what's stored)", () => {
+    const theme = { preset: "editorial", headingFont: "playfair-display", bodyFont: "georgia" };
+    expect(EmailStyleInputSchema.parse({ ...style, theme }).theme).toEqual(theme);
+    expect(ok({ preset: "modern" })).toBe(true);
+    expect(ok(null)).toBe(true);
+    expect(EmailStyleInputSchema.parse(style)).not.toHaveProperty("theme");
+  });
+
+  it("on write: refuses an unknown preset or font, CSS, and any other key", () => {
+    for (const theme of [
+      { preset: "brutalist" },
+      { preset: "Modern" },
+      { preset: "modern", headingFont: "Inter" },
+      { preset: "modern", bodyFont: "'Inter',sans-serif" },
+      { preset: "modern", buttonRadius: 0 },
+      { headingFont: "inter" },
+      "modern",
+    ]) {
+      expect(ok(theme)).toBe(false);
+    }
+  });
+
+  it("on read: an unknown font reads as none (the preset's), and a damaged theme drops alone", () => {
+    const field = TenantSchema.shape.emailStyle;
+    expect(field.parse({ ...style, theme: { preset: "modern", headingFont: "comic-sans", bodyFont: "lora" } })!.theme).toEqual({
+      preset: "modern",
+      bodyFont: "lora",
+    });
+    for (const theme of [{ preset: "brutalist" }, "modern", null, { headingFont: "inter" }]) {
+      const read = field.parse({ ...style, headerGradientColor: "#4f46e5", theme })!;
+      expect(read).toMatchObject({ ...style, headerGradientColor: "#4f46e5" });
+      expect(read.theme).toBeUndefined();
+    }
+    // Keys a later build might add are dropped, never a failed read.
+    expect(field.parse({ ...style, theme: { preset: "friendly", corners: 4 } })!.theme).toEqual({ preset: "friendly" });
+  });
+});
+
 describe("EmailStyleSuggestionSchema (strict on write)", () => {
   const suggestion = {
     logoId: "logo_1",

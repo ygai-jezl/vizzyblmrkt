@@ -81,14 +81,32 @@ describe("which entity an email is about", () => {
 
   it("views the person through it: its steps (and, about one, its facts) on top of theirs", () => {
     const view = entityViewFor(user, about(), catalog);
-    const seen = viewedUser({ steps: {}, facts: { plan_seats: { value: 3, at: iso(T0) } } }, view);
+    const seen = viewedUser({ steps: {}, facts: { plan_seats: { value: 3, at: iso(T0) } } }, view, catalog);
     expect(Object.keys(seen.steps)).toEqual(["create_brand", "run_audit"]);
     expect(seen.facts).toMatchObject({ plan_seats: { value: 3 }, sov: { value: 12 } });
     // About the person: the checklist follows the onboarding focus, the facts stay theirs.
     const person = entityViewFor(user, about({ mode: "person", kind: null }), catalog);
     expect(person.entity).toBeNull();
     expect(person.onboarding?.id).toBe("acme");
-    expect(viewedUser({ steps: {}, facts: {} }, person).facts).toEqual({});
+    expect(viewedUser({ steps: {}, facts: {} }, person, catalog).facts).toEqual({});
+  });
+
+  it("a top-level copy of a per-brand step or fact never makes a brand look done", () => {
+    // Sent for one brand before entities were — or for another brand.
+    const person = {
+      steps: { ...done("create_brand", "monitor_prompts"), verify_email: { doneAt: iso(T0) } },
+      facts: { sov: { value: 99, at: iso(T0) }, plan_seats: { value: 3, at: iso(T0) } },
+    };
+    const beta = entityViewFor(user, about({ pick: "recent" }), catalog);
+    expect(beta.entity?.id).toBe("beta");
+    const seen = viewedUser(person, beta, catalog);
+    expect(Object.keys(seen.steps)).toEqual(["verify_email"]); // the person's own step stays; beta has done none
+    expect(seen.facts).toEqual({ plan_seats: { value: 3, at: iso(T0) }, sov: { value: 30, at: iso(T0) } });
+    // The checklist that follows the focus reads the focus's steps only.
+    const focus = viewedUser(person, entityViewFor(user, about({ mode: "person", kind: null }), catalog), catalog);
+    expect(Object.keys(focus.steps).sort()).toEqual(["create_brand", "run_audit", "verify_email"]);
+    // With no entities to view, the top-level values are all there is — and they count.
+    expect(viewedUser(person, entityViewFor({ entities: {} }, about({ mode: "person", kind: null }), catalog), catalog)).toBe(person);
   });
 
   it("answers entities.* conditions, and unknown when there's nothing to read", () => {

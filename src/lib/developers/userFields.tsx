@@ -58,7 +58,8 @@ export const USER_FIELDS: ReadonlyArray<FieldDoc<keyof UserPatch & string>> = [
   {
     name: "facts",
     type: "object",
-    notes: "Fact id → its latest value: a number, a string (≤ 200 chars) or a boolean. `null` removes one. Merged key by key; at most 50.",
+    notes:
+      "Fact id → its latest value: a number, a string (≤ 200 chars) or a boolean. `null` removes one. Leave out one they don't have (a feature not set up, a score not measured) rather than sending 0. Merged key by key; at most 50.",
   },
   {
     name: "traits",

@@ -1,4 +1,4 @@
-import type { Evidence, ProductMap } from "./schema";
+import { proves, type Evidence, type MapSection, type ProductMap } from "./schema";
 import type { RepoReader } from "./reader";
 
 /**
@@ -21,6 +21,16 @@ export function evidenceKind(path: string): "source" | "docs" | "test" {
   return "source";
 }
 
+/**
+ * A line that declares a type — an interface, type alias, class, struct or enum —
+ * in TypeScript, Python, Go, Rust, Java or Kotlin. It names a shape, not a value.
+ */
+const DECLARATION = /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:pub(?:\([^)]*\))?\s+)?(?:public\s+)?(?:data\s+)?(?:interface|type|class|struct|enum)\s+[A-Za-z_$][\w$]*/;
+
+export function isDeclaration(excerpt: string): boolean {
+  return DECLARATION.test(excerpt.trim());
+}
+
 function squash(s: string): string {
   return s.replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -38,7 +48,7 @@ export function verifyEvidence(ev: Evidence, reader: RepoReader): Evidence {
     if (at < 0) return { ...ev, verified: false, kind };
     from = at + part.length;
   }
-  return { ...ev, verified: true, kind };
+  return { ...ev, verified: true, kind, ...(isDeclaration(ev.excerpt) ? { declaration: true } : {}) };
 }
 
 export interface VerifyStats {
@@ -51,26 +61,25 @@ export interface VerifyStats {
 /** Verify every item's evidence; returns the map with `verified` set, plus counts. */
 export function verifyProductMap(map: ProductMap, reader: RepoReader): { map: ProductMap; stats: VerifyStats } {
   const stats: VerifyStats = { items: 0, verifiedItems: 0, evidence: 0, verifiedEvidence: 0 };
-  /** docsCount: whether docs count as proof (glossary terms — not steps, events, facts…). */
-  const check = <T extends { evidence: Evidence[] }>(items: T[], docsCount = false): T[] =>
+  const check = <T extends { evidence: Evidence[] }>(items: T[], section: MapSection): T[] =>
     items.map((it) => {
       const evidence = it.evidence.map((e) => verifyEvidence(e, reader));
       stats.items += 1;
       stats.evidence += evidence.length;
       stats.verifiedEvidence += evidence.filter((e) => e.verified).length;
-      if (evidence.some((e) => e.verified && (e.kind === "source" || (docsCount && e.kind === "docs")))) stats.verifiedItems += 1;
+      if (evidence.some((e) => proves(e, section))) stats.verifiedItems += 1;
       return { ...it, evidence };
     });
   return {
     map: {
       ...map,
-      onboardingSteps: check(map.onboardingSteps),
-      events: check(map.events),
-      traits: check(map.traits),
-      facts: check(map.facts),
-      glossary: check(map.glossary, true),
-      hooks: check(map.hooks),
-      entityKinds: check(map.entityKinds),
+      onboardingSteps: check(map.onboardingSteps, "onboardingSteps"),
+      events: check(map.events, "events"),
+      traits: check(map.traits, "traits"),
+      facts: check(map.facts, "facts"),
+      glossary: check(map.glossary, "glossary"),
+      hooks: check(map.hooks, "hooks"),
+      entityKinds: check(map.entityKinds, "entityKinds"),
     },
     stats,
   };

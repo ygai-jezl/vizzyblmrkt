@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { redactSecrets } from "./redact";
 import { RepoReader } from "./reader";
-import { evidenceKind, verifyEvidence, verifyProductMap } from "./verify";
+import { evidenceKind, isDeclaration, verifyEvidence, verifyProductMap } from "./verify";
 import { analyseRepo, ANALYSIS_PASSES, GENERAL_PASS, runTool, trimHistory, TOOLS, type Content, type ModelClient, type Part } from "./analyst";
-import { parseMapItem, parseProductMapLenient, toCatalogId } from "./schema";
+import { parseMapItem, parseProductMapLenient, proves, toCatalogId } from "./schema";
 import { runProductMap } from "./run";
 import { scrubCredentials } from "../sources/git";
 
@@ -104,6 +104,38 @@ describe("evidence verification", () => {
     expect(checked.stats).toMatchObject({ items: 2, verifiedItems: 1 });
   });
 
+  it("a type's declaration doesn't prove a fact — where its value is stored or computed does", () => {
+    for (const line of ["export interface StageScore {", "export type Scores = Record<Stage, StageScore>;", "class StageScore(BaseModel):", "type StageScore struct {", "pub struct StageScore {", "data class StageScore("]) {
+      expect(isDeclaration(line), line).toBe(true);
+    }
+    for (const line of ["score: number | null;", "type: 'number',", "const s = scoreStage(input);", "classes.push(x);", "await snap.ref.set({ stageScores });"]) {
+      expect(isDeclaration(line), line).toBe(false);
+    }
+
+    const rd = new RepoReader([
+      {
+        repo: "web",
+        path: "src/scores.ts",
+        text: "export interface Team {\n  name: string;\n}\nexport interface StageScore {\n  score: number | null;\n}\nexport async function saveScores(ref, stageScores) {\n  await ref.set({ stageScores, updatedAt: now() });\n}\n",
+      },
+    ]);
+    const { map } = parseProductMapLenient({
+      entityKinds: [{ kind: "team", label: "team", plural: "teams", evidence: [{ path: "src/scores.ts", excerpt: "export interface Team {" }] }],
+      facts: [
+        { id: "stage_score", label: "Stage score", evidence: [{ path: "src/scores.ts", excerpt: "export interface StageScore {" }] },
+        { id: "awareness", label: "Awareness", appliesWhen: "teams with a catalogue", evidence: [{ path: "src/scores.ts", excerpt: "await ref.set({ stageScores, updatedAt: now() });" }] },
+      ],
+    });
+    const checked = verifyProductMap(map, rd);
+    expect(checked.map.facts[0]!.evidence[0]).toMatchObject({ verified: true, kind: "source", declaration: true });
+    expect(checked.map.facts[1]!.evidence[0]!.declaration).toBeUndefined();
+    expect(checked.map.facts.map((f) => f.appliesWhen)).toEqual(["", "teams with a catalogue"]);
+    // The declared type proves the kind of thing exists, but not the fact; the stored value does.
+    expect(checked.stats).toMatchObject({ items: 3, verifiedItems: 2 });
+    expect(proves(checked.map.facts[0]!.evidence[0]!, "facts")).toBe(false);
+    expect(proves(checked.map.facts[0]!.evidence[0]!, "entityKinds")).toBe(true);
+  });
+
   it("fixes badly formed step and fact ids instead of dropping the step; event names are left as written", () => {
     expect(toCatalogId("createBrand", "step")).toBe("create_brand");
     expect(toCatalogId("add-your-brand", "step")).toBe("add_your_brand");
@@ -144,9 +176,10 @@ describe("evidence verification", () => {
 
   it("a model can't mark its own evidence verified", () => {
     const { map } = parseProductMapLenient({
-      traits: [{ key: "tier", type: "string", evidence: [{ path: "x.ts", excerpt: "made up entirely", verified: true }] }],
+      traits: [{ key: "tier", type: "string", evidence: [{ path: "x.ts", excerpt: "made up entirely", verified: true, declaration: false }] }],
     });
     expect(map.traits[0]!.evidence[0]!.verified).toBe(false);
+    expect(map.traits[0]!.evidence[0]!.declaration).toBeUndefined();
     const checked = verifyProductMap(map, r);
     expect(checked.stats).toMatchObject({ items: 1, verifiedItems: 0 });
   });

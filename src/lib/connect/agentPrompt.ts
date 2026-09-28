@@ -26,8 +26,10 @@ export interface AgentPromptInput {
   /** Whether this YouGrow publishes /developers; when it doesn't, the prompt links nothing there. */
   docs: boolean;
   tasks: IntegrationTask[];
-  steps: Array<{ id: string; label: string; completion: string; how?: string | null }>;
-  facts: Array<{ id: string; label: string; unit: string | null; source: string }>;
+  /** `per`: the kind's label when it's done or measured per entity (API v2 `entities`), e.g. "brand". */
+  steps: Array<{ id: string; label: string; completion: string; how?: string | null; per?: string | null }>;
+  /** `appliesWhen`: who has it, when not everyone does. */
+  facts: Array<{ id: string; label: string; unit: string | null; source: string; per?: string | null; appliesWhen?: string | null }>;
   /** True when those steps / facts are Learn from repo's proposals, not the customer's accepted catalog. */
   proposed?: { steps: boolean; facts: boolean };
   /** What to send, field by field (from the integration guide). */
@@ -46,6 +48,9 @@ const HOW: Record<string, string> = {
 };
 
 /** A field as the agent should send it: a fixed JSON value where there is one, else its type. */
+/** A step or fact kept per entity goes inside each one. */
+const perLine = (per: string | null | undefined) => (per ? ` — per ${per}: in each ${per}'s \`entities\` entry, not at the top level` : "");
+
 const fieldLine = (f: GuideField) => (f.example ? `- \`${f.field}\` = \`${f.example}\` — ${f.when}` : `- \`${f.field}\` (${f.type}) — ${f.when}`);
 
 /** How to tell each task is done — always on a test account, never on real users. */
@@ -95,7 +100,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
         ]
       : ["This YouGrow doesn't publish developer docs. Work from the protocol essentials at the end and the `@yougrowai/node` README."]),
     "",
-    "The contract is the docs, the OpenAPI spec and the published `@yougrowai/node` package, version 0.4.0 or later (its README and type definitions in node_modules). Don't clone or read YouGrow's own source code: it's the platform, not the contract, and its main branch can be ahead of what's deployed. If something here doesn't match our code, ask me rather than design around it.",
+    "The contract is the docs, the OpenAPI spec and the published `@yougrowai/node` package, version 0.5.0 or later (its README and type definitions in node_modules). Don't clone or read YouGrow's own source code: it's the platform, not the contract, and its main branch can be ahead of what's deployed. If something here doesn't match our code, ask me rather than design around it.",
     "",
     "Work in two phases: Phase 1 now, and Phase 2 only once Phase 1 is live.",
     "",
@@ -110,7 +115,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     "The key",
     [
       `**Ask me** to set \`YOUGROW_ORIGIN\` (value \`${o}\`), \`YOUGROW_KEY_ID\` (public, value \`${p.keyId}\`) and \`YOUGROW_SECRET\` in the server's environment — the secret comes from our secret manager. Never ask me to paste the secret into this chat, and never commit, log or send it to a browser.`,
-      "On a Node server, use our SDK: `npm install @yougrowai/node@^0.4.0` (0.4.0 or later; 0.1.x speaks the removed API v1). One client: `const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID, secret: process.env.YOUGROW_SECRET, origin: process.env.YOUGROW_ORIGIN })`. It works from ES modules and from CommonJS: `const { YouGrow } = require(\"@yougrowai/node\")`. Without the SDK, any HTTP client works — see the protocol essentials.",
+      "On a Node server, use our SDK: `npm install @yougrowai/node@^0.5.0` (0.5.0 or later, which types `entities`; 0.1.x speaks the removed API v1). One client: `const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID, secret: process.env.YOUGROW_SECRET, origin: process.env.YOUGROW_ORIGIN })`. It works from ES modules and from CommonJS: `const { YouGrow } = require(\"@yougrowai/node\")`. Without the SDK, any HTTP client works — see the protocol essentials.",
     ],
     `\`await yg.me()\` (or \`GET ${o}${V2_PATHS.me}\` with HTTP Basic auth) returns ${p.productName}'s connection, in the environment you meant. If the secret isn't available where you run, ask me to run it and paste the output: it contains no secret.`,
   );
@@ -130,12 +135,18 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
         if (p.proposed?.steps) body.push(proposal("step", p.productName));
         body.push(
           "Steps (use these exact ids; each value is the ISO 8601 time it was done):",
-          ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}`),
+          ...p.steps.map((s) => `- \`${s.id}\` — ${s.label}${s.completion ? `; done when ${s.completion}` : ""}${s.how && HOW[s.how] ? ` (${HOW[s.how]})` : ""}${perLine(s.per)}`),
         );
       }
       if (p.facts.length) {
         if (p.proposed?.facts) body.push(proposal("fact", p.productName));
-        body.push("Facts (ids must match exactly; send the latest value):", ...p.facts.map((f) => `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}`));
+        body.push(
+          "Facts (ids must match exactly; send the latest value):",
+          ...p.facts.map(
+            (f) =>
+              `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}${perLine(f.per)}${f.appliesWhen ? `; only for ${f.appliesWhen} — leave it out for the rest, never 0 or an empty value` : ""}`,
+          ),
+        );
       }
     }
     if (t.id === "context") {

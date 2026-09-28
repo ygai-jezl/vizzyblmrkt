@@ -84,7 +84,7 @@ Content-Type: application/json
 
       <H3>With the Node SDK</H3>
       <P>
-        <C>@yougrowai/node</C> 0.3.0 and later: it handles the auth, retries network errors, <C>429</C> and <C>5xx</C>{" "}
+        <C>@yougrowai/node</C> 0.3.0 and later (0.5.0 for <C>entities</C>): it handles the auth, retries network errors, <C>429</C> and <C>5xx</C>{" "}
         responses, and splits big batches. It works from ES modules and CommonJS (<C>require</C>).
       </P>
       <Code title="yougrow.ts">{`// npm install @yougrowai/node
@@ -226,7 +226,9 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
         </li>
         <li>
           <C>facts</C> — numbers (or short values) about their account that journeys can branch on and emails can mention,
-          e.g. <C>{`"projects": 3`}</C>. Send the latest value; <C>null</C> removes one.
+          e.g. <C>{`"projects": 3`}</C>. Send the latest value; <C>null</C> removes one. If someone doesn&apos;t have one —
+          a feature they haven&apos;t set up, a score that isn&apos;t measured yet — leave it out rather than sending{" "}
+          <C>0</C>: an email that needs it is then skipped for them instead of saying something untrue.
         </li>
         <li>
           <C>traits</C> — anything else journeys branch on, such as <C>plan</C> or <C>company</C>.

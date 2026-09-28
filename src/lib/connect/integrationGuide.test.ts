@@ -83,6 +83,47 @@ describe("integration guide", () => {
     expect(g.warnings).toEqual(["Onboarding progress is computed only in the browser."]);
   });
 
+  it("says which steps and facts go inside each entity, and which only some have", () => {
+    const catalog = {
+      ...SANDBOX_CATALOG,
+      entityKinds: [{ kind: "brand", label: "brand", plural: "brands", parent: null, multiple: true, description: "" }],
+      onboardingSteps: SANDBOX_CATALOG.onboardingSteps.map((s) => (s.id === "run_audit" ? { ...s, kind: "brand" } : s)),
+      facts: [
+        { id: "share_of_voice", label: "Share of voice", type: "number" as const, unit: "%", description: "", source: "", kind: "brand" },
+        { id: "decision_score", label: "Decision score", type: "number" as const, unit: null, description: "", source: "", kind: "brand", appliesWhen: "brands with a product catalogue" },
+      ],
+    };
+    const prev = process.env.CONNECT_ENTITIES_ENABLED;
+    try {
+      process.env.CONNECT_ENTITIES_ENABLED = "true";
+      const g = buildIntegrationGuide({ connection: { ...connection, catalog }, origin: "https://yougrow.test" });
+      expect(g.send.progress.map((f) => f.field)).toEqual([
+        "steps.create_brand",
+        "entities.{id}.steps.run_audit",
+        "steps.monitor_prompts",
+        "entities.{id}.facts.share_of_voice",
+        "entities.{id}.facts.decision_score",
+      ]);
+      const decision = g.send.progress.find((f) => f.field.endsWith("decision_score"))!.when;
+      expect(decision).toContain("in each brand's `entities` entry, not at the top level");
+      expect(decision).toContain("Only for brands with a product catalogue — leave it out for the rest, never 0");
+      expect(g.agentPrompt).toContain("- `run_audit` — Run your first audit");
+      expect(g.agentPrompt).toMatch(/`run_audit` —[^\n]*— per brand: in each brand's `entities` entry, not at the top level/);
+      expect(g.agentPrompt).toMatch(/`decision_score` —[^\n]*; only for brands with a product catalogue — leave it out for the rest/);
+      expect(g.agentPrompt).not.toMatch(/`create_brand` —[^\n]*per brand/);
+
+      // Where entities are off, everything is the person's, as before (and "only for" still holds).
+      process.env.CONNECT_ENTITIES_ENABLED = "false";
+      const off = buildIntegrationGuide({ connection: { ...connection, catalog }, origin: "https://yougrow.test" });
+      expect(off.send.progress.map((f) => f.field)).toEqual(["steps.create_brand", "steps.run_audit", "steps.monitor_prompts", "facts.share_of_voice", "facts.decision_score"]);
+      expect(off.agentPrompt).not.toContain("per brand");
+      expect(off.agentPrompt).toContain("only for brands with a product catalogue");
+    } finally {
+      if (prev === undefined) delete process.env.CONNECT_ENTITIES_ENABLED;
+      else process.env.CONNECT_ENTITIES_ENABLED = prev;
+    }
+  });
+
   it("marks what's still to do", () => {
     const g = buildIntegrationGuide({
       connection: { ...connection, catalog: { ...SANDBOX_CATALOG, onboardingSteps: [] }, health: {}, contextEndpoint: null },

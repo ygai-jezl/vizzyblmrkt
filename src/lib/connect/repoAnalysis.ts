@@ -239,7 +239,11 @@ export async function acceptProductMap(
     entityKinds: mergedKinds,
     events: upsert(current.events, events.map((e) => ({ name: e.name, label: e.label, description: [e.description, e.when].filter(Boolean).join(" — ").slice(0, 500), ...kindOf(e.entityKind) })), (e) => e.name),
     traits: upsert(current.traits, traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })), (t) => t.key),
-    facts: upsert(current.facts, facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...kindOf(f.entityKind) })), (f) => f.id),
+    facts: upsert(
+      current.facts,
+      facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...(f.appliesWhen ? { appliesWhen: f.appliesWhen } : {}), ...kindOf(f.entityKind) })),
+      (f) => f.id,
+    ),
     glossary: upsert(current.glossary, glossary.map((g) => ({ term: g.term, definition: g.definition })), (g) => g.term.toLowerCase()),
   });
   if (!next.success) return fail(422, "catalog_invalid", zodReason(next.error));

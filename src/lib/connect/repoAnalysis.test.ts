@@ -155,7 +155,7 @@ describe("accepting a product map", () => {
         { ...MAP.onboardingSteps[0], entityKind: "brand" },
         { ...MAP.onboardingSteps[1], entityKind: "workspace" },
       ],
-      facts: [{ ...MAP.facts[0], entityKind: "brand" }],
+      facts: [{ ...MAP.facts[0], entityKind: "brand", appliesWhen: "brands with a product catalogue" }],
       events: [{ ...MAP.events[0], entityKind: "brand" }],
     };
     const { db, connection } = await withMap(perBrand);
@@ -171,7 +171,7 @@ describe("accepting a product map", () => {
     expect(r.value.catalog.entityKinds).toEqual([{ kind: "brand", label: "brand", plural: "brands", parent: "workspace", multiple: true, description: "" }]);
     expect(r.value.catalog.onboardingSteps.find((s) => s.id === "run_audit")?.kind).toBe("brand");
     expect(r.value.catalog.onboardingSteps.find((s) => s.id === "invite_team")?.kind).toBeUndefined(); // "workspace" wasn't accepted
-    expect(r.value.catalog.facts.find((f) => f.id === "visibility")?.kind).toBe("brand");
+    expect(r.value.catalog.facts.find((f) => f.id === "visibility")).toMatchObject({ kind: "brand", appliesWhen: "brands with a product catalogue" });
     expect(r.value.catalog.events.find((e) => e.name === "audit.completed")?.kind).toBe("brand");
     expect(r.value.accepted).toMatchObject({ entityKinds: 1 });
   });

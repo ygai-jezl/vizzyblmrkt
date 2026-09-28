@@ -95,7 +95,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
         ]
       : ["This YouGrow doesn't publish developer docs. Work from the protocol essentials at the end and the `@yougrowai/node` README."]),
     "",
-    "The contract is the docs, the OpenAPI spec and the published `@yougrowai/node` package, version 0.4.0 or later (its README and type definitions in node_modules). Don't clone or read YouGrow's own source code: it's the platform, not the contract, and its main branch can be ahead of what's deployed. If something here doesn't match our code, ask me rather than design around it.",
+    "The contract is the docs, the OpenAPI spec and the published `@yougrowai/node` package, version 0.5.0 or later (its README and type definitions in node_modules). Don't clone or read YouGrow's own source code: it's the platform, not the contract, and its main branch can be ahead of what's deployed. If something here doesn't match our code, ask me rather than design around it.",
     "",
     "Work in two phases: Phase 1 now, and Phase 2 only once Phase 1 is live.",
     "",
@@ -110,7 +110,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
     "The key",
     [
       `**Ask me** to set \`YOUGROW_ORIGIN\` (value \`${o}\`), \`YOUGROW_KEY_ID\` (public, value \`${p.keyId}\`) and \`YOUGROW_SECRET\` in the server's environment — the secret comes from our secret manager. Never ask me to paste the secret into this chat, and never commit, log or send it to a browser.`,
-      "On a Node server, use our SDK: `npm install @yougrowai/node@^0.4.0` (0.4.0 or later; 0.1.x speaks the removed API v1). One client: `const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID, secret: process.env.YOUGROW_SECRET, origin: process.env.YOUGROW_ORIGIN })`. It works from ES modules and from CommonJS: `const { YouGrow } = require(\"@yougrowai/node\")`. Without the SDK, any HTTP client works — see the protocol essentials.",
+      "On a Node server, use our SDK: `npm install @yougrowai/node@^0.5.0` (0.5.0 or later, which types `entities`; 0.1.x speaks the removed API v1). One client: `const yg = new YouGrow({ keyId: process.env.YOUGROW_KEY_ID, secret: process.env.YOUGROW_SECRET, origin: process.env.YOUGROW_ORIGIN })`. It works from ES modules and from CommonJS: `const { YouGrow } = require(\"@yougrowai/node\")`. Without the SDK, any HTTP client works — see the protocol essentials.",
     ],
     `\`await yg.me()\` (or \`GET ${o}${V2_PATHS.me}\` with HTTP Basic auth) returns ${p.productName}'s connection, in the environment you meant. If the secret isn't available where you run, ask me to run it and paste the output: it contains no secret.`,
   );

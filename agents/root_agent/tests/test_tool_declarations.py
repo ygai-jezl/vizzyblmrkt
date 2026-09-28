@@ -51,6 +51,7 @@ def test_suggest_email_style_asks_for_the_mode_and_brief_only():
         "header_gradient_color",
         "solid_header",
         "header_text_color",
+        "header_image",
         "button_color",
         "logo",
         "company_name",

@@ -95,6 +95,36 @@ describe("resolveEmailStyle", () => {
       });
     });
 
+    // Pinned whole: with the flag on, a stored gradient and text colour resolve to exactly this.
+    it("flag on: pins today's style with a gradient and a forced text colour", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+      expect(resolveEmailStyle(withOptions())).toStrictEqual({
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+        headerGradientColor: "#4f46e5",
+        headerText: "white",
+      });
+    });
+
+    it("flag off: a key the style doesn't know yet (headerImage) changes nothing — exactly today's style", () => {
+      vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+      const headerImage = { id: "hdr_1", filename: "7c9e6679-7425-40de-944b-e07fc1f90ae7.png", width: 1200, height: 300 };
+      const today = {
+        logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+        name: null,
+        altName: "Example Co",
+        headerColor: "#0b1f3a",
+        accentColor: "#ff6b35",
+      };
+      // Built outside the registry, so the raw key reaches the resolver's own read.
+      const raw = { ...tenant(), emailStyle: { ...STYLE, headerImage } as unknown as StoredEmailStyle };
+      expect(resolveEmailStyle(raw)).toStrictEqual(today);
+      expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, headerImage } }))).toStrictEqual(today);
+    });
+
     it("a damaged option drops alone and the rest of the style still resolves", () => {
       vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
       // Built outside the registry, so the resolver's own lenient read is what drops them.

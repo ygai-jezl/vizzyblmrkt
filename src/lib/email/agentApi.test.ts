@@ -192,6 +192,53 @@ describe("Vizzy's Email style read: header options", () => {
     expect(note).toContain("Outlook");
   });
 
+  // Pinned whole: with the flag on, this is exactly what Vizzy reads today.
+  it("flag on: pins today's full answer", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    expect(await agentEmailStyle(admin, world(OPTIONS))).toEqual({
+      status: 200,
+      body: {
+        url: "/admin/brand-kit/email-style",
+        canSuggest: true,
+        headerOptions: true,
+        current: {
+          logo: { id: "logo_png", title: "logo_png file" },
+          companyName: null,
+          headerColor: "#222244",
+          headerGradientColor: "#4f46e5",
+          headerText: "white",
+          buttonColor: "#00aa55",
+          updatedAt: "2026-09-20T00:00:00.000Z",
+        },
+        pending: {
+          logo: null,
+          companyName: "Example Co",
+          headerColor: "#000080",
+          headerGradientColor: "#4f46e5",
+          headerText: "black",
+          buttonColor: "#00aa55",
+          source: "chat",
+          brief: "Make the header navy",
+          notes: [],
+          suggestedAt: "2026-09-21T00:00:00.000Z",
+        },
+        fromBrandKit: {
+          logo: { id: "logo_png", title: "logo_png file" },
+          companyName: null,
+          headerColor: "#0b1f3a",
+          buttonColor: "#0b1f3a",
+          notes: [],
+        },
+        logos: [{ id: "logo_png", title: "logo_png file", primary: true, format: "png" }],
+        note:
+          "companyName null shows the logo alone. A suggestion changes nothing until an admin saves it on the page. " +
+          "headerGradientColor fades the header from headerColor to it, top left to bottom right (null = solid; " +
+          "Outlook and Gmail on Android show headerColor alone), and headerText is auto (black or white, whichever " +
+          "reads better), white or black.",
+      },
+    });
+  });
+
   it("flag on with no options: the defaults are spelled out (null = solid, auto)", async () => {
     vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
     const { body } = (await agentEmailStyle(admin, world())) as { body: typeof PINNED.body };

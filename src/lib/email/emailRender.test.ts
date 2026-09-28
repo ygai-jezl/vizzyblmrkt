@@ -345,6 +345,26 @@ describe("wrap with an Email style", () => {
       expect(band.match(/bgcolor="#111111"/g)).toHaveLength(2);
       expect(band).toContain('color:#ffffff">Acme Co</span>');
     });
+
+    // Pinned byte-for-byte: with the header options on, a colour header (gradient or forced
+    // text) must keep drawing exactly this.
+    it("pins today's option bands: a gradient with Auto text, and forced white on a logo and name", () => {
+      expect(renderHeaderBand(style({ headerColor: "#7c3aed", headerGradientColor: "#4f46e5" }))).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#7c3aed" style="width:100%;max-width:608px;margin:0 auto;background-color:#7c3aed"><tr><td bgcolor="#7c3aed" align="left" style="padding:16px 24px;background-color:#7c3aed;background-image:linear-gradient(135deg,#7c3aed,#4f46e5)"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+      expect(renderHeaderBand(style({ headerColor: "#ffd400", headerText: "white" }))).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#ffd400" style="width:100%;max-width:608px;margin:0 auto;background-color:#ffd400"><tr><td bgcolor="#ffd400" align="left" style="padding:16px 24px;background-color:#ffd400"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    });
+
+    it("pins today's styled shell with a gradient", () => {
+      const gradient = style({ headerColor: "#7c3aed", headerGradientColor: "#4f46e5" });
+      expect(wrap("<p>x</p>", null, { style: gradient })).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#7c3aed" style="width:100%;max-width:608px;margin:0 auto;background-color:#7c3aed"><tr><td bgcolor="#7c3aed" align="left" style="padding:16px 24px;background-color:#7c3aed;background-image:linear-gradient(135deg,#7c3aed,#4f46e5)"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <p>x</p>
+          </div>
+        </body></html>"
+      `);
+    });
   });
 
   it("pins today's styled shell", () => {

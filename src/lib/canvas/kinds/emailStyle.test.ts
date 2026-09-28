@@ -425,6 +425,56 @@ describe("email_style canvas kind: header options", () => {
     expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
   });
 
+  // Pinned whole: with the flag on, this is exactly what Vizzy answers and stores today.
+  it("flag on: pins today's purple-to-indigo answer and suggestion", async () => {
+    on();
+    const db = world({ emailStyle: SAVED });
+    const r = await author(
+      db,
+      { mode: "edit", headerColor: "#7C3AED", headerGradientColor: "#4F46E5", headerText: "white" },
+      admin,
+      "Make the header a purple-to-indigo gradient with white text",
+    );
+    expect(r).toEqual({
+      ok: true,
+      id: "email_style",
+      status: "suggested",
+      url: "/admin/brand-kit/email-style",
+      summary:
+        'Suggested an Email style (header #7c3aed fading to #4f46e5, white header text, button #00aa55, your logo, the name "Example Co"). ' +
+        "It's only a suggestion: nothing changes until an admin reviews and saves it in Brand › Email style.",
+      warnings: [],
+      card: {
+        kind: "email_style",
+        id: "email_style",
+        title: "Email style suggestion",
+        url: "/admin/brand-kit/email-style",
+        stats: [
+          { label: "header", value: "#7c3aed → #4f46e5" },
+          { label: "text", value: "white" },
+          { label: "button", value: "#00aa55" },
+        ],
+        warnings: 0,
+        note: "Suggestion — nothing changes until an admin applies it.",
+        cta: "Review and apply",
+      },
+    });
+    expect(suggestionIn(db)).toEqual({
+      logoId: "logo_jpg",
+      companyName: "Example Co",
+      headerColor: "#7c3aed",
+      accentColor: "#00aa55",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+      source: "chat",
+      brief: "Make the header a purple-to-indigo gradient with white text",
+      notes: [],
+      suggestedBy: "usr_admin",
+      suggestedAt: expect.any(String),
+    });
+    expect(db.raw("tenants", "ten_A")?.emailStyle).toEqual(SAVED);
+  });
+
   it("flag on: a forced text colour alone adds only the text stat", async () => {
     on();
     const r = await author(world(), { mode: "edit", headerColor: "#5b21b6", headerText: "black" });

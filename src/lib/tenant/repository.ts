@@ -29,6 +29,7 @@ import type { BrandFont } from "@/lib/types/brandFont";
 import type { BrandAsset } from "@/lib/types/brandAsset";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
+import type { CatalogRevision } from "@/lib/types/catalogRevision";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductEvent, ConnectionDiagnostics } from "@/lib/types/productEvent";
 import type {
@@ -361,6 +362,8 @@ export interface TenantRepositories {
   productConnections: TenantCollection<ProductConnection>;
   /** Lifecycle: "Learn from your repo" runs — a product map proposed from the customer's code (read-only). */
   repoAnalyses: TenantCollection<RepoAnalysis>;
+  /** Lifecycle: the last few saved versions of each connection's catalog, for undo. */
+  catalogRevisions: TenantCollection<CatalogRevision>;
   /** Lifecycle: the connected products' end users, built from ingested events. */
   productUsers: TenantCollection<ProductUser>;
   /** Lifecycle: the ingested identify/track log (idempotency gate + debugger). */
@@ -467,6 +470,7 @@ export function forTenant(
       t,
     ),
     repoAnalyses: new TenantCollection<RepoAnalysis>(regionalDb, "repo_analyses", t),
+    catalogRevisions: new TenantCollection<CatalogRevision>(regionalDb, "catalog_revisions", t),
     productUsers: new TenantCollection<ProductUser>(regionalDb, "product_users", t),
     productEvents: new TenantCollection<ProductEvent>(regionalDb, "product_events", t),
     connectionDiagnostics: new TenantCollection<ConnectionDiagnostics>(

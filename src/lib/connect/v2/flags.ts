@@ -35,3 +35,12 @@ export function isEntitiesEnabled(): boolean {
 export function isQuietUnchangedWritesEnabled(): boolean {
   return process.env.CONNECT_QUIET_UNCHANGED_WRITES === "true";
 }
+
+/**
+ * Server flag — catalog history on the Catalog tab: the last saved versions of a
+ * product's catalog, with what changed, who saved it, and Restore. Versions are
+ * recorded either way; off hides them and refuses a restore.
+ */
+export function isCatalogHistoryEnabled(): boolean {
+  return process.env.CATALOG_HISTORY_ENABLED === "true";
+}

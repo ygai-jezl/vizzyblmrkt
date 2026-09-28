@@ -24,6 +24,8 @@ export interface PublicConnection {
   /** Where invited waitlist members sign up (nav v2 phase 4). */
   signupUrl?: string | null;
   catalog: ConnectionCatalog;
+  /** The catalog's version: a save names the one it was edited from. */
+  catalogRev: number;
   consentPolicy: ConsentPolicy;
   defaults: { timezone: string; locale: string };
   health: {
@@ -85,6 +87,10 @@ const MESSAGES: Record<string, string> = {
   no_map: "That analysis has no results to add.",
   invalid_app_origin: "Your app's address must start with https://.",
   catalog_invalid: "Those items don't fit the catalog (too many, or an invalid id).",
+  // Catalog saves
+  catalog_changed: "The catalog was changed elsewhere since you opened it.",
+  catalog_page_outdated: "This page is out of date.",
+  version_not_found: "That version is no longer kept.",
   no_readable_files: "We couldn't find source files in that repository (or couldn't read it — check the connected account can access it).",
   analysis_not_queued: "That analysis had already started.",
   // Lifecycle journeys

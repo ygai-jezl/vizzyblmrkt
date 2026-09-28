@@ -4,12 +4,26 @@ import { useState } from "react";
 import type { EmailBlock } from "@/lib/types/emailLayout";
 import { SOCIAL_PLATFORMS } from "@/lib/types/emailLayout";
 import { DEFAULT_IMAGE_MODEL_SLUG, type ImageModelSlug } from "@/lib/content/create/imageModels";
+import { layoutButtonLook } from "@/lib/email/emailRender";
+import { accentFor, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import {
+  buttonColourSource,
+  buttonPickerPatch,
+  buttonSourcePatch,
+  themeButtonShape,
+  type ButtonColourSource,
+} from "./buttonColour";
 
 /**
  * Settings panel for the selected block. Text/heading COPY is edited inline in the
  * block card; this panel edits the structural props (level, align, image src, button
  * colours, etc). onChange receives a shallow patch merged into the block.
+ *
+ * Where layout buttons follow the Email style (its `layouts` bit), a button has a Colour
+ * switch: Email style (the button colour, an automatic label and the theme's shape; the
+ * pickers are hidden) or Own colour (the pickers, with the colours it was built with).
+ * Touching a picker pins it to Own colour. Without the bit it's as it always was.
  */
 const FIELD = "w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900";
 const LABEL = "block text-xs font-medium text-neutral-600 dark:text-neutral-300";
@@ -71,6 +85,44 @@ function AlignPicker({ value, onChange }: { value: string; onChange: (v: "left" 
   );
 }
 
+/** A button's Colour switch: the Email style's button colour (with its swatch) or its own. */
+function ColourSourcePicker({
+  value,
+  accent,
+  onChange,
+}: {
+  value: ButtonColourSource;
+  accent: string | null;
+  onChange: (v: ButtonColourSource) => void;
+}) {
+  const options: { id: ButtonColourSource; label: string }[] = [
+    { id: "email_style", label: "Email style" },
+    { id: "own", label: "Own colour" },
+  ];
+  return (
+    <div className="flex gap-1">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          aria-pressed={value === o.id}
+          onClick={() => onChange(o.id)}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded border px-2 py-1 text-xs ${
+            value === o.id
+              ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+              : "border-neutral-300 dark:border-neutral-700"
+          }`}
+        >
+          {o.id === "email_style" && accent ? (
+            <span aria-hidden className="inline-block h-3 w-3 rounded-sm border border-neutral-300" style={{ background: accent }} />
+          ) : null}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Brief input + "✨ Generate image" for an image block (keyed per block by the parent). */
 function ImageGenControls({
   onGenerate,
@@ -123,16 +175,23 @@ function ImageGenControls({
 
 export function BlockSettings({
   block,
+  emailStyle = null,
   onChange,
   onGenerateImage,
 }: {
   block: EmailBlock | null;
+  /** The tenant's resolved Email style; with its `layouts` bit, buttons get the Colour switch. */
+  emailStyle?: ResolvedEmailStyle | null;
   onChange: (patch: Partial<EmailBlock>) => void;
   onGenerateImage?: (brief: string, model: ImageModelSlug) => Promise<string | null>;
 }) {
   if (!block) {
     return <p className="p-3 text-xs text-neutral-500">Select a block to edit its settings.</p>;
   }
+  // A button's Colour switch (null = none), and what it draws while it follows the Email style.
+  const source = block.kind === "button" ? buttonColourSource(block, emailStyle) : null;
+  const look = block.kind === "button" ? layoutButtonLook(block, emailStyle) : null;
+  const themeShape = look?.follows ? themeButtonShape(emailStyle) : null;
 
   return (
     <div className="space-y-3 p-3">
@@ -223,20 +282,44 @@ export function BlockSettings({
             Link
             <input value={block.href} onChange={(e) => onChange({ href: e.target.value })} placeholder="https://… or {{token}}" className={`mt-1 ${FIELD}`} />
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          {source ? (
+            <div>
+              <div className={LABEL}>Colour</div>
+              <div className="mt-1">
+                <ColourSourcePicker
+                  value={source}
+                  accent={accentFor(emailStyle, "button")}
+                  onChange={(v) => onChange(buttonSourcePatch(v))}
+                />
+              </div>
+              {look?.follows ? (
+                <p className="mt-1 text-xs text-neutral-500">
+                  Label: {look.color === "#000000" ? "black" : "white"}, automatic
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {look?.follows ? null : (
+            <div className="grid grid-cols-2 gap-2">
+              <label className={LABEL}>
+                Background
+                <input type="color" value={block.bg} onChange={(e) => onChange(buttonPickerPatch({ bg: e.target.value }, emailStyle))} className="mt-1 h-8 w-full rounded border border-neutral-300 dark:border-neutral-700" />
+              </label>
+              <label className={LABEL}>
+                Text
+                <input type="color" value={block.color} onChange={(e) => onChange(buttonPickerPatch({ color: e.target.value }, emailStyle))} className="mt-1 h-8 w-full rounded border border-neutral-300 dark:border-neutral-700" />
+              </label>
+            </div>
+          )}
+          {themeShape ? (
+            // Following a theme other than Classic, the button takes the theme's shape, so its own corners don't show.
+            <p className="text-xs text-neutral-500">Corners: {themeShape}, from your Email style&rsquo;s theme</p>
+          ) : (
             <label className={LABEL}>
-              Background
-              <input type="color" value={block.bg} onChange={(e) => onChange({ bg: e.target.value })} className="mt-1 h-8 w-full rounded border border-neutral-300 dark:border-neutral-700" />
+              Corner radius ({block.radius}px)
+              <input type="range" min={0} max={40} value={block.radius} onChange={(e) => onChange({ radius: Number(e.target.value) })} className="mt-1 w-full" />
             </label>
-            <label className={LABEL}>
-              Text
-              <input type="color" value={block.color} onChange={(e) => onChange({ color: e.target.value })} className="mt-1 h-8 w-full rounded border border-neutral-300 dark:border-neutral-700" />
-            </label>
-          </div>
-          <label className={LABEL}>
-            Corner radius ({block.radius}px)
-            <input type="range" min={0} max={40} value={block.radius} onChange={(e) => onChange({ radius: Number(e.target.value) })} className="mt-1 w-full" />
-          </label>
+          )}
           <div>
             <div className={LABEL}>Align</div>
             <div className="mt-1">

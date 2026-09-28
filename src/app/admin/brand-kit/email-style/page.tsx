@@ -9,6 +9,7 @@ import { BRAND_KIT_ROUTE, isBrandKitLogosEnabled } from "@/lib/content/brandKit"
 import {
   isEmailHeaderOptionsEnabled,
   isEmailHeaderOptionsUiEnabled,
+  isEmailLayoutStyleEnabled,
   isEmailStyleEnabled,
   isEmailThemesEnabled,
   isEmailWebFontsEnabled,
@@ -33,6 +34,7 @@ export const dynamic = "force-dynamic";
  * EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on. The Theme (a look, a heading
  * and a body font, "Use brand fonts") shows only with EMAIL_THEMES_ENABLED, and the preview's
  * "As Apple Mail sees it" / "As Gmail & Outlook.com see it" only with EMAIL_WEB_FONTS_ENABLED too.
+ * With EMAIL_LAYOUT_STYLE_ENABLED, the Button colour hint says it colours Create layout buttons too.
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -163,6 +165,7 @@ export default async function EmailStylePage() {
         webFonts={webFonts}
         fontOrigin={webFonts ? emailLinkOrigin() : ""}
         fromBrandFonts={themes ? brandFontsToEmail(tenant?.brandTypography, tenant?.brandKit?.fonts) : null}
+        layouts={isEmailLayoutStyleEnabled()}
       />
     </div>
   );

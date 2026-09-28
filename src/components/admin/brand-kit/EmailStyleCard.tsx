@@ -36,6 +36,7 @@ import { renderLifecycleEmail, type RenderValues } from "@/lib/lifecycle/render"
 import {
   averageInk,
   brandKitWithLogo,
+  buttonColourHint,
   emailFontOption,
   emailStyleHints,
   emailStyleSaveInput,
@@ -76,6 +77,9 @@ import type { EmailHeaderImageChoice } from "./headerImage";
  * button and heading font), a heading and a body font labelled with where each shows, and "Use
  * brand fonts" from Brand › Fonts. With web fonts on as well, the preview shows the email as
  * Apple Mail sees it (web fonts loaded) or as Gmail and Outlook.com do (their safe fonts).
+ *
+ * With layout buttons following the Email style, the Button colour hint says it colours the
+ * buttons in Create email layouts too.
  */
 
 const FIELD =
@@ -307,6 +311,7 @@ export function EmailStyleCard({
   webFonts,
   fontOrigin,
   fromBrandFonts,
+  layouts = false,
 }: {
   /** The saved style; null = none, so emails have today's look. */
   initial: EmailStyleInput | null;
@@ -352,6 +357,8 @@ export function EmailStyleCard({
   fontOrigin: string;
   /** What "Use brand fonts" fills in; null with themes off. */
   fromBrandFonts: BrandFontsForEmail | null;
+  /** Layout buttons follow the Email style (EMAIL_LAYOUT_STYLE_ENABLED): only the Button colour hint changes. */
+  layouts?: boolean;
 }) {
   // Logos cleaned up here, and the primary the server kept in place when one was added.
   const [added, setAdded] = useState<EmailStyleLogoChoice[]>([]);
@@ -1077,7 +1084,7 @@ export function EmailStyleCard({
         <ColourField
           id="email-style-button"
           label="Button colour"
-          hint="Buttons in branded emails. Links use it too when it's dark enough to read."
+          hint={buttonColourHint(layouts)}
           value={draft.accentColor}
           chips={palette}
           disabled={disabled}

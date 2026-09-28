@@ -118,6 +118,7 @@ beforeEach(() => {
   vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
   vi.stubEnv("EMAIL_THEMES_ENABLED", "false");
   vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "false");
+  vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "false");
   brandLogos.listLogos.mockReset().mockResolvedValue([row("logo_webp", WEBP, "image/webp", false), row("logo_png", PNG, "image/png", true)]);
   brandAssets.listBrandAssets.mockReset().mockResolvedValue([]);
 });
@@ -480,5 +481,56 @@ describe("Vizzy's Email style read: themes", () => {
     expect(body.current).toMatchObject({ headerGradientColor: null, theme: { preset: "modern" } });
     expect(body.note).toContain("headerImage replaces the logo");
     expect(body.note).toContain(THEME_NOTE);
+  });
+});
+
+describe("Vizzy's Email style read: layout buttons", () => {
+  const LAYOUTS_NOTE =
+    " buttonColor also colours the buttons in Create email layouts, except a button set to its own colour " +
+    "(only the layout editor can set that).";
+
+  it("flag off: exactly today's answer", async () => {
+    const r = await agentEmailStyle(admin, world());
+    expect(r).toEqual(PINNED);
+    expect(JSON.stringify(r.body)).not.toMatch(/layouts|Create email layouts/);
+  });
+
+  // Pinned whole: with the flag on, only `layouts` and one sentence of the note are new.
+  it("flag on: pins the full answer", async () => {
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    const r = await agentEmailStyle(admin, world());
+    expect(r).toEqual({ status: 200, body: { ...PINNED.body, layouts: true, note: PINNED.body.note + LAYOUTS_NOTE } });
+    expect(Object.keys(r.body as object)).toEqual([
+      "url",
+      "canSuggest",
+      "layouts",
+      "current",
+      "pending",
+      "fromBrandKit",
+      "logos",
+      "note",
+    ]);
+  });
+
+  it("flag on with themes and the header options: every field, and the layouts sentence last", async () => {
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const on = (await agentEmailStyle(admin, world())).body as Record<string, unknown> & { note: string };
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "false");
+    const off = (await agentEmailStyle(admin, world())).body as Record<string, unknown> & { note: string };
+    expect(on).toMatchObject({ headerOptions: true, themes: true, layouts: true });
+    const { layouts: _bit, ...rest } = on;
+    expect({ ...rest, note: off.note }).toEqual(off);
+    expect(on.note).toBe(off.note + LAYOUTS_NOTE);
+  });
+
+  it("a member reads it too, still with no people", async () => {
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    const body = (await agentEmailStyle(member, world())).body;
+    expect(body).toMatchObject({ canSuggest: false, layouts: true });
+    const json = JSON.stringify(body);
+    expect(json).not.toContain("usr_");
+    expect(json).not.toContain("@");
   });
 });

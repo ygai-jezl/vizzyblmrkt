@@ -8,6 +8,7 @@ import {
   renderFooter,
   preheaderHtml,
   wrapLetter,
+  layoutButtonLook,
   FOOTER_MARKER,
 } from "./emailRender";
 import { contrastRatio, readableOn, resolveStoredStyle, type ResolvedEmailStyle } from "./emailStyle";
@@ -1065,6 +1066,39 @@ describe("layout buttons that follow the Email style", () => {
       cell("#1d4ed8", 999) + link("https://example.com/start", EMAIL_FONTS.nunito.safeStack, "#ffffff", "Get started"),
     );
     expect(button(out, "Our own")).toContain('<td style="background:#0b1f3a;border-radius:4px">');
+  });
+
+  // The editor's block chip draws from this, so it shows what the email draws.
+  it("layoutButtonLook is what the renderer draws, for every button and style", () => {
+    const buttons = layout.blocks.filter((b) => b.kind === "button");
+    const looks = [
+      null,
+      style({ layouts: undefined }),
+      style(),
+      style({ theme: theme("modern") }),
+      style({ theme: theme("editorial"), accentColor: "#0b1f3a" }),
+      style({ theme: { ...theme("classic")!, bodyFont: "georgia" } }),
+      style({ accentColor: "orange" }),
+    ];
+    for (const s of looks) {
+      const html = renderEmailLayout(layout, { style: s });
+      for (const b of buttons) {
+        const look = layoutButtonLook(b, s);
+        const drawn = button(html, b.label);
+        const td = look.follows
+          ? cell(look.bg, look.radius)
+          : `<td style="background:${look.bg};border-radius:${look.radius}px">`;
+        expect(drawn.startsWith(td)).toBe(true);
+        expect(drawn).toContain(`color:${look.color};text-decoration:none`);
+      }
+    }
+    expect(layoutButtonLook(buttons[0]!, style({ theme: theme("modern") }))).toEqual({ follows: true, bg: "#ffd400", color: "#000000", radius: 999 });
+    // Classic keeps the button's own corners, with any fonts.
+    expect(layoutButtonLook(buttons[0]!, style({ theme: { ...theme("classic")!, bodyFont: "georgia" } }))).toEqual({ follows: true, bg: "#ffd400", color: "#000000", radius: 6 });
+    expect(layoutButtonLook(buttons[2]!, style({ theme: theme("modern") }))).toEqual({ follows: false, bg: "#0b1f3a", color: "#ffffff", radius: 4 });
+    expect(layoutButtonLook(buttons[1]!, null)).toEqual({ follows: false, bg: "#ff6b35", color: "#111111", radius: 24 });
+    // A colour that isn't one (Zod keeps them out) draws the renderer's fallback, as the chip shows it.
+    expect(layoutButtonLook({ bg: "red", color: "", radius: 8 }, null)).toEqual({ follows: false, bg: "#111111", color: "#ffffff", radius: 8 });
   });
 });
 

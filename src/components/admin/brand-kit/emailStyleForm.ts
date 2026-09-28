@@ -353,6 +353,16 @@ export function headerAfterDelete<D extends HeaderChoice>(
   };
 }
 
+/**
+ * The Button colour field's hint. With `layouts` (layout buttons follow the Email style) it names
+ * the buttons in Create email layouts too, and the Own colour switch that opts one out.
+ */
+export function buttonColourHint(layouts: boolean): string {
+  return layouts
+    ? "Buttons in branded emails, and in Create email layouts unless a button is set to its own colour. Links use it too when it's dark enough to read."
+    : "Buttons in branded emails. Links use it too when it's dark enough to read.";
+}
+
 /** A made-up Colour 2 differs from the header by at least this contrast, so the fade shows. */
 const GRADIENT_STEP = 1.5;
 

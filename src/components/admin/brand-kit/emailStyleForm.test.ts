@@ -3,6 +3,7 @@ import {
   averageInk,
   brandFontsToEmail,
   brandKitWithLogo,
+  buttonColourHint,
   emailFontForFamily,
   emailFontOption,
   emailStyleHints,
@@ -340,6 +341,16 @@ describe("headerAfterDelete", () => {
       headerMode: "colour",
       headerImageId: "img_a",
     });
+  });
+});
+
+describe("buttonColourHint", () => {
+  it("is today's hint with layout buttons off, and names Create layouts and Own colour with them on", () => {
+    expect(buttonColourHint(false)).toBe("Buttons in branded emails. Links use it too when it's dark enough to read.");
+    expect(buttonColourHint(true)).toBe(
+      "Buttons in branded emails, and in Create email layouts unless a button is set to its own colour. " +
+        "Links use it too when it's dark enough to read.",
+    );
   });
 });
 

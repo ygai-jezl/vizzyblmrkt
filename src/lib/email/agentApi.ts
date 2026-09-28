@@ -11,7 +11,13 @@ import { themeForForm } from "@/components/admin/brand-kit/emailStyleForm";
 import { isEmailHeaderImage, isEmailLogo, styleFromBrandKit } from "./emailStyle";
 import { EMAIL_FONT_LIST } from "./emailFonts";
 import { EMAIL_THEME_PRESET_SPECS, PILL_RADIUS } from "./emailThemes";
-import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled, isEmailThemesEnabled, isEmailWebFontsEnabled } from "./flags";
+import {
+  isEmailHeaderOptionsEnabled,
+  isEmailLayoutStyleEnabled,
+  isEmailStyleEnabled,
+  isEmailThemesEnabled,
+  isEmailWebFontsEnabled,
+} from "./flags";
 
 /**
  * What Vizzy may READ to talk about and suggest the Email style: the saved style, the
@@ -20,7 +26,8 @@ import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled, isEmailThemesEnabled,
  * tenant comes from it), gated by the Email style flag. The header options (a gradient, the
  * header text colour, and a header image an admin uploaded on the page) are in it only with
  * EMAIL_HEADER_OPTIONS_ENABLED on; off, it's exactly as without them. The theme (a look and two
- * fonts, with the looks and fonts to pick from) likewise, only with EMAIL_THEMES_ENABLED on.
+ * fonts, with the looks and fonts to pick from) likewise, only with EMAIL_THEMES_ENABLED on, and
+ * that the button colour colours Create layout buttons too, only with EMAIL_LAYOUT_STYLE_ENABLED on.
  */
 
 export type ApiResult = { status: number; body: unknown };
@@ -40,6 +47,9 @@ const THEME_NOTE =
 const WEB_FONTS_NOTE =
   " A web font shows only in Apple Mail, Outlook for Mac and a few other inboxes; Gmail, Outlook.com and the rest show its fallback.";
 const WEB_FONTS_OFF_NOTE = " Web fonts aren't switched on yet, so every inbox shows a web font's fallback.";
+const LAYOUTS_NOTE =
+  " buttonColor also colours the buttons in Create email layouts, except a button set to its own colour " +
+  "(only the layout editor can set that).";
 
 /** A theme with its fonts filled in (a look's own when left out); Classic with the system font for none. */
 function themeRead(theme: EmailTheme | undefined) {
@@ -99,6 +109,7 @@ export async function emailHeaderImages(ctx: TenantContext): Promise<EmailHeader
 export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
   const headerOptions = isEmailHeaderOptionsEnabled();
   const themes = isEmailThemesEnabled();
+  const layouts = isEmailLayoutStyleEnabled();
   const [tenant, logos, images] = await Promise.all([
     getTenantById(ctx.tenantId, db).catch(() => null),
     emailStyleLogos(ctx).catch(() => null),
@@ -140,6 +151,8 @@ export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): P
       ...(headerOptions ? { headerOptions: true } : {}),
       // And a theme: a look, and a heading and a body font.
       ...(themes ? { themes: true } : {}),
+      // And the button colour colours Create email layout buttons too, bar those on their own colour.
+      ...(layouts ? { layouts: true } : {}),
       // What branded emails wear now; null = today's plain look, with no header band.
       current: saved
         ? {
@@ -187,7 +200,8 @@ export async function agentEmailStyle(ctx: TenantContext, db?: FirestoreLike): P
       ...(themes ? { themePresets: themePresets(), fonts: fonts() } : {}),
       note:
         (headerOptions ? NOTE + OPTIONS_NOTE + IMAGE_NOTE : NOTE) +
-        (themes ? THEME_NOTE + (isEmailWebFontsEnabled() ? WEB_FONTS_NOTE : WEB_FONTS_OFF_NOTE) : ""),
+        (themes ? THEME_NOTE + (isEmailWebFontsEnabled() ? WEB_FONTS_NOTE : WEB_FONTS_OFF_NOTE) : "") +
+        (layouts ? LAYOUTS_NOTE : ""),
     },
   };
 }

@@ -397,6 +397,31 @@ export function safeHex(c: string | null | undefined, fallback: string): string 
   return c && /^#[0-9a-fA-F]{6}$/.test(c) ? c : fallback;
 }
 
+/** What a layout button draws: its fill, label colour and corners. */
+export interface LayoutButtonLook {
+  /** It follows the Email style (the style's button colour, a readable label, the theme's shape). */
+  follows: boolean;
+  bg: string;
+  color: string;
+  radius: number;
+}
+
+/**
+ * What a layout button draws. With the style's `layouts` bit, a button not set to its own colour
+ * follows the style: the button colour, a readable label, and the theme's button shape (with no
+ * theme or Classic, its own corners). Otherwise it's exactly as built. The renderer and the layout
+ * editor's block chip share this, so the chip shows what the email draws.
+ */
+export function layoutButtonLook(
+  block: Pick<Extract<EmailBlock, { kind: "button" }>, "bg" | "color" | "radius" | "styleSource">,
+  style: Pick<ResolvedEmailStyle, "layouts" | "accentColor" | "theme"> | null | undefined,
+): LayoutButtonLook {
+  const accent = style?.layouts && block.styleSource !== "own" ? accentFor(style, "button") : null;
+  return accent
+    ? { follows: true, bg: accent, color: readableOn(accent), radius: layoutButtonRadius(style) ?? block.radius }
+    : { follows: false, bg: safeHex(block.bg, "#111111"), color: safeHex(block.color, "#ffffff"), radius: block.radius };
+}
+
 /** Wrap a block in its per-section BACKGROUND band when set (margins show the bg). */
 function withSection(inner: string, sectionBg: string | null | undefined): string {
   const bg = safeHex(sectionBg, "");
@@ -504,17 +529,14 @@ function renderInner(block: EmailBlock, style: ResolvedEmailStyle | null): strin
     }
     case "button": {
       const href = isSafeHref(block.href) ? block.href : "#";
-      // With the style's `layouts` bit, a button not set to its own colour follows the style: the
-      // button colour (bgcolor too, for Outlook), a readable label, and the theme's button shape
-      // (with no theme or Classic, its own corners). Otherwise it's exactly as built.
-      const accent = style?.layouts && block.styleSource !== "own" ? accentFor(style, "button") : null;
-      const cell = accent
-        ? `<td bgcolor="${accent}" style="background:${accent};border-radius:${layoutButtonRadius(style) ?? block.radius}px">`
-        : `<td style="background:${safeHex(block.bg, "#111111")};border-radius:${block.radius}px">`;
-      const ink = accent ? readableOn(accent) : safeHex(block.color, "#ffffff");
+      // A button that follows the style gets bgcolor too, for Outlook; otherwise it's exactly as built.
+      const look = layoutButtonLook(block, style);
+      const cell = look.follows
+        ? `<td bgcolor="${look.bg}" style="background:${look.bg};border-radius:${look.radius}px">`
+        : `<td style="background:${look.bg};border-radius:${look.radius}px">`;
       return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr>${cell}<a href="${escapeAttr(
         href,
-      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${fontFor(style, "body")};font-size:15px;font-weight:600;color:${ink};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
+      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${fontFor(style, "body")};font-size:15px;font-weight:600;color:${look.color};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
     }
     case "divider":
       return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:${block.thickness}px solid ${safeHex(

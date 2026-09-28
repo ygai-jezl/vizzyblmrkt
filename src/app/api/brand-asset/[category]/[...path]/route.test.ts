@@ -54,9 +54,15 @@ describe("GET /api/brand-asset/[category]/[...path]", () => {
     expect((await get("graphic", ["ten_A", FILE])).status).toBe(404);
   });
 
-  // Pinned: header images aren't a brand-asset category yet.
-  it("404s header today, without reading", async () => {
-    expect((await get("header", ["ten_A", FILE])).status).toBe(404);
-    expect(store.readBrandAsset).not.toHaveBeenCalled();
+  it("serves an email header image the same way, from brand/{tenant}/headers/", async () => {
+    const res = await get("header", ["ten_A", FILE]);
+    expect(res.status).toBe(200);
+    expect(store.readBrandAsset).toHaveBeenLastCalledWith("ten_A", "header", FILE);
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+
+    expect((await get("headers", ["ten_A", FILE])).status).toBe(404);
+    expect((await get("header", ["ten.A", FILE])).status).toBe(404);
+    expect(store.readBrandAsset).toHaveBeenCalledTimes(1);
   });
 });

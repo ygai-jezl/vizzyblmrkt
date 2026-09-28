@@ -47,9 +47,15 @@ describe("readBrandAsset", () => {
     expect(gcs.file).toHaveBeenLastCalledWith(`brand/ten_A/graphics/${jpg}`);
   });
 
+  it("reads an email header image from brand/{tenant}/headers/", async () => {
+    expect(await readBrandAsset("ten_A", "header", FILE)).toEqual({ bytes: PNG, contentType: "image/png" });
+    expect(gcs.file).toHaveBeenLastCalledWith(`brand/ten_A/headers/${FILE}`);
+  });
+
   it("returns null for a filename that could leave the prefix or isn't an image, without touching storage", async () => {
     for (const filename of BAD_FILENAMES) {
       expect(await readBrandAsset("ten_A", "icon", filename)).toBeNull();
+      expect(await readBrandAsset("ten_A", "header", filename)).toBeNull();
     }
     expect(gcs.bucket).not.toHaveBeenCalled();
     expect(gcs.file).not.toHaveBeenCalled();
@@ -77,9 +83,16 @@ describe("deleteBrandAssetBytes", () => {
     expect(gcs.remove).toHaveBeenCalledTimes(1);
   });
 
+  it("deletes a header image from brand/{tenant}/headers/", async () => {
+    await deleteBrandAssetBytes("ten_A", "header", FILE);
+    expect(gcs.file).toHaveBeenLastCalledWith(`brand/ten_A/headers/${FILE}`);
+    expect(gcs.remove).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses the same filenames, without touching storage", async () => {
     for (const filename of BAD_FILENAMES) {
       await deleteBrandAssetBytes("ten_A", "icon", filename);
+      await deleteBrandAssetBytes("ten_A", "header", filename);
     }
     expect(gcs.file).not.toHaveBeenCalled();
     expect(gcs.remove).not.toHaveBeenCalled();
@@ -93,6 +106,19 @@ describe("storeBrandAsset", () => {
     expect(res).toEqual({ ok: true, filename: expect.stringMatching(/^[0-9a-f-]{36}\.png$/), mimeType: "image/png" });
     const { filename } = res as { filename: string };
     expect(gcs.file).toHaveBeenLastCalledWith(`brand/ten_A/icons/${filename}`);
+    expect(gcs.save).toHaveBeenCalledWith(PNG, {
+      contentType: "image/png",
+      resumable: false,
+      metadata: { cacheControl: "public, max-age=31536000, immutable" },
+    });
+  });
+
+  it("saves an email header image under brand/{tenant}/headers/, the same way", async () => {
+    const res = await storeBrandAsset("ten_A", "header", PNG, "image/png");
+
+    expect(res).toEqual({ ok: true, filename: expect.stringMatching(/^[0-9a-f-]{36}\.png$/), mimeType: "image/png" });
+    const { filename } = res as { filename: string };
+    expect(gcs.file).toHaveBeenLastCalledWith(`brand/ten_A/headers/${filename}`);
     expect(gcs.save).toHaveBeenCalledWith(PNG, {
       contentType: "image/png",
       resumable: false,

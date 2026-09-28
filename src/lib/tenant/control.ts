@@ -264,6 +264,27 @@ export async function clearTenantEmailStyleLogo(
 }
 
 /**
+ * A header image was deleted: if the Email style uses it, remove the style's `headerImage`
+ * so emails go back to the header colour (never a broken image); everything else is kept.
+ * A transaction on the raw doc, so a Save that picks another image meanwhile is never
+ * undone. Returns whether it cleared.
+ */
+export async function clearTenantEmailStyleHeaderImage(
+  tenantId: string,
+  filename: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(tenantId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const style = snap.data()?.emailStyle as { headerImage?: { filename?: unknown } | null } | undefined;
+    if (!snap.exists || style?.headerImage?.filename !== filename) return false;
+    tx.update(ref, { "emailStyle.headerImage": FieldValue.delete(), updatedAt: new Date().toISOString() });
+    return true;
+  });
+}
+
+/**
  * Write one channel's learned post-performance patterns (top-level `learnedPostPatterns`,
  * control-plane). A DOTTED per-channel field-path update so it touches ONLY that channel's
  * fragment — a concurrent synthesis on another channel, or a whole-tenant write, can't clobber

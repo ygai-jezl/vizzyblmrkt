@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import {
+  clearTenantEmailStyleHeaderImage,
   clearTenantEmailStyleLogo,
   clearTenantEmailStyleSuggestion,
   setTenantEmailStyle,
@@ -202,6 +203,42 @@ describe("clearTenantEmailStyleLogo", () => {
     expect(await clearTenantEmailStyleLogo("ten_A", FILE, bare)).toBe(false);
     expect(bare.raw("tenants", "ten_A")).not.toHaveProperty("emailStyle");
     expect(await clearTenantEmailStyleLogo("ten_missing", FILE, bare)).toBe(false);
+  });
+});
+
+describe("clearTenantEmailStyleHeaderImage", () => {
+  const BANNER = "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg";
+  // Seeded raw: the style as the header-image Save stores it (Image mode).
+  const stored = (headerImage: unknown = { id: "hdr_1", filename: BANNER, width: 1200, height: 300 }) => ({
+    ...STYLE,
+    headerColor: "#0b1f3a",
+    headerGradientColor: "#3b1f6a",
+    headerText: "white",
+    headerImage,
+    updatedAt: "2026-09-27T00:00:00.000Z",
+    updatedBy: "usr_admin",
+  });
+
+  it("removes only the style's header image when the deleted file is the one in use", async () => {
+    const db = seeded({ emailStyle: stored() });
+    const { headerImage: _image, ...rest } = stored();
+
+    expect(await clearTenantEmailStyleHeaderImage("ten_A", BANNER, db)).toBe(true);
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual(rest);
+    expect(raw.updatedAt).not.toBe("2026-09-01T00:00:00.000Z");
+    expect(raw.brandVoice).toEqual({ summary: "Warm" });
+    expect((await getTenantById("ten_A", db))?.emailStyle).toMatchObject({ headerColor: "#0b1f3a", logo: STYLE.logo });
+  });
+
+  it("leaves another image, a style without one, no style and no tenant alone", async () => {
+    const another = stored({ id: "hdr_2", filename: OTHER_FILE, width: 1200, height: 300 });
+    for (const db of [seeded({ emailStyle: another }), seeded({ emailStyle: STYLE }), seeded()]) {
+      const before = structuredClone(db.raw("tenants", "ten_A"));
+      expect(await clearTenantEmailStyleHeaderImage("ten_A", BANNER, db)).toBe(false);
+      expect(db.raw("tenants", "ten_A")).toEqual(before);
+    }
+    expect(await clearTenantEmailStyleHeaderImage("ten_missing", BANNER, seeded())).toBe(false);
   });
 });
 

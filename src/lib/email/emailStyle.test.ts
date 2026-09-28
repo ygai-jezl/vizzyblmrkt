@@ -6,6 +6,7 @@ import {
   bandTextContrast,
   cleanCompanyName,
   contrastRatio,
+  isEmailHeaderImage,
   isLogoUrlShape,
   readableAcross,
   readableOn,
@@ -130,6 +131,37 @@ describe("logo URLs", () => {
     expect(isLogoUrlShape(logoUrl("ten_B"))).toBe(true);
     expect(isLogoUrlShape(logoUrl("ten_B", undefined, "http://app.example.com"))).toBe(false);
     expect(isLogoUrlShape("https://ok.example.com/a.png")).toBe(false);
+  });
+});
+
+describe("isEmailHeaderImage", () => {
+  const row = {
+    category: "header" as const,
+    filename: `${UUID}.jpg`,
+    mimeType: "image/jpeg",
+    width: 1200,
+    height: 300,
+  };
+
+  it("a header PNG/JPEG with a whole-pixel size within 1200 × 2400", () => {
+    expect(isEmailHeaderImage(row)).toBe(true);
+    expect(isEmailHeaderImage({ ...row, filename: `${UUID}.png`, mimeType: "image/png" })).toBe(true);
+    expect(isEmailHeaderImage({ ...row, width: 1, height: 2400 })).toBe(true);
+  });
+
+  it("not WebP, another category, a bad filename, or a missing or out-of-range size", () => {
+    expect(isEmailHeaderImage({ ...row, filename: `${UUID}.webp`, mimeType: "image/webp" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, mimeType: "image/webp" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, category: "icon" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, category: "graphic" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, filename: "banner.jpg" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, filename: `../${UUID}.jpg` })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, width: undefined })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, height: undefined })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, width: 1201 })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, height: 2401 })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, width: 0 })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, height: 300.5 })).toBe(false);
   });
 });
 

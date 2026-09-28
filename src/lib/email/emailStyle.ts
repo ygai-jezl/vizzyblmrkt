@@ -1,4 +1,5 @@
 import {
+  EMAIL_HEADER_IMAGE_LIMITS,
   EMAIL_LOGO_FILENAME,
   EMAIL_STYLE_LIMITS,
   HIDDEN_NAME_CHARS,
@@ -6,6 +7,7 @@ import {
   type EmailStyleInput,
 } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
+import type { BrandAsset } from "@/lib/types/brandAsset";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 
 /**
@@ -233,6 +235,22 @@ const DEFAULT_HEADER = "#111111";
 /** A logo Outlook can show: PNG or JPEG. */
 export function isEmailLogo(logo: Pick<BrandLogo, "filename" | "mimeType">): boolean {
   return (logo.mimeType === "image/png" || logo.mimeType === "image/jpeg") && EMAIL_LOGO_FILENAME.test(logo.filename);
+}
+
+/**
+ * A header image an email may use: a `header` brand asset, PNG or JPEG, with the pixel size
+ * read at upload (whole pixels, within the stored limits). The band's size comes from the row.
+ */
+export function isEmailHeaderImage(
+  row: Pick<BrandAsset, "category" | "filename" | "mimeType" | "width" | "height">,
+): boolean {
+  const inRange = (n: unknown, max: number) => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= max;
+  return (
+    row.category === "header" &&
+    isEmailLogo(row) && // PNG/JPEG and a `<uuid>.png|jpg|jpeg` file, as for logos
+    inRange(row.width, EMAIL_HEADER_IMAGE_LIMITS.width) &&
+    inRange(row.height, EMAIL_HEADER_IMAGE_LIMITS.height)
+  );
 }
 
 /**

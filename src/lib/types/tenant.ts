@@ -446,6 +446,12 @@ export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
  */
 export const EMAIL_STYLE_LIMITS = { logoWidth: 200, logoHeight: 48, companyName: 80 } as const;
 
+/**
+ * Email header images (a banner in place of the logo and name): the most pixels a stored one
+ * may have (the page downsizes to 1200 wide first), its byte cap, and how many a tenant keeps.
+ */
+export const EMAIL_HEADER_IMAGE_LIMITS = { width: 1200, height: 2400, bytes: 1024 * 1024, count: 20 } as const;
+
 /** A logo file the email header may use: `<uuid>.png|jpg|jpeg`. WebP is left out — Outlook can't show it. */
 export const EMAIL_LOGO_FILENAME =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpe?g)$/;

@@ -10,8 +10,11 @@ import {
   wrapLetter,
   FOOTER_MARKER,
 } from "./emailRender";
-import { readableOn, type ResolvedEmailStyle } from "./emailStyle";
+import { readableOn, resolveStoredStyle, type ResolvedEmailStyle } from "./emailStyle";
+import { EMAIL_FONTS, FONT } from "./emailFonts";
+import { EMAIL_THEME_PRESET_SPECS } from "./emailThemes";
 import { EmailLayoutSchema, type EmailLayout } from "@/lib/types/emailLayout";
+import type { EmailFontId, EmailThemePreset } from "@/lib/types/tenant";
 
 describe("sanitizeEmailHtml", () => {
   it("strips scripts/handlers/js-hrefs but keeps safe markup + merge tokens", () => {
@@ -610,6 +613,198 @@ describe("today's layouts, footer and shells", () => {
         </div>
       </body></html>"
     `);
+  });
+});
+
+describe("with a theme", () => {
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const BANNER_URL = "https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png";
+  const base: ResolvedEmailStyle = {
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+  };
+  const themed = (
+    preset: EmailThemePreset,
+    fonts: { headingFont?: EmailFontId; bodyFont?: EmailFontId } = {},
+    over: Partial<ResolvedEmailStyle> = {},
+  ): ResolvedEmailStyle => ({
+    ...base,
+    ...over,
+    theme: {
+      preset,
+      headingFont: fonts.headingFont ?? EMAIL_THEME_PRESET_SPECS[preset].headingFont,
+      bodyFont: fonts.bodyFont ?? EMAIL_THEME_PRESET_SPECS[preset].bodyFont,
+    },
+  });
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+      { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+      { id: "f1", kind: "footer", text: "", sectionBg: "#fafafa" },
+    ],
+  });
+  const card = (html: string) => html.match(/<div style="font-family:[^"]*max-width:560px[^"]*">/)?.[0] ?? "";
+  const wrapper = (page: string) =>
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${page}" style="width:100%;background-color:${page}"><tr><td>`;
+
+  it("a stored theme with the flag off, or Classic with the system font, is no theme: every pin stays", () => {
+    const stored = {
+      logo: { id: "logo_1", filename: "11111111-2222-4333-8444-555555555555.png", width: 120, height: 40 },
+      companyName: "Acme Co",
+      headerColor: "#123456",
+      accentColor: "#ff6600",
+    };
+    const opts = { logoUrlFor: () => LOGO_URL, fallbackName: "Acme Co" };
+    const flagOff = resolveStoredStyle(
+      { ...stored, theme: { preset: "modern", headingFont: "lora", bodyFont: "verdana" } },
+      { ...opts, themes: false, webFonts: true, fontOrigin: "https://app.example.com" },
+    );
+    const classic = resolveStoredStyle({ ...stored, theme: { preset: "classic" } }, { ...opts, themes: true });
+    for (const style of [flagOff, classic, base]) {
+      expect(style).toEqual(base);
+      expect(wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style, preheader: "Soon" })).toBe(
+        wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style: base, preheader: "Soon" }),
+      );
+      expect(renderEmailLayout(layout, { style })).toBe(renderEmailLayout(layout));
+      expect(renderFooter("#f5f5f5", { style, withAddress: true })).toBe(renderFooter("#f5f5f5", { withAddress: true }));
+    }
+    // No style at all, spelled every way, is today's too.
+    expect(renderEmailLayout(layout, {})).toBe(renderEmailLayout(layout));
+    expect(renderEmailLayout(layout, { style: null })).toBe(renderEmailLayout(layout));
+    expect(renderFooter(null, { style: null })).toBe(renderFooter());
+  });
+
+  it("Modern under a band: the page colour on <body> and a full-width wrapper table; the band has the top corners, the card the bottom", () => {
+    const out = wrap("<p>x</p>", null, { style: themed("modern") });
+    expect(out).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f3f4f6">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f3f4f6" style="width:100%;background-color:#f3f4f6"><tr><td>
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456;border-radius:12px 12px 0 0"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456;border-radius:12px 12px 0 0"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto 24px;padding:32px 24px;line-height:1.6;color:#111;background:#fff;border-radius:0 0 12px 12px">
+          
+          <p>x</p>
+        </div>
+        </td></tr></table>
+      </body></html>"
+    `);
+    expect(out).toContain('<body style="margin:0;background:#f3f4f6">');
+    expect(out).toContain(wrapper("#f3f4f6"));
+    // 608 wide: the band's max width, and the card's 560 + 24px each side.
+    expect(out).toContain("max-width:608px");
+    expect(card(out)).toContain("max-width:560px;margin:0 auto 24px;padding:32px 24px;");
+    expect(out.match(/border-radius:12px 12px 0 0/g)).toHaveLength(2); // the band's table and cell
+    expect(card(out)).toContain(";border-radius:0 0 12px 12px");
+    // Inter isn't installed, so only its safe stack is written inline (web fonts come later, in <head>).
+    expect(out).not.toContain(FONT);
+    expect(out).not.toContain("Inter");
+  });
+
+  it("Editorial with the name alone: square corners, and the name in the heading font's safe stack", () => {
+    const out = wrap("<p>x</p>", null, { style: themed("editorial", {}, { logo: null }) });
+    expect(out).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f7f3ec">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7f3ec" style="width:100%;background-color:#f7f3ec"><tr><td>
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><span style="font-family:Georgia,'Times New Roman',Times,serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:Georgia,'Times New Roman',Times,serif;max-width:560px;margin:0 auto 24px;padding:32px 24px;line-height:1.7;color:#111;background:#fff">
+          
+          <p>x</p>
+        </div>
+        </td></tr></table>
+      </body></html>"
+    `);
+    expect(out).toContain(wrapper("#f7f3ec"));
+    expect(out).not.toContain("border-radius");
+    expect(out).toContain(`<span style="font-family:${EMAIL_FONTS.lora.safeStack};font-size:18px`);
+    expect(card(out)).toContain(`font-family:${EMAIL_FONTS.georgia.safeStack};`);
+    expect(card(out)).toContain("padding:32px 24px;line-height:1.7;");
+  });
+
+  it("Friendly with no band (the body shows its own logo): all four corners, page colour above, tinted from the button colour", () => {
+    const out = wrap(`<p><img src="${LOGO_URL}" alt=""></p>`, null, { style: themed("friendly") });
+    expect(out).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#fff6f0">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fff6f0" style="width:100%;background-color:#fff6f0"><tr><td>
+        
+        <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;max-width:560px;margin:24px auto;padding:28px 24px;line-height:1.65;color:#111;background:#fff;border-radius:16px">
+          
+          <p><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" alt=""></p>
+        </div>
+        </td></tr></table>
+      </body></html>"
+    `);
+    expect(out).not.toContain("<!--[if mso]>");
+    expect(out).toContain(wrapper("#fff6f0")); // 94% of the way from #ff6600 to white
+    expect(card(out)).toContain("margin:24px auto;padding:28px 24px;line-height:1.65;");
+    expect(card(out)).toContain(";border-radius:16px");
+    // Another button colour, another tint.
+    expect(wrap("<p>x</p>", null, { style: themed("friendly", {}, { accentColor: "#4f46e5" }) })).toContain(wrapper("#f4f4fd"));
+  });
+
+  it("Classic with other fonts: today's page colour, padding and square card, in the chosen fonts", () => {
+    const out = wrap("<p>x</p>", null, { style: themed("classic", { headingFont: "trebuchet", bodyFont: "arial" }) });
+    expect(out).toContain(wrapper("#f6f6f6"));
+    expect(out).not.toContain("border-radius");
+    expect(card(out)).toBe(
+      `<div style="font-family:${EMAIL_FONTS.arial.safeStack};max-width:560px;margin:0 auto 24px;padding:24px 24px;line-height:1.6;color:#111;background:#fff">`,
+    );
+    expect(out).toContain(`<span style="font-family:${EMAIL_FONTS.trebuchet.safeStack};`);
+  });
+
+  it("keeps the preheader first and the hero in the card", () => {
+    const out = wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style: themed("modern"), preheader: "Your week in brief" });
+    expect(out.indexOf(wrapper("#f3f4f6"))).toBeLessThan(out.indexOf("Your week in brief"));
+    expect(out.indexOf("Your week in brief")).toBeLessThan(out.indexOf("<!--[if mso]>"));
+    expect(out.indexOf("<!--[if mso]>")).toBeLessThan(out.indexOf("max-width:560px"));
+    expect(out.indexOf("max-width:560px")).toBeLessThan(out.indexOf('<img src="https://cdn.example.com/hero.png"'));
+    expect(out.match(/display:none/g)).toHaveLength(1);
+  });
+
+  it("a full-width banner is rounded with the band; one shrunk to a square sits inside the corners", () => {
+    const wide = renderHeaderBand(themed("modern", {}, { headerImage: { url: BANNER_URL, width: 1200, height: 400 } }));
+    expect(wide).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456;border-radius:12px 12px 0 0"><tr><td bgcolor="#123456" align="center" style="padding:0;background-color:#123456;border-radius:12px 12px 0 0"><img src="https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png" width="608" height="203" alt="Acme Co" style="display:block;width:100%;max-width:608px;height:auto;border:0;outline:none;text-decoration:none;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff;border-radius:12px 12px 0 0" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    expect(wide.match(/border-radius:12px 12px 0 0/g)).toHaveLength(3); // table, cell and image
+    expect(wide).toContain(`alt="Acme Co" style="display:block;width:100%;max-width:608px;height:auto;border:0;outline:none;text-decoration:none;font-family:${EMAIL_FONTS.inter.safeStack};`);
+    const tall = renderHeaderBand(themed("modern", {}, { headerImage: { url: BANNER_URL, width: 400, height: 1200 } }));
+    expect(tall.match(/border-radius:12px 12px 0 0/g)).toHaveLength(2); // table and cell
+    expect(tall.match(/<img\b[^>]*>/)?.[0]).not.toContain("border-radius");
+  });
+
+  it("layout text, buttons and the footer take the body font; headings the heading font", () => {
+    const style = themed("modern", { headingFont: "georgia", bodyFont: "verdana" });
+    const html = renderEmailLayout(layout, { style });
+    const body = `font-family:${EMAIL_FONTS.verdana.safeStack};`;
+    expect(html).toContain(`<h2 style="margin:0 0 12px;font-family:${EMAIL_FONTS.georgia.safeStack};font-size:22px;`);
+    expect(html).toContain(`<div style="${body}font-size:16px;line-height:1.6;`);
+    expect(html).toContain(`padding:12px 24px;${body}font-size:15px;`); // the button's label
+    expect(html).toContain(`<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;${body}`);
+    expect(html).not.toContain(FONT);
+    // Only fonts change: the button keeps its own colour and corners (following the Email style comes later).
+    expect(html.replaceAll(EMAIL_FONTS.verdana.safeStack, FONT).replaceAll(EMAIL_FONTS.georgia.safeStack, FONT)).toBe(
+      renderEmailLayout(layout),
+    );
+    expect(renderFooter("#f5f5f5", { style, withAddress: true }).replaceAll(EMAIL_FONTS.verdana.safeStack, FONT)).toBe(
+      renderFooter("#f5f5f5", { withAddress: true }),
+    );
+  });
+
+  it("the Create preview shell: a themed layout in a themed card", () => {
+    const style = themed("friendly", { headingFont: "playfair-display", bodyFont: "trebuchet" }, { logo: null });
+    const out = wrap(renderEmailLayout(layout, { style }), null, { style });
+    expect(out).not.toContain(FONT);
+    expect(out).toContain(wrapper("#fff6f0"));
+    expect(card(out)).toContain(`font-family:${EMAIL_FONTS.trebuchet.safeStack};`);
+    expect(out).toContain(`<span style="font-family:${EMAIL_FONTS["playfair-display"].safeStack};`); // the band's name
+    expect(out).toContain(`<h2 style="margin:0 0 12px;font-family:${EMAIL_FONTS["playfair-display"].safeStack};`);
+    expect(out).toContain(`border-top:1px solid #ededed;font-family:${EMAIL_FONTS.trebuchet.safeStack};`);
+  });
+
+  it("a letter stays plain", () => {
+    expect(wrapLetter("<p>Hi Jo,</p>")).toContain(`font-family:${FONT};font-size:15px`);
+    expect(wrapLetter("<p>Hi Jo,</p>")).not.toContain("<table");
   });
 });
 

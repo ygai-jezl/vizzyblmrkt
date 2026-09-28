@@ -456,7 +456,7 @@ function EmailFrame({ node, view, brandName, emailStyle }: FrameProps) {
   const html = useMemo(() => {
     const inner =
       node.layout && node.layout.blocks?.length
-        ? renderEmailLayout(node.layout)
+        ? renderEmailLayout(node.layout, { style: emailStyle })
         : bodyToHtml(node.body || "");
     return wrap(inner, null, { style: emailStyle });
   }, [node.layout, node.body, emailStyle]);

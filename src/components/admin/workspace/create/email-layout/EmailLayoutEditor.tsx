@@ -150,7 +150,7 @@ export function EmailLayoutEditor({
     // A function replacer, so a `$&` or `$'` in the brand is inserted as written.
     const brand = footerBrand ? escapeHtml(footerBrand) : "Your Brand";
     return wrap(
-      renderEmailLayout(layout)
+      renderEmailLayout(layout, { style: emailStyle })
         .replaceAll("{{sender_brand}}", () => brand)
         .replaceAll("{{manage_preferences_url}}", "#")
         .replaceAll("{{unsubscribe_url}}", "#")

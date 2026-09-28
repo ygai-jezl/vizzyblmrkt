@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FOOTER_MARKER } from "@/lib/email/emailRender";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { EMAIL_FONTS, FONT } from "@/lib/email/emailFonts";
 import { EmailLayoutSchema } from "@/lib/types/emailLayout";
 import { renderLifecycleEmail, type RenderValues } from "./render";
 
@@ -562,6 +563,61 @@ describe("renderLifecycleEmail", () => {
           </div>
         </body></html>"
       `);
+    });
+
+    describe("with a theme", () => {
+      const themed = (preset: "modern" | "editorial"): ResolvedEmailStyle => ({
+        ...style,
+        theme: { preset, headingFont: "georgia", bodyFont: "verdana" },
+      });
+      const BODY_FONT = `font-family:${EMAIL_FONTS.verdana.safeStack};`;
+
+      it("every block, the shadow banner and the footer take the body font; the next step is a pill", () => {
+        const input = {
+          item: item({ subject: "Welcome, {{user.first_name|there}}", body, previewText: "{{onboarding.steps_remaining}} step left" }),
+          values: pinned,
+          shadowFor: "alex@example.com",
+        };
+        const plain = renderLifecycleEmail({ ...input, style });
+        const r = renderLifecycleEmail({ ...input, style: themed("modern") });
+        expect(r.html).not.toContain(FONT);
+        expect(r.html).toContain(`border-radius:6px;${BODY_FONT}font-size:13px`); // the shadow banner
+        expect(r.html).toContain(`<td style="padding:4px 0;${BODY_FONT}font-size:15px;`); // the checklist
+        expect(r.html).toContain(`<td style="padding:6px 0;${BODY_FONT}font-size:15px;color:#111;border-bottom`); // the entities
+        expect(r.html).toContain(`<td style="padding:6px 0;${BODY_FONT}font-size:14px;color:#8a8a8a">and 1 more`);
+        expect(r.html).toContain(`background:#f6f6f6;${BODY_FONT}font-size:15px;line-height:1.6`); // the insight
+        expect(r.html).toContain(`<td bgcolor="#1d4ed8" style="background:#1d4ed8;border-radius:999px"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;${BODY_FONT}font-size:15px;`);
+        expect(r.html).toContain(`<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;${BODY_FONT}`);
+        // The copy, subject and text part don't change.
+        expect(r.subject).toBe(plain.subject);
+        expect(r.text).toBe(plain.text);
+        expect(r.missing).toEqual(plain.missing);
+        // A square button with Editorial.
+        expect(renderLifecycleEmail({ ...input, style: themed("editorial") }).html).toContain(
+          'style="background:#1d4ed8;border-radius:0px"',
+        );
+      });
+
+      it("a saved layout takes the heading and body fonts, and nothing else changes", () => {
+        const plain = renderLifecycleEmail({ item: item({ layout, previewText: null }), values: pinned, style });
+        const r = renderLifecycleEmail({ item: item({ layout, previewText: null }), values: pinned, style: themed("modern") });
+        expect(r.html).toContain(`<h2 style="margin:0 0 12px;font-family:${EMAIL_FONTS.georgia.safeStack};font-size:22px;`);
+        expect(r.html).toContain(`<div style="${BODY_FONT}font-size:16px;line-height:1.6;`);
+        expect(r.html).not.toContain(FONT);
+        // The layout's own button keeps its colour and corners (following the Email style comes later).
+        expect(r.html).toContain('<td style="background:#4f46e5;border-radius:8px">');
+        expect(r.text).toBe(plain.text);
+        // The appended footer, with the address, when the layout has none.
+        const noFooter = EmailLayoutSchema.parse({ blocks: layout.blocks.filter((b) => b.kind !== "footer") });
+        const appended = renderLifecycleEmail({ item: item({ layout: noFooter, previewText: null }), values: pinned, style: themed("modern") });
+        expect(appended.html).toContain(`border-top:1px solid #ededed;${BODY_FONT}font-size:12px;line-height:1.7;color:#999999">This email was sent by Example Co.<br />1 Example Street, London`);
+      });
+
+      it("a letter is unchanged", () => {
+        const letter = { item: item({ body, format: "letter", previewText: "Soon" }), values: pinned, shadowFor: "alex@example.com" };
+        expect(renderLifecycleEmail({ ...letter, style: themed("modern") })).toEqual(renderLifecycleEmail({ ...letter, style }));
+        expect(renderLifecycleEmail({ ...letter, style: themed("modern") })).toEqual(renderLifecycleEmail(letter));
+      });
     });
   });
 });

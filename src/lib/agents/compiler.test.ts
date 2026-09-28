@@ -4,6 +4,7 @@ import type { Signup } from "@/lib/types/signup";
 import type { Campaign } from "@/lib/types/campaign";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { htmlToText } from "@/lib/email/emailRender";
+import { EMAIL_FONTS, FONT } from "@/lib/email/emailFonts";
 
 const campaign = { waitlistName: "Beta" } as unknown as Campaign;
 
@@ -345,6 +346,29 @@ describe("with an Email style", () => {
         </div>
       </body></html>"
     `);
+  });
+
+  it("with a theme, the appended footer takes its body font, and the text part doesn't change", () => {
+    const themed = style({ theme: { preset: "editorial", headingFont: "lora", bodyFont: "verdana" } });
+    const footerFont = `border-top:1px solid #ededed;font-family:${EMAIL_FONTS.verdana.safeStack};font-size:12px`;
+    const merge = { signup, campaign: launch, rank: 7, footer };
+    for (const body of ["<p>Hi {{first_name}}</p>", "Hi {{first_name}},\n\nWelcome."]) {
+      const j = compileJourneyEmail({ subject: "s", body, heroImageUrl: "https://cdn.example.com/a.png" }, merge, themed);
+      expect(j.html).toContain(footerFont);
+      expect(j.html).not.toContain(FONT);
+      expect(j.html.match(/data-vzb-footer/g)).toHaveLength(1);
+      expect(j.text).toBe(compileJourneyEmail({ subject: "s", body, heroImageUrl: "https://cdn.example.com/a.png" }, merge, style()).text);
+      expect(j.text).toBe(compileJourneyEmail({ subject: "s", body, heroImageUrl: "https://cdn.example.com/a.png" }, merge).text);
+    }
+    const b = compileBroadcast({ subject: "s", body: "<p>Hi {{first_name}}</p>" }, launch, footer, themed);
+    expect(b.html).toContain(footerFont);
+    expect(b.html).not.toContain(FONT);
+    expect(b.html).toContain('href="*|UNSUB|*"');
+    // The page colour and the card come from wrap(); a style with no theme is the pinned email above.
+    expect(b.html).toContain('bgcolor="#f7f3ec"');
+    expect(compileBroadcast({ subject: "s", body: "<p>Hi</p>" }, launch, footer, style()).html).toContain(
+      `border-top:1px solid #ededed;font-family:${FONT};font-size:12px`,
+    );
   });
 
   it("escapes a | in the name, so MailChimp can't expand a tag in the band", () => {

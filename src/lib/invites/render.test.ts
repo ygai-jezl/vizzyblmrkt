@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { EMAIL_FONTS, FONT } from "@/lib/email/emailFonts";
 import { defaultInviteCopy, ensureInviteLink, hasInviteLink, renderInviteEmail } from "./render";
 
 const merge = {
@@ -79,6 +80,24 @@ describe("invite email", () => {
       // The link stays in the button alone: never a hidden copy in the preheader.
       expect(html.match(/href="https:\/\/waitlist\.example\.com\/invite\//g)).toHaveLength(1);
       expect(html).not.toMatch(/YGINV1/);
+    });
+
+    it("with a theme, the button takes its shape and the footer its body font; the text doesn't change", () => {
+      const themed = (preset: "classic" | "modern" | "editorial"): ResolvedEmailStyle => ({
+        ...style("#1d4ed8"),
+        theme: { preset, headingFont: "georgia", bodyFont: "verdana" },
+      });
+      const modern = render(themed("modern"));
+      expect(button(modern.html)).toContain("background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;");
+      expect(button(render(themed("editorial")).html)).toContain("border-radius:0px;");
+      expect(button(render(themed("classic")).html)).toContain("border-radius:8px;");
+      expect(modern.html).toContain(`border-top:1px solid #ededed;font-family:${EMAIL_FONTS.verdana.safeStack};font-size:12px`);
+      expect(modern.html).not.toContain(FONT);
+      expect(modern.subject).toBe(render(style("#1d4ed8")).subject);
+      expect(modern.text).toBe(render(style("#1d4ed8")).text);
+      // No theme: today's 8px button and footer font.
+      expect(button(render(style("#1d4ed8")).html)).toContain("border-radius:8px;");
+      expect(render(style("#1d4ed8")).html).toContain(`border-top:1px solid #ededed;font-family:${FONT};font-size:12px`);
     });
 
     it("no style (null or absent) keeps today's #111 button", () => {

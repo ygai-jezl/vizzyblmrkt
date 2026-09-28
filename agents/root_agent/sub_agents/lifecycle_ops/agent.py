@@ -7,7 +7,8 @@ onboarding or lifecycle email.
 
 Its tools call back into the Next.js app with the signed capability token: read
 the account's products/catalogs (aggregates only — never people), read a journey's
-draft, and save drafts through the canvas endpoint. Publishing, delivery mode and
+draft, and save drafts through the canvas endpoint, including a journey's own look
+(its draft's Email style, with the root's tools for it). Publishing, delivery mode and
 AI-line approvals stay human-only, so no tool confirmation is needed here.
 """
 
@@ -25,6 +26,7 @@ from .tools.lifecycle_tools import (
     save_lifecycle_graph,
 )
 from ...model_config import DEFAULT_MODEL
+from ...tools.journey_style import get_journey_email_style, set_journey_email_style
 
 lifecycle_ops_agent = LlmAgent(
     name="lifecycle_ops_agent",
@@ -44,5 +46,8 @@ lifecycle_ops_agent = LlmAgent(
         save_lifecycle_graph,
         learn_product_from_repo,
         get_repo_analysis,
+        # One journey's own look (header and button colours), in its draft.
+        get_journey_email_style,
+        set_journey_email_style,
     ],
 )

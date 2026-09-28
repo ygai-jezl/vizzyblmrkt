@@ -114,3 +114,33 @@ tokens and blocks only — no colours, images, logos, headers or buttons of your
 inline styles, <img> tags or colour codes). A different look for every email is the
 brand's Email style (Brand › Email style), not a journey edit.
 """
+
+# EMAIL_STYLE_ADDENDUM's last sentence, and the one that takes its place while journey
+# styles are on too (get_lifecycle_context's journeyStyle), so the rule names the tool
+# for one journey's look.
+EMAIL_STYLE_BRAND_LOOK: str = """\
+A different look for every email is the
+brand's Email style (Brand › Email style), not a journey edit.
+"""
+EMAIL_STYLE_JOURNEY_LOOK: str = """\
+A different look for every email is the
+brand's Email style (Brand › Email style); a look for one journey alone is
+set_journey_email_style (see below), never a body edit.
+"""
+
+# Added only when get_lifecycle_context (or get_journey_email_style) says journey styles
+# are on, whether or not the brand has a saved Email style, so the prompt is unchanged
+# while the flag is off.
+JOURNEY_STYLE_ADDENDUM: str = """\
+# A journey's own look
+A journey can wear its own header and button colours instead of the brand's Email style,
+on the colour header with the brand's logo and name. For "give this journey a navy
+header" or "put this journey back on the brand's style", call get_journey_email_style,
+then set_journey_email_style: mode "custom" with only the colours asked for (as hex), or
+"brand". Leave journey_id empty for the journey the operator is on. It saves the DRAFT
+only: the journey's emails change when the operator publishes it, so never say it's
+live. Only an admin can set it (the read's canEdit). A look is never a body edit: don't
+put colours into emails or call save_lifecycle_graph for it. If a tool says journey
+styles aren't switched on, say so: the brand's Email style (Brand › Email style) sets
+the look of every email.
+"""

@@ -28,11 +28,17 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
   const [diagnostics, setDiagnostics] = useState<ConnectionDiagnostics | null>(null);
   /** API v2 entities are on (CONNECT_ENTITIES_ENABLED): the catalog can name them. */
   const [entities, setEntities] = useState(false);
+  /** The Catalog tab has unsaved edits. */
+  const [catalogDirty, setCatalogDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab | null>(null);
 
   const load = useCallback(async () => {
-    const r = await api<{ connection: PublicConnection; diagnostics: ConnectionDiagnostics | null; features?: { entities?: boolean } }>(
+    const r = await api<{
+      connection: PublicConnection;
+      diagnostics: ConnectionDiagnostics | null;
+      features?: { entities?: boolean };
+    }>(
       `/api/admin/connections/${connectionId}`,
     );
     if (!r.ok) return setError(errorText(r.data));
@@ -51,6 +57,26 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Coming back to a page left open on the Catalog tab fetches the latest catalog.
+  useEffect(() => {
+    if (tab !== "catalog") return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [tab, load]);
+
+  /** Switch tab: the Catalog tab opens on the latest catalog, and leaving it with unsaved edits asks first. */
+  const openTab = useCallback(
+    (next: Tab) => {
+      if (tab === "catalog" && next !== "catalog" && catalogDirty && !window.confirm("Leave the catalog? Your unsaved edits will be lost.")) return;
+      if (next === "catalog" && tab !== "catalog") void load();
+      setTab(next);
+    },
+    [tab, catalogDirty, load],
+  );
 
   if (error) return <Banner tone="err">{error}</Banner>;
   if (!connection || !tab) return <p className="text-sm text-neutral-500">Loading…</p>;
@@ -91,9 +117,9 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
             : "not tested yet"}
       </p>
 
-      <Tabs tabs={tabs} value={tab} onChange={setTab} />
+      <Tabs tabs={tabs} value={tab} onChange={openTab} />
 
-      {tab === "setup" ? <SetupPanel connection={connection} onOpenTab={setTab} /> : null}
+      {tab === "setup" ? <SetupPanel connection={connection} onOpenTab={openTab} /> : null}
       {tab === "sandbox" ? <SandboxPanel connection={connection} canEdit={canEdit} onChanged={() => void load()} /> : null}
       {tab === "events" ? <EventDebugger connectionId={connection.id} /> : null}
       {tab === "users" ? <UsersTable connection={connection} canEdit={canEdit} /> : null}
@@ -102,15 +128,23 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
         <LearnFromRepo
           connection={connection}
           canEdit={canEdit}
-          onOpenCatalog={() => setTab("catalog")}
-          onAccepted={() => {
-            void load();
+          onOpenCatalog={() => openTab("catalog")}
+          onAccepted={async () => {
+            // Open the Catalog only once it has what was just added.
+            await load();
             setTab("catalog");
           }}
         />
       ) : null}
       {tab === "catalog" ? (
-        <CatalogEditor connection={connection} diagnostics={diagnostics} canEdit={canEdit} entities={entities} onSaved={() => void load()} />
+        <CatalogEditor
+          connection={connection}
+          diagnostics={diagnostics}
+          canEdit={canEdit}
+          entities={entities}
+          onDirtyChange={setCatalogDirty}
+          onSaved={() => void load()}
+        />
       ) : null}
       {tab === "guide" ? <IntegrationGuide connection={connection} /> : null}
       {tab === "settings" ? <ConnectionSettings connection={connection} canEdit={canEdit} onSaved={() => void load()} /> : null}

@@ -247,6 +247,12 @@ export const ProductConnectionSchema = z.object({
    */
   signupUrl: z.string().url().max(2000).nullable().optional(),
   catalog: ConnectionCatalogSchema,
+  /**
+   * Bumped by every catalog change. A save names the one it started from and is
+   * refused when they differ, so an older copy (another tab) can't overwrite a
+   * newer catalog. Absent (= 0) until the catalog first changes after this existed.
+   */
+  catalogRev: z.number().int().nonnegative().optional(),
   consentPolicy: ConsentPolicySchema,
   defaults: z.object({
     timezone: z.string().max(64).default("Europe/London"),

@@ -8,6 +8,7 @@ import { ConnectionCatalogSchema, type ConnectionCatalog, type ProductConnection
 import type { AnalysisRepo, RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { ProductMapSchema, type ProductMap } from "./productMapSchema";
 import { zodReason } from "./protocol";
+import { invalidateConnectionCaches } from "./connectionAuth";
 
 /**
  * "Learn from your repo": propose a connection's catalog (onboarding steps and
@@ -217,42 +218,60 @@ export async function acceptProductMap(
   const glossary = pick(map.glossary, parsed.data.glossary, (g) => g.term);
   const entityKinds = pick(map.entityKinds ?? [], parsed.data.entityKinds, (k) => k.kind);
 
-  const current = ConnectionCatalogSchema.parse(conn.catalog ?? {});
-  const mergedKinds = upsert(
-    current.entityKinds,
-    entityKinds.map((k) => ({ kind: k.kind, label: k.label, plural: k.plural, parent: k.parent ?? null, multiple: k.multiple, description: k.description })),
-    (k) => k.kind,
-  );
-  // A step, fact or event is per entity only when the catalog knows that kind; else it's the person's.
-  const known = new Set(mergedKinds.map((k) => k.kind));
-  const kindOf = (k: string | null | undefined) => (k && known.has(k) ? { kind: k } : {});
-  const sortedSteps = [...current.onboardingSteps].sort((a, b) => a.order - b.order);
-  const mergedSteps = upsert(
-    sortedSteps,
-    steps.map((s) => ({ id: s.id, label: s.label, url: deepLink(origin, s.path), order: 0, completion: s.completion || undefined, ...kindOf(s.entityKind) })),
-    (s) => s.id,
-  ).map((s, i) => ({ ...s, order: i }));
+  /** The chosen items merged into `catalog` — re-run on the freshest copy inside the write's transaction. */
+  const merge = (catalog: ConnectionCatalog | undefined) => {
+    const current = ConnectionCatalogSchema.parse(catalog ?? {});
+    const mergedKinds = upsert(
+      current.entityKinds,
+      entityKinds.map((k) => ({ kind: k.kind, label: k.label, plural: k.plural, parent: k.parent ?? null, multiple: k.multiple, description: k.description })),
+      (k) => k.kind,
+    );
+    // A step, fact or event is per entity only when the catalog knows that kind; else it's the person's.
+    const known = new Set(mergedKinds.map((k) => k.kind));
+    const kindOf = (k: string | null | undefined) => (k && known.has(k) ? { kind: k } : {});
+    const sortedSteps = [...current.onboardingSteps].sort((a, b) => a.order - b.order);
+    const mergedSteps = upsert(
+      sortedSteps,
+      steps.map((s) => ({ id: s.id, label: s.label, url: deepLink(origin, s.path), order: 0, completion: s.completion || undefined, ...kindOf(s.entityKind) })),
+      (s) => s.id,
+    ).map((s, i) => ({ ...s, order: i }));
 
-  const next = ConnectionCatalogSchema.safeParse({
-    ...current,
-    onboardingSteps: mergedSteps,
-    entityKinds: mergedKinds,
-    events: upsert(current.events, events.map((e) => ({ name: e.name, label: e.label, description: [e.description, e.when].filter(Boolean).join(" — ").slice(0, 500), ...kindOf(e.entityKind) })), (e) => e.name),
-    traits: upsert(current.traits, traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })), (t) => t.key),
-    facts: upsert(
-      current.facts,
-      facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...(f.appliesWhen ? { appliesWhen: f.appliesWhen } : {}), ...kindOf(f.entityKind) })),
-      (f) => f.id,
-    ),
-    glossary: upsert(current.glossary, glossary.map((g) => ({ term: g.term, definition: g.definition })), (g) => g.term.toLowerCase()),
-  });
-  if (!next.success) return fail(422, "catalog_invalid", zodReason(next.error));
+    return ConnectionCatalogSchema.safeParse({
+      ...current,
+      onboardingSteps: mergedSteps,
+      entityKinds: mergedKinds,
+      events: upsert(current.events, events.map((e) => ({ name: e.name, label: e.label, description: [e.description, e.when].filter(Boolean).join(" — ").slice(0, 500), ...kindOf(e.entityKind) })), (e) => e.name),
+      traits: upsert(current.traits, traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })), (t) => t.key),
+      facts: upsert(
+        current.facts,
+        facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...(f.appliesWhen ? { appliesWhen: f.appliesWhen } : {}), ...kindOf(f.entityKind) })),
+        (f) => f.id,
+      ),
+      glossary: upsert(current.glossary, glossary.map((g) => ({ term: g.term, definition: g.definition })), (g) => g.term.toLowerCase()),
+    });
+  };
 
-  // Deep links into the product are allowed only on its link domains: add the app's.
-  const linkDomains = origin && !conn.linkDomains.includes(origin.hostname) ? [...conn.linkDomains, origin.hostname].slice(0, 20) : conn.linkDomains;
+  // Merged and written in one transaction, bumping catalogRev: a catalog saved
+  // meanwhile isn't lost, and a Catalog tab still open on the old copy can't save over this.
   const nowIso = new Date(deps.nowMs ?? Date.now()).toISOString();
+  const seen: { before?: ProductConnection; invalid?: string } = {};
+  const saved = await repo.productConnections.claim(connectionId, (cur) => {
+    seen.before = cur;
+    seen.invalid = undefined;
+    if (cur.status === "revoked") return null;
+    const next = merge(cur.catalog);
+    if (!next.success) {
+      seen.invalid = zodReason(next.error);
+      return null;
+    }
+    // Deep links into the product are allowed only on its link domains: add the app's.
+    const linkDomains = origin && !cur.linkDomains.includes(origin.hostname) ? [...cur.linkDomains, origin.hostname].slice(0, 20) : cur.linkDomains;
+    return { catalog: next.data, catalogRev: (cur.catalogRev ?? 0) + 1, linkDomains, updatedAt: nowIso } as Partial<ProductConnection>;
+  });
+  if (seen.invalid) return fail(422, "catalog_invalid", seen.invalid);
+  if (!saved || !seen.before) return fail(404, "not_found");
+  invalidateConnectionCaches(saved.keyId, ctx.tenantId, connectionId);
   const accepted = { steps: steps.length, events: events.length, traits: traits.length, facts: facts.length, glossary: glossary.length, entityKinds: entityKinds.length };
-  await repo.productConnections.update(connectionId, { catalog: next.data, linkDomains, updatedAt: nowIso } as Partial<ProductConnection>);
   await repo.repoAnalyses.update(analysisId, { acceptedAt: nowIso, acceptedBy: ctx.email ?? ctx.userId ?? null, accepted });
-  return { ok: true, value: { catalog: next.data, linkDomains, accepted } };
+  return { ok: true, value: { catalog: saved.catalog, linkDomains: saved.linkDomains, accepted } };
 }

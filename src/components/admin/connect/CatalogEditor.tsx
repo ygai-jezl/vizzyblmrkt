@@ -1,14 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { describeChanges, rebaseCatalog } from "@/lib/connect/catalogChanges";
 import { api, errorText, type ConnectionCatalog, type ConnectionDiagnostics, type PublicConnection } from "./api";
 import { Banner, Button, Section, inputClass } from "./ui";
+
+/** Catalogs saved before facts (or entity kinds) existed have none. */
+const withLists = (c: ConnectionCatalog): ConnectionCatalog => ({ ...c, facts: c.facts ?? [], entityKinds: c.entityKinds ?? [] });
+
+type Version = { catalog: ConnectionCatalog; rev: number };
+type SaveReply = { connection?: PublicConnection; error?: string; catalog?: ConnectionCatalog; catalogRev?: number };
+
+/** Up to this many edits are listed when the catalog changed elsewhere. */
+const EDITS_SHOWN = 12;
 
 /**
  * The connection's catalog: what the product sends and what it means. Journeys
  * branch on these fields and the AI uses the labels + glossary for grounding.
  * "Add observed" pulls in event names and trait keys that have actually arrived.
+ *
+ * A save names the version it was edited from and is refused when the catalog
+ * has changed since (another tab, Learn from repo, a colleague): the edits are
+ * listed and can be carried over onto the newer version, so neither is lost.
  */
 export function CatalogEditor({
   connection,
@@ -16,6 +30,7 @@ export function CatalogEditor({
   canEdit,
   onSaved,
   entities = false,
+  onDirtyChange,
 }: {
   connection: PublicConnection;
   diagnostics: ConnectionDiagnostics | null;
@@ -23,15 +38,60 @@ export function CatalogEditor({
   onSaved: () => void;
   /** API v2 entities are on: name the things people have several of, and which steps and facts are per one. */
   entities?: boolean;
+  /** Whether there are unsaved edits — the page asks before leaving the tab. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
-  // Catalogs saved before facts (or entity kinds) existed have none.
-  const [cat, setCat] = useState<ConnectionCatalog>({
-    ...connection.catalog,
-    facts: connection.catalog.facts ?? [],
-    entityKinds: connection.catalog.entityKinds ?? [],
-  });
+  /** The saved version the edits started from. */
+  const [base, setBase] = useState<Version>(() => ({ catalog: withLists(connection.catalog), rev: connection.catalogRev ?? 0 }));
+  const [cat, setCat] = useState<ConnectionCatalog>(() => withLists(connection.catalog));
+  /** A version saved elsewhere since `base`, while there are unsaved edits. */
+  const [newer, setNewer] = useState<Version | null>(null);
+  /** Clashes found carrying edits over onto a newer version. */
+  const [notes, setNotes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
+
+  const edits = useMemo(() => describeChanges(base.catalog, cat), [base, cat]);
+  const dirty = edits.length > 0;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
+  // Closing or reloading the page with unsaved edits asks first.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  // The page fetched a newer catalog: it replaces an untouched copy, and is offered when there are edits.
+  const latestRev = connection.catalogRev ?? 0;
+  useEffect(() => {
+    if (latestRev <= base.rev) return;
+    const latest = { catalog: withLists(connection.catalog), rev: latestRev };
+    if (dirty) {
+      setNewer(latest);
+      return;
+    }
+    setBase(latest);
+    setCat(latest.catalog);
+    setNewer(null);
+    setMsg({ tone: "info", text: "Showing the latest version: the catalog was changed elsewhere since this page opened." });
+  }, [latestRev, connection.catalog, base.rev, dirty]);
+
+  /** Show a saved version as the one being edited. */
+  function adopt(v: Version) {
+    setBase(v);
+    setCat(v.catalog);
+    setNewer(null);
+    setNotes([]);
+  }
 
   const knownEvents = new Set(cat.events.map((e) => e.name));
   const knownTraits = new Set(cat.traits.map((t) => t.key));
@@ -45,14 +105,29 @@ export function CatalogEditor({
   async function save() {
     setBusy(true);
     setMsg(null);
-    const r = await api(`/api/admin/connections/${connection.id}`, {
+    const r = await api<SaveReply>(`/api/admin/connections/${connection.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ catalog: cat }),
+      body: JSON.stringify({ catalog: cat, catalogRev: base.rev }),
     });
     setBusy(false);
-    if (!r.ok) return setMsg({ tone: "err", text: errorText(r.data) });
+    if (r.data.error === "catalog_changed" && r.data.catalog) {
+      return setNewer({ catalog: withLists(r.data.catalog), rev: r.data.catalogRev ?? 0 });
+    }
+    if (!r.ok || !r.data.connection) return setMsg({ tone: "err", text: errorText(r.data) });
+    adopt({ catalog: withLists(r.data.connection.catalog), rev: r.data.connection.catalogRev ?? 0 });
     setMsg({ tone: "ok", text: "Catalog saved." });
     onSaved();
+  }
+
+  /** Put the unsaved edits on top of the newer version, to check and save. */
+  function carryOver() {
+    if (!newer) return;
+    const r = rebaseCatalog(base.catalog, cat, newer.catalog);
+    setBase(newer);
+    setCat(withLists(r.catalog));
+    setNewer(null);
+    setNotes(r.notes);
+    setMsg({ tone: "info", text: "Your edits are now on top of the latest version. Check them, then save." });
   }
 
   const row = "grid gap-2 sm:grid-cols-[1fr_1fr_2fr_auto]";
@@ -74,7 +149,34 @@ export function CatalogEditor({
 
   return (
     <div className="space-y-4">
+      {newer ? (
+        <div role="alert" className="space-y-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">
+            This catalog was changed elsewhere since you opened it — in another tab, by Learn from repo, or by someone else. Your edits
+            aren&apos;t saved yet:
+          </p>
+          <ul className="list-disc pl-5">
+            {edits.slice(0, EDITS_SHOWN).map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+            {edits.length > EDITS_SHOWN ? <li>…and {edits.length - EDITS_SHOWN} more</li> : null}
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <Button tone="primary" onClick={carryOver}>
+              Keep my edits on the latest version
+            </Button>
+            <Button onClick={() => adopt(newer)}>Discard my edits</Button>
+          </div>
+        </div>
+      ) : null}
       {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+      {notes.length > 0 ? (
+        <ul className="list-disc pl-5 text-sm text-neutral-600 dark:text-neutral-400">
+          {notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      ) : null}
 
       {showKinds ? (
         <Section
@@ -247,8 +349,13 @@ export function CatalogEditor({
       </Section>
 
       {canEdit ? (
-        <div className="flex justify-end">
-          <Button tone="primary" disabled={busy} onClick={save}>
+        <div className="flex items-center justify-end gap-3">
+          {dirty ? (
+            <span className="text-xs text-neutral-500">
+              {edits.length} unsaved change{edits.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
+          <Button tone="primary" disabled={busy || !dirty || newer !== null} onClick={save}>
             {busy ? "Saving…" : "Save catalog"}
           </Button>
         </div>

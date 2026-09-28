@@ -1,11 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   accentFor,
+  bandInk,
+  bandStops,
+  bandTextContrast,
   cleanCompanyName,
   contrastRatio,
+  isEmailHeaderImage,
+  isHeaderImageUrlShape,
   isLogoUrlShape,
+  readableAcross,
   readableOn,
   resolveStoredStyle,
+  safeHeaderImageUrl,
   safeLogoUrl,
   styleFromBrandKit,
   type EmailStyleLogoOption,
@@ -15,6 +22,8 @@ import type { BrandKit } from "@/lib/types/tenant";
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const logoUrl = (tenant: string, file = `${UUID}.png`, origin = "https://app.example.com") =>
   `${origin}/api/brand-logo/${tenant}/${file}`;
+const headerUrl = (tenant: string, file = `${UUID}.jpg`, origin = "https://app.example.com") =>
+  `${origin}/api/brand-asset/header/${tenant}/${file}`;
 
 describe("contrast", () => {
   it("black on white is 21:1", () => {
@@ -38,6 +47,47 @@ describe("contrast", () => {
   it("puts black on a light accent and white on a dark one", () => {
     expect(readableOn("#ffd400")).toBe("#000000");
     expect(readableOn("#0b1f3a")).toBe("#ffffff");
+  });
+});
+
+describe("the header band's colours", () => {
+  it("readableAcross one colour is exactly readableOn, over a sweep of backgrounds", () => {
+    const steps = [0, 0x22, 0x44, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xcc, 0xee, 0xff];
+    const hex = (n: number) => n.toString(16).padStart(2, "0");
+    for (const r of steps)
+      for (const g of steps)
+        for (const b of steps) {
+          const bg = `#${hex(r)}${hex(g)}${hex(b)}`;
+          expect(readableAcross([bg])).toBe(readableOn(bg));
+        }
+  });
+
+  it("across a light-to-dark gradient, picks by the worse stop", () => {
+    // Black reads on the light violet alone, but only 1.8:1 on the dark end; white is 2.7:1 at worst.
+    expect(readableOn("#a78bfa")).toBe("#000000");
+    expect(readableAcross(["#a78bfa", "#312e81"])).toBe("#ffffff");
+    expect(bandInk({ headerColor: "#a78bfa", headerGradientColor: "#312e81" })).toBe("#ffffff");
+    expect(readableAcross(["#ffd400", "#f5b700"])).toBe("#000000");
+  });
+
+  it("a forced text colour wins, and bandTextContrast is its worst contrast across the stops", () => {
+    const white = { headerColor: "#ffd400", headerText: "white" as const };
+    expect(bandInk(white)).toBe("#ffffff");
+    expect(bandTextContrast(white)).toBeLessThan(3);
+    const black = { headerColor: "#7c3aed", headerGradientColor: "#4f46e5", headerText: "black" as const };
+    expect(bandInk(black)).toBe("#000000");
+    expect(bandTextContrast(black)).toBeCloseTo(contrastRatio("#4f46e5", "#000000"), 5);
+    expect(bandTextContrast(black)).toBeGreaterThan(3);
+    expect(bandTextContrast({ headerColor: "#5b21b6", headerText: "black" })).toBeLessThan(3);
+  });
+
+  it("bandStops: what the band draws — a bad colour 2 is dropped, a bad header draws #111111", () => {
+    expect(bandStops({ headerColor: "#7c3aed", headerGradientColor: "#4f46e5" })).toEqual(["#7c3aed", "#4f46e5"]);
+    expect(bandStops({ headerColor: "#7c3aed" })).toEqual(["#7c3aed"]);
+    expect(bandStops({ headerColor: "#ffd400", headerGradientColor: "purple" })).toEqual(["#ffd400"]);
+    expect(bandStops({ headerColor: "#ffd400", headerGradientColor: "#FFD400" })).toEqual(["#ffd400"]);
+    expect(bandStops({ headerColor: "#fff", headerGradientColor: "#4f46e5" })).toEqual(["#111111", "#4f46e5"]);
+    expect(bandStops({ headerColor: "red" })).toEqual(["#111111"]);
   });
 });
 
@@ -85,6 +135,72 @@ describe("logo URLs", () => {
     expect(isLogoUrlShape(logoUrl("ten_B"))).toBe(true);
     expect(isLogoUrlShape(logoUrl("ten_B", undefined, "http://app.example.com"))).toBe(false);
     expect(isLogoUrlShape("https://ok.example.com/a.png")).toBe(false);
+  });
+});
+
+describe("header image URLs", () => {
+  it("accepts this tenant's https PNG/JPEG header image", () => {
+    expect(safeHeaderImageUrl(headerUrl("ten_A"), "ten_A")).toBe(headerUrl("ten_A"));
+    expect(safeHeaderImageUrl(headerUrl("ten_A", `${UUID}.png`), "ten_A")).toBe(headerUrl("ten_A", `${UUID}.png`));
+    expect(safeHeaderImageUrl(headerUrl("ten_A", `${UUID}.jpeg`), "ten_A")).toBe(headerUrl("ten_A", `${UUID}.jpeg`));
+  });
+
+  it("matches the tenant segment as the URL builder encodes it", () => {
+    expect(safeHeaderImageUrl(headerUrl("ten%2FA"), "ten/A")).toBe(headerUrl("ten%2FA"));
+    expect(safeHeaderImageUrl(headerUrl("ten%2FA"), "ten%2FA")).toBeNull();
+  });
+
+  it("rejects another tenant, http, WebP, a query, a hash, credentials and any other route", () => {
+    expect(safeHeaderImageUrl(headerUrl("ten_B"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", undefined, "http://app.example.com"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", `${UUID}.webp`), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", "banner.jpg"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`${headerUrl("ten_A")}?v=1`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`${headerUrl("ten_A")}#x`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(headerUrl("ten_A", undefined, "https://u:p@app.example.com"), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(logoUrl("ten_A", `${UUID}.jpg`), "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`https://app.example.com/api/brand-asset/graphic/ten_A/${UUID}.jpg`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`https://app.example.com/api/brand-asset/header/ten_A/x/${UUID}.jpg`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl(`/api/brand-asset/header/ten_A/${UUID}.jpg`, "ten_A")).toBeNull();
+    expect(safeHeaderImageUrl("javascript:alert(1)", "ten_A")).toBeNull();
+  });
+
+  it("the tenant-agnostic shape check passes any tenant's header image but nothing else", () => {
+    expect(isHeaderImageUrlShape(headerUrl("ten_B"))).toBe(true);
+    expect(isHeaderImageUrlShape(headerUrl("ten_B", undefined, "http://app.example.com"))).toBe(false);
+    expect(isHeaderImageUrlShape(logoUrl("ten_B"))).toBe(false);
+    expect(isLogoUrlShape(headerUrl("ten_B"))).toBe(false);
+  });
+});
+
+describe("isEmailHeaderImage", () => {
+  const row = {
+    category: "header" as const,
+    filename: `${UUID}.jpg`,
+    mimeType: "image/jpeg",
+    width: 1200,
+    height: 300,
+  };
+
+  it("a header PNG/JPEG with a whole-pixel size within 1200 × 2400", () => {
+    expect(isEmailHeaderImage(row)).toBe(true);
+    expect(isEmailHeaderImage({ ...row, filename: `${UUID}.png`, mimeType: "image/png" })).toBe(true);
+    expect(isEmailHeaderImage({ ...row, width: 1, height: 2400 })).toBe(true);
+  });
+
+  it("not WebP, another category, a bad filename, or a missing or out-of-range size", () => {
+    expect(isEmailHeaderImage({ ...row, filename: `${UUID}.webp`, mimeType: "image/webp" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, mimeType: "image/webp" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, category: "icon" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, category: "graphic" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, filename: "banner.jpg" })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, filename: `../${UUID}.jpg` })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, width: undefined })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, height: undefined })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, width: 1201 })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, height: 2401 })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, width: 0 })).toBe(false);
+    expect(isEmailHeaderImage({ ...row, height: 300.5 })).toBe(false);
   });
 });
 
@@ -150,6 +266,69 @@ describe("resolveStoredStyle", () => {
   it("keeps the logo within 200×48", () => {
     const big = { ...stored, logo: { ...stored.logo, width: 999.6, height: 0.2 } };
     expect(resolveStoredStyle(big, opts)!.logo).toMatchObject({ width: 200, height: 1 });
+  });
+
+  describe("header options", () => {
+    const today = resolveStoredStyle(stored, opts);
+    const options = { headerGradientColor: "#4F46E5", headerText: "white" as const };
+
+    it("sets a gradient and a forced text colour with headerOptions on", () => {
+      expect(resolveStoredStyle({ ...stored, ...options }, { ...opts, headerOptions: true })).toStrictEqual({
+        ...today,
+        headerGradientColor: "#4f46e5",
+        headerText: "white",
+      });
+    });
+
+    it("adds no keys with headerOptions off, for the defaults, or for equal stops", () => {
+      expect(resolveStoredStyle({ ...stored, ...options }, opts)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, ...options }, { ...opts, headerOptions: false })).toStrictEqual(today);
+      const on = { ...opts, headerOptions: true };
+      expect(resolveStoredStyle({ ...stored, headerGradientColor: null, headerText: "auto" }, on)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, headerGradientColor: "#0B1F3A" }, on)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, headerGradientColor: "purple" }, on)).toStrictEqual(today);
+    });
+  });
+
+  describe("header image", () => {
+    const today = resolveStoredStyle(stored, opts);
+    const image = { id: "hdr_1", filename: `${UUID}.jpg`, width: 1200, height: 300 };
+    const on = { ...opts, headerOptions: true, headerImageUrlFor: () => headerUrl("ten_A") };
+
+    it("sets the checked URL and the stored size with headerOptions on", () => {
+      const urlFor = vi.fn(() => headerUrl("ten_A"));
+      expect(resolveStoredStyle({ ...stored, headerImage: image }, { ...on, headerImageUrlFor: urlFor })).toStrictEqual({
+        ...today,
+        headerImage: { url: headerUrl("ten_A"), width: 1200, height: 300 },
+      });
+      expect(urlFor).toHaveBeenCalledWith(image);
+    });
+
+    it("adds no key with headerOptions off, no URL builder, no URL, or no image", () => {
+      const withImage = { ...stored, headerImage: image };
+      expect(resolveStoredStyle(withImage, { ...on, headerOptions: undefined })).toStrictEqual(today);
+      expect(resolveStoredStyle(withImage, { ...on, headerOptions: false })).toStrictEqual(today);
+      expect(resolveStoredStyle(withImage, { ...opts, headerOptions: true })).toStrictEqual(today);
+      expect(resolveStoredStyle(withImage, { ...on, headerImageUrlFor: () => null })).toStrictEqual(today);
+      expect(resolveStoredStyle(stored, on)).toStrictEqual(today);
+      expect(resolveStoredStyle({ ...stored, headerImage: null }, on)).toStrictEqual(today);
+    });
+
+    it("keeps the gradient and text keys alongside, for when the image is dropped", () => {
+      const all = { ...stored, headerGradientColor: "#4f46e5", headerText: "white" as const, headerImage: image };
+      expect(resolveStoredStyle(all, on)).toMatchObject({
+        headerGradientColor: "#4f46e5",
+        headerText: "white",
+        headerImage: { url: headerUrl("ten_A") },
+      });
+    });
+
+    it("keeps the size within 1200 × 2400, in whole pixels", () => {
+      const odd = { ...stored, headerImage: { ...image, width: 1200.4, height: 0.2 } };
+      expect(resolveStoredStyle(odd, on)!.headerImage).toMatchObject({ width: 1200, height: 1 });
+      const big = { ...stored, headerImage: { ...image, width: 5000, height: 9999 } };
+      expect(resolveStoredStyle(big, on)!.headerImage).toMatchObject({ width: 1200, height: 2400 });
+    });
   });
 });
 

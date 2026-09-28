@@ -7,6 +7,7 @@ import { deriveFaviconUrl } from "./favicon";
 import {
   TenantSchema,
   EmailSenderConfigSchema,
+  EmailStyleInputSchema,
   StoredEmailStyleSchema,
   EmailStyleSuggestionSchema,
   type Tenant,
@@ -138,8 +139,16 @@ export async function setTenantBrandVoice(
 
 /**
  * Write the tenant's Email style (top-level `emailStyle`, like brandVoice), or remove it with
- * `null` ("Reset to default"). Parsed strictly here too, so nothing is stored that the lenient
- * read would drop. Stamps `updatedAt` (and `updatedBy` when given). Returns what was stored.
+ * `null` ("Reset to default"). The input is parsed strictly here too, so nothing is stored that
+ * the lenient read would drop; the header options' defaults (null = solid, "auto", a null header
+ * image = the colour header) are stored as no key, and so is a colour 2 equal to the header
+ * colour (it draws solid, as the resolver has it). Stamps `updatedAt` (and `updatedBy` when
+ * given). Returns what was stored.
+ *
+ * A header option the input leaves out (gradient, text colour, header image) is KEPT from
+ * what's stored, so a page without those controls (the flag is off) can't wipe them. That Save
+ * re-reads the doc in a transaction; a damaged stored option is dropped there, never thrown,
+ * so it can't block a Save.
  * With `clearSuggestionAt` (an admin applied Vizzy's suggestion), the same transaction clears
  * the pending suggestion too, but only if it's still that one, so a newer suggestion survives.
  */
@@ -150,27 +159,59 @@ export async function setTenantEmailStyle(
   opts: { updatedBy?: string; clearSuggestionAt?: string } = {},
 ): Promise<StoredEmailStyle | null> {
   const now = new Date().toISOString();
-  const next =
-    style === null
-      ? null
-      : StoredEmailStyleSchema.parse({
-          ...style,
-          updatedAt: now,
-          ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
-        });
   const ref = db.collection("tenants").doc(id);
-  const write = { emailStyle: next ?? FieldValue.delete(), updatedAt: now };
-  const clearAt = opts.clearSuggestionAt;
-  if (!clearAt) {
-    await ref.update(write);
-    return next;
+  if (style === null) {
+    await ref.update({ emailStyle: FieldValue.delete(), updatedAt: now });
+    return null;
   }
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const matches = pendingSuggestedAt(snap.data()) === clearAt;
-    tx.update(ref, matches ? { ...write, emailStyleSuggestion: FieldValue.delete() } : write);
+  const { headerGradientColor, headerText, headerImage, ...rest } = EmailStyleInputSchema.parse(style);
+  // Only real options become keys (both colours are lowercased by now). The stored shape still checks the stamp.
+  const given = StoredEmailStyleSchema.parse({
+    ...rest,
+    ...(headerGradientColor && headerGradientColor !== rest.headerColor ? { headerGradientColor } : {}),
+    ...(headerText && headerText !== "auto" ? { headerText } : {}),
+    ...(headerImage ? { headerImage } : {}),
+    updatedAt: now,
+    ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
   });
-  return next;
+  const keep = {
+    headerGradientColor: headerGradientColor === undefined,
+    headerText: headerText === undefined,
+    headerImage: headerImage === undefined,
+  };
+  const clearAt = opts.clearSuggestionAt;
+  if (!keep.headerGradientColor && !keep.headerText && !keep.headerImage && !clearAt) {
+    await ref.update({ emailStyle: given, updatedAt: now });
+    return given;
+  }
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.data();
+    const next: StoredEmailStyle = { ...given, ...keptHeaderOptions(data?.emailStyle, keep) };
+    const write = { emailStyle: next, updatedAt: now };
+    const matches = !!clearAt && pendingSuggestedAt(data) === clearAt;
+    tx.update(ref, matches ? { ...write, emailStyleSuggestion: FieldValue.delete() } : write);
+    return next;
+  });
+}
+
+/** The stored header options a Save leaves out, read per field and leniently: a damaged one is dropped. */
+function keptHeaderOptions(
+  raw: unknown,
+  keep: { headerGradientColor: boolean; headerText: boolean; headerImage: boolean },
+): Pick<StoredEmailStyle, "headerGradientColor" | "headerText" | "headerImage"> {
+  const stored = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const { shape } = StoredEmailStyleSchema;
+  const headerGradientColor = keep.headerGradientColor
+    ? shape.headerGradientColor.parse(stored.headerGradientColor)
+    : undefined;
+  const headerText = keep.headerText ? shape.headerText.parse(stored.headerText) : undefined;
+  const headerImage = keep.headerImage ? shape.headerImage.parse(stored.headerImage) : undefined;
+  return {
+    ...(headerGradientColor ? { headerGradientColor } : {}),
+    ...(headerText ? { headerText } : {}),
+    ...(headerImage ? { headerImage } : {}),
+  };
 }
 
 /** The pending suggestion's compare-and-clear key, read off the raw doc. */
@@ -230,6 +271,27 @@ export async function clearTenantEmailStyleLogo(
     const style = snap.data()?.emailStyle as { logo?: { filename?: unknown } | null } | undefined;
     if (!snap.exists || style?.logo?.filename !== filename) return false;
     tx.update(ref, { "emailStyle.logo": null, updatedAt: new Date().toISOString() });
+    return true;
+  });
+}
+
+/**
+ * A header image was deleted: if the Email style uses it, remove the style's `headerImage`
+ * so emails go back to the header colour (never a broken image); everything else is kept.
+ * A transaction on the raw doc, so a Save that picks another image meanwhile is never
+ * undone. Returns whether it cleared.
+ */
+export async function clearTenantEmailStyleHeaderImage(
+  tenantId: string,
+  filename: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(tenantId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const style = snap.data()?.emailStyle as { headerImage?: { filename?: unknown } | null } | undefined;
+    if (!snap.exists || style?.headerImage?.filename !== filename) return false;
+    tx.update(ref, { "emailStyle.headerImage": FieldValue.delete(), updatedAt: new Date().toISOString() });
     return true;
   });
 }

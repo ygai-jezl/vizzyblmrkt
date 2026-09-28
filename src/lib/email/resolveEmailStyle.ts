@@ -1,7 +1,7 @@
 import { StoredEmailStyleSchema, type Tenant } from "@/lib/types/tenant";
-import { brandLogoAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
-import { isEmailStyleEnabled } from "./flags";
-import { resolveStoredStyle, safeLogoUrl, type ResolvedEmailStyle } from "./emailStyle";
+import { brandLogoAbsoluteUrl, emailHeaderImageAbsoluteUrl, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
+import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled } from "./flags";
+import { resolveStoredStyle, safeHeaderImageUrl, safeLogoUrl, type ResolvedEmailStyle } from "./emailStyle";
 import { emailLinkOrigin } from "./footer";
 import { resolveFooterBrand } from "./sender";
 
@@ -11,16 +11,25 @@ import { resolveFooterBrand } from "./sender";
  * (reads env); the renderers get the result as data.
  *
  * The logo is dropped — leaving a name band — when the Logos flag is off, or when there's
- * no origin to build an absolute URL from (an inbox can't load a relative one).
+ * no origin to build an absolute URL from (an inbox can't load a relative one). The saved
+ * header options (gradient, text colour, header image) are ignored while
+ * EMAIL_HEADER_OPTIONS_ENABLED is off. The header image doesn't need the Logos flag (its
+ * public brand-asset route isn't gated), but with no https origin it's dropped: the colour band.
  */
 export function resolveEmailStyle(tenant: Tenant | null | undefined): ResolvedEmailStyle | null {
   if (!isEmailStyleEnabled() || !tenant?.emailStyle) return null;
   const parsed = StoredEmailStyleSchema.safeParse(tenant.emailStyle);
   if (!parsed.success) return null;
-  const origin = isBrandKitLogosEnabled() ? emailLinkOrigin() : "";
+  const linkOrigin = emailLinkOrigin();
+  const origin = isBrandKitLogosEnabled() ? linkOrigin : "";
   return resolveStoredStyle(parsed.data, {
     logoUrlFor: (logo) =>
       origin ? safeLogoUrl(brandLogoAbsoluteUrl(origin, tenant.id, logo.filename), tenant.id) : null,
+    headerImageUrlFor: (image) =>
+      linkOrigin
+        ? safeHeaderImageUrl(emailHeaderImageAbsoluteUrl(linkOrigin, tenant.id, image.filename), tenant.id)
+        : null,
     fallbackName: resolveFooterBrand(tenant, null),
+    headerOptions: isEmailHeaderOptionsEnabled(),
   });
 }

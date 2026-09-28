@@ -439,8 +439,19 @@ export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
  * silently restyles live email. Strict on write (EmailStyleInputSchema, used by the admin PUT
  * and the setter); lenient on read (TenantSchema catches a damaged value as "none", because
  * every tenant read — incl. the delivery crons — parses the whole doc).
+ *
+ * Header options (EMAIL_HEADER_OPTIONS_ENABLED): a gradient's second colour, a forced header
+ * text colour, and a header image (a banner in place of the logo and name). Stored only when
+ * set: absent = a solid header / Auto text / the colour header. Absent in a Save = keep what's
+ * stored. A damaged stored option drops alone; the band still draws (a damaged image = Colour).
  */
 export const EMAIL_STYLE_LIMITS = { logoWidth: 200, logoHeight: 48, companyName: 80 } as const;
+
+/**
+ * Email header images (a banner in place of the logo and name): the most pixels a stored one
+ * may have (the page downsizes to 1200 wide first), its byte cap, and how many a tenant keeps.
+ */
+export const EMAIL_HEADER_IMAGE_LIMITS = { width: 1200, height: 2400, bytes: 1024 * 1024, count: 20 } as const;
 
 /** A logo file the email header may use: `<uuid>.png|jpg|jpeg`. WebP is left out — Outlook can't show it. */
 export const EMAIL_LOGO_FILENAME =
@@ -475,12 +486,36 @@ export const EmailStyleLogoSchema = z.object({
 });
 export type EmailStyleLogo = z.infer<typeof EmailStyleLogoSchema>;
 
+/**
+ * A header image by reference (never a URL — that's derived at render time): a `header` brand
+ * asset, with the pixel size read from the file at upload. PNG/JPEG only, as for logos.
+ */
+export const EmailStyleHeaderImageSchema = z.object({
+  /** The brand_assets row id. */
+  id: EmailStyleLogoSchema.shape.id,
+  filename: z.string().regex(EMAIL_LOGO_FILENAME),
+  width: z.number().int().min(1).max(EMAIL_HEADER_IMAGE_LIMITS.width),
+  height: z.number().int().min(1).max(EMAIL_HEADER_IMAGE_LIMITS.height),
+});
+export type EmailStyleHeaderImage = z.infer<typeof EmailStyleHeaderImageSchema>;
+
+/** The band's text colour: "auto" is black or white, whichever reads better across the band. */
+export const HEADER_TEXT_CHOICES = ["auto", "white", "black"] as const;
+export const HeaderTextSchema = z.enum(HEADER_TEXT_CHOICES);
+export type HeaderTextChoice = z.infer<typeof HeaderTextSchema>;
+
 export const EmailStyleInputSchema = z.object({
   logo: EmailStyleLogoSchema.nullable(),
   /** null = the logo alone (or the workspace's sender name when there's no logo). */
   companyName: CompanyNameSchema.nullable(),
   headerColor: HexColorSchema,
   accentColor: HexColorSchema,
+  /** The band fades from headerColor to this; null = solid. Absent = keep what's stored. */
+  headerGradientColor: HexColorSchema.nullable().optional(),
+  /** Absent = keep what's stored. */
+  headerText: HeaderTextSchema.optional(),
+  /** A banner in place of the logo and name; null = the colour header. Absent = keep what's stored. */
+  headerImage: EmailStyleHeaderImageSchema.nullable().optional(),
 });
 export type EmailStyleInput = z.infer<typeof EmailStyleInputSchema>;
 
@@ -488,6 +523,11 @@ export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
   updatedAt: z.string().max(40).optional(),
   /** Firebase UID of the admin who saved it. */
   updatedBy: z.string().max(128).optional(),
+  // Never stored as a default (null, "auto"), and read per field: a damaged one drops alone.
+  headerGradientColor: HexColorSchema.optional().catch(undefined),
+  headerText: z.enum(["white", "black"]).optional().catch(undefined),
+  /** Present = Image mode; absent = the colour header. A damaged one (say a .webp) reads as Colour. */
+  headerImage: EmailStyleHeaderImageSchema.optional().catch(undefined),
 });
 export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
 
@@ -497,12 +537,21 @@ export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 }
  * An Email style Vizzy suggested (from chat or the brand kit), waiting for an admin to Review
  * and Save it. Sends never read it. It has no logo size: the page measures the logo on Review.
  * `suggestedAt` is the compare-and-clear key, so a Save or Dismiss never clears a newer one.
+ * The header options are stored only when set (absent = solid / Auto / the colour header), and
+ * strictly: a damaged one reads the whole suggestion as none, as for any other field. A header
+ * image is by id only: its file and size come from the row on Review.
  */
 export const EmailStyleSuggestionSchema = z.object({
   logoId: EmailStyleLogoSchema.shape.id.nullable(),
   companyName: CompanyNameSchema.nullable(),
   headerColor: HexColorSchema,
   accentColor: HexColorSchema,
+  /** The header fades from headerColor to this; absent = solid. */
+  headerGradientColor: HexColorSchema.optional(),
+  /** Absent = Auto. */
+  headerText: z.enum(["white", "black"]).optional(),
+  /** A header image (a `header` brand asset's id) in place of the logo and name; absent = the colour header. */
+  headerImageId: EmailStyleLogoSchema.shape.id.optional(),
   source: z.enum(["brand_kit", "chat"]),
   /** What was asked for, in the asker's words. */
   brief: z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.brief),

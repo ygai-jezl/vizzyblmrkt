@@ -14,16 +14,29 @@ import { z } from "zod";
 export const BrandAssetCategorySchema = z.enum(["icon", "graphic"]);
 export type BrandAssetCategory = z.infer<typeof BrandAssetCategorySchema>;
 
+/**
+ * Everything the store holds: the Brand libraries above, plus `header` — an email header
+ * image (Brand › Email style). Header rows belong to Email style, not a library: they're
+ * uploaded and deleted only through its admin routes (PNG/JPEG only), carry their pixel size,
+ * are never listed in Icons/Graphics and are never fed to the image model. The generic
+ * library routes keep parsing BrandAssetCategorySchema, so they refuse `header`.
+ */
+export const BrandAssetKindSchema = z.enum(["icon", "graphic", "header"]);
+export type BrandAssetKind = z.infer<typeof BrandAssetKindSchema>;
+
 export const BrandAssetSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
-  category: BrandAssetCategorySchema,
+  category: BrandAssetKindSchema,
   /** Bare stored filename (`<uuid>.<ext>`); the full GCS key is reconstructed server-side. */
   filename: z.string().max(300),
   mimeType: z.string().max(60),
   /** User-facing display name (defaults to the uploaded filename). */
   title: z.string().max(200),
   byteSize: z.number().int().nonnegative(),
+  /** The file's pixel size, read from its own header at upload. Header rows only. */
+  width: z.number().int().min(1).optional(),
+  height: z.number().int().min(1).optional(),
   createdAt: z.string(),
 });
 export type BrandAsset = z.infer<typeof BrandAssetSchema>;

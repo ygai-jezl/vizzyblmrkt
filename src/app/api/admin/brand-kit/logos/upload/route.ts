@@ -3,8 +3,9 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isAllowedScreenshotType } from "@/lib/workspace/assetStore";
 import { storeBrandLogo, MAX_LOGO_BYTES } from "@/lib/tenant/brandLogo";
-import { recordLogo, countLogosUpTo, MAX_LOGOS_PER_TENANT } from "@/lib/admin/brandLogos";
+import { recordLogo, countLogosUpTo, pinPrimaryLogo, MAX_LOGOS_PER_TENANT } from "@/lib/admin/brandLogos";
 import { isBrandKitLogosEnabled } from "@/lib/content/brandKit";
+import { isEmailHeaderOptionsEnabled } from "@/lib/email/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ export const dynamic = "force-dynamic";
  * registry row is recorded. The FIRST logo a tenant uploads becomes the primary (the one
  * defaulted into email headers). FLAG-GATED (BRAND_KIT_LOGOS_ENABLED). Same-origin only;
  * type is trusted from the magic-byte sniff inside storeBrandLogo, not the client.
+ * Optional form field `keepPrimary=1` (the Email style's logo clean-up): today's primary is
+ * flagged first, so the new logo can't take its place; the response then adds `primaryId`.
+ * It's read only with EMAIL_HEADER_OPTIONS_ENABLED on; off, it's ignored, as before it existed.
  */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
@@ -64,6 +68,23 @@ export async function POST(req: Request) {
   }
   const isPrimary = existingCount === 0;
 
+  // With no logo flagged, the newest is the primary, so this upload would take its place (in
+  // Create, "Use brand kit", Vizzy). `keepPrimary` flags today's first, from the stored list
+  // (a page's copy can be stale); that changes nothing else, even if the upload then fails.
+  // If it can't be flagged, nothing is uploaded.
+  let primaryId: string | null = null;
+  if (isEmailHeaderOptionsEnabled() && form?.get("keepPrimary") === "1" && !isPrimary) {
+    try {
+      primaryId = await pinPrimaryLogo(ctx);
+    } catch (err) {
+      console.warn("[brandKit] keeping the primary logo failed:", err);
+      return NextResponse.json(
+        { error: "pin_failed", message: "Couldn't keep your primary logo in place — try again." },
+        { status: 502 },
+      );
+    }
+  }
+
   const bytes = Buffer.from(await file.arrayBuffer());
   const stored = await storeBrandLogo(ctx.tenantId, bytes, file.type);
   if (!stored.ok) {
@@ -109,5 +130,5 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ logo });
+  return NextResponse.json(primaryId ? { logo, primaryId } : { logo });
 }

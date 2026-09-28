@@ -1,3 +1,5 @@
+import type { BrandAssetKind } from "@/lib/types/brandAsset";
+
 /**
  * Flags + route constants for the Brand Kit asset library (Content OS sidebar item).
  * Pure + client-safe (no server imports) so both the sidebar (client) and the routes/
@@ -163,14 +165,30 @@ export function brandFontPublicUrl(tenantId: string, filename: string): string {
 }
 
 /**
- * RELATIVE public URL for an uploaded brand ASSET (icon/graphic) — served by the public
+ * RELATIVE public URL for an uploaded brand ASSET (icon/graphic/header) — served by the public
  * /api/brand-asset proxy (uuid-guarded). The category is part of the path so the proxy can
  * reconstruct the `brand/{tenantId}/{category}s/{filename}` key. Never stored.
  */
 export function brandAssetPublicUrl(
   tenantId: string,
-  category: "icon" | "graphic",
+  category: BrandAssetKind,
   filename: string,
 ): string {
   return `/api/brand-asset/${encodeURIComponent(category)}/${encodeURIComponent(tenantId)}/${encodeURIComponent(filename)}`;
+}
+
+/**
+ * RELATIVE public URL for an email header image (Brand › Email style), served by the public
+ * /api/brand-asset proxy under `header`. Works on the page (same-origin). Never stored.
+ */
+export function emailHeaderImagePublicUrl(tenantId: string, filename: string): string {
+  return brandAssetPublicUrl(tenantId, "header", filename);
+}
+
+/**
+ * ABSOLUTE public URL for an email header image — what emails carry (inboxes aren't
+ * same-origin). The caller passes a resolved https `origin`, as for brandLogoAbsoluteUrl.
+ */
+export function emailHeaderImageAbsoluteUrl(origin: string, tenantId: string, filename: string): string {
+  return `${origin.replace(/\/+$/, "")}${emailHeaderImagePublicUrl(tenantId, filename)}`;
 }

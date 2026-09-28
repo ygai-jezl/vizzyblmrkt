@@ -242,4 +242,25 @@ describe("Vizzy's welcome-journey drafts for a moved launch", () => {
     // The original journey is untouched.
     expect((await forTenant(system, fake).journeys.getById(`journey_${CAMPAIGN_ID}`))!.graph).toEqual(ORIGINAL.graph);
   });
+
+  it("keeps the journey's own email style when it redrafts the emails", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+    const { journey } = await moved();
+    const doc = structuredClone(fake.raw("lifecycle_journeys", journey.id)) as { draft: { settings: Record<string, unknown> } };
+    doc.draft.settings.emailStyle = NAVY;
+    fake.seed("lifecycle_journeys", journey.id, doc);
+    const graph = {
+      nodes: [
+        { id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: {} },
+        { id: "e1", type: "email", position: { x: 0, y: 0 }, data: { label: "Welcome" } },
+      ],
+      edges: [{ id: "a", source: "trigger", target: "e1", sourceHandle: null }],
+    };
+    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, brief: "Warm welcome" });
+    expect(r.ok).toBe(true);
+    const raw = fake.raw("lifecycle_journeys", journey.id) as { draft: { settings: Record<string, unknown>; graph: { nodes: Array<{ id: string }> } } };
+    expect(raw.draft.graph.nodes.map((n) => n.id)).toContain("e1");
+    expect(raw.draft.settings.emailStyle).toStrictEqual(NAVY);
+  });
 });

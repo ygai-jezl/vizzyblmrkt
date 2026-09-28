@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -145,5 +145,120 @@ describe("lifecycle journey service", () => {
     const other: TenantContext = { tenantId: "ten_other", region: "eu", source: "idtoken", role: "admin" };
     expect(await publishLifecycleJourney(other, journey.id, { db })).toMatchObject({ ok: false, status: 404 });
     expect(await saveLifecycleDraft(other, journey.id, journey.draft, { db })).toMatchObject({ ok: false, status: 404 });
+  });
+});
+
+describe("a journey's own email style: kept by draft saves, made live by publish", () => {
+  const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+  const TEAL = { headerColor: "#0f766e", accentColor: "#f59e0b", headerText: "white" };
+  afterEach(() => vi.unstubAllEnvs());
+
+  type RawJourney = { draft: { settings: Record<string, unknown> }; emailStyle?: unknown };
+  const raw = (db: FakeFirestore, id: string) => db.raw("lifecycle_journeys", id) as RawJourney;
+  /** Put a style straight into the stored draft, as the editor or Vizzy's journey-style kind will. */
+  function storeStyle(db: FakeFirestore, id: string, style: unknown) {
+    const doc = structuredClone(raw(db, id));
+    doc.draft.settings.emailStyle = style;
+    db.seed("lifecycle_journeys", id, doc);
+  }
+
+  it("a draft save keeps the stored style, whatever its body says about one, with the flag on or off", async () => {
+    for (const flag of ["true", "false"]) {
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", flag);
+      const db = new FakeFirestore();
+      seedWorld(db);
+      const { journey } = await created(db);
+      storeStyle(db, journey.id, NAVY);
+      for (const echo of [undefined, null, "navy", { headerColor: "navy" }, TEAL]) {
+        const draft = structuredClone(journey.draft);
+        draft.pools[0]!.items[0]!.subject = `Edited ${String(echo)}`;
+        const body = echo === undefined ? draft : { ...draft, settings: { ...draft.settings, emailStyle: echo } };
+        const saved = await saveLifecycleDraft(ctx, journey.id, body, { db, authoredBy: "agent" });
+        expect(saved.ok).toBe(true);
+        expect(raw(db, journey.id).draft.settings.emailStyle).toEqual(NAVY);
+        expect(saved.ok && saved.value.journey.draft.settings.emailStyle).toEqual(NAVY);
+      }
+      // …and a journey without one stays without one: no key.
+      const { journey: plain } = await created(db);
+      await saveLifecycleDraft(ctx, plain.id, { ...plain.draft, settings: { ...plain.draft.settings, emailStyle: NAVY } }, { db });
+      expect(raw(db, plain.id).draft.settings).not.toHaveProperty("emailStyle");
+    }
+  });
+
+  it("a style saved between a draft save's read and its write isn't lost", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    const draft = structuredClone(journey.draft);
+    draft.pools[0]!.items[0]!.subject = "Edited from chat";
+    // Vizzy's journey-style kind lands after this save read the journey, before it commits.
+    db.onBeforeCommit = async () => {
+      await forTenant(system, db).lifecycleJourneys.claim(journey.id, (cur) => ({
+        draft: { ...cur.draft, settings: { ...cur.draft.settings, emailStyle: NAVY } },
+      }));
+    };
+    const saved = await saveLifecycleDraft(ctx, journey.id, draft, { db, authoredBy: "agent" });
+    expect(saved.ok).toBe(true);
+    const after = raw(db, journey.id) as RawJourney & { draft: { pools: Array<{ items: Array<{ subject: string }> }> } };
+    expect(after.draft.settings.emailStyle).toEqual(NAVY);
+    expect(after.draft.pools[0]!.items[0]!.subject).toBe("Edited from chat");
+  });
+
+  it("a journey archived between a draft save's read and its write isn't written", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    db.onBeforeCommit = async () => {
+      await forTenant(system, db).lifecycleJourneys.update(journey.id, { status: "archived" });
+    };
+    const draft = structuredClone(journey.draft);
+    draft.pools[0]!.items[0]!.subject = "Too late";
+    expect(await saveLifecycleDraft(ctx, journey.id, draft, { db })).toMatchObject({ ok: false, status: 404, error: "not_found" });
+    expect(JSON.stringify(raw(db, journey.id).draft)).not.toContain("Too late");
+  });
+
+  it("with the flag on, publish makes the draft's style live, and a draft on the brand's clears it", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    storeStyle(db, journey.id, TEAL);
+    const v1 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v1.ok && v1.value.journey.emailStyle).toEqual(TEAL);
+    expect(raw(db, journey.id).emailStyle).toEqual(TEAL);
+    const version1 = (await forTenant(system, db).lifecycleVersions.getById(`${journey.id}_v1`))!;
+    expect(version1.settings.emailStyle).toEqual(TEAL);
+
+    // Saved to the draft only: the live style doesn't move until the next publish.
+    storeStyle(db, journey.id, NAVY);
+    expect(raw(db, journey.id).emailStyle).toEqual(TEAL);
+
+    storeStyle(db, journey.id, null);
+    const v2 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v2.ok && v2.value.journey.emailStyle).toBeNull();
+    expect(raw(db, journey.id).emailStyle).toBeNull();
+    const version2 = (await forTenant(system, db).lifecycleVersions.getById(`${journey.id}_v2`))!;
+    expect(version2.settings).not.toHaveProperty("emailStyle");
+
+    // A damaged draft style reads as none: it publishes, on the brand's.
+    storeStyle(db, journey.id, { headerColor: "navy", accentColor: "#ff6b35" });
+    const v3 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v3.ok && v3.value.journey.emailStyle).toBeNull();
+  });
+
+  it("with the flag off, publish writes no email style: not on the journey, not in the version", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    storeStyle(db, journey.id, TEAL);
+    const before = structuredClone(raw(db, journey.id));
+    const v1 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v1.ok).toBe(true);
+    expect(v1.ok && v1.value.journey).not.toHaveProperty("emailStyle");
+    expect(raw(db, journey.id)).not.toHaveProperty("emailStyle");
+    expect(raw(db, journey.id).draft).toEqual(before.draft);
+    const version = db.raw("lifecycle_versions", `${journey.id}_v1`) as { settings: Record<string, unknown> };
+    expect(version.settings).not.toHaveProperty("emailStyle");
   });
 });

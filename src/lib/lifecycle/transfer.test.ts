@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { LifecycleSettingsSchema } from "@/lib/types/lifecycle";
-import { saveLifecycleDraft } from "./service";
+import { publishLifecycleJourney, saveLifecycleDraft } from "./service";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, JOURNEY_DOCUMENT_FORMAT } from "./transfer";
 import { CONNECTION_ID, ctx, publishOnboarding, seedWorld } from "./testing/fixtures";
 
@@ -14,6 +14,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.LIFECYCLE_MODE_CEILING;
+  vi.unstubAllEnvs();
 });
 
 /** A second product in the same account (e.g. the customer's production app). */
@@ -194,6 +195,68 @@ describe("journey transfer", () => {
         },
       }
     `);
+  });
+
+  describe("a journey's own email style", () => {
+    const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+    const TEAL = { headerColor: "#0f766e", accentColor: "#f59e0b", headerText: "white" };
+    type Raw = { draft: { settings: Record<string, unknown> } };
+    function storeStyle(db: FakeFirestore, id: string, style: unknown) {
+      const doc = structuredClone(db.raw("lifecycle_journeys", id)) as Raw;
+      doc.draft.settings.emailStyle = style;
+      db.seed("lifecycle_journeys", id, doc);
+    }
+
+    it("duplicate keeps it, with the flag on and with it off", async () => {
+      for (const flag of ["true", "false"]) {
+        vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", flag);
+        const { db, journey } = await world();
+        const prod = seedSecondConnection(db);
+        storeStyle(db, journey.id, TEAL);
+        const r = await duplicateJourney(ctx, journey.id, { connectionId: prod, which: "draft" }, { db, nowMs: T });
+        if (!r.ok) throw new Error(r.error);
+        expect((db.raw("lifecycle_journeys", r.value.journeyId) as Raw).draft.settings.emailStyle).toEqual(TEAL);
+      }
+    });
+
+    it("a published export carries the live style, not the draft's", async () => {
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+      const { db, journey } = await world();
+      storeStyle(db, journey.id, NAVY);
+      await publishLifecycleJourney(ctx, journey.id, { db, nowMs: T });
+      storeStyle(db, journey.id, TEAL);
+      const pub = await exportJourneyDocument(ctx, journey.id, { db });
+      const drf = await exportJourneyDocument(ctx, journey.id, { which: "draft", db });
+      expect(pub.ok && pub.value.draft.settings.emailStyle).toEqual(NAVY);
+      expect(drf.ok && drf.value.draft.settings.emailStyle).toEqual(TEAL);
+
+      // Published with the flag off, the live style stays what it was (the version keeps none).
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      await publishLifecycleJourney(ctx, journey.id, { db, nowMs: T });
+      const killed = await exportJourneyDocument(ctx, journey.id, { db });
+      expect(killed.ok && killed.value).toMatchObject({ sourceVersion: 3, draft: { settings: { emailStyle: NAVY } } });
+
+      // Published on the brand's: no key, as for a journey that never had one.
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+      storeStyle(db, journey.id, null);
+      await publishLifecycleJourney(ctx, journey.id, { db, nowMs: T });
+      const brand = await exportJourneyDocument(ctx, journey.id, { db });
+      expect(brand.ok && brand.value.draft.settings).not.toHaveProperty("emailStyle");
+    });
+
+    it("a damaged style reads as none: it exports and imports without one, and nothing fails", async () => {
+      const { db, journey } = await world();
+      storeStyle(db, journey.id, { headerColor: "navy", accentColor: "#ff6b35" });
+      const exported = await exportJourneyDocument(ctx, journey.id, { which: "draft", db });
+      if (!exported.ok) throw new Error(exported.error);
+      expect(exported.value.draft.settings).not.toHaveProperty("emailStyle");
+
+      const doc = JSON.parse(JSON.stringify(exported.value));
+      doc.draft.settings.emailStyle = "navy";
+      const imported = await importJourneyDocument(ctx, { connectionId: CONNECTION_ID, document: doc }, { db });
+      if (!imported.ok) throw new Error(imported.error);
+      expect((db.raw("lifecycle_journeys", imported.value.journeyId) as Raw).draft.settings).not.toHaveProperty("emailStyle");
+    });
   });
 
   it("can't reach another account's journeys or connections", async () => {

@@ -5,12 +5,14 @@ import { setTenantEmailStyle } from "@/lib/tenant/control";
 import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import {
   enrolByHand,
+  generateJourneyDraft,
   getJourneyDetail,
   journeyAnalytics,
   listEnrolments,
   listJourneys,
   previewJourney,
   runNow,
+  saveDraft,
   stopEnrolment,
 } from "./adminApi";
 import { enrolmentDocId } from "./enrol";
@@ -214,5 +216,86 @@ describe("journey detail: what the previews need to match the send", () => {
     await setTenantEmailStyle(TENANT_ID, STYLE, db);
     const detail = (await getJourneyDetail(ctx, journey.id, db)).body as Detail;
     expect(detail).toMatchObject({ footerBrand: "The Fernlight team", features: { emailStyle: true }, emailStyle: { headerColor: "#0b1f3a" } });
+  });
+});
+
+describe("the journey's own email style in the editor's draft save", () => {
+  const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+  afterEach(() => vi.unstubAllEnvs());
+
+  type RawDraft = { draft: { settings: Record<string, unknown>; pools: Array<{ items: Array<{ subject: string }> }> } };
+  const stored = (db: FakeFirestore, id: string) => (db.raw("lifecycle_journeys", id) as RawDraft).draft;
+  async function draftOf(db: FakeFirestore, id: string) {
+    return structuredClone((await forTenant(system, db).lifecycleJourneys.getById(id))!.draft);
+  }
+  const withStyle = (draft: Awaited<ReturnType<typeof draftOf>>, emailStyle: unknown) => ({ ...draft, settings: { ...draft.settings, emailStyle } });
+
+  it("sets a valid style, keeps it when the body has none, and goes back to the brand's on null", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const { db, journey } = await setup();
+    const draft = await draftOf(db, journey.id);
+
+    const set = await saveDraft(ctx, journey.id, withStyle(draft, { headerColor: "#0B1F3A", accentColor: "#FF6B35", headerGradientColor: "#4F46E5" }), db);
+    expect(set.status).toBe(200);
+    expect(stored(db, journey.id).settings.emailStyle).toStrictEqual({ ...NAVY, headerGradientColor: "#4f46e5" });
+
+    draft.pools[0]!.items[0]!.subject = "Edited";
+    expect((await saveDraft(ctx, journey.id, draft, db)).status).toBe(200);
+    expect(stored(db, journey.id).pools[0]!.items[0]!.subject).toBe("Edited");
+    expect(stored(db, journey.id).settings.emailStyle).toStrictEqual({ ...NAVY, headerGradientColor: "#4f46e5" });
+
+    expect((await saveDraft(ctx, journey.id, withStyle(draft, null), db)).status).toBe(200);
+    expect(stored(db, journey.id).settings).not.toHaveProperty("emailStyle");
+  });
+
+  it("refuses a bad style with a 400 naming the field, and writes nothing", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const { db, journey } = await setup();
+    const draft = await draftOf(db, journey.id);
+    await saveDraft(ctx, journey.id, withStyle(draft, NAVY), db);
+    const before = structuredClone(stored(db, journey.id));
+
+    draft.pools[0]!.items[0]!.subject = "Not saved";
+    const cases: Array<[unknown, string]> = [
+      [{ ...NAVY, headerColor: "navy" }, "settings.emailStyle.headerColor"],
+      [{ headerColor: "#0b1f3a" }, "settings.emailStyle.accentColor"],
+      [{ ...NAVY, headerText: "auto" }, "settings.emailStyle.headerText"],
+      [{ ...NAVY, logo: null }, "settings.emailStyle"],
+      ["navy", "settings.emailStyle"],
+    ];
+    for (const [bad, field] of cases) {
+      const r = await saveDraft(ctx, journey.id, withStyle(draft, bad), db);
+      expect(r).toMatchObject({ status: 400, body: { error: "invalid_draft" } });
+      expect((r.body as { detail: string }).detail.startsWith(`${field}: `)).toBe(true);
+    }
+    expect(stored(db, journey.id)).toEqual(before);
+  });
+
+  it("with the flag off, the draft save keeps what's stored and ignores a style in the body, bad or good", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const { db, journey } = await setup();
+    const draft = await draftOf(db, journey.id);
+    await saveDraft(ctx, journey.id, withStyle(draft, NAVY), db);
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+    for (const echo of [{ headerColor: "navy" }, { headerColor: "#0f766e", accentColor: "#f59e0b" }, null]) {
+      expect((await saveDraft(ctx, journey.id, withStyle(draft, echo), db)).status).toBe(200);
+      expect(stored(db, journey.id).settings.emailStyle).toStrictEqual(NAVY);
+    }
+    // …and a journey without one, today's draft save exactly: no key.
+    const { journey: plain } = await publishOnboarding(db);
+    await saveDraft(ctx, plain.id, withStyle(await draftOf(db, plain.id), NAVY), db);
+    expect(stored(db, plain.id).settings).not.toHaveProperty("emailStyle");
+  });
+
+  it("the AI rebuild keeps the style", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const { db, journey } = await setup();
+    await saveDraft(ctx, journey.id, withStyle(await draftOf(db, journey.id), NAVY), db);
+    const generate = async () =>
+      JSON.stringify({ subject: "Rebuilt {{user.first_name|there}}", previewText: "Quick note", body: "<p>Hello {{user.first_name|there}}</p>" });
+    const r = await generateJourneyDraft(ctx, journey.id, { brief: "Shorter" }, { db, generate });
+    expect(r.status).toBe(200);
+    expect(stored(db, journey.id).pools[0]!.items[0]!.subject).toBe("Rebuilt {{user.first_name|there}}");
+    expect(stored(db, journey.id).settings.emailStyle).toStrictEqual(NAVY);
   });
 });

@@ -181,8 +181,9 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
   });
 }
 
+/** The editor's Save: the one draft save that can set the journey style (`settings.emailStyle`). */
 export async function saveDraft(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
-  return fromService(await saveLifecycleDraft(ctx, id, input, { db, authoredBy: "human" }), (v) => v);
+  return fromService(await saveLifecycleDraft(ctx, id, input, { db, authoredBy: "human", emailStyle: "from_input" }), (v) => v);
 }
 
 export async function publishJourney(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
@@ -617,7 +618,8 @@ export async function generateJourneyDraft(
     generate: deps.generate,
   });
   if ("error" in built) return fail(422, "invalid_options", built.detail);
-  const saved = await saveLifecycleDraft(ctx, journeyId, built.draft, { db: deps.db, authoredBy: "human" });
+  // A rebuilt draft keeps the journey's style.
+  const saved = await saveLifecycleDraft(ctx, journeyId, built.draft, { db: deps.db, authoredBy: "human", emailStyle: "keep" });
   if (!saved.ok) return fail(saved.status, saved.error, saved.detail);
   return ok({ journey: saved.value.journey, issues: saved.value.issues, notes: built.notes });
 }

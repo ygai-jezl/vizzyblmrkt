@@ -5,7 +5,7 @@ import { LifecycleDraftSchema, LifecycleSettingsSchema, type LifecycleDraft, typ
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { isLifecycleChatAuthoringEnabled, isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { architectLifecycleDraft, LIFECYCLE_ARCHITECT_TEMPLATES } from "@/lib/lifecycle/architect";
-import { createLifecycleJourney, getLifecycleJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
+import { createLifecycleJourney, getLifecycleJourney, saveLifecycleDraft, withJourneyEmailStyle } from "@/lib/lifecycle/service";
 import type { GraphIssue } from "@/lib/lifecycle/graph";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
@@ -122,13 +122,14 @@ export async function authorLifecycleDraft(
     draft = parsed.data;
   }
 
-  // Save — only ever the DRAFT.
+  // Save — only ever the DRAFT. The journey's style isn't this kind's to set (journey_style is):
+  // an edit keeps what's stored, and a new journey starts on the brand's.
   const saved = existing
-    ? await saveLifecycleDraft(ctx, existing.id, draft, { db: deps.db, authoredBy: "agent" })
+    ? await saveLifecycleDraft(ctx, existing.id, draft, { db: deps.db, authoredBy: "agent", emailStyle: "keep" })
     : await createLifecycleJourney(
         ctx,
         { name: req.data.name ?? `${connection.name} onboarding`, connectionId, template: "product_onboarding" },
-        { db: deps.db, authoredBy: "agent", draft },
+        { db: deps.db, authoredBy: "agent", draft: { ...draft, settings: withJourneyEmailStyle(draft.settings, undefined) } },
       );
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error, issues: saved.detail ? [saved.detail] : undefined };
 

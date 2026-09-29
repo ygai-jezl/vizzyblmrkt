@@ -5,6 +5,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import {
   ConnectionCatalogSchema,
   ConsentPolicySchema,
+  ENTITY_KIND_RE,
   ProductEnvironment,
   SandboxUserSchema,
   type ConnectionCatalog,
@@ -30,6 +31,7 @@ import {
   fireSandboxEvent,
 } from "./sandbox";
 import { zodReason } from "./protocol";
+import { ENTITY_ID_RE } from "./v2/contract";
 import { isOwnOrVerifiedAddress } from "@/lib/lifecycle/policy";
 
 /**
@@ -358,7 +360,11 @@ export async function rotateProductConnectionSecret(
 
 // ---- Testing the connection ---------------------------------------------------------
 
-const TestContextInput = z.object({ userId: z.string().min(1).max(256) });
+const TestContextInput = z.object({
+  userId: z.string().min(1).max(256),
+  /** Ask about one of the user's things (e.g. a brand), as a send about it would. */
+  entity: z.object({ id: z.string().regex(ENTITY_ID_RE), kind: z.string().regex(ENTITY_KIND_RE) }).nullable().optional(),
+});
 
 /** "Test connection": pull context for one user and show the validated payload. */
 export async function testContext(
@@ -371,13 +377,18 @@ export async function testContext(
   if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
   const conn = await loadConnection(ctx, id, opts.db);
   if (!conn) return fail(404, "not_found");
-  const result = await fetchProductContext(
-    conn,
-    { userId: parsed.data.userId, purpose: "test" },
-    { db: opts.db, ...opts.client },
-  );
+  const { userId, entity } = parsed.data;
+  const [result, user] = await Promise.all([
+    fetchProductContext(conn, { userId, purpose: "test", ...(entity ? { entity } : {}) }, { db: opts.db, ...opts.client }),
+    forTenant(ctx, opts.db).productUsers.getById(productUserDocId(conn.id, userId)),
+  ]);
   await recordContextHealth(ctx, conn, result, opts.db);
-  return ok(result);
+  // The things we hold for this user, to pick one to test for.
+  const entities =
+    user && user.connectionId === conn.id && user.status === "active"
+      ? Object.entries(user.entities ?? {}).map(([id, e]) => ({ id, kind: e.kind, name: e.name }))
+      : [];
+  return ok({ ...result, entities });
 }
 
 /** What an endpoint that's still starting up answers: the test tries once more, as a delivery would. */

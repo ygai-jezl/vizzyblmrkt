@@ -19,6 +19,7 @@ import { fetchProductContext, recordContextHealth, type ContextClientDeps } from
 import { sendConnectionWebhook } from "./webhookClient";
 import { eraseProductUser } from "./erase";
 import { productUserDocId } from "./profile";
+import { stepPlacement } from "./stepPlacement";
 import { getUserView } from "./v2/users";
 import { isCatalogHistoryEnabled, isEntitiesEnabled } from "./v2/flags";
 import { getCatalogRevision, listCatalogRevisions, recordCatalogRevision } from "./catalogHistory";
@@ -442,6 +443,25 @@ export async function listConnectionUsers(
   });
   const next = users.length === limit ? (users[users.length - 1]?.lastSeenAt ?? null) : null;
   return ok({ users, next });
+}
+
+/** How many of the most recently seen users the step check reads. */
+const PLACEMENT_SAMPLE = 200;
+
+/**
+ * Which onboarding steps the product sends somewhere other than where the
+ * catalog counts them (per brand vs per person), from its most recently seen
+ * users — for the Catalog and Users tabs to flag, with the fix.
+ */
+export async function getStepPlacement(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
+  const conn = await loadConnection(ctx, id, db);
+  if (!conn) return fail(404, "not_found");
+  const users = await forTenant(ctx, db).productUsers.find({
+    where: [["connectionId", "==", id]],
+    orderBy: [["lastSeenAt", "desc"]],
+    limit: PLACEMENT_SAMPLE,
+  });
+  return ok(stepPlacement(users, conn.catalog));
 }
 
 /** How many of a user's latest writes the lookup shows. */

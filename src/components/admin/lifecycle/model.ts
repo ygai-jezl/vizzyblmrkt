@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types/lifecycle";
 import type { ConditionOperator } from "@/lib/types/journey";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import type { PaletteChip } from "../brand-kit/emailStyleForm";
 import { CONDITION_FIELDS } from "@/lib/journey/conditions";
 
 /**
@@ -48,11 +49,30 @@ export interface JourneyDetail {
   sender: { verified: boolean; fromEmail: string | null; fromName: string | null };
   /** The footer's "sent by" brand when the journey names no sender (launches: the launch's sender). */
   footerBrand: string;
-  /** The Email style previews wear, as the send does; null = today's look (or the flag is off). */
+  /**
+   * The brand's Email style, which previews wear as the send does; null = today's look (or the flag
+   * is off). With journey styles on, the editor's preview draws the draft's own style over it.
+   */
   emailStyle: ResolvedEmailStyle | null;
   postalAddress: string | null;
   modeCeiling: "test" | "shadow" | "live";
-  features: { chatAuthoring: boolean; aiLines: boolean; consentAtSend: boolean; optInAfterSignup: boolean; entities: boolean; emailStyle: boolean };
+  features: {
+    chatAuthoring: boolean;
+    aiLines: boolean;
+    consentAtSend: boolean;
+    optInAfterSignup: boolean;
+    entities: boolean;
+    emailStyle: boolean;
+    /** The journey's own Email style in Settings and the preview (EMAIL_JOURNEY_STYLE_ENABLED); only sent while on. */
+    journeyEmailStyle?: boolean;
+    /** A journey style's gradient and header text draw (EMAIL_HEADER_OPTIONS_ENABLED); only sent with journey styles on. */
+    emailHeaderOptions?: boolean;
+  };
+  /**
+   * With journey styles on: the brand's colours as the Email style section's quick picks, and the
+   * name a band falls back on with no brand style saved (as the send's). Absent while off.
+   */
+  journeyStyle?: { palette: PaletteChip[]; fallbackName: string };
 }
 
 export type EnrolmentRow = LifecycleEnrolment & {

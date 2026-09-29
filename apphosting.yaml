@@ -886,3 +886,52 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Email style, next: five follow-ups on top of Email style, each on its own server
+  # flag. All are RUNTIME only, with no client mirror (the pages that show them are
+  # server components that pass props), and none is read by the renderers. Off, each
+  # gives exactly today's emails and keeps what's saved, so each is a kill switch.
+  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  #
+  # Themes (needs EMAIL_STYLE_ENABLED): one of four looks (Classic, Modern, Editorial,
+  # Friendly) with a heading and a body font, in sends and previews, the Theme section
+  # on the Email style page, its Save API, and Vizzy's Email style suggestions. Off: the
+  # theme is ignored, a Save keeps a stored one, and Vizzy says themes aren't on yet.
+  - variable: EMAIL_THEMES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Web fonts (needs EMAIL_THEMES_ENABLED and the https EMAIL_LINK_ORIGIN above): a
+  # theme's web font (Inter, Lora, …) loads from /email-fonts/ in the inboxes that load
+  # them (Apple Mail, Outlook for Mac, a few others) through a <head> block, Mandrill
+  # sends those emails with inline_css off, and the page previews both views. Off:
+  # each theme's safe fonts only, with no head block.
+  - variable: EMAIL_WEB_FONTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Layout buttons (needs EMAIL_STYLE_ENABLED): a Create email layout's buttons take
+  # the Email style's button colour (with a readable label) and the theme's button
+  # shape, unless a button is set to Own colour. Off: every button draws as built, and
+  # no Own colour marker is written.
+  - variable: EMAIL_LAYOUT_STYLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Sign-up confirmation and offboarding emails (needs EMAIL_STYLE_ENABLED): both wear
+  # the colour header (never the banner), the button colour and the card, with the same
+  # subject, copy, text part and sender; an offboarding email skips a suppressed
+  # address; the Email style page's preview can switch to either. Off: today's plain
+  # emails, sent exactly as today.
+  - variable: EMAIL_STYLE_TRANSACTIONAL_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Journey styles (needs EMAIL_STYLE_ENABLED; a journey's gradient and header text also
+  # need EMAIL_HEADER_OPTIONS_ENABLED): a lifecycle journey's own header and button
+  # colours, set in the journey's Settings or by Vizzy in its draft, and live on Publish.
+  # Off: every journey wears the brand's Email style, stored journey styles are kept,
+  # and Vizzy says journey styles aren't on yet and offers the brand suggestion.
+  - variable: EMAIL_JOURNEY_STYLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME

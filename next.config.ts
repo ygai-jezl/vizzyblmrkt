@@ -124,6 +124,17 @@ const nextConfig: NextConfig = {
         source: "/invite/:path*",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
+      {
+        // The email web fonts (public/email-fonts/, EMAIL_WEB_FONTS_ENABLED). Fonts
+        // are fetched in CORS mode, from inboxes and from the Email style page's
+        // sandboxed preview (an opaque origin), so any origin may load them. Every
+        // filename carries a version, so a file never changes under its name.
+        source: "/email-fonts/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
     ];
   },
 };

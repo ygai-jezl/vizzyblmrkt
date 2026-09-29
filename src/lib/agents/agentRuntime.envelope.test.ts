@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { TenantContext } from "@/lib/tenant/types";
 import { contextEnvelope } from "./agentRuntime";
+import { shellChatContext } from "@/lib/nav/vizzy";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", userId: "u1", source: "idtoken" };
 
@@ -29,3 +30,44 @@ describe("contextEnvelope page context", () => {
   });
 });
 
+
+describe("contextEnvelope journey in view (journey styles)", () => {
+  it("carries a journey, keeps an empty one (it clears the last), and leaves out none", () => {
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { connectionId: "pcn_1", journeyId: "lcj_1" }))).toMatchObject({
+      connectionId: "pcn_1",
+      journeyId: "lcj_1",
+    });
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { journeyId: "" }))).toHaveProperty("journeyId", "");
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { journeyId: null }))).not.toHaveProperty("journeyId");
+    expect(parse(contextEnvelope(ctx, "t1"))).not.toHaveProperty("journeyId");
+    // The launch the same way.
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { campaignId: "" }))).toHaveProperty("campaignId", "");
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { campaignId: null }))).not.toHaveProperty("campaignId");
+  });
+
+  it("the Ask Vizzy panel moving from a journey page to a launch page stops naming the journey", () => {
+    const opts = { phase4: false, journeyInContext: true };
+    const onJourney = parse(contextEnvelope(ctx, "t1", undefined, shellChatContext("/admin/lifecycle/lcj_a", "Journeys › A", opts)));
+    const onLaunch = parse(contextEnvelope(ctx, "t2", undefined, shellChatContext("/admin/launches/cmp_b", "Launches › B", opts)));
+    expect(onJourney).toMatchObject({ journeyId: "lcj_a", campaignId: "" });
+    // Agent-side, "" replaces lcj_a in the session, so the launch's welcome journey is the one in view.
+    expect(onLaunch).toMatchObject({ campaignId: "cmp_b", journeyId: "" });
+    // Flag off: exactly as before, no journey key at all.
+    const off = parse(contextEnvelope(ctx, "t3", undefined, shellChatContext("/admin/lifecycle/lcj_a", "Journeys › A", { phase4: false })));
+    expect(off).not.toHaveProperty("journeyId");
+    expect(off).not.toHaveProperty("campaignId");
+  });
+
+  it("the Ask Vizzy panel moving from a launch page to Home stops naming the launch", () => {
+    const opts = { phase4: false, journeyInContext: true };
+    const onLaunch = parse(contextEnvelope(ctx, "t1", undefined, shellChatContext("/admin/launches/cmp_b/settings", "Launches › B", opts)));
+    const onHome = parse(contextEnvelope(ctx, "t2", undefined, shellChatContext("/admin", "Home", opts)));
+    expect(onLaunch).toMatchObject({ campaignId: "cmp_b", journeyId: "" });
+    // Agent-side, "" replaces cmp_b too, so "this journey" on Home is no journey, not B's welcome journey.
+    expect(onHome).toMatchObject({ campaignId: "", journeyId: "" });
+    // Flag off: exactly as before, no launch key off a launch page.
+    expect(parse(contextEnvelope(ctx, "t3", undefined, shellChatContext("/admin", "Home", { phase4: false })))).not.toHaveProperty(
+      "campaignId",
+    );
+  });
+});

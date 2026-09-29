@@ -25,8 +25,9 @@ import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
  *   - compileJourneyEmail → fully-rendered HTML for ONE recipient (Mandrill)
  * and runs a light brand-safety check (strictest for ENTERPRISE_TRUST).
  *
- * An optional resolved Email style adds the header band (see wrap()); none =
- * today's output. Pure: the style arrives as data, never read from env here.
+ * An optional resolved Email style adds the header band (see wrap()) and, with a
+ * theme, its page, card and fonts (the appended footer too); none = today's
+ * output. Pure: the style arrives as data, never read from env here.
  */
 export interface CompiledEmail {
   subject: string;
@@ -50,7 +51,7 @@ export function compileBroadcast(
   // already renders one; otherwise append it here so even a raw-body broadcast
   // carries the consistent footer + unsubscribe.
   if (!bodyHasFooter) {
-    inner += toMailchimpMergeTags(renderFooter(null), campaign, footer);
+    inner += toMailchimpMergeTags(renderFooter(null, { style }), campaign, footer);
   }
   return {
     subject,
@@ -83,11 +84,11 @@ export function compileJourneyEmail(
   // a subscriber value that literally contains "{{...}}" can't be re-processed).
   let inner: string;
   if (looksHtml(content.body)) {
-    const raw = hasFooter(content.body) ? content.body : content.body + renderFooter(null);
+    const raw = hasFooter(content.body) ? content.body : content.body + renderFooter(null, { style });
     inner = renderMergeVars(raw, mergeCtx, escapeHtml);
   } else {
     const bodyHtml = paragraphize(escapeHtml(renderMergeVars(content.body, mergeCtx)));
-    const footerHtml = renderMergeVars(renderFooter(null), mergeCtx, escapeHtml);
+    const footerHtml = renderMergeVars(renderFooter(null, { style }), mergeCtx, escapeHtml);
     inner = bodyHtml + footerHtml;
   }
   const hero = content.heroImageUrl ?? null;

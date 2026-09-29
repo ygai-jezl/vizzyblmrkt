@@ -181,7 +181,7 @@ async function saveMovedLaunchDraft(
   const id = waitlistJourneyId(campaign.id);
   const existing = await forTenant(ctx).lifecycleJourneys.getById(id);
   const saved = existing
-    ? await saveLifecycleDraft(ctx, id, draft, { authoredBy: "agent" })
+    ? await saveLifecycleDraft(ctx, id, draft, { authoredBy: "agent", emailStyle: "keep" })
     : await createWaitlistJourney(ctx, { campaignId: campaign.id, draft }, { authoredBy: "agent" });
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
   const journey = saved.value.journey;

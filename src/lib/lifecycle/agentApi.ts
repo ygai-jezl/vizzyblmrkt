@@ -3,7 +3,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import { verifyCanvasContext, isCanvasAuthConfigured, tenantContextFromCanvasToken } from "@/lib/canvas/auth";
-import { isEmailStyleEnabled } from "@/lib/email/flags";
+import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { validateLifecycleDraft } from "./graph";
 import { isLifecycleChatAuthoringEnabled, isLifecycleEnabled } from "./flags";
 
@@ -118,6 +118,9 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
       // With a saved Email style, branded emails get the header band and button colour, so
       // bodies shouldn't bring their own. Only sent while the flag is on.
       ...(isEmailStyleEnabled() ? { emailStyle: { configured: Boolean(tenant?.emailStyle) } } : {}),
+      // A journey can wear its own header and button colours (the journey_style kind), set
+      // in its draft. Only sent while journey styles are on.
+      ...(isEmailStyleEnabled() && isEmailJourneyStyleEnabled() ? { journeyStyle: { enabled: true } } : {}),
     },
   };
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TenantSchema, type StoredEmailStyle, type Tenant } from "@/lib/types/tenant";
-import { resolveEmailStyle } from "./resolveEmailStyle";
+import { resolveEmailStyle, resolveJourneyEmailStyle, resolveTransactionalEmailStyle } from "./resolveEmailStyle";
+import { themeTokens, tint } from "./emailThemes";
 
 const FILE = "0f8fad5b-d9cb-469f-a165-70867728950e.png";
 const STYLE: StoredEmailStyle = {
@@ -179,6 +180,106 @@ describe("resolveEmailStyle", () => {
     });
   });
 
+  describe("theme", () => {
+    const today = {
+      logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+      name: null,
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    };
+    const withTheme = (theme: unknown) => tenant({ emailStyle: { ...STYLE, theme } });
+
+    it("flag off: a saved theme is ignored — exactly today's style, with web fonts on or off", () => {
+      for (const flag of ["false", ""]) {
+        vi.stubEnv("EMAIL_THEMES_ENABLED", flag);
+        expect(resolveEmailStyle(withTheme({ preset: "modern", bodyFont: "lora" }))).toStrictEqual(today);
+        vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+        expect(resolveEmailStyle(withTheme({ preset: "modern", bodyFont: "lora" }))).toStrictEqual(today);
+        vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "");
+      }
+    });
+
+    it("flag on: drawn with its safe fonts only while web fonts are off", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      expect(resolveEmailStyle(withTheme({ preset: "modern", bodyFont: "lora" }))).toStrictEqual({
+        ...today,
+        theme: { preset: "modern", headingFont: "inter", bodyFont: "lora" },
+      });
+    });
+
+    it("flag on with web fonts: the font files come from the email link origin, https only", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+      expect(resolveEmailStyle(withTheme({ preset: "modern" }))!.theme).toStrictEqual({
+        preset: "modern",
+        headingFont: "inter",
+        bodyFont: "inter",
+        webFontOrigin: "https://app.example.com",
+      });
+      // A safe-only theme needs no files.
+      expect(resolveEmailStyle(withTheme({ preset: "classic", bodyFont: "georgia" }))!.theme).not.toHaveProperty(
+        "webFontOrigin",
+      );
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "http://localhost:3000");
+      expect(resolveEmailStyle(withTheme({ preset: "modern" }))!.theme).not.toHaveProperty("webFontOrigin");
+      vi.stubEnv("EMAIL_LINK_ORIGIN", "");
+      expect(resolveEmailStyle(withTheme({ preset: "modern" }))!.theme).not.toHaveProperty("webFontOrigin");
+    });
+
+    it("flag on: Classic with the system font, or a damaged theme, is exactly today's style", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+      expect(resolveEmailStyle(withTheme({ preset: "classic" }))).toStrictEqual(today);
+      expect(resolveEmailStyle(tenant())).toStrictEqual(today);
+      for (const damaged of [{ preset: "brutalist" }, "modern", null, { preset: "classic", headingFont: "comic-sans" }]) {
+        const style = { ...STYLE, theme: damaged } as unknown as StoredEmailStyle;
+        // Built outside the registry, so the resolver's own lenient read is what drops it.
+        expect(resolveEmailStyle({ ...tenant(), emailStyle: style })).toStrictEqual(today);
+        expect(resolveEmailStyle(tenant({ emailStyle: style }))).toStrictEqual(today);
+      }
+    });
+
+    it("flag on: an unknown font reads as the preset's", () => {
+      vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+      const style = { ...STYLE, theme: { preset: "editorial", headingFont: "comic-sans" } } as unknown as StoredEmailStyle;
+      expect(resolveEmailStyle({ ...tenant(), emailStyle: style })!.theme).toStrictEqual({
+        preset: "editorial",
+        headingFont: "lora",
+        bodyFont: "georgia",
+      });
+    });
+  });
+
+  describe("layout buttons", () => {
+    const today = {
+      logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+      name: null,
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    };
+
+    it("flag off: no bit — exactly today's style", () => {
+      for (const flag of ["false", ""]) {
+        vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", flag);
+        expect(resolveEmailStyle(tenant())).toStrictEqual(today);
+      }
+    });
+
+    it("flag on: the bit is set, and nothing else changes", () => {
+      vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+      expect(resolveEmailStyle(tenant())).toStrictEqual({ ...today, layouts: true });
+    });
+
+    it("flag on: still null with the Email style off or nothing saved", () => {
+      vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+      expect(resolveEmailStyle(tenant({ emailStyle: undefined }))).toBeNull();
+      vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+      expect(resolveEmailStyle(tenant())).toBeNull();
+    });
+  });
+
   it("altName is the company name when set, else the sender name, else the tenant name", () => {
     expect(resolveEmailStyle(tenant({ emailStyle: { ...STYLE, companyName: "Acme" } }))).toMatchObject({
       name: "Acme",
@@ -188,5 +289,155 @@ describe("resolveEmailStyle", () => {
       "Example Team",
     );
     expect(resolveEmailStyle(tenant())!.altName).toBe("Example Co");
+  });
+});
+
+describe("resolveTransactionalEmailStyle (the confirmation and offboarding emails)", () => {
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const withImage = () => tenant({ emailStyle: { ...STYLE, headerImage: IMAGE } });
+  beforeEach(() => vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true"));
+
+  it("flag off: null, whatever is saved — today's plain emails", () => {
+    for (const flag of ["false", ""]) {
+      vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", flag);
+      expect(resolveTransactionalEmailStyle(tenant())).toBeNull();
+      expect(resolveTransactionalEmailStyle(withImage())).toBeNull();
+    }
+  });
+
+  it("flag on: the tenant's Email style", () => {
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+    expect(resolveTransactionalEmailStyle(tenant())).toStrictEqual(resolveEmailStyle(tenant()));
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    const themed = tenant({ emailStyle: { ...STYLE, headerGradientColor: "#4f46e5", theme: { preset: "editorial" } } });
+    expect(resolveTransactionalEmailStyle(themed)).toStrictEqual(resolveEmailStyle(themed));
+    expect(resolveTransactionalEmailStyle(themed)).toMatchObject({ headerGradientColor: "#4f46e5", theme: { preset: "editorial" } });
+  });
+
+  it("flag on: never the banner — the colour header, with the logo and everything else as saved", () => {
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+    expect(resolveEmailStyle(withImage())).toHaveProperty("headerImage");
+    expect(resolveTransactionalEmailStyle(withImage())).toStrictEqual({
+      logo: { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 },
+      name: null,
+      altName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    });
+  });
+
+  it("flag on: still null with the Email style off, nothing saved, a damaged style or no tenant", () => {
+    vi.stubEnv("EMAIL_STYLE_TRANSACTIONAL_ENABLED", "true");
+    expect(resolveTransactionalEmailStyle(tenant({ emailStyle: undefined }))).toBeNull();
+    expect(resolveTransactionalEmailStyle({ ...tenant(), emailStyle: { ...STYLE, headerColor: "red" } })).toBeNull();
+    expect(resolveTransactionalEmailStyle(null)).toBeNull();
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    expect(resolveTransactionalEmailStyle(tenant())).toBeNull();
+  });
+});
+
+describe("resolveJourneyEmailStyle (a lifecycle journey's sends and previews)", () => {
+  const LOGO = { url: `https://app.example.com/api/brand-logo/ten_A/${FILE}`, width: 120, height: 40 };
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const CUSTOM = { headerColor: "#1e3a8a", accentColor: "#f97316" };
+  const damaged: unknown[] = [
+    null,
+    "navy",
+    42,
+    { headerColor: "#1e3a8a" },
+    { headerColor: "navy", accentColor: "#f97316" },
+    { ...CUSTOM, headerColor: undefined },
+  ];
+
+  it("flag off: exactly the brand's style, whatever the journey stores", () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    for (const flag of ["false", ""]) {
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", flag);
+      for (const override of [undefined, CUSTOM, { ...CUSTOM, headerGradientColor: "#4f46e5" }, ...damaged]) {
+        expect(resolveJourneyEmailStyle(tenant(), override)).toStrictEqual(resolveEmailStyle(tenant()));
+      }
+      expect(resolveJourneyEmailStyle(tenant({ emailStyle: undefined }), CUSTOM)).toBeNull();
+    }
+  });
+
+  it("null with the Email style off, even for a journey with its own style", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    expect(resolveJourneyEmailStyle(tenant(), CUSTOM)).toBeNull();
+    expect(resolveJourneyEmailStyle(tenant({ emailStyle: undefined }), CUSTOM)).toBeNull();
+  });
+
+  it("flag on: no style, or an unreadable one, is the brand's", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    for (const override of [undefined, ...damaged]) {
+      expect(resolveJourneyEmailStyle(tenant(), override)).toStrictEqual(resolveEmailStyle(tenant()));
+    }
+    expect(resolveJourneyEmailStyle(null, CUSTOM)).toBeNull();
+  });
+
+  it("flag on: the journey's colours on the colour header, with the brand's logo and never its banner", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    const brand = tenant({ emailStyle: { ...STYLE, companyName: "Acme", headerGradientColor: "#4f46e5", headerImage: IMAGE } });
+    expect(resolveEmailStyle(brand)).toHaveProperty("headerImage");
+    expect(resolveJourneyEmailStyle(brand, CUSTOM)).toStrictEqual({ logo: LOGO, name: "Acme", altName: "Acme", ...CUSTOM });
+  });
+
+  it("flag on: the journey's gradient and header text need the header options flag too", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const options = { ...CUSTOM, headerGradientColor: "#4F46E5", headerText: "white" };
+    expect(resolveJourneyEmailStyle(tenant(), options)).toStrictEqual({
+      logo: LOGO,
+      name: null,
+      altName: "Example Co",
+      ...CUSTOM,
+    });
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    expect(resolveJourneyEmailStyle(tenant(), options)).toStrictEqual({
+      logo: LOGO,
+      name: null,
+      altName: "Example Co",
+      ...CUSTOM,
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+    // A damaged gradient drops alone.
+    expect(resolveJourneyEmailStyle(tenant(), { ...CUSTOM, headerGradientColor: "purple" })).toMatchObject(CUSTOM);
+    expect(resolveJourneyEmailStyle(tenant(), { ...CUSTOM, headerGradientColor: "purple" })).not.toHaveProperty(
+      "headerGradientColor",
+    );
+  });
+
+  it("flag on: the brand's theme and layout bit carry over, and Friendly tints from the journey's button colour", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_WEB_FONTS_ENABLED", "true");
+    vi.stubEnv("EMAIL_LAYOUT_STYLE_ENABLED", "true");
+    const friendly = tenant({ emailStyle: { ...STYLE, theme: { preset: "friendly" } } });
+    const journey = resolveJourneyEmailStyle(friendly, CUSTOM)!;
+    expect(journey).toStrictEqual({
+      logo: LOGO,
+      name: null,
+      altName: "Example Co",
+      ...CUSTOM,
+      theme: { preset: "friendly", headingFont: "poppins", bodyFont: "nunito", webFontOrigin: "https://app.example.com" },
+      layouts: true,
+    });
+    expect(themeTokens(journey)!.pageColor).toBe(tint(CUSTOM.accentColor, 0.94));
+    expect(themeTokens(resolveEmailStyle(friendly))!.pageColor).toBe(tint(STYLE.accentColor, 0.94));
+  });
+
+  it("flag on: with no brand style saved, the journey's colours on a name band", () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const bare = tenant({ emailStyle: undefined, emailSenderConfig: { senderName: "Example Team" } });
+    expect(resolveJourneyEmailStyle(bare, CUSTOM)).toStrictEqual({
+      logo: null,
+      name: null,
+      altName: "Example Team",
+      ...CUSTOM,
+    });
+    expect(resolveJourneyEmailStyle(bare, undefined)).toBeNull();
   });
 });

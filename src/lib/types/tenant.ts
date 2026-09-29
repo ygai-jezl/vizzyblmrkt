@@ -444,6 +444,8 @@ export type LearnedPostPatterns = z.infer<typeof LearnedPostPatternsSchema>;
  * text colour, and a header image (a banner in place of the logo and name). Stored only when
  * set: absent = a solid header / Auto text / the colour header. Absent in a Save = keep what's
  * stored. A damaged stored option drops alone; the band still draws (a damaged image = Colour).
+ * The theme (EMAIL_THEMES_ENABLED) works the same way: stored only when it isn't Classic with
+ * the system font, kept when a Save leaves it out, and dropped alone when damaged.
  */
 export const EMAIL_STYLE_LIMITS = { logoWidth: 200, logoHeight: 48, companyName: 80 } as const;
 
@@ -504,6 +506,50 @@ export const HEADER_TEXT_CHOICES = ["auto", "white", "black"] as const;
 export const HeaderTextSchema = z.enum(HEADER_TEXT_CHOICES);
 export type HeaderTextChoice = z.infer<typeof HeaderTextSchema>;
 
+/**
+ * Email theme (EMAIL_THEMES_ENABLED): one of four looks (page colour, card corners, button
+ * shape, spacing: src/lib/email/emailThemes.ts) and a heading and a body font. Fonts are by id,
+ * never CSS: the stacks are in src/lib/email/emailFonts.ts. The first five are installed almost
+ * everywhere; the rest are web fonts, which only some inboxes load (others see a safe stack).
+ * No theme = Classic with the system font, today's look.
+ */
+export const EMAIL_THEME_PRESETS = ["classic", "modern", "editorial", "friendly"] as const;
+export const EmailThemePresetSchema = z.enum(EMAIL_THEME_PRESETS);
+export type EmailThemePreset = z.infer<typeof EmailThemePresetSchema>;
+
+export const EMAIL_FONT_IDS = [
+  "system",
+  "arial",
+  "georgia",
+  "verdana",
+  "trebuchet",
+  "inter",
+  "poppins",
+  "nunito",
+  "montserrat",
+  "lora",
+  "playfair-display",
+] as const;
+export const EmailFontIdSchema = z.enum(EMAIL_FONT_IDS);
+export type EmailFontId = z.infer<typeof EmailFontIdSchema>;
+
+/** A theme, strictly (the Save). A font left out is the preset's. */
+export const EmailThemeSchema = z
+  .object({
+    preset: EmailThemePresetSchema,
+    headingFont: EmailFontIdSchema.optional(),
+    bodyFont: EmailFontIdSchema.optional(),
+  })
+  .strict();
+export type EmailTheme = z.infer<typeof EmailThemeSchema>;
+
+/** A stored theme, read per field: an unknown font reads as the preset's; an unknown preset fails (the theme drops). */
+export const StoredEmailThemeSchema = z.object({
+  preset: EmailThemePresetSchema,
+  headingFont: EmailFontIdSchema.optional().catch(undefined),
+  bodyFont: EmailFontIdSchema.optional().catch(undefined),
+});
+
 export const EmailStyleInputSchema = z.object({
   logo: EmailStyleLogoSchema.nullable(),
   /** null = the logo alone (or the workspace's sender name when there's no logo). */
@@ -516,6 +562,8 @@ export const EmailStyleInputSchema = z.object({
   headerText: HeaderTextSchema.optional(),
   /** A banner in place of the logo and name; null = the colour header. Absent = keep what's stored. */
   headerImage: EmailStyleHeaderImageSchema.nullable().optional(),
+  /** A look and two fonts; null = Classic with the system font (no theme). Absent = keep what's stored. */
+  theme: EmailThemeSchema.nullable().optional(),
 });
 export type EmailStyleInput = z.infer<typeof EmailStyleInputSchema>;
 
@@ -528,8 +576,44 @@ export const StoredEmailStyleSchema = EmailStyleInputSchema.extend({
   headerText: z.enum(["white", "black"]).optional().catch(undefined),
   /** Present = Image mode; absent = the colour header. A damaged one (say a .webp) reads as Colour. */
   headerImage: EmailStyleHeaderImageSchema.optional().catch(undefined),
+  /** Present = a theme other than Classic with the system font. A damaged one reads as no theme. */
+  theme: StoredEmailThemeSchema.optional().catch(undefined),
 });
 export type StoredEmailStyle = z.infer<typeof StoredEmailStyleSchema>;
+
+/**
+ * A journey's own look (EMAIL_JOURNEY_STYLE_ENABLED), for lifecycle journeys: product journeys,
+ * and launch welcome journeys on the new engine. Its header and button colours, and a gradient
+ * and header text (these two draw only with EMAIL_HEADER_OPTIONS_ENABLED), in place of the
+ * brand's; the brand's logo, name and theme stay, and there's never a banner. No style = the
+ * brand's Email style. The gradient and text are stored only when set (absent = solid / Auto).
+ * Strict on write (JourneyEmailStyleSchema: the human draft route and Vizzy's kind); lenient on
+ * read (StoredJourneyStyleSchema), because the style is echoed in every draft, journey and export
+ * parse, and a damaged one must read as the brand's rather than fail the journey around it.
+ */
+export const JourneyEmailStyleSchema = z
+  .object({
+    headerColor: HexColorSchema,
+    accentColor: HexColorSchema,
+    /** The header fades from headerColor to this; absent = solid. */
+    headerGradientColor: HexColorSchema.optional(),
+    /** Absent = Auto. */
+    headerText: z.enum(["white", "black"]).optional(),
+  })
+  .strict();
+export type JourneyEmailStyle = z.infer<typeof JourneyEmailStyleSchema>;
+
+/** A stored journey style: a damaged gradient or text drops alone; anything else damaged reads as none. */
+export const StoredJourneyStyleSchema = z
+  .object({
+    headerColor: HexColorSchema,
+    accentColor: HexColorSchema,
+    headerGradientColor: HexColorSchema.optional().catch(undefined),
+    headerText: z.enum(["white", "black"]).optional().catch(undefined),
+  })
+  .optional()
+  .catch(undefined);
+export type StoredJourneyStyle = NonNullable<z.infer<typeof StoredJourneyStyleSchema>>;
 
 export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 } as const;
 
@@ -539,7 +623,9 @@ export const EMAIL_STYLE_SUGGESTION_LIMITS = { brief: 500, notes: 5, note: 200 }
  * `suggestedAt` is the compare-and-clear key, so a Save or Dismiss never clears a newer one.
  * The header options are stored only when set (absent = solid / Auto / the colour header), and
  * strictly: a damaged one reads the whole suggestion as none, as for any other field. A header
- * image is by id only: its file and size come from the row on Review.
+ * image is by id only: its file and size come from the row on Review. The theme
+ * (EMAIL_THEMES_ENABLED) likewise: stored only when it isn't Classic with the system font,
+ * without the look's own fonts, and strictly.
  */
 export const EmailStyleSuggestionSchema = z.object({
   logoId: EmailStyleLogoSchema.shape.id.nullable(),
@@ -552,6 +638,8 @@ export const EmailStyleSuggestionSchema = z.object({
   headerText: z.enum(["white", "black"]).optional(),
   /** A header image (a `header` brand asset's id) in place of the logo and name; absent = the colour header. */
   headerImageId: EmailStyleLogoSchema.shape.id.optional(),
+  /** A look and two fonts, as the Email style stores one; absent = Classic with the system font. */
+  theme: EmailThemeSchema.optional(),
   source: z.enum(["brand_kit", "chat"]),
   /** What was asked for, in the asker's words. */
   brief: z.string().max(EMAIL_STYLE_SUGGESTION_LIMITS.brief),

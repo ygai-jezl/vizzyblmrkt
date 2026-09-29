@@ -38,3 +38,36 @@ describe("ensureFooterLast", () => {
     expect(EmailLayoutSchema.safeParse(out).success).toBe(true);
   });
 });
+
+describe("a button's styleSource", () => {
+  const button = (over: Record<string, unknown> = {}) => ({
+    id: "b",
+    kind: "button",
+    label: "Go",
+    href: "https://example.com/go",
+    align: "center",
+    bg: "#112233",
+    color: "#ffffff",
+    radius: 8,
+    ...over,
+  });
+  const first = (over: Record<string, unknown> = {}) => EmailLayoutSchema.parse({ blocks: [button(over)] }).blocks[0]!;
+
+  it("absent stays absent (the button follows the Email style), and the two known values round-trip", () => {
+    expect("styleSource" in first()).toBe(false);
+    expect(first({ styleSource: "own" })).toMatchObject({ styleSource: "own" });
+    expect(first({ styleSource: "email_style" })).toMatchObject({ styleSource: "email_style" });
+  });
+
+  it("a value from a later build reads as absent and never fails the layout; the built colours are kept", () => {
+    for (const styleSource of ["tinted", "OWN", 7, null, { mode: "own" }]) {
+      const r = EmailLayoutSchema.safeParse({ blocks: [button({ styleSource }), { id: "t", kind: "text", html: "<p>x</p>" }] });
+      expect(r.success).toBe(true);
+      const b = r.data!.blocks[0]!;
+      expect(b.kind).toBe("button");
+      expect(b.kind === "button" ? b.styleSource : "not a button").toBeUndefined();
+      expect(b).toMatchObject({ bg: "#112233", color: "#ffffff", radius: 8 });
+      expect(r.data!.blocks).toHaveLength(2);
+    }
+  });
+});

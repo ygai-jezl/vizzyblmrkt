@@ -13,7 +13,7 @@ import {
   type EmailLayout,
 } from "@/lib/types/emailLayout";
 import type { EmailTemplate } from "@/lib/types/emailTemplate";
-import { wrap, renderEmailLayout, escapeHtml } from "@/lib/email/emailRender";
+import { wrap, renderEmailLayout, escapeHtml, layoutButtonLook } from "@/lib/email/emailRender";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { Modal } from "@/components/admin/email/Modal";
 import { ADMIN_THEME_ROOT_ID } from "@/lib/theme";
@@ -80,7 +80,10 @@ export function EmailLayoutEditor({
   /** Absolute public URL of the tenant's primary brand logo, or null — defaulted into a
    *  fresh layout's header + a preset's empty logo slot. */
   primaryLogoUrl?: string | null;
-  /** The tenant's resolved Email style: the preview's band; null = today's look. */
+  /**
+   * The tenant's resolved Email style: the preview's band; null = today's look. With its `layouts`
+   * bit, buttons follow it (the chips show it too) and each gets an Email style / Own colour switch.
+   */
   emailStyle?: ResolvedEmailStyle | null;
   /** The footer's "sent by" brand, as the send resolves it; null = a placeholder. */
   footerBrand?: string | null;
@@ -150,7 +153,7 @@ export function EmailLayoutEditor({
     // A function replacer, so a `$&` or `$'` in the brand is inserted as written.
     const brand = footerBrand ? escapeHtml(footerBrand) : "Your Brand";
     return wrap(
-      renderEmailLayout(layout)
+      renderEmailLayout(layout, { style: emailStyle })
         .replaceAll("{{sender_brand}}", () => brand)
         .replaceAll("{{manage_preferences_url}}", "#")
         .replaceAll("{{unsubscribe_url}}", "#")
@@ -365,6 +368,7 @@ export function EmailLayoutEditor({
                 <BlockCard
                   key={block.id}
                   block={block}
+                  emailStyle={emailStyle}
                   selected={block.id === selectedId}
                   isFirst={i === 0}
                   // Can't move down INTO the footer's last slot.
@@ -393,6 +397,7 @@ export function EmailLayoutEditor({
         <div className="w-72 shrink-0 overflow-y-auto border-l border-neutral-200 dark:border-neutral-800">
           <BlockSettings
             block={selected}
+            emailStyle={emailStyle}
             onChange={(patch) => selected && updateBlock(selected.id, patch)}
             onGenerateImage={generateImageUrl}
           />
@@ -504,6 +509,7 @@ export function EmailLayoutEditor({
 /** A single editable block row in the edit surface. */
 function BlockCard({
   block,
+  emailStyle,
   selected,
   isFirst,
   isLast,
@@ -514,6 +520,7 @@ function BlockCard({
   onMarkCopy,
 }: {
   block: EmailBlock;
+  emailStyle: ResolvedEmailStyle | null;
   selected: boolean;
   isFirst: boolean;
   isLast: boolean;
@@ -567,15 +574,16 @@ function BlockCard({
             className="w-full rounded-md border border-neutral-200 px-2 py-1.5 text-sm font-semibold dark:border-neutral-800 dark:bg-neutral-950"
           />
         ) : (
-          <BlockMiniPreview block={block} />
+          <BlockMiniPreview block={block} emailStyle={emailStyle} />
         )}
       </div>
     </div>
   );
 }
 
-/** A lightweight non-fidelity representation of a non-text block in the edit list. */
-function BlockMiniPreview({ block }: { block: EmailBlock }) {
+/** A lightweight non-fidelity representation of a non-text block in the edit list. A button's
+ *  chip shows the colours and corners it draws, the Email style's where it follows it. */
+function BlockMiniPreview({ block, emailStyle }: { block: EmailBlock; emailStyle: ResolvedEmailStyle | null }) {
   switch (block.kind) {
     case "image":
       return block.src ? (
@@ -584,14 +592,16 @@ function BlockMiniPreview({ block }: { block: EmailBlock }) {
       ) : (
         <div className="rounded border border-dashed border-neutral-300 p-4 text-center text-xs text-neutral-400 dark:border-neutral-700">Image — set a URL in settings →</div>
       );
-    case "button":
+    case "button": {
+      const look = layoutButtonLook(block, emailStyle);
       return (
         <div style={{ textAlign: block.align }}>
-          <span style={{ background: block.bg, color: block.color, borderRadius: block.radius, padding: "8px 16px", fontSize: 13, display: "inline-block" }}>
+          <span style={{ background: look.bg, color: look.color, borderRadius: look.radius, padding: "8px 16px", fontSize: 13, display: "inline-block" }}>
             {block.label}
           </span>
         </div>
       );
+    }
     case "divider":
       return <hr style={{ borderTop: `${block.thickness}px solid ${block.color}` }} className="my-1" />;
     case "spacer":

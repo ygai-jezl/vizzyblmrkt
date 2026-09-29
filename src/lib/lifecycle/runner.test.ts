@@ -21,6 +21,7 @@ import {
   seedUser,
   seedWorld,
   sendStub,
+  setJourneyStyle,
   system,
 } from "./testing/fixtures";
 
@@ -560,5 +561,152 @@ describe("Email style (EMAIL_STYLE_ENABLED)", () => {
     expect(m.html).not.toContain("#0b1f3a");
     expect(m.html).not.toContain("color-scheme");
     expect(m.html).toContain('<td bgcolor="#111111"');
+  });
+
+  // Pinned byte-for-byte: themes and journey styles are coming behind flags, and with them off
+  // the welcome a styled tenant sends must stay exactly this. The signed unsubscribe token
+  // carries the signing time, so it's masked.
+  const masked = (s: string | undefined) => (s ?? "").replace(/([?&]u=)[^"&\s)]+/g, "$1<token>");
+
+  it("pins today's styled welcome", async () => {
+    const m = await styledWelcome();
+    expect(masked(m.html)).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Your first steps, and where you are with them</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><img src="https://mk.test/api/brand-logo/ten_life/0f8fad5b-d9cb-469f-a165-70867728950e.png" width="120" height="40" alt="Jez at Sandbox" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>Hi Alex,</p>
+      <p>Welcome to Sandbox. Getting set up takes a few minutes — here's where you are:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse"><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/brand" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;text-decoration:underline">Add your brand</a></td></tr><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;text-decoration:underline">Run an audit</a></td></tr><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/prompts" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;text-decoration:underline">Monitor prompts</a></td></tr></table>
+      <div style="margin:8px 0 20px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td bgcolor="#1d4ed8" style="background:#1d4ed8;border-radius:8px"><a href="https://app.example.com/brand" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Add your brand →</a></td></tr></table></div>
+      <p>Reply to this email if anything gets in your way — it comes straight to me.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Jez at Sandbox.<br />1 High Street, London<br /><a href="https://mk.test/unsubscribe?u=<token>" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://mk.test/unsubscribe?u=<token>" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://sandbox.test/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(masked(m.text)).toMatchInlineSnapshot(`
+      "Hi Alex,
+
+      Welcome to Sandbox. Getting set up takes a few minutes — here's where you are:
+
+      ☐Add your brand (https://app.example.com/brand)☐Run an audit (https://app.example.com/audits?new=1)☐Monitor prompts (https://app.example.com/prompts)
+      Add your brand → (https://app.example.com/brand)
+
+      Reply to this email if anything gets in your way — it comes straight to me.
+      This email was sent by Jez at Sandbox.
+      1 High Street, London
+      Manage preferences (https://mk.test/unsubscribe?u=<token>) | Unsubscribe (https://mk.test/unsubscribe?u=<token>) | Privacy Policy (https://sandbox.test/privacy)"
+    `);
+  });
+
+  it("pins today's welcome with the flag off and a style saved", async () => {
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "false");
+    const m = await styledWelcome();
+    expect(masked(m.html)).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Your first steps, and where you are with them</div><p>Hi Alex,</p>
+      <p>Welcome to Sandbox. Getting set up takes a few minutes — here's where you are:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border-collapse:collapse"><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/brand" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline">Add your brand</a></td></tr><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/audits?new=1" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline">Run an audit</a></td></tr><tr><td style="padding:4px 10px 4px 0;font-size:16px;vertical-align:top">☐</td><td style="padding:4px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#111"><a href="https://app.example.com/prompts" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline">Monitor prompts</a></td></tr></table>
+      <div style="margin:8px 0 20px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td bgcolor="#111111" style="background:#111111;border-radius:8px"><a href="https://app.example.com/brand" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Add your brand →</a></td></tr></table></div>
+      <p>Reply to this email if anything gets in your way — it comes straight to me.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Jez at Sandbox.<br />1 High Street, London<br /><a href="https://mk.test/unsubscribe?u=<token>" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://mk.test/unsubscribe?u=<token>" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://sandbox.test/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  describe("a journey's own style (EMAIL_JOURNEY_STYLE_ENABLED)", () => {
+    const CUSTOM = { headerColor: "#14532d", accentColor: "#c2410c" };
+    beforeEach(() => vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true"));
+
+    /** A styled tenant's world, with Custom in the journey's draft (published unless told not to). */
+    async function customWorld(opts: { publish?: boolean } = {}) {
+      const w = await world();
+      await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+      await setJourneyStyle(w.db, w.journey.id, CUSTOM, { publish: opts.publish, nowMs: T0 - 30 * MIN });
+      return w;
+    }
+
+    it("a journey on the brand's style sends the brand's look, byte for byte", async () => {
+      const brand = await styledWelcome();
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      const today = await styledWelcome();
+      expect(masked(brand.html)).toBe(masked(today.html));
+    });
+
+    it("a Custom style saved in the draft only keeps the brand's look", async () => {
+      const w = await customWorld({ publish: false });
+      const stored = (await forTenant(system, w.db).lifecycleJourneys.getById(w.journey.id))!;
+      expect(stored.draft.settings.emailStyle).toEqual(CUSTOM);
+      expect(stored.emailStyle ?? null).toBeNull();
+      await throughWelcome(w);
+      const m = w.sent[0]!;
+      expect(m.html).toContain('bgcolor="#0b1f3a"');
+      expect(m.html).toContain('<td bgcolor="#1d4ed8"');
+      expect(m.html).not.toContain(CUSTOM.headerColor);
+      expect(m.html).not.toContain(CUSTOM.accentColor);
+    });
+
+    it("once published, the journey's colours on the brand's logo, in every mode", async () => {
+      for (const mode of ["test", "shadow", "live"] as const) {
+        const w = await world({ mode, shadowInbox: mode === "shadow" ? "ops@sandbox.test" : undefined });
+        await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+        await setJourneyStyle(w.db, w.journey.id, CUSTOM, { nowMs: T0 - 30 * MIN });
+        await throughWelcome(w);
+        const m = w.sent[0]!;
+        expect(m.html).toContain(`<td bgcolor="${CUSTOM.headerColor}" align="left"`);
+        expect(m.html).toContain(`src="https://mk.test/api/brand-logo/${TENANT_ID}/${FILE}" width="120" height="40" alt="Jez at Sandbox"`);
+        expect(m.html).toContain(`<td bgcolor="${CUSTOM.accentColor}"`);
+        expect(m.html).not.toContain("#0b1f3a");
+        expect(m.html).not.toContain("#1d4ed8");
+        expect(m.text).not.toContain(CUSTOM.headerColor);
+      }
+    });
+
+    it("after publishing, an enrolment still on v1 gets Custom on its next email", async () => {
+      const w = await world();
+      await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+      const next = await throughWelcome(w);
+      const v1 = (await w.get()).versionId;
+      await setJourneyStyle(w.db, w.journey.id, CUSTOM, { nowMs: T0 + HOUR });
+      expect((await w.get()).versionId).toBe(v1);
+      w.setContext(productContext({ done: ALL_DONE }));
+      expect(await w.run(next)).toBe("sent");
+      const [before, after] = w.sent;
+      expect(before!.html).toContain('bgcolor="#0b1f3a"');
+      expect(after!.subject).toBe("How to read your first results");
+      expect(after!.html).toContain(`bgcolor="${CUSTOM.headerColor}"`);
+      expect(after!.html).toContain(`border-left:3px solid ${CUSTOM.accentColor}`);
+      expect(after!.html).toContain(`/api/brand-logo/${TENANT_ID}/${FILE}`);
+      expect(after!.html).not.toContain("#0b1f3a");
+      expect(after!.html).not.toContain("#1d4ed8");
+    });
+
+    it("a letter stays plain", async () => {
+      const w = await customWorld();
+      const next = await throughWelcome(w);
+      expect(await w.run(next)).toBe("sent");
+      expect((await w.get()).sentItems.map((s) => s.itemId)).toEqual(["w", "r1"]);
+      expect(w.sent[0]!.html).toContain(`bgcolor="${CUSTOM.headerColor}"`);
+      const letter = w.sent[1]!;
+      expect(letter.html).not.toContain(CUSTOM.headerColor);
+      expect(letter.html).not.toContain(CUSTOM.accentColor);
+      expect(letter.html).not.toContain("color-scheme");
+    });
+
+    // With either flag off, a stored journey style changes nothing: the welcome is the pinned one.
+    it.each([
+      ["EMAIL_JOURNEY_STYLE_ENABLED", "the brand's"],
+      ["EMAIL_STYLE_ENABLED", "today's unstyled"],
+    ])("with %s off and a journey style stored, the welcome is %s, byte for byte", async (flag) => {
+      const w = await customWorld();
+      expect((await forTenant(system, w.db).lifecycleJourneys.getById(w.journey.id))?.emailStyle).toEqual(CUSTOM);
+      vi.stubEnv(flag, "false");
+      await throughWelcome(w);
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      const pinned = await styledWelcome();
+      expect(masked(w.sent[0]!.html)).toBe(masked(pinned.html));
+      expect(masked(w.sent[0]!.text)).toBe(masked(pinned.text));
+    });
   });
 });

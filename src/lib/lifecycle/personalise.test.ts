@@ -10,7 +10,7 @@ import { processEnrolment, runEnrolmentNow } from "./runner";
 import { prepareDueDrafts } from "./prepare";
 import { countWaitingApprovals, decideApproval, listApprovals, type ApprovalView } from "./approvals";
 import { AI_LINE_MARKER, draftDocId } from "./drafts";
-import { STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
+import { STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, setJourneyStyle, system } from "./testing/fixtures";
 
 const MIN = 60_000;
 const HOUR = 3600_000;
@@ -318,6 +318,29 @@ describe("approvals preview with an Email style", () => {
     expect(e1.previewHtml).toContain(AI_LINE_MARKER);
   });
 
+  // Pinned byte-for-byte: themes and journey styles are coming behind flags, and with them off
+  // the approvals preview of a branded email must stay exactly this.
+  it("pins today's branded preview", async () => {
+    const w = await world();
+    await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+    const sendAt = await booked(w);
+    w.setContext(productContext({ done: STEPS.map((s) => s.id) }));
+    await w.prepare(sendAt - 12 * HOUR);
+    expect(await w.prepare(sendAt - 12 * HOUR + MIN)).toMatchObject({ prepared: 1 });
+    // The line's marker is invisible, so it's shown by name.
+    expect((await w.draft("e1", "education")).previewHtml?.replaceAll(AI_LINE_MARKER, "[AI_LINE_MARKER]")).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">What the numbers mean, and what to do next</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><img src="https://mk.test/api/brand-logo/ten_life/0f8fad5b-d9cb-469f-a165-70867728950e.png" width="120" height="40" alt="Jez at Sandbox" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>Hi Alex,</p>
+      <p>You're set up — here's how to read what you're seeing.</p>
+      <div style="margin:8px 0 16px;padding:12px 14px;border-left:3px solid #1d4ed8;background:#f6f6f6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111">ChatGPT mentioned you in 3 of 10 answers. [AI_LINE_MARKER]</div><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Jez at Sandbox.<br />1 High Street, London<br /><a href="#" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="#" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="#" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
   it("a letter's preview stays plain", async () => {
     const w = await world();
     await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
@@ -327,6 +350,57 @@ describe("approvals preview with an Email style", () => {
     expect(r1.previewHtml).toContain(AI_LINE_MARKER);
     expect(r1.previewHtml).not.toContain("#0b1f3a");
     expect(r1.previewHtml).not.toContain("color-scheme");
+  });
+
+  describe("with a journey style (EMAIL_JOURNEY_STYLE_ENABLED)", () => {
+    const CUSTOM = { headerColor: "#14532d", accentColor: "#c2410c" };
+    beforeEach(() => vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true"));
+
+    /** A styled tenant's world, with Custom in the journey's draft (published unless told not to). */
+    async function styled(custom?: { publish?: boolean }) {
+      const w = await world();
+      await setTenantEmailStyle(TENANT_ID, STYLE, w.db);
+      if (custom) await setJourneyStyle(w.db, w.journey.id, CUSTOM, { publish: custom.publish, nowMs: T0 });
+      return w;
+    }
+    /** The branded education email's (E1's) approvals preview, as the pin above prepares it. */
+    async function e1Preview(w: Awaited<ReturnType<typeof world>>): Promise<string> {
+      const sendAt = await booked(w);
+      w.setContext(productContext({ done: STEPS.map((s) => s.id) }));
+      await w.prepare(sendAt - 12 * HOUR);
+      expect(await w.prepare(sendAt - 12 * HOUR + MIN)).toMatchObject({ prepared: 1 });
+      return (await w.draft("e1", "education")).previewHtml!;
+    }
+
+    it("a published Custom style is in the preview, as the send will", async () => {
+      const html = await e1Preview(await styled({}));
+      expect(html).toContain(`<td bgcolor="${CUSTOM.headerColor}" align="left"`);
+      expect(html).toContain(`border-left:3px solid ${CUSTOM.accentColor}`);
+      expect(html).toContain(`/api/brand-logo/${TENANT_ID}/`);
+      expect(html).not.toContain("#0b1f3a");
+      expect(html).toContain(AI_LINE_MARKER);
+    });
+
+    it("a Custom style in the draft only keeps the brand's preview", async () => {
+      const html = await e1Preview(await styled({ publish: false }));
+      expect(html).toBe(await e1Preview(await styled()));
+    });
+
+    it("a letter's preview stays plain", async () => {
+      const w = await styled({});
+      const sendAt = await booked(w);
+      await w.prepare(sendAt - 12 * HOUR);
+      const r1 = await w.draft();
+      expect(r1.previewHtml).toContain(AI_LINE_MARKER);
+      expect(r1.previewHtml).not.toContain(CUSTOM.headerColor);
+      expect(r1.previewHtml).not.toContain("color-scheme");
+    });
+
+    it("with the flag off and a journey style stored, the preview is the pinned one", async () => {
+      const w = await styled({});
+      vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "false");
+      expect(await e1Preview(w)).toBe(await e1Preview(await styled()));
+    });
   });
 });
 

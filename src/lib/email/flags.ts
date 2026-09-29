@@ -1,9 +1,11 @@
 /**
- * Email style flags (logo, company name and colours on branded emails), and the header
+ * Email style flags (logo, company name and colours on branded emails), the header
  * options on top of it (a gradient header, a chosen header text colour, a header image,
- * logo clean-up).
- * Pure + client-safe. Each is ON in dev (apphosting.yaml) and set explicitly in prod
- * (apphosting.prod.yaml). Renderers never read these: they get the style as data.
+ * logo clean-up), themes (a look and two fonts, with web fonts on their own flag), Create
+ * layout buttons that follow it, the sign-up confirmation and offboarding emails wearing
+ * it, and a lifecycle journey's own colours over it. Pure + client-safe. Each is ON in dev
+ * (apphosting.yaml) and set explicitly in prod (apphosting.prod.yaml). Renderers never
+ * read these: they get the style as data.
  */
 
 /**
@@ -35,4 +37,57 @@ export function isEmailHeaderOptionsEnabled(): boolean {
 /** Client mirror — the page shows the header options only when this and the server flag are on. */
 export function isEmailHeaderOptionsUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_EMAIL_HEADER_OPTIONS_ENABLED === "true";
+}
+
+/**
+ * Server flag — themes (needs EMAIL_STYLE_ENABLED). On: sends and previews draw a saved theme
+ * (one of four looks, a heading and a body font), and the Save API takes it. Off: the resolver
+ * ignores it, so emails are exactly as without it, and a Save keeps what's stored (a kill switch).
+ */
+export function isEmailThemesEnabled(): boolean {
+  return process.env.EMAIL_THEMES_ENABLED === "true";
+}
+
+/**
+ * Server flag — web fonts (needs EMAIL_THEMES_ENABLED). On: a theme with a web font (Inter,
+ * Lora, …) tells the renderers where the font files are (public/email-fonts/), so its emails
+ * gain a `<head>` block that loads them in the inboxes that do (Apple Mail, Outlook for Mac and
+ * a few others), and Mandrill sends those with inline_css off. Off: every theme draws its safe
+ * fonts only, with no head block.
+ */
+export function isEmailWebFontsEnabled(): boolean {
+  return process.env.EMAIL_WEB_FONTS_ENABLED === "true";
+}
+
+/**
+ * Server flag — layout buttons (needs EMAIL_STYLE_ENABLED). On: a button in a Create email layout
+ * takes the Email style's button colour (with a readable label) and, with a theme, its button
+ * shape, unless the button is set to its own colour. Off: every button draws as built. The saved
+ * colours are never rewritten, so this is a kill switch.
+ */
+export function isEmailLayoutStyleEnabled(): boolean {
+  return process.env.EMAIL_LAYOUT_STYLE_ENABLED === "true";
+}
+
+/**
+ * Server flag — the sign-up confirmation (double opt-in) and offboarding emails (needs
+ * EMAIL_STYLE_ENABLED). On: both wear the Email style's colour header (never a banner), button
+ * colour, card and theme, with the same subject, copy, text part and sender, and an offboarding
+ * email skips a suppressed address, as journey emails do. Off: both are today's plain emails,
+ * sent exactly as today.
+ */
+export function isEmailStyleTransactionalEnabled(): boolean {
+  return process.env.EMAIL_STYLE_TRANSACTIONAL_ENABLED === "true";
+}
+
+/**
+ * Server flag — journey styles (needs EMAIL_STYLE_ENABLED; a journey's gradient and header text
+ * also need EMAIL_HEADER_OPTIONS_ENABLED). On: a lifecycle journey (a product journey, or a launch
+ * welcome journey on the new engine) can wear its own header and button colours on the colour
+ * header, with the brand's logo, name and theme and never a banner: set in its draft, live on
+ * Publish. Off: every journey wears the brand's Email style, and stored journey styles are kept,
+ * so this is a kill switch.
+ */
+export function isEmailJourneyStyleEnabled(): boolean {
+  return process.env.EMAIL_JOURNEY_STYLE_ENABLED === "true";
 }

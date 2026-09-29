@@ -18,6 +18,7 @@ import { VizzyPanel } from "@/components/admin/nav/VizzyPanel";
 import { CommandPalette } from "@/components/admin/nav/CommandPalette";
 import { DeveloperDocsProvider } from "@/components/developers/DocsAvailability";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
+import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
@@ -147,9 +148,15 @@ export default async function AdminLayout({
     );
     return (
       <AdminThemeRoot initial={theme}>
-        {/* Keyed by brand: switching brand starts a fresh Vizzy conversation. */}
+        {/* Keyed by brand: switching brand starts a fresh Vizzy conversation. With journey
+            styles on, an admin's chat names the journey in view, so "this journey" works from
+            it. Only an admin's: a journey is read-only for a member, so Vizzy isn't pointed at it. */}
         {phase2 ? (
-          <ShellProvider key={ctx.tenantId} names={crumbNames}>
+          <ShellProvider
+            key={ctx.tenantId}
+            names={crumbNames}
+            journeyInContext={isEmailStyleEnabled() && isEmailJourneyStyleEnabled() && ctx.role === "admin"}
+          >
             {shell}
           </ShellProvider>
         ) : (

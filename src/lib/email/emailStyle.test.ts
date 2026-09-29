@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   accentFor,
+  applyJourneyStyle,
   bandInk,
   bandStops,
   bandTextContrast,
@@ -15,9 +16,12 @@ import {
   safeHeaderImageUrl,
   safeLogoUrl,
   styleFromBrandKit,
+  withoutHeaderImage,
   type EmailStyleLogoOption,
+  type ResolvedEmailStyle,
 } from "./emailStyle";
 import type { BrandKit } from "@/lib/types/tenant";
+import { themeTokens, tint } from "./emailThemes";
 
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const logoUrl = (tenant: string, file = `${UUID}.png`, origin = "https://app.example.com") =>
@@ -330,6 +334,116 @@ describe("resolveStoredStyle", () => {
       expect(resolveStoredStyle(big, on)!.headerImage).toMatchObject({ width: 1200, height: 2400 });
     });
   });
+
+  describe("theme", () => {
+    const today = resolveStoredStyle(stored, opts);
+    const on = { ...opts, themes: true };
+    const withTheme = (theme: unknown) => ({ ...stored, theme }) as Parameters<typeof resolveStoredStyle>[0];
+
+    it("adds no key with themes off, no theme, Classic with the system font, or a damaged theme", () => {
+      const modern = withTheme({ preset: "modern" });
+      expect(resolveStoredStyle(modern, opts)).toStrictEqual(today);
+      expect(resolveStoredStyle(modern, { ...opts, themes: false, webFonts: true, fontOrigin: "https://app.example.com" })).toStrictEqual(today);
+      const none = [
+        undefined,
+        null,
+        { preset: "classic" },
+        { preset: "classic", headingFont: "system", bodyFont: "system" },
+        { preset: "classic", headingFont: "comic-sans" },
+        { preset: "brutalist", headingFont: "inter" },
+        { headingFont: "inter" },
+        "modern",
+      ];
+      for (const theme of none) expect(resolveStoredStyle(withTheme(theme), on)).toStrictEqual(today);
+    });
+
+    it("sets the preset and both fonts, the preset's own when left out", () => {
+      expect(resolveStoredStyle(withTheme({ preset: "editorial" }), on)).toStrictEqual({
+        ...today,
+        theme: { preset: "editorial", headingFont: "lora", bodyFont: "georgia" },
+      });
+      expect(resolveStoredStyle(withTheme({ preset: "classic", bodyFont: "georgia" }), on)!.theme).toStrictEqual({
+        preset: "classic",
+        headingFont: "system",
+        bodyFont: "georgia",
+      });
+    });
+
+    it("an unknown font falls back to the preset's", () => {
+      const theme = { preset: "friendly", headingFont: "comic-sans", bodyFont: "'Inter',serif" };
+      expect(resolveStoredStyle(withTheme(theme), on)!.theme).toStrictEqual({
+        preset: "friendly",
+        headingFont: "poppins",
+        bodyFont: "nunito",
+      });
+    });
+
+    it("holds no colours, so the style's own button colour stays the only one", () => {
+      const r = resolveStoredStyle(withTheme({ preset: "friendly" }), on)!;
+      expect(Object.keys(r.theme!)).toEqual(["preset", "headingFont", "bodyFont"]);
+      expect(r.accentColor).toBe("#ff6b35");
+    });
+
+    it("webFontOrigin: only with webFonts, a web font among the two, and an https origin", () => {
+      const fonts = { ...on, webFonts: true, fontOrigin: "https://app.example.com" };
+      expect(resolveStoredStyle(withTheme({ preset: "modern" }), fonts)!.theme).toStrictEqual({
+        preset: "modern",
+        headingFont: "inter",
+        bodyFont: "inter",
+        webFontOrigin: "https://app.example.com",
+      });
+      // One web font is enough.
+      const lora = withTheme({ preset: "editorial", bodyFont: "verdana" });
+      expect(resolveStoredStyle(lora, fonts)!.theme!.webFontOrigin).toBe("https://app.example.com");
+      expect(resolveStoredStyle(lora, { ...fonts, fontOrigin: "https://app.example.com/" })!.theme!.webFontOrigin).toBe(
+        "https://app.example.com",
+      );
+
+      const safeOnly = withTheme({ preset: "editorial", headingFont: "georgia", bodyFont: "verdana" });
+      expect(resolveStoredStyle(safeOnly, fonts)!.theme).not.toHaveProperty("webFontOrigin");
+      for (const off of [
+        { ...fonts, webFonts: false },
+        { ...fonts, webFonts: undefined },
+        { ...fonts, fontOrigin: undefined },
+        { ...fonts, fontOrigin: "" },
+        { ...fonts, fontOrigin: "http://localhost:3000" },
+        { ...fonts, fontOrigin: "https://user:pass@app.example.com" },
+        { ...fonts, fontOrigin: "not a url" },
+      ]) {
+        expect(resolveStoredStyle(withTheme({ preset: "modern" }), off)!.theme).toStrictEqual({
+          preset: "modern",
+          headingFont: "inter",
+          bodyFont: "inter",
+        });
+      }
+    });
+
+    it("sits alongside the header options", () => {
+      const all = withTheme({ preset: "modern" });
+      const r = resolveStoredStyle({ ...all!, headerGradientColor: "#4f46e5", headerText: "white" }, { ...on, headerOptions: true });
+      expect(r).toMatchObject({ headerGradientColor: "#4f46e5", headerText: "white", theme: { preset: "modern" } });
+    });
+  });
+
+  describe("layouts", () => {
+    const today = resolveStoredStyle(stored, opts);
+
+    it("adds the bit only with layouts on", () => {
+      expect(resolveStoredStyle(stored, { ...opts, layouts: true })).toStrictEqual({ ...today, layouts: true });
+      expect(resolveStoredStyle(stored, { ...opts, layouts: false })).toStrictEqual(today);
+      expect(resolveStoredStyle(stored, opts)).not.toHaveProperty("layouts");
+    });
+
+    it("needs a style: nothing saved, or a damaged one, is still null", () => {
+      expect(resolveStoredStyle(null, { ...opts, layouts: true })).toBeNull();
+      expect(resolveStoredStyle({ ...stored, accentColor: "orange" }, { ...opts, layouts: true })).toBeNull();
+    });
+
+    it("sits alongside a theme", () => {
+      const r = resolveStoredStyle({ ...stored, theme: { preset: "editorial" } }, { ...opts, themes: true, layouts: true });
+      expect(r).toMatchObject({ layouts: true, theme: { preset: "editorial" } });
+    });
+  });
 });
 
 describe("styleFromBrandKit", () => {
@@ -426,5 +540,116 @@ describe("styleFromBrandKit", () => {
     const s = styleFromBrandKit({ palette: [{ hex: "#2f6feb", role: "primary" }] }, []);
     expect(s.logoId).toBeNull();
     expect(s.notes).toEqual(["No logos yet — add a PNG or JPG in Brand › Logos"]);
+  });
+});
+
+describe("withoutHeaderImage", () => {
+  const style: ResolvedEmailStyle = {
+    logo: null,
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+    headerGradientColor: "#4f46e5",
+  };
+
+  it("drops only the banner, so the colour header (gradient and all) draws in its place", () => {
+    const banner = { url: headerUrl("ten_A"), width: 1200, height: 300 };
+    expect(withoutHeaderImage({ ...style, headerImage: banner })).toStrictEqual(style);
+  });
+
+  it("changes nothing without one", () => {
+    expect(withoutHeaderImage(style)).toBe(style);
+    expect(withoutHeaderImage(null)).toBeNull();
+  });
+});
+
+describe("applyJourneyStyle", () => {
+  const base: ResolvedEmailStyle = {
+    logo: { url: logoUrl("ten_A"), width: 120, height: 40 },
+    name: null,
+    altName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+  };
+  const custom = { headerColor: "#1e3a8a", accentColor: "#f97316" };
+  const opts = { fallbackName: "Example Co", headerOptions: true };
+
+  it("no override is the brand's style itself", () => {
+    expect(applyJourneyStyle(base, undefined, opts)).toBe(base);
+    expect(applyJourneyStyle(base, null, opts)).toBe(base);
+    expect(applyJourneyStyle(null, undefined, opts)).toBeNull();
+  });
+
+  it("draws the journey's colours with the brand's logo and names", () => {
+    expect(applyJourneyStyle(base, custom, opts)).toStrictEqual({ ...base, ...custom });
+    const named = { ...base, name: "Acme", altName: "Acme" };
+    expect(applyJourneyStyle(named, custom, opts)).toStrictEqual({ ...named, ...custom });
+  });
+
+  it("the alt name is the brand's, whatever name the caller falls back on", () => {
+    const nameBand = { ...base, logo: null };
+    for (const fallbackName of ["Example Co", "Someone Else", ""]) {
+      expect(applyJourneyStyle(base, custom, { ...opts, fallbackName })!.altName).toBe("Example Co");
+      expect(applyJourneyStyle(nameBand, custom, { ...opts, fallbackName })).toMatchObject({ logo: null, altName: "Example Co" });
+    }
+  });
+
+  it("a gradient and header text only with headerOptions; equal stops draw solid", () => {
+    const options = { ...custom, headerGradientColor: "#4f46e5", headerText: "white" as const };
+    expect(applyJourneyStyle(base, options, opts)).toStrictEqual({ ...base, ...options });
+    expect(applyJourneyStyle(base, options, { ...opts, headerOptions: false })).toStrictEqual({ ...base, ...custom });
+    expect(applyJourneyStyle(base, options, { fallbackName: "Example Co" })).toStrictEqual({ ...base, ...custom });
+    expect(applyJourneyStyle(base, { ...custom, headerGradientColor: custom.headerColor }, opts)).toStrictEqual({
+      ...base,
+      ...custom,
+    });
+  });
+
+  it("passes the brand's logo, theme and layout bit through, and drops its banner, gradient and text colour", () => {
+    const brand: ResolvedEmailStyle = {
+      ...base,
+      headerGradientColor: "#4f46e5",
+      headerText: "black",
+      headerImage: { url: headerUrl("ten_A"), width: 1200, height: 300 },
+      theme: { preset: "modern", headingFont: "inter", bodyFont: "lora", webFontOrigin: "https://app.example.com" },
+      layouts: true,
+    };
+    expect(applyJourneyStyle(brand, custom, opts)).toStrictEqual({
+      logo: brand.logo,
+      name: null,
+      altName: "Example Co",
+      ...custom,
+      theme: brand.theme,
+      layouts: true,
+    });
+  });
+
+  it("Friendly's page tints from the journey's button colour, not the brand's", () => {
+    const friendly: ResolvedEmailStyle = { ...base, theme: { preset: "friendly", headingFont: "poppins", bodyFont: "nunito" } };
+    const journey = applyJourneyStyle(friendly, custom, opts);
+    expect(themeTokens(journey)!.pageColor).toBe(tint(custom.accentColor, 0.94));
+    expect(themeTokens(journey)!.pageColor).not.toBe(themeTokens(friendly)!.pageColor);
+  });
+
+  it("an override whose colours don't read is the brand's style", () => {
+    const bad = [
+      { headerColor: "navy", accentColor: "#f97316" },
+      { headerColor: "#1e3a8a", accentColor: "" },
+      { headerColor: "#1e3a8a" },
+    ] as unknown as Parameters<typeof applyJourneyStyle>[1][];
+    for (const override of bad) {
+      expect(applyJourneyStyle(base, override, opts)).toBe(base);
+      expect(applyJourneyStyle(null, override, opts)).toBeNull();
+    }
+  });
+
+  it("with no brand style, the journey's colours on a name band", () => {
+    expect(applyJourneyStyle(null, custom, opts)).toStrictEqual({
+      logo: null,
+      name: null,
+      altName: "Example Co",
+      ...custom,
+    });
   });
 });

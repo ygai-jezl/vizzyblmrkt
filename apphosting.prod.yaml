@@ -752,3 +752,28 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Email style, next (see apphosting.yaml): themes, web fonts, layout buttons, the
+  # sign-up confirmation and offboarding emails, and journey styles. Each has to be set:
+  # this file only overrides apphosting.yaml. Off, emails are exactly as today, saved
+  # values are kept, and Vizzy says the feature isn't switched on yet.
+  # OFF until verified on dev; flip with a chore(prod) PR after a prod smoke test.
+  - variable: EMAIL_THEMES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_WEB_FONTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_LAYOUT_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_STYLE_TRANSACTIONAL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_JOURNEY_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME

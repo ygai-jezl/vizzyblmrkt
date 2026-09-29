@@ -4,11 +4,16 @@ import {
   EMAIL_STYLE_LIMITS,
   HIDDEN_NAME_CHARS,
   type BrandKit,
+  type EmailFontId,
   type EmailStyleInput,
+  type EmailThemePreset,
+  type StoredJourneyStyle,
 } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import type { BrandAsset } from "@/lib/types/brandAsset";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
+import { isEmailFontId, isWebFont } from "./emailFonts";
+import { EMAIL_THEME_PRESET_SPECS, isEmailThemePreset } from "./emailThemes";
 
 /**
  * Email style — the pure half. Pure + client-safe (no env, no server imports): shared by
@@ -35,6 +40,19 @@ export interface ResolvedEmailStyle {
    * the logo and name, on the header colour. Absent = the colour header (logo, name, gradient).
    */
   headerImage?: { url: string; width: number; height: number };
+  /**
+   * A look (page colour, corners, button shape, spacing: themeTokens in emailThemes.ts) and two
+   * font ids (fontFor in emailFonts.ts). It holds no colours, so a style's own button colour
+   * tints Friendly's page. `webFontOrigin` (https) is where the web font files are, set only when
+   * web fonts are on and one of the two is a web font. Absent = Classic with the system font.
+   */
+  theme?: { preset: EmailThemePreset; headingFont: EmailFontId; bodyFont: EmailFontId; webFontOrigin?: string };
+  /**
+   * Buttons in a Create email layout follow this style: the button colour with a readable label,
+   * and the theme's button shape (Classic keeps each button's own corners). A button set to its
+   * own colour doesn't. Absent = every layout button as built.
+   */
+  layouts?: true;
 }
 
 /**
@@ -47,12 +65,25 @@ export interface ResolvedEmailStyle {
  * the keys out, so the result is exactly what it was without them. A header image is set
  * only when `headerImageUrlFor` (checked by the caller, like the logo's) gives a URL; the
  * gradient and text keys stay alongside it, for when the image is dropped.
+ *
+ * The theme works the same way with `themes`: Classic with the system font, an unknown preset
+ * or no theme leave the key out. An unknown font is the preset's. With `webFonts`, a theme with
+ * a web font gets `fontOrigin` (only an https one) as its `webFontOrigin`.
+ *
+ * `layouts` (the caller's flag) sets the bit that makes layout buttons follow the style.
  */
 export function resolveStoredStyle(
   stored:
     | Pick<
         EmailStyleInput,
-        "logo" | "companyName" | "headerColor" | "accentColor" | "headerGradientColor" | "headerText" | "headerImage"
+        | "logo"
+        | "companyName"
+        | "headerColor"
+        | "accentColor"
+        | "headerGradientColor"
+        | "headerText"
+        | "headerImage"
+        | "theme"
       >
     | null
     | undefined,
@@ -61,6 +92,10 @@ export function resolveStoredStyle(
     headerImageUrlFor?: (image: { id: string; filename: string }) => string | null;
     fallbackName: string;
     headerOptions?: boolean;
+    themes?: boolean;
+    webFonts?: boolean;
+    fontOrigin?: string;
+    layouts?: boolean;
   },
 ): ResolvedEmailStyle | null {
   if (!stored) return null;
@@ -74,6 +109,7 @@ export function resolveStoredStyle(
     opts.headerOptions && (stored.headerText === "white" || stored.headerText === "black") ? stored.headerText : null;
   const image = opts.headerOptions && stored.headerImage ? stored.headerImage : null;
   const imageUrl = image && opts.headerImageUrlFor ? opts.headerImageUrlFor(image) : null;
+  const theme = opts.themes ? resolveTheme(stored.theme, opts) : null;
   return {
     logo:
       url && stored.logo
@@ -98,7 +134,86 @@ export function resolveStoredStyle(
           },
         }
       : {}),
+    ...(theme ? { theme } : {}),
+    ...(opts.layouts ? { layouts: true as const } : {}),
   };
+}
+
+/**
+ * The style with the colour header (logo, name, gradient) in place of any header image. The
+ * sign-up confirmation and offboarding emails draw this: a banner can fill a 608px square
+ * above the one button that matters. Without a header image it's the same style.
+ */
+export function withoutHeaderImage(style: ResolvedEmailStyle | null): ResolvedEmailStyle | null {
+  if (!style?.headerImage) return style;
+  const { headerImage, ...rest } = style;
+  return rest;
+}
+
+/**
+ * A journey's own look over the brand's resolved style (`base`), as its sends and previews draw
+ * it. Shared by the server (resolveJourneyEmailStyle) and the journey editor's preview. The
+ * journey's header and button colours, gradient and header text (these two only with
+ * `headerOptions`, the caller's flag) on the colour header, with the brand's logo, name, theme and
+ * layout bit. Never the brand's banner, gradient or text colour: a Custom journey draws only its
+ * own header. A theme holds no colours, so Friendly's page tints from the journey's button colour.
+ *
+ * No override, or one whose colours don't read, is `base` itself (the same object). With no brand
+ * style, the journey's colours on a name band (`fallbackName`, as the brand's would use).
+ */
+export function applyJourneyStyle(
+  base: ResolvedEmailStyle | null,
+  override: StoredJourneyStyle | null | undefined,
+  opts: { fallbackName: string; headerOptions?: boolean },
+): ResolvedEmailStyle | null {
+  if (!override) return base;
+  const own = resolveStoredStyle(
+    {
+      logo: null,
+      companyName: base?.name ?? null,
+      headerColor: override.headerColor,
+      accentColor: override.accentColor,
+      headerGradientColor: override.headerGradientColor,
+      headerText: override.headerText,
+    },
+    { logoUrlFor: () => null, fallbackName: opts.fallbackName, headerOptions: opts.headerOptions },
+  );
+  if (!own) return base;
+  if (!base) return own;
+  return {
+    ...own,
+    logo: base.logo,
+    altName: base.altName,
+    ...(base.theme ? { theme: base.theme } : {}),
+    ...(base.layouts ? { layouts: true as const } : {}),
+  };
+}
+
+/** A saved (or unsaved) theme as the renderers draw it; null = none (Classic with the system font). */
+function resolveTheme(
+  raw: unknown,
+  opts: { webFonts?: boolean; fontOrigin?: string },
+): NonNullable<ResolvedEmailStyle["theme"]> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { preset, headingFont, bodyFont } = raw as { preset?: unknown; headingFont?: unknown; bodyFont?: unknown };
+  if (!isEmailThemePreset(preset)) return null;
+  const spec = EMAIL_THEME_PRESET_SPECS[preset];
+  const heading = isEmailFontId(headingFont) ? headingFont : spec.headingFont;
+  const body = isEmailFontId(bodyFont) ? bodyFont : spec.bodyFont;
+  if (preset === "classic" && heading === "system" && body === "system") return null;
+  const origin = opts.webFonts && (isWebFont(heading) || isWebFont(body)) ? httpsOrigin(opts.fontOrigin) : null;
+  return { preset, headingFont: heading, bodyFont: body, ...(origin ? { webFontOrigin: origin } : {}) };
+}
+
+/** An https origin (no credentials), or null: an inbox won't load fonts from anything else. */
+function httpsOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && !u.username && !u.password ? u.origin : null;
+  } catch {
+    return null;
+  }
 }
 
 function clampInt(n: number, max: number): number {

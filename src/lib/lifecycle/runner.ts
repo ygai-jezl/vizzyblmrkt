@@ -21,7 +21,7 @@ import { isSuppressedFor } from "@/lib/email/suppression";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveFooterBrand } from "@/lib/email/sender";
-import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
 import type { AiDraft } from "@/lib/types/lifecycle";
 import { decideNext, type Decision, type WalkResult, type WalkState } from "./planner";
 import { nextNodeId } from "./graph";
@@ -455,8 +455,9 @@ async function deliver(
     privacyUrl,
     postalAddress,
   };
-  // Every version (standard, AI, test, shadow) wears the same Email style; null = today's look.
-  const style = resolveEmailStyle(tenant);
+  // Every version (standard, AI, test, shadow) wears the same Email style: the journey's own look
+  // as last published (whatever version this enrolment is on), else the brand's; null = today's look.
+  const style = resolveJourneyEmailStyle(tenant, journey.emailStyle);
   const renderWith = (
     insight: ProductContext["insights"][number] | null,
     aiLine: string | null,

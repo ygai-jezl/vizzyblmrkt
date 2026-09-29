@@ -5,6 +5,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { CONNECTION_ID, ctx as adminCtx, publishOnboarding, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import { agentLifecycleContext, agentLifecycleJourney } from "@/lib/lifecycle/agentApi";
 import { seedUser } from "@/lib/lifecycle/testing/fixtures";
+import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { authorLifecycleDraft } from "./lifecycle";
 
 const agent: TenantContext = { tenantId: adminCtx.tenantId, region: "eu", userId: "usr_1", role: "admin", source: "agent" };
@@ -14,11 +15,13 @@ const generate = async () =>
 beforeEach(() => {
   process.env.LIFECYCLE_ENABLED = "true";
   process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED = "true";
+  __resetRateLimitState();
 });
 afterEach(() => {
   delete process.env.LIFECYCLE_ENABLED;
   delete process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED;
   delete process.env.EMAIL_STYLE_ENABLED;
+  delete process.env.EMAIL_JOURNEY_STYLE_ENABLED;
 });
 
 describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
@@ -55,6 +58,46 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
     const now = await forTenant(system, db).lifecycleJourneys.getById(journey.id);
     expect(now!.draft.pools[1]!.items[1]!.subject).toBe("Shorter last reminder");
     expect(now!.publishedVersion).toBe(1);
+  });
+
+  it("a chat edit keeps the journey's email style: a damaged echo of it still saves, and a new one isn't this kind's to set", async () => {
+    process.env.EMAIL_JOURNEY_STYLE_ENABLED = "true";
+    const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await publishOnboarding(db);
+    const doc = structuredClone(db.raw("lifecycle_journeys", journey.id)) as { draft: { settings: Record<string, unknown> } };
+    doc.draft.settings.emailStyle = NAVY;
+    db.seed("lifecycle_journeys", journey.id, doc);
+
+    for (const echo of [{ headerColor: "navy", accentColor: 7 }, { headerColor: "#0f766e", accentColor: "#f59e0b" }, null]) {
+      const draft = structuredClone(journey.draft);
+      draft.pools[1]!.items[1]!.subject = "Shorter last reminder";
+      const r = await authorLifecycleDraft(
+        {
+          ctx: agent,
+          input: { scope: { connectionId: CONNECTION_ID, journeyId: journey.id }, mode: "graph", ...draft, settings: { ...draft.settings, emailStyle: echo } },
+          brief: "make it shorter",
+        },
+        { db },
+      );
+      expect(r.ok).toBe(true);
+      const raw = db.raw("lifecycle_journeys", journey.id) as { draft: { settings: Record<string, unknown>; pools: Array<{ items: Array<{ subject: string }> }> } };
+      expect(raw.draft.pools[1]!.items[1]!.subject).toBe("Shorter last reminder");
+      expect(raw.draft.settings.emailStyle).toStrictEqual(NAVY);
+    }
+
+    // A new journey drafted in graph mode starts on the brand's style, whatever its settings say.
+    const fresh = await authorLifecycleDraft(
+      {
+        ctx: agent,
+        input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...journey.draft, settings: { ...journey.draft.settings, emailStyle: NAVY } },
+        brief: "",
+      },
+      { db },
+    );
+    if (!fresh.ok) throw new Error(fresh.error);
+    expect((db.raw("lifecycle_journeys", fresh.id) as { draft: { settings: object } }).draft.settings).not.toHaveProperty("emailStyle");
   });
 
   it("returns structured problems for a malformed graph, and saves an incomplete one with its issues", async () => {

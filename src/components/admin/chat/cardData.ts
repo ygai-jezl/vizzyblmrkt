@@ -46,3 +46,34 @@ export function asCard(result: Record<string, unknown> | undefined): CanvasCardD
     ...(cta ? { cta } : {}),
   };
 }
+
+/** Who hears about the cards one chat saves; `add` returns the unsubscribe. */
+export interface CardListeners {
+  add: (listener: (card: CanvasCardData) => void) => () => void;
+  emit: (card: CanvasCardData) => void;
+}
+
+/**
+ * Listeners for the cards Vizzy saves in one chat (the Ask Vizzy panel's), so a page in view can
+ * reload its own draft. A listener that throws doesn't stop the others, or the chat's stream.
+ */
+export function cardListeners(): CardListeners {
+  const listeners = new Set<(card: CanvasCardData) => void>();
+  return {
+    add: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    emit: (card) => {
+      for (const listener of [...listeners]) {
+        try {
+          listener(card);
+        } catch (err) {
+          console.error("[dashboard-chat] a saved-card listener failed:", err);
+        }
+      }
+    },
+  };
+}

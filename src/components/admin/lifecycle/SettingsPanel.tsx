@@ -1,17 +1,33 @@
 "use client";
 
+import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import type { LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
+import { HEADER_TEXT_CHOICES, type HeaderTextChoice, type JourneyEmailStyle, type StoredJourneyStyle } from "@/lib/types/tenant";
 import { BRAND_KIT_EMAIL_STYLE_ROUTE } from "@/lib/content/brandKit";
+import { normalizeHex } from "@/lib/content/create/colorPalette";
+import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { averageInk, type PaletteChip } from "../brand-kit/emailStyleForm";
 import { Badge, Field, Section, inputClass } from "../connect/ui";
 import { AboutSection } from "./AboutSection";
+import {
+  customJourneyStyle,
+  journeyBannerNote,
+  journeyStyleHints,
+  logoSamplePath,
+  readJourneyStyle,
+  withJourneyGradient,
+  withJourneyHeaderText,
+} from "./journeyStyleForm";
 
 /**
  * Journey settings: what starts it, when emails may go out (in each person's own
  * timezone), who they come from, and the unsubscribe category. A launch's
  * welcome journey (`waitlist`, engine move) starts when someone joins, can send
  * at any time, has no end date by default, and sends from the launch's sender.
+ * With journey styles on, either kind has an Email style section too: the
+ * brand's Email style, or the journey's own header and button colours.
  */
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -30,6 +46,7 @@ export function SettingsPanel({
   optInAfterSignup = false,
   entities = false,
   emailStyleEnabled = false,
+  journeyStyle = null,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -45,6 +62,11 @@ export function SettingsPanel({
   entities?: boolean;
   /** Links Sender to Brand › Email style (EMAIL_STYLE_ENABLED). */
   emailStyleEnabled?: boolean;
+  /**
+   * The journey's own Email style (EMAIL_JOURNEY_STYLE_ENABLED): an Email style section after
+   * Sender, in place of the link. Null = the link, as before.
+   */
+  journeyStyle?: JourneyStyleControl | null;
 }) {
   const p = settings.sendPolicy;
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
@@ -98,8 +120,9 @@ export function SettingsPanel({
           <p className="text-sm">
             {sender.fromName ?? "Your brand"} {sender.fromEmail ? <span className="text-neutral-500">&lt;{sender.fromEmail}&gt;</span> : <span className="text-neutral-500">(the default address)</span>}
           </p>
-          {emailStyleEnabled ? <EmailStyleLink /> : null}
+          {emailStyleEnabled && !journeyStyle ? <EmailStyleLink /> : null}
         </Section>
+        {journeyStyle ? <JourneyStyleSection value={settings.emailStyle} readOnly={readOnly} {...journeyStyle} /> : null}
         <Section title="Tracking" description="On for welcome emails, as it has always been, so opens and clicks show in the launch's analytics.">
           <div className="flex gap-4 text-sm">
             <label className="flex items-center gap-2">
@@ -239,8 +262,10 @@ export function SettingsPanel({
             <input className={inputClass} type="email" disabled={readOnly} value={settings.sender.replyTo ?? ""} onChange={(e) => onChange({ ...settings, sender: { ...settings.sender, replyTo: e.target.value.trim() || null } })} />
           </Field>
         </div>
-        {emailStyleEnabled ? <EmailStyleLink /> : null}
+        {emailStyleEnabled && !journeyStyle ? <EmailStyleLink /> : null}
       </Section>
+
+      {journeyStyle ? <JourneyStyleSection value={settings.emailStyle} readOnly={readOnly} {...journeyStyle} /> : null}
 
       <Section title="Unsubscribe category" description="One-click unsubscribe stops this category only (the product is told, so it can mirror it). People can still opt out of everything.">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -284,5 +309,267 @@ function EmailStyleLink() {
       </Link>
       .
     </p>
+  );
+}
+
+/** What the Email style section works from and reports to (JourneyEditor fills it in). */
+export interface JourneyStyleControl {
+  /** The brand's resolved Email style (null = none saved): Custom starts from it and keeps its logo and name. */
+  brand: ResolvedEmailStyle | null;
+  /** The brand's colours as quick picks. */
+  palette: PaletteChip[];
+  /** Gradient and Header text draw (EMAIL_HEADER_OPTIONS_ENABLED). */
+  headerOptions: boolean;
+  /** The draft's style differs from the one the journey's emails wear now. */
+  changedSincePublish: boolean;
+  /** A Custom style, or null for the brand's Email style. */
+  onChange: (style: JourneyEmailStyle | null) => void;
+}
+
+const HEADER_TEXT_LABELS: Record<HeaderTextChoice, string> = { auto: "Auto", white: "White", black: "Black" };
+
+/**
+ * The journey's Email style: the brand's (linked), or Custom for this journey (header and button
+ * colours, and with header options a gradient and the header text), on the colour header with the
+ * brand's logo, name and theme. It's saved with the draft and goes live on Publish. Members see it
+ * read-only. The hints are the Email style page's, with the brand's logo read from this site.
+ */
+function JourneyStyleSection({
+  value,
+  readOnly,
+  brand,
+  palette,
+  headerOptions,
+  changedSincePublish,
+  onChange,
+}: JourneyStyleControl & { value: unknown; readOnly: boolean }) {
+  const name = useId();
+  const style = useMemo(() => readJourneyStyle(value), [value]);
+  // Custom's colours while Brand is picked, so picking Custom again gives them back.
+  const [kept, setKept] = useState<StoredJourneyStyle | null>(null);
+  const logoInk = useLogoInk(style ? logoSamplePath(brand?.logo?.url) : null);
+  const hints = style ? journeyStyleHints(style, brand, { logoInk, headerOptions }) : [];
+  const bannerNote = style ? journeyBannerNote(brand) : null;
+  const radio = `flex items-center gap-2 text-sm ${readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`;
+
+  return (
+    <Section
+      title="Email style"
+      description="The header and button colours this journey's emails wear. Saved with the draft; Publish applies it to every email the journey sends from then on."
+      actions={changedSincePublish ? <Badge tone="amber">changed since publish</Badge> : null}
+    >
+      <div className="space-y-1.5">
+        <label className={radio}>
+          <input
+            type="radio"
+            name={name}
+            checked={!style}
+            disabled={readOnly}
+            onChange={() => {
+              if (style) setKept(style);
+              onChange(null);
+            }}
+          />
+          Brand&rsquo;s Email style
+        </label>
+        <p className="pl-6 text-xs text-neutral-500">
+          Set in{" "}
+          <Link href={BRAND_KIT_EMAIL_STYLE_ROUTE} className="underline underline-offset-2">
+            Brand › Email style
+          </Link>
+          , for all your branded emails.
+        </p>
+        <label className={radio}>
+          <input
+            type="radio"
+            name={name}
+            checked={Boolean(style)}
+            disabled={readOnly}
+            onChange={() => onChange(customJourneyStyle(kept, brand, headerOptions))}
+          />
+          Custom for this journey
+        </label>
+      </div>
+      {style ? (
+        <div className="space-y-3 border-l-2 border-neutral-200 pl-4 dark:border-neutral-800">
+          <p className="text-xs text-neutral-500">
+            Your logo, name and theme stay your brand&rsquo;s.{bannerNote ? ` ${bannerNote}` : ""}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ColourPick
+              label="Header colour"
+              value={style.headerColor}
+              chips={palette}
+              disabled={readOnly}
+              onChange={(headerColor) => onChange({ ...style, headerColor })}
+            />
+            <ColourPick
+              label="Button colour"
+              value={style.accentColor}
+              chips={palette}
+              disabled={readOnly}
+              onChange={(accentColor) => onChange({ ...style, accentColor })}
+            />
+          </div>
+          {headerOptions ? (
+            <div className="space-y-3">
+              <label className={radio}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(style.headerGradientColor)}
+                  disabled={readOnly}
+                  onChange={(e) => onChange(withJourneyGradient(style, e.target.checked, palette))}
+                />
+                Gradient
+              </label>
+              {style.headerGradientColor ? (
+                <ColourPick
+                  label="Colour 2"
+                  hint="Fades from the header colour (top left) to this one (bottom right). Outlook and Gmail on Android show the header colour alone."
+                  value={style.headerGradientColor}
+                  chips={palette}
+                  disabled={readOnly}
+                  onChange={(headerGradientColor) => onChange({ ...style, headerGradientColor })}
+                />
+              ) : null}
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Header text</span>
+                <div className="flex flex-wrap gap-4">
+                  {HEADER_TEXT_CHOICES.map((choice) => (
+                    <label key={choice} className={radio}>
+                      <input
+                        type="radio"
+                        name={`${name}-text`}
+                        checked={(style.headerText ?? "auto") === choice}
+                        disabled={readOnly}
+                        onChange={() => onChange(withJourneyHeaderText(style, choice))}
+                      />
+                      {HEADER_TEXT_LABELS[choice]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {hints.length ? (
+            <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              {hints.map((h) => (
+                <li key={h}>{h}.</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+/**
+ * The average colour of the logo at `path` (same-origin, so a canvas can read it) for the logo
+ * contrast hint; null while it loads, or when it can't be read, which skips that hint.
+ */
+function useLogoInk(path: string | null): string | null {
+  const [read, setRead] = useState<{ path: string; ink: string | null } | null>(null);
+  useEffect(() => {
+    if (!path) return;
+    let live = true;
+    const img = new Image();
+    img.onload = () => {
+      if (live) setRead({ path, ink: readInk(img) });
+    };
+    img.src = path;
+    return () => {
+      live = false;
+    };
+  }, [path]);
+  return read && read.path === path ? read.ink : null;
+}
+
+/** One small (64px) read of a loaded logo; null if the canvas can't be read. */
+function readInk(img: HTMLImageElement): string | null {
+  try {
+    const scale = Math.min(1, 64 / Math.max(img.naturalWidth, img.naturalHeight, 1));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const g = canvas.getContext("2d");
+    if (!g) return null;
+    g.drawImage(img, 0, 0, w, h);
+    return averageInk(g.getImageData(0, 0, w, h).data);
+  } catch {
+    return null; // a tainted or unsupported canvas: no hint, never an error
+  }
+}
+
+const HEX_TYPED = /^#?[0-9a-f]{6}$/i;
+
+/** A colour: its picker, its hex (kept as typed until it's a full #rrggbb) and the brand's colours as quick picks. */
+function ColourPick({
+  label,
+  hint,
+  value,
+  chips,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  chips: PaletteChip[];
+  disabled: boolean;
+  onChange: (hex: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <div className="space-y-1.5">
+      <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{label}</span>
+      {hint ? <p className="text-xs text-neutral-500">{hint}</p> : null}
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value.toLowerCase())}
+          className="h-8 w-10 shrink-0 cursor-pointer rounded border border-neutral-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700"
+          aria-label={`${label} picker`}
+        />
+        <input
+          className={`${inputClass} w-28 font-mono`}
+          value={text}
+          maxLength={7}
+          spellCheck={false}
+          disabled={disabled}
+          aria-label={`${label} hex code`}
+          onChange={(e) => {
+            setText(e.target.value);
+            const hex = HEX_TYPED.test(e.target.value.trim()) ? normalizeHex(e.target.value) : null;
+            if (hex) onChange(hex);
+          }}
+          onBlur={() => setText(value)}
+        />
+      </div>
+      {chips.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <button
+              key={c.hex}
+              type="button"
+              disabled={disabled}
+              title={c.name === c.hex ? c.hex : `${c.name} · ${c.hex}`}
+              aria-label={c.name === c.hex ? `${label}: use ${c.hex}` : `${label}: use ${c.name} (${c.hex})`}
+              aria-pressed={c.hex === value}
+              onClick={() => onChange(c.hex)}
+              className={`h-6 w-6 rounded-full border border-neutral-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 ${
+                c.hex === value ? "ring-2 ring-neutral-900 ring-offset-2 dark:ring-neutral-100 dark:ring-offset-neutral-950" : ""
+              }`}
+              style={{ backgroundColor: c.hex }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

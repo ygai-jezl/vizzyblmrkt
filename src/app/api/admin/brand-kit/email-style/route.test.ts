@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import type { EmailStyleInput } from "@/lib/types/tenant";
 
 // Brand › Email style: flag, then sign-in, then admin; a strict parse; the logo must be
 // this tenant's PNG/JPEG. Save and Reset write only `tenant.emailStyle` (Save may also clear
@@ -333,6 +335,99 @@ describe("PUT header image", () => {
       expect(await res.json()).toMatchObject({ error: "invalid_input" });
     }
     expect(control.setTenantEmailStyle).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT theme", () => {
+  const theme = { preset: "modern", bodyFont: "lora" };
+  // What the setter returns when it kept (or took) a theme.
+  const savedWithTheme = { ...style, theme, updatedAt: "2026-09-27T00:00:00.000Z" };
+
+  it("flag off: ignored even when sent — the setter keeps what's stored — and left out of the response", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "false");
+    control.setTenantEmailStyle.mockResolvedValueOnce(savedWithTheme);
+    const res = await PUT(req("PUT", { ...style, theme }));
+    expect(res.status).toBe(200);
+    expect(control.setTenantEmailStyle).toHaveBeenCalledWith("ten_A", style, undefined, { updatedBy: "usr_admin" });
+    expect((await res.json()).emailStyle).toEqual({ ...style, updatedAt: "2026-09-27T00:00:00.000Z" });
+
+    // Off, even a value the flag-on parse would refuse is simply dropped, and null too.
+    for (const bad of [{ preset: "brutalist" }, "modern", null]) {
+      expect((await PUT(req("PUT", { ...style, theme: bad }))).status).toBe(200);
+    }
+    expect(control.setTenantEmailStyle.mock.calls.slice(1).map((c) => c[1])).toEqual([style, style, style]);
+  });
+
+  it("flag on: passed through, and the response carries it; null passes too", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    control.setTenantEmailStyle.mockResolvedValueOnce(savedWithTheme);
+    const res = await PUT(req("PUT", { ...style, theme }));
+    expect(res.status).toBe(200);
+    expect(control.setTenantEmailStyle).toHaveBeenCalledWith("ten_A", { ...style, theme }, undefined, {
+      updatedBy: "usr_admin",
+    });
+    expect((await res.json()).emailStyle).toMatchObject({ theme });
+
+    expect((await PUT(req("PUT", { ...style, theme: null }))).status).toBe(200);
+    expect(control.setTenantEmailStyle.mock.calls[1]![1]).toEqual({ ...style, theme: null });
+  });
+
+  it("flag on with the header options off: the theme stays, the options still go", async () => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "false");
+    // The setter kept a stored header text colour, which the response leaves out.
+    const kept = { ...savedWithTheme, headerText: "white" };
+    control.setTenantEmailStyle.mockResolvedValueOnce(kept);
+    const res = await PUT(req("PUT", { ...style, headerText: "white", theme }));
+    expect(control.setTenantEmailStyle.mock.calls[0]![1]).toEqual({ ...style, theme });
+    expect((await res.json()).emailStyle).toEqual(savedWithTheme);
+  });
+
+  it.each([
+    ["an unknown preset", { preset: "brutalist" }],
+    ["an unknown font", { preset: "modern", headingFont: "Comic Sans MS" }],
+    ["CSS for a font", { preset: "modern", bodyFont: "'Inter',sans-serif" }],
+    ["another key", { preset: "modern", pageColor: "#ffffff" }],
+    ["a string", "modern"],
+  ])("flag on: 400s for %s", async (_label, bad) => {
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "true");
+    const res = await PUT(req("PUT", { ...style, theme: bad }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_input" });
+    expect(control.setTenantEmailStyle).not.toHaveBeenCalled();
+  });
+
+  it("flag off: a Save with EmailStyleCard's exact body keeps the stored theme (through the real setter)", async () => {
+    vi.stubEnv("EMAIL_HEADER_OPTIONS_ENABLED", "true");
+    vi.stubEnv("EMAIL_THEMES_ENABLED", "false");
+    const actual = await vi.importActual<typeof import("@/lib/tenant/control")>("@/lib/tenant/control");
+    // What the page sends today with the header options on, and the same from a page that still sends a theme.
+    const pageBody = { ...style, headerGradientColor: null, headerText: "auto", headerImage: null };
+    for (const body of [pageBody, { ...pageBody, theme: { preset: "friendly" } }]) {
+      const db = new FakeFirestore();
+      db.seed("tenants", "ten_A", {
+        tenantName: "Example Co",
+        emailStyle: { ...style, theme, updatedAt: "2026-09-27T00:00:00.000Z" },
+      });
+      // The route passes no db, so the real setter writes to the fake one; the rest is what the route sent.
+      control.setTenantEmailStyle.mockImplementationOnce(
+        ((id: string, input: EmailStyleInput, _db: undefined, opts: { updatedBy?: string }) =>
+          actual.setTenantEmailStyle(id, input, db, opts)) as unknown as typeof control.setTenantEmailStyle,
+      );
+      const res = await PUT(req("PUT", { ...body, headerColor: "#000080" }));
+      expect(res.status).toBe(200);
+
+      expect(db.raw("tenants", "ten_A")!.emailStyle).toEqual({
+        ...style,
+        headerColor: "#000080",
+        theme,
+        updatedAt: expect.any(String),
+        updatedBy: "usr_admin",
+      });
+      const { emailStyle } = await res.json();
+      expect(emailStyle).not.toHaveProperty("theme");
+      expect(emailStyle).toMatchObject({ headerColor: "#000080" });
+    }
   });
 });
 

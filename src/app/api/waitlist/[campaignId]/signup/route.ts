@@ -19,6 +19,7 @@ import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { sendEmail } from "@/lib/email";
 import { verificationEmail } from "@/lib/email/templates";
+import { resolveTransactionalEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { syncSignupToAudience } from "@/lib/mailchimp";
 import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
 import { recordSignupContact } from "@/lib/crm/contactService";
@@ -131,17 +132,28 @@ export async function POST(
     );
     let emailSent = false;
     try {
+      const email = {
+        to: result.signup.email,
+        // Name the product in copy, not the (possibly CTA-style) <h1> headline.
+        waitlistName: resolveProductName(campaign),
+        firstName: result.signup.firstName,
+        verifyUrl,
+        locale: visitorLocale,
+      };
+      // With EMAIL_STYLE_TRANSACTIONAL_ENABLED, the Email style's colour header, button colour
+      // and card. A styled render that throws sends today's plain email instead: a throw here
+      // would otherwise cost the visitor their signup (the 503 below).
+      let message = verificationEmail(email);
+      try {
+        const style = resolveTransactionalEmailStyle(tenant);
+        if (style) message = verificationEmail({ ...email, style });
+      } catch (err) {
+        console.warn(`styled verification email failed for ${campaign.id}, sending it plain:`, err);
+      }
       // Send from the tenant/campaign custom domain when configured + verified.
       const sender = resolveSender(tenant, campaign);
       const r = await sendEmail({
-        ...verificationEmail({
-          to: result.signup.email,
-          // Name the product in copy, not the (possibly CTA-style) <h1> headline.
-          waitlistName: resolveProductName(campaign),
-          firstName: result.signup.firstName,
-          verifyUrl,
-          locale: visitorLocale,
-        }),
+        ...message,
         fromEmail: sender.fromEmail,
         fromName: sender.fromName,
         replyTo: sender.replyTo,

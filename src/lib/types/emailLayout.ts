@@ -79,6 +79,14 @@ const ButtonBlock = z.object({
   bg: hexColor.default("#111111"),
   color: hexColor.default("#ffffff"),
   radius: z.number().int().min(0).max(40).default(8),
+  /**
+   * Absent (or "email_style") = the button follows the Email style where the style says layouts
+   * do: its button colour, a readable label and the theme's button shape. "own" = always the
+   * bg, color and radius above. Those are never rewritten, so "own" gives back the button as
+   * built. Read leniently: a value from a later build reads as absent, so it never fails a plan
+   * or a journey draft.
+   */
+  styleSource: z.enum(["email_style", "own"]).optional().catch(undefined),
   sectionBg,
 });
 const DividerBlock = z.object({

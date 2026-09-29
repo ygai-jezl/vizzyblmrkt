@@ -6,6 +6,8 @@ import {
   PaletteGroupSchema,
   EmailStyleInputSchema,
   EmailStyleSuggestionSchema,
+  JourneyEmailStyleSchema,
+  StoredJourneyStyleSchema,
 } from "./tenant";
 
 describe("TenantSchema.gitConnections", () => {
@@ -242,6 +244,97 @@ describe("TenantSchema.emailStyle (lenient on read)", () => {
   });
 });
 
+describe("Email style theme", () => {
+  const style = {
+    logo: null,
+    companyName: "Example Co",
+    headerColor: "#0b1f3a",
+    accentColor: "#ff6b35",
+  };
+  const ok = (theme: unknown) => EmailStyleInputSchema.safeParse({ ...style, theme }).success;
+
+  it("on write: a preset and font ids, null (no theme), or no key (keep what's stored)", () => {
+    const theme = { preset: "editorial", headingFont: "playfair-display", bodyFont: "georgia" };
+    expect(EmailStyleInputSchema.parse({ ...style, theme }).theme).toEqual(theme);
+    expect(ok({ preset: "modern" })).toBe(true);
+    expect(ok(null)).toBe(true);
+    expect(EmailStyleInputSchema.parse(style)).not.toHaveProperty("theme");
+  });
+
+  it("on write: refuses an unknown preset or font, CSS, and any other key", () => {
+    for (const theme of [
+      { preset: "brutalist" },
+      { preset: "Modern" },
+      { preset: "modern", headingFont: "Inter" },
+      { preset: "modern", bodyFont: "'Inter',sans-serif" },
+      { preset: "modern", buttonRadius: 0 },
+      { headingFont: "inter" },
+      "modern",
+    ]) {
+      expect(ok(theme)).toBe(false);
+    }
+  });
+
+  it("on read: an unknown font reads as none (the preset's), and a damaged theme drops alone", () => {
+    const field = TenantSchema.shape.emailStyle;
+    expect(field.parse({ ...style, theme: { preset: "modern", headingFont: "comic-sans", bodyFont: "lora" } })!.theme).toEqual({
+      preset: "modern",
+      bodyFont: "lora",
+    });
+    for (const theme of [{ preset: "brutalist" }, "modern", null, { headingFont: "inter" }]) {
+      const read = field.parse({ ...style, headerGradientColor: "#4f46e5", theme })!;
+      expect(read).toMatchObject({ ...style, headerGradientColor: "#4f46e5" });
+      expect(read.theme).toBeUndefined();
+    }
+    // Keys a later build might add are dropped, never a failed read.
+    expect(field.parse({ ...style, theme: { preset: "friendly", corners: 4 } })!.theme).toEqual({ preset: "friendly" });
+  });
+});
+
+describe("Journey email style", () => {
+  const style = { headerColor: "#0B1F3A", accentColor: "#ff6b35" };
+
+  it("on write: two colours, and a gradient and header text only when set", () => {
+    expect(JourneyEmailStyleSchema.parse(style)).toStrictEqual({ headerColor: "#0b1f3a", accentColor: "#ff6b35" });
+    const all = { ...style, headerGradientColor: "#4F46E5", headerText: "white" };
+    expect(JourneyEmailStyleSchema.parse(all)).toStrictEqual({
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+    });
+  });
+
+  it("on write: refuses bad colours, Auto or null (absent means those), and anything the brand's style owns", () => {
+    const ok = (over: Record<string, unknown>) => JourneyEmailStyleSchema.safeParse({ ...style, ...over }).success;
+    expect(ok({ headerColor: "navy" })).toBe(false);
+    expect(ok({ accentColor: undefined })).toBe(false);
+    expect(ok({ headerGradientColor: "purple" })).toBe(false);
+    expect(ok({ headerGradientColor: null })).toBe(false);
+    expect(ok({ headerText: "auto" })).toBe(false);
+    expect(ok({ headerImage: { id: "hdr_1" } })).toBe(false);
+    expect(ok({ logo: null })).toBe(false);
+    expect(ok({ theme: { preset: "modern" } })).toBe(false);
+    expect(JourneyEmailStyleSchema.safeParse(null).success).toBe(false);
+  });
+
+  it("on read: a damaged gradient or text drops alone, and a damaged style reads as none instead of throwing", () => {
+    // (toEqual: the dropped keys read as undefined, which a Firestore write leaves out.)
+    expect(StoredJourneyStyleSchema.parse({ ...style, headerGradientColor: "purple", headerText: "pink" })).toEqual({
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    });
+    for (const bad of [undefined, null, "navy", 42, [], {}, { headerColor: "#0b1f3a" }, { ...style, accentColor: "orange" }]) {
+      expect(StoredJourneyStyleSchema.parse(bad)).toBeUndefined();
+    }
+    // Keys a later build might add are dropped, never a failed read.
+    expect(StoredJourneyStyleSchema.parse({ ...style, headerImage: { id: "hdr_1" } })).toStrictEqual({
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+    });
+  });
+});
+
 describe("EmailStyleSuggestionSchema (strict on write)", () => {
   const suggestion = {
     logoId: "logo_1",
@@ -281,6 +374,17 @@ describe("EmailStyleSuggestionSchema (strict on write)", () => {
     expect(ok({ headerImageId: "a/b" })).toBe(false);
     expect(ok({ headerImageId: "x".repeat(65) })).toBe(false);
     expect(ok({ headerImageId: { id: "hdr_spring" } })).toBe(false);
+  });
+
+  it("takes a theme only when set, strictly: a look and font ids, as the Email style stores one", () => {
+    expect(EmailStyleSuggestionSchema.parse({ ...suggestion, theme: { preset: "modern" } }).theme).toEqual({ preset: "modern" });
+    expect(ok({ theme: { preset: "editorial", headingFont: "playfair-display", bodyFont: "arial" } })).toBe(true);
+    expect(EmailStyleSuggestionSchema.parse(suggestion)).not.toHaveProperty("theme");
+    expect(ok({ theme: null })).toBe(false);
+    expect(ok({ theme: "modern" })).toBe(false);
+    expect(ok({ theme: { preset: "brutalist" } })).toBe(false);
+    expect(ok({ theme: { preset: "modern", headingFont: "Inter" } })).toBe(false);
+    expect(ok({ theme: { preset: "modern", buttonRadius: 0 } })).toBe(false);
   });
 
   it("rejects what the lenient read would drop: bad colours, names, ids, an over-long brief or notes, no key", () => {

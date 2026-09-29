@@ -42,9 +42,10 @@ const Body = z.object({
   campaignId: z.string().max(200).nullish(),
   // The lifecycle journey page the operator is chatting from, if any — lets the
   // Lifecycle Ops sub-agent edit THAT journey. Brace-free ids only (they ride in
-  // the [ctx:{…}] envelope).
+  // the [ctx:{…}] envelope). An empty journeyId (the Ask Vizzy panel off a journey
+  // page, journey styles on) tells Vizzy there's no journey in view any more.
   connectionId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
-  journeyId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
+  journeyId: z.string().max(64).regex(/^[A-Za-z0-9_-]*$/).nullish(),
   // The content programme / plan in view (nav v2 phase 4) — for Vizzy's content tools.
   workspaceId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
   planId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),

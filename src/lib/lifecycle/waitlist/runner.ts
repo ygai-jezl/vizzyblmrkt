@@ -18,7 +18,7 @@ import { isSuppressed } from "@/lib/email/suppression";
 import { journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveSender } from "@/lib/email/sender";
-import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { compileJourneyEmail } from "@/lib/agents/compiler";
 import { syncSignupToWeekly } from "@/lib/mailchimp";
 import { computeRanks } from "@/lib/waitlist/rank";
@@ -266,9 +266,10 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
     to = journey.shadowInbox;
   }
 
-  // Rendered and sent exactly as the original engine does. Shadow mail carries
-  // no real unsubscribe token (the operator's inbox must never be able to
-  // unsubscribe the real person).
+  // Rendered and sent exactly as the original engine does, except in the
+  // journey's own look once one is published (EMAIL_JOURNEY_STYLE_ENABLED;
+  // the original engine has none). Shadow mail carries no real unsubscribe
+  // token (the operator's inbox must never be able to unsubscribe the real person).
   const tenant = await s.cache.tenant();
   const sender = resolveSender(tenant, campaign);
   const unsub =
@@ -279,7 +280,7 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   const email = compileJourneyEmail(
     { subject: d.item.subject, body: d.item.body, heroImageUrl: d.item.heroImageUrl ?? null },
     { signup, campaign, rank: s.rank, footer },
-    resolveEmailStyle(tenant),
+    resolveJourneyEmailStyle(tenant, journey.emailStyle),
   );
 
   // Claim: the day's send slot + pendingSend, in one transaction.

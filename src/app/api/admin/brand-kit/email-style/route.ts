@@ -12,7 +12,7 @@ import {
 } from "@/lib/types/tenant";
 import { cleanCompanyName, isEmailHeaderImage, isEmailLogo } from "@/lib/email/emailStyle";
 import { emailStyleAdmin } from "@/lib/email/emailStyleAdmin";
-import { isEmailHeaderOptionsEnabled } from "@/lib/email/flags";
+import { isEmailHeaderOptionsEnabled, isEmailThemesEnabled } from "@/lib/email/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,10 +27,10 @@ function clampPx(n: unknown, max: number): unknown {
 
 /**
  * Tidy what the page sent (logo and header image sizes, company name) before the strict parse
- * sees it. With the header options off, their keys are dropped, so the setter keeps whatever
- * is stored.
+ * sees it. With the header options or themes off, their keys are dropped, so the setter keeps
+ * whatever is stored.
  */
-function normalise(body: unknown, headerOptions: boolean): unknown {
+function normalise(body: unknown, on: { headerOptions: boolean; themes: boolean }): unknown {
   if (!body || typeof body !== "object") return body;
   const { logo, companyName, headerImage } = body as { logo?: unknown; companyName?: unknown; headerImage?: unknown };
   const size = logo && typeof logo === "object" ? (logo as { width?: unknown; height?: unknown }) : null;
@@ -54,11 +54,12 @@ function normalise(body: unknown, headerOptions: boolean): unknown {
       height: clampPx(image.height, EMAIL_HEADER_IMAGE_LIMITS.height),
     };
   }
-  if (!headerOptions) {
+  if (!on.headerOptions) {
     delete tidy.headerGradientColor;
     delete tidy.headerText;
     delete tidy.headerImage;
   }
+  if (!on.themes) delete tidy.theme;
   return tidy;
 }
 
@@ -66,6 +67,13 @@ function normalise(body: unknown, headerOptions: boolean): unknown {
 function withoutHeaderOptions(style: StoredEmailStyle | null) {
   if (!style) return style;
   const { headerGradientColor: _gradient, headerText: _text, headerImage: _image, ...rest } = style;
+  return rest;
+}
+
+/** What was saved, minus the theme while themes are off, so the response is as without it. */
+function withoutTheme<T extends { theme?: unknown }>(style: T | null) {
+  if (!style) return style;
+  const { theme: _theme, ...rest } = style;
   return rest;
 }
 
@@ -102,15 +110,17 @@ async function withoutDeletedHeaderImage(
  * only while EMAIL_HEADER_OPTIONS_ENABLED is on; off, they're ignored and the saved ones are
  * kept. A header image must be one of this tenant's header images, by id and filename, and
  * is stored with the size read from its file at upload, whatever the body says; it's checked
- * again after the write, in case it was deleted meanwhile.
+ * again after the write, in case it was deleted meanwhile. The theme is taken only while
+ * EMAIL_THEMES_ENABLED is on, in the same way.
  */
 export async function PUT(req: Request) {
   const g = await emailStyleAdmin(req);
   if (!g.ok) return g.response;
   const { ctx } = g;
   const headerOptions = isEmailHeaderOptionsEnabled();
+  const themes = isEmailThemesEnabled();
 
-  const parsed = SaveSchema.safeParse(normalise(await req.json().catch(() => null), headerOptions));
+  const parsed = SaveSchema.safeParse(normalise(await req.json().catch(() => null), { headerOptions, themes }));
   if (!parsed.success) {
     return NextResponse.json(
       {
@@ -148,7 +158,8 @@ export async function PUT(req: Request) {
   });
   const emailStyle =
     style.headerImage && saved ? await withoutDeletedHeaderImage(ctx, style.headerImage, saved) : saved;
-  return NextResponse.json({ emailStyle: headerOptions ? emailStyle : withoutHeaderOptions(emailStyle) });
+  const shown = headerOptions ? emailStyle : withoutHeaderOptions(emailStyle);
+  return NextResponse.json({ emailStyle: themes ? shown : withoutTheme(shown) });
 }
 
 /** "Reset to default": remove the Email style, so emails go back to today's look. A pending suggestion stays. */

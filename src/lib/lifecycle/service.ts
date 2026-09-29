@@ -2,7 +2,13 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { forTenant, getTenantById, TenantIsolationError, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import type { Tenant } from "@/lib/types/tenant";
+import {
+  JourneyEmailStyleSchema,
+  StoredJourneyStyleSchema,
+  type JourneyEmailStyle,
+  type StoredJourneyStyle,
+  type Tenant,
+} from "@/lib/types/tenant";
 import {
   DeliveryMode,
   isWaitlistJourney,
@@ -11,10 +17,12 @@ import {
   SendPolicySchema,
   type LifecycleDraft,
   type LifecycleJourney,
+  type LifecycleSettings,
   type LifecycleVersion,
 } from "@/lib/types/lifecycle";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
+import { isEmailJourneyStyleEnabled } from "@/lib/email/flags";
 import { NO_CATALOG, validateLifecycleDraft, type GraphIssue } from "./graph";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { versionDocId } from "./enrol";
@@ -210,15 +218,70 @@ export async function createLifecycleJourney(
   return ok({ journey, issues: validateLifecycleDraft(draft, connection.catalog).issues });
 }
 
-/** Replace the DRAFT (graph + pools + settings). The published version is untouched. */
+/**
+ * `settings` with the journey style `style` (EMAIL_JOURNEY_STYLE_ENABLED). None (undefined or null)
+ * is the brand's Email style and leaves no key, as new journeys have.
+ */
+export function withJourneyEmailStyle(settings: LifecycleSettings, style: unknown): LifecycleSettings {
+  const { emailStyle: _replaced, ...rest } = settings;
+  return style === undefined || style === null ? rest : { ...rest, emailStyle: style as StoredJourneyStyle };
+}
+
+/**
+ * A draft's journey style exactly as stored (`claim` hands over the raw doc). "Keep" keeps it as is,
+ * even one this build can't read (a later build's), since every reader parses it leniently.
+ */
+function storedJourneyEmailStyle(journey: LifecycleJourney): unknown {
+  return (journey.draft as { settings?: { emailStyle?: unknown } } | undefined)?.settings?.emailStyle;
+}
+
+const DraftStyleInput = z.object({ settings: z.object({ emailStyle: JourneyEmailStyleSchema.nullable() }) });
+
+/**
+ * The journey style a human draft save sets, read from the RAW body (the draft schema reads it
+ * leniently): `undefined` when the body has no `settings.emailStyle` (keep what's stored), `null`
+ * for the brand's Email style, else a valid style or the reason naming the field.
+ */
+function journeyEmailStyleInInput(
+  input: unknown,
+): { ok: true; style: StoredJourneyStyle | null | undefined } | { ok: false; reason: string } {
+  const settings = (input as { settings?: unknown } | null)?.settings;
+  if (!settings || typeof settings !== "object" || (settings as { emailStyle?: unknown }).emailStyle === undefined) {
+    return { ok: true, style: undefined };
+  }
+  const parsed = DraftStyleInput.safeParse(input);
+  return parsed.success ? { ok: true, style: parsed.data.settings.emailStyle } : { ok: false, reason: zodReason(parsed.error) };
+}
+
+/**
+ * Replace the DRAFT (graph + pools + settings). The published version is untouched.
+ *
+ * The draft's journey style (`settings.emailStyle`) is kept as stored unless `emailStyle` is
+ * "from_input" and EMAIL_JOURNEY_STYLE_ENABLED is on: only the human draft route passes that, and
+ * then a body without the key keeps it, `null` clears it and a style must be valid (else 400).
+ * Every other save (a regenerate, Vizzy's edits, an engine switch) keeps it, so a body edit never
+ * drops the style and a damaged echo of it can't fail the save. The write runs in a transaction
+ * that reads the stored style, so a style saved between this save's read and write isn't lost.
+ */
 export async function saveLifecycleDraft(
   ctx: TenantContext,
   journeyId: string,
   input: unknown,
-  deps: { db?: FirestoreLike; nowMs?: number; authoredBy?: "human" | "agent" } = {},
+  deps: {
+    db?: FirestoreLike;
+    nowMs?: number;
+    authoredBy?: "human" | "agent";
+    emailStyle?: "keep" | "from_input";
+  } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; issues: GraphIssue[] }>> {
   const parsed = LifecycleDraftSchema.safeParse(input);
   if (!parsed.success) return fail(400, "invalid_draft", zodReason(parsed.error));
+  let style: StoredJourneyStyle | null | undefined;
+  if (deps.emailStyle === "from_input" && isEmailJourneyStyleEnabled()) {
+    const given = journeyEmailStyleInInput(input);
+    if (!given.ok) return fail(400, "invalid_draft", given.reason);
+    style = given.style;
+  }
   const repo = forTenant(ctx, deps.db);
   const journey = await repo.lifecycleJourneys.getById(journeyId);
   if (!journey || journey.status === "archived") return fail(404, "not_found");
@@ -226,13 +289,54 @@ export async function saveLifecycleDraft(
   if (checked.error) return fail(404, checked.error);
 
   const updatedAt = new Date(deps.nowMs ?? Date.now()).toISOString();
-  const patch = {
-    draft: parsed.data,
-    updatedAt,
-    ...(deps.authoredBy === "agent" ? { authoredBy: "agent" as const } : {}),
-  };
-  await repo.lifecycleJourneys.update(journeyId, patch);
-  return ok({ journey: { ...journey, ...patch }, issues: checked.issues });
+  const saved = await repo.lifecycleJourneys.claim(journeyId, (current) => {
+    if (current.status === "archived") return null;
+    const settings = withJourneyEmailStyle(parsed.data.settings, style !== undefined ? style : storedJourneyEmailStyle(current));
+    return {
+      draft: { ...parsed.data, settings },
+      updatedAt,
+      ...(deps.authoredBy === "agent" ? { authoredBy: "agent" as const } : {}),
+    };
+  });
+  if (!saved) return fail(404, "not_found");
+  return ok({ journey: saved, issues: checked.issues });
+}
+
+/**
+ * Set ONLY the draft's journey style (`settings.emailStyle`): Vizzy's journey_style kind. `next` gets
+ * the style stored now (read leniently; null = the brand's) and returns the one to store (null = the
+ * brand's, which leaves no key). It runs in a transaction on the fresh doc, so a draft save racing it
+ * can't lose it and nothing else in the draft changes. The published version and the journey's live
+ * style are untouched: Publish makes it live.
+ */
+export async function setLifecycleDraftEmailStyle(
+  ctx: TenantContext,
+  journeyId: string,
+  next: (stored: StoredJourneyStyle | null) => JourneyEmailStyle | null,
+  deps: { db?: FirestoreLike; nowMs?: number; authoredBy?: "human" | "agent" } = {},
+): Promise<ServiceResult<LifecycleJourney>> {
+  const updatedAt = new Date(deps.nowMs ?? Date.now()).toISOString();
+  let invalid = null as string | null;
+  const saved = await forTenant(ctx, deps.db).lifecycleJourneys.claim(journeyId, (current) => {
+    // A retried transaction runs this again on the fresher doc.
+    invalid = null;
+    if (current.status === "archived") return null;
+    const style = JourneyEmailStyleSchema.nullable().safeParse(
+      next(StoredJourneyStyleSchema.parse(storedJourneyEmailStyle(current)) ?? null),
+    );
+    if (!style.success) {
+      invalid = zodReason(style.error);
+      return null;
+    }
+    return {
+      draft: { ...current.draft, settings: withJourneyEmailStyle(current.draft.settings, style.data) },
+      updatedAt,
+      ...(deps.authoredBy === "agent" ? { authoredBy: "agent" as const } : {}),
+    };
+  });
+  if (invalid) return fail(400, "invalid_style", invalid);
+  if (!saved) return fail(404, "not_found");
+  return ok(saved);
 }
 
 /**
@@ -284,6 +388,10 @@ export async function publishLifecycleJourney(
   const nowMs = deps.nowMs ?? Date.now();
   const now = new Date(nowMs).toISOString();
   const number = (journey.publishedVersion ?? 0) + 1;
+  // The journey style goes live on publish, and only with EMAIL_JOURNEY_STYLE_ENABLED on: then the
+  // version keeps it for history and the journey carries it (null = the brand's) for every send.
+  const journeyStyle = isEmailJourneyStyleEnabled();
+  const style = journeyStyle ? (draft.data.settings.emailStyle ?? null) : null;
   let version: LifecycleVersion;
   try {
     version = await repo.lifecycleVersions.create(versionDocId(journey.id, number), {
@@ -291,7 +399,7 @@ export async function publishLifecycleJourney(
       version: number,
       graph: draft.data.graph,
       pools: draft.data.pools,
-      settings: draft.data.settings,
+      settings: withJourneyEmailStyle(draft.data.settings, style),
       publishedAt: now,
       publishedBy: ctx.userId ?? ctx.email ?? null,
     });
@@ -305,6 +413,7 @@ export async function publishLifecycleJourney(
     status: journey.status === "draft" ? ("active" as const) : journey.status,
     liveSince: journey.liveSince ?? now,
     updatedAt: now,
+    ...(journeyStyle ? { emailStyle: style } : {}),
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
   const published = { ...journey, ...patch };

@@ -89,8 +89,8 @@ describe("setTenantEmailStyle: header options", () => {
   it("stores a gradient and a forced text colour, lowercased, with a plain write", async () => {
     const db = seeded();
     const tx = vi.spyOn(db, "runTransaction");
-    // All three option keys given, so nothing is carried over.
-    const input: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "black", headerImage: null };
+    // All three option keys and the theme given, so nothing is carried over.
+    const input: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "black", headerImage: null, theme: null };
     const stored = await setTenantEmailStyle("ten_A", input, db);
 
     const raw = db.raw("tenants", "ten_A")!;
@@ -189,7 +189,8 @@ describe("setTenantEmailStyle: header image", () => {
   it("stores the image by reference, with a plain write when every option is given", async () => {
     const db = seeded();
     const tx = vi.spyOn(db, "runTransaction");
-    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: IMAGE }, db);
+    const body: EmailStyleInput = { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: IMAGE, theme: null };
+    const stored = await setTenantEmailStyle("ten_A", body, db);
 
     const raw = db.raw("tenants", "ten_A")!;
     expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a", headerImage: IMAGE });
@@ -272,6 +273,203 @@ describe("setTenantEmailStyle: header image", () => {
     const raw = db.raw("tenants", "ten_A")!;
     expect(raw).not.toHaveProperty("emailStyleSuggestion");
     expect(raw.emailStyle).toMatchObject({ headerImage: IMAGE });
+    expect(tx).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Pinned whole: a theme is coming to the Email style behind a flag, and a Save must keep storing
+// exactly this, for the bodies Brand › Email style sends today (EmailStyleCard's `input`).
+describe("setTenantEmailStyle: today's Saves from the page", () => {
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const stamp = { updatedAt: expect.any(String), updatedBy: "usr_admin" };
+
+  it("header options on: all three header keys, at their defaults", async () => {
+    const db = seeded();
+    const body: EmailStyleInput = { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: null };
+    const stored = await setTenantEmailStyle("ten_A", body, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(raw.brandVoice).toEqual({ summary: "Warm" });
+  });
+
+  it("header options on: a gradient, forced text and a banner", async () => {
+    const db = seeded();
+    const body: EmailStyleInput = { ...STYLE, headerGradientColor: "#4F46E5", headerText: "white", headerImage: IMAGE };
+    const stored = await setTenantEmailStyle("ten_A", body, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: { id: "logo_1", filename: FILE, width: 120, height: 40 },
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+      headerImage: IMAGE,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("header options off: the four keys alone, keeping what's stored", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, headerGradientColor: "#4f46e5", headerText: "white", headerImage: IMAGE }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, logo: null, headerColor: "#000080" }, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: null,
+      companyName: "Example Co",
+      headerColor: "#000080",
+      accentColor: "#ff6b35",
+      headerGradientColor: "#4f46e5",
+      headerText: "white",
+      headerImage: IMAGE,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+});
+
+describe("setTenantEmailStyle: theme", () => {
+  const IMAGE = { id: "hdr_1", filename: "3f2504e0-4f89-41d3-9a0c-0305e82c3301.jpg", width: 1200, height: 300 };
+  const OPTIONS = { headerGradientColor: "#4f46e5", headerText: "white" } as const;
+  const THEME = { preset: "modern", bodyFont: "lora" } as const;
+  const stamp = { updatedAt: expect.any(String), updatedBy: "usr_admin" };
+  // What Brand › Email style sends today (EmailStyleCard's `input` with the header options on): no theme key.
+  const PAGE_BODY: EmailStyleInput = { ...STYLE, headerGradientColor: null, headerText: "auto", headerImage: null };
+
+  it("stores a theme without the preset's own fonts, with a plain write when all four keys are given", async () => {
+    const db = seeded();
+    const tx = vi.spyOn(db, "runTransaction");
+    const stored = await setTenantEmailStyle(
+      "ten_A",
+      { ...PAGE_BODY, theme: { preset: "modern", headingFont: "inter", bodyFont: "lora" } },
+      db,
+      { updatedBy: "usr_admin" },
+    );
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: STYLE.logo,
+      companyName: "Example Co",
+      headerColor: "#0b1f3a",
+      accentColor: "#ff6b35",
+      theme: THEME,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(tx).not.toHaveBeenCalled();
+    expect((await getTenantById("ten_A", db))?.emailStyle?.theme).toEqual(THEME);
+  });
+
+  it("null, and Classic with the system font, are stored as no key, replacing a stored theme", async () => {
+    const db = seeded();
+    for (const theme of [null, { preset: "classic" }, { preset: "classic", headingFont: "system", bodyFont: "system" }] as const) {
+      await setTenantEmailStyle("ten_A", { ...PAGE_BODY, theme: THEME }, db);
+      const stored = await setTenantEmailStyle("ten_A", { ...PAGE_BODY, theme }, db);
+      expect(db.raw("tenants", "ten_A")!.emailStyle).not.toHaveProperty("theme");
+      expect(stored).toEqual(db.raw("tenants", "ten_A")!.emailStyle);
+    }
+    // Classic with another font is a theme.
+    await setTenantEmailStyle("ten_A", { ...PAGE_BODY, theme: { preset: "classic", headingFont: "georgia" } }, db);
+    expect(db.raw("tenants", "ten_A")!.emailStyle).toMatchObject({ theme: { preset: "classic", headingFont: "georgia" } });
+  });
+
+  it("EmailStyleCard's exact body (the three header keys, no theme) keeps a stored theme, in a transaction", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...PAGE_BODY, theme: THEME }, db);
+    const tx = vi.spyOn(db, "runTransaction");
+    const stored = await setTenantEmailStyle("ten_A", { ...PAGE_BODY, headerColor: "#000080" }, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      logo: STYLE.logo,
+      companyName: "Example Co",
+      headerColor: "#000080",
+      accentColor: "#ff6b35",
+      theme: THEME,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+    expect(tx).toHaveBeenCalledTimes(1);
+  });
+
+  it("a body without the header keys (the options off) keeps the stored theme and options", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS, headerImage: IMAGE, theme: THEME }, db);
+    const stored = await setTenantEmailStyle("ten_A", { ...STYLE, headerColor: "#000080" }, db, { updatedBy: "usr_admin" });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw.emailStyle).toEqual({
+      ...STYLE,
+      headerColor: "#000080",
+      ...OPTIONS,
+      headerImage: IMAGE,
+      theme: THEME,
+      ...stamp,
+    });
+    expect(stored).toEqual(raw.emailStyle);
+  });
+
+  it("a theme given with the header keys left out replaces the stored one and keeps the options", async () => {
+    const db = seeded();
+    await setTenantEmailStyle("ten_A", { ...STYLE, ...OPTIONS, theme: THEME }, db);
+    await setTenantEmailStyle("ten_A", { ...STYLE, theme: { preset: "friendly" } }, db);
+
+    expect(db.raw("tenants", "ten_A")!.emailStyle).toMatchObject({ ...OPTIONS, theme: { preset: "friendly" } });
+  });
+
+  it("a damaged stored theme never blocks a Save that leaves it out: it's dropped, or its unknown font is", async () => {
+    const cases = [
+      [{ preset: "brutalist" }, undefined],
+      ["modern", undefined],
+      [{ preset: "modern", headingFont: "comic-sans", bodyFont: "lora" }, { preset: "modern", bodyFont: "lora" }],
+      // Stored by hand as a Save never would: compacted on the way through.
+      [{ preset: "classic", headingFont: "system" }, undefined],
+    ] as const;
+    for (const [theme, kept] of cases) {
+      const db = seeded({ emailStyle: { ...STYLE, headerColor: "#0b1f3a", theme } });
+      const stored = await setTenantEmailStyle("ten_A", PAGE_BODY, db);
+      const raw = db.raw("tenants", "ten_A")!;
+      expect((raw.emailStyle as Record<string, unknown>).theme).toEqual(kept);
+      expect(raw.emailStyle).toMatchObject({ headerColor: "#0b1f3a" });
+      expect(stored).toEqual(raw.emailStyle);
+    }
+  });
+
+  it("refuses a theme the read would drop, and anything that isn't a preset and font ids", async () => {
+    const db = seeded();
+    const bad = [
+      { preset: "brutalist" },
+      { preset: "modern", headingFont: "Comic Sans MS" },
+      { preset: "modern", bodyFont: "'Inter',sans-serif" },
+      { preset: "modern", pageColor: "#ffffff" },
+      "modern",
+    ];
+    for (const theme of bad) {
+      await expect(setTenantEmailStyle("ten_A", { ...STYLE, theme } as unknown as EmailStyleInput, db)).rejects.toThrow();
+    }
+    expect(db.raw("tenants", "ten_A")).not.toHaveProperty("emailStyle");
+  });
+
+  it("applying a suggestion keeps the theme and clears the suggestion, in one transaction", async () => {
+    const db = seeded({ emailStyleSuggestion: SUGGESTION });
+    await setTenantEmailStyle("ten_A", { ...PAGE_BODY, theme: THEME }, db);
+    const tx = vi.spyOn(db, "runTransaction");
+    await setTenantEmailStyle("ten_A", PAGE_BODY, db, { clearSuggestionAt: SUGGESTION.suggestedAt });
+
+    const raw = db.raw("tenants", "ten_A")!;
+    expect(raw).not.toHaveProperty("emailStyleSuggestion");
+    expect(raw.emailStyle).toMatchObject({ theme: THEME });
     expect(tx).toHaveBeenCalledTimes(1);
   });
 });

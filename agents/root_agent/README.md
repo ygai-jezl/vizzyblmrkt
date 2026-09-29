@@ -32,7 +32,7 @@ context/brand_context.py       build_dynamic_instruction (state-based; Firestore
 context/memory_config.py       composite_user_id + optional VertexAiMemoryBankService
 prompts/                       base system instruction
 agent_logging/logger.py        structured logging
-tools/                         root FunctionTools (knowledge, insights, Email style): pure *_client.py + thin ADK wrappers
+tools/                         root FunctionTools (knowledge, insights, Email style, journey style): pure *_client.py + thin ADK wrappers
 tests/                         unit tests (pure clients; the tool-declaration tests need ADK)
 .agent_engine_config.json      identity_type=AGENT_IDENTITY + runtime env_vars
 deploy.sh                      wraps `adk deploy agent_engine`

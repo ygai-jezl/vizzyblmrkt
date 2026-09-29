@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CONDITION_FIELD_KEYS, ConditionOperator } from "./journey";
 import { EmailLayoutSchema } from "./emailLayout";
 import { ENTITY_KIND_RE } from "./productConnection";
+import { StoredJourneyStyleSchema } from "./tenant";
 
 /**
  * Lifecycle journeys — branching email sequences for a CONNECTED PRODUCT's users
@@ -263,6 +264,15 @@ export const LifecycleSettingsSchema = z.object({
     .object({ requireMarketingConsent: z.boolean().default(false) })
     .default({ requireMarketingConsent: false }),
   about: JourneyAboutSchema.default(JOURNEY_ABOUT_DEFAULT),
+  /**
+   * The journey's own look (EMAIL_JOURNEY_STYLE_ENABLED), in the draft: its header and button
+   * colours in place of the brand's Email style. Absent (or null) = the brand's. Publish copies it
+   * to the journey's live `emailStyle`, which is what sends wear. Read leniently (a damaged style
+   * reads as none, never a failed draft) and with no default, so settings without one carry no key.
+   * Set by the editor's draft save (and Vizzy's journey-style kind), carried by import and
+   * duplicate; every other draft save keeps what's stored (saveLifecycleDraft).
+   */
+  emailStyle: StoredJourneyStyleSchema.nullable().optional(),
 });
 export type LifecycleSettings = z.infer<typeof LifecycleSettingsSchema>;
 
@@ -328,6 +338,13 @@ export const LifecycleJourneySchema = z.object({
    * promotion doesn't need a new version.
    */
   abWinners: z.record(z.string(), z.string()).optional(),
+  /**
+   * The journey's live own look (EMAIL_JOURNEY_STYLE_ENABLED): the draft's `settings.emailStyle`
+   * as last published, which every send from then on wears, whatever version an enrolment is on
+   * (the brand's Email style works the same way). Null or absent = the brand's. Written only by
+   * publish with the flag on; read leniently, like the draft's.
+   */
+  emailStyle: StoredJourneyStyleSchema.nullable().optional(),
   /**
    * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
    * signed up inside the window once the journey can first email everyone (its

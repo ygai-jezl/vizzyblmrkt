@@ -5,7 +5,8 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
-import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { resolveEmailStyle, resolveTransactionalEmailStyle } from "@/lib/email/resolveEmailStyle";
+import { isEmailStyleTransactionalEnabled } from "@/lib/email/flags";
 import {
   unsubscribeLinks,
   journeyFooterValues,
@@ -457,8 +458,9 @@ async function processBroadcastJob(
 
 /**
  * Transactional lifecycle email (currently: offboarding). Best-effort by design —
- * a missing recipient/campaign, a disabled toggle, or a recipient who is no longer
- * offboarded resolves to "done" (no retry, no resend). Enqueued from the admin
+ * a missing recipient/campaign, a disabled toggle, a recipient who is no longer
+ * offboarded or (with EMAIL_STYLE_TRANSACTIONAL_ENABLED) a suppressed address
+ * resolves to "done" (no retry, no resend). Enqueued from the admin
  * offboard action; idempotent via the dedupeKey (`offboard:{signupId}`) and the
  * `emailSentAt` guard so a post-send failure retry never double-sends.
  */
@@ -479,6 +481,9 @@ async function processLifecycleJob(
   if (!signup || signup.status !== "offboarded" || !signup.verified || !signup.email) {
     return "done";
   }
+  // With the offboarding email styled (EMAIL_STYLE_TRANSACTIONAL_ENABLED), an unsubscribed,
+  // bounced or complaining address gets none, as journey emails skip it. Off: sent as today.
+  if (isEmailStyleTransactionalEnabled() && (await isSuppressed(ctx, signup.email, db))) return "done";
 
   const campaign = await forTenant(ctx, db).campaigns.getById(signup.campaignId);
   if (!campaign?.offboardingEmail?.enabled) return "done"; // toggle off → no-op
@@ -498,9 +503,20 @@ async function processLifecycleJob(
     .trim();
   const body = renderMergeVars(offb.body?.trim() || defaultOffboardingBody(locale), mergeCtx);
 
+  // With EMAIL_STYLE_TRANSACTIONAL_ENABLED, the Email style's colour header and card; the same
+  // subject, body and text. A styled render that throws sends today's plain email instead.
+  const email = { to: signup.email, subject, body, locale };
+  let message = offboardingEmail(email);
+  try {
+    const style = resolveTransactionalEmailStyle(tenant);
+    if (style) message = offboardingEmail({ ...email, style });
+  } catch (err) {
+    console.warn(`[delivery] styled offboarding email failed for tenant=${ctx.tenantId} job=${job.id}, sending it plain:`, err);
+  }
+
   const sender = resolveSender(tenant, campaign);
   const res = await sendEmail({
-    ...offboardingEmail({ to: signup.email, subject, body, locale }),
+    ...message,
     fromEmail: sender.fromEmail,
     fromName: sender.fromName,
     replyTo: sender.replyTo,

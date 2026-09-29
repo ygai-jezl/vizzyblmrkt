@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { EMAIL_FONTS, FONT } from "@/lib/email/emailFonts";
 import { defaultInviteCopy, ensureInviteLink, hasInviteLink, renderInviteEmail } from "./render";
 
 const merge = {
@@ -81,9 +82,91 @@ describe("invite email", () => {
       expect(html).not.toMatch(/YGINV1/);
     });
 
+    it("with a theme, the button takes its shape and the footer its body font; the text doesn't change", () => {
+      const themed = (preset: "classic" | "modern" | "editorial"): ResolvedEmailStyle => ({
+        ...style("#1d4ed8"),
+        theme: { preset, headingFont: "georgia", bodyFont: "verdana" },
+      });
+      const modern = render(themed("modern"));
+      expect(button(modern.html)).toContain("background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;");
+      expect(button(render(themed("editorial")).html)).toContain("border-radius:0px;");
+      expect(button(render(themed("classic")).html)).toContain("border-radius:8px;");
+      expect(modern.html).toContain(`border-top:1px solid #ededed;font-family:${EMAIL_FONTS.verdana.safeStack};font-size:12px`);
+      expect(modern.html).not.toContain(FONT);
+      expect(modern.subject).toBe(render(style("#1d4ed8")).subject);
+      expect(modern.text).toBe(render(style("#1d4ed8")).text);
+      // No theme: today's 8px button and footer font.
+      expect(button(render(style("#1d4ed8")).html)).toContain("border-radius:8px;");
+      expect(render(style("#1d4ed8")).html).toContain(`border-top:1px solid #ededed;font-family:${FONT};font-size:12px`);
+    });
+
+    it("with web fonts, the HTML carries their block and the text never does", () => {
+      const web: ResolvedEmailStyle = {
+        ...style("#1d4ed8"),
+        theme: { preset: "modern", headingFont: "inter", bodyFont: "inter", webFontOrigin: "https://app.example.com" },
+      };
+      const out = render(web);
+      expect(out.html).toContain("<!--[if !mso]><!--><style data-vzb-fonts>");
+      expect(out.html).toContain('<div class="vzb-card" style=');
+      expect(out.text).not.toContain("@font-face");
+      expect(out.text).not.toContain("vzb-");
+      expect(out.text).toBe(render().text);
+      expect(out.subject).toBe(render().subject);
+      // The preheader is still the opening words, and the button still its label.
+      expect(out.html.match(/<div style="display:none;[^"]*">([^<]*)<\/div>/)?.[1]).toMatch(/^Hi Amara &lt;b&gt;, Thanks for waiting\./);
+      expect(button(out.html)).toContain("border-radius:999px;");
+    });
+
     it("no style (null or absent) keeps today's #111 button", () => {
       expect(render(null)).toEqual(render());
       expect(button(render().html)).toContain("background:#111;color:#fff;");
+    });
+
+    // Pinned byte-for-byte: a themed button and footer are coming behind a flag, and with it off
+    // (or no theme saved) a styled invite must stay exactly this.
+    it("pins today's styled html and text", () => {
+      const out = renderInviteEmail({
+        ...defaultInviteCopy("en"),
+        merge: {
+          ...merge,
+          signup: { id: "sig_2", firstName: "Amara", email: "amara@example.test" } as Signup,
+          footer: {
+            brand: "Fernlight",
+            unsubscribeUrl: "https://waitlist.example.com/unsubscribe?u=t",
+            managePreferencesUrl: "https://waitlist.example.com/preferences?u=t",
+            privacyUrl: "https://example.com/privacy",
+          },
+        },
+        inviteUrl: URL_,
+        productName: "Fernlight",
+        expiresInDays: 30,
+        locale: "en",
+        style: style("#ffd400"),
+      });
+      expect(out.subject).toBe("You're in: Fernlight is ready for you");
+      expect(out.html).toMatchInlineSnapshot(`
+        "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+          <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Hi Amara, Thanks for waiting. Fernlight is ready, and as one of the first on the Fernlight list, you&#39;re invited in. Join Fernlight Your invite link wo</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#0b1f3a" style="width:100%;max-width:608px;margin:0 auto;background-color:#0b1f3a"><tr><td bgcolor="#0b1f3a" align="left" style="padding:16px 24px;background-color:#0b1f3a"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Fernlight</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+            
+            <p>Hi Amara,</p>
+        <p>Thanks for waiting. Fernlight is ready, and as one of the first on the Fernlight list, you&#39;re invited in.</p>
+        <p><a href="https://waitlist.example.com/invite/abc.def" target="_blank" rel="noopener noreferrer" style="background:#ffd400;color:#000000;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:600">Join Fernlight</a></p>
+        <p>Your invite link works for 30 days.</p><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by Fernlight.<br /><a href="https://waitlist.example.com/preferences?u=t" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="https://waitlist.example.com/unsubscribe?u=t" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="https://example.com/privacy" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+          </div>
+        </body></html>"
+      `);
+      expect(out.text).toMatchInlineSnapshot(`
+        "Hi Amara,
+
+        Thanks for waiting. Fernlight is ready, and as one of the first on the Fernlight list, you're invited in.
+
+        https://waitlist.example.com/invite/abc.def
+
+        Your invite link works for 30 days.
+        This email was sent by Fernlight.
+        Manage preferences (https://waitlist.example.com/preferences?u=t) | Unsubscribe (https://waitlist.example.com/unsubscribe?u=t) | Privacy Policy (https://example.com/privacy)"
+      `);
     });
   });
 

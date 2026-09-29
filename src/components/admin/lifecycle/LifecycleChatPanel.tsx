@@ -5,12 +5,13 @@ import { X } from "lucide-react";
 import { ChatPill } from "../chat/ChatPill";
 import { MessageThread } from "../chat/MessageThread";
 import { useDashboardChat, type CanvasCardData } from "../chat/useDashboardChat";
+import { isJourneyDraftCard } from "./journeyStyleForm";
 
 /**
  * Vizzy, docked beside a lifecycle journey. Messages carry this journey's
  * connection + id, so "make the last reminder shorter" edits THIS draft; when
- * Vizzy saves it, the editor reloads the canvas. Drafts only — publishing stays
- * a button on the page.
+ * Vizzy saves it (its body, or with journey styles on its email style), the
+ * editor reloads the canvas. Drafts only — publishing stays a button on the page.
  */
 
 const SUGGESTIONS = [
@@ -33,7 +34,7 @@ export function LifecycleChatPanel({
   const chat = useDashboardChat({
     context: { connectionId, journeyId },
     onCanvasSaved: (card) => {
-      if (card.kind === "lifecycle") onDraftSaved(card);
+      if (isJourneyDraftCard(card, journeyId)) onDraftSaved(card);
     },
   });
   const bottom = useRef<HTMLDivElement>(null);

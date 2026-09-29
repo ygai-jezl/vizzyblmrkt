@@ -106,7 +106,7 @@ async function saveConverted(
   const id = waitlistJourneyId(campaignId);
   const existing = await forTenant(ctx, deps.db).lifecycleJourneys.getById(id);
   const saved = existing
-    ? await saveLifecycleDraft(ctx, id, draft, { db: deps.db, nowMs: deps.nowMs, authoredBy: "human" })
+    ? await saveLifecycleDraft(ctx, id, draft, { db: deps.db, nowMs: deps.nowMs, authoredBy: "human", emailStyle: "keep" })
     : await createWaitlistJourney(ctx, { campaignId, draft }, { db: deps.db, nowMs: deps.nowMs });
   return saved.ok ? { ok: true, value: saved.value.journey } : saved;
 }

@@ -4,8 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { usePathname, useRouter } from "next/navigation";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled, isNavV2Phase4Enabled } from "@/lib/nav/flags";
 import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
-import { launchInView, programmeInView, vizzyPageLabel } from "@/lib/nav/vizzy";
-import { useDashboardChat, type UseDashboardChatReturn } from "../chat/useDashboardChat";
+import { shellChatContext, vizzyPageLabel } from "@/lib/nav/vizzy";
+import { useDashboardChat, type CanvasCardData, type UseDashboardChatReturn } from "../chat/useDashboardChat";
+import { cardListeners } from "../chat/cardData";
 
 interface Shell {
   /** The one Vizzy conversation, shared by Home and the Ask Vizzy panel. */
@@ -19,6 +20,12 @@ interface Shell {
   setPaletteOpen: (open: boolean) => void;
   /** Ask Vizzy from anywhere (⌘K, suggestions): opens the panel, or uses Home's chat. */
   ask: (text: string) => void;
+  /**
+   * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
+   * data isn't the server's render (the journey editor) can reload it. Null unless the layout
+   * passes `journeyInContext`.
+   */
+  onCanvasSaved: ((listener: (card: CanvasCardData) => void) => () => void) | null;
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -41,21 +48,32 @@ function focusHomeChat() {
  * Nav v2 phase 2: holds Vizzy's conversation across pages (the layout persists
  * while the page changes), the panel and ⌘K state, and the two shortcuts. The
  * layout keys it by brand, so switching brand starts a fresh conversation.
+ *
+ * With `journeyInContext` (journey styles on and an admin, from the server), the chat also names
+ * the lifecycle journey in view, and pages can hear about the drafts Vizzy saves (onCanvasSaved).
  */
-export function ShellProvider({ names, children }: { names: CrumbNames; children: ReactNode }) {
+export function ShellProvider({
+  names,
+  journeyInContext = false,
+  children,
+}: {
+  names: CrumbNames;
+  journeyInContext?: boolean;
+  children: ReactNode;
+}) {
   const pathname = usePathname() ?? "/admin";
   const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled() }));
   const router = useRouter();
+  // Made once, so a page's subscription outlives re-renders.
+  const [saved] = useState(cardListeners);
   const chat = useDashboardChat({
-    context: {
-      page,
-      campaignId: launchInView(pathname),
-      // Nav v2 phase 4: the programme / plan in view, for Vizzy's content tools.
-      ...(isNavV2Phase4Enabled() ? programmeInView(pathname) : {}),
-    },
+    // The page, the launch in view, the programme / plan (nav v2 phase 4) and, with
+    // journeyInContext, the lifecycle journey in view, for Vizzy's tools.
+    context: shellChatContext(pathname, page, { phase4: isNavV2Phase4Enabled(), journeyInContext }),
     // When Vizzy saves a draft of the page you're on, show its version.
     onCanvasSaved: (card) => {
       if (card.url.split("?")[0] === pathname) router.refresh();
+      if (journeyInContext) saved.emit(card);
     },
   });
   const [vizzyOpen, setVizzyOpen] = useState(false);
@@ -93,8 +111,18 @@ export function ShellProvider({ names, children }: { names: CrumbNames; children
   }, [toggleVizzy]);
 
   const value = useMemo<Shell>(
-    () => ({ chat, page, vizzyOpen, setVizzyOpen, toggleVizzy, paletteOpen, setPaletteOpen, ask }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask],
+    () => ({
+      chat,
+      page,
+      vizzyOpen,
+      setVizzyOpen,
+      toggleVizzy,
+      paletteOpen,
+      setPaletteOpen,
+      ask,
+      onCanvasSaved: journeyInContext ? saved.add : null,
+    }),
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

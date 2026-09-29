@@ -1,6 +1,7 @@
 import { compileJourneyEmail } from "@/lib/agents/compiler";
 import { OPENING_WORDS_MAX, escapeHtml, looksHtml } from "@/lib/email/emailRender";
 import { accentFor, readableOn, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
+import { themeTokens } from "@/lib/email/emailThemes";
 import type { MergeContext } from "@/lib/email/mergeVars";
 import { getMessage } from "@/lib/i18n/messages";
 
@@ -17,8 +18,8 @@ import { getMessage } from "@/lib/i18n/messages";
  * for inert placeholders first and replaced in the finished HTML and text.
  *
  * With an Email style the invite gets the header band and its button takes the
- * button colour (label in black or white, whichever reads); without one it's
- * today's email byte for byte.
+ * button colour (label in black or white, whichever reads), and a theme's button
+ * shape; without one it's today's email byte for byte.
  */
 
 const INVITE_TAG_RE = /\{\{\s*(invite_link|product_name|invite_expires_days)\s*\}\}/g;
@@ -86,9 +87,10 @@ export function renderInviteEmail(input: RenderInviteInput): { subject: string; 
   // No style keeps today's literal #111/#fff.
   const accent = accentFor(input.style, "button");
   const colors = accent ? `background:${accent};color:${readableOn(accent)}` : "background:#111;color:#fff";
+  const radius = themeTokens(input.style)?.buttonRadius ?? 8;
   const button =
     `<a href="${escapeHtml(input.inviteUrl)}" target="_blank" rel="noopener noreferrer" ` +
-    `style="${colors};text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:600">` +
+    `style="${colors};text-decoration:none;padding:12px 20px;border-radius:${radius}px;display:inline-block;font-weight:600">` +
     `${escapeHtml(cta)}</a>`;
   return {
     // Plain text; strip CR/LF so no value can smuggle in an extra header.

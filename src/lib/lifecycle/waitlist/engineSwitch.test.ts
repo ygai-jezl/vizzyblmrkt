@@ -166,6 +166,24 @@ describe("switching a launch to the lifecycle engine", () => {
     expect((await engineStatus(ctx, CAMPAIGN_ID, w.db))!.doubleSends).toBe(0);
   });
 
+  it("switching after a rehearsal keeps the journey's own email style, and makes it live", async () => {
+    vi.stubEnv("EMAIL_JOURNEY_STYLE_ENABLED", "true");
+    const NAVY = { headerColor: "#0b1f3a", accentColor: "#ff6b35" };
+    const w = world();
+    await switchEngine(ctx, CAMPAIGN_ID, "rehearse", { db: w.db, nowMs: T0 });
+    const id = waitlistJourneyId(CAMPAIGN_ID);
+    const doc = structuredClone(w.db.raw("lifecycle_journeys", id)) as { draft: { settings: Record<string, unknown> } };
+    doc.draft.settings.emailStyle = NAVY;
+    w.db.seed("lifecycle_journeys", id, doc);
+
+    // The switch converts the original again and saves it over the rehearsal's draft.
+    expect(await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 + H })).toMatchObject({ ok: true, value: { engine: "lifecycle" } });
+    const after = w.db.raw("lifecycle_journeys", id) as { draft: { settings: Record<string, unknown> }; emailStyle?: unknown; publishedVersion: number };
+    expect(after.publishedVersion).toBe(2);
+    expect(after.draft.settings.emailStyle).toStrictEqual(NAVY);
+    expect(after.emailStyle).toStrictEqual(NAVY);
+  });
+
   it("ends a rehearsal without touching anyone", async () => {
     const w = world();
     await switchEngine(ctx, CAMPAIGN_ID, "rehearse", { db: w.db, nowMs: T0 });

@@ -3,7 +3,7 @@ import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { LifecycleDraftSchema, type LifecycleDraft } from "@/lib/types/lifecycle";
 import { zodReason } from "@/lib/connect/protocol";
-import { createLifecycleJourney, type ServiceResult } from "./service";
+import { createLifecycleJourney, withJourneyEmailStyle, type ServiceResult } from "./service";
 import { versionDocId } from "./enrol";
 import type { GraphIssue } from "./graph";
 
@@ -14,10 +14,11 @@ import type { GraphIssue } from "./graph";
  * access.
  *
  * A journey document carries ONLY the design: graph, content pools and
- * settings. Never the tenant, the connection, test recipients, the shadow
- * inbox, caps, enrolments or any person's data. Importing always creates a
- * DRAFT on the chosen connection, validated against THAT product's catalog;
- * publishing (and the delivery mode) stay a human decision on the new journey.
+ * settings (its own email style included, when it has one). Never the tenant,
+ * the connection, test recipients, the shadow inbox, caps, enrolments or any
+ * person's data. Importing always creates a DRAFT on the chosen connection,
+ * validated against THAT product's catalog; publishing (and the delivery mode)
+ * stay a human decision on the new journey.
  */
 
 export const JOURNEY_DOCUMENT_FORMAT = "yougrow.lifecycle-journey";
@@ -38,6 +39,11 @@ export type JourneyDocument = z.infer<typeof JourneyDocumentSchema>;
 
 export type ExportWhich = "published" | "draft";
 
+/** A parsed draft with its journey style only if it read as one: no key otherwise, as new journeys have. */
+function readableStyle(draft: LifecycleDraft): LifecycleDraft {
+  return { ...draft, settings: withJourneyEmailStyle(draft.settings, draft.settings.emailStyle) };
+}
+
 /** The journey's design as a portable document. `published` falls back to the draft if never published. */
 export async function exportJourneyDocument(
   ctx: TenantContext,
@@ -53,7 +59,8 @@ export async function exportJourneyDocument(
   if ((opts.which ?? "published") === "published" && journey.publishedVersion) {
     const version = await repo.lifecycleVersions.getById(versionDocId(journey.id, journey.publishedVersion));
     if (version) {
-      draft = { graph: version.graph, pools: version.pools, settings: version.settings };
+      // The published design wears the journey's live style (what its sends wear), not the version's copy.
+      draft = { graph: version.graph, pools: version.pools, settings: withJourneyEmailStyle(version.settings, journey.emailStyle) };
       sourceVersion = version.version;
     }
   }
@@ -65,8 +72,8 @@ export async function exportJourneyDocument(
       exportedAt: new Date(opts.nowMs ?? Date.now()).toISOString(),
       name: journey.name,
       sourceVersion,
-      // Re-parse so only schema fields travel, whatever else a stored doc holds.
-      draft: LifecycleDraftSchema.parse(draft),
+      // Re-parse so only schema fields travel, whatever else a stored doc holds (a damaged style reads as none).
+      draft: readableStyle(LifecycleDraftSchema.parse(draft)),
     },
   };
 }
@@ -91,10 +98,12 @@ export async function importJourneyDocument(
   const doc = JourneyDocumentSchema.safeParse(parsed.data.document);
   if (!doc.success) return { ok: false, status: 400, error: "invalid_document", detail: zodReason(doc.error) };
 
+  // A readable style comes along whatever EMAIL_JOURNEY_STYLE_ENABLED says (sends ignore it while
+  // it's off), so a copy made during a kill switch keeps it.
   const created = await createLifecycleJourney(
     ctx,
     { name: parsed.data.name ?? doc.data.name, connectionId: parsed.data.connectionId, template: "blank" },
-    { db: deps.db, nowMs: deps.nowMs, authoredBy: "human", draft: doc.data.draft },
+    { db: deps.db, nowMs: deps.nowMs, authoredBy: "human", draft: readableStyle(doc.data.draft) },
   );
   if (!created.ok) return created;
   return { ok: true, value: { journeyId: created.value.journey.id, issues: created.value.issues } };

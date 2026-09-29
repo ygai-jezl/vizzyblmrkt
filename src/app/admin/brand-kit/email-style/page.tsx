@@ -6,14 +6,22 @@ import { getTenantById } from "@/lib/tenant";
 import { listLogos } from "@/lib/admin/brandLogos";
 import { listBrandAssets } from "@/lib/admin/brandAssets";
 import { BRAND_KIT_ROUTE, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
-import { isEmailHeaderOptionsEnabled, isEmailHeaderOptionsUiEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
+import {
+  isEmailHeaderOptionsEnabled,
+  isEmailHeaderOptionsUiEnabled,
+  isEmailLayoutStyleEnabled,
+  isEmailStyleEnabled,
+  isEmailStyleTransactionalEnabled,
+  isEmailThemesEnabled,
+  isEmailWebFontsEnabled,
+} from "@/lib/email/flags";
 import { isEmailHeaderImage, styleFromBrandKit } from "@/lib/email/emailStyle";
 import { emailLinkOrigin } from "@/lib/email/footer";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { EmailStyleCard } from "@/components/admin/brand-kit/EmailStyleCard";
-import { paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
+import { brandFontsToEmail, paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
 import type { EmailHeaderImageChoice } from "@/components/admin/brand-kit/headerImage";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +32,13 @@ export const dynamic = "force-dynamic";
  * can view, including a pending Vizzy suggestion; only admins save or dismiss it. Flag-gated
  * (EMAIL_STYLE_ENABLED). The header options (a gradient, the header text colour, and a Header
  * choice of Colour or Image, with the header images uploaded there) show only when
- * EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on.
+ * EMAIL_HEADER_OPTIONS_ENABLED and its client mirror are both on. The Theme (a look, a heading
+ * and a body font, "Use brand fonts") shows only with EMAIL_THEMES_ENABLED, and the preview's
+ * "As Apple Mail sees it" / "As Gmail & Outlook.com see it" only with EMAIL_WEB_FONTS_ENABLED too.
+ * With EMAIL_LAYOUT_STYLE_ENABLED, the Button colour hint says it colours Create layout buttons too.
+ * With EMAIL_STYLE_TRANSACTIONAL_ENABLED the sign-up confirmation and offboarding emails wear it
+ * too (always the colour header, never a banner): the page names them, and the preview switches
+ * between the welcome email and those two.
  */
 export default async function EmailStylePage() {
   const ctx = await requireAdminContext();
@@ -79,9 +93,12 @@ export default async function EmailStylePage() {
       console.error("[email-style] header images failed to load", err);
     }
   }
+  // Off, the page is exactly as without them: no Theme section, and Save sends no theme (the PUT keeps the stored one).
+  const themes = isEmailThemesEnabled();
+  const webFonts = themes && isEmailWebFontsEnabled();
   // Vizzy's pending suggestion, for the banner. Who asked stays on the server. Its header
-  // options (and header image) only come along with them on; off, the banner and Review are as
-  // without them.
+  // options (and header image), and its theme, only come along with them on; off, the banner
+  // and Review are as without them.
   const suggestion = tenant?.emailStyleSuggestion;
   const pending = suggestion
     ? {
@@ -92,6 +109,7 @@ export default async function EmailStylePage() {
         ...(headerOptions && suggestion.headerGradientColor ? { headerGradientColor: suggestion.headerGradientColor } : {}),
         ...(headerOptions && suggestion.headerText ? { headerText: suggestion.headerText } : {}),
         ...(headerOptions && suggestion.headerImageId ? { headerImageId: suggestion.headerImageId } : {}),
+        ...(themes && suggestion.theme ? { theme: suggestion.theme } : {}),
         source: suggestion.source,
         brief: suggestion.brief,
         notes: suggestion.notes,
@@ -99,6 +117,11 @@ export default async function EmailStylePage() {
       }
     : null;
   const phase3 = isNavV2Phase3Enabled();
+  // Off, the page is as without it: the welcome email alone in the preview, and today's list of emails.
+  const transactional = isEmailStyleTransactionalEnabled();
+  const emails = transactional
+    ? "lifecycle, launch welcome, invite, newsletter, sign-up confirmation and offboarding emails"
+    : "lifecycle, launch welcome, invite and newsletter emails";
 
   return (
     <div className="space-y-5">
@@ -111,8 +134,7 @@ export default async function EmailStylePage() {
         </Link>
         <h1 className="mt-1 text-lg font-semibold">Email style</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Your logo and colours on branded emails: lifecycle, launch welcome, invite and newsletter emails.
-          Letters stay plain.
+          {`Your logo and colours on branded emails: ${emails}. Letters stay plain.`}
         </p>
       </div>
       <EmailStyleCard
@@ -130,6 +152,7 @@ export default async function EmailStylePage() {
                       headerImage: saved.headerImage ?? null,
                     }
                   : {}),
+                ...(themes ? { theme: saved.theme ?? null } : {}),
               }
             : null
         }
@@ -146,6 +169,12 @@ export default async function EmailStylePage() {
         headerImages={headerImages}
         headerImagesUnavailable={headerImagesUnavailable}
         headerImageOrigin={headerOptions ? emailLinkOrigin() : ""}
+        themes={themes}
+        webFonts={webFonts}
+        fontOrigin={webFonts ? emailLinkOrigin() : ""}
+        fromBrandFonts={themes ? brandFontsToEmail(tenant?.brandTypography, tenant?.brandKit?.fonts) : null}
+        layouts={isEmailLayoutStyleEnabled()}
+        transactional={transactional}
       />
     </div>
   );

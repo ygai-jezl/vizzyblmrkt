@@ -7,10 +7,15 @@ import {
   renderHeaderBand,
   renderFooter,
   preheaderHtml,
+  wrapLetter,
+  layoutButtonLook,
   FOOTER_MARKER,
 } from "./emailRender";
-import { readableOn, type ResolvedEmailStyle } from "./emailStyle";
+import { contrastRatio, readableOn, resolveStoredStyle, type ResolvedEmailStyle } from "./emailStyle";
+import { EMAIL_FONTS, FONT, webFontHead } from "./emailFonts";
+import { EMAIL_THEME_PRESET_SPECS } from "./emailThemes";
 import { EmailLayoutSchema, type EmailLayout } from "@/lib/types/emailLayout";
+import type { EmailFontId, EmailThemePreset } from "@/lib/types/tenant";
 
 describe("sanitizeEmailHtml", () => {
   it("strips scripts/handlers/js-hrefs but keeps safe markup + merge tokens", () => {
@@ -472,6 +477,683 @@ describe("wrap with an Email style", () => {
         </div>
       </body></html>"
     `);
+  });
+});
+
+// Pinned byte-for-byte: themes, fonts and layout buttons that follow the Email style are coming
+// behind flags, and with them off (or no theme saved) every block, footer and shell must stay this.
+describe("today's layouts, footer and shells", () => {
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+    ...over,
+  });
+  // Every block kind, with buttons in the default #111111, the presets' #4f46e5 and a brand palette colour.
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome, {{first_name}}", level: 1, align: "center" },
+      { id: "h2", kind: "heading", html: "What's <new>", level: 2, align: "left", color: "#0b1f3a", sectionBg: "#f5f5f5" },
+      { id: "h3", kind: "heading", html: "Small print", level: 3, align: "right" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi {{first_name}}, here's <strong>the news</strong>.</p>" },
+      { id: "t2", kind: "text", html: "<p>Coloured copy</p>", color: "#333333", sectionBg: "#eef2ff" },
+      { id: "i1", kind: "image", src: "https://cdn.example.com/hero.png", alt: "Hero", href: "https://example.com/launch", width: 560, align: "center" },
+      { id: "i2", kind: "image", src: "https://cdn.example.com/badge.png", alt: "", href: null, width: 120, align: "left" },
+      { id: "b1", kind: "button", label: "Get started", href: "{{hub_url}}", align: "center", bg: "#111111", color: "#ffffff", radius: 8 },
+      { id: "b2", kind: "button", label: "See what's new", href: "https://example.com/new", align: "left", bg: "#4f46e5", color: "#ffffff", radius: 6 },
+      { id: "b3", kind: "button", label: "Book a call", href: "https://example.com/book", align: "right", bg: "#ff6b35", color: "#111111", radius: 24, sectionBg: "#fff7ed" },
+      { id: "d1", kind: "divider", color: "#e5e5e5", thickness: 1 },
+      { id: "d2", kind: "divider", color: "#4f46e5", thickness: 3, sectionBg: "#f5f5f5" },
+      { id: "s1", kind: "spacer", height: 24 },
+      { id: "so", kind: "social", align: "center", links: [{ platform: "x", url: "https://example.com/social/x" }, { platform: "linkedin", url: "https://example.com/social/linkedin" }] },
+      { id: "f1", kind: "footer", text: "", sectionBg: "#fafafa" },
+    ],
+  });
+
+  it("pins every block kind", () => {
+    expect(renderEmailLayout(layout)).toMatchInlineSnapshot(`
+      "<h1 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:28px;line-height:1.3;font-weight:700;color:#111111;text-align:center">Welcome, {{first_name}}</h1>
+      <div style="background:#f5f5f5;padding:16px 16px 1px"><h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#0b1f3a;text-align:left">What&#39;s &lt;new&gt;</h2></div>
+      <h3 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#111111;text-align:right">Small print</h3>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Hi {{first_name}}, here's <strong>the news</strong>.</p></div>
+      <div style="background:#eef2ff;padding:16px 16px 1px"><div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#333333;margin:0 0 16px"><p>Coloured copy</p></div></div>
+      <div style="text-align:center;margin:0 0 16px"><a href="https://example.com/launch" target="_blank" rel="noopener noreferrer"><img src="https://cdn.example.com/hero.png" alt="Hero" width="560" style="display:inline-block;width:560px;max-width:100%;height:auto;border:0;border-radius:8px" /></a></div>
+      <div style="text-align:left;margin:0 0 16px"><img src="https://cdn.example.com/badge.png" alt="" width="120" style="display:inline-block;width:120px;max-width:100%;height:auto;border:0;border-radius:8px" /></div>
+      <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#111111;border-radius:8px"><a href="{{hub_url}}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Get started</a></td></tr></table></div>
+      <div style="text-align:left;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:6px"><a href="https://example.com/new" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">See what&#39;s new</a></td></tr></table></div>
+      <div style="background:#fff7ed;padding:16px 16px 1px"><div style="text-align:right;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#ff6b35;border-radius:24px"><a href="https://example.com/book" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#111111;text-decoration:none">Book a call</a></td></tr></table></div></div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:1px solid #e5e5e5;font-size:0;line-height:0">&nbsp;</td></tr></table>
+      <div style="background:#f5f5f5;padding:16px 16px 1px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:3px solid #4f46e5;font-size:0;line-height:0">&nbsp;</td></tr></table></div>
+      <div style="height:24px;line-height:24px;font-size:0">&nbsp;</div>
+      <div style="text-align:center;margin:8px 0 16px"><a href="https://example.com/social/x" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:0 6px"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%225%22%20fill%3D%22%238a8a8a%22%2F%3E%3Ctext%20x%3D%2212%22%20y%3D%2217%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-size%3D%2210%22%20font-weight%3D%22700%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%3E%F0%9D%95%8F%3C%2Ftext%3E%3C%2Fsvg%3E" alt="X" width="24" height="24" style="display:inline-block;border:0" /></a><a href="https://example.com/social/linkedin" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:0 6px"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%225%22%20fill%3D%22%238a8a8a%22%2F%3E%3Ctext%20x%3D%2212%22%20y%3D%2217%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-size%3D%2210%22%20font-weight%3D%22700%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%3Ein%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Linkedin" width="24" height="24" style="display:inline-block;border:0" /></a></div>
+      <div style="background:#fafafa;padding:16px 16px 1px"><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div></div>"
+    `);
+  });
+
+  it("buttons stay exactly the pin with no style, a style without the layouts bit, or the bit and every button on its own colour", () => {
+    const pin = renderEmailLayout(layout);
+    const own = EmailLayoutSchema.parse({
+      blocks: layout.blocks.map((b) => (b.kind === "button" ? { ...b, styleSource: "own" } : b)),
+    });
+    expect(renderEmailLayout(layout, {})).toBe(pin);
+    expect(renderEmailLayout(layout, { style: null })).toBe(pin);
+    expect(renderEmailLayout(layout, { style: style() })).toBe(pin);
+    expect(renderEmailLayout(own)).toBe(pin);
+    expect(renderEmailLayout(own, { style: style() })).toBe(pin);
+    expect(renderEmailLayout(own, { style: style({ layouts: true }) })).toBe(pin);
+    // An accent that isn't a colour (the resolver never gives one) keeps them as built too.
+    expect(renderEmailLayout(layout, { style: style({ layouts: true, accentColor: "orange" }) })).toBe(pin);
+  });
+
+  it("pins the Create preview shell (a layout in wrap), with and without a style", () => {
+    const inner = renderEmailLayout(
+      EmailLayoutSchema.parse({
+        blocks: [
+          { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+          { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+          { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+          { id: "f1", kind: "footer", text: "" },
+        ],
+      }),
+    );
+    expect(wrap(inner, null)).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#f6f6f6">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome</h2>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Hi there.</p></div>
+      <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://example.com/start" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Get started</a></td></tr></table></div>
+      <div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap(inner, null, { style: style() })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Welcome Hi there. Get started This email was sent by {{sender_brand}}. Manage preferences &nbsp;|&nbsp; Unsubscribe &nbsp;|&nbsp; Privacy Policy</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <h2 style="margin:0 0 12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:22px;line-height:1.3;font-weight:700;color:#111111;text-align:left">Welcome</h2>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.6;color:#111111;margin:0 0 16px"><p>Hi there.</p></div>
+      <div style="text-align:center;margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:#4f46e5;border-radius:8px"><a href="https://example.com/start" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Get started</a></td></tr></table></div>
+      <div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  it("pins the footer: plain, on a section colour, and with the postal address", () => {
+    expect(renderFooter()).toMatchInlineSnapshot(`"<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>"`);
+    expect(renderFooter("#f5f5f5")).toMatchInlineSnapshot(`"<div style="background:#f5f5f5;padding:16px 16px 1px"><div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div></div>"`);
+    expect(renderFooter(null, { withAddress: true })).toMatchInlineSnapshot(`"<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.<br />{{postal_address}}<br /><a href="{{manage_preferences_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Manage preferences</a> &nbsp;|&nbsp; <a href="{{unsubscribe_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Unsubscribe</a> &nbsp;|&nbsp; <a href="{{privacy_url}}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">Privacy Policy</a></div>"`);
+  });
+
+  it("pins the styled shell with a preheader and a hero, the name alone, and a body with its own logo", () => {
+    expect(wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style: style(), preheader: "Your week in brief" })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">Your week in brief</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          <img src="https://cdn.example.com/hero.png" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 20px"/>
+          <p>x</p>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap("<p>x</p>", null, { style: style({ logo: null }) })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p>x</p>
+        </div>
+      </body></html>"
+    `);
+    expect(wrap(`<p><img src="${LOGO_URL}" alt=""></p>`, null, { style: style() })).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f6f6f6">
+        
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+          
+          <p><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" alt=""></p>
+        </div>
+      </body></html>"
+    `);
+  });
+
+  it("pins the letter shell", () => {
+    expect(wrapLetter("<p>Hi Jo,</p>\n<p>Just a note.</p>")).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#ffffff">
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;max-width:560px;margin:0 auto;padding:24px;color:#111">
+          <p>Hi Jo,</p>
+      <p>Just a note.</p>
+        </div>
+      </body></html>"
+    `);
+  });
+});
+
+describe("with a theme", () => {
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const BANNER_URL = "https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png";
+  const base: ResolvedEmailStyle = {
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+  };
+  const themed = (
+    preset: EmailThemePreset,
+    fonts: { headingFont?: EmailFontId; bodyFont?: EmailFontId } = {},
+    over: Partial<ResolvedEmailStyle> = {},
+  ): ResolvedEmailStyle => ({
+    ...base,
+    ...over,
+    theme: {
+      preset,
+      headingFont: fonts.headingFont ?? EMAIL_THEME_PRESET_SPECS[preset].headingFont,
+      bodyFont: fonts.bodyFont ?? EMAIL_THEME_PRESET_SPECS[preset].bodyFont,
+    },
+  });
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+      { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+      { id: "f1", kind: "footer", text: "", sectionBg: "#fafafa" },
+    ],
+  });
+  const card = (html: string) => html.match(/<div style="font-family:[^"]*max-width:560px[^"]*">/)?.[0] ?? "";
+  const wrapper = (page: string) =>
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${page}" style="width:100%;background-color:${page}"><tr><td>`;
+
+  it("a stored theme with the flag off, or Classic with the system font, is no theme: every pin stays", () => {
+    const stored = {
+      logo: { id: "logo_1", filename: "11111111-2222-4333-8444-555555555555.png", width: 120, height: 40 },
+      companyName: "Acme Co",
+      headerColor: "#123456",
+      accentColor: "#ff6600",
+    };
+    const opts = { logoUrlFor: () => LOGO_URL, fallbackName: "Acme Co" };
+    const flagOff = resolveStoredStyle(
+      { ...stored, theme: { preset: "modern", headingFont: "lora", bodyFont: "verdana" } },
+      { ...opts, themes: false, webFonts: true, fontOrigin: "https://app.example.com" },
+    );
+    const classic = resolveStoredStyle({ ...stored, theme: { preset: "classic" } }, { ...opts, themes: true });
+    for (const style of [flagOff, classic, base]) {
+      expect(style).toEqual(base);
+      expect(wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style, preheader: "Soon" })).toBe(
+        wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style: base, preheader: "Soon" }),
+      );
+      expect(renderEmailLayout(layout, { style })).toBe(renderEmailLayout(layout));
+      expect(renderFooter("#f5f5f5", { style, withAddress: true })).toBe(renderFooter("#f5f5f5", { withAddress: true }));
+    }
+    // No style at all, spelled every way, is today's too.
+    expect(renderEmailLayout(layout, {})).toBe(renderEmailLayout(layout));
+    expect(renderEmailLayout(layout, { style: null })).toBe(renderEmailLayout(layout));
+    expect(renderFooter(null, { style: null })).toBe(renderFooter());
+  });
+
+  it("Modern under a band: the page colour on <body> and a full-width wrapper table; the band has the top corners, the card the bottom", () => {
+    const out = wrap("<p>x</p>", null, { style: themed("modern") });
+    expect(out).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f3f4f6">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f3f4f6" style="width:100%;background-color:#f3f4f6"><tr><td>
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456;border-radius:12px 12px 0 0"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456;border-radius:12px 12px 0 0"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-left:12px"><span style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto 24px;padding:32px 24px;line-height:1.6;color:#111;background:#fff;border-radius:0 0 12px 12px">
+          
+          <p>x</p>
+        </div>
+        </td></tr></table>
+      </body></html>"
+    `);
+    expect(out).toContain('<body style="margin:0;background:#f3f4f6">');
+    expect(out).toContain(wrapper("#f3f4f6"));
+    // 608 wide: the band's max width, and the card's 560 + 24px each side.
+    expect(out).toContain("max-width:608px");
+    expect(card(out)).toContain("max-width:560px;margin:0 auto 24px;padding:32px 24px;");
+    expect(out.match(/border-radius:12px 12px 0 0/g)).toHaveLength(2); // the band's table and cell
+    expect(card(out)).toContain(";border-radius:0 0 12px 12px");
+    // Inter isn't installed, so only its safe stack is written inline (web fonts come later, in <head>).
+    expect(out).not.toContain(FONT);
+    expect(out).not.toContain("Inter");
+  });
+
+  it("Editorial with the name alone: square corners, and the name in the heading font's safe stack", () => {
+    const out = wrap("<p>x</p>", null, { style: themed("editorial", {}, { logo: null }) });
+    expect(out).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#f7f3ec">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7f3ec" style="width:100%;background-color:#f7f3ec"><tr><td>
+        <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">x</div><!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" align="left" style="padding:16px 24px;background-color:#123456"><span style="font-family:Georgia,'Times New Roman',Times,serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table><!--[if mso]></td></tr></table><![endif]-->
+        <div style="font-family:Georgia,'Times New Roman',Times,serif;max-width:560px;margin:0 auto 24px;padding:32px 24px;line-height:1.7;color:#111;background:#fff">
+          
+          <p>x</p>
+        </div>
+        </td></tr></table>
+      </body></html>"
+    `);
+    expect(out).toContain(wrapper("#f7f3ec"));
+    expect(out).not.toContain("border-radius");
+    expect(out).toContain(`<span style="font-family:${EMAIL_FONTS.lora.safeStack};font-size:18px`);
+    expect(card(out)).toContain(`font-family:${EMAIL_FONTS.georgia.safeStack};`);
+    expect(card(out)).toContain("padding:32px 24px;line-height:1.7;");
+  });
+
+  it("Friendly with no band (the body shows its own logo): all four corners, page colour above, tinted from the button colour", () => {
+    const out = wrap(`<p><img src="${LOGO_URL}" alt=""></p>`, null, { style: themed("friendly") });
+    expect(out).toMatchInlineSnapshot(`
+      "<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"></head><body style="margin:0;background:#fff6f0">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fff6f0" style="width:100%;background-color:#fff6f0"><tr><td>
+        
+        <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;max-width:560px;margin:24px auto;padding:28px 24px;line-height:1.65;color:#111;background:#fff;border-radius:16px">
+          
+          <p><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" alt=""></p>
+        </div>
+        </td></tr></table>
+      </body></html>"
+    `);
+    expect(out).not.toContain("<!--[if mso]>");
+    expect(out).toContain(wrapper("#fff6f0")); // 94% of the way from #ff6600 to white
+    expect(card(out)).toContain("margin:24px auto;padding:28px 24px;line-height:1.65;");
+    expect(card(out)).toContain(";border-radius:16px");
+    // Another button colour, another tint.
+    expect(wrap("<p>x</p>", null, { style: themed("friendly", {}, { accentColor: "#4f46e5" }) })).toContain(wrapper("#f4f4fd"));
+  });
+
+  it("Classic with other fonts: today's page colour, padding and square card, in the chosen fonts", () => {
+    const out = wrap("<p>x</p>", null, { style: themed("classic", { headingFont: "trebuchet", bodyFont: "arial" }) });
+    expect(out).toContain(wrapper("#f6f6f6"));
+    expect(out).not.toContain("border-radius");
+    expect(card(out)).toBe(
+      `<div style="font-family:${EMAIL_FONTS.arial.safeStack};max-width:560px;margin:0 auto 24px;padding:24px 24px;line-height:1.6;color:#111;background:#fff">`,
+    );
+    expect(out).toContain(`<span style="font-family:${EMAIL_FONTS.trebuchet.safeStack};`);
+  });
+
+  it("keeps the preheader first and the hero in the card", () => {
+    const out = wrap("<p>x</p>", "https://cdn.example.com/hero.png", { style: themed("modern"), preheader: "Your week in brief" });
+    expect(out.indexOf(wrapper("#f3f4f6"))).toBeLessThan(out.indexOf("Your week in brief"));
+    expect(out.indexOf("Your week in brief")).toBeLessThan(out.indexOf("<!--[if mso]>"));
+    expect(out.indexOf("<!--[if mso]>")).toBeLessThan(out.indexOf("max-width:560px"));
+    expect(out.indexOf("max-width:560px")).toBeLessThan(out.indexOf('<img src="https://cdn.example.com/hero.png"'));
+    expect(out.match(/display:none/g)).toHaveLength(1);
+  });
+
+  it("a full-width banner is rounded with the band; one shrunk to a square sits inside the corners", () => {
+    const wide = renderHeaderBand(themed("modern", {}, { headerImage: { url: BANNER_URL, width: 1200, height: 400 } }));
+    expect(wide).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456;border-radius:12px 12px 0 0"><tr><td bgcolor="#123456" align="center" style="padding:0;background-color:#123456;border-radius:12px 12px 0 0"><img src="https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png" width="608" height="203" alt="Acme Co" style="display:block;width:100%;max-width:608px;height:auto;border:0;outline:none;text-decoration:none;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff;border-radius:12px 12px 0 0" /></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    expect(wide.match(/border-radius:12px 12px 0 0/g)).toHaveLength(3); // table, cell and image
+    expect(wide).toContain(`alt="Acme Co" style="display:block;width:100%;max-width:608px;height:auto;border:0;outline:none;text-decoration:none;font-family:${EMAIL_FONTS.inter.safeStack};`);
+    const tall = renderHeaderBand(themed("modern", {}, { headerImage: { url: BANNER_URL, width: 400, height: 1200 } }));
+    expect(tall.match(/border-radius:12px 12px 0 0/g)).toHaveLength(2); // table and cell
+    expect(tall.match(/<img\b[^>]*>/)?.[0]).not.toContain("border-radius");
+  });
+
+  it("layout text, buttons and the footer take the body font; headings the heading font", () => {
+    const style = themed("modern", { headingFont: "georgia", bodyFont: "verdana" });
+    const html = renderEmailLayout(layout, { style });
+    const body = `font-family:${EMAIL_FONTS.verdana.safeStack};`;
+    expect(html).toContain(`<h2 style="margin:0 0 12px;font-family:${EMAIL_FONTS.georgia.safeStack};font-size:22px;`);
+    expect(html).toContain(`<div style="${body}font-size:16px;line-height:1.6;`);
+    expect(html).toContain(`padding:12px 24px;${body}font-size:15px;`); // the button's label
+    expect(html).toContain(`<div data-vzb-footer="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;${body}`);
+    expect(html).not.toContain(FONT);
+    // Only fonts change: without the layouts bit the button keeps its own colour and corners.
+    expect(html.replaceAll(EMAIL_FONTS.verdana.safeStack, FONT).replaceAll(EMAIL_FONTS.georgia.safeStack, FONT)).toBe(
+      renderEmailLayout(layout),
+    );
+    expect(renderFooter("#f5f5f5", { style, withAddress: true }).replaceAll(EMAIL_FONTS.verdana.safeStack, FONT)).toBe(
+      renderFooter("#f5f5f5", { withAddress: true }),
+    );
+  });
+
+  it("the Create preview shell: a themed layout in a themed card", () => {
+    const style = themed("friendly", { headingFont: "playfair-display", bodyFont: "trebuchet" }, { logo: null });
+    const out = wrap(renderEmailLayout(layout, { style }), null, { style });
+    expect(out).not.toContain(FONT);
+    expect(out).toContain(wrapper("#fff6f0"));
+    expect(card(out)).toContain(`font-family:${EMAIL_FONTS.trebuchet.safeStack};`);
+    expect(out).toContain(`<span style="font-family:${EMAIL_FONTS["playfair-display"].safeStack};`); // the band's name
+    expect(out).toContain(`<h2 style="margin:0 0 12px;font-family:${EMAIL_FONTS["playfair-display"].safeStack};`);
+    expect(out).toContain(`border-top:1px solid #ededed;font-family:${EMAIL_FONTS.trebuchet.safeStack};`);
+  });
+
+  it("a letter stays plain", () => {
+    expect(wrapLetter("<p>Hi Jo,</p>")).toContain(`font-family:${FONT};font-size:15px`);
+    expect(wrapLetter("<p>Hi Jo,</p>")).not.toContain("<table");
+  });
+});
+
+describe("with web fonts", () => {
+  const ORIGIN = "https://app.example.com";
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const BANNER_URL = "https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png";
+  const WEB_FAMILIES = ["Inter", "Poppins", "Nunito", "Montserrat", "Lora", "Playfair"];
+  const base: ResolvedEmailStyle = {
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+  };
+  /** A theme as the resolver gives it: `webFontOrigin` only with web fonts on (null = off). */
+  const themed = (
+    preset: EmailThemePreset,
+    fonts: { headingFont?: EmailFontId; bodyFont?: EmailFontId } = {},
+    over: Partial<ResolvedEmailStyle> = {},
+    origin: string | null = ORIGIN,
+  ): ResolvedEmailStyle => ({
+    ...base,
+    ...over,
+    theme: {
+      preset,
+      headingFont: fonts.headingFont ?? EMAIL_THEME_PRESET_SPECS[preset].headingFont,
+      bodyFont: fonts.bodyFont ?? EMAIL_THEME_PRESET_SPECS[preset].bodyFont,
+      ...(origin !== null ? { webFontOrigin: origin } : {}),
+    },
+  });
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+      { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 8 },
+      { id: "f1", kind: "footer", text: "", sectionBg: "#fafafa" },
+    ],
+  });
+  /** Every inline font-family in the document. */
+  const inlineFonts = (html: string) => [...html.matchAll(/style="[^"]*?font-family:([^;"]*)/g)].map((m) => m[1]!);
+  /** The email as it is without web fonts: the block and the classes it targets taken out. */
+  const withoutWebFonts = (html: string, style: ResolvedEmailStyle) =>
+    html.replace(webFontHead(style), "").replaceAll(' class="vzb-card"', "").replaceAll(' class="vzb-h"', "");
+
+  it("web fonts off, or a theme with safe fonts only: no <style>, no classes, and the email is the themed one", () => {
+    const cases: Array<[ResolvedEmailStyle, ResolvedEmailStyle]> = [
+      [themed("modern", {}, {}, null), themed("modern", {}, {}, null)],
+      // An origin with nothing to load (the resolver wouldn't set one) changes nothing either.
+      [themed("editorial", { headingFont: "georgia" }), themed("editorial", { headingFont: "georgia" }, {}, null)],
+      [themed("classic", { headingFont: "trebuchet", bodyFont: "arial" }), themed("classic", { headingFont: "trebuchet", bodyFont: "arial" }, {}, null)],
+    ];
+    for (const [style, plain] of cases) {
+      const out = wrap(renderEmailLayout(layout, { style }), "https://cdn.example.com/hero.png", { style, preheader: "Soon" });
+      expect(out).not.toContain("<style");
+      expect(out).not.toContain('class="vzb-');
+      expect(out).not.toContain("email-fonts");
+      expect(out).toBe(wrap(renderEmailLayout(layout, { style: plain }), "https://cdn.example.com/hero.png", { style: plain, preheader: "Soon" }));
+      expect(renderHeaderBand({ ...style, headerImage: { url: BANNER_URL, width: 1200, height: 400 } })).not.toContain("class=");
+    }
+  });
+
+  it("Modern: the block in <head> behind !mso, the card and the band's name and logo classed; nothing else changes", () => {
+    const style = themed("modern");
+    const out = wrap(renderEmailLayout(layout, { style }), null, { style });
+    const head = out.slice(0, out.indexOf("</head>"));
+    expect(head).toContain(`<meta name="supported-color-schemes" content="light only">${webFontHead(style)}`);
+    expect(head.endsWith("</style><!--<![endif]-->")).toBe(true);
+    expect(out.match(/<style/g)).toHaveLength(1);
+    expect(out.indexOf("<!--[if !mso]><!-->")).toBeLessThan(out.indexOf("<style data-vzb-fonts>"));
+    expect(out).toContain('<div class="vzb-card" style="font-family:\'Segoe UI\',Helvetica,Arial,sans-serif;max-width:560px;');
+    expect(out).toContain('<img class="vzb-h" src="https://app.example.com/api/brand-logo/');
+    expect(out).toContain('<span class="vzb-h" style="font-family:');
+    expect(out.match(/ class="vzb-card"/g)).toHaveLength(1);
+    expect(out.match(/ class="vzb-h"/g)).toHaveLength(2);
+    // Take the block and the classes out and it's the email with web fonts off, byte for byte.
+    const off = themed("modern", {}, {}, null);
+    expect(withoutWebFonts(out, style)).toBe(wrap(renderEmailLayout(layout, { style: off }), null, { style: off }));
+  });
+
+  it("no inline font-family ever lists a web family, so Outlook for Windows never meets one", () => {
+    const pairs: Array<[EmailFontId, EmailFontId]> = [
+      ["inter", "inter"],
+      ["poppins", "nunito"],
+      ["lora", "georgia"],
+      ["playfair-display", "montserrat"],
+      ["system", "lora"],
+    ];
+    for (const [headingFont, bodyFont] of pairs) {
+      for (const over of [{}, { logo: null }, { headerImage: { url: BANNER_URL, width: 1200, height: 400 } }]) {
+        const render = (style: ResolvedEmailStyle) =>
+          wrap(renderEmailLayout(layout, { style }) + renderFooter(null, { style }), "https://cdn.example.com/hero.png", {
+            style,
+            preheader: "Soon",
+          });
+        const style = themed("friendly", { headingFont, bodyFont }, over);
+        const out = render(style);
+        expect(out).toContain("<style data-vzb-fonts>");
+        const fonts = inlineFonts(out);
+        expect(fonts.length).toBeGreaterThan(4);
+        for (const font of fonts) for (const family of WEB_FAMILIES) expect(font).not.toContain(family);
+        // Web families appear only inside the block.
+        for (const family of WEB_FAMILIES) expect(out.replace(webFontHead(style), "")).not.toContain(family);
+        expect(withoutWebFonts(out, style)).toBe(render(themed("friendly", { headingFont, bodyFont }, over, null)));
+      }
+    }
+  });
+
+  it("the banner's alt text takes the heading class; the name alone does too", () => {
+    const banner = renderHeaderBand(themed("modern", {}, { headerImage: { url: BANNER_URL, width: 1200, height: 400 } }));
+    expect(banner).toContain(`<img class="vzb-h" src="${BANNER_URL}"`);
+    expect(banner.match(/class=/g)).toHaveLength(1);
+    const name = renderHeaderBand(themed("editorial", {}, { logo: null }));
+    expect(name).toContain('<span class="vzb-h" style="font-family:Georgia,');
+    expect(name.match(/class=/g)).toHaveLength(1);
+  });
+
+  it("with no band (the body shows its own logo) the card still carries the class and the block", () => {
+    const style = themed("friendly");
+    const out = wrap(`<p><img src="${LOGO_URL}" alt=""></p>`, null, { style });
+    expect(out).toContain("<style data-vzb-fonts>");
+    expect(out).toContain('<div class="vzb-card" style=');
+    expect(out).not.toContain('class="vzb-h"');
+  });
+
+  it("no style, a style with no theme and a letter never carry it", () => {
+    for (const html of [wrap("<p>x</p>", null), wrap("<p>x</p>", null, { style: base }), wrapLetter("<p>Hi Jo,</p>")]) {
+      expect(html).not.toContain("<style");
+      expect(html).not.toContain('class="vzb-');
+    }
+  });
+});
+
+describe("layout buttons that follow the Email style", () => {
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: null,
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ffd400",
+    layouts: true,
+    ...over,
+  });
+  const theme = (preset: EmailThemePreset): ResolvedEmailStyle["theme"] => ({
+    preset,
+    headingFont: EMAIL_THEME_PRESET_SPECS[preset].headingFont,
+    bodyFont: EMAIL_THEME_PRESET_SPECS[preset].bodyFont,
+  });
+  const layout = EmailLayoutSchema.parse({
+    blocks: [
+      { id: "h1", kind: "heading", html: "Welcome", level: 2, align: "left" },
+      { id: "t1", kind: "text", role: "copy", html: "<p>Hi there.</p>" },
+      { id: "b1", kind: "button", label: "Get started", href: "https://example.com/start", align: "center", bg: "#4f46e5", color: "#ffffff", radius: 6 },
+      { id: "b2", kind: "button", label: "Book a call", href: "javascript:alert(1)", align: "right", bg: "#ff6b35", color: "#111111", radius: 24, sectionBg: "#fff7ed", styleSource: "email_style" },
+      { id: "b3", kind: "button", label: "Our own", href: "https://example.com/own", align: "left", bg: "#0b1f3a", color: "#ffffff", radius: 4, styleSource: "own" },
+      { id: "f1", kind: "footer", text: "" },
+    ],
+  });
+  /** A button's cell and link, found by its label. */
+  const button = (html: string, label: string) => html.match(new RegExp(`<td[^>]*><a [^>]*>${label}</a>`))?.[0] ?? "";
+  const cell = (bg: string, radius: number) => `<td bgcolor="${bg}" style="background:${bg};border-radius:${radius}px">`;
+  const link = (href: string, font: string, ink: string, label: string) =>
+    `<a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${font};font-size:15px;font-weight:600;color:${ink};text-decoration:none">${label}</a>`;
+
+  it("on #ffd400: the button colour with bgcolor, a black label, and the theme's button shape", () => {
+    const font = EMAIL_FONTS.inter.safeStack;
+    const html = renderEmailLayout(layout, { style: style({ theme: theme("modern") }) });
+    expect(button(html, "Get started")).toBe(cell("#ffd400", 999) + link("https://example.com/start", font, "#000000", "Get started"));
+    // "email_style" is the same as absent; an unsafe href is still "#".
+    expect(button(html, "Book a call")).toBe(cell("#ffd400", 999) + link("#", font, "#000000", "Book a call"));
+    // Editorial's buttons are square.
+    const editorial = renderEmailLayout(layout, { style: style({ theme: theme("editorial") }) });
+    expect(button(editorial, "Get started")).toBe(
+      cell("#ffd400", 0) + link("https://example.com/start", EMAIL_FONTS.georgia.safeStack, "#000000", "Get started"),
+    );
+  });
+
+  it("with no theme, each button keeps its own corners and today's font", () => {
+    const html = renderEmailLayout(layout, { style: style() });
+    expect(button(html, "Get started")).toBe(cell("#ffd400", 6) + link("https://example.com/start", FONT, "#000000", "Get started"));
+    expect(button(html, "Book a call")).toBe(cell("#ffd400", 24) + link("#", FONT, "#000000", "Book a call"));
+  });
+
+  it("Classic, with any fonts, keeps each button's own corners, as with no theme: only the fonts change", () => {
+    for (const fonts of [{ bodyFont: "georgia" }, { headingFont: "lora", bodyFont: "inter" }] as const) {
+      const html = renderEmailLayout(layout, { style: style({ theme: { ...theme("classic")!, ...fonts } }) });
+      const font = EMAIL_FONTS[fonts.bodyFont].safeStack;
+      expect(button(html, "Get started")).toBe(cell("#ffd400", 6) + link("https://example.com/start", font, "#000000", "Get started"));
+      expect(button(html, "Book a call")).toBe(cell("#ffd400", 24) + link("#", font, "#000000", "Book a call"));
+    }
+    const georgia = renderEmailLayout(layout, { style: style({ theme: { ...theme("classic")!, bodyFont: "georgia" } }) });
+    expect(georgia.replaceAll(EMAIL_FONTS.georgia.safeStack, FONT)).toBe(renderEmailLayout(layout, { style: style() }));
+    // A square button stays square: Classic's 8px is the next-step button's, not a layout button's.
+    const square = EmailLayoutSchema.parse({
+      blocks: [{ id: "b1", kind: "button", label: "Go", href: "https://example.com/go", bg: "#4f46e5", radius: 0 }],
+    });
+    const classic = style({ accentColor: "#1d4ed8", theme: { ...theme("classic")!, bodyFont: "georgia" } });
+    expect(renderEmailLayout(square, { style: classic })).toContain(cell("#1d4ed8", 0));
+  });
+
+  it("a dark button colour gets a white label, and every label reads at 4.5:1 or better", () => {
+    for (const accentColor of ["#0b1f3a", "#1d4ed8", "#ff6b35", "#ffd400", "#ffffff", "#777777"]) {
+      const html = renderEmailLayout(layout, { style: style({ accentColor }) });
+      expect(button(html, "Get started")).toBe(
+        cell(accentColor, 6) + link("https://example.com/start", FONT, readableOn(accentColor), "Get started"),
+      );
+      expect(contrastRatio(accentColor, readableOn(accentColor))).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(button(renderEmailLayout(layout, { style: style({ accentColor: "#0b1f3a" }) }), "Get started")).toContain(
+      "color:#ffffff;",
+    );
+  });
+
+  it("a button on its own colour, and every other block, draw exactly as without the layouts bit", () => {
+    for (const s of [style(), style({ theme: theme("friendly") })]) {
+      const { layouts: _bit, ...noBit } = s;
+      const lines = renderEmailLayout(layout, { style: s }).split("\n");
+      const without = renderEmailLayout(layout, { style: noBit }).split("\n");
+      expect(lines).toHaveLength(without.length);
+      lines.forEach((line, i) => {
+        if (/Get started|Book a call/.test(line)) expect(line).not.toBe(without[i]);
+        else expect(line).toBe(without[i]);
+      });
+      expect(button(lines.join("\n"), "Our own")).toContain('<td style="background:#0b1f3a;border-radius:4px">');
+    }
+    // The section band around a following button stays.
+    expect(renderEmailLayout(layout, { style: style() })).toContain(
+      `<div style="background:#fff7ed;padding:16px 16px 1px"><div style="text-align:right;margin:0 0 16px">`,
+    );
+  });
+
+  it("a styleSource from a later build reads as absent, so the button follows", () => {
+    const later = EmailLayoutSchema.parse({
+      blocks: [{ id: "b1", kind: "button", label: "Go", href: "https://example.com/go", bg: "#4f46e5", styleSource: "tinted" }],
+    });
+    expect(renderEmailLayout(later, { style: style() })).toContain(cell("#ffd400", 8));
+  });
+
+  it("the Create preview shell: a following button in a themed card", () => {
+    const s = style({ theme: theme("friendly"), accentColor: "#1d4ed8" });
+    const out = wrap(renderEmailLayout(layout, { style: s }), null, { style: s });
+    expect(button(out, "Get started")).toBe(
+      cell("#1d4ed8", 999) + link("https://example.com/start", EMAIL_FONTS.nunito.safeStack, "#ffffff", "Get started"),
+    );
+    expect(button(out, "Our own")).toContain('<td style="background:#0b1f3a;border-radius:4px">');
+  });
+
+  // The editor's block chip draws from this, so it shows what the email draws.
+  it("layoutButtonLook is what the renderer draws, for every button and style", () => {
+    const buttons = layout.blocks.filter((b) => b.kind === "button");
+    const looks = [
+      null,
+      style({ layouts: undefined }),
+      style(),
+      style({ theme: theme("modern") }),
+      style({ theme: theme("editorial"), accentColor: "#0b1f3a" }),
+      style({ theme: { ...theme("classic")!, bodyFont: "georgia" } }),
+      style({ accentColor: "orange" }),
+    ];
+    for (const s of looks) {
+      const html = renderEmailLayout(layout, { style: s });
+      for (const b of buttons) {
+        const look = layoutButtonLook(b, s);
+        const drawn = button(html, b.label);
+        const td = look.follows
+          ? cell(look.bg, look.radius)
+          : `<td style="background:${look.bg};border-radius:${look.radius}px">`;
+        expect(drawn.startsWith(td)).toBe(true);
+        expect(drawn).toContain(`color:${look.color};text-decoration:none`);
+      }
+    }
+    expect(layoutButtonLook(buttons[0]!, style({ theme: theme("modern") }))).toEqual({ follows: true, bg: "#ffd400", color: "#000000", radius: 999 });
+    // Classic keeps the button's own corners, with any fonts.
+    expect(layoutButtonLook(buttons[0]!, style({ theme: { ...theme("classic")!, bodyFont: "georgia" } }))).toEqual({ follows: true, bg: "#ffd400", color: "#000000", radius: 6 });
+    expect(layoutButtonLook(buttons[2]!, style({ theme: theme("modern") }))).toEqual({ follows: false, bg: "#0b1f3a", color: "#ffffff", radius: 4 });
+    expect(layoutButtonLook(buttons[1]!, null)).toEqual({ follows: false, bg: "#ff6b35", color: "#111111", radius: 24 });
+    // A colour that isn't one (Zod keeps them out) draws the renderer's fallback, as the chip shows it.
+    expect(layoutButtonLook({ bg: "red", color: "", radius: 8 }, null)).toEqual({ follows: false, bg: "#111111", color: "#ffffff", radius: 8 });
+  });
+});
+
+describe("wrap with a language (lang and dir)", () => {
+  const LOGO_URL = "https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png";
+  const style = (over: Partial<ResolvedEmailStyle> = {}): ResolvedEmailStyle => ({
+    logo: { url: LOGO_URL, width: 120, height: 40 },
+    name: "Acme Co",
+    altName: "Acme Co",
+    headerColor: "#123456",
+    accentColor: "#ff6600",
+    ...over,
+  });
+
+  it("writes neither unless given, so every caller today is unchanged", () => {
+    for (const s of [null, style()]) {
+      expect(wrap("<p>x</p>", null, { style: s, lang: null, dir: null })).toBe(wrap("<p>x</p>", null, { style: s }));
+      expect(wrap("<p>x</p>", null, { style: s, lang: "", dir: undefined })).toBe(wrap("<p>x</p>", null, { style: s }));
+    }
+    expect(renderHeaderBand(style(), {})).toBe(renderHeaderBand(style()));
+    expect(renderHeaderBand(style(), { dir: "ltr" })).toBe(renderHeaderBand(style()));
+    expect(wrap("<p>x</p>", null, { style: style(), dir: "ltr" })).toContain(renderHeaderBand(style()));
+  });
+
+  it("on <html> and on the card, since Gmail and others drop <html>", () => {
+    const out = wrap("<p>x</p>", null, { style: style(), lang: "en", dir: "ltr" });
+    expect(out).toContain('<html lang="en" dir="ltr"><head>');
+    expect(out).toContain('<div lang="en" dir="ltr" style="font-family:');
+    expect(wrap("<p>x</p>", null, { lang: "ja" })).toContain('<html lang="ja"><head>');
+    expect(wrap("<p>x</p>", null, { lang: 'en" onload="x' })).toContain('<html lang="en&quot; onload=&quot;x">');
+  });
+
+  it("with a theme, on the themed shell's <html> and card too", () => {
+    const themed = style({ theme: { preset: "modern", headingFont: "inter", bodyFont: "inter" } });
+    const out = wrap("<p>x</p>", null, { style: themed, lang: "ar", dir: "rtl" });
+    expect(out).toContain('<html lang="ar" dir="rtl"><head>');
+    expect(out).toMatch(/<div lang="ar" dir="rtl" style="font-family:[^"]*;padding:32px 24px;/);
+    expect(out).toContain('dir="rtl" align="right" style="padding:16px 24px;background-color:#123456;border-radius:12px 12px 0 0"');
+  });
+
+  // Pinned: a right-to-left email's band reads right to left, the logo on the right with the gap on its left.
+  it("rtl: the colour band is right-aligned and reads right to left", () => {
+    expect(renderHeaderBand(style(), { dir: "rtl" })).toMatchInlineSnapshot(`"<!--[if mso]><table role="presentation" width="608" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="#123456" style="width:100%;max-width:608px;margin:0 auto;background-color:#123456"><tr><td bgcolor="#123456" dir="rtl" align="right" style="padding:16px 24px;background-color:#123456"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle"><img src="https://app.example.com/api/brand-logo/tenant-1/11111111-2222-4333-8444-555555555555.png" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff" /></td><td style="vertical-align:middle;padding-right:12px"><span style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:18px;line-height:1.3;font-weight:700;color:#ffffff">Acme Co</span></td></tr></table></td></tr></table><!--[if mso]></td></tr></table><![endif]-->"`);
+    const nameOnly = renderHeaderBand(style({ logo: null }), { dir: "rtl" });
+    expect(nameOnly).toContain('<td bgcolor="#123456" dir="rtl" align="right" style="padding:16px 24px;background-color:#123456"><span');
+    expect(wrap("<p>x</p>", null, { style: style(), lang: "ar", dir: "rtl" })).toContain(renderHeaderBand(style(), { dir: "rtl" }));
+  });
+
+  it("rtl: a banner stays centred", () => {
+    const headerImage = {
+      url: "https://app.example.com/api/brand-asset/header/tenant-1/66666666-7777-4888-9999-000000000000.png",
+      width: 1200,
+      height: 300,
+    };
+    expect(renderHeaderBand(style({ headerImage }), { dir: "rtl" })).toBe(renderHeaderBand(style({ headerImage })));
   });
 });
 

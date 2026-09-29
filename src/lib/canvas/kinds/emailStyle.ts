@@ -4,10 +4,13 @@ import { setTenantEmailStyleSuggestion } from "@/lib/tenant/control";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import {
   EMAIL_STYLE_SUGGESTION_LIMITS as LIMITS,
+  EmailFontIdSchema,
   EmailStyleSuggestionSchema,
+  EmailThemePresetSchema,
   HeaderTextSchema,
   HexColorSchema,
   type EmailStyleSuggestion,
+  type EmailTheme,
   type Tenant,
 } from "@/lib/types/tenant";
 import type { BrandLogo } from "@/lib/types/brandLogo";
@@ -15,7 +18,21 @@ import { BRAND_KIT_EMAIL_STYLE_ROUTE } from "@/lib/content/brandKit";
 import { normalizeHex } from "@/lib/content/create/colorPalette";
 import { cleanCompanyName, isEmailLogo, styleFromBrandKit } from "@/lib/email/emailStyle";
 import { emailHeaderImages, emailStyleLogos, type EmailHeaderImageRow } from "@/lib/email/agentApi";
-import { isEmailHeaderOptionsEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
+import { EMAIL_FONTS, isWebFont } from "@/lib/email/emailFonts";
+import { compactTheme } from "@/lib/email/emailThemes";
+import {
+  isEmailHeaderOptionsEnabled,
+  isEmailStyleEnabled,
+  isEmailThemesEnabled,
+  isEmailWebFontsEnabled,
+} from "@/lib/email/flags";
+import {
+  brandFontsToEmail,
+  isBrandFontNote,
+  presetTheme,
+  themeForForm,
+  themeLabel,
+} from "@/components/admin/brand-kit/emailStyleForm";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -31,6 +48,12 @@ import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types
  * text colour, and a header image an admin uploaded on the page (Vizzy can't upload one). Off, a
  * default (null = solid, "auto", "none" = the colour header) is today's look and is ignored, a
  * real option is refused, and nothing is carried over, so the kind is exactly as before.
+ *
+ * Themes (EMAIL_THEMES_ENABLED): a look (Classic, Modern, Editorial, Friendly), which brings its
+ * own fonts, then Brand's fonts where email has them (`useBrandFonts`), then a heading and a body
+ * font by id. `edit` carries the theme over as it does the rest; `brand_kit` keeps the saved one,
+ * as the page's "Use brand kit" leaves the Theme as it is. Off, Classic and the system font are
+ * today's look and are ignored, anything else is refused, and nothing is carried over.
  */
 
 /** A colour as the agent may send it (#abc, #aabbccdd, rgb()), made #rrggbb. */
@@ -54,6 +77,13 @@ const EmailStyleInput = z.object({
   companyName: z.string().max(400).nullable().optional(),
   /** One of the tenant's header images by id (a banner in place of the logo and name), or "none" for the colour header. */
   headerImage: z.string().trim().min(1).max(64).optional(),
+  /** A look: "classic" (today's), "modern", "editorial" or "friendly". It brings its own fonts, unless fonts are given too. */
+  theme: EmailThemePresetSchema.optional(),
+  /** Font ids (the read's `fonts`), over the look's own. */
+  headingFont: EmailFontIdSchema.optional(),
+  bodyFont: EmailFontIdSchema.optional(),
+  /** The heading and body fonts from Brand › Fonts, where email has them (a given font wins). */
+  useBrandFonts: z.boolean().optional(),
 });
 
 const AUTHOR_LIMIT = { prefix: "email_style_author", burstLimit: 5, hourlyLimit: 20 };
@@ -62,22 +92,31 @@ const LOGO_GONE = "Your chosen logo is no longer available — pick another in B
 const OPTIONS_OFF =
   "headerGradientColor/headerText/headerImage: gradient headers, header text colour and header images aren't switched on here yet";
 const IMAGE_GONE = "Your header image is no longer available — upload or pick one in Brand › Email style";
+const THEMES_OFF = "theme/headingFont/bodyFont/useBrandFonts: email themes and fonts aren't switched on here yet";
 
 type HeaderOptions = Pick<EmailStyleSuggestion, "headerGradientColor" | "headerText" | "headerImageId">;
-type StyleFields = Pick<EmailStyleSuggestion, "logoId" | "companyName" | "headerColor" | "accentColor" | "notes"> &
+type StyleFields = Pick<EmailStyleSuggestion, "logoId" | "companyName" | "headerColor" | "accentColor" | "notes" | "theme"> &
   HeaderOptions;
 
 const issuesOf = (error: z.ZodError) => error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
 
 /**
  * What `edit` starts from: the pending suggestion, else the saved style, else Brand. The
- * header options come along only with them on (`headerOptions`).
+ * header options and the theme come along only with them on.
  */
-function editBase(tenant: Tenant, fromBrandKit: StyleFields, headerOptions: boolean): StyleFields {
+function editBase(tenant: Tenant, fromBrandKit: StyleFields, on: { headerOptions: boolean; themes: boolean }): StyleFields {
   const pending = tenant.emailStyleSuggestion;
   if (pending) {
     const { logoId, companyName, headerColor, accentColor, notes } = pending;
-    return { logoId, companyName, headerColor, accentColor, notes, ...(headerOptions ? optionsOf(pending) : {}) };
+    return {
+      logoId,
+      companyName,
+      headerColor,
+      accentColor,
+      notes,
+      ...(on.headerOptions ? optionsOf(pending) : {}),
+      ...(on.themes ? themeOf(pending.theme) : {}),
+    };
   }
   const saved = tenant.emailStyle;
   if (saved) {
@@ -88,10 +127,33 @@ function editBase(tenant: Tenant, fromBrandKit: StyleFields, headerOptions: bool
       headerColor,
       accentColor,
       notes: [],
-      ...(headerOptions ? optionsOf({ ...saved, headerImageId: saved.headerImage?.id }) : {}),
+      ...(on.headerOptions ? optionsOf({ ...saved, headerImageId: saved.headerImage?.id }) : {}),
+      ...(on.themes ? themeOf(saved.theme) : {}),
     };
   }
   return fromBrandKit;
+}
+
+/** A theme as a key, as it's stored: none for Classic with the system font. */
+function themeOf(theme: EmailTheme | undefined): Pick<StyleFields, "theme"> {
+  const compact = compactTheme(theme);
+  return compact ? { theme: compact } : {};
+}
+
+/**
+ * What most inboxes show in place of the theme's web fonts, as the page's hint has it, since
+ * only a few load them (none at all while web fonts are off); "" with no web font.
+ */
+function webFontLine(theme: EmailTheme, webFonts: boolean): string {
+  const { headingFont, bodyFont } = themeForForm(theme);
+  const web = [...new Set([headingFont, bodyFont])].filter(isWebFont).map((id) => EMAIL_FONTS[id]);
+  if (!web.length) return "";
+  const names = web.map((f) => f.label).join(" and ");
+  const fallbacks = [...new Set(web.map((f) => f.web!.fallback))].join(" and ");
+  return webFonts
+    ? ` ${names} ${web.length > 1 ? "show" : "shows"} in Apple Mail and Outlook for Mac; Gmail, Outlook.com and most ` +
+        `other inboxes show ${fallbacks} instead.`
+    : ` Web fonts aren't switched on yet, so every inbox shows ${fallbacks} in place of ${names}.`;
 }
 
 /**
@@ -133,8 +195,17 @@ function pickHeaderImage(
   return { ok: true, headerImageId: image.id };
 }
 
-function outcome(s: EmailStyleSuggestion, images: readonly EmailHeaderImageRow[]): CanvasAuthorOutcome {
+/**
+ * The answer and its card. `theme` is the theme to name: the suggestion's, or Classic when it
+ * takes one away or was asked for (null = none is named, as with themes off).
+ */
+function outcome(
+  s: EmailStyleSuggestion,
+  images: readonly EmailHeaderImageRow[],
+  theme: { shown: EmailTheme; webFonts: boolean } | null,
+): CanvasAuthorOutcome {
   const url = BRAND_KIT_EMAIL_STYLE_ROUTE;
+  const themed = theme ? themeLabel(theme.shown) : null;
   // Only set with the header options on, and only to one of `images`.
   const image = s.headerImageId ? images.find((i) => i.id === s.headerImageId) : undefined;
   // The banner ignores the gradient, a forced text colour and the logo (they're kept for the
@@ -149,6 +220,7 @@ function outcome(s: EmailStyleSuggestion, images: readonly EmailHeaderImageRow[]
         : `header ${s.headerColor}`,
     ...(text ? [`${text} header text`] : []),
     `button ${s.accentColor}`,
+    ...(themed ? [`theme ${themed}`] : []),
     ...(image ? [] : [s.logoId ? "your logo" : "no logo"]),
     ...(s.companyName
       ? [image ? `the name "${s.companyName}" when images are off` : `the name "${s.companyName}"`]
@@ -160,8 +232,8 @@ function outcome(s: EmailStyleSuggestion, images: readonly EmailHeaderImageRow[]
     status: "suggested",
     url,
     summary:
-      `Suggested an Email style (${look}). It's only a suggestion: nothing changes until an admin ` +
-      `reviews and saves it in Brand › Email style.`,
+      `Suggested an Email style (${look}).${theme ? webFontLine(theme.shown, theme.webFonts) : ""} It's only a ` +
+      `suggestion: nothing changes until an admin reviews and saves it in Brand › Email style.`,
     warnings: s.notes,
     card: {
       kind: "email_style",
@@ -180,6 +252,7 @@ function outcome(s: EmailStyleSuggestion, images: readonly EmailHeaderImageRow[]
         },
         ...(text ? [{ label: "text", value: text }] : []),
         { label: "button", value: s.accentColor },
+        ...(themed ? [{ label: "theme", value: themed }] : []),
       ],
       warnings: s.notes.length,
       note: NOTE,
@@ -207,6 +280,17 @@ export async function authorEmailStyleSuggestion(
   ) {
     return { ok: false, status: 400, error: "header_options_unavailable", issues: [OPTIONS_OFF] };
   }
+  const themes = isEmailThemesEnabled();
+  // Off, likewise: Classic and the system font are today's look anyway.
+  if (
+    !themes &&
+    ((req.data.theme && req.data.theme !== "classic") ||
+      (req.data.headingFont && req.data.headingFont !== "system") ||
+      (req.data.bodyFont && req.data.bodyFont !== "system") ||
+      req.data.useBrandFonts)
+  ) {
+    return { ok: false, status: 400, error: "themes_unavailable", issues: [THEMES_OFF] };
+  }
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) {
     return { ok: false, status: 429, error: "rate_limited" };
   }
@@ -224,14 +308,18 @@ export async function authorEmailStyleSuggestion(
   const { mode, headerColor, headerGradientColor, headerText, buttonColor, logo, companyName, headerImage } = req.data;
   const fromBrandKit = styleFromBrandKit(tenant.brandKit, logos);
   // Brand has no header options: brand_kit starts solid, with Auto text, on the colour header.
-  const base: StyleFields = mode === "brand_kit" ? fromBrandKit : editBase(tenant, fromBrandKit, headerOptions);
-  // The notes are about the logo, bar the header image's, so they go when the agent picks one.
+  // Nor a theme: it keeps the saved one.
+  const base: StyleFields =
+    mode === "brand_kit"
+      ? { ...fromBrandKit, ...(themes ? themeOf(tenant.emailStyle?.theme) : {}) }
+      : editBase(tenant, fromBrandKit, { headerOptions, themes });
+  // The notes are about the logo, bar the header image's and Brand fonts', so they go when the agent picks one.
   let { logoId, notes } = base;
   if (logo !== undefined) {
     const picked = pickLogo(logo, logos);
     if (!picked.ok) return { ok: false, status: 400, error: "invalid_logo", issues: [picked.issue] };
     logoId = picked.logoId;
-    notes = notes.filter((n) => n === IMAGE_GONE);
+    notes = notes.filter((n) => n === IMAGE_GONE || (themes && isBrandFontNote(n)));
   } else if (logoId && !logos.some((l) => l.id === logoId && isEmailLogo(l))) {
     // A carried-over logo that's since been deleted (or Logos is off) isn't claimed.
     logoId = null;
@@ -258,6 +346,28 @@ export async function authorEmailStyleSuggestion(
     notes = [IMAGE_GONE, ...notes];
   }
 
+  // The theme (only with themes on): the one carried over, then a look asked for (with its own
+  // fonts), then Brand's fonts, then fonts asked for. Classic with the system font is no key.
+  // Any change to it replaces the notes from an earlier "Use brand fonts".
+  let theme: EmailTheme | null = null;
+  let themeAsked = false;
+  if (themes) {
+    const { theme: preset, headingFont, bodyFont, useBrandFonts } = req.data;
+    themeAsked = preset !== undefined || headingFont !== undefined || bodyFont !== undefined || !!useBrandFonts;
+    if (themeAsked) notes = notes.filter((n) => !isBrandFontNote(n));
+    let fonts = preset ? presetTheme(preset) : themeForForm(base.theme);
+    if (useBrandFonts && !(headingFont && bodyFont)) {
+      const brand = brandFontsToEmail(tenant.brandTypography, tenant.brandKit?.fonts);
+      fonts = {
+        ...fonts,
+        ...(brand.headingFont ? { headingFont: brand.headingFont } : {}),
+        ...(brand.bodyFont ? { bodyFont: brand.bodyFont } : {}),
+      };
+      notes = [...notes, ...brand.notes];
+    }
+    theme = compactTheme({ ...fonts, ...(headingFont ? { headingFont } : {}), ...(bodyFont ? { bodyFont } : {}) });
+  }
+
   // Run the strict schema the stored value is read back with, so a success is never
   // reported for a suggestion that would read back as none.
   const checked = EmailStyleSuggestionSchema.safeParse({
@@ -268,6 +378,7 @@ export async function authorEmailStyleSuggestion(
     ...(gradient && gradient !== header ? { headerGradientColor: gradient } : {}),
     ...(text ? { headerText: text } : {}),
     ...(headerImageId ? { headerImageId } : {}),
+    ...(theme ? { theme } : {}),
     source: mode === "brand_kit" ? "brand_kit" : "chat",
     brief: brief.trim().slice(0, LIMITS.brief),
     notes: notes.slice(0, LIMITS.notes).map((n) => n.slice(0, LIMITS.note)),
@@ -276,8 +387,14 @@ export async function authorEmailStyleSuggestion(
   });
   if (!checked.success) return { ok: false, status: 400, error: "invalid_input", issues: issuesOf(checked.error) };
 
+  // Named in the answer: the theme, or Classic when this takes one away or was asked for.
+  const shown: EmailTheme | null = checked.data.theme ?? (themeAsked || base.theme ? { preset: "classic" } : null);
   // Only the suggestion: `emailStyle` (what sends use) is never touched here.
-  return outcome(await setTenantEmailStyleSuggestion(ctx.tenantId, checked.data, deps.db), images);
+  return outcome(
+    await setTenantEmailStyleSuggestion(ctx.tenantId, checked.data, deps.db),
+    images,
+    shown ? { shown, webFonts: isEmailWebFontsEnabled() } : null,
+  );
 }
 
 export const emailStyleCanvasKind: CanvasKind = {

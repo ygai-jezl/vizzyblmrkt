@@ -1,7 +1,10 @@
 import type { EmailLayout, EmailBlock, EmailBlockKind } from "@/lib/types/emailLayout";
 import { EMAIL_HEADER_IMAGE_LIMITS, EMAIL_STYLE_LIMITS } from "@/lib/types/tenant";
 import { socialIconDataUri } from "./socialIcons";
+import { FONT, WEB_FONT_CLASSES, fontFor, hasWebFonts, webFontHead } from "./emailFonts";
+import { layoutButtonRadius, themeTokens, type EmailThemeTokens } from "./emailThemes";
 import {
+  accentFor,
   bandInk,
   bandStops,
   isHeaderImageUrlShape,
@@ -16,7 +19,8 @@ import {
  * "what you see" is byte-identical to "what is sent".
  *
  *  - wrap()               — the outer email document (centered 560px card + optional hero,
- *                           and the Email style's header band above the card when given one).
+ *                           and the Email style's header band above the card when given one;
+ *                           its theme, if any, sets the page colour, card and fonts).
  *  - renderEmailLayout()  — turn a block LAYOUT into email-safe (table + inline-style) inner HTML.
  *  - sanitizeEmailHtml()  — allowlist-sanitize author/AI HTML (defence in depth; the editor
  *                           preview is also sandboxed in an iframe).
@@ -25,8 +29,6 @@ import {
  * as data, already resolved). {{merge_tokens}} are emitted VERBATIM — substitution happens
  * downstream in the send path (mergeVars.ts).
  */
-
-const FONT = "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
 
 // ── Moved verbatim from compiler.ts (send path re-imports these) ─────────────
 
@@ -53,11 +55,20 @@ export function bodyToHtml(body: string): string {
  * colour-scheme metas, then the preheader, then the header band (unless the body already
  * shows a brand logo), then the card — so the band's name never becomes the inbox snippet.
  * With a band and no preheader, the card's opening words become a hidden one for the same reason.
+ * A style with a theme gets the themed shell (see themedShell); without one it's today's.
+ *
+ * `lang` and `dir` (the email's language) are written only when given, on `<html>` and on the
+ * card too, since Gmail and others drop `<html>`. With `dir: "rtl"` the band sits on the right.
  */
 export function wrap(
   inner: string,
   heroImageUrl: string | null,
-  opts: { style?: ResolvedEmailStyle | null; preheader?: string | null } = {},
+  opts: {
+    style?: ResolvedEmailStyle | null;
+    preheader?: string | null;
+    lang?: string | null;
+    dir?: "ltr" | "rtl" | null;
+  } = {},
 ): string {
   // Guard + escape the hero URL (author/agent-controlled) so it can't break out of the
   // src attribute or inject markup into every recipient's inbox.
@@ -68,13 +79,54 @@ export function wrap(
   const pre = preheaderHtml(opts.preheader);
   const style = opts.style ?? null;
   const head = style ? COLOR_SCHEME_METAS : "";
-  const band = style && !hasOwnBrandLogo(inner) ? renderHeaderBand(style) : "";
+  const band = style && !hasOwnBrandLogo(inner) ? renderHeaderBand(style, { dir: opts.dir }) : "";
   const top = style ? `${pre || (band ? hiddenPreheader(openingWords(inner)) : "")}${band}\n  ` : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${head}</head><body style="margin:0;background:#f6f6f6">
-  ${top}<div style="font-family:${FONT};max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
+  const lang = langAttrs(opts);
+  const theme = themeTokens(style);
+  if (style && theme) return themedShell(style, theme, { head, top, hero, inner, band: band !== "", lang });
+  return `<!doctype html><html${lang}><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${head}</head><body style="margin:0;background:#f6f6f6">
+  ${top}<div${lang} style="font-family:${FONT};max-width:560px;margin:0 auto;padding:24px;color:#111;background:#fff">
     ${hero}
     ${style ? "" : pre}${inner}
   </div>
+</body></html>`;
+}
+
+/** ` lang="…" dir="…"` for whichever of the two is given; "" for neither (today's markup). */
+function langAttrs(opts: { lang?: string | null; dir?: "ltr" | "rtl" | null }): string {
+  const lang = opts.lang ? ` lang="${escapeAttr(opts.lang)}"` : "";
+  const dir = opts.dir === "ltr" || opts.dir === "rtl" ? ` dir="${opts.dir}"` : "";
+  return lang + dir;
+}
+
+/**
+ * A themed email's shell. The page colour sits on a full-width wrapper table (bgcolor and
+ * background-color) around the preheader, band and card, and on `<body>` too: Yahoo and AOL
+ * drop `<body>` and Gmail and Outlook.com replace it, so a colour only there would vanish.
+ * The card takes the theme's top and bottom padding, line height, body font and corners, and
+ * keeps 24px each side so it stays 608 wide, like the band. With no band the card has all four
+ * corners and page colour above it; under a band (which takes the top corners) it has the
+ * bottom two. Page colour shows below it either way. Outlook for Windows draws square corners.
+ * A theme with web fonts (and where to load them) adds their `<head>` block and the card's
+ * class its rules target (webFontHead in emailFonts.ts); the inline fonts stay safe stacks.
+ */
+function themedShell(
+  style: ResolvedEmailStyle,
+  theme: EmailThemeTokens,
+  parts: { head: string; top: string; hero: string; inner: string; band: boolean; lang: string },
+): string {
+  const page = safeHex(theme.pageColor, "#f6f6f6");
+  const r = theme.cardRadius;
+  const corners = r ? `;border-radius:${parts.band ? `0 0 ${r}px ${r}px` : `${r}px`}` : "";
+  const margin = parts.band ? "0 auto 24px" : "24px auto";
+  const cardClass = hasWebFonts(style) ? ` class="${WEB_FONT_CLASSES.card}"` : "";
+  return `<!doctype html><html${parts.lang}><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">${parts.head}${webFontHead(style)}</head><body style="margin:0;background:${page}">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${page}" style="width:100%;background-color:${page}"><tr><td>
+  ${parts.top}<div${cardClass}${parts.lang} style="font-family:${fontFor(style, "body")};max-width:560px;margin:${margin};padding:${theme.padY}px 24px;line-height:${theme.lineHeight};color:#111;background:#fff${corners}">
+    ${parts.hero}
+    ${parts.inner}
+  </div>
+  </td></tr></table>
 </body></html>`;
 }
 
@@ -122,10 +174,22 @@ const BAND_WIDTH = 608;
 
 /**
  * The band's frame around its one cell: a fixed-width MSO wrapper and a full-width table,
- * both on the header colour, so Outlook keeps the colour and the width.
+ * both on the header colour, so Outlook keeps the colour and the width. `corners` (a themed
+ * card's top corners, else "") rounds the table as well as the cell, since both are painted.
  */
-function bandFrame(bg: string, cell: string): string {
-  return `<!--[if mso]><table role="presentation" width="${BAND_WIDTH}" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:${BAND_WIDTH}px;margin:0 auto;background-color:${bg}"><tr>${cell}</tr></table><!--[if mso]></td></tr></table><![endif]-->`;
+function bandFrame(bg: string, cell: string, corners = ""): string {
+  return `<!--[if mso]><table role="presentation" width="${BAND_WIDTH}" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]--><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:100%;max-width:${BAND_WIDTH}px;margin:0 auto;background-color:${bg}${corners}"><tr>${cell}</tr></table><!--[if mso]></td></tr></table><![endif]-->`;
+}
+
+/** The web font block's heading class, as an attribute (" class=…"), when the email carries the block; else "". */
+function headingClass(style: ResolvedEmailStyle): string {
+  return hasWebFonts(style) ? ` class="${WEB_FONT_CLASSES.heading}"` : "";
+}
+
+/** With a theme whose card is rounded, the band takes the card's top corners (";border-radius:…"); else "". */
+function bandCorners(style: ResolvedEmailStyle): string {
+  const r = themeTokens(style)?.cardRadius ?? 0;
+  return r ? `;border-radius:${r}px ${r}px 0 0` : "";
 }
 
 /**
@@ -145,8 +209,15 @@ function bandFrame(bg: string, cell: string): string {
  * white reads on the header colour, so blocked images still show it. The `height` attribute
  * (the banner's height at 608 wide, from the stored size) is for Outlook for Windows, which
  * sizes by attributes; everyone else follows `height:auto`, so it stays fluid on phones.
+ *
+ * With a theme, the name and alt text take its heading font, and a rounded card's top corners
+ * move up to the band (a full-width banner is rounded to match). With web fonts, the name and
+ * the images carry the class the `<head>` block's heading rule targets.
+ *
+ * With `dir: "rtl"` (a right-to-left email) the colour band's cell is right-aligned and reads
+ * right to left, so the logo sits on the right with the name to its left; the banner stays centred.
  */
-export function renderHeaderBand(style: ResolvedEmailStyle): string {
+export function renderHeaderBand(style: ResolvedEmailStyle, opts: { dir?: "ltr" | "rtl" | null } = {}): string {
   const image =
     style.headerImage &&
     isHeaderImageUrlShape(style.headerImage.url) &&
@@ -170,26 +241,30 @@ export function renderHeaderBand(style: ResolvedEmailStyle): string {
       : null;
   // Beside a logo, only a set company name shows; without one the band shows altName.
   const text = logo ? style.name : style.altName;
-  const textStyle = `font-family:${FONT};font-size:18px;line-height:1.3;font-weight:700;color:${ink}`;
+  const textStyle = `font-family:${fontFor(style, "heading")};font-size:18px;line-height:1.3;font-weight:700;color:${ink}`;
   // With the name printed beside it, the logo's alt stays empty so blocked images
   // don't show the name twice.
   const alt = text ? "" : escapeName(style.altName);
+  const cls = headingClass(style);
   const img = logo
-    ? `<img src="${escapeAttr(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${alt}" style="display:block;width:${logo.width}px;height:${logo.height}px;border:0;outline:none;text-decoration:none;${textStyle}" />`
+    ? `<img${cls} src="${escapeAttr(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${alt}" style="display:block;width:${logo.width}px;height:${logo.height}px;border:0;outline:none;text-decoration:none;${textStyle}" />`
     : "";
-  const name = text ? `<span style="${textStyle}">${escapeName(text)}</span>` : "";
+  const name = text ? `<span${cls} style="${textStyle}">${escapeName(text)}</span>` : "";
+  const rtl = opts.dir === "rtl";
   const content =
     img && name
-      ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;padding-left:12px">${name}</td></tr></table>`
+      ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${img}</td><td style="vertical-align:middle;${rtl ? "padding-right" : "padding-left"}:12px">${name}</td></tr></table>`
       : img || name || "&nbsp;";
-  return bandFrame(bg, `<td bgcolor="${bg}" align="left" style="padding:16px 24px;${fill}">${content}</td>`);
+  const corners = bandCorners(style);
+  const align = rtl ? 'dir="rtl" align="right"' : 'align="left"';
+  return bandFrame(bg, `<td bgcolor="${bg}" ${align} style="padding:16px 24px;${fill}${corners}">${content}</td>`, corners);
 }
 
 /** The Image-mode band (see renderHeaderBand): the banner alone, on the plain header colour. */
 function renderImageBand(style: ResolvedEmailStyle, image: NonNullable<ResolvedEmailStyle["headerImage"]>): string {
   // The header colour alone: the gradient and a forced text colour belong to the colour band.
   const [bg] = bandStops({ headerColor: style.headerColor });
-  const textStyle = `font-family:${FONT};font-size:18px;line-height:1.3;font-weight:700;color:${readableOn(bg)}`;
+  const textStyle = `font-family:${fontFor(style, "heading")};font-size:18px;line-height:1.3;font-weight:700;color:${readableOn(bg)}`;
   const fullHeight = Math.max(1, Math.round((BAND_WIDTH * image.height) / image.width));
   // Never taller than the band is wide: a portrait-shaped image shrinks to fit a
   // BAND_WIDTH square (centred on the header colour) instead of filling an inbox.
@@ -197,8 +272,10 @@ function renderImageBand(style: ResolvedEmailStyle, image: NonNullable<ResolvedE
   const width = tall ? Math.max(1, Math.round((BAND_WIDTH * BAND_WIDTH) / fullHeight)) : BAND_WIDTH;
   const height = tall ? BAND_WIDTH : fullHeight;
   const size = tall ? `margin:0 auto;width:${width}px;max-width:100%` : `width:100%;max-width:${BAND_WIDTH}px`;
-  const img = `<img src="${escapeAttr(image.url)}" width="${width}" height="${height}" alt="${escapeName(style.altName)}" style="display:block;${size};height:auto;border:0;outline:none;text-decoration:none;${textStyle}" />`;
-  return bandFrame(bg, `<td bgcolor="${bg}" align="center" style="padding:0;background-color:${bg}">${img}</td>`);
+  const corners = bandCorners(style);
+  // A full-width banner fills the rounded corners, so it's rounded too; a narrower one sits inside them.
+  const img = `<img${headingClass(style)} src="${escapeAttr(image.url)}" width="${width}" height="${height}" alt="${escapeName(style.altName)}" style="display:block;${size};height:auto;border:0;outline:none;text-decoration:none;${textStyle}${tall ? "" : corners}" />`;
+  return bandFrame(bg, `<td bgcolor="${bg}" align="center" style="padding:0;background-color:${bg}${corners}">${img}</td>`, corners);
 }
 
 export function htmlToText(html: string): string {
@@ -341,6 +418,31 @@ export function safeHex(c: string | null | undefined, fallback: string): string 
   return c && /^#[0-9a-fA-F]{6}$/.test(c) ? c : fallback;
 }
 
+/** What a layout button draws: its fill, label colour and corners. */
+export interface LayoutButtonLook {
+  /** It follows the Email style (the style's button colour, a readable label, the theme's shape). */
+  follows: boolean;
+  bg: string;
+  color: string;
+  radius: number;
+}
+
+/**
+ * What a layout button draws. With the style's `layouts` bit, a button not set to its own colour
+ * follows the style: the button colour, a readable label, and the theme's button shape (with no
+ * theme or Classic, its own corners). Otherwise it's exactly as built. The renderer and the layout
+ * editor's block chip share this, so the chip shows what the email draws.
+ */
+export function layoutButtonLook(
+  block: Pick<Extract<EmailBlock, { kind: "button" }>, "bg" | "color" | "radius" | "styleSource">,
+  style: Pick<ResolvedEmailStyle, "layouts" | "accentColor" | "theme"> | null | undefined,
+): LayoutButtonLook {
+  const accent = style?.layouts && block.styleSource !== "own" ? accentFor(style, "button") : null;
+  return accent
+    ? { follows: true, bg: accent, color: readableOn(accent), radius: layoutButtonRadius(style) ?? block.radius }
+    : { follows: false, bg: safeHex(block.bg, "#111111"), color: safeHex(block.color, "#ffffff"), radius: block.radius };
+}
+
 /** Wrap a block in its per-section BACKGROUND band when set (margins show the bg). */
 function withSection(inner: string, sectionBg: string | null | undefined): string {
   const bg = safeHex(sectionBg, "");
@@ -362,15 +464,16 @@ function withSection(inner: string, sectionBg: string | null | undefined): strin
 export const FOOTER_MARKER = "data-vzb-footer";
 
 /** Footer inner HTML (no section band — renderBlock adds it from block.sectionBg).
- *  `withAddress` adds a `{{postal_address}}` line (lifecycle emails). */
-function renderFooterInner(opts: { withAddress?: boolean } = {}): string {
+ *  `withAddress` adds a `{{postal_address}}` line (lifecycle emails); a `style` with a
+ *  theme sets it in the theme's body font (none = today's). */
+function renderFooterInner(opts: { withAddress?: boolean; style?: ResolvedEmailStyle | null } = {}): string {
   // `mc:disable-tracking` keeps Mandrill from rewriting these to click-tracking
   // redirects: the unsubscribe/preferences/privacy controls must be DIRECT links
   // (bulk-sender guidance), and tracking them would inflate journey click metrics.
   const link = (token: string, label: string) =>
     `<a href="${token}" mc:disable-tracking target="_blank" rel="noopener noreferrer" style="color:#999999;text-decoration:underline">${label}</a>`;
   const address = opts.withAddress ? "<br />{{postal_address}}" : "";
-  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${FONT};font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.${address}<br />${link(
+  return `<div ${FOOTER_MARKER}="1" style="text-align:center;margin:28px 0 0;padding-top:20px;border-top:1px solid #ededed;font-family:${fontFor(opts.style, "body")};font-size:12px;line-height:1.7;color:#999999">This email was sent by {{sender_brand}}.${address}<br />${link(
     "{{manage_preferences_url}}",
     "Manage preferences",
   )} &nbsp;|&nbsp; ${link("{{unsubscribe_url}}", "Unsubscribe")} &nbsp;|&nbsp; ${link(
@@ -380,8 +483,12 @@ function renderFooterInner(opts: { withAddress?: boolean } = {}): string {
 }
 
 /** Full footer including its optional per-section background band. Used by the
- *  send-path safety net (compiler.ts) when a body lacks a footer block. */
-export function renderFooter(sectionBg?: string | null, opts: { withAddress?: boolean } = {}): string {
+ *  send-path safety net (compiler.ts) when a body lacks a footer block; pass the email's
+ *  `style` so a theme's body font reaches it. */
+export function renderFooter(
+  sectionBg?: string | null,
+  opts: { withAddress?: boolean; style?: ResolvedEmailStyle | null } = {},
+): string {
   return withSection(renderFooterInner(opts), sectionBg ?? null);
 }
 
@@ -418,15 +525,15 @@ export function hasFooter(rawBody: string): boolean {
   return rawBody.includes(FOOTER_MARKER) || rawBody.includes("{{unsubscribe_url}}");
 }
 
-function renderInner(block: EmailBlock): string {
+function renderInner(block: EmailBlock, style: ResolvedEmailStyle | null): string {
   switch (block.kind) {
     case "text":
-      return `<div style="font-family:${FONT};font-size:16px;line-height:1.6;color:${safeHex(block.color, "#111111")};margin:0 0 16px">${sanitizeEmailHtml(
+      return `<div style="font-family:${fontFor(style, "body")};font-size:16px;line-height:1.6;color:${safeHex(block.color, "#111111")};margin:0 0 16px">${sanitizeEmailHtml(
         block.html,
       )}</div>`;
     case "heading": {
       const size = HEADING_SIZE[block.level];
-      return `<h${block.level} style="margin:0 0 12px;font-family:${FONT};font-size:${size}px;line-height:1.3;font-weight:700;color:${safeHex(block.color, "#111111")};text-align:${block.align}">${escapeHtml(
+      return `<h${block.level} style="margin:0 0 12px;font-family:${fontFor(style, "heading")};font-size:${size}px;line-height:1.3;font-weight:700;color:${safeHex(block.color, "#111111")};text-align:${block.align}">${escapeHtml(
         block.html,
       )}</h${block.level}>`;
     }
@@ -443,15 +550,14 @@ function renderInner(block: EmailBlock): string {
     }
     case "button": {
       const href = isSafeHref(block.href) ? block.href : "#";
-      return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr><td style="background:${safeHex(
-        block.bg,
-        "#111111",
-      )};border-radius:${block.radius}px"><a href="${escapeAttr(
+      // A button that follows the style gets bgcolor too, for Outlook; otherwise it's exactly as built.
+      const look = layoutButtonLook(block, style);
+      const cell = look.follows
+        ? `<td bgcolor="${look.bg}" style="background:${look.bg};border-radius:${look.radius}px">`
+        : `<td style="background:${look.bg};border-radius:${look.radius}px">`;
+      return `<div style="text-align:${block.align};margin:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-block;border-collapse:separate"><tr>${cell}<a href="${escapeAttr(
         href,
-      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:600;color:${safeHex(
-        block.color,
-        "#ffffff",
-      )};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
+      )}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 24px;font-family:${fontFor(style, "body")};font-size:15px;font-weight:600;color:${look.color};text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table></div>`;
     }
     case "divider":
       return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse"><tr><td style="border-top:${block.thickness}px solid ${safeHex(
@@ -477,12 +583,12 @@ function renderInner(block: EmailBlock): string {
       // Unsubscribe / Privacy Policy). Only its section background is editable —
       // block.text is ignored (kept on the type for back-compat). renderBlock
       // adds the section band from block.sectionBg.
-      return renderFooterInner();
+      return renderFooterInner({ style });
   }
 }
 
-function renderBlock(block: EmailBlock): string {
-  const inner = renderInner(block);
+function renderBlock(block: EmailBlock, style: ResolvedEmailStyle | null): string {
+  const inner = renderInner(block, style);
   if (!inner) return ""; // e.g. an image with no src, or empty social — no section band
   return withSection(inner, block.sectionBg);
 }
@@ -490,10 +596,15 @@ function renderBlock(block: EmailBlock): string {
 /**
  * Render a block layout to email-safe INNER HTML (no <html>/<body> — pass through
  * wrap() to get the full document / preview). Blocks stack full-width inside wrap()'s
- * centered 560px card.
+ * centered 560px card. With a `style` that has a theme, text, buttons and the footer take
+ * its body font and headings its heading font; with its `layouts` bit, buttons not set to
+ * their own colour take its button colour and shape; without either it's today's HTML.
+ * Saved snapshots (the editor's Save, the template thumbnail) render with no style, so they
+ * never bake a theme or a colour in.
  */
-export function renderEmailLayout(layout: EmailLayout): string {
-  return (layout.blocks ?? []).map(renderBlock).join("\n");
+export function renderEmailLayout(layout: EmailLayout, opts: { style?: ResolvedEmailStyle | null } = {}): string {
+  const style = opts.style ?? null;
+  return (layout.blocks ?? []).map((block) => renderBlock(block, style)).join("\n");
 }
 
 /** Kinds are re-exported here only for callers that render a single block if ever needed. */

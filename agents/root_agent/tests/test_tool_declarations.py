@@ -17,9 +17,17 @@ from google.adk.tools import FunctionTool, ToolContext  # noqa: E402
 
 from root_agent_pkg.tools.email_style import get_email_style, suggest_email_style  # noqa: E402
 from root_agent_pkg.tools.insights_summary import get_insights_summary  # noqa: E402
+from root_agent_pkg.tools.journey_style import get_journey_email_style, set_journey_email_style  # noqa: E402
 from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: E402
 
-TOOLS = [retrieve_knowledge, get_insights_summary, get_email_style, suggest_email_style]
+TOOLS = [
+    retrieve_knowledge,
+    get_insights_summary,
+    get_email_style,
+    suggest_email_style,
+    get_journey_email_style,
+    set_journey_email_style,
+]
 
 
 def _params(declaration) -> "tuple[dict, list]":
@@ -56,6 +64,10 @@ def test_suggest_email_style_asks_for_the_mode_and_brief_only():
         "logo",
         "company_name",
         "hide_company_name",
+        "theme",
+        "heading_font",
+        "body_font",
+        "use_brand_fonts",
     }
     assert sorted(required) == ["brief", "mode"]
 
@@ -64,3 +76,29 @@ def test_the_root_agent_carries_the_email_style_tools():
     from root_agent_pkg.agent import root_agent
 
     assert get_email_style in root_agent.tools and suggest_email_style in root_agent.tools
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_set_journey_email_style_asks_for_the_mode_only():
+    props, required = _params(FunctionTool(set_journey_email_style)._get_declaration())
+    assert set(props) == {
+        "mode",
+        "header_color",
+        "button_color",
+        "header_gradient_color",
+        "solid_header",
+        "header_text_color",
+        "journey_id",
+        "campaign_id",
+    }
+    assert required == ["mode"]
+    props, required = _params(FunctionTool(get_journey_email_style)._get_declaration())
+    assert set(props) == {"journey_id", "campaign_id"} and not required
+
+
+def test_the_root_agent_and_lifecycle_ops_carry_the_journey_style_tools():
+    from root_agent_pkg.agent import root_agent
+    from root_agent_pkg.sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
+
+    for agent in (root_agent, lifecycle_ops_agent):
+        assert get_journey_email_style in agent.tools and set_journey_email_style in agent.tools

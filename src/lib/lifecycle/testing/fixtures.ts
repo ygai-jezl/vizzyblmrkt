@@ -5,6 +5,8 @@ import type { ContextResult } from "@/lib/connect/contextClient";
 import type { EmailMessage, EmailResult } from "@/lib/email";
 import type { DeliveryMode, LifecycleJourney, LifecycleSettings, LifecycleVersion } from "@/lib/types/lifecycle";
 import type { ProductUser } from "@/lib/types/productUser";
+import type { StoredJourneyStyle } from "@/lib/types/tenant";
+import { forTenant } from "@/lib/tenant";
 import { productUserDocId } from "@/lib/connect/profile";
 import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft, updateLifecycleDelivery } from "../service";
 
@@ -154,6 +156,26 @@ export async function publishOnboarding(
   const published = await publishLifecycleJourney(ctx, id, { db, nowMs });
   if (!published.ok) throw new Error(`publish failed: ${published.error} ${JSON.stringify(published.detail)}`);
   return { journey: published.value.journey, version: published.value.version };
+}
+
+/**
+ * Give a journey (either kind) its own email style in the draft, as the editor's draft save does
+ * (it sticks only with EMAIL_JOURNEY_STYLE_ENABLED on), then publish it unless `publish` is false.
+ */
+export async function setJourneyStyle(
+  db: FakeFirestore,
+  journeyId: string,
+  style: StoredJourneyStyle,
+  opts: { publish?: boolean; nowMs?: number } = {},
+): Promise<void> {
+  const journey = await forTenant(ctx, db).lifecycleJourneys.getById(journeyId);
+  if (!journey) throw new Error(`no journey ${journeyId}`);
+  const draft = { ...journey.draft, settings: { ...journey.draft.settings, emailStyle: style } };
+  const saved = await saveLifecycleDraft(ctx, journeyId, draft, { db, nowMs: opts.nowMs, emailStyle: "from_input" });
+  if (!saved.ok) throw new Error(`draft failed: ${saved.error}`);
+  if (opts.publish === false) return;
+  const published = await publishLifecycleJourney(ctx, journeyId, { db, nowMs: opts.nowMs });
+  if (!published.ok) throw new Error(`publish failed: ${published.error} ${JSON.stringify(published.detail)}`);
 }
 
 /** A product context: which steps are done, plus facts and insights. */

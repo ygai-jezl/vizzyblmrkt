@@ -153,6 +153,10 @@ def get_context(state: "dict | None") -> dict:
         # stale True can't outlive a flag-off. The instruction builder reads it.
         style = body.get("emailStyle")
         state["emailStyleConfigured"] = isinstance(style, dict) and bool(style.get("configured"))
+        # Likewise whether a journey can wear its own look (the key is sent only with journey
+        # styles on), so the journey style rule comes and goes with the flag.
+        journey_style = body.get("journeyStyle")
+        state["journeyStyleEnabled"] = isinstance(journey_style, dict) and bool(journey_style.get("enabled"))
         return {"status": "success", **body}
     return error_result(status_code, body)
 

@@ -17,7 +17,8 @@ def _state(tool_context: ToolContext) -> dict:
 
 def get_email_style(tool_context: ToolContext) -> dict:
     """Read the brand's Email style: the logo, company name, header colour and button
-    colour shared by every branded email (lifecycle, launch welcome, invites, newsletters).
+    colour shared by every branded email (lifecycle, launch welcome, invites, newsletters
+    and, where switched on, the sign-up confirmation and offboarding emails).
 
     Returns `current` (what emails wear now; null = the plain default look, with no
     header band), `pending` (a suggestion waiting for an admin to review), `fromBrandKit`
@@ -32,6 +33,15 @@ def get_email_style(tool_context: ToolContext) -> dict:
     banner shown in place of the logo and name, as {id, title}; null = the colour
     header); `headerImages` lists the banners an admin uploaded on the page (id, title);
     and suggest_email_style can change them. Without it, they aren't switched on here yet.
+
+    `themes: true` means email themes are on: `current` and `pending` then also carry
+    `theme` ({preset, headingFont, bodyFont}; "classic" with the "system" font is
+    today's look); `themePresets` lists the looks (id, label, their own fonts, page
+    colour, card corners and button shape); `fonts` lists the fonts by id, where a
+    "safe" one shows in every inbox and a "web" one only in Apple Mail, Outlook for Mac
+    and a few others (the rest show its `fallback`, and every inbox does while web fonts
+    aren't switched on, as the `note` says); and suggest_email_style can change the
+    theme. Without it, themes and fonts aren't switched on here yet.
     """
     return client.get_style(_state(tool_context))
 
@@ -49,6 +59,10 @@ def suggest_email_style(
     logo: str = "",
     company_name: str = "",
     hide_company_name: bool = False,
+    theme: str = "",
+    heading_font: str = "",
+    body_font: str = "",
+    use_brand_fonts: bool = False,
 ) -> dict:
     """Suggest an Email style for an admin to review and apply.
 
@@ -80,6 +94,18 @@ def suggest_email_style(
         logo: "primary", "none", or a logo id from get_email_style. Empty = keep.
         company_name: The name shown beside the logo. Empty = keep.
         hide_company_name: True to show the logo alone, with no name.
+        theme: Only when get_email_style says `themes`. A look from `themePresets`:
+            "classic" (today's), "modern", "editorial" or "friendly" (for "make my
+            emails feel more editorial", "editorial"). It brings its own heading and
+            body fonts unless heading_font or body_font is given too. Empty = keep.
+        heading_font: Only when get_email_style says `themes`. A font id from `fonts`
+            (like "lora") for headings and the name on the header. Empty = keep.
+        body_font: Only when get_email_style says `themes`. A font id from `fonts` for
+            the email's text. Empty = keep.
+        use_brand_fonts: Only when get_email_style says `themes`. True to take the
+            heading and body fonts from Brand › Fonts where email has them (for "use my
+            brand fonts in emails"); a heading_font or body_font given as well wins. The
+            answer's warnings name any brand font email doesn't have (uploaded ones too).
 
     Send only what the operator asked to change.
 
@@ -99,4 +125,8 @@ def suggest_email_style(
         solid_header=solid_header,
         header_text_color=header_text_color,
         header_image=header_image,
+        theme=theme,
+        heading_font=heading_font,
+        body_font=body_font,
+        use_brand_fonts=use_brand_fonts,
     )

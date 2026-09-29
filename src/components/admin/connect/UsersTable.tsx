@@ -4,9 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText, timeAgo, type ProductUser, type PublicConnection } from "./api";
 import { Badge, Banner, Button } from "./ui";
 import { UserLookup } from "./UserLookup";
+import { OnboardingProgress } from "./OnboardingProgress";
+import { StepPlacementNotice } from "./StepPlacementNotice";
+import { onboardingSummary } from "@/lib/connect/onboardingSummary";
 
 /** The product's users, as its server sent them, most recently seen first — and a lookup by user id. */
-export function UsersTable({ connection, canEdit }: { connection: PublicConnection; canEdit: boolean }) {
+export function UsersTable({
+  connection,
+  canEdit,
+  onOpenCatalog,
+}: {
+  connection: PublicConnection;
+  canEdit: boolean;
+  /** Shown with a step the catalog counts somewhere other than where the product sends it. */
+  onOpenCatalog?: () => void;
+}) {
   const [users, setUsers] = useState<ProductUser[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +55,7 @@ export function UsersTable({ connection, canEdit }: { connection: PublicConnecti
 
   return (
     <div className="space-y-3">
+      <StepPlacementNotice connection={connection} onOpenCatalog={onOpenCatalog} />
       <UserLookup connectionId={connection.id} steps={steps} catalog={connection.catalog} request={request} />
       {error ? <Banner tone="err">{error}</Banner> : null}
       <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
@@ -76,12 +89,7 @@ export function UsersTable({ connection, canEdit }: { connection: PublicConnecti
                   {u.status === "deleted" ? (
                     <Badge tone="red">erased</Badge>
                   ) : (
-                    <span title={steps.map((s) => `${u.steps[s.id] ? "✓" : "☐"} ${s.label}`).join("\n")}>
-                      {steps.map((s) => (u.steps[s.id] ? "✓" : "☐")).join(" ")}{" "}
-                      <span className="text-neutral-500">
-                        {steps.filter((s) => u.steps[s.id]).length}/{steps.length}
-                      </span>
-                    </span>
+                    <OnboardingProgress summary={onboardingSummary(u, connection.catalog)} />
                   )}
                 </td>
                 <td className="px-3 py-2">{u.consent ? <Badge>{u.consent.basis}</Badge> : <span className="text-neutral-400">—</span>}</td>

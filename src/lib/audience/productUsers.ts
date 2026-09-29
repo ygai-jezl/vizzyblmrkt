@@ -3,6 +3,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
+import { onboardingSummary, type OnboardingSummary } from "@/lib/connect/onboardingSummary";
 
 /**
  * Audience → Product users (nav v2 phase 3): the people using your connected
@@ -19,8 +20,8 @@ export interface AudienceProductUser {
   email: string | null;
   /** "Fernlight app · Production" */
   product: string;
-  stepsDone: number;
-  stepsTotal: number;
+  /** Onboarding as the product's Users tab counts it (per brand too, when the catalog says). */
+  onboarding: OnboardingSummary;
   lastSeenAt: string;
   onWaitlist: boolean;
   /** Came in through an invite from a launch (nav v2 phase 4); set only when invites are on. */
@@ -32,7 +33,7 @@ export const AUDIENCE_PRODUCT_USERS_LIMIT = 100;
 
 export function audienceProductRows(
   connections: Array<Pick<ProductConnection, "id" | "name" | "environment" | "catalog">>,
-  users: Array<Pick<ProductUser, "id" | "connectionId" | "firstName" | "lastName" | "email" | "emailNormalized" | "steps" | "lastSeenAt" | "status">>,
+  users: Array<Pick<ProductUser, "id" | "connectionId" | "firstName" | "lastName" | "email" | "emailNormalized" | "steps" | "entities" | "activated" | "lastSeenAt" | "status">>,
   waitlistKeys: Set<string>,
 ): AudienceProductUser[] {
   const byId = new Map(connections.map((c) => [c.id, c]));
@@ -50,8 +51,7 @@ export function audienceProductRows(
         name: name || null,
         email: u.email ?? null,
         product: `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}`,
-        stepsDone: Object.keys(u.steps ?? {}).length,
-        stepsTotal: c.catalog?.onboardingSteps?.length ?? 0,
+        onboarding: onboardingSummary(u, { onboardingSteps: c.catalog?.onboardingSteps ?? [], entityKinds: c.catalog?.entityKinds ?? [] }),
         lastSeenAt: u.lastSeenAt,
         onWaitlist: !!u.emailNormalized && waitlistKeys.has(u.emailNormalized),
       };

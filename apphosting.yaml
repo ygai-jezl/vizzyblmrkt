@@ -890,7 +890,7 @@ env:
   # flag. All are RUNTIME only, with no client mirror (the pages that show them are
   # server components that pass props), and none is read by the renderers. Off, each
   # gives exactly today's emails and keeps what's saved, so each is a kill switch.
-  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
+  # ENABLED on dev and in prod (apphosting.prod.yaml sets each explicitly).
   #
   # Themes (needs EMAIL_STYLE_ENABLED): one of four looks (Classic, Modern, Editorial,
   # Friendly) with a heading and a body font, in sends and previews, the Theme section

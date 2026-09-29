@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { describeChanges, rebaseCatalog } from "@/lib/connect/catalogChanges";
 import { catalogProblems, fieldKey, fieldLabel, fieldLimit, serverProblemKey } from "@/lib/connect/catalogProblems";
+import { applyStepMove } from "@/lib/connect/stepPlacement";
 import { api, errorText, type ConnectionCatalog, type ConnectionDiagnostics, type PublicConnection } from "./api";
 import { CatalogHistory } from "./CatalogHistory";
+import { StepPlacementNotice } from "./StepPlacementNotice";
 import { Banner, Button, Section, inputClass } from "./ui";
 
 /** Catalogs saved before facts (or entity kinds) existed have none. */
@@ -334,7 +336,17 @@ export function CatalogEditor({
         </Section>
       ) : null}
 
-      <Section title="Onboarding steps" description="In order. Journeys nudge users towards the next one; step ids match onboarding.step_completed events.">
+      <Section
+        title="Onboarding steps"
+        description={`In order. Journeys nudge users towards the next one; step ids match the steps your server sends.${perVisible ? " “Done per” says where it sends each: on the person, or on one of the things they have several of." : ""}`}
+      >
+        {showKinds ? (
+          <StepPlacementNotice
+            connection={connection}
+            draftSteps={cat.onboardingSteps}
+            onFix={canEdit ? (m) => update("onboardingSteps", applyStepMove(cat.onboardingSteps, m)) : undefined}
+          />
+        ) : null}
         {[...cat.onboardingSteps]
           .sort((a, b) => a.order - b.order)
           .map((s) => {

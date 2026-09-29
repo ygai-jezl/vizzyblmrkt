@@ -11,6 +11,7 @@ import {
   StepCompletedPropsSchema,
   type IngestMessage,
 } from "./protocol";
+import { entityActivationAt } from "@/lib/lifecycle/entities";
 import { V2_LIMITS, type SkipReason, type UserPatch, type UserState } from "./v2/contract";
 
 /**
@@ -398,7 +399,8 @@ export function userStateOf(user: ProductUser): UserState {
  *
  * Steps done per entity (a catalog step with a `kind`, e.g. per brand) count once
  * any entity the person owns of that kind has all of them done — one finished
- * brand is enough, however many others are half set up.
+ * brand is enough, however many others are half set up. With steps of several
+ * kinds, each kind needs one.
  */
 export function activationAt(
   doc: Pick<Doc, "milestones" | "steps"> & Partial<Pick<Doc, "entities">>,
@@ -407,20 +409,11 @@ export function activationAt(
   const completed = doc.milestones[RESERVED_EVENTS.onboardingCompleted]?.firstAt ?? null;
   let allDone: string | null = null;
   const own = steps.filter((s) => !s.kind);
-  const kind = steps.find((s) => s.kind)?.kind ?? null;
   if (steps.length > 0 && own.every((s) => doc.steps[s.id])) {
     const ownAt = own.reduce((latest, s) => max(latest, doc.steps[s.id]!.doneAt), "");
-    if (!kind) allDone = ownAt;
-    else {
-      const perEntity = steps.filter((s) => s.kind === kind);
-      let first: string | null = null;
-      for (const e of Object.values(doc.entities ?? {})) {
-        if (e.kind !== kind || (e.role !== "owner" && e.role !== null) || !perEntity.every((s) => e.steps[s.id])) continue;
-        const at = perEntity.reduce((latest, s) => max(latest, e.steps[s.id]!.doneAt), "");
-        if (!first || at < first) first = at;
-      }
-      if (first) allDone = max(ownAt, first);
-    }
+    const perKind = entityActivationAt({ entities: doc.entities }, { onboardingSteps: steps });
+    if (!steps.some((s) => s.kind)) allDone = ownAt;
+    else if (perKind) allDone = max(ownAt, perKind);
   }
   if (completed && allDone) return completed < allDone ? completed : allDone;
   return completed ?? allDone;

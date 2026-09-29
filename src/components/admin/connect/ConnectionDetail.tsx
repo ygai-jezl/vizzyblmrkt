@@ -125,7 +125,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
       {tab === "setup" ? <SetupPanel connection={connection} onOpenTab={openTab} /> : null}
       {tab === "sandbox" ? <SandboxPanel connection={connection} canEdit={canEdit} onChanged={() => void load()} /> : null}
       {tab === "events" ? <EventDebugger connectionId={connection.id} /> : null}
-      {tab === "users" ? <UsersTable connection={connection} canEdit={canEdit} /> : null}
+      {tab === "users" ? <UsersTable connection={connection} canEdit={canEdit} onOpenCatalog={() => openTab("catalog")} /> : null}
       {tab === "test" ? <ContextTester connection={connection} canEdit={canEdit} /> : null}
       {tab === "learn" ? (
         <LearnFromRepo

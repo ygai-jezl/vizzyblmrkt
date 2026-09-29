@@ -9,6 +9,7 @@ import {
   eraseConnectionUser,
   fireSandbox,
   getConnectionDetail,
+  getStepPlacement,
   listConnectionEvents,
   listConnectionUsers,
   listConnections,
@@ -159,6 +160,16 @@ describe("connections admin API", () => {
     expect((await getConnectionDetail(ctxB, connection.id, db)).status).toBe(404);
     expect((await patchConnection(ctxB, connection.id, { name: "x" }, db)).status).toBe(404);
     expect((await revokeProductConnection(ctxB, connection.id, db)).status).toBe(404);
+  });
+});
+
+describe("the onboarding step check", () => {
+  it("reads only this workspace's product", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "custom");
+    const mine = await getStepPlacement(ctxA, connection.id, db);
+    expect(mine).toMatchObject({ status: 200, body: { scanned: 0, moves: [], unknown: [] } });
+    expect((await getStepPlacement(ctxB, connection.id, db)).status).toBe(404);
   });
 });
 

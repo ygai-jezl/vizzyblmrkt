@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { AudienceProductUser } from "@/lib/audience/productUsers";
+import { OnboardingProgress } from "@/components/admin/connect/OnboardingProgress";
 
 function ago(iso: string): string {
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -86,7 +87,9 @@ export function ProductUsersView() {
                     {u.product}
                   </Link>
                 </td>
-                <td className="px-3 py-2 tabular-nums">{u.stepsTotal ? `${u.stepsDone} of ${u.stepsTotal}` : "—"}</td>
+                <td className="px-3 py-2">
+                  <OnboardingProgress summary={u.onboarding} />
+                </td>
                 <td className="px-3 py-2 text-neutral-500">{ago(u.lastSeenAt)}</td>
               </tr>
             ))}

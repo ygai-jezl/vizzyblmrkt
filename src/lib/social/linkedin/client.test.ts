@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { postToLinkedIn } from "./client";
+import { postToLinkedIn, toLittleText } from "./client";
 
 /** A fake fetch returning queued responses (with headers), recording requests. */
 function fakeFetch(
@@ -109,6 +109,15 @@ describe("postToLinkedIn", () => {
     expect(r).toEqual({ ok: false, reason: "timeout" });
   });
 
+  it("escapes the post text so LinkedIn doesn't cut it short at a bracket", async () => {
+    const { fn, calls } = fakeFetch([{ ok: true, status: 201, headers: { "x-restli-id": "urn:li:share:3" } }]);
+    const text = "AI search is changing (fast).\n\nHere's what we saw:\n* 3 engines [ChatGPT, Gemini, Claude]";
+    await postToLinkedIn({ authorUrn: author, text, accessToken: "t" }, { fetch: fn });
+    expect((calls[0]!.body as Record<string, unknown>).commentary).toBe(
+      "AI search is changing \\(fast\\).\n\nHere's what we saw:\n\\* 3 engines \\[ChatGPT, Gemini, Claude\\]",
+    );
+  });
+
   it("never leaks the access token in a reason or url", async () => {
     const token = "AA.bb-cc secret";
     const scenarios = [
@@ -121,5 +130,37 @@ describe("postToLinkedIn", () => {
       expect(s).not.toContain("secret");
       expect(s).not.toContain(token);
     }
+  });
+});
+
+describe("toLittleText", () => {
+  it("leaves plain text alone", () => {
+    expect(toLittleText("Hello, world! It's 50% off — today only.")).toBe("Hello, world! It's 50% off — today only.");
+  });
+
+  it("escapes every reserved character", () => {
+    expect(toLittleText("a\\b|c{d}e@f[g]h(i)j<k>l*m_n~o")).toBe(
+      "a\\\\b\\|c\\{d\\}e\\@f\\[g\\]h\\(i\\)j\\<k\\>l\\*m\\_n\\~o",
+    );
+  });
+
+  it("keeps hashtags clickable with the hashtag template", () => {
+    expect(toLittleText("Big news #AI #GEO2026\n\n#Marketing")).toBe(
+      "Big news {hashtag|\\#|AI} {hashtag|\\#|GEO2026}\n\n{hashtag|\\#|Marketing}",
+    );
+    expect(toLittleText("(#growth)")).toBe("\\({hashtag|\\#|growth}\\)");
+    expect(toLittleText("#café")).toBe("{hashtag|\\#|café}");
+  });
+
+  it("escapes a # that isn't a hashtag", () => {
+    expect(toLittleText("C# and #1 and https://x.com/a#top and # alone")).toBe(
+      "C\\# and \\#1 and https://x.com/a\\#top and \\# alone",
+    );
+  });
+
+  it("escapes the reserved characters inside URLs and emails", () => {
+    expect(toLittleText("See https://vizzybl.ai/my_page or hi@vizzybl.ai")).toBe(
+      "See https://vizzybl.ai/my\\_page or hi\\@vizzybl.ai",
+    );
   });
 });

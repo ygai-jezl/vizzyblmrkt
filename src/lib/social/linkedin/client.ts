@@ -43,6 +43,34 @@ export interface LinkedInPublishDeps {
   timeoutMs?: number;
 }
 
+/** Characters LinkedIn's `little` text format reserves in `commentary`. Left unescaped,
+ *  LinkedIn parses them as markup and silently drops everything after the first one
+ *  it can't parse — the post goes out cut short with no error. */
+const LITTLE_RESERVED = /[\\|{}@[\]()<>#*_~]/g;
+/** A hashtag: `#` at the start or after a space/opening bracket or quote, then a word
+ *  with at least one letter. Rules out `C#`, `url#anchor`, `&#39;` and `#1`. */
+const HASHTAG = /(?<![^\s([{"'“‘])#([\p{L}\p{N}\p{M}]*\p{L}[\p{L}\p{N}\p{M}]*)/gu;
+
+/**
+ * Turn plain post text into LinkedIn `little` text: every reserved character is
+ * backslash-escaped so it posts as written, and each hashtag becomes the documented
+ * `{hashtag|\#|tag}` template so it stays clickable.
+ * https://learn.microsoft.com/linkedin/marketing/community-management/shares/little-text-format
+ */
+export function toLittleText(text: string): string {
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(HASHTAG)) {
+    out += escapeLittle(text.slice(last, m.index)) + `{hashtag|\\#|${m[1]}}`;
+    last = m.index + m[0].length;
+  }
+  return out + escapeLittle(text.slice(last));
+}
+
+function escapeLittle(s: string): string {
+  return s.replace(LITTLE_RESERVED, (c) => `\\${c}`);
+}
+
 export async function postToLinkedIn(
   input: LinkedInPublishInput,
   deps: LinkedInPublishDeps = {},
@@ -62,7 +90,7 @@ export async function postToLinkedIn(
   // text-only post omits `content` entirely (identical to the prior behaviour).
   const body: Record<string, unknown> = {
     author: input.authorUrn,
-    commentary: text,
+    commentary: toLittleText(text),
     visibility: "PUBLIC",
     distribution: {
       feedDistribution: "MAIN_FEED",

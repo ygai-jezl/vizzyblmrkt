@@ -11,7 +11,7 @@ function seed(db: FakeFirestore) {
     name: "Fernlight app (production)",
     kind: "custom",
     status: "active",
-    catalog: { onboardingSteps: [{ id: "a" }, { id: "b" }, { id: "c" }] },
+    catalog: { onboardingSteps: [{ id: "a", label: "a", order: 0 }, { id: "b", label: "b", order: 1 }, { id: "c", label: "c", order: 2 }] },
   });
   db.seed("product_connections", "pc_sandbox", { tenantId: "ten_A", name: "Sandbox", kind: "sandbox", status: "active", catalog: { onboardingSteps: [] } });
   db.seed("product_users", "pu_1", {
@@ -21,7 +21,8 @@ function seed(db: FakeFirestore) {
     lastName: "Khan",
     email: "Amara.K@example.com",
     emailNormalized: "amara.k@example.com",
-    steps: { a: { doneAt: "x" }, b: { doneAt: "y" } },
+    // `old` was a step once; it's no longer in the catalog, so it doesn't count.
+    steps: { a: { doneAt: "x" }, b: { doneAt: "y" }, old: { doneAt: "z" } },
     lastSeenAt: "2026-09-23T10:00:00Z",
     status: "active",
   });
@@ -48,10 +49,34 @@ describe("loadAudienceProductUsers", () => {
     expect(rows[1]).toMatchObject({
       name: "Amara Khan",
       product: "Fernlight app · Production",
-      stepsDone: 2,
-      stepsTotal: 3,
+      onboarding: { done: 2, total: 3, next: "c", about: null, activated: false },
       onWaitlist: true,
     });
     expect(rows[0]).toMatchObject({ name: null, onWaitlist: false });
+  });
+
+  it("counts steps done per brand when the catalog keeps them per brand", async () => {
+    const db = new FakeFirestore();
+    db.seed("product_connections", "pc_brand", {
+      tenantId: "ten_A",
+      name: "Brand app",
+      kind: "custom",
+      status: "active",
+      catalog: {
+        onboardingSteps: [{ id: "a", label: "A", order: 0, kind: "brand" }, { id: "b", label: "B", order: 1, kind: "brand" }],
+        entityKinds: [{ kind: "brand", label: "brand", plural: "brands" }],
+      },
+    });
+    const brand = (name: string, steps: Record<string, { doneAt: string }>) => ({ kind: "brand", name, role: "owner", steps, facts: {}, firstSeenAt: "x" });
+    db.seed("product_users", "pu_b", {
+      tenantId: "ten_A",
+      connectionId: "pc_brand",
+      steps: {},
+      entities: { b1: brand("Acme", { a: { doneAt: "x" } }), b2: brand("Beta", {}) },
+      lastSeenAt: "2026-09-23T10:00:00Z",
+      status: "active",
+    });
+    const [row] = await loadAudienceProductUsers(ctx, db);
+    expect(row?.onboarding).toMatchObject({ done: 1, total: 2, next: "B", about: "Acme (+1 brand)" });
   });
 });

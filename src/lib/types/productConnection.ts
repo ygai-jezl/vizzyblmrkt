@@ -103,7 +103,7 @@ export const CatalogFactSchema = z.object({
   unit: z.string().max(20).nullable().optional(),
   description: z.string().max(500).default(""),
   /** Where the product gets it (plain words), e.g. "daily visibility snapshot". */
-  source: z.string().max(200).default(""),
+  source: z.string().max(500).default(""),
   /** Who has it, when not everyone does, e.g. "brands with a product catalogue" — the rest send nothing. */
   appliesWhen: z.string().max(200).optional(),
   /** A value per entity of this kind (e.g. share of voice per brand) rather than per person. */

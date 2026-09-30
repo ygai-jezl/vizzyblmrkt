@@ -9,6 +9,7 @@ import {
   eraseConnectionUser,
   fireSandbox,
   getConnectionDetail,
+  getStepPlacement,
   listConnectionEvents,
   listConnectionUsers,
   listConnections,
@@ -162,6 +163,16 @@ describe("connections admin API", () => {
   });
 });
 
+describe("the onboarding step check", () => {
+  it("reads only this workspace's product", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "custom");
+    const mine = await getStepPlacement(ctxA, connection.id, db);
+    expect(mine).toMatchObject({ status: 200, body: { scanned: 0, moves: [], unknown: [] } });
+    expect((await getStepPlacement(ctxB, connection.id, db)).status).toBe(404);
+  });
+});
+
 describe("the sandbox end to end", () => {
   it("sends state through the real API v2 write path, then lists events and users", async () => {
     const db = new FakeFirestore();
@@ -199,6 +210,24 @@ describe("the sandbox end to end", () => {
     expect(r.body).toMatchObject({ ok: true, context: { nextStep: { id: "create_brand" } } });
     const conn = (await forTenant(ctxA, db).productConnections.getById(connection.id))!;
     expect(conn.health).toMatchObject({ consecutiveContextFailures: 0, lastContextOkAt: expect.any(String) });
+  });
+
+  it("tests the context endpoint about one entity, and lists the user's entities to pick from", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "sandbox");
+    const now = new Date().toISOString();
+    db.seed("product_users", productUserDocId(connection.id, "sandbox_alex"), {
+      tenantId: ctxA.tenantId,
+      connectionId: connection.id,
+      externalUserId: "sandbox_alex",
+      status: "active",
+      entities: { brand_1: { kind: "brand", name: "Acme", parentId: null, role: "owner", steps: {}, facts: {}, activeAt: null, firstSeenAt: now, updatedAt: now } },
+    });
+    const r = await testContext(ctxA, connection.id, { userId: "sandbox_alex", entity: { id: "brand_1", kind: "brand" } }, { db });
+    expect(r.body).toMatchObject({ ok: true, entities: [{ id: "brand_1", kind: "brand", name: "Acme" }] });
+
+    const bad = await testContext(ctxA, connection.id, { userId: "sandbox_alex", entity: { id: "no spaces", kind: "brand" } }, { db });
+    expect(bad.status).toBe(400);
   });
 
   it("delivers a signed test webhook into the sandbox inbox", async () => {

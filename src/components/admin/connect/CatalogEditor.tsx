@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { describeChanges, rebaseCatalog } from "@/lib/connect/catalogChanges";
-import { catalogProblems, fieldKey, fieldLabel, serverProblemKey } from "@/lib/connect/catalogProblems";
+import { catalogProblems, fieldKey, fieldLabel, fieldLimit, serverProblemKey } from "@/lib/connect/catalogProblems";
+import { applyStepMove } from "@/lib/connect/stepPlacement";
 import { api, errorText, type ConnectionCatalog, type ConnectionDiagnostics, type PublicConnection } from "./api";
 import { CatalogHistory } from "./CatalogHistory";
+import { StepPlacementNotice } from "./StepPlacementNotice";
 import { Banner, Button, Section, inputClass } from "./ui";
 
 /** Catalogs saved before facts (or entity kinds) existed have none. */
@@ -198,23 +200,40 @@ export function CatalogEditor({
   const disabled = !canEdit;
   /** A field's styling and state: red when it has a problem, pointing at the words that say why. */
   const mark = (list: string, index: number, field: string, extra = "") => {
-    const problem = shown[fieldKey(list, index, field)];
+    const problem = shown[fieldKey(list, index, field)] ?? (overLimit(list, index, field) ? "over" : undefined);
+    const limit = fieldLimit(list, field);
     return {
       className: `${problem ? badInputClass : inputClass}${extra ? ` ${extra}` : ""}`,
+      title: limit ? `Up to ${limit} characters` : undefined,
       "aria-invalid": problem ? true : undefined,
       "aria-describedby": problem ? `problems-${list}-${index}` : undefined,
       "data-problem": problem ? "true" : undefined,
     };
   };
-  /** Under an entry: what's wrong with its fields, in words. */
+  /** An entry's text fields with how long they are against their limit. */
+  const lengths = (list: string, index: number) =>
+    Object.entries(((cat as unknown as Record<string, Array<Record<string, unknown>>>)[list]?.[index]) ?? {}).flatMap(([field, v]) => {
+      const limit = typeof v === "string" ? fieldLimit(list, field) : null;
+      return limit ? [{ field, length: (v as string).length, limit }] : [];
+    });
+  const overLimit = (list: string, index: number, field: string) =>
+    lengths(list, index).some((l) => l.field === field && l.length > l.limit);
+  /** Under an entry: what's wrong with its fields, in words — and a count as a field nears its limit. */
   const rowProblems = (list: string, index: number) => {
     const prefix = `${list}.${index}.`;
     const lines = Object.entries(shown)
       .filter(([k]) => k.startsWith(prefix))
       .map(([k, v]) => `${fieldLabel(list, k.slice(prefix.length))}: ${v}`);
-    return lines.length ? (
-      <p id={`problems-${list}-${index}`} data-problem="true" className="col-span-full text-xs text-red-600 dark:text-red-400">
-        {lines.join(" ")}
+    const counts = lengths(list, index).filter((l) => l.length >= l.limit * 0.8 && !shown[prefix + l.field]);
+    const over = counts.filter((l) => l.length > l.limit);
+    const near = counts.filter((l) => l.length <= l.limit);
+    const count = (l: { field: string; length: number; limit: number }) => `${fieldLabel(list, l.field)}: ${l.length} / ${l.limit} characters.`;
+    const bad = [...lines, ...over.map((l) => `${fieldLabel(list, l.field)}: Too long — ${l.length} / ${l.limit} characters.`)];
+    return bad.length || near.length ? (
+      <p id={`problems-${list}-${index}`} data-problem={bad.length ? "true" : undefined} className="col-span-full text-xs">
+        {bad.length ? <span className="text-red-600 dark:text-red-400">{bad.join(" ")}</span> : null}
+        {bad.length && near.length ? " " : null}
+        {near.length ? <span className="text-neutral-500">{near.map(count).join(" ")}</span> : null}
       </p>
     ) : null;
   };
@@ -317,7 +336,17 @@ export function CatalogEditor({
         </Section>
       ) : null}
 
-      <Section title="Onboarding steps" description="In order. Journeys nudge users towards the next one; step ids match onboarding.step_completed events.">
+      <Section
+        title="Onboarding steps"
+        description={`In order. Journeys nudge users towards the next one; step ids match the steps your server sends.${perVisible ? " “Done per” says where it sends each: on the person, or on one of the things they have several of." : ""}`}
+      >
+        {showKinds ? (
+          <StepPlacementNotice
+            connection={connection}
+            draftSteps={cat.onboardingSteps}
+            onFix={canEdit ? (m) => update("onboardingSteps", applyStepMove(cat.onboardingSteps, m)) : undefined}
+          />
+        ) : null}
         {[...cat.onboardingSteps]
           .sort((a, b) => a.order - b.order)
           .map((s) => {

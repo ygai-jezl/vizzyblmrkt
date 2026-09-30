@@ -4,8 +4,15 @@ import { useState } from "react";
 import { api, errorText, type PublicConnection } from "./api";
 import { Badge, Banner, Button, Field, JsonBlock, inputClass } from "./ui";
 
+/** One of the user's things we hold (API v2 entities), to test for. */
+interface KnownEntity {
+  id: string;
+  kind: string;
+  name: string | null;
+}
 interface ContextOk {
   ok: true;
+  entities?: KnownEntity[];
   latencyMs: number;
   warnings: string[];
   context: {
@@ -21,6 +28,7 @@ interface ContextFail {
   latencyMs: number;
   error: string;
   detail?: string;
+  entities?: KnownEntity[];
 }
 
 const HELP: Record<string, string> = {
@@ -36,21 +44,37 @@ const HELP: Record<string, string> = {
 /** "Test connection": pull context for one user and show the validated payload. */
 export function ContextTester({ connection, canEdit }: { connection: PublicConnection; canEdit: boolean }) {
   const [userId, setUserId] = useState(connection.sandbox?.users[0]?.userId ?? "");
+  const kinds = connection.catalog.entityKinds ?? [];
+  const [kind, setKind] = useState(kinds[0]?.kind ?? "");
+  const [entityId, setEntityId] = useState("");
+  /** What the last test asked about, to say which facts it should have had. */
+  const [asked, setAsked] = useState<{ kind: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ContextOk | ContextFail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
+    const entity = kinds.length > 0 ? entityId.trim() : "";
     setBusy(true);
     setError(null);
     const r = await api<ContextOk | ContextFail>(`/api/admin/connections/${connection.id}/test-context`, {
       method: "POST",
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, entity: entity ? { id: entity, kind } : null }),
     });
     setBusy(false);
+    setAsked(entity ? { kind } : null);
     if (!r.ok) return setError(errorText(r.data));
     setResult(r.data);
   }
+
+  const known = result?.entities ?? [];
+  const kindLabel = (k: string) => kinds.find((x) => x.kind === k)?.label ?? k;
+  const kindPlural = (k: string) => kinds.find((x) => x.kind === k)?.plural ?? `${kindLabel(k)}s`;
+  // Catalog facts the answer left out: an endpoint sends nothing for a fact it has no value for.
+  const returned = new Set(result?.ok ? result.context.facts.map((f) => f.id) : []);
+  const missing = result?.ok
+    ? (connection.catalog.facts ?? []).filter((f) => !returned.has(f.id) && (!asked || !f.kind || f.kind === asked.kind))
+    : [];
 
   return (
     <div className="space-y-4">
@@ -68,6 +92,44 @@ export function ContextTester({ connection, canEdit }: { connection: PublicConne
           {busy ? "Asking…" : "Test connection"}
         </Button>
       </div>
+      {kinds.length > 0 ? (
+        <div className="flex items-end gap-2">
+          {kinds.length > 1 ? (
+            <Field label="About a">
+              <select className={inputClass} value={kind} onChange={(e) => setKind(e.target.value)}>
+                {kinds.map((k) => (
+                  <option key={k.kind} value={k.kind}>{k.label}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+          <div className="flex-1">
+            <Field
+              label={`${kindLabel(kind)} id (optional)`}
+              hint={`Blank: your endpoint picks — as it does when an email isn't about one ${kindLabel(kind).toLowerCase()}.`}
+            >
+              <input className={inputClass} value={entityId} list="test-context-entities" placeholder="Your product's id for it"
+                onChange={(e) => setEntityId(e.target.value)} />
+            </Field>
+            <datalist id="test-context-entities">
+              {known.filter((e) => e.kind === kind).map((e) => (
+                <option key={e.id} value={e.id}>{e.name ?? e.id}</option>
+              ))}
+            </datalist>
+          </div>
+        </div>
+      ) : null}
+      {known.some((e) => e.kind === kind) && !entityId ? (
+        <p className="text-xs text-neutral-500">
+          This user&apos;s {kindPlural(kind).toLowerCase()} we know of:{" "}
+          {known.filter((e) => e.kind === kind).map((e, i) => (
+            <span key={e.id}>
+              {i > 0 ? ", " : null}
+              <button type="button" className="underline" onClick={() => setEntityId(e.id)}>{e.name ?? e.id}</button>
+            </span>
+          ))}
+        </p>
+      ) : null}
       {error ? <Banner tone="err">{error}</Banner> : null}
 
       {result && !result.ok ? (
@@ -114,6 +176,23 @@ export function ContextTester({ connection, canEdit }: { connection: PublicConne
                   </li>
                 ))}
               </ul>
+              {missing.length > 0 ? (
+                <div className="pt-1 text-xs text-neutral-500">
+                  <p>
+                    Not in this answer ({missing.length} of {(connection.catalog.facts ?? []).length} in the catalog) — your endpoint
+                    sends nothing for a fact it has no value for:
+                  </p>
+                  <ul className="list-disc pl-5">
+                    {missing.map((f) => (
+                      <li key={f.id}>
+                        {f.label || f.id}
+                        {f.kind ? ` · per ${kindLabel(f.kind).toLowerCase()}` : ""}
+                        {f.appliesWhen ? ` · only for ${f.appliesWhen}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="space-y-1">

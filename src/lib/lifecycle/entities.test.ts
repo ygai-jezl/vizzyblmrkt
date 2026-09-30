@@ -12,6 +12,7 @@ import {
   enrolTargets,
   entityViewFor,
   focusOf,
+  onboardingProgress,
   pickEntity,
   stepsFor,
   viewedUser,
@@ -87,7 +88,7 @@ describe("which entity an email is about", () => {
     // About the person: the checklist follows the onboarding focus, the facts stay theirs.
     const person = entityViewFor(user, about({ mode: "person", kind: null }), catalog);
     expect(person.entity).toBeNull();
-    expect(person.onboarding?.id).toBe("acme");
+    expect(person.onboarding.map((f) => f.id)).toEqual(["acme"]);
     expect(viewedUser({ steps: {}, facts: {} }, person, catalog).facts).toEqual({});
   });
 
@@ -145,6 +146,50 @@ describe("which entity an email is about", () => {
     expect(entityActivationAt(user, catalog)).toBeNull(); // the joined one doesn't count
     expect(activationAt({ milestones: {}, steps: {}, entities: finished.entities }, brandSteps)).toBe(iso(T0 + 2 * HOUR));
     expect(activationAt({ milestones: {}, steps: {}, entities: user.entities }, brandSteps)).toBeNull();
+  });
+});
+
+describe("onboarding progress, however the catalog counts steps", () => {
+  const acme = entity({ name: "Acme", steps: done("create_brand", "run_audit") });
+
+  it("per person: their own steps, in catalog order, with the next one", () => {
+    const p = onboardingProgress({ steps: done("create_brand"), entities: {} }, { onboardingSteps: STEPS });
+    expect(p).toMatchObject({ done: 1, total: 3, finished: false, next: { id: "run_audit" }, focus: [] });
+    expect(p.checklist.map((s) => s.done)).toEqual([true, false, false]);
+  });
+
+  it("per brand: the brand they're furthest along with, and how many others they own", () => {
+    const p = onboardingProgress({ steps: {}, entities: { acme, beta: entity({ name: "Beta" }) } }, catalog);
+    expect(p).toMatchObject({ done: 2, total: 3, next: { id: "monitor_prompts" }, focus: [{ id: "acme", kind: "brand", name: "Acme", others: 1 }] });
+  });
+
+  it("steps sent per brand don't count while the catalog says they're the person's", () => {
+    // What a catalog out of step with the product looks like: the check in stepPlacement flags it.
+    const p = onboardingProgress({ steps: {}, entities: { acme } }, { onboardingSteps: STEPS });
+    expect(p.done).toBe(0);
+  });
+
+  it("mixes kinds: the person's own steps, one brand's and one workspace's", () => {
+    const mixed = {
+      onboardingSteps: [
+        { id: "verify_email", label: "Verify email", order: 0 },
+        { id: "create_brand", label: "Create a brand", order: 1, kind: "brand" },
+        { id: "run_audit", label: "Run an audit", order: 2, kind: "brand" },
+        { id: "invite_team", label: "Invite your team", order: 3, kind: "workspace" },
+      ],
+    };
+    const user = {
+      steps: done("verify_email"),
+      entities: { acme, ws: entity({ kind: "workspace", name: "Team", steps: done("invite_team") }) },
+    };
+    const p = onboardingProgress(user, mixed);
+    expect(p).toMatchObject({ done: 4, total: 4, finished: true, next: null });
+    expect(p.focus.map((f) => f.kind)).toEqual(["brand", "workspace"]);
+    // Activation needs every kind: without the workspace step they aren't activated.
+    expect(activationAt({ milestones: {}, ...user }, mixed.onboardingSteps)).toBe(iso(T0 + HOUR));
+    const noTeam = { ...user, entities: { acme } };
+    expect(activationAt({ milestones: {}, ...noTeam }, mixed.onboardingSteps)).toBeNull();
+    expect(onboardingProgress(noTeam, mixed)).toMatchObject({ done: 3, next: { id: "invite_team" } });
   });
 });
 

@@ -7,8 +7,9 @@ import type { JourneyAbout } from "@/lib/types/lifecycle";
  * projects) an email is about. Pure — the runner, enrolment, the preview and
  * the admin share these rules.
  *
- * - The person counts as onboarded once any entity they own of the onboarding
- *   kind has every step of that kind done.
+ * - The person counts as onboarded once, for each kind the catalog keeps steps
+ *   per (brand, workspace…), an entity they own of that kind has every step of
+ *   that kind done. A catalog can mix kinds, and steps kept per person.
  * - `focus` follows their onboarding: a finished entity first (then the most
  *   recently active), else the one with the most steps done, then the most
  *   recent. It's re-read at every email, so it moves with them — and lands on
@@ -23,15 +24,18 @@ export interface EntityRef {
   entity: ProductEntity;
 }
 
+/** All the entity rules read of a step. */
+type StepRef = { id: string; kind?: string | null };
+
 /** The steps done per entity of `kind`; when the catalog marks none with a kind, every step. */
-export function stepsFor(kind: string, catalog: Catalog): Catalog["onboardingSteps"] {
+export function stepsFor<S extends StepRef>(kind: string, catalog: { onboardingSteps: readonly S[] }): S[] {
   const scoped = catalog.onboardingSteps.filter((s) => s.kind);
-  return scoped.length > 0 ? catalog.onboardingSteps.filter((s) => s.kind === kind) : catalog.onboardingSteps;
+  return scoped.length > 0 ? catalog.onboardingSteps.filter((s) => s.kind === kind) : [...catalog.onboardingSteps];
 }
 
-/** The kind whose entities carry the onboarding steps, if the catalog says. */
-export function onboardingKind(catalog: Catalog): string | null {
-  return catalog.onboardingSteps.find((s) => s.kind)?.kind ?? null;
+/** The kinds whose entities carry onboarding steps, in catalog order; none when every step is the person's. */
+export function onboardingKinds(catalog: { onboardingSteps: readonly StepRef[] }): string[] {
+  return [...new Set(catalog.onboardingSteps.map((s) => s.kind).filter((k): k is string => !!k))];
 }
 
 export function progressOf(e: ProductEntity, catalog: Catalog): { done: number; total: number; finished: boolean } {
@@ -177,30 +181,35 @@ export function digestRows(
 }
 
 /**
- * When the person first counts as onboarded through an entity: the moment an
- * entity they own of the onboarding kind had every step of its kind done. Null
- * when the catalog's steps aren't per entity, or none is finished.
+ * When the person first counts as onboarded through their entities: for each
+ * onboarding kind, the moment an entity they own of it had every step of its
+ * kind done; the latest of those. Null when the catalog's steps aren't per
+ * entity, or some kind has none finished.
  */
-export function entityActivationAt(user: Pick<ProductUser, "entities">, catalog: Catalog): string | null {
-  const kind = onboardingKind(catalog);
-  if (!kind) return null;
-  const steps = stepsFor(kind, catalog);
-  if (steps.length === 0) return null;
-  let first: string | null = null;
-  for (const { entity } of entitiesFor(user, { kind, includeJoined: false })) {
-    if (!steps.every((s) => entity.steps[s.id])) continue;
-    const at = steps.reduce((latest, s) => (entity.steps[s.id]!.doneAt > latest ? entity.steps[s.id]!.doneAt : latest), "");
-    if (!first || at < first) first = at;
+export function entityActivationAt(user: Pick<ProductUser, "entities">, catalog: { onboardingSteps: readonly StepRef[] }): string | null {
+  const kinds = onboardingKinds(catalog);
+  if (kinds.length === 0) return null;
+  let all = "";
+  for (const kind of kinds) {
+    const steps = stepsFor(kind, catalog);
+    let first: string | null = null;
+    for (const { entity } of entitiesFor(user, { kind, includeJoined: false })) {
+      if (!steps.every((s) => entity.steps[s.id])) continue;
+      const at = steps.reduce((latest, s) => (entity.steps[s.id]!.doneAt > latest ? entity.steps[s.id]!.doneAt : latest), "");
+      if (!first || at < first) first = at;
+    }
+    if (!first) return null;
+    if (first > all) all = first;
   }
-  return first;
+  return all;
 }
 
 /** What one send knows about the person's entities. */
 export interface EntityView {
   /** The entity this email is about (a journey about one, or each), or null. */
   entity: EntityRef | null;
-  /** When it's about the person or all of them: the onboarding focus, which the checklist follows. */
-  onboarding: EntityRef | null;
+  /** When it's about the person or all of them: the onboarding focus of each kind, which the checklist follows. */
+  onboarding: EntityRef[];
   /** The entities the journey counts: `entities.*` fields and the digest. */
   list: EntityRef[];
   /** How many a digest lists. */
@@ -217,8 +226,7 @@ export function entityViewFor(
   let entity: EntityRef | null = null;
   if (about.mode === "one") entity = pickEntity(user, about, catalog, opts);
   if (about.mode === "each") entity = list.find((x) => x.id === opts.pinned) ?? null;
-  const kind = onboardingKind(catalog);
-  const onboarding = entity || !kind ? null : focusOf(entitiesFor(user, { kind, includeJoined: about.includeJoined }), catalog);
+  const onboarding = entity ? [] : onboardingFocus(user, catalog, about.includeJoined);
   return { entity, onboarding, list, maxListed: about.maxListed };
 }
 
@@ -229,8 +237,50 @@ export function entityViewFor(
  */
 export function viewedUser<U extends Pick<ProductUser, "steps" | "facts">>(user: U, view: EntityView, catalog: Catalog): U {
   if (view.entity) return withEntity(user, view.entity.entity, catalog, { facts: true });
-  if (view.onboarding) return withEntity(user, view.onboarding.entity, catalog, { facts: false });
-  return user;
+  return view.onboarding.reduce((u, f) => withEntity(u, f.entity, catalog, { facts: false }), user);
+}
+
+/** For each onboarding kind, the entity the person is setting up (see focusOf); kinds they have none of are left out. */
+export function onboardingFocus(user: Pick<ProductUser, "entities">, catalog: Catalog, includeJoined = false): EntityRef[] {
+  return onboardingKinds(catalog)
+    .map((kind) => focusOf(entitiesFor(user, { kind, includeJoined }), catalog))
+    .filter((f): f is EntityRef => f !== null);
+}
+
+export interface OnboardingProgress {
+  done: number;
+  total: number;
+  finished: boolean;
+  /** The catalog's steps in order, done as the rules above count them. */
+  checklist: Array<{ id: string; label: string; url: string | null; done: boolean; kind: string | null }>;
+  /** The first step not done. */
+  next: { id: string; label: string } | null;
+  /** Per kind: the entity whose steps count, and how many others of that kind they own. */
+  focus: Array<{ id: string; kind: string; name: string | null; others: number }>;
+}
+
+/**
+ * How far a person is through onboarding, for the admin: the same view a journey
+ * about the person takes — their own steps, plus each kind's focus entity for
+ * the steps kept per entity. However many steps or kinds the catalog has.
+ */
+export function onboardingProgress(user: Pick<ProductUser, "steps" | "entities">, catalog: Catalog): OnboardingProgress {
+  const focus = onboardingFocus(user, catalog);
+  const viewed = viewedUser({ steps: user.steps ?? {}, facts: {} }, { entity: null, onboarding: focus, list: [], maxListed: 0 }, catalog);
+  const checklist = [...catalog.onboardingSteps]
+    .sort((a, b) => a.order - b.order)
+    .map((s) => ({ id: s.id, label: s.label, url: s.url ?? null, done: Boolean(viewed.steps[s.id]), kind: s.kind ?? null }));
+  const done = checklist.filter((s) => s.done).length;
+  const next = checklist.find((s) => !s.done);
+  const owned = (kind: string) => entitiesFor(user, { kind, includeJoined: false }).length;
+  return {
+    done,
+    total: checklist.length,
+    finished: checklist.length > 0 && done === checklist.length,
+    checklist,
+    next: next ? { id: next.id, label: next.label } : null,
+    focus: focus.map((f) => ({ id: f.id, kind: f.entity.kind, name: f.entity.name, others: owned(f.entity.kind) - 1 })),
+  };
 }
 
 /** The entities a new enrolment is for: one per qualifying entity when the journey is about each; else the person (null). */

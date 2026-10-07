@@ -149,7 +149,7 @@ describe("content_plan canvas kind", () => {
     const fast = await run(() => 0);
     expect(fast.r).toMatchObject({ ok: true });
     if (!fast.r.ok) throw new Error("expected a draft");
-    expect(fast.r.summary).toContain("the article is written and fact-checked");
+    expect(fast.r.summary).toContain("the article is researched and written and fact-checked");
     // Research ran on the new plan, with the operator's question, inside the agent's time budget.
     expect(research).toHaveBeenCalledTimes(1);
     const [, researchArgs] = research.mock.calls[0] as unknown as [unknown, { plan: { blog?: { primaryQuestion: string } }; timeoutMs: number }];
@@ -166,7 +166,14 @@ describe("content_plan canvas kind", () => {
     const slow = await run(() => (t += 110_000)); // 110s between the start and the end of writing
     if (!slow.r.ok) throw new Error("expected a draft");
     expect(checkFacts).not.toHaveBeenCalled();
-    expect(slow.r.summary).toContain("press Check facts on the canvas before you approve it");
+    expect(slow.r.summary).toContain("the article is researched and written (press Check facts on the canvas before you approve it)");
+
+    // Research that didn't finish is said too, so Vizzy never claims sources that aren't there.
+    __resetRateLimitState();
+    research.mockResolvedValueOnce({ ok: false, status: 502, error: "unavailable" } as never);
+    const unresearched = await run(() => 0);
+    if (!unresearched.r.ok) throw new Error("expected a draft");
+    expect(unresearched.r.summary).toContain("the article is written and fact-checked (research didn't finish: press Research on the canvas for sources)");
   });
 
   it("leaves a newsletter hub, and a blog hub with the flag off, exactly as before", async () => {
@@ -181,6 +188,8 @@ describe("content_plan canvas kind", () => {
     if (!r.ok) throw new Error("expected a draft");
     expect(research).not.toHaveBeenCalled();
     expect(r.summary).toContain("the hub is written");
+    // Flag off: nothing in what Vizzy relays speaks of research, sources or a fact check.
+    expect(r.summary).not.toMatch(/research|fact-check|Check facts/i);
   });
 
   it("is rate-limited per tenant", async () => {

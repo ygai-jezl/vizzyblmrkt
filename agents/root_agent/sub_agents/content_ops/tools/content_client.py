@@ -19,7 +19,7 @@ import urllib.request
 CANVAS_PATH = "/api/agent/canvas"
 CONTEXT_PATH = "/api/agent/content/context"
 PLAN_PATH = "/api/agent/content/plans/"
-_TIMEOUT_SECONDS = 120  # an architect call plus the hub copy
+_TIMEOUT_SECONDS = 170  # an architect call plus the hub copy (a blog hub is researched first)
 
 
 def _request(method: str, url: str, token: str, payload: "dict | None" = None) -> "tuple[int, str]":
@@ -108,6 +108,8 @@ def build_intake(
     topics: "list | None" = None,
     hub_url: str = "",
     sequence_type: str = "",
+    primary_question: str = "",
+    buyer_questions: str = "",
 ) -> dict:
     """The same intake the Create wizard sends (the server validates and normalises it)."""
     strategy: dict = {"objective": objective}
@@ -115,13 +117,20 @@ def build_intake(
         strategy["hubUrl"] = hub_url
     if sequence_type:
         strategy["sequenceType"] = sequence_type
-    return {
+    intake: dict = {
         "name": name,
         "strategy": strategy,
         "scope": {"topics": list(topics or [])[:26], "spark": spark or ""},
         "knowledge": {},
         "topology": {"hubChannel": hub_channel or "newsletter", "spokeChannels": list(spoke_channels or [])[:8]},
     }
+    # A blog hub's brief starts from what the operator already knows; research fills in the rest.
+    if (hub_channel or "") == "blog" and (primary_question or buyer_questions):
+        intake["blog"] = {
+            "primaryQuestion": (primary_question or "")[:300],
+            "buyerQuestions": (buyer_questions or "")[:6000],
+        }
+    return intake
 
 
 def _workspace(state: "dict | None", workspace_id: str) -> "str | None":

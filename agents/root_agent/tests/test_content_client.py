@@ -20,6 +20,20 @@ def test_intake_matches_the_wizard_shape():
     assert seq["strategy"] == {"objective": "email_sequence", "hubUrl": "https://fernlight.test", "sequenceType": "welcome"}
 
 
+def test_a_blog_hub_carries_what_the_operator_knows_buyers_ask():
+    blog = cc.build_intake(
+        "Visibility guide", "brand_visibility", "buyers ask AI for shortlists", hub_channel="blog",
+        primary_question="How do I track my brand in AI answers?", buyer_questions="Which engines? Is there an API?",
+    )
+    assert blog["blog"] == {
+        "primaryQuestion": "How do I track my brand in AI answers?",
+        "buyerQuestions": "Which engines? Is there an API?",
+    }
+    # Nothing said, or not a blog: no brief is sent (research starts one).
+    assert "blog" not in cc.build_intake("Visibility guide", "brand_visibility", "spark", hub_channel="blog")
+    assert "blog" not in cc.build_intake("Issue 12", "newsletter_signups", "spark", primary_question="Why?")
+
+
 def test_draft_uses_the_programme_in_view_and_relays_the_card(monkeypatch):
     monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com/")
     seen = {}

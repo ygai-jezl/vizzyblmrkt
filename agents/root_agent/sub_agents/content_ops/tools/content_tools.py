@@ -38,12 +38,16 @@ def draft_content_plan(
     hub_url: str = "",
     sequence_type: str = "",
     workspace_id: str = "",
+    primary_question: str = "",
+    buyer_questions: str = "",
 ) -> dict:
     """Draft a content plan in a programme and save it as a DRAFT.
 
     The server lays out the pieces (a hub plus promo and spoke posts, or an email
     sequence) and writes the hub (or the emails) in the brand voice. Nothing is
-    approved, scheduled or published.
+    approved, scheduled or published. A blog hub is researched first (the questions
+    buyers ask, the brand's own pages to link to, third-party sources checked on the
+    page) and written as an answer-first article with its sources.
 
     Args:
         name: A short plan name.
@@ -55,11 +59,18 @@ def draft_content_plan(
         hub_url: Only if the operator gave a link for people to land on.
         sequence_type: Only for the email_sequence objective.
         workspace_id: The programme. If empty, the programme on screen is used.
+        primary_question: Blog hub only. The question the article answers, worded as a
+            buyer would ask it. Leave empty and research finds it.
+        buyer_questions: Blog hub only. Anything the operator said buyers ask, in
+            their words. Leave empty if they said nothing.
 
     Returns:
         A status dict to relay (includes a card the chat shows with an Open link).
     """
-    intake = client.build_intake(name, objective, spark, hub_channel, spoke_channels, topics, hub_url, sequence_type)
+    intake = client.build_intake(
+        name, objective, spark, hub_channel, spoke_channels, topics, hub_url, sequence_type,
+        primary_question, buyer_questions,
+    )
     return client.draft_plan(_state(tool_context), workspace_id, intake, spark)
 
 

@@ -1,13 +1,14 @@
 import { DEFAULT_BRANCH } from "@/lib/journey/conditions";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import { ConnectionCatalogSchema, type ConnectionCatalog } from "@/lib/types/productConnection";
-import type {
-  ContentPool,
-  JourneyAudience,
-  LifecycleCondition,
-  LifecycleGraph,
-  LifecycleNode,
-  LifecycleSettings,
+import {
+  startsAfterJourney,
+  type ContentPool,
+  type JourneyAudience,
+  type LifecycleCondition,
+  type LifecycleGraph,
+  type LifecycleNode,
+  type LifecycleSettings,
 } from "@/lib/types/lifecycle";
 
 /**
@@ -21,6 +22,10 @@ import type {
  * Waitlist journeys (engine move) read only `signup.*` and `enrolment.*`
  * fields, and may use A/B pools, weekly exits, waits over 60 days and no hard
  * stop; product journeys may not.
+ *
+ * A product journey can continue from another journey instead of a product
+ * event: it must name one, and — where the caller looked it up (`upstream`) —
+ * that journey must exist on the same product and not lead back here.
  */
 
 export function nodeMap(graph: LifecycleGraph): Map<string, LifecycleNode> {
@@ -105,11 +110,20 @@ function checkConditions(
 export function validateLifecycleDraft(
   draft: { graph: LifecycleGraph; pools: ContentPool[]; settings?: LifecycleSettings },
   catalog: ConnectionCatalog,
-  opts: { audience?: AudienceKind } = {},
+  opts: {
+    audience?: AudienceKind;
+    /** The journey this one continues from, as the caller found it (./chain.ts `upstreamCheck`). */
+    upstream?: "ok" | "not_found" | "self" | "other_product" | "loop";
+  } = {},
 ): { ok: boolean; issues: GraphIssue[] } {
   const { graph, pools } = draft;
   const audience = opts.audience ?? "product";
   const issues: GraphIssue[] = [];
+  if (draft.settings && startsAfterJourney(draft.settings)) {
+    if (audience === "waitlist") issues.push({ code: "continue_from_product_only" });
+    else if (!draft.settings.trigger.afterJourneyId) issues.push({ code: "continue_from_missing" });
+    else if (opts.upstream && opts.upstream !== "ok") issues.push({ code: `continue_from_${opts.upstream}` });
+  }
   if (audience === "product" && draft.settings && draft.settings.sendPolicy.hardStopDays === null) {
     issues.push({ code: "hard_stop_required" });
   }

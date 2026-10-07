@@ -10,6 +10,7 @@ from root_agent_pkg.sub_agents.lifecycle_ops.prompts.instruction import (
     EMAIL_STYLE_ADDENDUM,
     EMAIL_STYLE_BRAND_LOOK,
     EMAIL_STYLE_JOURNEY_LOOK,
+    JOURNEY_LINKS_ADDENDUM,
     JOURNEY_STYLE_ADDENDUM,
     LIFECYCLE_OPS_INSTRUCTION,
 )
@@ -176,3 +177,46 @@ def test_the_journey_style_read_sets_the_flag_too(monkeypatch):
     monkeypatch.setattr(js, "_request", lambda *_a, **_k: (503, json.dumps({"error": "unavailable"})))
     js.get_style(state)
     assert build_lifecycle_ops_instruction(_ctx(state)) == PRODUCT_PAGE
+
+
+def test_the_journey_links_rule_only_while_journeys_can_continue_from_one_another():
+    assert build_lifecycle_ops_instruction(_ctx({"journeyLinksEnabled": False})) == LIFECYCLE_OPS_INSTRUCTION
+    out = build_lifecycle_ops_instruction(_ctx({"journeyLinksEnabled": True}))
+    assert out == LIFECYCLE_OPS_INSTRUCTION + "\n\n" + JOURNEY_LINKS_ADDENDUM
+    # It sits before the look rules, after the page the operator is on.
+    both = build_lifecycle_ops_instruction(
+        _ctx({"journeyId": "lcj_1", "connectionId": "pcn_1", "journeyLinksEnabled": True, "journeyStyleEnabled": True})
+    )
+    assert both == PRODUCT_PAGE + "\n\n" + JOURNEY_LINKS_ADDENDUM + "\n\n" + JOURNEY_STYLE_ADDENDUM
+
+
+def test_the_journey_links_rule_asks_reads_and_counts_from_the_journey_before():
+    text = JOURNEY_LINKS_ADDENDUM
+    assert text.startswith("# A journey that continues from another")
+    # Ask with the name, read the earlier journey's timeline, build with after_journey_id.
+    assert "ask in ONE message for its name and whether it should start after one of" in text
+    assert "READ the journey it continues from before you build" in text
+    assert "`timeline`" in text and "`continuesFrom`" in text
+    assert "`draft_lifecycle_journey` with `after_journey_id`" in text
+    assert '"trigger": {"event": "journey.completed", "afterJourneyId": "<journey id>"}' in text
+    assert "Never build those as long waits from sign-up" in text
+    # Drafts only, and the earlier journey isn't republished.
+    assert "never that it's live" in text
+    assert "the earlier one doesn't need\nrepublishing" in text
+    # A wait of whole days lands a day late; the fix is spelt out.
+    assert '"minHours": N*24 - 8 with "differentLocalDay": true' in text
+    assert "(2 days = 40,\n3 days = 64, 7 days = 160)" in text
+
+
+def test_every_context_read_rewrites_the_journey_links_flag(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
+    state = {"ctxToken": "tok", "journeyLinksEnabled": True}
+    replies = iter([{"connections": []}, {"journeyLinks": {"enabled": True}}])
+    monkeypatch.setattr(lc, "_request", lambda *_a, **_k: (200, json.dumps(next(replies))))
+    # A flag-off context has no journeyLinks key, so a stale True from earlier goes.
+    lc.get_context(state)
+    assert state["journeyLinksEnabled"] is False
+    assert build_lifecycle_ops_instruction(_ctx(state)) == LIFECYCLE_OPS_INSTRUCTION
+    lc.get_context(state)
+    assert state["journeyLinksEnabled"] is True
+    assert JOURNEY_LINKS_ADDENDUM in build_lifecycle_ops_instruction(_ctx(state))

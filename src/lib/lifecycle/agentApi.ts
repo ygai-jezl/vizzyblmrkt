@@ -4,8 +4,11 @@ import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import { verifyCanvasContext, isCanvasAuthConfigured, tenantContextFromCanvasToken } from "@/lib/canvas/auth";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
+import { continuesFromId, type LifecycleJourney } from "@/lib/types/lifecycle";
 import { validateLifecycleDraft } from "./graph";
-import { isLifecycleChatAuthoringEnabled, isLifecycleEnabled } from "./flags";
+import { isLifecycleChatAuthoringEnabled, isLifecycleEnabled, isLifecycleJourneyLinksEnabled } from "./flags";
+import { upstreamCheck } from "./chain";
+import { journeyTimeline, timelineText } from "./timeline";
 
 /**
  * What Vizzy (the lifecycle_ops agent) may READ to build or edit a journey:
@@ -61,6 +64,21 @@ function stepStats(connection: ProductConnection, users: ProductUser[]) {
   };
 }
 
+/**
+ * A journey's timeline for the agent: how many emails, over how many days, on which days and in
+ * which send window — what a journey that continues from it is planned around. Null when the draft
+ * can't be walked.
+ */
+function agentTimeline(journey: Pick<LifecycleJourney, "draft">, connection: Pick<ProductConnection, "catalog" | "defaults"> | undefined) {
+  if (!connection) return null;
+  try {
+    const t = journeyTimeline(journey.draft, connection.catalog, { timezone: connection.defaults.timezone });
+    return { summary: timelineText(t), emails: t.emails, days: t.days, emailDays: t.steps, sendDays: t.sendDays, sendTime: t.sendTime };
+  } catch {
+    return null;
+  }
+}
+
 export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
   const repo = forTenant(ctx, db);
   const [connections, journeys, workspaces, tenant] = await Promise.all([
@@ -70,6 +88,8 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
     getTenantById(ctx.tenantId, db).catch(() => null),
   ]);
   const live = connections.filter((c) => c.status !== "revoked");
+  const links = isLifecycleJourneyLinksEnabled();
+  const connectionById = new Map(connections.map((c) => [c.id, c]));
   const withStats = await Promise.all(
     live.map(async (c) => {
       const users = await repo.productUsers.find({ where: [["connectionId", "==", c.id]], limit: MAX_USERS_FOR_STATS });
@@ -111,7 +131,12 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
           publishedVersion: j.publishedVersion,
           authoredBy: j.authoredBy,
           updatedAt: j.updatedAt,
+          // Journey links: the journey it starts after (null = a product event), and its timeline.
+          ...(links ? { continuesFrom: continuesFromId(j.draft.settings), timeline: agentTimeline(j, connectionById.get(j.connectionId)) } : {}),
         })),
+      // A journey can start when someone finishes another one (draft_lifecycle_journey's
+      // after_journey_id). Only sent while journey links are on.
+      ...(links ? { journeyLinks: { enabled: true } } : {}),
       verifiedSendingDomains: (tenant?.emailSenderConfig?.domains ?? []).filter((d) => d.status === "verified").map((d) => d.domain),
       senderName: tenant?.emailSenderConfig?.senderName ?? null,
       workspaces: workspaces.map((w) => ({ id: w.id, name: (w as { name?: string }).name ?? w.id })),
@@ -132,6 +157,8 @@ export async function agentLifecycleJourney(ctx: TenantContext, journeyId: strin
     return { status: 404, body: { error: "not_found" } };
   }
   const connection = await repo.productConnections.getById(journey.connectionId);
+  const links = isLifecycleJourneyLinksEnabled();
+  const upstream = await upstreamCheck(ctx, journey, journey.draft.settings, db);
   return {
     status: 200,
     body: {
@@ -144,8 +171,10 @@ export async function agentLifecycleJourney(ctx: TenantContext, journeyId: strin
         publishedVersion: journey.publishedVersion,
         authoredBy: journey.authoredBy,
         draft: journey.draft,
+        // Journey links: the journey it starts after, and when its own emails go out.
+        ...(links ? { continuesFrom: continuesFromId(journey.draft.settings), timeline: agentTimeline(journey, connection ?? undefined) } : {}),
       },
-      issues: connection ? validateLifecycleDraft(journey.draft, connection.catalog).issues : [],
+      issues: connection ? validateLifecycleDraft(journey.draft, connection.catalog, { upstream }).issues : [],
       connection: connection
         ? { id: connection.id, name: connection.name, onboardingSteps: connection.catalog.onboardingSteps.map((s) => ({ id: s.id, label: s.label })) }
         : null,

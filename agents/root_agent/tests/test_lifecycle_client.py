@@ -35,6 +35,30 @@ def test_template_payload_shape():
     }
 
 
+def test_a_journey_that_continues_from_another_lets_the_server_pick_the_template():
+    p = lc.build_template_payload("pcn_1", None, "", {"emails": 3}, "useful", None, "lcj_first")
+    assert p["afterJourneyId"] == "lcj_first"
+    assert "template" not in p  # the server builds the follow-on sequence
+    assert p["options"] == {"emails": 3}
+    # A template that was asked for is still sent; with no journey to follow, onboarding is the default.
+    assert lc.build_template_payload("pcn_1", None, "product_onboarding", None, "", None, "lcj_first")["template"] == "product_onboarding"
+    plain = lc.build_template_payload("pcn_1", None, "", None, "", None)
+    assert plain["template"] == "product_onboarding" and "afterJourneyId" not in plain
+    g = lc.build_graph_payload("pcn_1", None, {"nodes": [], "edges": []}, None, None, "tips", "Tips", "lcj_first")
+    assert g["afterJourneyId"] == "lcj_first"
+    assert "afterJourneyId" not in lc.build_graph_payload("pcn_1", None, {"nodes": [], "edges": []}, None, None, "tips", None)
+
+
+def test_drafting_after_a_journey_posts_it(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True, "id": "lcj_new", "status": "draft", "url": "/admin/lifecycle/lcj_new", "summary": "Drafted", "card": {}, "warnings": []})
+    out = lc.draft_journey(STATE, "", "", {"emails": 4}, "useful", "After onboarding", None, "lcj_first")
+    assert out["status"] == "success"
+    assert calls[0]["payload"]["afterJourneyId"] == "lcj_first"
+    assert "template" not in calls[0]["payload"]
+    lc.save_graph(STATE, "", None, {"nodes": [], "edges": []}, None, None, "tips", None, "lcj_first")
+    assert calls[1]["payload"]["afterJourneyId"] == "lcj_first"
+
+
 def test_graph_payload_keeps_pools_and_settings_only_when_given():
     p = lc.build_graph_payload("pcn_1", "lcj_1", {"nodes": [], "edges": []}, None, None, "edit", None)
     assert p["mode"] == "graph" and p["scope"] == {"connectionId": "pcn_1", "journeyId": "lcj_1"}

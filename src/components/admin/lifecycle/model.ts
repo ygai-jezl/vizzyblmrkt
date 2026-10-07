@@ -8,6 +8,7 @@ import type {
   LifecycleNode,
   WaitConfig,
 } from "@/lib/types/lifecycle";
+import { JOURNEY_COMPLETED_EVENT } from "@/lib/types/lifecycle";
 import type { ConditionOperator } from "@/lib/types/journey";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { PaletteChip } from "../brand-kit/emailStyleForm";
@@ -23,6 +24,45 @@ export interface GraphIssue {
   code: string;
   nodeId?: string;
   detail?: string;
+}
+
+/** A journey's timeline in numbers and words (the API's `timeline`). */
+export interface TimelineSummary {
+  emails: number;
+  days: { typical: number; min: number; max: number };
+  steps: Array<{ day: number; label: string }>;
+  sendDays: number[] | null;
+  sendTime: string | null;
+  /** "5 emails over about 8 days (7–10, depending on the day they start)". */
+  text: string;
+}
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Mon–Fri from 09:00" — when a journey's emails go out, in each person's own timezone. */
+export function sendWindowText(t: Pick<TimelineSummary, "sendDays" | "sendTime">): string {
+  const d = t.sendDays;
+  if (!d || !t.sendTime) return "at any time";
+  const run = d.length > 2 && d.every((x, i) => i === 0 || x === d[i - 1]! + 1);
+  const days = d.length === 7 ? "every day" : run ? `${DAY_NAMES[d[0]!]}–${DAY_NAMES[d.at(-1)!]}` : d.map((x) => DAY_NAMES[x]).join(", ");
+  return `${days} from ${t.sendTime}`;
+}
+
+/** How the product's other journeys link to this one (journey links). */
+export interface JourneyChain {
+  /** The journey this draft continues from; `live` once the published version does too. */
+  from: { id: string; name: string | null; problem: string | null; live: boolean } | null;
+  /** The journeys that continue from this one: `live` = published and active; `draft` = set in their draft. */
+  next: Array<{ id: string; name: string; status: "draft" | "active" | "paused" | "archived"; live: boolean; published: boolean; draft: boolean }>;
+  /** The product's other journeys: what this one could continue from, or lead to. */
+  journeys: Array<{
+    id: string;
+    name: string;
+    status: "draft" | "active" | "paused" | "archived";
+    publishedVersion: number | null;
+    continuesFrom: string | null;
+    timeline: TimelineSummary | null;
+  }>;
 }
 
 export interface JourneyDetail {
@@ -63,6 +103,8 @@ export interface JourneyDetail {
     optInAfterSignup: boolean;
     entities: boolean;
     emailStyle: boolean;
+    /** A journey can continue from another journey (LIFECYCLE_JOURNEY_LINKS_ENABLED); only sent while on. */
+    journeyLinks?: boolean;
     /** The journey's own Email style in Settings and the preview (EMAIL_JOURNEY_STYLE_ENABLED); only sent while on. */
     journeyEmailStyle?: boolean;
     /** A journey style's gradient and header text draw (EMAIL_HEADER_OPTIONS_ENABLED); only sent with journey styles on. */
@@ -73,6 +115,8 @@ export interface JourneyDetail {
    * name a band falls back on with no brand style saved (as the send's). Absent while off.
    */
   journeyStyle?: { palette: PaletteChip[]; fallbackName: string };
+  /** With journey links on: what this journey continues from and leads to. Absent while off (and for a launch's journey). */
+  chain?: JourneyChain;
 }
 
 export type EnrolmentRow = LifecycleEnrolment & {
@@ -168,12 +212,13 @@ export function conditionText(c: LifecycleCondition, options: FieldOption[]): st
   return c.operator === "is_true" || c.operator === "is_false" ? `${f} ${op}` : `${f} ${op} ${String(c.value ?? "")}`;
 }
 
-export function waitSummary(w: WaitConfig | undefined): string {
+/** `start`: what the journey's clock counts from ("sign-up", or "the journey before" when it continues from one). */
+export function waitSummary(w: WaitConfig | undefined, start = "sign-up"): string {
   if (!w) return "Not set";
   const parts: string[] = [];
   parts.push(w.minHours < 1 ? `${Math.round(w.minHours * 60)} min` : `${w.minHours} h`);
   if (w.after === "previous_step") parts.push("after the previous step");
-  if (w.sinceEnrolHours) parts.push(`≥ ${w.sinceEnrolHours} h since sign-up`);
+  if (w.sinceEnrolHours) parts.push(`≥ ${w.sinceEnrolHours} h since ${start}`);
   if (w.differentLocalDay) parts.push("next day");
   if (w.windowExemptHours) parts.push("sends right away");
   return parts.join(" · ");
@@ -233,7 +278,21 @@ export const ISSUE_TEXT: Record<string, string> = {
   exit_target_waitlist_only: "Only a launch's welcome journey can hand people to the weekly newsletter.",
   ab_test_waitlist_only: "A/B tests are for a launch's welcome journey.",
   ab_test_needs_variants: "An A/B test needs a control and at least one variant.",
+  continue_from_missing: "Choose the journey this one continues from (Settings → Starts when).",
+  continue_from_not_found: "The journey this one continues from is gone — choose another (Settings → Starts when).",
+  continue_from_self: "A journey can't continue from itself (Settings → Starts when).",
+  continue_from_other_product: "A journey can only continue from a journey on the same product (Settings → Starts when).",
+  continue_from_loop: "This journey and the one it continues from lead back into each other — change one of them (Settings → Starts when).",
+  continue_from_product_only: "Only a product journey can continue from another journey.",
 };
+
+/** What a journey's start says: the product event, or the journey it continues from. */
+export function startLabel(settings: { trigger: { event: string; afterJourneyId?: string | null } }, chain: JourneyChain | undefined): string {
+  if (settings.trigger.event !== JOURNEY_COMPLETED_EVENT) return settings.trigger.event;
+  const id = settings.trigger.afterJourneyId;
+  if (!id) return "after another journey (choose one)";
+  return `after ${chain?.journeys.find((j) => j.id === id)?.name ?? "a journey that's gone"}`;
+}
 
 export function issueText(i: GraphIssue): string {
   const base = ISSUE_TEXT[i.code] ?? i.code;

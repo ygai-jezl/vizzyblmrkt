@@ -651,6 +651,17 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Journey links: a journey can continue from another journey. Its "Starts when"
+  # names the journey before it (set at either end: the later journey's start, or
+  # the earlier one's End), and the runner enrols people the moment they reach the
+  # end of that journey, so the new journey's waits count from there. The
+  # new-journey form and Vizzy ask whether a journey starts after another, read
+  # that journey's timeline, and build the follow-on sequence. On in dev; OFF in
+  # prod (apphosting.prod.yaml) until it's verified here.
+  - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # A write that leaves a user's state as it was (a daily re-sync resending the
   # same values) leaves no row in the Events tab, which counts them instead.
   # On in prod too since 2026-09-27 (apphosting.prod.yaml).

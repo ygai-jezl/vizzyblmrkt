@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
-import type { LifecycleSettings } from "@/lib/types/lifecycle";
+import { startsAfterJourney, type LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { HEADER_TEXT_CHOICES, type HeaderTextChoice, type JourneyEmailStyle, type StoredJourneyStyle } from "@/lib/types/tenant";
 import { BRAND_KIT_EMAIL_STYLE_ROUTE } from "@/lib/content/brandKit";
@@ -11,6 +11,8 @@ import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { averageInk, type PaletteChip } from "../brand-kit/emailStyleForm";
 import { Badge, Field, Section, inputClass } from "../connect/ui";
 import { AboutSection } from "./AboutSection";
+import { ContinuesFromField } from "./JourneyLinks";
+import type { JourneyChain } from "./model";
 import {
   customJourneyStyle,
   journeyBannerNote,
@@ -47,6 +49,7 @@ export function SettingsPanel({
   entities = false,
   emailStyleEnabled = false,
   journeyStyle = null,
+  chain = null,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -67,8 +70,11 @@ export function SettingsPanel({
    * Sender, in place of the link. Null = the link, as before.
    */
   journeyStyle?: JourneyStyleControl | null;
+  /** Journey links (LIFECYCLE_JOURNEY_LINKS_ENABLED): "Starts when" can name a journey to continue from. Null = off. */
+  chain?: JourneyChain | null;
 }) {
   const p = settings.sendPolicy;
+  const continuing = Boolean(chain) && startsAfterJourney(settings);
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
   const events = [
     ...new Set([
@@ -141,8 +147,16 @@ export function SettingsPanel({
 
   return (
     <div className="space-y-4">
-      <Section title="Starts when" description="Which product event enrols someone. Each person enters once.">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <Section
+        title="Starts when"
+        description={
+          chain
+            ? "Which product event enrols someone — or the journey they finish first. Each person enters once."
+            : "Which product event enrols someone. Each person enters once."
+        }
+      >
+        {chain ? <ContinuesFromField settings={settings} chain={chain} readOnly={readOnly} onChange={onChange} /> : null}
+        <div className={continuing ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
           <Field
             label="Event"
             hint={
@@ -190,7 +204,9 @@ export function SettingsPanel({
             <span>
               Only people with marketing consent
               <span className="block text-xs text-neutral-500">
-                Uses the consent your product sends. Someone who opts in while the event is still recent enough joins then, from the start.
+                {continuing
+                  ? "Uses the consent your product sends, as it stands when they finish the journey before."
+                  : "Uses the consent your product sends. Someone who opts in while the event is still recent enough joins then, from the start."}
               </span>
             </span>
           </label>

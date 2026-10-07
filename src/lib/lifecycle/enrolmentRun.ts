@@ -191,6 +191,12 @@ export interface WalkLoopHooks {
   onWaitBooked?: (state: WalkState, runAtMs: number) => Promise<void>;
   /** The path reached its end or an exit node — runs BEFORE the commit (a throw fails the run). */
   beforeComplete?: (d: Extract<Decision, { kind: "complete" }>) => Promise<void>;
+  /**
+   * Finish on the NEXT tick when this run has just sent an email, so that email is
+   * recorded before `beforeComplete` does work that can fail (a failed run would
+   * otherwise leave it marked `unknown`).
+   */
+  completeInOwnRun?: boolean;
   /** After the enrolment finished (completed or exited). */
   onFinished?: () => Promise<unknown>;
 }
@@ -231,6 +237,15 @@ export async function runWalkLoop(run: EnrolmentRun, first: WalkResult, h: WalkL
       return ok ? (sentOne ? "sent" : "waiting") : "lost_lease";
     }
     if (d.kind === "complete" || d.kind === "exit") {
+      if (d.kind === "complete" && sentOne && h.completeInOwnRun) {
+        const ok = await commit({
+          ...progress(),
+          cursor: cursorOf(state.cursor),
+          nextRunAt: iso(h.clock() + 60_000),
+          windowExemptUntil: isoOrNull(state.windowExemptUntilMs),
+        });
+        return ok ? "sent" : "lost_lease";
+      }
       if (d.kind === "complete") await h.beforeComplete?.(d);
       log(d.kind === "complete" ? "completed" : "stopped", d.kind === "exit" ? d.reason : null);
       const ok = await commit({

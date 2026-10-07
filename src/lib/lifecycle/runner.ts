@@ -29,7 +29,14 @@ import { nextWindowAt } from "./sendWindow";
 import { renderLifecycleEmail, type RenderedEmail } from "./render";
 import { buildRecipientContext, buildRenderValues, nextStepOf, pickInsight, safeChecklist } from "./recipientContext";
 import { allowsMarketing, isTestRecipient, lifecycleSender, lowestMode } from "./policy";
-import { isLifecycleAiDraftsEnabled, isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecycleModeCeiling } from "./flags";
+import {
+  isLifecycleAiDraftsEnabled,
+  isLifecycleConsentAtSendEnabled,
+  isLifecycleGoLiveSweepEnabled,
+  isLifecycleJourneyLinksEnabled,
+  lifecycleModeCeiling,
+} from "./flags";
+import { continueToNextJourneys, followersOf, type Follower } from "./chain";
 import { sweepGoLive } from "./goLive";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
 import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut";
@@ -83,6 +90,8 @@ const DUE_LIMIT = 50;
 const HOLD_MS = 30 * 60_000;
 const PRODUCT_HOLD_DEFAULT_MS = 6 * 3600_000;
 const PRODUCT_HOLD_MAX_MS = DAY_MS;
+/** Runs that may fail handing someone on to the next journey before this one finishes without it. */
+const HANDOVER_RETRIES = 3;
 /** Minimum gap between two lifecycle emails to one user, across journeys. */
 const FREQUENCY_GAP_MS = 20 * 3600_000;
 
@@ -104,6 +113,7 @@ export class RunCache {
   private readonly journeys = new Map<string, Promise<LifecycleJourney | null>>();
   private readonly versions = new Map<string, Promise<LifecycleVersion | null>>();
   private readonly connections = new Map<string, Promise<ProductConnection | null>>();
+  private readonly followers = new Map<string, Promise<Follower[]>>();
   readonly healthNoted = new Set<string>();
 
   constructor(
@@ -132,6 +142,10 @@ export class RunCache {
   }
   connection(id: string) {
     return this.memo(this.connections, id, () => forTenant(this.ctx, this.db).productConnections.getById(id));
+  }
+  /** The active journeys that continue from this one (LIFECYCLE_JOURNEY_LINKS_ENABLED). */
+  followersOf(journey: Pick<LifecycleJourney, "id" | "connectionId">) {
+    return this.memo(this.followers, journey.id, () => followersOf(this.ctx, journey, this.db));
   }
 }
 
@@ -351,6 +365,37 @@ export async function processEnrolment(
           });
         }
       },
+      // They reached the end: hand them on to the journeys that continue from this one,
+      // BEFORE the commit — a failure retries the run, and enrolling again enrols nobody twice.
+      // It gets a run of its own, so a retry never touches the record of the last email.
+      completeInOwnRun: isLifecycleJourneyLinksEnabled(),
+      beforeComplete: isLifecycleJourneyLinksEnabled()
+        ? async () => {
+            try {
+              const handed = await continueToNextJourneys(
+                ctx,
+                {
+                  from: journey,
+                  user: stored,
+                  entityId: leased.entityId ?? null,
+                  consentPolicy: connection.consentPolicy,
+                  followers: await cache.followersOf(journey),
+                },
+                { db: deps.db, nowMs: clock() },
+              );
+              for (const h of handed) {
+                if (h.outcome === "skipped") log("not_continued", `${h.name}: ${(h.reason ?? "skipped").replace(/_/g, " ")}`);
+                else log("continued", h.name);
+              }
+            } catch (err) {
+              // A few retries, then this journey still finishes: the next journey's trouble isn't its own.
+              if (leased.failures < HANDOVER_RETRIES) throw err;
+              const m = err instanceof Error ? err.message.slice(0, 200) : "error";
+              console.error(`[lifecycle] hand-on failed ${ctx.tenantId}/${enrolmentId}: ${m}`);
+              log("not_continued", `couldn't hand on: ${m}`);
+            }
+          }
+        : undefined,
       onFinished: retireDrafts,
     });
   } catch (err) {

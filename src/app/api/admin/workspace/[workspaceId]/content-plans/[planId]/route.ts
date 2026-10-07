@@ -8,7 +8,7 @@ import {
   updateContentPlan,
   deleteContentPlan,
 } from "@/lib/tenant/workspaceContent";
-import { ContentGraphSchema, ContentPlanStatus } from "@/lib/types/contentPlan";
+import { BlogBriefSchema, ContentGraphSchema, ContentPlanStatus } from "@/lib/types/contentPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +20,10 @@ const SaveSchema = z
     name: z.string().min(1).max(200).optional(),
     status: ContentPlanStatus.optional(),
     graph: ContentGraphSchema.optional(),
+    /** A blog plan's brief (buyer questions, allowed links and sources), edited on the canvas. */
+    blog: BlogBriefSchema.optional(),
   })
-  .refine((b) => b.name !== undefined || b.status !== undefined || b.graph !== undefined, {
+  .refine((b) => b.name !== undefined || b.status !== undefined || b.graph !== undefined || b.blog !== undefined, {
     message: "nothing to update",
   });
 
@@ -40,7 +42,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   return NextResponse.json({ plan });
 }
 
-/** Save the plan's name / status / graph (canvas Save; positions persist here). */
+/** Save the plan's name / status / graph / blog brief (canvas Save; positions persist here). */
 export async function PUT(req: Request, { params }: RouteParams) {
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;

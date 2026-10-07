@@ -29,8 +29,11 @@ import {
 import { retrieveExemplars } from "@/lib/distribute/feedback/retrieveExemplars";
 import { retrievePostPatterns } from "@/lib/distribute/feedback/patterns";
 import { buildTrendingBlock } from "@/lib/agents/trending";
+import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
+import { briefOf } from "@/lib/content/blog/brief";
+import { draftBlogArticle } from "@/lib/content/blog/draft";
 import type { TenantContext } from "@/lib/tenant/types";
-import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
+import type { BlogArticleMeta, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 
 /**
  * Per-node generation — stage 2 of the Create pillar. Fills ONE node and returns a
@@ -38,7 +41,9 @@ import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
  * (bypassEnabledFlag — Create grounds even if the global RAG flag is off, but still
  * tenant/owner-checked inside retrieveSemanticKnowledgeContext).
  *
- *  - hub   → content.hub_draft → finished long-form copy.
+ *  - hub   → content.hub_draft → finished long-form copy. A BLOG hub, with
+ *            CREATE_BLOG_CITABLE_ENABLED on, is written to the CITABLE structure from the
+ *            plan's brief instead (content.blog_draft — see lib/content/blog/draft.ts).
  *  - promo → content.fill (compose) → channel-native CTA driving to {{hub_url}}.
  *  - spoke → content.fill (compose) atomizing the hub for that channel; the channel-
  *            native FORMAT comes from the Transformation Matrix (transformFor).
@@ -60,6 +65,10 @@ export interface GenerateNodeInput {
   audience?: string | null;
   /** A chosen workspace template's body to fill (node.templateId resolved by the route). */
   skeletonBody?: string | null;
+  /** The brand a blog hub is written for (the programme's name; the brief's publisher wins). */
+  brandName?: string | null;
+  /** One writing pass only — the caller has a deadline (Vizzy's request must return). */
+  quick?: boolean;
 }
 
 export interface GeneratedNodePatch {
@@ -74,6 +83,8 @@ export interface GeneratedNodePatch {
   subjectVariants?: string[];
   /** Email nodes WITH a visual layout — the reconciled layout (copy block refilled). */
   layout?: EmailLayout;
+  /** Blog hubs written to the CITABLE structure — what the writer proposed + what the checks found. */
+  blog?: BlogArticleMeta;
 }
 
 /**
@@ -86,6 +97,7 @@ const RECIPIENT_TOKENS = new Set<string>([...MERGE_VARS, "voice_chat_link"]);
 
 type RetrieveFn = typeof retrieveSemanticKnowledgeContext;
 type RetrieveExemplarsFn = typeof retrieveExemplars;
+type DraftBlogFn = typeof draftBlogArticle;
 
 function coerceBody(raw: string | null): string {
   const j = raw ? parseFirstJson(raw) : null;
@@ -125,7 +137,7 @@ function bakeDynamic(
 }
 
 /** Fence operator-pasted proof assets as untrusted DATA (indirect-injection safe). */
-function fenceProof(assets: string[]): string {
+export function fenceProof(assets: string[]): string {
   const joined = assets
     .map((a) => a.trim())
     .filter(Boolean)
@@ -158,6 +170,7 @@ export async function generateNode(
   input: GenerateNodeInput,
   retrieve: RetrieveFn = retrieveSemanticKnowledgeContext,
   retrieveExemplarsFn: RetrieveExemplarsFn = retrieveExemplars,
+  draftBlog: DraftBlogFn = draftBlogArticle,
 ): Promise<GeneratedNodePatch> {
   const { ctx, workspaceId, plan, node } = input;
   const hubNode = plan.graph.nodes.find((n) => n.type === "hub");
@@ -191,6 +204,12 @@ export async function generateNode(
     };
   }
 
+  // A blog hub written to the CITABLE structure (flag off, or a chosen template skeleton,
+  // = the generic hub draft below, unchanged).
+  const citableBlog =
+    node.type === "hub" && node.channel === "blog" && !input.skeletonBody?.trim() && isBlogCitableEnabled();
+  const brief = briefOf(plan);
+
   // Ground: scoped → pre-filter by the first scope topic (findNearest takes one).
   const scopedTopic =
     plan.knowledge.groundingScope === "scoped" ? plan.scope.topics[0] : undefined;
@@ -198,14 +217,42 @@ export async function generateNode(
     ctx,
     ownerKind: "workspace",
     ownerId: workspaceId,
-    queryText: node.brief || plan.scope.spark || node.role,
-    limit: 8,
+    // A long article draws on more of the brand's knowledge, found by the question it answers.
+    queryText: (citableBlog && brief.primaryQuestion.trim()) || node.brief || plan.scope.spark || node.role,
+    limit: citableBlog ? 12 : 8,
     bypassEnabledFlag: true,
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   };
   const rag = await retrieve(req).catch(() => null);
   const knowledgeContext = rag?.formatted ?? "";
   const proofBlock = fenceProof(plan.knowledge.proofAssets ?? []);
+
+  if (citableBlog) {
+    const drafted = await draftBlog({
+      plan,
+      node,
+      brief,
+      brandName: brief.publisherName.trim() || input.brandName?.trim() || plan.name,
+      knowledgeContext,
+      knowledgeUrls: (rag?.chunks ?? []).map((c) => c.sourceUri).filter(Boolean),
+      proofBlock,
+      brandVoice: input.brandVoice,
+      audience: input.audience,
+      quick: input.quick,
+    }).catch(() => null);
+    if (!drafted) {
+      return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };
+    }
+    const baked = bakeDynamic(drafted.body, dynamic);
+    return {
+      body: baked.body,
+      placeholderValues: baked.applied,
+      status: "generated",
+      warnings: drafted.warnings,
+      format,
+      blog: drafted.meta,
+    };
+  }
 
   // Closed loop: weight generation toward this channel's PROVEN performers (gated by
   // DISTRIBUTE_CLOSED_LOOP_ENABLED inside retrieveExemplars; empty when off/none).

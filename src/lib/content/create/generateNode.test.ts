@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
@@ -16,7 +16,7 @@ vi.mock("@/lib/agents/gemini", () => ({
 
 import { generateNode, type GenerateNodeInput } from "./generateNode";
 import { generateText } from "@/lib/agents/gemini";
-import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
+import { BlogArticleMetaSchema, BlogBriefSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 
 const mocked = vi.mocked(generateText);
 // A retrieve stub: returns no grounding (Create still runs ungrounded).
@@ -353,5 +353,83 @@ describe("generateNode", () => {
       expect(patch.status).toBe("generated");
       expect(mocked).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("generateNode — a blog hub written to the CITABLE structure", () => {
+  const blogHub = () => node({ type: "hub", channel: "blog", brief: "Explain it." });
+  const blogPlan = (hub: ContentNode): ContentPlan => ({
+    ...plan([hub], { objective: "brand_visibility", hubUrl: "https://acme.example/blog/visibility" }),
+    topology: { hubChannel: "blog", spokeChannels: ["x"] },
+    blog: BlogBriefSchema.parse({ primaryQuestion: "How do I track my brand in AI answers?", publisherName: "Acme" }),
+  });
+  const rag = vi.fn().mockResolvedValue({
+    formatted: "REF",
+    chunks: [{ title: "", content: "x", sourceUri: "https://acme.example/pricing", path: null, heading: null, topic: null, tags: [] }],
+  });
+  const meta = BlogArticleMetaSchema.parse({ metaTitle: "T", slug: "t", lastUpdated: "2026-10-07", unsupportedFigures: ["38%"] });
+  const draftBlog = vi.fn();
+
+  beforeEach(() => {
+    mocked.mockReset();
+    rag.mockClear();
+    draftBlog.mockReset();
+    draftBlog.mockResolvedValue({ body: "# A question?\n\nSee {{hub_url}}.", meta, warnings: ["unsupported_figures"], report: {} });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("uses the blog writer and the plan's brief when the flag is on", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    const hub = blogHub();
+    const patch = await generateNode(
+      { ctx, workspaceId: "ws1", plan: blogPlan(hub), node: hub, brandName: "Programme", quick: true },
+      rag,
+      undefined,
+      draftBlog as never,
+    );
+    expect(patch).toMatchObject({ status: "generated", format: "blog-pillar", warnings: ["unsupported_figures"], blog: meta });
+    // The hub link is still baked in deterministically.
+    expect(patch.body).toBe("# A question?\n\nSee https://acme.example/blog/visibility.");
+    expect(draftBlog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandName: "Acme", // the brief's publisher wins over the programme's name
+        knowledgeContext: "REF",
+        knowledgeUrls: ["https://acme.example/pricing"],
+        quick: true,
+      }),
+    );
+    // More of the brand's knowledge, found by the question the article answers.
+    expect(rag).toHaveBeenCalledWith(expect.objectContaining({ queryText: "How do I track my brand in AI answers?", limit: 12 }));
+    expect(mocked).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed draft like any other failed node", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    draftBlog.mockResolvedValue(null);
+    const hub = blogHub();
+    const patch = await generateNode({ ctx, workspaceId: "ws1", plan: blogPlan(hub), node: hub }, rag, undefined, draftBlog as never);
+    expect(patch).toMatchObject({ status: "error", warnings: ["generation_failed"], body: "" });
+    expect(patch.blog).toBeUndefined();
+  });
+
+  it("writes a blog hub exactly as before when the flag is off, or a template skeleton was chosen", async () => {
+    mocked.mockResolvedValue(JSON.stringify({ title: "T", body: "A grounded pillar." }));
+    const hub = blogHub();
+    const off = await generateNode({ ctx, workspaceId: "ws1", plan: blogPlan(hub), node: hub }, rag, undefined, draftBlog as never);
+    expect(off.body).toBe("A grounded pillar.");
+    expect(off.blog).toBeUndefined();
+    expect(mocked.mock.calls[0]![0]).toContain("Write the HUB piece");
+    expect(rag).toHaveBeenCalledWith(expect.objectContaining({ queryText: "Explain it.", limit: 8 }));
+
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    mocked.mockResolvedValue(JSON.stringify({ body: "Filled skeleton." }));
+    const skeleton = await generateNode(
+      { ctx, workspaceId: "ws1", plan: blogPlan(hub), node: hub, skeletonBody: "# {{Title}}" },
+      rag,
+      undefined,
+      draftBlog as never,
+    );
+    expect(skeleton.body).toBe("Filled skeleton.");
+    expect(draftBlog).not.toHaveBeenCalled();
   });
 });

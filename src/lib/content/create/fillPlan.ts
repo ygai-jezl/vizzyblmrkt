@@ -17,9 +17,11 @@ export interface FillDeps {
   db?: FirestoreLike;
   /** The copywriter (tests inject a stub). */
   generate?: typeof generateNode;
+  /** One writing pass per piece — the caller has a deadline (Vizzy's request must return). */
+  quick?: boolean;
 }
 
-type WorkspaceBits = Pick<Workspace, "id" | "brandVoice" | "audience">;
+type WorkspaceBits = Pick<Workspace, "id" | "brandVoice" | "audience"> & Partial<Pick<Workspace, "name">>;
 
 /** Fill ONE node and flip the plan to "ready" once nothing is left empty. */
 export async function fillPlanNode(
@@ -48,6 +50,8 @@ export async function fillPlanNode(
     brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
     audience: ws.audience ?? null,
     skeletonBody,
+    brandName: ws.name ?? null,
+    quick: deps.quick,
   });
 
   // The persist re-validates the merged node via ContentNodeSchema.parse (throwing):
@@ -71,6 +75,8 @@ export async function fillPlanNode(
         ...(patch.previewText !== undefined ? { previewText: patch.previewText } : {}),
         ...(patch.subjectVariants !== undefined ? { subjectVariants: patch.subjectVariants } : {}),
         ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
+        // A blog hub written to the CITABLE structure carries its meta + check findings.
+        ...(patch.blog !== undefined ? { blog: patch.blog } : {}),
       },
       deps.db,
     );

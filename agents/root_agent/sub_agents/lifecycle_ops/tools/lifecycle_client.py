@@ -63,6 +63,8 @@ _ERRORS = {
     "unavailable": "Building lifecycle journeys from chat isn't switched on in this environment.",
     "connection_not_found": "I couldn't find that connected product in this account.",
     "journey_not_found": "I couldn't find that journey (or it belongs to a different product).",
+    "after_journey_not_found": "I couldn't find the journey this one should continue from on this product (or the two would lead back into each other)",
+    "journey_links_unavailable": "Starting a journey after another one isn't switched on in this environment.",
     "rate_limited": "I've drafted a lot of journeys in the last hour — please try again a bit later.",
     "invalid_options": "Some of the options weren't valid",
     "invalid_input": "The request was missing something",
@@ -108,22 +110,44 @@ def parse_author_response(status_code: int, body_text: str) -> dict:
     return error_result(status_code, body)
 
 
-def build_template_payload(connection_id: str, journey_id: "str | None", template: str, options: "dict | None", brief: str, name: "str | None") -> dict:
+def build_template_payload(
+    connection_id: str,
+    journey_id: "str | None",
+    template: str,
+    options: "dict | None",
+    brief: str,
+    name: "str | None",
+    after_journey_id: "str | None" = None,
+) -> dict:
     payload: dict = {
         "kind": "lifecycle",
         "action": "save_draft",
         "mode": "template",
-        "template": template or "product_onboarding",
         "scope": {"connectionId": connection_id, "journeyId": journey_id or None},
         "options": options or {},
         "brief": brief or "",
     }
+    # No template named: the server picks (the follow-on sequence for a journey that
+    # continues from another, else the onboarding week).
+    if template or not after_journey_id:
+        payload["template"] = template or "product_onboarding"
+    if after_journey_id:
+        payload["afterJourneyId"] = after_journey_id
     if name:
         payload["name"] = name
     return payload
 
 
-def build_graph_payload(connection_id: str, journey_id: "str | None", graph: dict, pools: "list | None", settings: "dict | None", brief: str, name: "str | None") -> dict:
+def build_graph_payload(
+    connection_id: str,
+    journey_id: "str | None",
+    graph: dict,
+    pools: "list | None",
+    settings: "dict | None",
+    brief: str,
+    name: "str | None",
+    after_journey_id: "str | None" = None,
+) -> dict:
     payload: dict = {
         "kind": "lifecycle",
         "action": "save_draft",
@@ -136,6 +160,8 @@ def build_graph_payload(connection_id: str, journey_id: "str | None", graph: dic
         payload["pools"] = pools
     if settings is not None:
         payload["settings"] = settings
+    if after_journey_id:
+        payload["afterJourneyId"] = after_journey_id
     if name:
         payload["name"] = name
     return payload
@@ -157,6 +183,10 @@ def get_context(state: "dict | None") -> dict:
         # styles on), so the journey style rule comes and goes with the flag.
         journey_style = body.get("journeyStyle")
         state["journeyStyleEnabled"] = isinstance(journey_style, dict) and bool(journey_style.get("enabled"))
+        # And whether a journey can continue from another (sent only with journey links on),
+        # so that rule comes and goes with the flag too.
+        journey_links = body.get("journeyLinks")
+        state["journeyLinksEnabled"] = isinstance(journey_links, dict) and bool(journey_links.get("enabled"))
         return {"status": "success", **body}
     return error_result(status_code, body)
 
@@ -180,7 +210,16 @@ def _resolve_connection(state: "dict | None", connection_id: str) -> "str | None
     return connection_id or (state or {}).get("connectionId") or None
 
 
-def draft_journey(state: "dict | None", connection_id: str, template: str, options: "dict | None", brief: str, name: "str | None", journey_id: "str | None") -> dict:
+def draft_journey(
+    state: "dict | None",
+    connection_id: str,
+    template: str,
+    options: "dict | None",
+    brief: str,
+    name: "str | None",
+    journey_id: "str | None",
+    after_journey_id: "str | None" = None,
+) -> dict:
     connection = _resolve_connection(state, connection_id)
     if not connection:
         return {"status": "needs_connection", "message": "Which connected product is this journey for?"}
@@ -188,12 +227,22 @@ def draft_journey(state: "dict | None", connection_id: str, template: str, optio
     if isinstance(got, dict):
         return got
     base, token = got
-    payload = build_template_payload(connection, journey_id, template, options, brief, name)
+    payload = build_template_payload(connection, journey_id, template, options, brief, name, after_journey_id)
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
     return parse_author_response(status_code, body_text)
 
 
-def save_graph(state: "dict | None", connection_id: str, journey_id: "str | None", graph: dict, pools: "list | None", settings: "dict | None", brief: str, name: "str | None") -> dict:
+def save_graph(
+    state: "dict | None",
+    connection_id: str,
+    journey_id: "str | None",
+    graph: dict,
+    pools: "list | None",
+    settings: "dict | None",
+    brief: str,
+    name: "str | None",
+    after_journey_id: "str | None" = None,
+) -> dict:
     connection = _resolve_connection(state, connection_id)
     if not connection:
         return {"status": "needs_connection", "message": "Which connected product is this journey for?"}
@@ -202,7 +251,7 @@ def save_graph(state: "dict | None", connection_id: str, journey_id: "str | None
     if isinstance(got, dict):
         return got
     base, token = got
-    payload = build_graph_payload(connection, resolved_journey, graph, pools, settings, brief, name)
+    payload = build_graph_payload(connection, resolved_journey, graph, pools, settings, brief, name, after_journey_id)
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
     return parse_author_response(status_code, body_text)
 

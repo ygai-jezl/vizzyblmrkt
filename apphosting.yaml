@@ -935,3 +935,21 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Blog hubs written to the CITABLE structure (Create): a blog hub is researched first
+  # (the questions buyers ask, the brand's own pages to link to, third-party sources
+  # checked on the page — Gemini with Google Search, plus one fetch of each cited page),
+  # written answer-first with its sources, fact-checked against the brand's material, and
+  # handed over with a checklist, Markdown/HTML export and suggested schema markup. The
+  # server flag gates research, the writer and the fact check (and Vizzy's blog drafts);
+  # the NEXT_PUBLIC mirror shows the brief, checklist and export (needed at BUILD). Off:
+  # a blog hub is written exactly as before. ENABLED on dev; OFF in prod until verified
+  # (override in the prod yaml).
+  - variable: CREATE_BLOG_CITABLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_CITABLE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

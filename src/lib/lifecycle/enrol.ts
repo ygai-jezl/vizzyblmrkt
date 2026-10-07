@@ -9,7 +9,7 @@ import { isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecyc
 import { entryCursor } from "./planner";
 import { allowsMarketing, isTestRecipient, lowestMode } from "./policy";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
-import { JOURNEY_ABOUT_DEFAULT, type JourneyAbout } from "@/lib/types/lifecycle";
+import { JOURNEY_ABOUT_DEFAULT, JOURNEY_COMPLETED_EVENT, type JourneyAbout } from "@/lib/types/lifecycle";
 import { enrolTargets } from "./entities";
 
 /**
@@ -68,6 +68,8 @@ export async function enrolUser(
     consentPolicy?: ConsentPolicy;
     /** The entity this enrolment is about (a journey about each of them, or the trigger's). */
     entityId?: string | null;
+    /** The journey they just finished, when this one continues from it (./chain.ts). */
+    fromJourneyId?: string | null;
   },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<EnrolOutcome> {
@@ -116,6 +118,7 @@ export async function enrolUser(
       source: a.source,
       requireApproval: a.requireApproval ?? a.source === "backfill",
       anchorAt: a.anchorAt,
+      ...(a.fromJourneyId ? { fromJourneyId: a.fromJourneyId } : {}),
       entityId: a.entityId ?? null,
       lastSentAt: null,
       cursor: cursor ? { nodeId: cursor } : null,
@@ -127,7 +130,7 @@ export async function enrolUser(
       sentItems: [],
       usedInsightIds: [],
       failures: 0,
-      log: [{ at: now, event: "enrolled", detail: `${a.source} · ${journey.deliveryMode}` }],
+      log: [{ at: now, event: "enrolled", detail: `${a.fromJourneyId ? "finished the journey before" : a.source} · ${journey.deliveryMode}` }],
       createdAt: now,
       updatedAt: now,
     });
@@ -289,7 +292,8 @@ export async function enrolOnEvents(
   for (const e of events) {
     for (const { journey, version } of journeys) {
       const trigger = version.settings.trigger;
-      if (trigger.event !== e.event) continue;
+      // A journey that continues from another is started by the runner (./chain.ts), never by an event.
+      if (trigger.event === JOURNEY_COMPLETED_EVENT || trigger.event !== e.event) continue;
       if (nowMs - Date.parse(e.timestamp) > trigger.maxEventAgeHours * 3600_000) continue;
       try {
         const rs = await enrolPerson(

@@ -819,10 +819,10 @@ Return ONLY minified JSON: {"line":"...","subject":"..."}`,
   },
   "lifecycle.email_copy": {
     id: "lifecycle.email_copy",
-    version: 1,
+    version: 2,
     description:
-      "Lifecycle journeys — write one onboarding email for a connected product's users (tokens + live blocks, no invented numbers).",
-    template: `Write ONE email that [[product_name]] sends to one of its users as part of a short post-signup onboarding journey.
+      "Lifecycle journeys — write one email of a journey for a connected product's users: onboarding, or the sequence that follows it (tokens + live blocks, no invented numbers).",
+    template: `Write ONE email that [[product_name]] sends to one of its users as part of [[journey_kind]].
 
 This email: [[email_label]] — [[position]]
 Its job: [[email_purpose]]

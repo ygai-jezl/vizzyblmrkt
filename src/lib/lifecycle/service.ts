@@ -10,8 +10,10 @@ import {
   type Tenant,
 } from "@/lib/types/tenant";
 import {
+  continuesFromId,
   DeliveryMode,
   isWaitlistJourney,
+  JOURNEY_COMPLETED_EVENT,
   LifecycleDraftSchema,
   LifecycleSettingsSchema,
   SendPolicySchema,
@@ -25,6 +27,9 @@ import { zodReason } from "@/lib/connect/protocol";
 import { isEmailJourneyStyleEnabled } from "@/lib/email/flags";
 import { NO_CATALOG, validateLifecycleDraft, type GraphIssue } from "./graph";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
+import { buildFollowOnDraft, followOnSettings, startingAfter } from "./templates/followOn";
+import { resolveUpstream, upstreamCheck } from "./chain";
+import { isLifecycleJourneyLinksEnabled } from "./flags";
 import { versionDocId } from "./enrol";
 import { isOwnOrVerifiedAddress, lifecycleSender } from "./policy";
 import { waitlistJourneyId } from "./waitlist/ids";
@@ -49,7 +54,7 @@ export function newJourneyId(): string {
   return `lcj_${out}`;
 }
 
-export const LIFECYCLE_TEMPLATES = ["product_onboarding", "blank"] as const;
+export const LIFECYCLE_TEMPLATES = ["product_onboarding", "blank", "follow_on"] as const;
 export type LifecycleTemplate = (typeof LIFECYCLE_TEMPLATES)[number];
 
 function blankDraft(): LifecycleDraft {
@@ -88,7 +93,7 @@ async function validateForAudience(
   }
   const connection = await loadConnection(ctx, journey.connectionId, db);
   if (!connection) return { ok: false, issues: [], error: "connection_not_found" };
-  return validateLifecycleDraft(draft, connection.catalog);
+  return validateLifecycleDraft(draft, connection.catalog, { upstream: await upstreamCheck(ctx, journey, draft.settings, db) });
 }
 
 /**
@@ -173,7 +178,13 @@ export const CreateJourneyInput = z.object({
   connectionId: z.string().min(1).max(64),
   template: z.enum(LIFECYCLE_TEMPLATES).default("product_onboarding"),
   workspaceId: z.string().max(64).nullable().optional(),
+  /**
+   * The journey this one continues from (LIFECYCLE_JOURNEY_LINKS_ENABLED): people enter when
+   * they finish it. The `follow_on` template needs one; any other template just starts after it.
+   */
+  afterJourneyId: z.string().min(1).max(64).nullable().optional(),
 });
+
 
 export async function createLifecycleJourney(
   ctx: TenantContext,
@@ -191,8 +202,32 @@ export async function createLifecycleJourney(
   const connection = await loadConnection(ctx, parsed.data.connectionId, deps.db);
   if (!connection || connection.status === "revoked") return fail(404, "connection_not_found");
 
-  const draft =
-    deps.draft ?? (parsed.data.template === "blank" ? blankDraft() : buildProductOnboardingDraft(connection.catalog));
+  // Continuing from another journey: it must be one of this product's.
+  const afterJourneyId = parsed.data.afterJourneyId ?? null;
+  if (afterJourneyId && !isLifecycleJourneyLinksEnabled()) return fail(409, "journey_links_unavailable");
+  if (parsed.data.template === "follow_on" && !afterJourneyId && !deps.draft) return fail(400, "after_journey_required");
+  let from: LifecycleJourney | null = null;
+  if (afterJourneyId) {
+    const upstream = await resolveUpstream(
+      ctx,
+      { id: null, connectionId: connection.id },
+      { trigger: { event: JOURNEY_COMPLETED_EVENT, afterJourneyId } },
+      deps.db,
+    );
+    if (!upstream?.journey || upstream.problem) return fail(404, "after_journey_not_found");
+    from = upstream.journey;
+  }
+
+  const built =
+    deps.draft ??
+    (parsed.data.template === "follow_on" && from
+      ? buildFollowOnDraft({ afterJourneyId: from.id, from: { name: from.name, settings: from.draft.settings } })
+      : parsed.data.template === "blank"
+        ? // A blank canvas after another journey still sends in that journey's window, from its sender.
+          { ...blankDraft(), ...(from ? { settings: followOnSettings(from.id, from.draft.settings) } : {}) }
+        : buildProductOnboardingDraft(connection.catalog));
+  // A ready-made draft keeps its own labels; a template's trigger is named after the journey before.
+  const draft = from ? startingAfter(built, from.id, deps.draft ? undefined : from.name) : built;
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const journey = await forTenant(ctx, deps.db).lifecycleJourneys.create(newJourneyId(), {
     name: parsed.data.name,
@@ -215,7 +250,8 @@ export async function createLifecycleJourney(
     createdAt: now,
     updatedAt: now,
   });
-  return ok({ journey, issues: validateLifecycleDraft(draft, connection.catalog).issues });
+  const upstream = await upstreamCheck(ctx, journey, draft.settings, deps.db);
+  return ok({ journey, issues: validateLifecycleDraft(draft, connection.catalog, { upstream }).issues });
 }
 
 /**
@@ -413,6 +449,8 @@ export async function publishLifecycleJourney(
     status: journey.status === "draft" ? ("active" as const) : journey.status,
     liveSince: journey.liveSince ?? now,
     updatedAt: now,
+    // The journey it continues from, as published: how the runner finds what follows a journey.
+    continuesFrom: waitlist ? null : continuesFromId(draft.data.settings),
     ...(journeyStyle ? { emailStyle: style } : {}),
   };
   await repo.lifecycleJourneys.update(journey.id, patch);

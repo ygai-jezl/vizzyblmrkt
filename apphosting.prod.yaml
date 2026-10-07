@@ -614,12 +614,12 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Journey links (see apphosting.yaml): OFF in prod until verified on dev. The
-  # base file sets it "true" and prod inherits every variable, so it must be an
-  # explicit "false" here. Off: nobody is handed from one journey to the next,
-  # and the editor, the new-journey form and Vizzy don't offer it.
+  # Journey links (see apphosting.yaml): on in prod since 2026-10-07 (owner
+  # decision, before the dev click-through). Set "false" here to switch it off:
+  # nobody is then handed from one journey to the next, and the editor, the
+  # new-journey form and Vizzy stop offering it.
   - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # Unchanged writes counted, not listed (see apphosting.yaml): on in prod since

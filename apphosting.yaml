@@ -656,8 +656,8 @@ env:
   # the earlier one's End), and the runner enrols people the moment they reach the
   # end of that journey, so the new journey's waits count from there. The
   # new-journey form and Vizzy ask whether a journey starts after another, read
-  # that journey's timeline, and build the follow-on sequence. On in dev; OFF in
-  # prod (apphosting.prod.yaml) until it's verified here.
+  # that journey's timeline, and build the follow-on sequence. On in prod too
+  # since 2026-10-07 (apphosting.prod.yaml).
   - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
     value: "true"
     availability:

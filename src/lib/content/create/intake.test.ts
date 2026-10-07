@@ -24,6 +24,21 @@ describe("content plan intake", () => {
     expect(planFromIntake(intake({ strategy: { objective: "newsletter_signups", sequenceType: "win_back" } })).strategy.sequenceType).toBeNull();
   });
 
+  it("starts a blog hub's brief from what the operator already knows, and only for a blog", () => {
+    const blog = { primaryQuestion: "  How do I track my brand in AI answers? ", buyerQuestions: "Which engines?" };
+    const plan = planFromIntake(intake({ topology: { hubChannel: "blog", spokeChannels: ["linkedin"] }, blog }));
+    expect(plan.blog).toMatchObject({
+      primaryQuestion: "How do I track my brand in AI answers?",
+      buyerQuestions: "Which engines?",
+      questions: [],
+      researchedAt: null,
+    });
+    // Nothing typed → no brief yet (research starts one); not a blog hub → never a brief.
+    expect(planFromIntake(intake({ topology: { hubChannel: "blog", spokeChannels: [] } }))).not.toHaveProperty("blog");
+    expect(planFromIntake(intake({ blog }))).not.toHaveProperty("blog");
+    expect(IntakeSchema.safeParse({ ...intake(), blog: { primaryQuestion: "x".repeat(301) } }).success).toBe(false);
+  });
+
   it("rejects hub URLs that aren't http(s)", () => {
     expect(IntakeSchema.safeParse({ ...intake(), strategy: { objective: "product_launch", hubUrl: "javascript:alert(1)" } }).success).toBe(false);
   });

@@ -104,6 +104,52 @@ publishes when happy. NEVER claim anything is live or was sent. If a tool return
 error or asks a question, relay it plainly and help resolve it.
 """
 
+# Added only when get_lifecycle_context says journeys can continue from one another
+# (journeyLinks), so the prompt is unchanged while the flag is off.
+JOURNEY_LINKS_ADDENDUM: str = """\
+# A journey that continues from another
+A journey can start when someone FINISHES another journey on the same product, instead
+of on a product event. Use it for anything that comes after a sequence that already
+exists: "a post 7 days sequence", "what happens after onboarding", "a follow-up series".
+Never build those as long waits from sign-up — their days drift, and they run alongside
+the first journey instead of after it.
+
+Before you draft a NEW journey, when the product already has journeys and the operator
+hasn't said, ask in ONE message for its name and whether it should start after one of
+those journeys (list them by name) or on its own. If they already said ("after
+onboarding", "post 7 days"), don't ask again — just confirm which journey if several fit.
+
+Then READ the journey it continues from before you build. `get_lifecycle_context` gives
+each journey a `timeline` (how many emails, over how many days, on which days and at what
+time) and `continuesFrom`; `get_lifecycle_journey` gives its emails. Plan around it: don't
+repeat what it already sent, and tell the operator how the two fit ("onboarding sends 5
+emails over about 8 days; this one starts when it ends").
+
+To build it, call `draft_lifecycle_journey` with `after_journey_id` (leave `template`
+empty: you get the follow-on sequence — a few emails some days apart). Its options are
+{"emails": 1-6, "gapDays": 1-14} plus sender and categoryLabel only if asked; it keeps the
+earlier journey's send days and time unless the operator asks for others. For a custom
+structure, call `save_lifecycle_graph` with `after_journey_id`. Either way the journey's
+clock starts the moment someone finishes the earlier journey: "sinceEnrolHours" and
+"enrolment.days_since_enrol" count from then, not from sign-up. In settings that is
+"trigger": {"event": "journey.completed", "afterJourneyId": "<journey id>"}; keep it when
+you edit such a journey. Only people who reach the END of the earlier journey go on —
+not anyone who unsubscribed or was stopped.
+
+It goes live when the operator publishes the NEW journey; the earlier one doesn't need
+republishing, and people part-way through it carry on into the new one. Say that, and
+never that it's live. The result tells you the real days its emails land on — relay
+those, not your own arithmetic.
+
+# Waits land in the send window
+A wait is a minimum, and an email then goes out at the person's next send window — a
+moment after the time the email before it went out. So a wait of whole days ("minHours":
+48, 72, 168) is always just past the window on the day you meant, and lands a day late.
+For "N days later" use "minHours": N*24 - 8 with "differentLocalDay": true (2 days = 40,
+3 days = 64, 7 days = 160). If a save comes back warning that a wait lands a day late,
+fix it and save again. Weekends move emails too when the journey only sends on weekdays.
+"""
+
 # Added only when get_lifecycle_context says the brand has a saved Email style, so the
 # prompt is unchanged while the flag is off.
 EMAIL_STYLE_ADDENDUM: str = """\

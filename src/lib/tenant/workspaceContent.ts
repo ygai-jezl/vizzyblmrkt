@@ -407,7 +407,9 @@ export async function updateContentPlan(
   ctx: TenantContext,
   workspaceId: string,
   planId: string,
-  patch: Partial<Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft" | "authoredBy" | "agentRevision" | "agentBrief">>,
+  patch: Partial<
+    Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft" | "authoredBy" | "agentRevision" | "agentBrief" | "blog">
+  >,
   // Injectable for tests (a FakeFirestore); defaults to the tenant's regional DB otherwise.
   db?: FirestoreLike,
 ): Promise<void> {
@@ -478,6 +480,7 @@ export async function updateContentPlanNode(
       | "imageAssetRef"
       | "imageAspect"
       | "imagePrompt"
+      | "blog"
     >
   >,
   // Injectable so the Distribute worker (which threads its own FirestoreLike through, a

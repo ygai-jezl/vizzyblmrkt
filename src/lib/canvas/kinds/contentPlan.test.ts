@@ -128,6 +128,70 @@ describe("content_plan canvas kind", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it("researches a blog hub while the plan is laid out, writes it in one pass, and fact-checks it if there's time", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    const blogIntake = {
+      ...intake,
+      strategy: { objective: "brand_visibility" },
+      topology: { hubChannel: "blog", spokeChannels: ["linkedin"] },
+      blog: { primaryQuestion: "How do I track my brand in AI answers?", buyerQuestions: "Which engines?" },
+    };
+    const research = vi.fn(async () => ({ ok: true as const, brief: {} as never, searched: true, found: { questions: 6, links: 3, facts: 8, sources: 4, verifiedSources: 3 } }));
+    const checkFacts = vi.fn(async () => ({ ok: true as const, node: {} as never, corrected: 2, checked: true }));
+    const run = (clock: () => number) => {
+      const db = world();
+      return authorContentPlanDraft(
+        { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake }, brief: "" },
+        { ...deps(db), research: research as never, checkFacts: checkFacts as never, now: clock },
+      ).then((r) => ({ r, db }));
+    };
+
+    const fast = await run(() => 0);
+    expect(fast.r).toMatchObject({ ok: true });
+    if (!fast.r.ok) throw new Error("expected a draft");
+    expect(fast.r.summary).toContain("the article is researched and written and fact-checked");
+    // Research ran on the new plan, with the operator's question, inside the agent's time budget.
+    expect(research).toHaveBeenCalledTimes(1);
+    const [, researchArgs] = research.mock.calls[0] as unknown as [unknown, { plan: { blog?: { primaryQuestion: string } }; timeoutMs: number }];
+    expect(researchArgs.plan.blog?.primaryQuestion).toBe("How do I track my brand in AI answers?");
+    expect(researchArgs.timeoutMs).toBe(40_000);
+    // One writing pass per piece: a second would not fit in the agent's request.
+    expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({ quick: true }));
+    expect(checkFacts).toHaveBeenCalledTimes(1);
+
+    // The article took too long to write: the check is left for the operator, and Vizzy says so.
+    __resetRateLimitState();
+    checkFacts.mockClear();
+    let t = 0;
+    const slow = await run(() => (t += 110_000)); // 110s between the start and the end of writing
+    if (!slow.r.ok) throw new Error("expected a draft");
+    expect(checkFacts).not.toHaveBeenCalled();
+    expect(slow.r.summary).toContain("the article is researched and written (press Check facts on the canvas before you approve it)");
+
+    // Research that didn't finish is said too, so Vizzy never claims sources that aren't there.
+    __resetRateLimitState();
+    research.mockResolvedValueOnce({ ok: false, status: 502, error: "unavailable" } as never);
+    const unresearched = await run(() => 0);
+    if (!unresearched.r.ok) throw new Error("expected a draft");
+    expect(unresearched.r.summary).toContain("the article is written and fact-checked (research didn't finish: press Research on the canvas for sources)");
+  });
+
+  it("leaves a newsletter hub, and a blog hub with the flag off, exactly as before", async () => {
+    const research = vi.fn();
+    const db = world();
+    const blogIntake = { ...intake, topology: { hubChannel: "blog", spokeChannels: ["linkedin"] } };
+    const r = await authorContentPlanDraft(
+      { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake }, brief: "" },
+      { ...deps(db), research: research as never },
+    );
+    expect(r).toMatchObject({ ok: true });
+    if (!r.ok) throw new Error("expected a draft");
+    expect(research).not.toHaveBeenCalled();
+    expect(r.summary).toContain("the hub is written");
+    // Flag off: nothing in what Vizzy relays speaks of research, sources or a fact check.
+    expect(r.summary).not.toMatch(/research|fact-check|Check facts/i);
+  });
+
   it("is rate-limited per tenant", async () => {
     const db = world();
     const go = () => authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, brief: "" }, deps(db));

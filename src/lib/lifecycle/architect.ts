@@ -1,11 +1,12 @@
 import { z } from "zod";
 import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productConnection";
-import type { ContentPool, LifecycleDraft, PoolItem } from "@/lib/types/lifecycle";
+import type { ContentPool, LifecycleDraft, LifecycleJourney, LifecycleSettings, PoolItem } from "@/lib/types/lifecycle";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fencedContext } from "@/lib/agents/prompts/compose";
 import { generateTextWithDeadline } from "@/lib/agents/gemini";
 import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
+import { buildFollowOnDraft, startingAfter } from "./templates/followOn";
 
 /**
  * The lifecycle ARCHITECT — builds a journey from a template + options, then
@@ -13,6 +14,10 @@ import { buildProductOnboardingDraft } from "./templates/productOnboarding";
  * template (so a chat-built journey is valid by construction); the model only
  * writes words. Used by the Vizzy chat (canvas kind "lifecycle") and the
  * canvas's Generate button, so both produce the same thing.
+ *
+ * Two templates: `product_onboarding` (the post-signup week) and `follow_on`
+ * (what comes after another journey: it starts when that journey ends, sends in
+ * its window, and is written knowing which emails people have already had).
  */
 
 export const ArchitectOptionsSchema = z
@@ -36,13 +41,36 @@ export const ArchitectOptionsSchema = z
       })
       .optional(),
     categoryLabel: z.string().trim().min(1).max(80).optional(),
+    /** A follow-on sequence: how many emails (1–6, default 4). */
+    emails: z.number().int().min(1).max(6).optional(),
+    /** A follow-on sequence: days between its emails, and before the first (1–14, default 3). */
+    gapDays: z.number().int().min(1).max(14).optional(),
     /** Write the copy with AI (false = the template's placeholder copy). */
     writeCopy: z.boolean().default(true),
   })
   .default({ days: 7, reminders: 3, education: 3, writeCopy: true });
 export type ArchitectOptions = z.infer<typeof ArchitectOptionsSchema>;
 
-export const LIFECYCLE_ARCHITECT_TEMPLATES = ["product_onboarding"] as const;
+export const LIFECYCLE_ARCHITECT_TEMPLATES = ["product_onboarding", "follow_on"] as const;
+
+/** The journey a new one continues from, as the architect needs it. */
+export interface ArchitectAfter {
+  journeyId: string;
+  name: string;
+  /** Its settings: the send window, sender and category the next journey carries on. */
+  settings: LifecycleSettings;
+  /** The emails its people have already had (labels), so the next ones don't repeat them. */
+  sent: string[];
+}
+
+export function architectAfter(journey: Pick<LifecycleJourney, "id" | "name" | "draft">): ArchitectAfter {
+  return {
+    journeyId: journey.id,
+    name: journey.name,
+    settings: journey.draft.settings,
+    sent: journey.draft.pools.flatMap((p) => p.items.map((i) => i.label)).slice(0, 30),
+  };
+}
 
 /** What each template email is for (the copywriter's brief). */
 const PURPOSES: Record<string, string> = {
@@ -55,6 +83,12 @@ const PURPOSES: Record<string, string> = {
   e3: "Suggest the first improvement worth making, using the product's insight.",
   e4: "Recap their first week, using the product's insight.",
   l: "The last onboarding email: one final, friendly nudge to the step that unlocks the most, and an offer of help.",
+  f1: "They've finished getting started. Share ONE practical thing worth doing this week to get more from the product, using the product's insight.",
+  f2: "Encourage a simple habit: what to look at each time they come back, using the product's insight.",
+  f3: "Ask, as a plain personal note, how it's going and what isn't working. Invite a reply.",
+  f4: "Point them at the next thing worth trying now they know the basics, using the product's insight.",
+  f5: "Show what has changed for them since they started, using the product's insight.",
+  f6: "The last note of this sequence, as a plain personal note: an open offer of help. No selling.",
 };
 
 const BLOCK_HELP: Record<string, string> = {
@@ -82,7 +116,35 @@ function tidySubject(subject: string): string {
   return subject.replace(/\{\{\s*([^}]*?)\s*\}\}/g, (m, inner: string) => (ALLOWED_TOKEN.test(inner) && !inner.startsWith("block.") ? m : "")).replace(/\s+/g, " ").trim().slice(0, 200);
 }
 
-/** Scale the template's schedule and apply the options. Pure. */
+/** Apply the options any template takes: the send window, the sender and the category's name. Pure. */
+export function applySendOptions(draft: LifecycleDraft, options: ArchitectOptions): LifecycleDraft {
+  const policy = { ...draft.settings.sendPolicy };
+  if (options.sendDays) policy.days = [...new Set(options.sendDays)].sort();
+  if (options.sendTime) {
+    const [h, m] = options.sendTime.split(":").map(Number);
+    policy.startHour = h!;
+    policy.startMinute = m!;
+  }
+  if (options.windowMinutes) policy.windowMinutes = options.windowMinutes;
+  if (policy.startHour * 60 + policy.startMinute + policy.windowMinutes > 24 * 60) {
+    policy.windowMinutes = Math.max(15, 24 * 60 - (policy.startHour * 60 + policy.startMinute));
+  }
+  return {
+    ...draft,
+    settings: {
+      ...draft.settings,
+      sendPolicy: policy,
+      sender: {
+        fromName: options.sender?.fromName || draft.settings.sender.fromName || null,
+        fromEmail: options.sender?.fromEmail || draft.settings.sender.fromEmail || null,
+        replyTo: options.sender?.replyTo || draft.settings.sender.replyTo || null,
+      },
+      category: { ...draft.settings.category, ...(options.categoryLabel ? { label: options.categoryLabel } : {}) },
+    },
+  };
+}
+
+/** Scale the onboarding template's schedule and apply the options. Pure. */
 export function applyOptions(draft: LifecycleDraft, options: ArchitectOptions): LifecycleDraft {
   const scale = options.days / 7;
   const graph = {
@@ -106,33 +168,9 @@ export function applyOptions(draft: LifecycleDraft, options: ArchitectOptions): 
   const counts: Record<string, number> = { reminders: options.reminders, education: options.education };
   const pools: ContentPool[] = draft.pools.map((p) => (counts[p.id] ? { ...p, items: p.items.slice(0, counts[p.id]) } : p));
 
-  const policy = { ...draft.settings.sendPolicy };
-  if (options.sendDays) policy.days = [...new Set(options.sendDays)].sort();
-  if (options.sendTime) {
-    const [h, m] = options.sendTime.split(":").map(Number);
-    policy.startHour = h!;
-    policy.startMinute = m!;
-  }
-  if (options.windowMinutes) policy.windowMinutes = options.windowMinutes;
-  if (policy.startHour * 60 + policy.startMinute + policy.windowMinutes > 24 * 60) {
-    policy.windowMinutes = Math.max(15, 24 * 60 - (policy.startHour * 60 + policy.startMinute));
-  }
-  policy.hardStopDays = Math.max(options.days + 5, Math.ceil((options.days * 12) / 7));
-
-  return {
-    graph,
-    pools,
-    settings: {
-      ...draft.settings,
-      sendPolicy: policy,
-      sender: {
-        fromName: options.sender?.fromName || draft.settings.sender.fromName || null,
-        fromEmail: options.sender?.fromEmail || draft.settings.sender.fromEmail || null,
-        replyTo: options.sender?.replyTo || draft.settings.sender.replyTo || null,
-      },
-      category: { ...draft.settings.category, ...(options.categoryLabel ? { label: options.categoryLabel } : {}) },
-    },
-  };
+  const sent = applySendOptions({ ...draft, graph, pools }, options);
+  const hardStopDays = Math.max(options.days + 5, Math.ceil((options.days * 12) / 7));
+  return { ...sent, settings: { ...sent.settings, sendPolicy: { ...sent.settings.sendPolicy, hardStopDays } } };
 }
 
 type Generate = (prompt: string) => Promise<string | null>;
@@ -140,13 +178,27 @@ type Generate = (prompt: string) => Promise<string | null>;
 async function writeItem(
   item: PoolItem,
   index: { n: number; of: number },
-  a: { connection: Pick<ProductConnection, "name" | "catalog">; brief: string; brandVoice: string | null; generate: Generate },
+  a: {
+    connection: Pick<ProductConnection, "name" | "catalog">;
+    brief: string;
+    brandVoice: string | null;
+    generate: Generate;
+    /** The journey this one continues from, when it does. */
+    after?: ArchitectAfter | null;
+  },
 ): Promise<{ item: PoolItem; fellBack: boolean }> {
   const required = blocksIn(item.body);
   const steps = [...a.connection.catalog.onboardingSteps].sort((x, y) => x.order - y.order).map((s) => s.label);
   const glossary = a.connection.catalog.glossary.map((g) => `- ${g.term}: ${g.definition}`).join("\n");
   const isReminder = required.includes("block.next_step") || item.id.startsWith("r") || item.id === "l";
+  // What people have already been sent rides in the (untrusted) brief: labels are the operator's words.
+  const brief = a.after?.sent.length
+    ? `${a.brief}\n\nThey have already had these emails from "${a.after.name}": ${a.after.sent.join("; ")}. Don't repeat them — build on them.`.trim()
+    : a.brief;
   const task = renderPrompt("lifecycle.email_copy", {
+    journey_kind: a.after
+      ? `a follow-on sequence for people who have finished its "${a.after.name.replace(/[\[\]"]/g, "")}" emails`
+      : "a short post-signup onboarding journey",
     product_name: a.connection.name,
     email_label: item.label,
     position: `email ${index.n} of ${index.of} in the journey`,
@@ -155,7 +207,7 @@ async function writeItem(
       item.format === "letter"
         ? "a short personal note from the founder — plain, human, no marketing polish"
         : "a tidy product email — clear and friendly",
-    brief: fencedContext("The operator's brief for the whole journey", "brief", a.brief),
+    brief: fencedContext("The operator's brief for the whole journey", "brief", brief),
     steps: steps.join(" → ") || "(none)",
     glossary: fencedContext("Product glossary", "glossary", glossary),
     extra_tokens: isReminder ? "- {{next_step.label}} — the next onboarding step for this person" : "",
@@ -182,6 +234,10 @@ async function writeItem(
  * options applied, and (unless writeCopy is false) fresh on-brand copy for each
  * email — three at a time, each bounded by a deadline. An email whose copy
  * can't be written keeps the template's placeholder copy (listed in `notes`).
+ *
+ * With `after`, the journey continues from that one: `follow_on` builds the
+ * sequence that comes next (its timing counted from that journey's end), and
+ * `product_onboarding` simply starts after it instead of at sign-up.
  */
 export async function architectLifecycleDraft(a: {
   connection: Pick<ProductConnection, "name" | "catalog">;
@@ -190,11 +246,26 @@ export async function architectLifecycleDraft(a: {
   brief?: string;
   brandVoice?: string | null;
   generate?: Generate;
+  after?: ArchitectAfter | null;
 }): Promise<{ draft: LifecycleDraft; notes: string[] } | { error: "invalid_options"; detail: string }> {
   const parsed = ArchitectOptionsSchema.safeParse(a.options ?? {});
   if (!parsed.success) return { error: "invalid_options", detail: parsed.error.issues[0]?.message ?? "invalid" };
   const options = parsed.data;
-  const draft = applyOptions(buildProductOnboardingDraft(a.connection.catalog as ConnectionCatalog), options);
+  const after = a.after ?? null;
+  if (a.template === "follow_on" && !after) return { error: "invalid_options", detail: "a follow-on sequence needs the journey it continues from" };
+  const draft =
+    a.template === "follow_on" && after
+      ? applySendOptions(
+          buildFollowOnDraft({
+            afterJourneyId: after.journeyId,
+            from: { name: after.name, settings: after.settings },
+            options: { emails: options.emails, gapDays: options.gapDays },
+          }),
+          options,
+        )
+      : after
+        ? startingAfter(applyOptions(buildProductOnboardingDraft(a.connection.catalog as ConnectionCatalog), options), after.journeyId, after.name)
+        : applyOptions(buildProductOnboardingDraft(a.connection.catalog as ConnectionCatalog), options);
   if (!options.writeCopy) return { draft, notes: [] };
 
   const generate: Generate = a.generate ?? ((prompt) => generateTextWithDeadline(prompt, { timeoutMs: 25_000, json: true }));
@@ -211,6 +282,7 @@ export async function architectLifecycleDraft(a: {
         brief: a.brief ?? "",
         brandVoice: a.brandVoice ?? null,
         generate,
+        after: a.template === "follow_on" ? after : null,
       }).catch(() => ({ item, fellBack: true }));
       written.set(`${poolId}:${item.id}`, r.item);
       if (r.fellBack) notes.push(`kept template copy for "${item.label}"`);

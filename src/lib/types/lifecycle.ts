@@ -183,6 +183,14 @@ export type LifecycleGraph = z.infer<typeof LifecycleGraphSchema>;
 
 // ---- Settings -------------------------------------------------------------------------------
 
+/**
+ * The trigger of a journey that CONTINUES FROM another journey (LIFECYCLE_JOURNEY_LINKS_ENABLED):
+ * nothing a product sends starts it — the runner does, when someone reaches the end of the
+ * journey named in `trigger.afterJourneyId`.
+ */
+export const JOURNEY_COMPLETED_EVENT = "journey.completed";
+
+
 export const SendPolicySchema = z.object({
   /** Allowed LOCAL weekdays, 0 = Sunday … 6 = Saturday. */
   days: z.array(z.number().int().min(0).max(6)).min(1).max(7).default([1, 2, 3, 4, 5]),
@@ -235,6 +243,11 @@ export const LifecycleSettingsSchema = z.object({
       event: z.string().max(80).default("user.signed_up"),
       /** Older trigger events (e.g. a backfill) don't enrol automatically. */
       maxEventAgeHours: z.number().int().min(1).max(720).default(72),
+      /**
+       * With `event` = JOURNEY_COMPLETED_EVENT: the journey this one continues from. People enter
+       * when they reach the end of that journey, and this journey's clock starts then.
+       */
+      afterJourneyId: z.string().max(64).nullable().optional(),
     })
     .default({ event: "user.signed_up", maxEventAgeHours: 72 }),
   sendPolicy: SendPolicySchema.default(SendPolicySchema.parse({})),
@@ -275,6 +288,16 @@ export const LifecycleSettingsSchema = z.object({
   emailStyle: StoredJourneyStyleSchema.nullable().optional(),
 });
 export type LifecycleSettings = z.infer<typeof LifecycleSettingsSchema>;
+
+/** Whether these settings start the journey after another journey, not on a product event. */
+export function startsAfterJourney(settings: { trigger: { event: string } }): boolean {
+  return settings.trigger.event === JOURNEY_COMPLETED_EVENT;
+}
+
+/** The journey these settings continue from; null when a product event starts it (or none is chosen yet). */
+export function continuesFromId(settings: { trigger: { event: string; afterJourneyId?: string | null } }): string | null {
+  return startsAfterJourney(settings) ? (settings.trigger.afterJourneyId ?? null) : null;
+}
 
 /**
  * test = only listed test users are enrolled, real sends to them;
@@ -345,6 +368,12 @@ export const LifecycleJourneySchema = z.object({
    * publish with the flag on; read leniently, like the draft's.
    */
   emailStyle: StoredJourneyStyleSchema.nullable().optional(),
+  /**
+   * The journey this one continues from, as last published (null = a product event starts it).
+   * Publish copies it from the draft's trigger, so finding the journeys that follow one needs no
+   * version reads; the published version's trigger stays the authority at hand-off.
+   */
+  continuesFrom: z.string().max(64).nullable().optional(),
   /**
    * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
    * signed up inside the window once the journey can first email everyone (its
@@ -437,6 +466,8 @@ const EnrolmentRuntimeSchema = z.object({
   requireApproval: z.boolean().default(false),
   /** When the journey clock starts (the trigger event's time). */
   anchorAt: z.string(),
+  /** The journey they finished to enter this one (a journey that continues from another). */
+  fromJourneyId: z.string().nullable().optional(),
   /**
    * Product journeys about one of the person's entities (a brand, a workspace):
    * the one this enrolment is about, fixed once chosen. Null for the person.

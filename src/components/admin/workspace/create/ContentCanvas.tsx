@@ -16,8 +16,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
-import type { ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
+import type { BlogBrief, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
+import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
+import { EMPTY_BLOG_BRIEF } from "@/lib/content/blog/brief";
 import {
   HubNode,
   PromoNode,
@@ -35,6 +37,7 @@ import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
+import type { BlogHubControls } from "./blog/types";
 
 /**
  * Create Canvas — the visual hub-and-spoke builder (React Flow). The Architect seeds
@@ -42,6 +45,10 @@ import type { TemplateOption } from "./types";
  * atomize the hub, so editing the hub before they exist is intentional). Nodes are
  * draggable, freely connectable, and addable from the left palette; each node's
  * template is shown + editable in the inspector. Saved graph is Distribute-shaped.
+ *
+ * A BLOG hub (flag NEXT_PUBLIC_BLOG_CITABLE_ENABLED) has a brief — what buyers ask, the
+ * pages it may link to, the sources it may cite — held here and saved with the plan. It
+ * is researched before it is first written and fact-checked after, each its own request.
  */
 const RF_TYPE: Record<ContentNodeType, string> = {
   hub: "hub",
@@ -140,6 +147,25 @@ export function ContentCanvas({
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // A blog hub written to the CITABLE structure. The brief is plan-level state: it rides
+  // on every save (a synchronous ref, like nodesRef, so a save never sends a stale one).
+  const citableBlog =
+    isBlogCitableUiEnabled() &&
+    initial.topology.hubChannel === "blog" &&
+    initial.strategy.objective !== "email_sequence";
+  const [blogBrief, setBlogBriefState] = useState<BlogBrief>(initial.blog ?? EMPTY_BLOG_BRIEF);
+  const blogBriefRef = useRef(blogBrief);
+  const setBlogBrief = useCallback((next: BlogBrief) => {
+    blogBriefRef.current = next;
+    setBlogBriefState(next);
+  }, []);
+  const [blogBusy, setBlogBusy] = useState<null | "research" | "check">(null);
+  const [blogNote, setBlogNoteState] = useState<{ text: string; about: "research" | "check" } | null>(null);
+  const setBlogNote = useCallback(
+    (text: string, about: "research" | "check") => setBlogNoteState({ text, about }),
+    [],
+  );
 
   // Synchronous mirror of nodes/edges for the async brief pipeline. React commits renders
   // on a macrotask, which lags the pipeline's microtask hand-off — so `applyNodes` below
@@ -379,7 +405,134 @@ export function ContentCanvas({
       setMsg("Save failed — not generated. Check your connection and retry.");
       return;
     }
+    if (citableBlog && d.cn.type === "hub" && d.cn.channel === "blog") {
+      await writeBlogHub(id);
+      return;
+    }
     await generateOne(id); // re-sets busy:true then clears it — harmless
+  }
+
+  // ── Blog hub: research → write → fact check ──────────────────────────────────────
+  // Three requests, not one: each stays well inside the platform's response window, and
+  // the operator sees which step is running.
+
+  /** Research the brief (buyer questions, link targets, checked sources). The caller has
+   *  saved the plan, so the server reads the operator's latest brief. Fail-soft. */
+  async function researchBlog(): Promise<void> {
+    setBlogBusy("research");
+    setBlogNote("Researching what buyers ask, your pages and sources…", "research");
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/blog/research`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        brief?: BlogBrief;
+        searched?: boolean;
+        found?: { questions: number; links: number; facts: number; sources: number; verifiedSources: number };
+      };
+      if (res.ok && data.brief) {
+        setBlogBrief(data.brief);
+        const f = data.found;
+        setBlogNote(
+          !f
+            ? "Research done."
+            : `Found ${f.questions} questions, ${f.links} pages to link to and ${f.sources} sources (${f.verifiedSources} checked on the page).` +
+                (data.searched === false ? " Search wasn't available, so the questions are yours alone." : "") +
+                (f.facts > 0 && f.sources === 0
+                  ? " Search found facts but not the pages behind them this time — research again for sources."
+                  : ""),
+          "research",
+        );
+      } else {
+        setBlogNote(
+          res.status === 429
+            ? "Too many research runs just now — try again in a few minutes."
+            : "Research didn't finish. You can still write the article, or try again.",
+          "research",
+        );
+      }
+    } catch {
+      setBlogNote("Research didn't finish. You can still write the article, or try again.", "research");
+    } finally {
+      setBlogBusy(null);
+    }
+  }
+
+  /** Check the hub's copy against the brand's material; the server applies and records the
+   *  corrections. The caller has saved the plan (the server reads the persisted copy). */
+  async function factCheckBlog(id: string): Promise<void> {
+    setBlogBusy("check");
+    setBlogNote("Checking the article's facts against your material…", "check");
+    try {
+      const res = await fetch(
+        `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/check`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; corrected?: number; error?: string };
+      if (res.ok && data.node) {
+        patchNode(id, { cn: data.node });
+        const n = data.corrected ?? 0;
+        setBlogNote(
+          n
+            ? `The fact check changed ${n} statement${n === 1 ? "" : "s"} your material doesn't support — see below.`
+            : "The fact check found nothing to change.",
+          "check",
+        );
+      } else {
+        setBlogNote(
+          data.error === "node_locked"
+            ? "Approved copy isn't changed. Edit it to check it again."
+            : "The fact check didn't finish — press Check facts to try again.",
+          "check",
+        );
+      }
+    } catch {
+      setBlogNote("The fact check didn't finish — press Check facts to try again.", "check");
+    } finally {
+      setBlogBusy(null);
+    }
+  }
+
+  /** Write (or rewrite) the blog hub: research first if it never ran, then the article,
+   *  then its fact check. The caller has saved the plan and holds the node busy. */
+  async function writeBlogHub(id: string): Promise<void> {
+    patchNode(id, { busy: true });
+    if (!blogBriefRef.current.researchedAt) await researchBlog();
+    setBlogNote("Writing the article…", "research");
+    await generateOne(id);
+    const written = (nodesRef.current.find((n) => n.id === id)?.data as ContentNodeData | undefined)?.cn;
+    if (written?.status === "generated" && written.body) {
+      patchNode(id, { busy: true });
+      await factCheckBlog(id);
+      patchNode(id, { busy: false });
+    } else {
+      setBlogNote("The article couldn't be written — try again.", "research");
+    }
+  }
+
+  // The inspector's two buttons. Both persist first, so the server works on what is on screen.
+  async function onBlogResearch(): Promise<void> {
+    if (blogBusy || busy) return;
+    setBlogBusy("research");
+    if (await save()) await researchBlog();
+    else {
+      setBlogBusy(null);
+      setBlogNote("Save failed — not researched.", "research");
+    }
+  }
+
+  async function onBlogCheckFacts(id: string): Promise<void> {
+    const d = nodesRef.current.find((n) => n.id === id)?.data as ContentNodeData | undefined;
+    if (!d || d.busy || blogBusy || busy) return;
+    patchNode(id, { busy: true });
+    setBlogBusy("check");
+    if (await save()) await factCheckBlog(id);
+    else {
+      setBlogBusy(null);
+      setBlogNote("Save failed — not checked.", "check");
+    }
+    patchNode(id, { busy: false });
   }
 
   // Approve PERSISTS. Approve is a commit in the operator's mental model, not just a local
@@ -470,7 +623,8 @@ export function ContentCanvas({
       setMsg("Save failed — hub not generated.");
       return;
     }
-    await generateOne(hubCn.id);
+    if (citableBlog && hubCn.channel === "blog") await writeBlogHub(hubCn.id);
+    else await generateOne(hubCn.id);
     setBusy(false);
     setMsg("Hub drafted — review it, then approve to build the spokes.");
   }
@@ -537,7 +691,12 @@ export function ContentCanvas({
     const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim() || initial.name, graph }),
+      body: JSON.stringify({
+        name: name.trim() || initial.name,
+        graph,
+        // The blog brief is saved with the plan (the ref, so it is never a render behind).
+        ...(citableBlog ? { blog: blogBriefRef.current } : {}),
+      }),
     });
     return res.ok;
   }
@@ -553,6 +712,21 @@ export function ContentCanvas({
   const selectedRf = selectedId ? nodes.find((n) => n.id === selectedId) : undefined;
   const selectedCn = selectedRf ? (selectedRf.data as ContentNodeData).cn : null;
   const selectedBusy = Boolean(selectedRf && (selectedRf.data as ContentNodeData).busy);
+  const blogControls: BlogHubControls | undefined =
+    citableBlog && selectedCn?.type === "hub" && selectedCn.channel === "blog"
+      ? {
+          brief: blogBrief,
+          onBriefChange: setBlogBrief,
+          onResearch: () => void onBlogResearch(),
+          onCheckFacts: () => void onBlogCheckFacts(selectedCn.id),
+          busy: blogBusy,
+          note: blogNote?.text ?? null,
+          noteFor: blogNote?.about ?? "research",
+          pageUrl: initial.strategy.hubUrl ?? null,
+          brandName: brandName ?? "",
+          logoUrl: primaryLogoUrl ?? null,
+        }
+      : undefined;
   const total = nodes.length;
   const generated = nodes.filter((n) => {
     const s = cnOf(n).status;
@@ -607,7 +781,9 @@ export function ContentCanvas({
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
           {generated}/{total} generated
         </span>
-        {!isSequence && hubHasBody && !hubApproved ? (
+        {blogBusy && blogNote ? (
+          <span className="text-xs text-neutral-500">{blogNote.text}</span>
+        ) : !isSequence && hubHasBody && !hubApproved ? (
           <span className="text-xs text-amber-600 dark:text-amber-400">
             Review &amp; approve the hub to generate the rest.
           </span>
@@ -662,6 +838,7 @@ export function ContentCanvas({
           onOpenLayout={
             selectedCn.type === "email" ? () => setLayoutEditorFor(selectedCn.id) : undefined
           }
+          blog={blogControls}
           onOpenPreview={
             selectedCn.type === "trigger" ||
             selectedCn.type === "wait" ||

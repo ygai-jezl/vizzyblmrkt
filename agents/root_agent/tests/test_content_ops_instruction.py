@@ -30,5 +30,12 @@ def test_drafts_only_and_allowed_values_only():
     assert "get_content_context" in CONTENT_OPS_INSTRUCTION
 
 
+def test_never_claims_research_or_a_fact_check_the_tool_did_not_report():
+    text = " ".join(CONTENT_OPS_INSTRUCTION.lower().split())
+    # Blog research is flag-gated on the server: Vizzy repeats the tool's message, not a promise.
+    assert "the tool's message says what was done" in text
+    assert "never tell the operator an article was researched, sourced or fact-checked unless the message says so" in text
+
+
 def test_root_routes_content_to_content_ops():
     assert "content_ops_agent" in ROOT_SYSTEM_INSTRUCTION

@@ -24,6 +24,14 @@ import { isInSendWindow, nextWindowAt, scheduleAfterWait } from "./sendWindow";
 
 const DAY_MS = 86_400_000;
 const MAX_HOPS = 25;
+/**
+ * How long after an email comes due the runner really sends it: the next tick,
+ * never the instant itself. The preview counts the next wait from then, as the
+ * runner does — or a wait of whole days ("48 hours") would look as if it lands
+ * on the day, when for a real person it's just past their window and waits for
+ * the next one.
+ */
+export const PREVIEW_SEND_LAG_MS = 60_000;
 
 export interface WalkState {
   cursor: string | null;
@@ -263,7 +271,7 @@ export function planTimeline(
         continue;
       }
       out.push({ atMs: r.state.nowMs, kind: "send", nodeId: d.nodeId, poolId: d.pool.id, itemId: d.item.id, label: d.item.label });
-      state = afterSend(r.state, d, r.state.nowMs, "sent");
+      state = afterSend(r.state, d, r.state.nowMs + PREVIEW_SEND_LAG_MS, "sent");
       continue;
     }
     out.push({ atMs: r.state.nowMs, kind: d.kind, label: d.kind === "exit" ? `Stopped: ${d.reason}` : "Journey complete" });

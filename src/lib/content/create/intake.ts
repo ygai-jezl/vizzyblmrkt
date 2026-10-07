@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ContentObjective, SequenceType, type ContentPlan } from "@/lib/types/contentPlan";
+import { BlogBriefSchema, ContentObjective, SequenceType, type ContentPlan } from "@/lib/types/contentPlan";
 import { isChannel } from "@/lib/content/channels";
 import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
 
@@ -37,6 +37,14 @@ export const IntakeSchema = z.object({
     hubChannel: z.enum(["newsletter", "blog", "ebook"]).default("newsletter"),
     spokeChannels: z.array(z.string().max(40)).max(8).default([]),
   }),
+  /** Blog hub only — what the operator already knows: the question the article answers,
+   *  and whatever buyers ask. Research fills in the rest of the brief. */
+  blog: z
+    .object({
+      primaryQuestion: z.string().max(300).default(""),
+      buyerQuestions: z.string().max(6000).default(""),
+    })
+    .optional(),
 });
 export type Intake = z.infer<typeof IntakeSchema>;
 
@@ -51,6 +59,14 @@ export function planFromIntake(input: Intake): NewPlanFields {
       input.topology.spokeChannels.filter((c) => isChannel(c) && c !== input.topology.hubChannel && c !== "standalone"),
     ),
   ];
+  const primaryQuestion = input.blog?.primaryQuestion.trim() ?? "";
+  const buyerQuestions = input.blog?.buyerQuestions.trim() ?? "";
+  const blogBrief =
+    input.topology.hubChannel === "blog" &&
+    input.strategy.objective !== "email_sequence" &&
+    (primaryQuestion || buyerQuestions)
+      ? BlogBriefSchema.parse({ primaryQuestion, buyerQuestions })
+      : null;
   return {
     name: input.name,
     status: "draft",
@@ -67,5 +83,7 @@ export function planFromIntake(input: Intake): NewPlanFields {
     },
     topology: { hubChannel: input.topology.hubChannel, spokeChannels },
     graph: { nodes: [], edges: [] },
+    // Only a blog hub has a brief; an empty one is left off (research starts it).
+    ...(blogBrief ? { blog: blogBrief } : {}),
   };
 }

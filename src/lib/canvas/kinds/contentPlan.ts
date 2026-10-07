@@ -15,6 +15,7 @@ import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { runArchitect } from "@/lib/content/create/architectRun";
 import { fillPlanNodes } from "@/lib/content/create/fillPlan";
 import type { generateNode } from "@/lib/content/create/generateNode";
+import { checkPlanBlogFacts, isCitableBlogPlan, researchPlanBlog } from "@/lib/content/blog/hubActions";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -23,7 +24,10 @@ import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types
  * as the Create wizard, so the two produce identical drafts. Two modes:
  *  - `create`: a new plan from an intake; the architect lays out the pieces, then
  *    the hub is written (or, for an email sequence, the emails). The rest waits
- *    for the operator to approve the hub and press Generate on the canvas.
+ *    for the operator to approve the hub and press Generate on the canvas. A blog
+ *    hub is researched first (buyer questions, link targets, checked sources) and
+ *    written to the CITABLE structure, as on the canvas; its fact check runs here
+ *    when there is time, else the operator runs it on the canvas.
  *  - `refill`: rewrite chosen pieces from instructions. Never an approved or
  *    scheduled piece, and never a promo or spoke before the hub is approved.
  * Vizzy never approves, schedules or publishes; the tenant comes only from the
@@ -43,14 +47,23 @@ const ContentPlanInput = z.object({
 
 /** Each draft is an architect call plus several copywriter calls: keep it bounded per tenant. */
 const AUTHOR_LIMIT = { prefix: "content_author", burstLimit: 3, hourlyLimit: 12 };
+/** Vizzy's request has to return. Blog research gets this long for its searches… */
+const BLOG_RESEARCH_MS = 40_000;
+/** …and the fact check only runs if the article was written inside this long. */
+const BLOG_CHECK_BY_MS = 100_000;
+const BLOG_CHECK_MS = 45_000;
 const SOCIAL = new Set(["promo_pre", "promo_post", "spoke"]);
 
 export interface ContentPlanDeps {
   db?: FirestoreLike;
   architect?: typeof runArchitect;
   generate?: typeof generateNode;
+  /** Blog hubs: the research before writing, and the fact check after. */
+  research?: typeof researchPlanBlog;
+  checkFacts?: typeof checkPlanBlogFacts;
   /** The agent's request has to return: fill what fits in this long. */
   budgetMs?: number;
+  now?: () => number;
 }
 
 function card(plan: ContentPlan, ws: Pick<Workspace, "id" | "name">, failed: number) {
@@ -89,7 +102,10 @@ export async function authorContentPlanDraft(
   }
   const ws = await forTenant(ctx, deps.db).workspaces.getById(req.data.scope.workspaceId);
   if (!ws || ws.archivedAt) return { ok: false, status: 404, error: "workspace_not_found" };
-  const fillOpts = { db: deps.db, generate: deps.generate, budgetMs: deps.budgetMs ?? 75_000, concurrency: 3 };
+  const now = deps.now ?? Date.now;
+  const started = now();
+  // `quick`: one writing pass per piece — a second pass would not fit in the agent's request.
+  const fillOpts = { db: deps.db, generate: deps.generate, budgetMs: deps.budgetMs ?? 75_000, concurrency: 3, quick: true };
 
   if (req.data.mode === "refill") {
     const planId = req.data.scope.planId;
@@ -154,6 +170,18 @@ export async function authorContentPlanDraft(
     { ...planFromIntake(intake.data), authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) },
     deps.db,
   );
+  // A blog hub is researched while the architect lays out the plan (neither needs the
+  // other). Research is fail-soft: without it the hub is written from the brand's own
+  // knowledge alone.
+  const citableBlog = isCitableBlogPlan(created);
+  const researching = citableBlog
+    ? (deps.research ?? researchPlanBlog)(ctx, { workspace: ws, plan: created, timeoutMs: BLOG_RESEARCH_MS }, { db: deps.db }).catch(
+        (err) => {
+          console.error("[canvas/content_plan] blog research failed", err);
+          return null;
+        },
+      )
+    : null;
   let built: Awaited<ReturnType<typeof runArchitect>>;
   try {
     built = await (deps.architect ?? runArchitect)(ctx, { workspace: ws, plan: created });
@@ -161,6 +189,8 @@ export async function authorContentPlanDraft(
     console.error("[canvas/content_plan] architect failed", err);
     built = { ok: false, status: 502, error: "architect_failed" };
   }
+  // Let research finish (and save the brief) before the plan is written to or removed.
+  const researched = Boolean((await researching)?.ok);
   if (!built.ok) {
     // Nothing is written yet: don't leave an empty plan behind for every retry.
     await deleteContentPlan(ctx, ws.id, created.id, deps.db).catch(() => undefined);
@@ -175,12 +205,34 @@ export async function authorContentPlanDraft(
     .filter((n) => n.status === "empty" && (sequence ? n.type === "email" : n.type === "hub"))
     .map((n) => n.id);
   const result = await fillPlanNodes(ctx, { workspace: ws, planId: created.id, nodeIds: toFill }, fillOpts);
-  const plan = (await getContentPlan(ctx, ws.id, created.id, deps.db)) ?? { ...created, graph: built.graph };
+  let plan = (await getContentPlan(ctx, ws.id, created.id, deps.db)) ?? { ...created, graph: built.graph };
+
+  // The blog hub's fact check, if the article was written quickly enough to leave time.
+  let factsChecked = false;
+  const blogHub = citableBlog && result.filled.length ? plan.graph.nodes.find((n) => n.type === "hub") : undefined;
+  if (blogHub && now() - started < BLOG_CHECK_BY_MS) {
+    const checked = await (deps.checkFacts ?? checkPlanBlogFacts)(
+      ctx,
+      { workspace: ws, plan, nodeId: blogHub.id, timeoutMs: BLOG_CHECK_MS },
+      { db: deps.db },
+    ).catch(() => null);
+    factsChecked = Boolean(checked?.ok);
+    if (factsChecked) plan = (await getContentPlan(ctx, ws.id, created.id, deps.db)) ?? plan;
+  }
+
   const { url, card: c } = card(plan, ws, result.failed.length);
+  // Vizzy repeats this to the operator, so it says exactly what was done to a blog hub —
+  // and nothing about research or a fact check when neither ran (the flag is off).
+  const blogSteps = blogHub
+    ? `the article is ${researched ? "researched and written" : "written"}` +
+      (factsChecked ? " and fact-checked" : "") +
+      (researched ? "" : " (research didn't finish: press Research on the canvas for sources)") +
+      (factsChecked ? "" : " (press Check facts on the canvas before you approve it)")
+    : null;
   const written = sequence
     ? `${result.filled.length} of ${toFill.length} emails written`
     : result.filled.length
-      ? "the hub is written"
+      ? (blogSteps ?? "the hub is written")
       : "the hub still needs writing";
   return {
     ok: true,

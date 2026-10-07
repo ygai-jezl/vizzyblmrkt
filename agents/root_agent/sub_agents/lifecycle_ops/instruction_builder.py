@@ -6,8 +6,10 @@ journey page the operator is chatting from, if any, and adds the Email style rul
 when the brand has a style saved (`emailStyleConfigured`, written by every
 get_lifecycle_context read). Where journey styles are on (`journeyStyleEnabled`,
 written by the same reads and by the journey style tools), it adds the rule for one
-journey's own look and points the Email style rule at it. Pure / ADK-free —
-ReadonlyContext stays under TYPE_CHECKING — so it remains unit-testable without ADK.
+journey's own look and points the Email style rule at it. Where journeys can continue
+from one another (`journeyLinksEnabled`, written by the same reads), it adds how to
+build one that does. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
+it remains unit-testable without ADK.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from .prompts.instruction import (
     EMAIL_STYLE_ADDENDUM,
     EMAIL_STYLE_BRAND_LOOK,
     EMAIL_STYLE_JOURNEY_LOOK,
+    JOURNEY_LINKS_ADDENDUM,
     JOURNEY_STYLE_ADDENDUM,
     LIFECYCLE_OPS_INSTRUCTION,
 )
@@ -58,6 +61,8 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
             f"{state.get('connectionId') or 'unknown'}). Requests to change \"this journey\" "
             "mean that one: read it with get_lifecycle_journey before editing."
         )
+    if state and state.get("journeyLinksEnabled"):
+        parts.append(JOURNEY_LINKS_ADDENDUM)
     journey_styles = bool(state and state.get("journeyStyleEnabled"))
     if state and state.get("emailStyleConfigured"):
         parts.append(

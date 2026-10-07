@@ -614,6 +614,14 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Journey links (see apphosting.yaml): OFF in prod until verified on dev. The
+  # base file sets it "true" and prod inherits every variable, so it must be an
+  # explicit "false" here. Off: nobody is handed from one journey to the next,
+  # and the editor, the new-journey form and Vizzy don't offer it.
+  - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Unchanged writes counted, not listed (see apphosting.yaml): on in prod since
   # 2026-09-27, after it was verified on dev. Set "false" here to switch it off.
   - variable: CONNECT_QUIET_UNCHANGED_WRITES
@@ -776,4 +784,16 @@ env:
   - variable: EMAIL_JOURNEY_STYLE_ENABLED
     value: "true"
     availability:
+      - RUNTIME
+  # Blog hubs written to the CITABLE structure (see apphosting.yaml): OFF in prod until
+  # verified on dev and flipped with a chore(prod) change. Both have to be set here:
+  # this file only overrides apphosting.yaml, so a flag left out would be on.
+  - variable: CREATE_BLOG_CITABLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_CITABLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
       - RUNTIME

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import type { LifecycleEnrolment, LifecycleJourney } from "@/lib/types/lifecycle";
+import { continuesFromId, type LifecycleEnrolment, type LifecycleJourney } from "@/lib/types/lifecycle";
+import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productConnection";
 import type { Tenant } from "@/lib/types/tenant";
 import { ConsentBasis } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
@@ -9,7 +10,9 @@ import { productUserDocId } from "@/lib/connect/profile";
 import { fireSandboxEvent } from "@/lib/connect/sandbox";
 import { environmentOf, productNameOf } from "@/lib/connect/environments";
 import { NO_CATALOG, validateLifecycleDraft } from "./graph";
-import { planTimeline } from "./planner";
+import { planTimeline, type PlannedStep, type PlanScenario } from "./planner";
+import { completionMs, journeyTimeline, timelineText } from "./timeline";
+import { chainView, journeysBefore, linkNextJourney, resolveUpstream, type RunningDesign } from "./chain";
 import { personalOffsetMinutes, resolveTimezone } from "./sendWindow";
 import {
   createLifecycleJourney,
@@ -30,11 +33,12 @@ import {
   isLifecycleAiDraftsEnabled,
   isLifecycleChatAuthoringEnabled,
   isLifecycleConsentAtSendEnabled,
+  isLifecycleJourneyLinksEnabled,
   isLifecycleOptInAfterSignupEnabled,
   lifecycleModeCeiling,
 } from "./flags";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
-import { architectLifecycleDraft } from "./architect";
+import { architectAfter, architectLifecycleDraft } from "./architect";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type ExportWhich } from "./transfer";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { resolveFooterBrand, resolveSender } from "@/lib/email/sender";
@@ -77,21 +81,25 @@ export async function listJourneys(ctx: TenantContext, opts: { connectionId?: st
     forTenant(ctx, db).productConnections.find({ limit: 100 }),
   ]);
   const names = new Map(connections.map((c) => [c.id, c.name]));
+  const byId = new Map(connections.map((c) => [c.id, c]));
+  // Waitlist journeys (engine move) belong to their launch, not a product.
+  const listed = journeys.filter((j) => j.status !== "archived" && j.audience?.kind !== "waitlist");
+  const links = isLifecycleJourneyLinksEnabled();
   return ok({
-    journeys: journeys
-      // Waitlist journeys (engine move) belong to their launch, not a product.
-      .filter((j) => j.status !== "archived" && j.audience?.kind !== "waitlist")
-      .map((j) => ({
-        id: j.id,
-        name: j.name,
-        connectionId: j.connectionId,
-        connectionName: names.get(j.connectionId) ?? null,
-        status: j.status,
-        deliveryMode: j.deliveryMode,
-        publishedVersion: j.publishedVersion,
-        authoredBy: j.authoredBy,
-        updatedAt: j.updatedAt,
-      })),
+    ...(links ? { features: { journeyLinks: true } } : {}),
+    journeys: listed.map((j) => ({
+      id: j.id,
+      name: j.name,
+      connectionId: j.connectionId,
+      connectionName: names.get(j.connectionId) ?? null,
+      status: j.status,
+      deliveryMode: j.deliveryMode,
+      publishedVersion: j.publishedVersion,
+      authoredBy: j.authoredBy,
+      updatedAt: j.updatedAt,
+      // Journey links: what it continues from, and its timeline for a journey that would follow it.
+      ...(links ? { continuesFrom: linkedName(j, listed), timeline: timelineOf(j, byId.get(j.connectionId)) } : {}),
+    })),
     connections: connections
       .filter((c) => c.status !== "revoked")
       .map((c) => ({
@@ -104,6 +112,23 @@ export async function listJourneys(ctx: TenantContext, opts: { connectionId?: st
         product: productNameOf(c),
       })),
   });
+}
+
+/** The journey `j`'s draft continues from, by name (null = a product event starts it). */
+function linkedName(j: LifecycleJourney, all: LifecycleJourney[]): { id: string; name: string | null } | null {
+  const id = continuesFromId(j.draft.settings);
+  return id ? { id, name: all.find((o) => o.id === id)?.name ?? null } : null;
+}
+
+/** A journey's timeline in numbers and in words (its draft, in its product's timezone). */
+function timelineOf(j: Pick<LifecycleJourney, "draft">, connection: Pick<ProductConnection, "catalog" | "defaults"> | undefined) {
+  if (!connection) return null;
+  try {
+    const t = journeyTimeline(j.draft, connection.catalog, { timezone: connection.defaults.timezone });
+    return { ...t, text: timelineText(t) };
+  } catch {
+    return null; // a draft too broken to walk has no timeline
+  }
 }
 
 export async function createJourney(ctx: TenantContext, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
@@ -157,13 +182,18 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       ...(own ? { journeyStyle: own.journeyStyle } : {}),
     });
   }
-  const [connection, version, tenant] = await Promise.all([
+  const links = isLifecycleJourneyLinksEnabled();
+  const [connection, version, tenant, siblings, upstream] = await Promise.all([
     repo.productConnections.getById(journey.connectionId),
     journey.publishedVersion ? repo.lifecycleVersions.getById(versionDocId(id, journey.publishedVersion)) : null,
     getTenantById(ctx.tenantId, db).catch(() => null),
+    // Journey links: the product's other journeys, which this one can continue from or lead to.
+    links ? repo.lifecycleJourneys.find({ where: [["connectionId", "==", journey.connectionId]], limit: 100 }) : [],
+    resolveUpstream(ctx, journey, journey.draft.settings, db),
   ]);
   const sender = lifecycleSender(tenant, journey.draft.settings.sender);
   const own = journeyStyleDetail(tenant);
+  const others = siblings.filter((o) => o.id !== id && o.status !== "archived" && o.audience?.kind !== "waitlist");
   return ok({
     journey,
     audience: "product",
@@ -182,7 +212,25 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
         }
       : null,
     version: version ? { version: version.version, publishedAt: version.publishedAt, publishedBy: version.publishedBy ?? null } : null,
-    issues: connection ? validateLifecycleDraft(journey.draft, connection.catalog).issues : [],
+    issues: connection
+      ? validateLifecycleDraft(journey.draft, connection.catalog, { upstream: upstream ? (upstream.problem ?? "ok") : undefined }).issues
+      : [],
+    // Journey links: what this journey continues from and leads to, and the journeys it could.
+    ...(links
+      ? {
+          chain: {
+            ...chainView(journey, others, upstream?.problem ?? null),
+            journeys: others.map((o) => ({
+              id: o.id,
+              name: o.name,
+              status: o.status,
+              publishedVersion: o.publishedVersion,
+              continuesFrom: continuesFromId(o.draft.settings),
+              timeline: timelineOf(o, connection ?? undefined),
+            })),
+          },
+        }
+      : {}),
     sender: { verified: sender.verified, fromEmail: sender.fromEmail ?? null, fromName: sender.fromName ?? null },
     // The footer brand when the journey names no sender (as the runner falls back), and the Email style.
     footerBrand: resolveFooterBrand(tenant, null),
@@ -196,10 +244,24 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       optInAfterSignup: isLifecycleOptInAfterSignupEnabled(),
       entities: isEntitiesEnabled(),
       emailStyle: isEmailStyleEnabled(),
+      ...(links ? { journeyLinks: true } : {}),
       ...own?.features,
     },
     ...(own ? { journeyStyle: own.journeyStyle } : {}),
   });
+}
+
+/**
+ * "Then continue to…" on a journey's End (LIFECYCLE_JOURNEY_LINKS_ENABLED): make another
+ * journey start after this one. It changes the other journey's DRAFT; publishing it is still
+ * a person's decision there.
+ */
+export async function continueJourneyTo(ctx: TenantContext, id: string, input: unknown, db?: FirestoreLike): Promise<ApiResult> {
+  if (!isLifecycleJourneyLinksEnabled()) return fail(404, "not_found");
+  const r = await linkNextJourney(ctx, id, input, { db, authoredBy: "human" });
+  if (!r.ok) return fail(r.status, r.error, r.detail);
+  const next = r.value.next;
+  return ok({ next: { id: next.id, name: next.name, status: next.status, publishedVersion: next.publishedVersion } });
 }
 
 /** The editor's Save: the one draft save that can set the journey style (`settings.emailStyle`). */
@@ -429,19 +491,34 @@ export async function previewJourney(
   const tz = resolveTimezone(p.timezone, connection.defaults.timezone, policy.fallbackTimezone);
   const anchorMs = p.anchorAt ? Date.parse(p.anchorAt) : nowMs;
   const seed = p.userId ? productUserDocId(connection.id, p.userId) : `preview:${journeyId}`;
-  const steps = planTimeline(
-    { graph: journey.draft.graph, pools: journey.draft.pools, policy },
-    connection.catalog,
-    {
-      anchorMs,
-      tz,
-      offsetMin: personalOffsetMinutes(seed, policy),
-      stepsDoneAt: Object.fromEntries(Object.entries(p.stepsDoneAfterHours).map(([k, h]) => [k, anchorMs + h * 3600_000])),
-      facts: p.facts,
-      consentBasis: p.consentBasis,
-      ...(isLifecycleConsentAtSendEnabled() ? { marketingBases: connection.consentPolicy.marketingBases } : {}),
-    },
-  );
+  const scenario: Omit<PlanScenario, "anchorMs" | "offsetMin"> = {
+    tz,
+    stepsDoneAt: Object.fromEntries(Object.entries(p.stepsDoneAfterHours).map(([k, h]) => [k, anchorMs + h * 3600_000])),
+    facts: p.facts,
+    consentBasis: p.consentBasis,
+    ...(isLifecycleConsentAtSendEnabled() ? { marketingBases: connection.consentPolicy.marketingBases } : {}),
+  };
+  const plan = (design: RunningDesign, startMs: number) =>
+    planTimeline({ graph: design.graph, pools: design.pools, policy: design.settings.sendPolicy }, connection.catalog as ConnectionCatalog, {
+      ...scenario,
+      anchorMs: startMs,
+      offsetMin: personalOffsetMinutes(seed, design.settings.sendPolicy),
+    });
+  const shown = (s: PlannedStep) => ({ ...s, at: new Date(s.atMs).toISOString(), day: Math.floor((s.atMs - anchorMs) / DAY_MS) + 1 });
+
+  // A journey that continues from another starts when that one ends: walk the journeys
+  // before it first (as they run today), so this one's clock starts where they finish.
+  const before: Array<{ journeyId: string; name: string; steps: Array<ReturnType<typeof shown>> }> = [];
+  let startMs: number | null = anchorMs;
+  if (isLifecycleJourneyLinksEnabled()) {
+    for (const up of await journeysBefore(ctx, journey, db)) {
+      const upSteps = plan(up.design, startMs);
+      before.push({ journeyId: up.journey.id, name: up.journey.name, steps: upSteps.map(shown) });
+      startMs = completionMs(upSteps);
+      if (startMs === null) break; // stopped early: they'd never reach the next journey
+    }
+  }
+  const steps = startMs === null ? [] : plan(journey.draft, startMs);
   // For a real user: which of their entities (brands, workspaces…) the emails would be about.
   const aboutSetting = journey.draft.settings.about ?? JOURNEY_ABOUT_DEFAULT;
   let about: Record<string, unknown> | null = null;
@@ -463,8 +540,10 @@ export async function previewJourney(
   return ok({
     timezone: tz,
     anchorAt: new Date(anchorMs).toISOString(),
-    steps: steps.map((s) => ({ ...s, at: new Date(s.atMs).toISOString(), day: Math.floor((s.atMs - anchorMs) / DAY_MS) + 1 })),
+    steps: steps.map(shown),
     about,
+    // Journey links: the journeys they go through first, and whether they'd get as far as this one.
+    ...(before.length ? { before, reached: startMs !== null, startsAt: startMs === null ? null : new Date(startMs).toISOString() } : {}),
   });
 }
 
@@ -631,8 +710,12 @@ export async function generateJourneyDraft(
     getTenantById(ctx.tenantId, deps.db).catch(() => null),
   ]);
   if (!connection) return fail(404, "connection_not_found");
+  // A journey that continues from another is rebuilt as the sequence that follows it.
+  const upstream = isLifecycleJourneyLinksEnabled() ? await resolveUpstream(ctx, journey, journey.draft.settings, deps.db) : null;
+  if (upstream && (upstream.problem || !upstream.journey)) return fail(409, `continue_from_${upstream.problem ?? "not_found"}`);
   const built = await architectLifecycleDraft({
     connection,
+    ...(upstream?.journey ? { template: "follow_on" as const, after: architectAfter(upstream.journey) } : {}),
     options: parsed.data.options,
     brief: parsed.data.brief,
     brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice }),

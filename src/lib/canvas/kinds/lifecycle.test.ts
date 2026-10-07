@@ -6,7 +6,8 @@ import { CONNECTION_ID, ctx as adminCtx, publishOnboarding, seedWorld, system } 
 import { agentLifecycleContext, agentLifecycleJourney } from "@/lib/lifecycle/agentApi";
 import { seedUser } from "@/lib/lifecycle/testing/fixtures";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
-import { authorLifecycleDraft } from "./lifecycle";
+import { JOURNEY_COMPLETED_EVENT, type LifecycleDraft } from "@/lib/types/lifecycle";
+import { authorLifecycleDraft, wholeDayWaitNotes } from "./lifecycle";
 
 const agent: TenantContext = { tenantId: adminCtx.tenantId, region: "eu", userId: "usr_1", role: "admin", source: "agent" };
 const generate = async () =>
@@ -22,6 +23,7 @@ afterEach(() => {
   delete process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED;
   delete process.env.EMAIL_STYLE_ENABLED;
   delete process.env.EMAIL_JOURNEY_STYLE_ENABLED;
+  delete process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED;
 });
 
 describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
@@ -149,6 +151,105 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
       status: 503,
       error: "unavailable",
     });
+  });
+});
+
+describe("a journey that continues from another (journey links)", () => {
+  it("drafts the sequence that follows a journey, and says when it starts and where its emails land", async () => {
+    process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED = "true";
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey: first } = await publishOnboarding(db);
+    const r = await authorLifecycleDraft(
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", afterJourneyId: first.id, options: { emails: 3 } }, brief: "Useful and short" },
+      { db, generate },
+    );
+    if (!r.ok) throw new Error(r.error);
+    expect(r.card.title).toBe("After Onboarding");
+    expect(r.card.stats).toEqual([{ label: "emails", value: 3 }, { label: "splits", value: 0 }, { label: "waits", value: 3 }]);
+    expect(r.summary).toContain('It starts when someone finishes "Onboarding", which sends 5 emails over about');
+    expect(r.summary).toMatch(/Its 3 emails then go out about 3, \d+ and \d+ days after that/);
+    expect(r.summary).toContain("nothing sends until you do");
+    const saved = (await forTenant(system, db).lifecycleJourneys.getById(r.id))!;
+    expect(saved).toMatchObject({ status: "draft", authoredBy: "agent", publishedVersion: null });
+    expect(saved.draft.settings.trigger).toMatchObject({ event: JOURNEY_COMPLETED_EVENT, afterJourneyId: first.id });
+    // The journey it follows is untouched.
+    expect((await forTenant(system, db).lifecycleJourneys.getById(first.id))!.publishedVersion).toBe(1);
+
+    // A rebuild keeps it continuing from that journey without being told again.
+    __resetRateLimitState();
+    const again = await authorLifecycleDraft(
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId: r.id }, mode: "template", options: { emails: 2 } }, brief: "Shorter" },
+      { db, generate },
+    );
+    if (!again.ok) throw new Error(again.error);
+    const rebuilt = (await forTenant(system, db).lifecycleJourneys.getById(r.id))!;
+    expect(rebuilt.draft.pools[0]!.items).toHaveLength(2);
+    expect(rebuilt.draft.settings.trigger.afterJourneyId).toBe(first.id);
+  });
+
+  it("a custom structure can continue from a journey too, and is told when a wait will land a day late", async () => {
+    process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED = "true";
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey: first } = await publishOnboarding(db);
+    const graph = {
+      nodes: [
+        { id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: {} },
+        { id: "wait_a", type: "wait", position: { x: 1, y: 0 }, data: { wait: { minHours: 72 } } },
+        { id: "email_a", type: "email", position: { x: 2, y: 0 }, data: { poolId: "tips" } },
+        { id: "exit", type: "exit", position: { x: 3, y: 0 }, data: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "wait_a" },
+        { id: "e2", source: "wait_a", target: "email_a" },
+        { id: "e3", source: "email_a", target: "exit" },
+      ],
+    };
+    const pools = [{ id: "tips", label: "Tips", items: [{ id: "t1", label: "T1", subject: "A tip", body: "<p>Hi</p>" }] }];
+    const r = await authorLifecycleDraft(
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", afterJourneyId: first.id, graph, pools, name: "Tips" }, brief: "tips after onboarding" },
+      { db },
+    );
+    if (!r.ok) throw new Error(r.error);
+    const saved = (await forTenant(system, db).lifecycleJourneys.getById(r.id))!;
+    expect(saved.draft.settings.trigger).toMatchObject({ event: JOURNEY_COMPLETED_EVENT, afterJourneyId: first.id });
+    expect(r.warnings).toEqual([expect.stringContaining('wait_a waits 72 hours, which reaches the send window a day later than 3 days — use "minHours": 64')]);
+
+    const fine = { ...saved.draft, graph: { ...saved.draft.graph, nodes: saved.draft.graph.nodes.map((n) => (n.id === "wait_a" ? { ...n, data: { wait: { minHours: 64, differentLocalDay: true } } } : n)) } };
+    expect(wholeDayWaitNotes(fine as LifecycleDraft)).toEqual([]);
+  });
+
+  it("refuses a journey that isn't this product's, and all of it while journey links are off", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey: first } = await publishOnboarding(db);
+    const input = { scope: { connectionId: CONNECTION_ID }, mode: "template", afterJourneyId: first.id, options: { writeCopy: false } };
+    expect(await authorLifecycleDraft({ ctx: agent, input, brief: "" }, { db })).toMatchObject({ ok: false, status: 409, error: "journey_links_unavailable" });
+    process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED = "true";
+    expect(await authorLifecycleDraft({ ctx: agent, input: { ...input, afterJourneyId: "lcj_nope" }, brief: "" }, { db })).toMatchObject({
+      ok: false,
+      status: 404,
+      error: "after_journey_not_found",
+    });
+  });
+
+  it("the agent reads each journey's timeline and what it continues from, only while it's on", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey: first } = await publishOnboarding(db);
+    type Ctx = { journeyLinks?: unknown; journeys: Array<{ id: string; continuesFrom?: unknown; timeline?: { summary: string; emails: number; sendTime: string } }> };
+    const off = (await agentLifecycleContext(agent, db)).body as Ctx;
+    expect(off.journeyLinks).toBeUndefined();
+    expect(off.journeys[0]).not.toHaveProperty("timeline");
+
+    process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED = "true";
+    const on = (await agentLifecycleContext(agent, db)).body as Ctx;
+    expect(on.journeyLinks).toEqual({ enabled: true });
+    expect(on.journeys[0]).toMatchObject({ id: first.id, continuesFrom: null, timeline: { emails: 5, sendTime: "09:00" } });
+    expect(on.journeys[0]!.timeline!.summary).toMatch(/^5 emails over about/);
+    const one = (await agentLifecycleJourney(agent, first.id, db)).body as { journey: { timeline: { emailDays: Array<{ day: number }> } } };
+    expect(one.journey.timeline.emailDays.map((s) => s.day)).toEqual([1, 2, 4, 8, 10]);
   });
 });
 

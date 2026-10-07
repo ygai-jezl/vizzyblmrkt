@@ -7,6 +7,8 @@ import { truncateCaption } from "@/lib/distribute/preview/instagram";
 import { deconstructToThread } from "@/lib/distribute/threadDeconstructor";
 import { wrap, renderEmailLayout, bodyToHtml } from "@/lib/email/emailRender";
 import { MarkdownMessage } from "@/components/admin/chat/MarkdownMessage";
+import { ArticleMarkdown } from "@/components/admin/workspace/create/blog/ArticleMarkdown";
+import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { splitChapterByImages } from "@/lib/content/create/ebookHtml";
 import { ebookAspectRatioCss } from "@/lib/content/create/ebook";
 import type { ContentNode, EbookDoc } from "@/lib/types/contentPlan";
@@ -413,7 +415,15 @@ function InstagramFrame({ node, view, brandName, workspaceId }: FrameProps) {
 function BlogFrame({ node, view, brandName }: FrameProps) {
   const { title, body } = splitBlogTitle(node);
   const brand = brandName || "Your Brand";
+  // CITABLE blog (flag on): the search result shows the meta title and description the
+  // writer proposed, and the article is drawn by the renderer the export and the checks
+  // share (tables, boxes, quotations, code). Flag off = exactly as before.
+  const citable = isBlogCitableUiEnabled();
   if (view === "feed") {
+    const serpTitle = (citable && node.blog?.metaTitle.trim()) || title;
+    // No meta description yet → the article's own opening, without the "Last updated" line.
+    const opening = citable ? body.replace(/^\s*[*_]*last updated\b[^\n]*\n+/i, "") : body;
+    const serpSnippet = (citable && node.blog?.metaDescription.trim()) || metaSnippet(opening);
     // As seen "in the feed" of a blog: the Google search result.
     return (
       <div className="rounded-lg border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950">
@@ -424,9 +434,9 @@ function BlogFrame({ node, view, brandName }: FrameProps) {
             <div>{domainFrom(brandName)} › blog</div>
           </div>
         </div>
-        <h3 className="mt-2 text-xl leading-snug text-[#1a0dab] dark:text-[#8ab4f8]">{title}</h3>
+        <h3 className="mt-2 text-xl leading-snug text-[#1a0dab] dark:text-[#8ab4f8]">{serpTitle}</h3>
         <p className="mt-1 text-sm leading-snug text-neutral-600 dark:text-neutral-400">
-          {metaSnippet(body) || "Your meta description preview appears here once the copy is generated."}
+          {serpSnippet || "Your meta description preview appears here once the copy is generated."}
         </p>
       </div>
     );
@@ -438,7 +448,11 @@ function BlogFrame({ node, view, brandName }: FrameProps) {
       <div className="mt-5">
         {node.body.trim() ? (
           body.trim() ? (
-            <MarkdownMessage content={body} />
+            citable ? (
+              <ArticleMarkdown markdown={body} />
+            ) : (
+              <MarkdownMessage content={body} />
+            )
           ) : null
         ) : (
           <EmptyCopy />

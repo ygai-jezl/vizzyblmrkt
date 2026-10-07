@@ -651,6 +651,17 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Journey links: a journey can continue from another journey. Its "Starts when"
+  # names the journey before it (set at either end: the later journey's start, or
+  # the earlier one's End), and the runner enrols people the moment they reach the
+  # end of that journey, so the new journey's waits count from there. The
+  # new-journey form and Vizzy ask whether a journey starts after another, read
+  # that journey's timeline, and build the follow-on sequence. On in dev; OFF in
+  # prod (apphosting.prod.yaml) until it's verified here.
+  - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # A write that leaves a user's state as it was (a daily re-sync resending the
   # same values) leaves no row in the Events tab, which counts them instead.
   # On in prod too since 2026-09-27 (apphosting.prod.yaml).
@@ -934,4 +945,22 @@ env:
   - variable: EMAIL_JOURNEY_STYLE_ENABLED
     value: "true"
     availability:
+      - RUNTIME
+  # Blog hubs written to the CITABLE structure (Create): a blog hub is researched first
+  # (the questions buyers ask, the brand's own pages to link to, third-party sources
+  # checked on the page — Gemini with Google Search, plus one fetch of each cited page),
+  # written answer-first with its sources, fact-checked against the brand's material, and
+  # handed over with a checklist, Markdown/HTML export and suggested schema markup. The
+  # server flag gates research, the writer and the fact check (and Vizzy's blog drafts);
+  # the NEXT_PUBLIC mirror shows the brief, checklist and export (needed at BUILD). Off:
+  # a blog hub is written exactly as before. ENABLED on dev; OFF in prod until verified
+  # (override in the prod yaml).
+  - variable: CREATE_BLOG_CITABLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_CITABLE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
       - RUNTIME

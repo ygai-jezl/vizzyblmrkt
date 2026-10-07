@@ -33,10 +33,11 @@ export {
   knowledgeChunksRef,
   verifyOwner,
   listKnowledgeChunks,
+  listKnowledgePages,
   deleteOwnerKnowledge,
   KNOWLEDGE_SUBCOLLECTION,
 } from "./knowledge";
-export type { KnowledgeChunkView } from "./knowledge";
+export type { KnowledgeChunkView, KnowledgePage } from "./knowledge";
 export {
   performanceExemplarsRef,
   writePerformanceExemplar,

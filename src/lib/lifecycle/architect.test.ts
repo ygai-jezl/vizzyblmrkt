@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { validateLifecycleDraft } from "./graph";
-import { applyOptions, ArchitectOptionsSchema, architectLifecycleDraft, tidyCopy } from "./architect";
+import { JOURNEY_COMPLETED_EVENT } from "@/lib/types/lifecycle";
+import { applyOptions, ArchitectOptionsSchema, architectLifecycleDraft, tidyCopy, type ArchitectAfter } from "./architect";
 
 const catalog: ConnectionCatalog = {
   events: [],
@@ -91,6 +92,44 @@ describe("architectLifecycleDraft", () => {
     if ("error" in r) throw new Error(r.detail);
     expect(r.notes).toHaveLength(9);
     expect(r.draft.pools[0]!.items[0]!.subject).toBe("Welcome to {{product.name}}, {{user.first_name|there}}");
+  });
+
+  it("builds the sequence that follows another journey: its timing, its window, and copy that knows what was sent", async () => {
+    const first = buildProductOnboardingDraft(catalog);
+    const after: ArchitectAfter = {
+      journeyId: "lcj_first",
+      name: "Onboarding",
+      settings: { ...first.settings, sendPolicy: { ...first.settings.sendPolicy, days: [1, 2, 3, 4], startHour: 8 } },
+      sent: ["W · Welcome", "R1 · Next step"],
+    };
+    const prompts: string[] = [];
+    const generate = async (prompt: string) => {
+      prompts.push(prompt);
+      return JSON.stringify({ subject: "One more thing", previewText: "", body: "<p>Hi {{user.first_name|there}}</p>" });
+    };
+    const r = await architectLifecycleDraft({ connection, template: "follow_on", after, options: { emails: 3, gapDays: 2 }, brief: "Useful, short", generate });
+    if ("error" in r) throw new Error(r.detail);
+    expect(r.draft.settings.trigger).toMatchObject({ event: JOURNEY_COMPLETED_EVENT, afterJourneyId: "lcj_first" });
+    // The earlier journey's window carries on; the days between emails are the ones asked for.
+    expect(r.draft.settings.sendPolicy).toMatchObject({ days: [1, 2, 3, 4], startHour: 8 });
+    expect(r.draft.graph.nodes.filter((n) => n.type === "wait").map((n) => n.data.wait)).toEqual(Array(3).fill({ minHours: 40, differentLocalDay: true }));
+    expect(prompts).toHaveLength(3);
+    expect(prompts[0]).toContain('a follow-on sequence for people who have finished its "Onboarding" emails');
+    expect(prompts[0]).toContain("W · Welcome; R1 · Next step");
+    expect(prompts[0]).not.toContain("post-signup onboarding journey");
+    expect(r.draft.pools[0]!.items[0]!.body).toContain("{{block.insight}}");
+    expect(validateLifecycleDraft(r.draft, catalog, { upstream: "ok" }).ok).toBe(true);
+
+    // The onboarding prompt reads as it always has.
+    const onboarding: string[] = [];
+    await architectLifecycleDraft({ connection, generate: async (p) => (onboarding.push(p), null) });
+    expect(onboarding[0]).toContain("as part of a short post-signup onboarding journey.");
+    // A follow-on needs the journey it follows; an onboarding sequence can simply start after one.
+    expect(await architectLifecycleDraft({ connection, template: "follow_on", options: { writeCopy: false } })).toMatchObject({ error: "invalid_options" });
+    const started = await architectLifecycleDraft({ connection, after, options: { writeCopy: false } });
+    if ("error" in started) throw new Error(started.detail);
+    expect(started.draft.settings.trigger.afterJourneyId).toBe("lcj_first");
+    expect(started.draft.pools.map((p) => p.id)).toContain("welcome");
   });
 
   it("can skip the copy entirely, and rejects bad options", async () => {

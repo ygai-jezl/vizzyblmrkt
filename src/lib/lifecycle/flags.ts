@@ -67,3 +67,13 @@ export function isLifecycleGoLiveSweepEnabled(): boolean {
 export function isLifecycleOptInAfterSignupEnabled(): boolean {
   return process.env.LIFECYCLE_OPT_IN_AFTER_SIGNUP === "true";
 }
+
+/**
+ * Server flag — a journey can continue from another journey. Its "Starts when" can
+ * name a journey instead of a product event; when someone reaches the end of that
+ * journey the runner enrols them here, and this journey's clock starts then. Off:
+ * nothing is handed on, and the editor, the new-journey form and Vizzy don't offer it.
+ */
+export function isLifecycleJourneyLinksEnabled(): boolean {
+  return process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED === "true";
+}

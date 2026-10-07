@@ -34,10 +34,11 @@ def draft_lifecycle_journey(
     connection_id: str,
     brief: str,
     tool_context: ToolContext,
-    template: str = "product_onboarding",
+    template: str = "",
     options: Optional[dict] = None,
     name: Optional[str] = None,
     journey_id: Optional[str] = None,
+    after_journey_id: Optional[str] = None,
 ) -> dict:
     """Build a lifecycle journey from a template and save it as a DRAFT.
 
@@ -52,18 +53,25 @@ def draft_lifecycle_journey(
         connection_id: The connected product (from get_lifecycle_context). If
             empty, the product of the page the operator is on is used.
         brief: The operator's words about tone and emphasis, passed to the copywriter.
-        template: "product_onboarding".
+        template: Leave empty for the usual one: "product_onboarding", or "follow_on"
+            when after_journey_id is given (the sequence that comes after that journey).
         options: Optional. {"days": 5|7|10|14, "sendDays": [0-6 weekdays, 0=Sunday],
             "sendTime": "HH:MM", "windowMinutes": 15-240, "reminders": 1-3,
             "education": 1-3, "sender": {"fromName", "fromEmail", "replyTo"},
-            "categoryLabel": "Onboarding tips"}. Leave out anything not asked for.
+            "categoryLabel": "Onboarding tips"}. For "follow_on": {"emails": 1-6,
+            "gapDays": 1-14} instead of days/reminders/education. Leave out anything
+            not asked for.
         name: Optional journey name.
         journey_id: Only to REBUILD an existing journey's draft from the template.
+        after_journey_id: The id of the journey this one CONTINUES FROM (from
+            get_lifecycle_context), when your instruction says journeys can continue
+            from one another. People then enter when they finish that journey, and
+            every wait counts from that moment.
 
     Returns:
         A status dict to relay (includes a card the chat shows with an Open canvas link).
     """
-    return client.draft_journey(_state(tool_context), connection_id, template, options, brief, name, journey_id)
+    return client.draft_journey(_state(tool_context), connection_id, template, options, brief, name, journey_id, after_journey_id)
 
 
 def get_lifecycle_journey(journey_id: str, tool_context: ToolContext) -> dict:
@@ -84,6 +92,7 @@ def save_lifecycle_graph(
     pools: Optional[list] = None,
     settings: Optional[dict] = None,
     name: Optional[str] = None,
+    after_journey_id: Optional[str] = None,
 ) -> dict:
     """Save a whole lifecycle journey draft you edited (or a custom structure).
 
@@ -100,11 +109,14 @@ def save_lifecycle_graph(
         pools: The content pools (omit to keep the journey's current pools).
         settings: The settings (omit to keep the journey's current settings).
         name: Optional new name (new journeys only).
+        after_journey_id: Make the journey CONTINUE FROM this journey (it starts when
+            someone finishes that one), when your instruction says journeys can
+            continue from one another. Omit to leave how it starts as it is.
 
     Returns:
         A status dict to relay, with any issues to fix.
     """
-    return client.save_graph(_state(tool_context), connection_id, journey_id, graph, pools, settings, brief, name)
+    return client.save_graph(_state(tool_context), connection_id, journey_id, graph, pools, settings, brief, name, after_journey_id)
 
 
 def learn_product_from_repo(

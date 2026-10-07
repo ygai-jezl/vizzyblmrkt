@@ -14,17 +14,20 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Plus, Trash2 } from "lucide-react";
-import type {
-  ContentPool,
-  LifecycleBranch,
-  LifecycleGraph,
-  LifecycleNodeData,
-  LifecycleNodeType,
-  WaitConfig,
+import {
+  startsAfterJourney,
+  type ContentPool,
+  type LifecycleBranch,
+  type LifecycleGraph,
+  type LifecycleNodeData,
+  type LifecycleNodeType,
+  type LifecycleSettings,
+  type WaitConfig,
 } from "@/lib/types/lifecycle";
 import { CanvasInfoContext, lifecycleNodeTypes } from "./nodes";
 import { ConditionList } from "./ConditionList";
-import { conditionText, newId, type FieldOption, type GraphIssue } from "./model";
+import { ContinuesFromField, ContinuesToList } from "./JourneyLinks";
+import { conditionText, newId, startLabel, type FieldOption, type GraphIssue, type JourneyChain } from "./model";
 import { Button, Field, inputClass } from "../connect/ui";
 
 /**
@@ -32,7 +35,22 @@ import { Button, Field, inputClass } from "../connect/ui";
  * delete) with an inspector for the selected step. The canvas owns the graph
  * while it's open and reports every real change upward; the parent remounts it
  * (via `key`) when the journey is reloaded.
+ *
+ * With journey links on (`links`), the Trigger says which journey this one
+ * continues from and lets you choose it, and each End lists the journeys that
+ * continue from this one and lets you add another.
  */
+
+/** Journey links: what the canvas's Trigger and End steps show and change. */
+export interface CanvasLinks {
+  journeyId: string;
+  chain: JourneyChain;
+  /** The draft's settings: the Trigger's "Continues from" edits their trigger. */
+  settings: LifecycleSettings;
+  onSettings: (next: LifecycleSettings) => void;
+  /** Another journey's draft now continues from this one: reload the links. */
+  onLinked: () => void;
+}
 
 type RFNode = Node<LifecycleNodeData>;
 
@@ -72,6 +90,16 @@ function edgeLabel(nodes: RFNode[], e: Edge, fields: FieldOption[]): string | un
   return b.label || (b.conditions[0] ? conditionText(b.conditions[0], fields) : b.id);
 }
 
+/**
+ * A wait of whole days lands a day late: emails go out in each person's send window, a moment
+ * after the email before did, so "48 hours" is just past the window two days on.
+ */
+function wholeDaysHint(w: WaitConfig | undefined): string | undefined {
+  if (!w || w.windowExemptHours != null || w.minHours < 24 || w.minHours % 24 !== 0) return undefined;
+  const days = w.minHours / 24;
+  return `Lands a day later than ${days} day${days === 1 ? "" : "s"}: it's just past their send window by then. For ${days} day${days === 1 ? "" : "s"}, use ${w.minHours - 8} and tick "On a later day".`;
+}
+
 function addable(waitlist: boolean): Array<{ type: LifecycleNodeType; label: string; data: () => LifecycleNodeData }> {
   return [
     { type: "email", label: "Email", data: () => ({ label: "Email" }) },
@@ -107,6 +135,7 @@ export function LifecycleCanvas({
   onChange,
   onEditContent,
   waitlist = false,
+  links = null,
 }: {
   graph: LifecycleGraph;
   pools: ContentPool[];
@@ -118,6 +147,8 @@ export function LifecycleCanvas({
   onEditContent: (poolId: string) => void;
   /** A launch's welcome journey (engine move). */
   waitlist?: boolean;
+  /** Journey links (LIFECYCLE_JOURNEY_LINKS_ENABLED); null = off, or a launch's journey. */
+  links?: CanvasLinks | null;
 }) {
   const ADDABLE = useMemo(() => addable(waitlist), [waitlist]);
   const seeded = useMemo(() => toRf(graph), []); // eslint-disable-line react-hooks/exhaustive-deps -- seed once; remount to reload
@@ -143,7 +174,18 @@ export function LifecycleCanvas({
     [edges, nodes, fields],
   );
   const flagged = useMemo(() => new Set(issues.flatMap((i) => (i.nodeId ? [i.nodeId] : []))), [issues]);
-  const info = useMemo(() => ({ pools, triggerEvent, fields, flagged }), [pools, triggerEvent, fields, flagged]);
+  const continuing = Boolean(links && startsAfterJourney(links.settings));
+  const info = useMemo(
+    () => ({
+      pools,
+      triggerEvent: links && continuing ? startLabel(links.settings, links.chain) : triggerEvent,
+      fields,
+      flagged,
+      ...(continuing ? { start: "the journey before" } : {}),
+      nextNames: links?.chain.next.map((n) => n.name) ?? [],
+    }),
+    [pools, triggerEvent, fields, flagged, links, continuing],
+  );
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -233,6 +275,7 @@ export function LifecycleCanvas({
               readOnly={readOnly}
               issues={issues.filter((i) => i.nodeId === selected.id)}
               waitlist={waitlist}
+              links={links}
               onPatch={(patch) => patchData(selected.id, patch)}
               onRemove={() => removeNode(selected.id)}
               onRemoveBranchEdges={(branchId) =>
@@ -273,6 +316,7 @@ function Inspector({
   readOnly,
   issues,
   waitlist,
+  links,
   onPatch,
   onRemove,
   onRemoveBranchEdges,
@@ -285,6 +329,7 @@ function Inspector({
   readOnly: boolean;
   issues: GraphIssue[];
   waitlist: boolean;
+  links: CanvasLinks | null;
   onPatch: (patch: Partial<LifecycleNodeData>) => void;
   onRemove: () => void;
   onRemoveBranchEdges: (branchId: string) => void;
@@ -294,6 +339,9 @@ function Inspector({
   const setWait = (patch: Partial<WaitConfig>) => onPatch({ wait: { minHours: 24, ...d.wait, ...patch } });
   const num = (v: string): number | undefined => (v.trim() === "" ? undefined : Math.max(0, Number(v)));
   const branches = d.branches ?? [];
+  // What this journey's clock counts from: sign-up, or the end of the journey it continues from.
+  const continuing = Boolean(links && startsAfterJourney(links.settings));
+  const start = continuing ? "they finish the journey before" : "sign-up";
   const setBranch = (i: number, patch: Partial<LifecycleBranch>) =>
     onPatch({ branches: branches.map((b, j) => (j === i ? { ...b, ...patch } : b)) });
 
@@ -317,6 +365,16 @@ function Inspector({
 
       {node.type === "trigger" && waitlist ? (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">People enter when they join the waitlist (once their email is verified).</p>
+      ) : node.type === "trigger" && links ? (
+        <div className="space-y-2">
+          <ContinuesFromField settings={links.settings} chain={links.chain} readOnly={readOnly} onChange={links.onSettings} />
+          {continuing ? null : (
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              People enter when <code className="font-mono text-xs">{triggerEvent}</code> arrives from the product. Change the
+              event on the Settings tab.
+            </p>
+          )}
+        </div>
       ) : node.type === "trigger" ? (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           People enter when <code className="font-mono text-xs">{triggerEvent}</code> arrives from the product. Change the
@@ -365,17 +423,20 @@ function Inspector({
         </div>
       ) : node.type === "wait" ? (
         <div className="space-y-2">
-          <Field label="At least (hours) after the previous email">
+          <Field label="At least (hours) after the previous email" hint={wholeDaysHint(d.wait)}>
             <input className={inputClass} type="number" min={0} step="0.25" disabled={readOnly} value={d.wait?.minHours ?? 0} onChange={(e) => setWait({ minHours: num(e.target.value) ?? 0 })} />
           </Field>
-          <Field label="And at least (hours) after sign-up" hint="Optional — keeps emails on the right day of the sequence.">
+          <Field label={`And at least (hours) after ${start}`} hint="Optional — keeps emails on the right day of the sequence.">
             <input className={inputClass} type="number" min={0} disabled={readOnly} value={d.wait?.sinceEnrolHours ?? ""} onChange={(e) => setWait({ sinceEnrolHours: num(e.target.value) })} />
           </Field>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" disabled={readOnly} checked={Boolean(d.wait?.differentLocalDay)} onChange={(e) => setWait({ differentLocalDay: e.target.checked || undefined })} />
             On a later day than the previous email
           </label>
-          <Field label="Send right away within (hours of sign-up)" hint="Ignores the send window early on — for a welcome email.">
+          <Field
+            label={continuing ? "Send right away within (hours of finishing the journey before)" : "Send right away within (hours of sign-up)"}
+            hint="Ignores the send window early on — for a welcome email."
+          >
             <input className={inputClass} type="number" min={0} max={48} step="0.25" disabled={readOnly} value={d.wait?.windowExemptHours ?? ""} onChange={(e) => setWait({ windowExemptHours: num(e.target.value) })} />
           </Field>
         </div>
@@ -460,6 +521,10 @@ function Inspector({
           />
           Then add them to the weekly newsletter
         </label>
+      ) : null}
+
+      {node.type === "exit" && links ? (
+        <ContinuesToList journeyId={links.journeyId} chain={links.chain} readOnly={readOnly} onLinked={links.onLinked} />
       ) : null}
     </div>
   );

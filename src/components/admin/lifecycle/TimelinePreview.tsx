@@ -9,6 +9,10 @@ import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui
  * Dry-run the saved DRAFT for an imagined person: pick their timezone, when
  * they sign up and when (if ever) they finish each onboarding step, and see
  * exactly when each email would go out — the runner's own decision code.
+ *
+ * A journey that continues from another shows the journeys before it first (as
+ * they run today), then its own emails from the moment those end — one timeline,
+ * with days counted from sign-up.
  */
 
 interface PlannedStep {
@@ -24,6 +28,10 @@ function localInputValue(ms: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/** A journey they go through first, when this one continues from another (journey links). */
+type Before = { journeyId: string; name: string; steps: PlannedStep[] };
+type Preview = { timezone: string; steps: PlannedStep[]; about?: About | null; before?: Before[]; reached?: boolean };
 
 type About = { found: boolean; mode?: "one" | "all" | "each"; one?: string; many?: string; count?: number; entity?: { id: string; name: string | null } | null };
 
@@ -52,7 +60,7 @@ export function TimelinePreview({
   const [signup, setSignup] = useState(localInputValue(Date.now()));
   const [done, setDone] = useState<Record<string, string>>({});
   const [userId, setUserId] = useState("");
-  const [result, setResult] = useState<{ timezone: string; steps: PlannedStep[]; about?: About | null } | null>(null);
+  const [result, setResult] = useState<Preview | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const run = async () => {
@@ -62,7 +70,7 @@ export function TimelinePreview({
         .filter(([, v]) => v.trim() !== "")
         .map(([k, v]) => [k, Math.max(0, Number(v) || 0)]),
     );
-    const r = await api<{ timezone: string; steps: PlannedStep[]; about?: About | null }>(`/api/admin/lifecycle/journeys/${journeyId}/preview`, {
+    const r = await api<Preview>(`/api/admin/lifecycle/journeys/${journeyId}/preview`, {
       method: "POST",
       body: JSON.stringify({ timezone, anchorAt: new Date(signup).toISOString(), stepsDoneAfterHours, ...(userId.trim() ? { userId: userId.trim() } : {}) }),
     });
@@ -107,6 +115,30 @@ export function TimelinePreview({
       </Section>
 
       {result?.about ? <p className="text-sm">{aboutLine(result.about)}</p> : null}
+      {result?.before?.map((b) => (
+        <div key={b.journeyId} className="space-y-2 opacity-70">
+          <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">First: {b.name}</p>
+          <ol className="space-y-2">
+            {b.steps.map((s, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-3 rounded-md border border-dashed border-neutral-200 px-3 py-2 text-sm dark:border-neutral-800">
+                <span className="w-14 text-xs text-neutral-500">Day {s.day}</span>
+                <span className="w-40 text-xs">{fmt(s.at, result.timezone)}</span>
+                <Badge tone={s.kind === "send" ? "green" : s.kind === "skip" ? "amber" : "neutral"}>{s.kind}</Badge>
+                <span>{s.label}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+      {result?.before?.length ? (
+        result.reached === false ? (
+          <Banner tone="info">
+            This person is stopped before the end of {result.before.at(-1)!.name}, so they never start this journey. Only people who reach its end go on.
+          </Banner>
+        ) : (
+          <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Then this journey (days counted from sign-up)</p>
+        )
+      ) : null}
       {result ? (
         <ol className="space-y-2">
           {result.steps.map((s, i) => (

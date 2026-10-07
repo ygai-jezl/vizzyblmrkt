@@ -7,12 +7,17 @@ import { Plus, Route } from "lucide-react";
 import { WAITLIST_STATUS_LABEL, type WaitlistJourneyRow } from "@/lib/journey/waitlistJourneyRows";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
+import { sendWindowText, type TimelineSummary } from "./model";
 
 /**
  * Journeys: every journey, and starting a new one. Before nav v2 phase 3 these
  * are the lifecycle (product) journeys only. With phase 3 the page passes
  * `waitlist` too, and this becomes the one list of automated email — each card
  * says who enters it, and "New journey" asks that first.
+ *
+ * With journey links on, a new product journey is asked, beside its name, whether
+ * it starts after another journey. Choosing one shows that journey's timeline and
+ * offers the follow-on sequence, whose timing counts from that journey's end.
  */
 
 interface JourneySummary {
@@ -25,7 +30,12 @@ interface JourneySummary {
   publishedVersion: number | null;
   authoredBy: "human" | "agent";
   updatedAt: string;
+  /** Journey links: the journey it continues from, and its own timeline. */
+  continuesFrom?: { id: string; name: string | null } | null;
+  timeline?: TimelineSummary | null;
 }
+
+const DEFAULT_NAME = "Post-signup onboarding";
 
 interface ConnectionOption {
   id: string;
@@ -73,7 +83,8 @@ export function JourneysHome({
   const [who, setWho] = useState<"waitlist" | "product" | null>(null);
   const [launchId, setLaunchId] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [form, setForm] = useState({ name: "Post-signup onboarding", connectionId: "", template: "product_onboarding" });
+  const [form, setForm] = useState({ name: DEFAULT_NAME, connectionId: "", template: "product_onboarding", afterJourneyId: "" });
+  const [links, setLinks] = useState(false);
   const [busy, setBusy] = useState(false);
   const [importDoc, setImportDoc] = useState<unknown>(null);
 
@@ -82,9 +93,12 @@ export function JourneysHome({
       setJourneys([]);
       return;
     }
-    const r = await api<{ journeys: JourneySummary[]; connections: ConnectionOption[] }>("/api/admin/lifecycle/journeys");
+    const r = await api<{ journeys: JourneySummary[]; connections: ConnectionOption[]; features?: { journeyLinks?: boolean } }>(
+      "/api/admin/lifecycle/journeys",
+    );
     if (!r.ok) return setError(errorText(r.data));
     setError(null);
+    setLinks(Boolean(r.data.features?.journeyLinks));
     setJourneys(r.data.journeys);
     setConnections(r.data.connections);
     setForm((f) => (f.connectionId ? f : { ...f, connectionId: r.data.connections[0]?.id ?? "" }));
@@ -105,7 +119,11 @@ export function JourneysHome({
       if (!r.ok) return setError(errorText(r.data));
       return router.push(`/admin/lifecycle/${r.data.journeyId}`);
     }
-    const r = await api<{ journey: { id: string } }>("/api/admin/lifecycle/journeys", { method: "POST", body: JSON.stringify(form) });
+    const { afterJourneyId, ...rest } = form;
+    const r = await api<{ journey: { id: string } }>("/api/admin/lifecycle/journeys", {
+      method: "POST",
+      body: JSON.stringify(after ? { ...rest, afterJourneyId } : rest),
+    });
     setBusy(false);
     if (!r.ok) return setError(errorText(r.data));
     router.push(`/admin/lifecycle/${r.data.journey.id}`);
@@ -127,6 +145,19 @@ export function JourneysHome({
   };
 
   const selected = connections.find((c) => c.id === form.connectionId);
+  // Journey links: the product's journeys this one could start after, and the one chosen.
+  const couldFollow = links ? (journeys ?? []).filter((j) => j.connectionId === form.connectionId) : [];
+  const after = couldFollow.find((j) => j.id === form.afterJourneyId) ?? null;
+  const setAfter = (id: string) => {
+    const next = couldFollow.find((j) => j.id === id);
+    setForm((f) => ({
+      ...f,
+      afterJourneyId: next ? id : "",
+      // Starting after a journey: the sequence that follows it. Back to a product event: the onboarding week.
+      template: next ? (f.template === "blank" ? "blank" : "follow_on") : f.template === "follow_on" ? "product_onboarding" : f.template,
+      name: next && (f.name === DEFAULT_NAME || f.name.startsWith("After ")) ? `After ${next.name}`.slice(0, 120) : !next && f.name.startsWith("After ") ? DEFAULT_NAME : f.name,
+    }));
+  };
   const openLaunches = (waitlist ?? []).filter((w) => !w.archived);
   const canStart = unified ? openLaunches.length > 0 || connections.length > 0 : connections.length > 0;
   const startNew = () => {
@@ -142,12 +173,36 @@ export function JourneysHome({
 
   const productForm = (
     <Section title="New journey" description="Starts as a draft in test mode. Nothing sends until you publish.">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${links ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
         <Field label="Name">
           <input className={inputClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
+        {links ? (
+          <Field label="Starts after another journey?">
+            <select className={inputClass} value={after?.id ?? ""} disabled={form.template === "import"} onChange={(e) => setAfter(e.target.value)}>
+              <option value="">No — a product event starts it</option>
+              {couldFollow.map((j) => (
+                <option key={j.id} value={j.id}>
+                  After {j.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
         <Field label="Product">
-          <select className={inputClass} value={form.connectionId} onChange={(e) => setForm({ ...form, connectionId: e.target.value })}>
+          <select
+            className={inputClass}
+            value={form.connectionId}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                connectionId: e.target.value,
+                // A journey continues from one on the same product.
+                afterJourneyId: "",
+                template: form.template === "follow_on" ? "product_onboarding" : form.template,
+              })
+            }
+          >
             {connections.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -158,12 +213,23 @@ export function JourneysHome({
         </Field>
         <Field label="Start from">
           <select className={inputClass} value={form.template} onChange={(e) => setForm({ ...form, template: e.target.value })}>
-            <option value="product_onboarding">7-day onboarding (splits on progress)</option>
+            {after ? (
+              <option value="follow_on">Follow-on sequence (4 emails, 3 days apart)</option>
+            ) : (
+              <option value="product_onboarding">7-day onboarding (splits on progress)</option>
+            )}
             <option value="blank">Blank canvas</option>
-            <option value="import">Import a journey file</option>
+            {after ? null : <option value="import">Import a journey file</option>}
           </select>
         </Field>
       </div>
+      {after ? (
+        <Banner tone="info">
+          {after.name} sends {after.timeline ? `${after.timeline.text}, ${sendWindowText(after.timeline)}` : "its emails first"}. This journey starts when
+          someone reaches its end, sends on the same days at the same time, and counts its waits from that moment — not from sign-up.
+          {after.status !== "active" ? " Nobody finishes it until it's live." : ""}
+        </Banner>
+      ) : null}
       {form.template === "import" ? (
         <Field label="Journey file" hint="A .journey.json downloaded from any journey (yours or another account's). It becomes a draft on this product.">
           <input type="file" accept="application/json,.json" className="text-sm" onChange={(e) => void pickFile(e.target.files?.[0])} />
@@ -350,6 +416,7 @@ export function JourneysHome({
                     {unified ? null : <>{j.connectionName ?? "Removed product"} · </>}
                     {j.publishedVersion ? `v${j.publishedVersion}` : "not published"} · edited {timeAgo(j.updatedAt)}
                     {j.authoredBy === "agent" ? " · drafted with Vizzy" : ""}
+                    {links && j.continuesFrom ? ` · continues from ${j.continuesFrom.name ?? "a journey that's gone"}` : ""}
                   </p>
                 </Link>
               </li>

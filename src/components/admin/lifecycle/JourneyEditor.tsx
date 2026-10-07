@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Copy, Download, MessageSquare, Pause, Play, Rocket, Save, Sparkles } from "lucide-react";
-import type { LifecycleDraft, LifecycleGraph, LifecycleJourney } from "@/lib/types/lifecycle";
+import { continuesFromId, type LifecycleDraft, type LifecycleGraph, type LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Tabs, inputClass } from "../connect/ui";
 import { LifecycleCanvas } from "./LifecycleCanvas";
@@ -38,6 +38,11 @@ import {
  * preview wears the draft's, Save sends it only once its control is touched (so an
  * older tab can't undo Vizzy's), and Publish makes it live for every next email.
  * Vizzy can set it from the docked chat or the Ask Vizzy panel, and the editor reloads.
+ *
+ * With journey links on, a product journey can continue from another: its start
+ * (Settings and the canvas's Trigger) picks the journey before it, and its End
+ * lists and adds the journeys after it — which changes THEIR drafts, so only the
+ * links are reloaded then, never this journey's unsaved edits.
  */
 
 type Tab = "canvas" | "content" | "settings" | "delivery" | "people" | "preview" | "results";
@@ -126,6 +131,11 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
     setDraft((d) => (d ? { ...d, ...patch } : d));
     setDirty(true);
   }, []);
+  /** Another journey's draft now continues from this one: fetch the links again, keeping the edits here. */
+  const reloadLinks = useCallback(async () => {
+    const r = await api<JourneyDetail>(`/api/admin/lifecycle/journeys/${journeyId}`);
+    if (r.ok) setDetail((d) => (d ? { ...d, chain: r.data.chain } : d));
+  }, [journeyId]);
   const onGraph = useCallback((graph: LifecycleGraph) => edit({ graph }), [edit]);
 
   const waitlist = detail?.audience === "waitlist";
@@ -220,6 +230,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const connection = detail.connection;
   const launch = detail.launch;
   const tabs = waitlist ? TABS.filter((t) => t.id !== "preview") : TABS;
+  // Journey links: product journeys only, while the flag is on.
+  const chain = (!waitlist && detail.features.journeyLinks && detail.chain) || null;
   const styleChangedSincePublish =
     Boolean(ownStyle && journey.publishedVersion) && !sameJourneyStyle(draft.settings.emailStyle, journey.emailStyle);
 
@@ -355,6 +367,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
       {generating ? (
         <GeneratePanel
           journeyId={journey.id}
+          // A journey that continues from another is rebuilt as the sequence that follows it.
+          after={(chain && chain.journeys.find((j) => j.id === continuesFromId(journey.draft.settings))) || null}
           onCancel={() => setGenerating(false)}
           onDone={(notes) => {
             setGenerating(false);
@@ -400,6 +414,17 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           issues={issues}
           readOnly={readOnly}
           waitlist={waitlist}
+          links={
+            chain
+              ? {
+                  journeyId: journey.id,
+                  chain,
+                  settings: draft.settings,
+                  onSettings: (settings) => edit({ settings }),
+                  onLinked: () => void reloadLinks(),
+                }
+              : null
+          }
           onChange={onGraph}
           onEditContent={(poolId) => {
             setFocusPool(poolId);
@@ -436,6 +461,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           optInAfterSignup={detail.features.optInAfterSignup}
           entities={detail.features.entities}
           emailStyleEnabled={detail.features.emailStyle}
+          chain={chain}
           journeyStyle={
             ownStyle
               ? {

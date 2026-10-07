@@ -13,10 +13,15 @@ import { conditionText, poolLabel, waitSummary, type FieldOption } from "./model
 
 export interface CanvasInfo {
   pools: ContentPool[];
+  /** What the trigger shows: the product event, or "after <journey>" when it continues from one. */
   triggerEvent: string;
   fields: FieldOption[];
   /** Node ids with a validation issue (outlined red). */
   flagged: Set<string>;
+  /** What the journey's clock counts from: "sign-up", or "the journey before". */
+  start?: string;
+  /** The journeys that continue from this one (journey links), shown on each End. */
+  nextNames?: string[];
 }
 
 export const CanvasInfoContext = createContext<CanvasInfo>({
@@ -36,7 +41,7 @@ export function TriggerNode({ id, selected }: NodeProps) {
   return (
     <div className={box(selected, "border-green-500", info.flagged.has(id))}>
       <div className="text-xs font-semibold text-green-700 dark:text-green-400">▶ Trigger</div>
-      <div className="truncate font-mono text-[11px] text-neutral-500">{info.triggerEvent}</div>
+      <div className={`truncate text-[11px] text-neutral-500 ${info.start ? "" : "font-mono"}`}>{info.triggerEvent}</div>
       <Handle type="source" position={Position.Bottom} />
     </div>
   );
@@ -68,7 +73,7 @@ export function WaitNode({ id, data, selected }: NodeProps) {
     <div className={box(selected, "border-amber-500", info.flagged.has(id))}>
       <Handle type="target" position={Position.Top} />
       <div className="text-xs font-semibold text-amber-700 dark:text-amber-400">⏱ {d.label || "Wait"}</div>
-      <div className="text-[11px] text-neutral-600 dark:text-neutral-400">{waitSummary(d.wait)}</div>
+      <div className="text-[11px] text-neutral-600 dark:text-neutral-400">{waitSummary(d.wait, info.start)}</div>
       <Handle type="source" position={Position.Bottom} />
     </div>
   );
@@ -81,7 +86,9 @@ export function ExitNode({ id, data, selected }: NodeProps) {
     <div className={box(selected, "border-rose-500", info.flagged.has(id))}>
       <Handle type="target" position={Position.Top} />
       <div className="text-xs font-semibold text-rose-700 dark:text-rose-400">⇥ {d.label || "Exit"}</div>
-      <div className="text-[11px] text-neutral-500">End of journey</div>
+      <div className="truncate text-[11px] text-neutral-500">
+        {info.nextNames?.length ? `Then: ${info.nextNames.join(", ")}` : "End of journey"}
+      </div>
     </div>
   );
 }

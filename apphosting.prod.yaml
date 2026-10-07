@@ -785,15 +785,16 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Blog hubs written to the CITABLE structure (see apphosting.yaml): OFF in prod until
-  # verified on dev and flipped with a chore(prod) change. Both have to be set here:
-  # this file only overrides apphosting.yaml, so a flag left out would be on.
+  # Blog hubs written to the CITABLE structure (see apphosting.yaml): on in prod since
+  # 2026-10-07 (owner decision, before the dev click-through). To switch it off, set
+  # BOTH to "false" here: this file only overrides apphosting.yaml, so a flag left out
+  # would be on.
   - variable: CREATE_BLOG_CITABLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BLOG_CITABLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

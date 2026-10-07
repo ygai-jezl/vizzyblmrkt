@@ -45,9 +45,10 @@ def draft_content_plan(
 
     The server lays out the pieces (a hub plus promo and spoke posts, or an email
     sequence) and writes the hub (or the emails) in the brand voice. Nothing is
-    approved, scheduled or published. A blog hub is researched first (the questions
-    buyers ask, the brand's own pages to link to, third-party sources checked on the
-    page) and written as an answer-first article with its sources.
+    approved, scheduled or published. Where it is switched on, a blog hub is
+    researched first (the questions buyers ask, the brand's own pages to link to,
+    third-party sources checked on the page), written as an answer-first article
+    with its sources, and fact-checked; the result's message says what was done.
 
     Args:
         name: A short plan name.

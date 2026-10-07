@@ -190,7 +190,7 @@ export async function authorContentPlanDraft(
     built = { ok: false, status: 502, error: "architect_failed" };
   }
   // Let research finish (and save the brief) before the plan is written to or removed.
-  await researching;
+  const researched = Boolean((await researching)?.ok);
   if (!built.ok) {
     // Nothing is written yet: don't leave an empty plan behind for every retry.
     await deleteContentPlan(ctx, ws.id, created.id, deps.db).catch(() => undefined);
@@ -221,14 +221,18 @@ export async function authorContentPlanDraft(
   }
 
   const { url, card: c } = card(plan, ws, result.failed.length);
+  // Vizzy repeats this to the operator, so it says exactly what was done to a blog hub —
+  // and nothing about research or a fact check when neither ran (the flag is off).
+  const blogSteps = blogHub
+    ? `the article is ${researched ? "researched and written" : "written"}` +
+      (factsChecked ? " and fact-checked" : "") +
+      (researched ? "" : " (research didn't finish: press Research on the canvas for sources)") +
+      (factsChecked ? "" : " (press Check facts on the canvas before you approve it)")
+    : null;
   const written = sequence
     ? `${result.filled.length} of ${toFill.length} emails written`
     : result.filled.length
-      ? blogHub
-        ? factsChecked
-          ? "the article is written and fact-checked"
-          : "the article is written (press Check facts on the canvas before you approve it)"
-        : "the hub is written"
+      ? (blogSteps ?? "the hub is written")
       : "the hub still needs writing";
   return {
     ok: true,

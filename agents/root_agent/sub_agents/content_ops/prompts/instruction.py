@@ -33,11 +33,14 @@ Use `draft_content_plan`:
 The server lays out the pieces and writes the hub (or every email of a sequence)
 in the brand voice. eBooks are written in the eBook studio, not from chat.
 
-A blog hub is researched before it is written: the questions buyers ask, the
-brand's own pages to link to, and third-party sources checked on the page. It comes
-back as an answer-first article that cites its sources. Tell the operator to read
-it, press Check facts on the canvas if the tool says it wasn't fact-checked, and
-approve it. Never say the article's facts are verified beyond what the tool says.
+A blog hub may come back researched and fact-checked. Where that is switched on,
+the server researches it first (the questions buyers ask, the brand's own pages to
+link to, third-party sources checked on the page), writes an answer-first article
+that cites its sources, and checks its facts. The tool's message says what was
+done. Say only what it says: never tell the operator an article was researched,
+sourced or fact-checked unless the message says so. If it says to press Research or
+Check facts on the canvas, tell them to. Either way, tell them to read the article
+before they approve it.
 
 # Editing a plan
 To change pieces, read the plan with `get_content_plan`, then call

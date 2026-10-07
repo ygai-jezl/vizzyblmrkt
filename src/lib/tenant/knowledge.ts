@@ -121,6 +121,49 @@ export async function listKnowledgeChunks(
   return rows;
 }
 
+export interface KnowledgePage {
+  /** The page's URL (a crawled page) or the file's blob URL (a repo file). */
+  sourceUri: string;
+  title: string;
+  path: string | null;
+  source: string;
+}
+
+/**
+ * The distinct PAGES (crawled pages, or repo files) one source put into an owner's
+ * knowledge base — what the programme knows exists, without any of the text. CALLER
+ * MUST have verified owner ownership first. Reads only the four fields it returns
+ * (`select`), never content or embeddings, and stops at `limit` chunks, so a large
+ * source costs a bounded read. A page's title is its first chunk's.
+ */
+export async function listKnowledgePages(
+  ctx: TenantContext,
+  ownerKind: KnowledgeOwnerKind,
+  ownerId: string,
+  opts: { ticketId: string; limit?: number },
+): Promise<KnowledgePage[]> {
+  const snap = await rawChunksCollection(ctx, ownerKind, ownerId)
+    .where("ticketId", "==", opts.ticketId)
+    .select("sourceUri", "title", "path", "source", "chunkIndex")
+    .limit(Math.min(Math.max(opts.limit ?? 600, 1), 2000))
+    .get();
+  const rows = snap.docs
+    .map((d) => d.data())
+    .filter((x) => typeof x.sourceUri === "string" && x.sourceUri)
+    .sort((a, b) => (Number(a.chunkIndex) || 0) - (Number(b.chunkIndex) || 0));
+  const pages = new Map<string, KnowledgePage>();
+  for (const x of rows) {
+    if (pages.has(x.sourceUri)) continue;
+    pages.set(x.sourceUri, {
+      sourceUri: x.sourceUri,
+      title: typeof x.title === "string" ? x.title : "",
+      path: typeof x.path === "string" ? x.path : null,
+      source: typeof x.source === "string" ? x.source : "",
+    });
+  }
+  return [...pages.values()];
+}
+
 /**
  * Delete an owner's knowledge chunks (all, or just one ticket's). CALLER MUST
  * have verified ownership first. Returns the count deleted.

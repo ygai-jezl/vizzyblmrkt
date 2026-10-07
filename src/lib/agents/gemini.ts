@@ -76,11 +76,36 @@ export function isLiveConfigured(): boolean {
   return getLiveTokenClient() !== null;
 }
 
-/** Generate text, or null on missing config / error. */
-export async function generateText(prompt: string): Promise<string | null> {
+/** How much a call may "think" before it answers, in tokens. Thinking is most of a long
+ *  call's time, so a caller that has to return soon caps it. */
+export interface ThinkingOptions {
+  thinkingBudget?: number;
+}
+
+function thinkingConfig(opts: ThinkingOptions): { thinkingConfig: { thinkingBudget: number } } | Record<string, never> {
+  return opts.thinkingBudget !== undefined ? { thinkingConfig: { thinkingBudget: opts.thinkingBudget } } : {};
+}
+
+/**
+ * Generate text, or null on missing config / error. With a `thinkingBudget`, a model that
+ * won't take the setting (models change — see modelConfig.ts) is asked again without it,
+ * so the cap can only ever make a call faster, never make it fail.
+ */
+export async function generateText(prompt: string, opts: ThinkingOptions = {}): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
   try {
+    if (opts.thinkingBudget !== undefined) {
+      try {
+        const capped = await ai.models.generateContent({ model: TEXT_MODEL, contents: prompt, config: thinkingConfig(opts) });
+        return capped.text ?? null;
+      } catch (err) {
+        console.warn(
+          "[gemini] generateText with a thinking budget failed; retrying without it:",
+          err instanceof Error ? err.message.slice(0, 200) : "error",
+        );
+      }
+    }
     const res = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: prompt,
@@ -95,11 +120,13 @@ export async function generateText(prompt: string): Promise<string | null> {
 /**
  * Generate text within a hard deadline — ONE attempt, aborted client-side when
  * the deadline passes. Null on timeout, missing config or any error, so callers
- * fall back to deterministic content. `json` asks for a JSON response.
+ * fall back to deterministic content. `json` asks for a JSON response;
+ * `thinkingBudget` caps how long the model reasons first (one attempt still: a
+ * model that rejects the setting returns null like any other error).
  */
 export async function generateTextWithDeadline(
   prompt: string,
-  opts: { timeoutMs: number; json?: boolean; temperature?: number },
+  opts: { timeoutMs: number; json?: boolean; temperature?: number } & ThinkingOptions,
 ): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
@@ -113,6 +140,7 @@ export async function generateTextWithDeadline(
           abortSignal: signal,
           ...(opts.json ? { responseMimeType: "application/json" } : {}),
           ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+          ...thinkingConfig(opts),
         },
       }),
       new Promise<never>((_, reject) => {
@@ -253,6 +281,86 @@ export async function generateGroundedJson(
       err instanceof Error ? err.message.slice(0, 200) : "error",
     );
     return { json: null, groundingUsed: false, model: TEXT_MODEL };
+  }
+}
+
+/** A page Google Search returned for a grounded call. `uri` is Google's redirect link
+ *  to it (the page's own address is one hop behind it); `domain` is the page's host. */
+export interface GroundedSource {
+  uri: string;
+  title: string;
+  domain: string;
+}
+
+/** A stretch of the answer and the sources (indexes into `sources`) that back it. */
+export interface GroundedSupport {
+  text: string;
+  /** Byte offsets of the stretch in the answer text, when the API gives them. */
+  start: number | null;
+  end: number | null;
+  sourceIndexes: number[];
+}
+
+export interface GroundedTextResult {
+  text: string;
+  sources: GroundedSource[];
+  supports: GroundedSupport[];
+  model: string;
+}
+
+/**
+ * Generate text grounded in Google Search AND return what grounded it: the pages search
+ * returned and which stretch of the answer each one backs. For callers that must tie a
+ * claim to the page it came from (blog research) — the model's own idea of where a fact
+ * came from is not evidence; this is. Everything happens within `timeoutMs`. Null when
+ * Gemini is unconfigured, times out or errors, so the caller carries on without
+ * research. With a `thinkingBudget`, a model that won't take the setting is asked again
+ * without it while there is time. Never logs the prompt.
+ */
+export async function generateGroundedText(
+  prompt: string,
+  opts: { timeoutMs?: number } & ThinkingOptions = {},
+): Promise<GroundedTextResult | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? 45_000);
+  const deadline = new Promise<never>((_, reject) => {
+    signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+  });
+  // The race's loser may reject after the call has settled; that is not an error.
+  deadline.catch(() => undefined);
+  const ask = (capped: boolean) =>
+    Promise.race([
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }], abortSignal: signal, ...(capped ? thinkingConfig(opts) : {}) },
+      }),
+      deadline,
+    ]);
+  try {
+    const res = await ask(opts.thinkingBudget !== undefined).catch((err: unknown) => {
+      if (opts.thinkingBudget === undefined || signal.aborted) throw err;
+      return ask(false);
+    });
+    const meta = res.candidates?.[0]?.groundingMetadata;
+    const sources: GroundedSource[] = (meta?.groundingChunks ?? []).map((c) => {
+      const web = c.web as { uri?: string; title?: string; domain?: string } | undefined;
+      return { uri: web?.uri ?? "", title: web?.title ?? "", domain: web?.domain ?? web?.title ?? "" };
+    });
+    const supports: GroundedSupport[] = (meta?.groundingSupports ?? []).map((s) => ({
+      text: s.segment?.text ?? "",
+      start: typeof s.segment?.startIndex === "number" ? s.segment.startIndex : null,
+      end: typeof s.segment?.endIndex === "number" ? s.segment.endIndex : null,
+      sourceIndexes: (s.groundingChunkIndices ?? []).filter((i) => Number.isInteger(i) && i >= 0 && i < sources.length),
+    }));
+    return { text: res.text ?? "", sources, supports, model: TEXT_MODEL };
+  } catch (err) {
+    console.warn(
+      "[gemini] generateGroundedText failed:",
+      err instanceof Error ? err.message.slice(0, 200) : "error",
+    );
+    return null;
   }
 }
 

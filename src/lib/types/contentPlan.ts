@@ -161,6 +161,158 @@ export const EbookDocSchema = z.object({
 });
 export type EbookDoc = z.infer<typeof EbookDocSchema>;
 
+// ── Blog hub, written to the CITABLE structure (flag CREATE_BLOG_CITABLE_ENABLED) ──
+// A blog hub carries a BRIEF on the plan (what buyers ask, which pages it may link to,
+// which sources it may cite) and a small META record on the hub node (what the writer
+// proposed, and what the checks found). All additive + nullable: plans saved before
+// this, and every non-blog plan, parse and behave exactly as they did.
+
+/** Only https links are ever written into an article or shown as a link in the admin. */
+const HttpsUrl = z
+  .string()
+  .max(2000)
+  .refine((u) => /^https:\/\/[^\s<>"']+$/i.test(u), "must be an https URL");
+
+/** Who put a row in the brief. Research replaces its own rows; a person's rows stay. */
+export const BlogRowBy = z.enum(["research", "operator"]);
+export type BlogRowBy = z.infer<typeof BlogRowBy>;
+
+/** The buyer intent a question (and its section of the article) answers. */
+export const BlogIntent = z.enum([
+  "definition",
+  "how_to",
+  "alternatives",
+  "comparison",
+  "integrations",
+  "use_cases",
+  "pricing",
+  "limits",
+  "benchmarks",
+  "other",
+]);
+export type BlogIntent = z.infer<typeof BlogIntent>;
+
+export const BlogQuestionSchema = z.object({
+  question: z.string().min(1).max(300),
+  intent: BlogIntent.default("other"),
+  by: BlogRowBy.default("operator"),
+});
+export type BlogQuestion = z.infer<typeof BlogQuestionSchema>;
+
+/** What a page is for when the article links to it: `convert` = a page that turns a
+ *  reader into a lead or customer (pricing, demo, sign-up); the rest go deeper. */
+export const BlogLinkIntent = z.enum(["convert", "product", "proof", "compare", "learn"]);
+export type BlogLinkIntent = z.infer<typeof BlogLinkIntent>;
+
+export const BlogLinkSchema = z.object({
+  url: HttpsUrl,
+  label: z.string().max(160).default(""),
+  intent: BlogLinkIntent.default("learn"),
+  by: BlogRowBy.default("operator"),
+});
+export type BlogLink = z.infer<typeof BlogLinkSchema>;
+
+/**
+ * A third-party source the article may cite. `verified` = the figures in `fact` were
+ * found on the page itself when research fetched it; `unverified` = search returned the
+ * page but the figures could not be confirmed on it (blocked, or not there), so the
+ * writer is NOT given it until a person checks it; `operator` = added or confirmed by a
+ * person.
+ */
+export const BlogSourceStatus = z.enum(["verified", "unverified", "operator"]);
+export type BlogSourceStatus = z.infer<typeof BlogSourceStatus>;
+
+export const BlogSourceSchema = z.object({
+  url: HttpsUrl,
+  title: z.string().max(200).default(""),
+  /** The site's own name, else its domain. Never the model's guess at who said it. */
+  publisher: z.string().max(120).default(""),
+  /** The year the page says it was published; null when the page does not say. */
+  year: z.number().int().min(1990).max(2100).nullable().default(null),
+  /** One sentence the article may state and cite to this source. */
+  fact: z.string().max(600).default(""),
+  status: BlogSourceStatus.default("operator"),
+});
+export type BlogSource = z.infer<typeof BlogSourceSchema>;
+
+/** A thing the article should name, and how it relates to the brand. */
+export const BlogEntityRelation = z.enum([
+  "brand",
+  "product",
+  "category",
+  "alternative",
+  "integration",
+  "audience",
+  "use_case",
+]);
+export type BlogEntityRelation = z.infer<typeof BlogEntityRelation>;
+
+export const BlogEntitySchema = z.object({
+  name: z.string().min(1).max(120),
+  relation: BlogEntityRelation,
+  by: BlogRowBy.default("operator"),
+});
+export type BlogEntity = z.infer<typeof BlogEntitySchema>;
+
+const MAX_BLOG_QUESTIONS = 10;
+const MAX_BLOG_LINKS = 12;
+const MAX_BLOG_SOURCES = 12;
+const MAX_BLOG_ENTITIES = 16;
+
+/** The blog hub's brief. Lives on the plan; research fills it and the operator edits it. */
+export const BlogBriefSchema = z.object({
+  /** The question the article answers — its H1. "" = research (or the writer) picks one. */
+  primaryQuestion: z.string().max(300).default(""),
+  /** Whatever the operator knows buyers ask (sales calls, support, search data), pasted as
+   *  is. Untrusted DATA in every prompt. */
+  buyerQuestions: z.string().max(6000).default(""),
+  /** The questions buyers ask next — one section of the article each. */
+  questions: z.array(BlogQuestionSchema).max(MAX_BLOG_QUESTIONS).default([]),
+  /** The ONLY pages the article may link to on the brand's own site. */
+  links: z.array(BlogLinkSchema).max(MAX_BLOG_LINKS).default([]),
+  /** The ONLY third-party pages the article may cite. */
+  sources: z.array(BlogSourceSchema).max(MAX_BLOG_SOURCES).default([]),
+  entities: z.array(BlogEntitySchema).max(MAX_BLOG_ENTITIES).default([]),
+  /** The brand the article is published by (suggested schema markup). "" = the programme's name. */
+  publisherName: z.string().max(120).default(""),
+  /** The brand's site, e.g. https://example.com. "" = left out of the markup. */
+  publisherUrl: z.union([HttpsUrl, z.literal("")]).default(""),
+  /** A named author for the byline. "" = the brand is the author. */
+  author: z.string().max(120).default(""),
+  /** When research last ran (ISO); null = never. */
+  researchedAt: z.string().nullable().default(null),
+});
+export type BlogBrief = z.infer<typeof BlogBriefSchema>;
+
+/** One sentence the fact check changed because the brand's material does not say it. */
+export const BlogCorrectionSchema = z.object({
+  /** The sentence as the writer had it. */
+  before: z.string().max(600),
+  /** What it was changed to; "" = it was taken out. */
+  after: z.string().max(600).default(""),
+  /** Why, in a few words. */
+  reason: z.string().max(200).default(""),
+});
+export type BlogCorrection = z.infer<typeof BlogCorrectionSchema>;
+
+/** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
+export const BlogArticleMetaSchema = z.object({
+  metaTitle: z.string().max(120).default(""),
+  metaDescription: z.string().max(320).default(""),
+  slug: z.string().max(120).default(""),
+  /** The date stamped into the article's "Last updated" line (YYYY-MM-DD, server clock). */
+  lastUpdated: z.string().max(10).default(""),
+  /** Figures in the copy that were not found in anything the writer was given. */
+  unsupportedFigures: z.array(z.string().max(60)).max(20).default([]),
+  /** Links the writer used that were not on the allowed lists (taken out of the copy). */
+  removedLinks: z.array(z.string().max(300)).max(20).default([]),
+  /** When the fact check last ran on this copy (ISO); null = not yet. */
+  checkedAt: z.string().nullable().default(null),
+  /** What the fact check changed, for the operator to see. */
+  corrections: z.array(BlogCorrectionSchema).max(12).default([]),
+});
+export type BlogArticleMeta = z.infer<typeof BlogArticleMetaSchema>;
+
 export const ContentNodeSchema = z.object({
   id: z.string().min(1).max(64),
   type: ContentNodeType,
@@ -234,6 +386,9 @@ export const ContentNodeSchema = z.object({
   //    authored book is copied here from `ContentPlan.ebookDraft` at finalize so the
   //    canvas hub node IS the eBook. Additive + nullable so old/other plans parse. ──
   ebook: EbookDocSchema.nullable().optional(),
+  // ── Blog hub (only on the `hub` node of a blog plan written to the CITABLE structure;
+  //    null elsewhere). Additive + nullable so old/other plans parse. ──
+  blog: BlogArticleMetaSchema.nullable().optional(),
 });
 export type ContentNode = z.infer<typeof ContentNodeSchema>;
 
@@ -302,6 +457,9 @@ export const ContentPlanSchema = z.object({
   /** eBook only — the book being authored in the studio BEFORE it's finalized onto the
    *  canvas hub node. Null for newsletter/blog/sequence plans and until the ToC exists. */
   ebookDraft: EbookDocSchema.nullable().optional(),
+  /** Blog only — the hub's brief (buyer questions, allowed links and sources). Null for
+   *  every other plan, and for blog plans made before the CITABLE structure. */
+  blog: BlogBriefSchema.nullable().optional(),
   /** Who made the plan: a person, or Vizzy from chat (nav v2 phase 4). Absent = a person. */
   authoredBy: z.enum(["human", "agent"]).optional(),
   /** Bumped on each Vizzy save; the canvas remounts on a change so it shows Vizzy's version. */
@@ -321,4 +479,8 @@ export const CONTENT_PLAN_LIMITS = {
   MAX_CHAPTERS,
   MAX_IMAGES_PER_CHAPTER,
   MAX_CHAPTER_CHARS,
+  MAX_BLOG_QUESTIONS,
+  MAX_BLOG_LINKS,
+  MAX_BLOG_SOURCES,
+  MAX_BLOG_ENTITIES,
 } as const;

@@ -22,6 +22,8 @@ import {
   type ImageModelSlug,
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
+import type { BlogHubControls } from "./blog/types";
 import type { TemplateOption } from "./types";
 
 /**
@@ -50,6 +52,7 @@ export function ContentNodeInspector({
   onOpenLayout,
   onOpenPreview,
   onImageBusyChange,
+  blog,
 }: {
   node: ContentNode;
   workspaceId: string;
@@ -72,6 +75,9 @@ export function ContentNodeInspector({
   onOpenLayout?: () => void;
   /** Content nodes — open the channel-native WYSIWYG preview (feed / opened). */
   onOpenPreview?: () => void;
+  /** Blog hub written to the CITABLE structure — the plan's brief plus the research and
+   *  fact-check actions (the canvas owns both). Absent = a blog hub as it always was. */
+  blog?: BlogHubControls;
 }) {
   const tokenEntries = Object.entries(node.placeholderValues ?? {});
   // Templates for this channel first (the relevant ones), then the rest.
@@ -84,6 +90,8 @@ export function ContentNodeInspector({
   // briefed from connections (matches the API guard).
   const isBriefable =
     node.type === "spoke" || node.type === "promo_pre" || node.type === "promo_post";
+  // The brief and the review only belong to the blog hub itself — never a blog spoke.
+  const blogHub = blog && node.type === "hub" && node.channel === "blog" ? blog : null;
 
   // Structural sequence nodes (trigger / wait / condition) carry no copy — a compact
   // inspector that just edits their config.
@@ -347,6 +355,9 @@ export function ContentNodeInspector({
         </label>
       ) : null}
 
+      {/* Blog hub — what the article may say, link to and cite, settled before it is written. */}
+      {blogHub ? <BlogHubBrief controls={blogHub} disabled={busy} /> : null}
+
       {/* Brief is the AI's generation instruction — auto-written when the node is connected
           (from its upstream context up to the hub), editable to refine, and re-suggestable
           on demand. The canvas persists it before generating. */}
@@ -429,6 +440,9 @@ export function ContentNodeInspector({
           }`}
         />
       </label>
+
+      {/* Blog hub — the fact check, the CITABLE check and the hand-over, read off the copy above. */}
+      {blogHub ? <BlogHubReview node={node} controls={blogHub} onUpdate={onUpdate} disabled={busy} /> : null}
 
       {tokenEntries.length ? (
         <div className="mt-4">

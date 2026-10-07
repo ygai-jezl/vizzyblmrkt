@@ -6,6 +6,7 @@ import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
 import { SEQUENCE_BLUEPRINTS } from "@/lib/content/create/sequenceBlueprints";
 import { isEbookUiEnabled } from "@/lib/content/create/ebook";
+import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { IngestBar } from "@/components/admin/workspace/IngestBar";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentObjective, ContentPlan, SequenceType } from "@/lib/types/contentPlan";
@@ -55,6 +56,8 @@ export function CreateWizard({
   const [spokeChannels, setSpokeChannels] = useState<string[]>(["linkedin", "x"]);
   const [isEbook, setIsEbook] = useState(false);
   const [industryLens, setIndustryLens] = useState("");
+  const [blogQuestion, setBlogQuestion] = useState("");
+  const [blogBuyerQuestions, setBlogBuyerQuestions] = useState("");
   const [sources, setSources] = useState<IngestionTicket[]>(initialSources);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -65,6 +68,9 @@ export function CreateWizard({
   // flips to a sequence the eBook toggle is hidden, so gate the whole eBook path on this.
   const ebookUi = isEbookUiEnabled();
   const useEbook = ebookUi && isEbook && !isSequence;
+  // A blog hub written to the CITABLE structure (flag-gated) starts from a brief. The hub
+  // channel choice outlives a switch to a sequence or an eBook, so gate on those too.
+  const citableBlog = isBlogCitableUiEnabled() && !isSequence && !useEbook && hubChannel === "blog";
 
   async function refreshSources() {
     try {
@@ -131,6 +137,10 @@ export function CreateWizard({
               : useEbook
                 ? { hubChannel: "ebook", spokeChannels }
                 : { hubChannel, spokeChannels },
+            // Blog hub only — what the operator already knows; research fills in the rest.
+            ...(citableBlog
+              ? { blog: { primaryQuestion: blogQuestion.trim(), buyerQuestions: blogBuyerQuestions.trim() } }
+              : {}),
           }),
         },
       );
@@ -421,6 +431,35 @@ export function CreateWizard({
                   <Radio checked={hubChannel === "blog"} onChange={() => setHubChannel("blog")} label="Blog (SEO/GEO)" />
                 </div>
               </Field>
+              {citableBlog ? (
+                <>
+                  <Field
+                    label="The question this article answers (optional)"
+                    hint="Worded the way a buyer would ask it. Leave blank and research will find it."
+                  >
+                    <input
+                      aria-label="The question this article answers"
+                      value={blogQuestion}
+                      onChange={(e) => setBlogQuestion(e.target.value)}
+                      maxLength={300}
+                      className={INPUT}
+                    />
+                  </Field>
+                  <Field
+                    label="What buyers ask (optional)"
+                    hint="Paste what you hear on sales calls or see in search data."
+                  >
+                    <textarea
+                      aria-label="What buyers ask"
+                      value={blogBuyerQuestions}
+                      onChange={(e) => setBlogBuyerQuestions(e.target.value)}
+                      rows={3}
+                      maxLength={6000}
+                      className={INPUT}
+                    />
+                  </Field>
+                </>
+              ) : null}
               <Field label="Spoke channels" hint="Atomize the hub into these native formats.">
                 <div className="flex flex-wrap gap-2">
                   {SPOKE_OPTIONS.map((c) => (

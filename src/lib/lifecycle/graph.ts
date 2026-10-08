@@ -2,7 +2,9 @@ import { DEFAULT_BRANCH } from "@/lib/journey/conditions";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import { ConnectionCatalogSchema, type ConnectionCatalog } from "@/lib/types/productConnection";
 import {
+  dateStartOf,
   startsAfterJourney,
+  startsOnDate,
   type ContentPool,
   type JourneyAudience,
   type LifecycleCondition,
@@ -26,6 +28,9 @@ import {
  * A product journey can continue from another journey instead of a product
  * event: it must name one, and — where the caller looked it up (`upstream`) —
  * that journey must exist on the same product and not lead back here.
+ *
+ * Or it can start when a date passes: it must name one of the catalog's date
+ * facts, and one kept per brand (or workspace…) needs a journey about that kind.
  */
 
 export function nodeMap(graph: LifecycleGraph): Map<string, LifecycleNode> {
@@ -80,6 +85,11 @@ export function fieldProblem(field: string, catalog: ConnectionCatalog): string 
   if (family === "milestone" && !RESERVED.has(key) && !catalog.events.some((e) => e.name === key)) {
     return `unknown event "${key}"`;
   }
+  if (family === "days_since" || family === "days_until") {
+    const fact = (catalog.facts ?? []).find((f) => f.id === key);
+    if (!fact) return `unknown fact "${key}"`;
+    if (fact.type !== "date") return `"${key}" isn't a date fact`;
+  }
   if (family === "onboarding" && catalog.onboardingSteps.length === 0) return "the catalog has no onboarding steps";
   if (family === "entities" && (catalog.entityKinds ?? []).length === 0) return "the catalog has no entity kinds";
   return null;
@@ -114,11 +124,27 @@ export function validateLifecycleDraft(
     audience?: AudienceKind;
     /** The journey this one continues from, as the caller found it (./chain.ts `upstreamCheck`). */
     upstream?: "ok" | "not_found" | "self" | "other_product" | "loop";
+    /** Whether a journey may start when a date passes here (LIFECYCLE_DATE_START); only `false` refuses one. */
+    dateStart?: boolean;
   } = {},
 ): { ok: boolean; issues: GraphIssue[] } {
   const { graph, pools } = draft;
   const audience = opts.audience ?? "product";
   const issues: GraphIssue[] = [];
+  if (draft.settings && startsOnDate(draft.settings)) {
+    const start = dateStartOf(draft.settings);
+    const fact = start ? (catalog.facts ?? []).find((f) => f.id === start.fact) : undefined;
+    const about = draft.settings.about;
+    if (audience === "waitlist") issues.push({ code: "date_start_product_only" });
+    else if (opts.dateStart === false) issues.push({ code: "date_start_unavailable" });
+    else if (!start) issues.push({ code: "date_start_missing" });
+    else if (!fact) issues.push({ code: "date_start_fact_unknown", detail: start.fact });
+    else if (fact.type !== "date") issues.push({ code: "date_start_fact_not_a_date", detail: start.fact });
+    // A date kept per brand is read from the brand the journey is about: it needs to be about one (or each).
+    else if (fact.kind && !((about?.mode === "one" || about?.mode === "each") && about.kind === fact.kind)) {
+      issues.push({ code: "date_start_fact_per_entity", detail: fact.kind });
+    }
+  }
   if (draft.settings && startsAfterJourney(draft.settings)) {
     if (audience === "waitlist") issues.push({ code: "continue_from_product_only" });
     else if (!draft.settings.trigger.afterJourneyId) issues.push({ code: "continue_from_missing" });

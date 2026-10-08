@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
 import { V2_LIMITS } from "@/lib/connect/v2/contract";
+import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
+import { isLifecycleDateStartEnabled } from "@/lib/lifecycle/flags";
 import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
 import { codeText, USER_FIELDS, USER_ID_NOTES } from "@/lib/developers/userFields";
 
@@ -9,6 +11,9 @@ export default function UsersDocs() {
   const api = `${origin}/api/v2/users`;
   const sdkOrigin = origin === SDK_DEFAULT_ORIGIN ? "" : `, origin: "${origin}"`;
   const kb = V2_LIMITS.maxBodyBytes / 1024;
+  // Described only where they're switched on, so the docs never promise what this YouGrow doesn't do yet.
+  const dateFacts = isDateFactsEnabled();
+  const dateStart = isLifecycleDateStartEnabled();
   return (
     <article>
       <H1>Sending users</H1>
@@ -239,6 +244,29 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
   "facts":  { "projects": 3 },
   "traits": { "plan": "pro" }
 }`}</Code>
+      {dateFacts ? (
+        <>
+          <H3>Dates</H3>
+          <P>
+            A fact can be a date: when someone was last active, when their trial ends. Mark it <strong>date</strong> in your
+            Catalog and send it as text — ISO 8601 with a timezone, or a plain day:
+          </P>
+          <Code>{`{ "facts": { "last_active_at": "2026-10-08T09:12:00Z", "trial_ends_on": "2026-11-01" } }`}</Code>
+          <P>
+            Send the date itself, not a count of days. Journeys read it as whole days since, or until, worked out at the
+            moment they check — so the value never goes stale between your writes, and you only send it when it changes.
+            {dateStart ? (
+              <>
+                {" "}
+                A journey can start from it too (&ldquo;last active 14 or more days ago&rdquo;), and stops for someone whose
+                date has moved on.
+              </>
+            ) : null}{" "}
+            A value that isn&apos;t a date is left as it was and listed in <C>ignoredFields</C>, like an invalid profile
+            field; the rest of the write applies.
+          </P>
+        </>
+      ) : null}
       <H3>Where in your code — two ways</H3>
       <P>Your Integration guide says which fits each step:</P>
       <P>

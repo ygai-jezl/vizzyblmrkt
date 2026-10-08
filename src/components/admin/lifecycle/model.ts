@@ -8,7 +8,7 @@ import type {
   LifecycleNode,
   WaitConfig,
 } from "@/lib/types/lifecycle";
-import { JOURNEY_COMPLETED_EVENT } from "@/lib/types/lifecycle";
+import { DATE_PASSED_EVENT, dateStartOf, JOURNEY_COMPLETED_EVENT, type DateStart } from "@/lib/types/lifecycle";
 import type { ConditionOperator } from "@/lib/types/journey";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { PaletteChip } from "../brand-kit/emailStyleForm";
@@ -105,6 +105,8 @@ export interface JourneyDetail {
     emailStyle: boolean;
     /** A journey can continue from another journey (LIFECYCLE_JOURNEY_LINKS_ENABLED); only sent while on. */
     journeyLinks?: boolean;
+    /** A journey can start when a date passes (LIFECYCLE_DATE_START). */
+    dateStart?: boolean;
     /** The journey's own Email style in Settings and the preview (EMAIL_JOURNEY_STYLE_ENABLED); only sent while on. */
     journeyEmailStyle?: boolean;
     /** A journey style's gradient and header text draw (EMAIL_HEADER_OPTIONS_ENABLED); only sent with journey styles on. */
@@ -153,6 +155,14 @@ export function fieldOptions(catalog: ConnectionCatalog | undefined): FieldOptio
     });
   }
   for (const f of catalog?.facts ?? []) {
+    if (f.type === "date") {
+      // A date is read as whole days from now, worked out when the journey checks.
+      out.push(
+        { value: `days_since.${f.id}`, label: `Days since: ${f.label}`, group: "Facts", kind: "number" },
+        { value: `days_until.${f.id}`, label: `Days until: ${f.label}`, group: "Facts", kind: "number" },
+      );
+      continue;
+    }
     out.push({ value: `fact.${f.id}`, label: f.unit ? `${f.label} (${f.unit})` : f.label, group: "Facts", kind: f.type });
   }
   const events = new Set([...RESERVED_EVENTS, ...(catalog?.events ?? []).map((e) => e.name)]);
@@ -284,10 +294,33 @@ export const ISSUE_TEXT: Record<string, string> = {
   continue_from_other_product: "A journey can only continue from a journey on the same product (Settings → Starts when).",
   continue_from_loop: "This journey and the one it continues from lead back into each other — change one of them (Settings → Starts when).",
   continue_from_product_only: "Only a product journey can continue from another journey.",
+  date_start_missing: "Choose the date this journey starts from (Settings → Starts when).",
+  date_start_fact_unknown: "The date this journey starts from isn't in the product's catalog any more — choose another (Settings → Starts when).",
+  date_start_fact_not_a_date: "The fact this journey starts from isn't a date — choose a date fact (Settings → Starts when).",
+  date_start_fact_per_entity:
+    "The date this journey starts from is kept per one of the person's things, so the journey must be about one, or each, of that kind (Settings → About).",
+  date_start_unavailable: "Starting a journey when a date passes isn't switched on in this environment yet.",
+  date_start_product_only: "Only a product journey can start when a date passes.",
 };
 
-/** What a journey's start says: the product event, or the journey it continues from. */
-export function startLabel(settings: { trigger: { event: string; afterJourneyId?: string | null } }, chain: JourneyChain | undefined): string {
+/**
+ * A date start in words: "Last active was 14 or more days ago". Null when the journey doesn't
+ * start that way (or no date is chosen yet). The fact's label comes from the catalog.
+ */
+export function dateStartText(settings: { trigger: { event: string; date?: DateStart | null } }, catalog: ConnectionCatalog | undefined): string | null {
+  const start = dateStartOf(settings);
+  if (!start) return null;
+  const label = (catalog?.facts ?? []).find((f) => f.id === start.fact)?.label ?? start.fact;
+  return `${label} was ${start.days} or more ${start.days === 1 ? "day" : "days"} ago`;
+}
+
+/** What a journey's start says: the product event, the journey it continues from, or the date it starts from. */
+export function startLabel(
+  settings: { trigger: { event: string; afterJourneyId?: string | null; date?: DateStart | null } },
+  chain: JourneyChain | undefined,
+  catalog?: ConnectionCatalog,
+): string {
+  if (settings.trigger.event === DATE_PASSED_EVENT) return dateStartText(settings, catalog) ?? "when a date passes (choose one)";
   if (settings.trigger.event !== JOURNEY_COMPLETED_EVENT) return settings.trigger.event;
   const id = settings.trigger.afterJourneyId;
   if (!id) return "after another journey (choose one)";

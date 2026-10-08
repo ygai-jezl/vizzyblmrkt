@@ -71,6 +71,25 @@ export const SANDBOX_CATALOG: ConnectionCatalog = {
   entityKinds: [],
 };
 
+/**
+ * The sandbox's date fact (CONNECT_DATE_FACTS): when the test user was last active. The Sandbox
+ * tab can move it ("went quiet 15 days ago", "came back just now"), so a journey that starts
+ * when a date passes can be tried from start to stop without a real product.
+ */
+export const SANDBOX_LAST_ACTIVE = { id: "last_active_at", label: "Last active" } as const;
+
+/** The template catalog for a new sandbox: with the date fact where date facts are on. */
+export function sandboxCatalog(dateFacts: boolean): ConnectionCatalog {
+  if (!dateFacts) return SANDBOX_CATALOG;
+  const fact = { ...SANDBOX_LAST_ACTIVE, type: "date" as const, unit: null, description: "When the person last used the product.", source: "The sandbox's own clock" };
+  return { ...SANDBOX_CATALOG, facts: [...SANDBOX_CATALOG.facts, fact] };
+}
+
+/** Whether a sandbox's catalog has the date fact the "last active" buttons move. */
+export function hasSandboxLastActive(catalog: Pick<ConnectionCatalog, "facts">): boolean {
+  return (catalog.facts ?? []).some((f) => f.id === SANDBOX_LAST_ACTIVE.id && f.type === "date");
+}
+
 /** Step links in the template point here. */
 export const SANDBOX_LINK_DOMAINS = ["example.com"];
 
@@ -238,7 +257,11 @@ export type SandboxAction =
   | { kind: "step"; step: string }
   | { kind: "completed" }
   | { kind: "preferences"; category: string; subscribed: boolean }
+  /** The test user was last active this many days ago (0 = just now): sends the date fact. */
+  | { kind: "last_active"; daysAgo: number }
   | { kind: "deleted" };
+
+const DAY_MS = 86_400_000;
 
 /** The API v2 write a sandbox action stands for (null: an erasure). */
 function patchFor(user: SandboxUser, action: SandboxAction, conn: ProductConnection, now: string): UserPatch | null {
@@ -261,6 +284,8 @@ function patchFor(user: SandboxUser, action: SandboxAction, conn: ProductConnect
     case "preferences":
       // API v2 has one product-side switch for lifecycle email; the category is the sandbox UI's label.
       return { subscribed: action.subscribed };
+    case "last_active":
+      return { facts: { [SANDBOX_LAST_ACTIVE.id]: new Date(Date.parse(now) - action.daysAgo * DAY_MS).toISOString() } };
     case "deleted":
       return null;
   }
@@ -270,7 +295,8 @@ function patchFor(user: SandboxUser, action: SandboxAction, conn: ProductConnect
  * Act as the product: send one test user's state (or erase them) through the
  * REAL API v2 write path, in-process — the same operations the public routes
  * run once a key is authenticated. A step also ticks the step on the test user,
- * so the sandbox's context endpoint agrees with the state it sent.
+ * and "last active" sets the date on them, so the sandbox's context endpoint
+ * agrees with the state it sent.
  */
 export async function fireSandboxEvent(
   ctx: TenantContext,
@@ -298,6 +324,17 @@ export async function fireSandboxEvent(
       if (!cur.sandbox) return null;
       const users = cur.sandbox.users.map((u) =>
         u.userId === userId ? { ...u, steps: { ...u.steps, [action.step]: true } } : u,
+      );
+      return { sandbox: { ...cur.sandbox, users } };
+    });
+  }
+  if (action.kind === "last_active") {
+    const value = (patch.facts ?? {})[SANDBOX_LAST_ACTIVE.id] as string;
+    await forTenant(ctx, deps.db).productConnections.claim(conn.id, (cur) => {
+      if (!cur.sandbox) return null;
+      const fact = { ...SANDBOX_LAST_ACTIVE, value, unit: null };
+      const users = cur.sandbox.users.map((u) =>
+        u.userId === userId ? { ...u, facts: [...u.facts.filter((f) => f.id !== fact.id), fact].slice(-20) } : u,
       );
       return { sandbox: { ...cur.sandbox, users } };
     });

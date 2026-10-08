@@ -7,7 +7,7 @@ import { Banner } from "../connect/ui";
 /** The journey's funnel, the onboarding goal, and per-email sends + engagement. */
 
 interface Analytics {
-  enrolments: { total: number; active: number; completed: number; exited: number; stopReasons: Record<string, number> };
+  enrolments: { total: number; people?: number; active: number; completed: number; exited: number; stopReasons: Record<string, number> };
   items: Array<{
     poolId: string;
     itemId: string;
@@ -60,7 +60,7 @@ export function AnalyticsPanel({ journeyId }: { journeyId: string }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="Enrolled" value={e.total} />
+        <Stat label="Enrolled" value={e.total} sub={e.people !== undefined && e.people !== e.total ? `${e.people} people, some more than once` : undefined} />
         <Stat label="In progress" value={e.active} />
         <Stat label="Finished" value={e.completed} />
         <Stat label="Stopped early" value={e.exited} sub={Object.entries(e.stopReasons).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join(" · ") || undefined} />

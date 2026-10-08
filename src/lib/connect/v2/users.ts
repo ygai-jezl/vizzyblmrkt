@@ -33,7 +33,8 @@ import {
   type UserPatch,
   type UserView,
 } from "./contract";
-import { isEntitiesEnabled, isQuietUnchangedWritesEnabled } from "./flags";
+import { isDateFactsEnabled, isEntitiesEnabled, isQuietUnchangedWritesEnabled } from "./flags";
+import { dateFactIds } from "../dateFacts";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
@@ -268,6 +269,7 @@ export async function patchBatch(
   const out: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
   const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }> }> = [];
   const rejected: IngestSummary["rejected"] = [];
+  const dateFacts = isDateFactsEnabled() ? dateFactIds(connection.catalog) : undefined;
   for (const [index, raw] of items.slice(0, V2_LIMITS.maxBatch).entries()) {
     const head = BatchItemSchema.safeParse(raw);
     if (!head.success) {
@@ -278,7 +280,7 @@ export async function patchBatch(
       continue;
     }
     const { userId, ...rest } = head.data;
-    const parsed = parseUserPatch(rest, { entities: isEntitiesEnabled() });
+    const parsed = parseUserPatch(rest, { entities: isEntitiesEnabled(), dateFacts });
     if (!parsed.ok) {
       const fields = parsed.fields;
       out.failed += 1;

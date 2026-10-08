@@ -9,7 +9,7 @@ import { isLifecycleConsentAtSendEnabled, isLifecycleGoLiveSweepEnabled, lifecyc
 import { entryCursor } from "./planner";
 import { allowsMarketing, isTestRecipient, lowestMode } from "./policy";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
-import { JOURNEY_ABOUT_DEFAULT, JOURNEY_COMPLETED_EVENT, type JourneyAbout } from "@/lib/types/lifecycle";
+import { DATE_PASSED_EVENT, dateStartOf, JOURNEY_ABOUT_DEFAULT, JOURNEY_COMPLETED_EVENT, type JourneyAbout } from "@/lib/types/lifecycle";
 import { enrolTargets } from "./entities";
 
 /**
@@ -17,6 +17,10 @@ import { enrolTargets } from "./entities";
  * enrolment document IS the runner's queue item, created atomically with a
  * deterministic id per (journey, user) — so a user enters a journey at most
  * once, however many times the trigger event arrives (re-entry: never).
+ *
+ * The one exception is a journey that starts when a date passes and lets people
+ * enter again (./dateStart.ts): its ids also carry the date entered on, so a new
+ * quiet spell is a new entry and the same one never is.
  */
 
 const DAY_MS = 86_400_000;
@@ -31,9 +35,22 @@ export function aboutOf(version: Pick<LifecycleVersion, "settings">): JourneyAbo
   return isEntitiesEnabled() ? (version.settings.about ?? JOURNEY_ABOUT_DEFAULT) : JOURNEY_ABOUT_DEFAULT;
 }
 
-/** The enrolment's id: one per person — or, for a journey about each entity, one per person and entity. */
-export function enrolmentIdFor(journeyId: string, productUserId: string, about: JourneyAbout, entityId: string | null): string {
-  return enrolmentDocId(journeyId, about.mode === "each" && entityId ? `${productUserId}#${entityId}` : productUserId);
+/**
+ * The enrolment's id: one per person — or, for a journey about each entity, one per person and
+ * entity. `dateAt` (see `reentryDateOf`): one per date entered on as well.
+ */
+export function enrolmentIdFor(journeyId: string, productUserId: string, about: JourneyAbout, entityId: string | null, dateAt?: string | null): string {
+  const who = about.mode === "each" && entityId ? `${productUserId}#${entityId}` : productUserId;
+  return enrolmentDocId(journeyId, dateAt ? `${who}@${dateAt}` : who);
+}
+
+/**
+ * The date an entry's id carries: the date entered on (UTC ISO), for a journey that starts when a
+ * date passes and lets people enter again. Null for every other journey — one entry per person.
+ */
+export function reentryDateOf(version: Pick<LifecycleVersion, "settings">, dateAt: string | null | undefined): string | null {
+  const start = dateStartOf(version.settings);
+  return start && start.reenterAfterDays !== null && dateAt ? dateAt : null;
 }
 
 /** UTC day key for the daily counters, e.g. "20260921". */
@@ -70,6 +87,8 @@ export async function enrolUser(
     entityId?: string | null;
     /** The journey they just finished, when this one continues from it (./chain.ts). */
     fromJourneyId?: string | null;
+    /** The date they enter on, for a journey that starts when a date passes (./dateStart.ts). */
+    dateAt?: string | null;
   },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<EnrolOutcome> {
@@ -103,7 +122,7 @@ export async function enrolUser(
     return { outcome: "skipped", reason: "enrolment_cap" };
   }
 
-  const id = enrolmentIdFor(journey.id, user.id, aboutOf(version), a.entityId ?? null);
+  const id = enrolmentIdFor(journey.id, user.id, aboutOf(version), a.entityId ?? null, reentryDateOf(version, a.dateAt));
   const cursor = entryCursor(version.graph);
   try {
     await repo.lifecycleEnrolments.create(id, {
@@ -119,6 +138,7 @@ export async function enrolUser(
       requireApproval: a.requireApproval ?? a.source === "backfill",
       anchorAt: a.anchorAt,
       ...(a.fromJourneyId ? { fromJourneyId: a.fromJourneyId } : {}),
+      ...(a.dateAt ? { dateAt: a.dateAt } : {}),
       entityId: a.entityId ?? null,
       lastSentAt: null,
       cursor: cursor ? { nodeId: cursor } : null,
@@ -130,7 +150,7 @@ export async function enrolUser(
       sentItems: [],
       usedInsightIds: [],
       failures: 0,
-      log: [{ at: now, event: "enrolled", detail: `${a.fromJourneyId ? "finished the journey before" : a.source} · ${journey.deliveryMode}` }],
+      log: [{ at: now, event: "enrolled", detail: `${a.fromJourneyId ? "finished the journey before" : a.dateAt && a.source === "trigger" ? "date passed" : a.source} · ${journey.deliveryMode}` }],
       createdAt: now,
       updatedAt: now,
     });
@@ -292,8 +312,9 @@ export async function enrolOnEvents(
   for (const e of events) {
     for (const { journey, version } of journeys) {
       const trigger = version.settings.trigger;
-      // A journey that continues from another is started by the runner (./chain.ts), never by an event.
-      if (trigger.event === JOURNEY_COMPLETED_EVENT || trigger.event !== e.event) continue;
+      // A journey that continues from another is started by the runner (./chain.ts), and one that
+      // starts when a date passes by the daily check (./dateStart.ts): never by an event.
+      if (trigger.event === JOURNEY_COMPLETED_EVENT || trigger.event === DATE_PASSED_EVENT || trigger.event !== e.event) continue;
       if (nowMs - Date.parse(e.timestamp) > trigger.maxEventAgeHours * 3600_000) continue;
       try {
         const rs = await enrolPerson(

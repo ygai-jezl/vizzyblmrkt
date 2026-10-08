@@ -640,6 +640,19 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Date facts (see apphosting.yaml): OFF in prod until verified on dev and
+  # flipped with a chore(prod) change.
+  - variable: CONNECT_DATE_FACTS
+    value: "false"
+    availability:
+      - RUNTIME
+  # Journeys that start when a date passes (see apphosting.yaml): OFF in prod
+  # until verified on dev and flipped with a chore(prod) change (turn
+  # CONNECT_DATE_FACTS on with it, or first).
+  - variable: LIFECYCLE_DATE_START
+    value: "false"
+    availability:
+      - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
   # Google Analytics — ON in prod (owner decision, 2026-09-24): `/`, `/login` and
   # `/developers` only, with Consent Mode v2 (denied by default in the EEA, UK and

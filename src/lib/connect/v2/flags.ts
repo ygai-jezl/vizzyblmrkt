@@ -44,3 +44,13 @@ export function isQuietUnchangedWritesEnabled(): boolean {
 export function isCatalogHistoryEnabled(): boolean {
   return process.env.CATALOG_HISTORY_ENABLED === "true";
 }
+
+/**
+ * Server flag — a fact can be a date (when someone was last active, when a trial
+ * ends): the catalog marks it `date`, the product sends it as text, and journeys
+ * read it as whole days from now ("Days since", "Days until"). Off: the catalog
+ * refuses the type, so nothing downstream ever sees one.
+ */
+export function isDateFactsEnabled(): boolean {
+  return process.env.CONNECT_DATE_FACTS === "true";
+}

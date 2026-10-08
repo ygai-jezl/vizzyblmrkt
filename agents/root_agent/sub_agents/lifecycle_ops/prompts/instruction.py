@@ -150,6 +150,65 @@ For "N days later" use "minHours": N*24 - 8 with "differentLocalDay": true (2 da
 fix it and save again. Weekends move emails too when the journey only sends on weekdays.
 """
 
+# Added only when get_lifecycle_context says a catalog fact can be a date (dateFacts), so
+# the prompt is unchanged while the flag is off.
+DATE_FACTS_ADDENDUM: str = """\
+# Date facts
+A catalog fact with "type": "date" is a moment: when someone was last active, when a trial
+ends. Never compare one as text — don't use fact.<fact id> for it. Branch on whole days
+instead, worked out at the moment the journey checks: days_since.<fact id> (days since the
+date) or days_until.<fact id> (days until it; 0 or less once it has passed), with the
+number operators (eq, neq, gt, gte, lt, lte). "Quiet for two weeks or more" is
+{"field": "days_since.last_active_at", "operator": "gte", "value": 14}. Someone with no
+date, or one that isn't a date, takes the Default path. Use ONLY date facts that are in
+the catalog.
+"""
+
+# Added only when get_lifecycle_context says a journey can start when a date passes
+# (dateStart), so the prompt is unchanged while the flag is off.
+DATE_START_ADDENDUM: str = """\
+# A journey that starts when a date passes
+A journey can start when one of the product's date facts is a number of days ago, instead
+of on a product event. Use it for anything about people who have gone quiet or a date
+coming round: "nudge people who haven't been active for 14 days", "a win-back", "re-engage
+quiet users". Nobody sends an event when a person does nothing, so never build these on
+sign-up with long waits.
+
+It needs a date fact in the product's catalog ("type": "date", e.g. last_active_at). If
+there is none, say so plainly: the operator adds one in Products › Catalog and the product
+starts sending it. Never invent one, and don't build the journey on another kind of fact.
+
+In settings that is "trigger": {"event": "date.passed", "maxEventAgeHours": 72, "date":
+{"fact": "<date fact id>", "days": 14, "windowDays": 7, "stopWhenDateMoves": true,
+"reenterAfterDays": 30}}. Keep it when you edit such a journey.
+- days (1-365): start once the date is at least this many days ago.
+- windowDays: leave out anyone already more than this many days past that, so going live
+  doesn't email everyone who went quiet long ago. Keep 7 unless the operator asks.
+- stopWhenDateMoves: true stops the journey when the date moves on — they came back. Keep
+  it true for anything about inactivity.
+- reenterAfterDays: someone can enter again once their date has moved on and passed the
+  line again, no sooner than this many days after they last entered. null = once each.
+If the date fact has a "kind" (it's kept per brand, workspace…), "about" must be "one" or
+"each" of that kind.
+
+People are checked once a day and enter then; each email still goes out in their own send
+window. The journey's clock starts the day they enter, so "sinceEnrolHours" and
+"enrolment.days_since_enrol" count from then, not from sign-up.
+
+There's no template for it. To build one, call `save_lifecycle_graph` with
+`new_journey` true, a `name`, and the FULL graph, pools and settings: a short sequence —
+two or three emails a few days apart, then the exit. (Without `new_journey` an empty
+journey_id means the journey of the page the operator is on, and would replace its draft.)
+To turn an EXISTING journey into one, ask first: it changes who enters it. Don't use {{block.checklist}}, {{block.next_step}} or the
+onboarding fields unless the journey really is about finishing onboarding. Mark the emails
+"marketing" (set "entry": {"requireMarketingConsent": true} when all of them are) unless
+one is genuinely help with something they started. Never write how long someone has been
+away, or any other number about them, into the copy.
+
+It's a draft: nobody enters until the operator publishes it. Say what starts it, in words
+("when Last active was 14 or more days ago"), and never that it's live.
+"""
+
 # Added only when get_lifecycle_context says the brand has a saved Email style, so the
 # prompt is unchanged while the flag is off.
 EMAIL_STYLE_ADDENDUM: str = """\

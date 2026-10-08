@@ -187,6 +187,12 @@ def get_context(state: "dict | None") -> dict:
         # so that rule comes and goes with the flag too.
         journey_links = body.get("journeyLinks")
         state["journeyLinksEnabled"] = isinstance(journey_links, dict) and bool(journey_links.get("enabled"))
+        # And whether a fact can be a date, and a journey can start when one passes (each
+        # sent only with its flag on).
+        date_facts = body.get("dateFacts")
+        state["dateFactsEnabled"] = isinstance(date_facts, dict) and bool(date_facts.get("enabled"))
+        date_start = body.get("dateStart")
+        state["dateStartEnabled"] = isinstance(date_start, dict) and bool(date_start.get("enabled"))
         return {"status": "success", **body}
     return error_result(status_code, body)
 
@@ -242,11 +248,13 @@ def save_graph(
     brief: str,
     name: "str | None",
     after_journey_id: "str | None" = None,
+    new_journey: bool = False,
 ) -> dict:
     connection = _resolve_connection(state, connection_id)
     if not connection:
         return {"status": "needs_connection", "message": "Which connected product is this journey for?"}
-    resolved_journey = journey_id or (state or {}).get("journeyId") or None
+    # A new journey never falls back to the page's journey: that would replace its draft.
+    resolved_journey = None if new_journey else (journey_id or (state or {}).get("journeyId") or None)
     got = _base_and_token(state)
     if isinstance(got, dict):
         return got

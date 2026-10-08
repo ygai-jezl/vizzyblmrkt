@@ -6,7 +6,8 @@ import { verifyCanvasContext, isCanvasAuthConfigured, tenantContextFromCanvasTok
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { continuesFromId, type LifecycleJourney } from "@/lib/types/lifecycle";
 import { validateLifecycleDraft } from "./graph";
-import { isLifecycleChatAuthoringEnabled, isLifecycleEnabled, isLifecycleJourneyLinksEnabled } from "./flags";
+import { isLifecycleChatAuthoringEnabled, isLifecycleDateStartEnabled, isLifecycleEnabled, isLifecycleJourneyLinksEnabled } from "./flags";
+import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
 import { upstreamCheck } from "./chain";
 import { journeyTimeline, timelineText } from "./timeline";
 
@@ -137,6 +138,12 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
       // A journey can start when someone finishes another one (draft_lifecycle_journey's
       // after_journey_id). Only sent while journey links are on.
       ...(links ? { journeyLinks: { enabled: true } } : {}),
+      // A catalog fact can be a date, read by conditions as days_since.<id> / days_until.<id>.
+      // Only sent while date facts are on.
+      ...(isDateFactsEnabled() ? { dateFacts: { enabled: true } } : {}),
+      // A journey can start when a date fact is a number of days ago (settings.trigger.date).
+      // Only sent while that start is on.
+      ...(isLifecycleDateStartEnabled() ? { dateStart: { enabled: true } } : {}),
       verifiedSendingDomains: (tenant?.emailSenderConfig?.domains ?? []).filter((d) => d.status === "verified").map((d) => d.domain),
       senderName: tenant?.emailSenderConfig?.senderName ?? null,
       workspaces: workspaces.map((w) => ({ id: w.id, name: (w as { name?: string }).name ?? w.id })),
@@ -174,7 +181,7 @@ export async function agentLifecycleJourney(ctx: TenantContext, journeyId: strin
         // Journey links: the journey it starts after, and when its own emails go out.
         ...(links ? { continuesFrom: continuesFromId(journey.draft.settings), timeline: agentTimeline(journey, connection ?? undefined) } : {}),
       },
-      issues: connection ? validateLifecycleDraft(journey.draft, connection.catalog, { upstream }).issues : [],
+      issues: connection ? validateLifecycleDraft(journey.draft, connection.catalog, { upstream, dateStart: isLifecycleDateStartEnabled() }).issues : [],
       connection: connection
         ? { id: connection.id, name: connection.name, onboardingSteps: connection.catalog.onboardingSteps.map((s) => ({ id: s.id, label: s.label })) }
         : null,

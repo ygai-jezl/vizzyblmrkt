@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ConsentBasis, ENTITY_KIND_RE, EVENT_NAME_RE, ProductConnectionStatus, STEP_ID_RE, TRAIT_KEY_RE } from "@/lib/types/productConnection";
 import { RESERVED_EVENTS, TimestampSchema } from "../protocol";
+import { DATE_FACT_FORMAT, dropBadDateFacts } from "../dateFacts";
 
 /**
  * API v2 — the state-based contract a connected product calls. ONE module shared
@@ -315,15 +316,31 @@ export const PROFILE_FIELDS: ReadonlySet<string> = new Set(["email", "firstName"
  * problems are profile fields, they're dropped and the rest applies, so a bad
  * timezone never stops consent, an opt-out or an exclusion from landing. Any other
  * problem is a 400 naming it.
+ *
+ * `dateFacts` (CONNECT_DATE_FACTS): the ids of the catalog's date facts. One sent
+ * with a value that isn't a date is left as it was and reported the same way,
+ * never a 400 — a journey must not read a date it can't trust.
  */
 export function parseUserPatch(
   body: unknown,
-  opts: { entities?: boolean } = {},
+  opts: { entities?: boolean; dateFacts?: ReadonlySet<string> } = {},
+): { ok: true; patch: UserPatch; ignoredFields: FieldError[] } | { ok: false; fields: FieldError[] } {
+  const r = parseShape(body, opts);
+  if (!r.ok || !opts.dateFacts?.size) return r;
+  const { patch, dropped } = dropBadDateFacts(r.patch, opts.dateFacts);
+  if (dropped.length === 0) return r;
+  const notes = dropped.map((path) => ({ path, message: `not a date: send ${DATE_FACT_FORMAT}` }));
+  return { ok: true, patch, ignoredFields: [...r.ignoredFields, ...notes] };
+}
+
+function parseShape(
+  body: unknown,
+  opts: { entities?: boolean },
 ): { ok: true; patch: UserPatch; ignoredFields: FieldError[] } | { ok: false; fields: FieldError[] } {
   // Where `entities` isn't available yet, it's left out (and said so) rather than refused.
   if (opts.entities === false && body && typeof body === "object" && !Array.isArray(body) && "entities" in body) {
     const { entities: _entities, ...rest } = body as Record<string, unknown>;
-    const r = parseUserPatch(rest, opts);
+    const r = parseShape(rest, opts);
     const note = { path: "entities", message: "entities aren't available on this YouGrow yet; the rest applied" };
     return r.ok ? { ...r, ignoredFields: [...r.ignoredFields, note] } : r;
   }

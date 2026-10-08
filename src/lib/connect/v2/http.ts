@@ -5,7 +5,8 @@ import { readRequestTextCapped } from "@/lib/http/readBody";
 import { parseBasicAuth, resolveConnection, secretMatches } from "../connectionAuth";
 import { environmentOf } from "../environments";
 import { BatchRequestSchema, EventRequestSchema, fieldErrors, parseUserPatch, UserIdSchema, V2_LIMITS, type FieldError, type MeResponse } from "./contract";
-import { isApiV2Enabled, isEntitiesEnabled } from "./flags";
+import { isApiV2Enabled, isDateFactsEnabled, isEntitiesEnabled } from "./flags";
+import { dateFactIds } from "../dateFacts";
 import { deleteUser, getUserView, patchBatch, patchUser, recordRejected, recordUserEvent } from "./users";
 
 /**
@@ -114,7 +115,7 @@ export async function handlePatchUser(req: Request, userId: string, deps: V2Http
   const body = parseJson(g.body);
   if (!body.ok) return refuse(g, deps, "PATCH", null);
   // Invalid profile fields are dropped (and reported); anything else invalid is a 400.
-  const parsed = parseUserPatch(body.value, { entities: isEntitiesEnabled() });
+  const parsed = parseUserPatch(body.value, { entities: isEntitiesEnabled(), dateFacts: isDateFactsEnabled() ? dateFactIds(g.connection.catalog) : undefined });
   if (!parsed.ok) return refuse(g, deps, "PATCH", parsed.fields);
   try {
     const ignoredFields = parsed.ignoredFields.map((f) => f.path);

@@ -173,8 +173,8 @@ export function buildIntegrationGuide(input: {
         const per = labelOf(f.kind);
         return {
           field: per ? `entities.{id}.facts.${f.id}` : `facts.${f.id}`,
-          type: f.type,
-          when: `${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `, from ${f.source}` : ""}. Send the latest value.${per ? perEntity(per) : ""}${f.appliesWhen ? onlyFor(f.appliesWhen) : ""}`,
+          type: f.type === "date" ? "ISO 8601 time or day" : f.type,
+          when: `${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `, from ${f.source}` : ""}. Send the latest value${f.type === "date" ? ": the date itself, never a count of days" : ""}.${per ? perEntity(per) : ""}${f.appliesWhen ? onlyFor(f.appliesWhen) : ""}`,
         };
       }),
     ],
@@ -213,7 +213,7 @@ export function buildIntegrationGuide(input: {
     ? steps.map((s) => ({ id: s.id, label: s.label, completion: s.completion ?? "", how: detection.get(s.id) ?? null, per: labelOf(s.kind) }))
     : (map?.onboardingSteps ?? []).map((s) => ({ id: s.id, label: s.label, completion: s.completion, how: s.detection, per: labelOf(s.entityKind) }));
   const promptFacts = facts.length
-    ? facts.map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, per: labelOf(f.kind), appliesWhen: f.appliesWhen ?? null }))
+    ? facts.map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, per: labelOf(f.kind), appliesWhen: f.appliesWhen ?? null, date: f.type === "date" }))
     : (map?.facts ?? []).map((f) => ({ id: f.id, label: f.label, unit: f.unit ?? null, source: f.source, per: labelOf(f.entityKind), appliesWhen: f.appliesWhen || null }));
   const docs = input.docs ?? true;
   const agentPrompt = buildAgentPrompt({

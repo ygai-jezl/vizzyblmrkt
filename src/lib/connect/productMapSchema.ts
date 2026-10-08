@@ -106,7 +106,8 @@ export const MapTraitSchema = z.object({
 export const MapFactSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   label: text(120).min(1),
-  type: z.enum(["number", "string", "boolean"]).default("number"),
+  /** `date`: a stored moment (last active, trial ends) — proposed only when the app that asked takes date facts. */
+  type: z.enum(["number", "string", "boolean", "date"]).default("number"),
   unit: text(20).nullable().optional(),
   description: text(500).default(""),
   /** Where the product keeps or computes it. */

@@ -141,6 +141,24 @@ describe("fetchProductContext — a real product (SSRF-safe transport)", () => {
     expect(r.warnings).toEqual(["link_dropped:run_audit", "link_dropped:next:run_audit"]);
   });
 
+  it("says when a date fact didn't come back as a date", async () => {
+    const db = new FakeFirestore();
+    const fact = (id: string) => ({ id, label: id, type: "date" as const, unit: null, description: "", source: "" });
+    const { conn } = await custom(db, {
+      catalog: { events: [], traits: [], onboardingSteps: [], glossary: [], entityKinds: [], facts: [fact("last_active_at"), fact("trial_ends_at")] },
+    });
+    const facts = [
+      { id: "last_active_at", label: "Last active", value: "2026-09-20T08:00:00Z" },
+      { id: "trial_ends_at", label: "Trial ends", value: "next week" },
+    ];
+    const r = await fetchProductContext(
+      conn,
+      { userId: "u1", purpose: "test" },
+      { nowMs: NOW, fetchImpl: async () => new Response(JSON.stringify({ ...goodContext, steps: [], nextStep: null, facts }), { status: 200 }) },
+    );
+    expect(r.ok && r.warnings).toEqual(["bad_date:trial_ends_at"]);
+  });
+
   it("refuses internal or non-443 URLs before any request", async () => {
     const db = new FakeFirestore();
     for (const url of ["http://api.acme.test/ctx", "https://localhost/ctx", "https://api.acme.test:8443/ctx", "https://10.0.0.5/ctx"]) {

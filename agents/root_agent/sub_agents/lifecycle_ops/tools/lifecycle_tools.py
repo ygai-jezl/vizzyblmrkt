@@ -93,6 +93,7 @@ def save_lifecycle_graph(
     settings: Optional[dict] = None,
     name: Optional[str] = None,
     after_journey_id: Optional[str] = None,
+    new_journey: bool = False,
 ) -> dict:
     """Save a whole lifecycle journey draft you edited (or a custom structure).
 
@@ -112,11 +113,16 @@ def save_lifecycle_graph(
         after_journey_id: Make the journey CONTINUE FROM this journey (it starts when
             someone finishes that one), when your instruction says journeys can
             continue from one another. Omit to leave how it starts as it is.
+        new_journey: True to save this as a NEW journey, whatever page the operator is
+            on. Without it an empty journey_id means the journey of that page, whose
+            draft would be replaced. Pass pools, settings and a name with it.
 
     Returns:
         A status dict to relay, with any issues to fix.
     """
-    return client.save_graph(_state(tool_context), connection_id, journey_id, graph, pools, settings, brief, name, after_journey_id)
+    return client.save_graph(
+        _state(tool_context), connection_id, journey_id, graph, pools, settings, brief, name, after_journey_id, new_journey
+    )
 
 
 def learn_product_from_repo(

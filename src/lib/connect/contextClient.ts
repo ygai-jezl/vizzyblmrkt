@@ -4,6 +4,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { assertSafeHttpsUrl, readBytesCapped, safeFetch } from "@/lib/security/ssrf";
 import { isAllowedLink } from "./links";
+import { dateFactIds, parseFactDate } from "./dateFacts";
 import { handleSandboxContextRequest } from "./sandbox";
 import { signOutboundRequest } from "./outboundSigner";
 import {
@@ -144,6 +145,9 @@ export async function fetchProductContext(
   if (knownFacts.size > 0) {
     for (const f of context.facts) if (!knownFacts.has(f.id)) warnings.push(`unknown_fact:${f.id}`);
   }
+  // A date fact that isn't a date reads as unknown to journeys (the value we hold is used instead).
+  const dates = dateFactIds(connection.catalog);
+  for (const f of context.facts) if (dates.has(f.id) && parseFactDate(f.value) === null) warnings.push(`bad_date:${f.id}`);
   let nextStep = context.nextStep ?? null;
   if (nextStep?.url && !isAllowedLink(nextStep.url, connection.linkDomains)) {
     warnings.push(`link_dropped:next:${nextStep.id}`);

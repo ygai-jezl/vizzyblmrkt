@@ -31,3 +31,30 @@ describe("fact fields", () => {
     expect(resolveField("fact.missing", rc(null))).toBeUndefined();
   });
 });
+
+describe("date facts", () => {
+  const withDate = (value: unknown, context: ProductContext | null = null): RecipientContext => {
+    const base = rc(context);
+    return { ...base, user: { ...base.user, facts: { last_active_at: { value: value as string, at: "2026-09-25T09:00:00Z" } } } };
+  };
+  const live = (value: unknown) =>
+    ({ asOf: "2026-09-25T12:00:00Z", steps: [], facts: [{ id: "last_active_at", label: "Last active", value }], insights: [] }) as unknown as ProductContext;
+
+  it("read as whole days since, and until, worked out at the moment of the check", () => {
+    expect(resolveField("days_since.last_active_at", withDate("2026-09-11T12:00:00Z"))).toBe(14);
+    expect(resolveField("days_since.last_active_at", withDate("2026-09-11T12:00:01Z"))).toBe(13);
+    expect(resolveField("days_until.last_active_at", withDate("2026-09-28T09:00:00Z"))).toBe(3);
+    expect(resolveField("days_since.last_active_at", { ...withDate("2026-09-11T12:00:00Z"), nowMs: NOW + 86_400_000 })).toBe(15);
+  });
+
+  it("prefer the live value, and fall back to the stored one when the live one isn't a date", () => {
+    expect(resolveField("days_since.last_active_at", withDate("2026-09-11T12:00:00Z", live("2026-09-24T12:00:00Z")))).toBe(1);
+    expect(resolveField("days_since.last_active_at", withDate("2026-09-11T12:00:00Z", live("recently")))).toBe(14);
+  });
+
+  it("stay unknown when the value isn't a date, or was never sent", () => {
+    expect(resolveField("days_since.last_active_at", withDate("recently"))).toBeUndefined();
+    expect(resolveField("days_since.last_active_at", rc(null))).toBeUndefined();
+    expect(resolveField("days_until.trial_ends_at", rc(null))).toBeUndefined();
+  });
+});

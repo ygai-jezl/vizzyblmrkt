@@ -11,6 +11,7 @@ import {
 } from "@/lib/types/tenant";
 import {
   continuesFromId,
+  startsOnDate,
   DeliveryMode,
   isWaitlistJourney,
   JOURNEY_COMPLETED_EVENT,
@@ -29,7 +30,7 @@ import { NO_CATALOG, validateLifecycleDraft, type GraphIssue } from "./graph";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { buildFollowOnDraft, followOnSettings, startingAfter } from "./templates/followOn";
 import { resolveUpstream, upstreamCheck } from "./chain";
-import { isLifecycleJourneyLinksEnabled } from "./flags";
+import { isLifecycleDateStartEnabled, isLifecycleJourneyLinksEnabled } from "./flags";
 import { versionDocId } from "./enrol";
 import { isOwnOrVerifiedAddress, lifecycleSender } from "./policy";
 import { waitlistJourneyId } from "./waitlist/ids";
@@ -93,7 +94,10 @@ async function validateForAudience(
   }
   const connection = await loadConnection(ctx, journey.connectionId, db);
   if (!connection) return { ok: false, issues: [], error: "connection_not_found" };
-  return validateLifecycleDraft(draft, connection.catalog, { upstream: await upstreamCheck(ctx, journey, draft.settings, db) });
+  return validateLifecycleDraft(draft, connection.catalog, {
+    upstream: await upstreamCheck(ctx, journey, draft.settings, db),
+    dateStart: isLifecycleDateStartEnabled(),
+  });
 }
 
 /**
@@ -251,7 +255,7 @@ export async function createLifecycleJourney(
     updatedAt: now,
   });
   const upstream = await upstreamCheck(ctx, journey, draft.settings, deps.db);
-  return ok({ journey, issues: validateLifecycleDraft(draft, connection.catalog, { upstream }).issues });
+  return ok({ journey, issues: validateLifecycleDraft(draft, connection.catalog, { upstream, dateStart: isLifecycleDateStartEnabled() }).issues });
 }
 
 /**
@@ -451,6 +455,8 @@ export async function publishLifecycleJourney(
     updatedAt: now,
     // The journey it continues from, as published: how the runner finds what follows a journey.
     continuesFrom: waitlist ? null : continuesFromId(draft.data.settings),
+    // Whether it starts when a date passes, as published: how the daily check finds its journeys.
+    startsOnDate: !waitlist && startsOnDate(draft.data.settings),
     ...(journeyStyle ? { emailStyle: style } : {}),
   };
   await repo.lifecycleJourneys.update(journey.id, patch);

@@ -686,6 +686,29 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Date facts: a fact can be a date (when someone was last active, when a trial
+  # ends). The catalog marks it `date`, the product sends it as text (ISO 8601 with
+  # a zone, or a plain day), and journeys read it as whole days from now — "Days
+  # since" and "Days until", worked out when they check, so a value never goes
+  # stale between writes. A value that isn't a date is left as it was and listed in
+  # ignoredFields. Off: the catalog refuses the type. Off in prod until verified on
+  # dev (apphosting.prod.yaml).
+  - variable: CONNECT_DATE_FACTS
+    value: "true"
+    availability:
+      - RUNTIME
+  # A journey can start when a date passes: "Starts when" names one of the
+  # catalog's date facts and a number of days ("Last active was more than 14 days
+  # ago"), and a daily check (from 07:00 UTC, inside the lifecycle tick) reads the
+  # product's people and enrols whoever has crossed the line — and isn't more than
+  # the journey's window past it, so going live doesn't take everyone who ever went
+  # quiet. Needs CONNECT_DATE_FACTS. Off: the check doesn't run, a draft that starts
+  # this way can't be published, and the editor and Vizzy don't offer it. Off in
+  # prod until verified on dev (apphosting.prod.yaml).
+  - variable: LIFECYCLE_DATE_START
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

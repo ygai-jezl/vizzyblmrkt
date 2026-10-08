@@ -454,6 +454,8 @@ export const LifecycleJourneySchema = z.object({
       enrolled: z.number().int().nonnegative(),
       /** People read so far today. */
       checked: z.number().int().nonnegative().default(0),
+      /** People the check couldn't decide about today (a read or write failed); they're looked at again tomorrow. */
+      failed: z.number().int().nonnegative().optional(),
       updatedAt: z.string(),
     })
     .nullable()

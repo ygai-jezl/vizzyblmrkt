@@ -129,18 +129,20 @@ export function DateCheckStatus({ journey, canEdit, onChecked }: { journey: Life
   const check = async () => {
     setBusy(true);
     setNote(null);
-    const r = await api<{ checked: number; enrolled: number; finished: boolean }>(`/api/admin/lifecycle/journeys/${journey.id}/check-dates`, { method: "POST" });
+    const r = await api<{ checked: number; enrolled: number; finished: boolean; failed?: number }>(`/api/admin/lifecycle/journeys/${journey.id}/check-dates`, { method: "POST" });
     setBusy(false);
     if (!r.ok) return setNote({ tone: "err", text: errorText(r.data) });
-    const { checked, enrolled, finished } = r.data;
-    setNote({ tone: "ok", text: `Checked ${checked} ${checked === 1 ? "person" : "people"}: ${enrolled} entered.${finished ? "" : " Still going — the rest are checked over the next few minutes."}` });
+    const { checked, enrolled, finished, failed } = r.data;
+    const text = `Checked ${checked} ${checked === 1 ? "person" : "people"}: ${enrolled} entered.${finished ? "" : " Still going — the rest are checked over the next few minutes."}`;
+    // A check that couldn't decide about people is a problem, not a quiet day.
+    setNote(failed ? { tone: "err", text: `${text} ${failed} couldn't be checked; they're tried again at the next check.` } : { tone: "ok", text });
     onChecked();
   };
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-800">
       <span className="text-neutral-600 dark:text-neutral-400">
         {sweep
-          ? `Last check ${timeAgo(sweep.updatedAt)}: ${sweep.checked} read, ${sweep.enrolled} entered${sweep.status === "running" ? " (still going)" : ""}.`
+          ? `Last check ${timeAgo(sweep.updatedAt)}: ${sweep.checked} read, ${sweep.enrolled} entered${sweep.failed ? `, ${sweep.failed} couldn't be checked` : ""}${sweep.status === "running" ? " (still going)" : ""}.`
           : "People are checked once a day, from 07:00 UTC."}
         {note ? <span className={note.tone === "err" ? " text-red-600" : " text-neutral-900 dark:text-neutral-100"}> {note.text}</span> : null}
       </span>

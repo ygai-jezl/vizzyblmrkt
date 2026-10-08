@@ -124,6 +124,16 @@ export interface DateSweepResult {
   journeys: number;
   checked: number;
   enrolled: number;
+  /** People a check couldn't decide about (a read or write failed). Present only when there were some. */
+  failed?: number;
+}
+
+/** One journey's check: what it read and did this run. */
+interface JourneyCheck {
+  checked: number;
+  enrolled: number;
+  finished: boolean;
+  failed?: number;
 }
 
 interface SweepDeps {
@@ -149,6 +159,7 @@ export async function sweepDateStarts(ctx: TenantContext, deps: SweepDeps): Prom
     out.journeys += 1;
     out.checked += r.checked;
     out.enrolled += r.enrolled;
+    if (r.failed) out.failed = (out.failed ?? 0) + r.failed;
   }
   return out;
 }
@@ -157,20 +168,12 @@ export async function sweepDateStarts(ctx: TenantContext, deps: SweepDeps): Prom
  * "Check now" on a journey: today's check from the start, whatever the hour and
  * whether or not it already ran. Safe to repeat — nobody enters twice for one date.
  */
-export async function checkDatesNow(
-  ctx: TenantContext,
-  journey: LifecycleJourney,
-  deps: SweepDeps,
-): Promise<{ checked: number; enrolled: number; finished: boolean } | null> {
+export async function checkDatesNow(ctx: TenantContext, journey: LifecycleJourney, deps: SweepDeps): Promise<JourneyCheck | null> {
   return sweepJourney(ctx, { ...journey, dateSweep: null }, deps);
 }
 
 /** One journey's check for today, from where it left off. Null when it has nothing to check (not a date start, or its product is gone or paused). */
-async function sweepJourney(
-  ctx: TenantContext,
-  journey: LifecycleJourney,
-  deps: SweepDeps,
-): Promise<{ checked: number; enrolled: number; finished: boolean } | null> {
+async function sweepJourney(ctx: TenantContext, journey: LifecycleJourney, deps: SweepDeps): Promise<JourneyCheck | null> {
   const repo = forTenant(ctx, deps.db);
   if (!journey.publishedVersion) return null;
   const [version, connection] = await Promise.all([
@@ -186,7 +189,8 @@ async function sweepJourney(
   let cursor = resumed?.cursor ?? null;
   let enrolled = resumed?.enrolled ?? 0;
   let checked = resumed?.checked ?? 0;
-  const before = { enrolled, checked };
+  let failed = resumed?.failed ?? 0;
+  const before = { enrolled, checked, failed };
   let finished = false;
   /** The people at the cursor's `lastSeenAt` this run has already read (the cursor is inclusive). */
   let atCursor = new Set<string>();
@@ -199,6 +203,7 @@ async function sweepJourney(
       checked += 1;
       const r = await enrolIfPast(ctx, { journey, version, connection, start, user }, { db: deps.db, nowMs: deps.now() });
       enrolled += r.enrolled;
+      failed += r.failed;
       if (r.capped) {
         capped = true;
         break;
@@ -211,12 +216,15 @@ async function sweepJourney(
     cursor = finished || !last ? null : last === cursor ? new Date(Date.parse(last) - 1).toISOString() : last;
     atCursor = new Set(page.filter((u) => u.lastSeenAt === cursor).map((u) => u.id));
     await repo.lifecycleJourneys.update(journey.id, {
-      dateSweep: { day, status: finished ? "done" : "running", cursor, enrolled, checked, updatedAt: new Date(deps.now()).toISOString() },
+      dateSweep: { day, status: finished ? "done" : "running", cursor, enrolled, checked, ...(failed ? { failed } : {}), updatedAt: new Date(deps.now()).toISOString() },
     });
   }
   const added = enrolled - before.enrolled;
+  const missed = failed - before.failed;
   if (added > 0) console.log(`[lifecycle] date check ${ctx.tenantId}/${journey.id}: enrolled ${added}`);
-  return { checked: checked - before.checked, enrolled: added, finished };
+  // Said out loud: a check that quietly decides about nobody looks the same as a quiet day.
+  if (missed > 0) console.error(`[lifecycle] date check ${ctx.tenantId}/${journey.id}: couldn't check ${missed} of ${checked - before.checked} people`);
+  return { checked: checked - before.checked, enrolled: added, finished, ...(missed ? { failed: missed } : {}) };
 }
 
 /** Enrol one person (once per entity for a journey about each) if their date is past the line and the rules let them in. */
@@ -224,12 +232,13 @@ async function enrolIfPast(
   ctx: TenantContext,
   a: { journey: LifecycleJourney; version: LifecycleVersion; connection: ProductConnection; start: DateStart; user: ProductUser },
   deps: { db?: FirestoreLike; nowMs: number },
-): Promise<{ enrolled: number; capped: boolean }> {
+): Promise<{ enrolled: number; capped: boolean; failed: number }> {
   const { journey, version, connection, start, user } = a;
-  if (user.status !== "active") return { enrolled: 0, capped: false };
+  if (user.status !== "active") return { enrolled: 0, capped: false, failed: 0 };
   const repo = forTenant(ctx, deps.db);
   const about = aboutOf(version);
   let enrolled = 0;
+  let failed = 0;
   for (const entityId of enrolTargets(user, about)) {
     const dateMs = storedDateMs(user, entityId, about, connection.catalog, start.fact);
     if (dateMs === null || !mayEnter(dateMs, start, deps.nowMs)) continue;
@@ -245,13 +254,14 @@ async function enrolIfPast(
         deps,
       );
       if (r.outcome === "enrolled") enrolled += 1;
-      else if (r.outcome === "skipped" && r.reason === "enrolment_cap") return { enrolled, capped: true };
+      else if (r.outcome === "skipped" && r.reason === "enrolment_cap") return { enrolled, capped: true, failed };
     } catch (err) {
-      // One person's trouble never ends the day's check for everyone after them.
+      // One person's trouble never ends the day's check for everyone after them — but it's counted, and they're looked at again tomorrow.
+      failed = 1;
       console.error(`[lifecycle] date check enrol failed ${ctx.tenantId}/${journey.id}/${user.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     }
   }
-  return { enrolled, capped: false };
+  return { enrolled, capped: false, failed };
 }
 
 /**

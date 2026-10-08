@@ -5,7 +5,7 @@ import { DATE_PASSED_EVENT, type DateStart, type DeliveryMode, type LifecycleSet
 import type { ProductUser } from "@/lib/types/productUser";
 import { checkJourneyDates, enrolByHand, journeyAnalytics } from "./adminApi";
 import { checkDatesNow, decideEntry, mayEnter, storedDateMs, sweepDateStarts } from "./dateStart";
-import { enrolOnEvents } from "./enrol";
+import { enrolmentDocId, enrolOnEvents } from "./enrol";
 import { processEnrolment, runLifecycleTick } from "./runner";
 import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft } from "./service";
 import { CONNECTION_ID, STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
@@ -184,6 +184,29 @@ describe("the daily check (LIFECYCLE_DATE_START)", () => {
     await w.repo.lifecycleJourneys.update(w.journey.id, { dateSweep: null });
     expect(await w.sweep(NOW + 3 * 60_000, 2, NOW)).toEqual({ journeys: 0, checked: 0, enrolled: 0 });
     expect(await w.marker()).toBeNull();
+  });
+
+  it("counts the people it couldn't decide about, carries on, and looks at them again tomorrow", async () => {
+    const w = await setup();
+    quiet(w.db, "fine", 15);
+    const unlucky = quiet(w.db, "unlucky", 15);
+    // One person's enrolment read fails today.
+    const collection = w.db.collection.bind(w.db);
+    let failing = true;
+    w.db.collection = (name: string) => {
+      const c = collection(name);
+      if (name !== "lifecycle_enrolments") return c;
+      const doc = c.doc.bind(c);
+      c.doc = (id?: string) => (failing && id === enrolmentDocId(w.journey.id, unlucky.id) ? ({ get: async () => Promise.reject(new Error("unavailable")) } as never) : doc(id));
+      return c;
+    };
+    expect(await w.sweep(NOW)).toEqual({ journeys: 1, checked: 2, enrolled: 1, failed: 1 });
+    expect(await w.marker()).toMatchObject({ status: "done", enrolled: 1, checked: 2, failed: 1 });
+    expect(await w.entered()).toEqual(["fine"]);
+    failing = false;
+    expect(await w.sweep(NOW + DAY)).toEqual({ journeys: 1, checked: 2, enrolled: 1 });
+    expect((await w.marker())?.failed).toBeUndefined();
+    expect(await w.entered()).toEqual(["fine", "unlucky"]);
   });
 
   it("checks nothing for a paused product, a paused journey, or with the switch off", async () => {

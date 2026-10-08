@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
+import { TenantCollection } from "@/lib/tenant/repository";
 import { DATE_PASSED_EVENT, type DateStart, type DeliveryMode, type LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ProductUser } from "@/lib/types/productUser";
 import { checkJourneyDates, enrolByHand, journeyAnalytics } from "./adminApi";
@@ -191,15 +192,13 @@ describe("the daily check (LIFECYCLE_DATE_START)", () => {
     quiet(w.db, "fine", 15);
     const unlucky = quiet(w.db, "unlucky", 15);
     // One person's enrolment read fails today.
-    const collection = w.db.collection.bind(w.db);
+    const read = TenantCollection.prototype.getById;
     let failing = true;
-    w.db.collection = (name: string) => {
-      const c = collection(name);
-      if (name !== "lifecycle_enrolments") return c;
-      const doc = c.doc.bind(c);
-      c.doc = (id?: string) => (failing && id === enrolmentDocId(w.journey.id, unlucky.id) ? ({ get: async () => Promise.reject(new Error("unavailable")) } as never) : doc(id));
-      return c;
-    };
+    const spy = vi.spyOn(TenantCollection.prototype, "getById").mockImplementation(function (this: TenantCollection<{ id: string; tenantId: string }>, id: string) {
+      if (failing && id === enrolmentDocId(w.journey.id, unlucky.id)) return Promise.reject(new Error("unavailable"));
+      return read.call(this, id);
+    });
+    onTestFinished(() => spy.mockRestore());
     expect(await w.sweep(NOW)).toEqual({ journeys: 1, checked: 2, enrolled: 1, failed: 1 });
     expect(await w.marker()).toMatchObject({ status: "done", enrolled: 1, checked: 2, failed: 1 });
     expect(await w.entered()).toEqual(["fine"]);

@@ -92,6 +92,7 @@ const MESSAGES: Record<string, string> = {
   catalog_page_outdated: "This page is out of date.",
   date_facts_unavailable: "Date facts aren't switched on in this environment yet.",
   not_a_date_start: "This journey doesn't start when a date passes — publish it with that start first.",
+  no_last_active_fact: "Add a date fact with the id last_active_at to this sandbox's catalog first (Catalog tab).",
   version_not_found: "That version is no longer kept.",
   no_readable_files: "We couldn't find source files in that repository (or couldn't read it — check the connected account can access it).",
   analysis_not_queued: "That analysis had already started.",

@@ -11,7 +11,11 @@ type Action =
   | { kind: "step"; step: string }
   | { kind: "completed" }
   | { kind: "preferences"; category: string; subscribed: boolean }
+  | { kind: "last_active"; daysAgo: number }
   | { kind: "deleted" };
+
+/** How long ago "went quiet" puts the test user's last-active date: past a 14-day line, inside its week's window. */
+const QUIET_DAYS = 15;
 
 /**
  * The sandbox acting as your product: edit its test users, fire the events a
@@ -32,6 +36,8 @@ export function SandboxPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<unknown>(null);
   const steps = [...connection.catalog.onboardingSteps].sort((a, b) => a.order - b.order);
+  // The catalog has the sandbox's date fact (CONNECT_DATE_FACTS): the test user's last-active date can be moved.
+  const lastActive = (connection.catalog.facts ?? []).some((f) => f.id === "last_active_at" && f.type === "date");
 
   async function saveUsers(next: SandboxUser[]) {
     setBusy("save");
@@ -147,6 +153,18 @@ export function SandboxPanel({
                   onClick={() => void fire(u.userId, { kind: "preferences", category: "onboarding", subscribed: false }, "unsubscribed from onboarding tips")}>
                   Unsubscribe tips
                 </Button>
+                {lastActive ? (
+                  <>
+                    <Button disabled={busy !== null} title="Sets Last active to 15 days ago: a journey that starts 14 days after it takes them at its next check."
+                      onClick={() => void fire(u.userId, { kind: "last_active", daysAgo: QUIET_DAYS }, `went quiet ${QUIET_DAYS} days ago`)}>
+                      Went quiet {QUIET_DAYS} days ago
+                    </Button>
+                    <Button disabled={busy !== null} title="Sets Last active to now: a journey that stops when the date moves on stops at its next step."
+                      onClick={() => void fire(u.userId, { kind: "last_active", daysAgo: 0 }, "came back just now")}>
+                      Came back just now
+                    </Button>
+                  </>
+                ) : null}
                 <Button tone="danger" disabled={busy !== null} onClick={() => void fire(u.userId, { kind: "deleted" }, "user deleted")}>
                   Delete user
                 </Button>

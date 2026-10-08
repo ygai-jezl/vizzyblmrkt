@@ -25,7 +25,8 @@ import { getUserView } from "./v2/users";
 import { isCatalogHistoryEnabled, isDateFactsEnabled, isEntitiesEnabled } from "./v2/flags";
 import { getCatalogRevision, listCatalogRevisions, recordCatalogRevision } from "./catalogHistory";
 import {
-  SANDBOX_CATALOG,
+  hasSandboxLastActive,
+  sandboxCatalog,
   SANDBOX_LINK_DOMAINS,
   defaultSandboxUser,
   fireSandboxEvent,
@@ -100,7 +101,7 @@ export async function createProductConnection(
       name,
       kind,
       environment,
-      catalog: sandbox ? SANDBOX_CATALOG : undefined,
+      catalog: sandbox ? sandboxCatalog(isDateFactsEnabled()) : undefined,
       sandboxUsers: sandbox && ctx.email ? [defaultSandboxUser(ctx.email)] : [],
       createdBy: ctx.userId ?? null,
     },
@@ -604,6 +605,7 @@ const FireInput = z.object({
       category: z.string().min(1).max(64),
       subscribed: z.boolean(),
     }),
+    z.object({ kind: z.literal("last_active"), daysAgo: z.number().int().min(0).max(365) }),
     z.object({ kind: z.literal("deleted") }),
   ]),
 });
@@ -620,6 +622,10 @@ export async function fireSandbox(
   const conn = await loadConnection(ctx, id, opts.db);
   if (!conn) return fail(404, "not_found");
   if (conn.kind !== "sandbox") return fail(400, "not_a_sandbox");
+  // The date only means something to a catalog that has it as a date fact.
+  if (parsed.data.action.kind === "last_active" && !(isDateFactsEnabled() && hasSandboxLastActive(conn.catalog))) {
+    return fail(409, "no_last_active_fact");
+  }
   const r = await fireSandboxEvent(ctx, conn, parsed.data.userId, parsed.data.action, { db: opts.db });
   return { status: r.status, body: r.body };
 }

@@ -575,7 +575,9 @@ export type EnrolmentRuntime = z.infer<typeof EnrolmentRuntimeSchema>;
 /**
  * One product user's progress through one journey — also the runner's queue
  * item (`nextRunAt` + lease). Id = `enr_<sha256(journeyId:productUserId)>`, so a
- * user enters a journey at most once.
+ * user enters a journey at most once — except a journey that starts when a date
+ * passes and lets people enter again, whose ids also carry the date entered on
+ * (src/lib/lifecycle/enrol.ts `enrolmentIdFor`).
  */
 export const LifecycleEnrolmentSchema = EnrolmentRuntimeSchema.extend({
   connectionId: z.string(),

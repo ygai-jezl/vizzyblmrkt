@@ -3,11 +3,11 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import { DATE_PASSED_EVENT, type DateStart, type DeliveryMode, type LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ProductUser } from "@/lib/types/productUser";
-import { checkJourneyDates, enrolByHand } from "./adminApi";
-import { checkDatesNow, dateEntry, storedDateMs, sweepDateStarts } from "./dateStart";
+import { checkJourneyDates, enrolByHand, journeyAnalytics } from "./adminApi";
+import { checkDatesNow, decideEntry, mayEnter, storedDateMs, sweepDateStarts } from "./dateStart";
 import { enrolOnEvents } from "./enrol";
 import { processEnrolment, runLifecycleTick } from "./runner";
-import { createLifecycleJourney, saveLifecycleDraft } from "./service";
+import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft } from "./service";
 import { CONNECTION_ID, STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
 import type { ProductContext } from "@/lib/connect/protocol";
 
@@ -58,14 +58,50 @@ async function setup(opts: { mode?: DeliveryMode; date?: Partial<DateStart>; set
 }
 
 describe("who is past the line", () => {
+  const AGAIN = { ...START, reenterAfterDays: 30 };
+  const entry = (status: string, daysAgo: number) => ({ status, createdAt: iso(NOW - daysAgo * DAY) });
+
   it("is anyone whose date is at least the days ago, and not beyond the window", () => {
-    const at = (daysAgo: number) => dateEntry(NOW - daysAgo * DAY, START, NOW);
-    expect(at(13.9)).toBeNull();
-    expect(at(14)).toEqual({ dateAt: iso(NOW - 14 * DAY), days: 14 });
-    expect(at(21.9)).toMatchObject({ days: 21 });
-    expect(at(22)).toBeNull(); // more than a week past the line
-    expect(at(-3)).toBeNull(); // a date still ahead
-    expect(dateEntry(null, START, NOW)).toBeNull();
+    const at = (daysAgo: number) => decideEntry(NOW - daysAgo * DAY, START, [], NOW);
+    expect(at(13.9)).toBe("not_yet");
+    expect(at(14)).toBe("enter");
+    expect(at(21.9)).toBe("enter");
+    expect(at(22)).toBe("window_passed"); // more than a week past the line
+    expect(at(-3)).toBe("not_yet"); // a date still ahead
+  });
+
+  it("each person enters once, unless the journey lets them in again", () => {
+    expect(decideEntry(NOW - 14 * DAY, START, [entry("exited", 60)], NOW)).toBe("entered_before");
+    expect(decideEntry(NOW - 14 * DAY, AGAIN, [entry("exited", 60)], NOW)).toBe("enter");
+  });
+
+  it("never while an earlier entry is still running, and no sooner than the gap after the last one", () => {
+    expect(decideEntry(NOW - 14 * DAY, AGAIN, [entry("active", 60)], NOW)).toBe("in_journey");
+    expect(decideEntry(NOW - 14 * DAY, AGAIN, [entry("exited", 29.9)], NOW)).toBe("too_soon");
+    expect(decideEntry(NOW - 14 * DAY, AGAIN, [entry("completed", 30)], NOW)).toBe("enter");
+    expect(decideEntry(NOW - 14 * DAY, AGAIN, [entry("exited", 90), entry("exited", 10)], NOW)).toBe("too_soon"); // the latest counts
+  });
+
+  it("someone held back only by the gap enters when it ends, and the window counts from there", () => {
+    // Quiet for 25 days: past the line's own window, but the gap after their last entry ended today.
+    expect(decideEntry(NOW - 25 * DAY, AGAIN, [entry("exited", 30)], NOW)).toBe("enter");
+    expect(decideEntry(NOW - 25 * DAY, AGAIN, [entry("exited", 37.9)], NOW)).toBe("enter");
+    expect(decideEntry(NOW - 33 * DAY, AGAIN, [entry("exited", 38)], NOW)).toBe("window_passed");
+    expect(decideEntry(NOW - 25 * DAY, AGAIN, [], NOW)).toBe("window_passed"); // nobody held them back
+  });
+
+  it("by hand ignores the line, the window and the gap, but not the other two", () => {
+    const byHand = { byHand: true };
+    expect(decideEntry(NOW - DAY, AGAIN, [entry("exited", 2)], NOW, byHand)).toBe("enter");
+    expect(decideEntry(NOW - DAY, AGAIN, [entry("active", 2)], NOW, byHand)).toBe("in_journey");
+    expect(decideEntry(NOW - DAY, START, [entry("exited", 200)], NOW, byHand)).toBe("entered_before");
+  });
+
+  it("the daily check only looks closer at dates that could still enter", () => {
+    const worth = (daysAgo: number | null, start = START) => mayEnter(daysAgo === null ? null : NOW - daysAgo * DAY, start, NOW);
+    expect([worth(null), worth(13.9), worth(14), worth(21.9), worth(22), worth(200)]).toEqual([false, false, true, true, false, false]);
+    // Entering again: a gap can hold someone back past the line's own window, so the look reaches further.
+    expect([worth(22, AGAIN), worth(39.9, AGAIN), worth(40, AGAIN)]).toEqual([true, true, false]);
   });
 });
 
@@ -323,6 +359,90 @@ describe("stopping when the date moves on", () => {
   });
 });
 
+describe("entering again after a new quiet spell", () => {
+  /** Alex went quiet 14 days ago, entered today, came back in two days and went quiet again from then. */
+  async function cameBackBriefly(date: Partial<DateStart> = { reenterAfterDays: 30 }) {
+    const w = await setup({ date });
+    const user = quiet(w.db, "alex", 14);
+    expect(await w.sweep(NOW)).toMatchObject({ enrolled: 1 });
+    const rows = () => w.repo.lifecycleEnrolments.find({ where: [["journeyId", "==", w.journey.id]], limit: 20 });
+    const [first] = await rows();
+    const finish = (id: string) => w.repo.lifecycleEnrolments.update(id, { status: "exited", stopReason: "date_moved", cursor: null, nextRunAt: null });
+    const lastActive = (ms: number) => w.repo.productUsers.update(user.id, { facts: { last_active_at: { value: iso(ms), at: iso(ms) } }, lastSeenAt: iso(ms) });
+    return { ...w, user, first: first!, rows, finish, lastActive };
+  }
+
+  it("one date is one entry, however many days it stays past the line", async () => {
+    const w = await cameBackBriefly();
+    await w.finish(w.first.id);
+    for (const d of [1, 2, 7, 30, 31]) expect(await w.sweep(NOW + d * DAY)).toMatchObject({ enrolled: 0 });
+    expect(await w.rows()).toHaveLength(1);
+  });
+
+  it("lets them in again once their date has moved on and passed the line, no sooner than the gap", async () => {
+    const w = await cameBackBriefly();
+    await w.lastActive(NOW + 2 * DAY);
+    await w.finish(w.first.id);
+    // Quiet again from day 2: past the line on day 16, but only 16 days after they last entered.
+    expect(await w.sweep(NOW + 16 * DAY)).toMatchObject({ enrolled: 0 });
+    expect(await w.sweep(NOW + 29 * DAY)).toMatchObject({ enrolled: 0 });
+    // Day 30: the gap is over. They've been quiet 28 days — past the line's own window, held back only by the gap.
+    expect(await w.sweep(NOW + 30 * DAY)).toMatchObject({ enrolled: 1 });
+    const rows = await w.rows();
+    expect(rows.map((e) => e.dateAt).sort()).toEqual([iso(NOW - 14 * DAY), iso(NOW + 2 * DAY)]);
+    expect(new Set(rows.map((e) => e.id)).size).toBe(2);
+    expect(await w.sweep(NOW + 31 * DAY)).toMatchObject({ enrolled: 0 }); // the new one is running
+  });
+
+  it("never enters them twice at once", async () => {
+    const w = await cameBackBriefly({ reenterAfterDays: 1, stopWhenDateMoves: false });
+    await w.lastActive(NOW + 2 * DAY);
+    expect(await w.sweep(NOW + 16 * DAY)).toMatchObject({ enrolled: 0 }); // the first entry is still running
+    await w.finish(w.first.id);
+    expect(await w.sweep(NOW + 17 * DAY)).toMatchObject({ enrolled: 1 });
+  });
+
+  it("each person enters once when the journey says so, whatever their date does", async () => {
+    const w = await cameBackBriefly({ reenterAfterDays: null });
+    await w.lastActive(NOW + 2 * DAY);
+    await w.finish(w.first.id);
+    for (const d of [16, 30, 60]) expect(await w.sweep(NOW + d * DAY)).toMatchObject({ enrolled: 0 });
+    expect(await w.rows()).toHaveLength(1);
+  });
+
+  it("counts an entry from before the journey let people in again", async () => {
+    // Entered while people entered once (an id without the date), then the journey was republished to let them in again.
+    const w = await cameBackBriefly({ reenterAfterDays: null });
+    await w.lastActive(NOW + 2 * DAY);
+    await w.finish(w.first.id);
+    const draft = (await w.repo.lifecycleJourneys.getById(w.journey.id))!.draft;
+    expect((await saveLifecycleDraft(ctx, w.journey.id, { ...draft, settings: { ...draft.settings, trigger: trigger({ reenterAfterDays: 30 }) } }, { db: w.db })).ok).toBe(true);
+    expect((await publishLifecycleJourney(ctx, w.journey.id, { db: w.db })).ok).toBe(true);
+    expect(await w.sweep(NOW + 20 * DAY)).toMatchObject({ enrolled: 0 }); // 20 days since that entry
+    expect(await w.sweep(NOW + 30 * DAY)).toMatchObject({ enrolled: 1 });
+  });
+
+  it("by hand skips the gap, but not someone still in the journey", async () => {
+    const w = await cameBackBriefly();
+    expect(await enrolByHand(ctx, w.journey.id, { userId: "alex" }, w.db, NOW + DAY)).toMatchObject({ status: 409, body: { error: "already_enrolled", detail: w.first.id } });
+    await w.lastActive(NOW + 2 * DAY);
+    await w.finish(w.first.id);
+    expect((await enrolByHand(ctx, w.journey.id, { userId: "alex" }, w.db, NOW + 3 * DAY)).status).toBe(201);
+    expect(await w.rows()).toHaveLength(2);
+  });
+
+  it("the journey's numbers count people as well as entries", async () => {
+    const w = await cameBackBriefly();
+    await w.lastActive(NOW + 2 * DAY);
+    await w.finish(w.first.id);
+    await w.sweep(NOW + 30 * DAY);
+    quiet(w.db, "sam", null, { facts: { last_active_at: { value: iso(NOW + 16 * DAY), at: iso(NOW + 16 * DAY) } } });
+    await w.sweep(NOW + 31 * DAY);
+    const stats = (await journeyAnalytics(ctx, w.journey.id, w.db)).body as { enrolments: { total: number; people: number; stopReasons: Record<string, number> } };
+    expect(stats.enrolments).toMatchObject({ total: 3, people: 2, stopReasons: { date_moved: 1 } });
+  });
+});
+
 describe("a date kept per brand", () => {
   const brands = {
     b_quiet: { kind: "brand", name: "Fernlight", parentId: null, role: "owner" as const, steps: {}, facts: { last_audit_at: { value: iso(NOW - 15 * DAY), at: iso(NOW) } }, activeAt: null, firstSeenAt: iso(NOW - 90 * DAY), updatedAt: iso(NOW) },
@@ -340,5 +460,16 @@ describe("a date kept per brand", () => {
     expect(await w.sweep()).toMatchObject({ journeys: 1, enrolled: 1 });
     const rows = await w.repo.lifecycleEnrolments.find({ where: [["journeyId", "==", w.journey.id]], limit: 10 });
     expect(rows).toMatchObject([{ entityId: "b_quiet", dateAt: iso(NOW - 15 * DAY) }]);
+  });
+
+  it("one brand's entry doesn't hold another brand back", async () => {
+    process.env.CONNECT_ENTITIES_ENABLED = "true";
+    const w = await setup({ catalog, date: { fact: "last_audit_at", reenterAfterDays: 30 }, settings: { about } });
+    seedUser(w.db, "owner", { entities: brands, lastSeenAt: iso(NOW - HOUR) });
+    expect(await w.sweep()).toMatchObject({ enrolled: 1 }); // Fernlight, still running
+    // Twelve days on Oakmoss crosses the line too: its own entry, the same day.
+    expect(await w.sweep(NOW + 12 * DAY)).toMatchObject({ enrolled: 1 });
+    const rows = await w.repo.lifecycleEnrolments.find({ where: [["journeyId", "==", w.journey.id]], limit: 10 });
+    expect(rows.map((e) => e.entityId).sort()).toEqual(["b_busy", "b_quiet"]);
   });
 });

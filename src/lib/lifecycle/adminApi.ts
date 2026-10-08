@@ -707,7 +707,8 @@ export async function journeyAnalytics(ctx: TenantContext, journeyId: string, db
   const median = hoursToOnboarded.length ? hoursToOnboarded[Math.floor((hoursToOnboarded.length - 1) / 2)]! : null;
 
   return ok({
-    enrolments: { total: enrolments.length, ...byStatus, stopReasons },
+    // `people`: how many different people those entries are (a journey people can enter again counts them twice).
+    enrolments: { total: enrolments.length, people: new Set(enrolments.map((e) => ("productUserId" in e ? e.productUserId : e.signupId))).size, ...byStatus, stopReasons },
     items: [...items.values()].sort((a, b) => a.poolId.localeCompare(b.poolId) || a.itemId.localeCompare(b.itemId)),
     goal: waitlist
       ? null

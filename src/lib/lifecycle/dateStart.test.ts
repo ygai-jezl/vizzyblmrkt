@@ -6,9 +6,10 @@ import type { ProductUser } from "@/lib/types/productUser";
 import { checkJourneyDates, enrolByHand } from "./adminApi";
 import { checkDatesNow, dateEntry, storedDateMs, sweepDateStarts } from "./dateStart";
 import { enrolOnEvents } from "./enrol";
-import { runLifecycleTick } from "./runner";
+import { processEnrolment, runLifecycleTick } from "./runner";
 import { createLifecycleJourney, saveLifecycleDraft } from "./service";
-import { CONNECTION_ID, STEPS, T0, TENANT_ID, ctx, publishOnboarding, seedUser, seedWorld, system } from "./testing/fixtures";
+import { CONNECTION_ID, STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
+import type { ProductContext } from "@/lib/connect/protocol";
 
 const DAY = 86_400_000;
 const HOUR = 3600_000;
@@ -22,13 +23,14 @@ const START: DateStart = { fact: "last_active_at", days: 14, windowDays: 7, stop
 const trigger = (date: Partial<DateStart> = {}): LifecycleSettings["trigger"] => ({ event: DATE_PASSED_EVENT, maxEventAgeHours: 72, date: { ...START, ...date } });
 
 beforeEach(() => {
+  process.env.EMAIL_LINK_ORIGIN = "https://mk.test";
   process.env.LIFECYCLE_MODE_CEILING = "live";
   process.env.LIFECYCLE_GO_LIVE_SWEEP = "true";
   process.env.CONNECT_DATE_FACTS = "true";
   process.env.LIFECYCLE_DATE_START = "true";
 });
 afterEach(() => {
-  for (const k of ["LIFECYCLE_MODE_CEILING", "LIFECYCLE_GO_LIVE_SWEEP", "CONNECT_DATE_FACTS", "LIFECYCLE_DATE_START", "CONNECT_ENTITIES_ENABLED"]) delete process.env[k];
+  for (const k of ["EMAIL_LINK_ORIGIN", "LIFECYCLE_MODE_CEILING", "LIFECYCLE_GO_LIVE_SWEEP", "CONNECT_DATE_FACTS", "LIFECYCLE_DATE_START", "CONNECT_ENTITIES_ENABLED"]) delete process.env[k];
 });
 
 /** Someone last active `daysAgo` days before NOW. */
@@ -251,6 +253,73 @@ describe("what a date start needs before it can be published", () => {
 
   it("the switch to be on", async () => {
     expect(await codes({}, false)).toEqual(["date_start_unavailable"]);
+  });
+});
+
+describe("stopping when the date moves on", () => {
+  const MIN = 60_000;
+  /** One person, quiet for 15 days, enrolled by the day's check; the welcome has gone out. */
+  async function nudged(date: Partial<DateStart> = {}) {
+    const w = await setup({ date });
+    const user = quiet(w.db, "alex", 15);
+    expect(await w.sweep()).toMatchObject({ enrolled: 1 });
+    const [enrolment] = await w.repo.lifecycleEnrolments.find({ where: [["journeyId", "==", w.journey.id]], limit: 1 });
+    let context: ProductContext | null = productContext();
+    const live = contextStub(() => context);
+    const sends = sendStub();
+    let now = NOW;
+    const deps = { db: w.db, now: () => now, send: sends.send, fetchContext: live.fetchContext };
+    const run = (at: number) => {
+      now = at;
+      return processEnrolment(system, enrolment!.id, deps);
+    };
+    const get = async () => (await w.repo.lifecycleEnrolments.getById(enrolment!.id))!;
+    expect(await run(NOW)).toBe("waiting");
+    expect(await run(NOW + 15 * MIN)).toBe("sent");
+    const nextAt = Date.parse((await get()).nextRunAt!);
+    const cameBack = (atMs: number) => w.repo.productUsers.update(user.id, { facts: { last_active_at: { value: iso(atMs), at: iso(atMs) } } });
+    return { ...w, user, run, get, nextAt, sent: sends.sent, contextCalls: live.calls, setContext: (c: ProductContext | null) => (context = c), cameBack };
+  }
+  const liveDate = (value: unknown) => productContext({ facts: [{ id: "last_active_at", label: "Last active", value: value as string }] });
+
+  it("stops before the next email once the stored date is later than the one they entered on", async () => {
+    const w = await nudged();
+    await w.cameBack(NOW + HOUR);
+    expect(await w.run(w.nextAt)).toBe("exited");
+    expect(await w.get()).toMatchObject({ status: "exited", stopReason: "date_moved", cursor: null });
+    expect(w.sent).toHaveLength(1);
+    expect(w.contextCalls).toHaveLength(1); // the product isn't asked again: the stored date was enough
+  });
+
+  it("stops on the product's live answer, when the stored date is still the old one", async () => {
+    const w = await nudged();
+    w.setContext(liveDate(iso(w.nextAt - HOUR))); // back an hour before the email was due
+    expect(await w.run(w.nextAt)).toBe("exited");
+    expect(await w.get()).toMatchObject({ status: "exited", stopReason: "date_moved" });
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it("carries on while the date is the same, unknown, or not a date", async () => {
+    for (const context of [liveDate(iso(NOW - 15 * DAY)), liveDate("recently"), productContext(), null]) {
+      const w = await nudged();
+      w.setContext(context);
+      expect(await w.run(w.nextAt)).toBe("sent");
+      expect(w.sent).toHaveLength(2);
+    }
+    // The fact was removed from their state: nothing to compare, so nobody is stopped.
+    const w = await nudged();
+    await w.repo.productUsers.update(w.user.id, { facts: {} });
+    expect(await w.run(w.nextAt)).toBe("sent");
+  });
+
+  it("carries on when the journey doesn't stop on it, or the switch is off", async () => {
+    const kept = await nudged({ stopWhenDateMoves: false });
+    await kept.cameBack(NOW + HOUR);
+    expect(await kept.run(kept.nextAt)).toBe("sent");
+    const off = await nudged();
+    await off.cameBack(NOW + HOUR);
+    delete process.env.LIFECYCLE_DATE_START;
+    expect(await off.run(off.nextAt)).toBe("sent");
   });
 });
 

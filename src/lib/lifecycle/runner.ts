@@ -49,7 +49,9 @@ import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } 
 import { runWaitlistTick } from "./waitlist/tick";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
-import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { dateStartOf, JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { parseFactDate } from "@/lib/connect/dateFacts";
+import { factDateMs } from "./fields";
 import { entityViewFor, viewedUser, type EntityView } from "./entities";
 import {
   cursorOf,
@@ -243,6 +245,10 @@ export async function processEnrolment(
     if (user.email && (await isSuppressedFor(ctx, user.email, settings.category.key, deps.db))) {
       return await stop("unsubscribed");
     }
+    // A journey that started when a date passed stops once that date has moved on (they came
+    // back). Here from the stored state; again below from the product's live answer.
+    const dateMoved = dateMovedCheck(leased, settings);
+    if (dateMoved?.(parseFactDate(user.facts?.[dateMoved.fact]?.value))) return await stop("date_moved");
     const mode = lowestMode(leased.mode, journey.deliveryMode, lifecycleModeCeiling());
     // Held for its mode and never started: once the trigger's window has passed it
     // leaves, instead of sending the whole sequence late when the mode opens up.
@@ -333,6 +339,8 @@ export async function processEnrolment(
         if (res.ok) {
           context = res.context;
           if (context.exit) return await stop(`product_exit: ${context.exit.reason}`);
+          // The live date, just before an email: someone who came back this morning isn't nudged.
+          if (dateMoved?.(factDateMs(dateMoved.fact, { context, user }))) return await stop("date_moved");
           if (context.hold) {
             const asked = context.hold.until ? Date.parse(context.hold.until) : nowMs + PRODUCT_HOLD_DEFAULT_MS;
             const until = Math.min(Math.max(asked, nowMs + 60_000), nowMs + PRODUCT_HOLD_MAX_MS);
@@ -403,6 +411,21 @@ export async function processEnrolment(
   } catch (err) {
     return run.fail(err, leased.failures);
   }
+}
+
+/**
+ * For an enrolment in a journey that starts when a date passes (LIFECYCLE_DATE_START) and
+ * stops when it moves: whether a date (epoch ms; null = unknown) is later than the one they
+ * entered on. Null when this enrolment has no such rule. An unknown date never stops anyone.
+ */
+function dateMovedCheck(
+  enrolment: Pick<LifecycleEnrolment, "dateAt">,
+  settings: LifecycleSettings,
+): (((dateMs: number | null) => boolean) & { fact: string }) | null {
+  const start = isLifecycleDateStartEnabled() ? dateStartOf(settings) : null;
+  const enteredMs = enrolment.dateAt ? Date.parse(enrolment.dateAt) : NaN;
+  if (!start?.stopWhenDateMoves || !Number.isFinite(enteredMs)) return null;
+  return Object.assign((dateMs: number | null) => dateMs !== null && dateMs > enteredMs, { fact: start.fact });
 }
 
 /** Record context health at most once per connection per tick. */

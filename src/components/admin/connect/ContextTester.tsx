@@ -155,6 +155,14 @@ export function ContextTester({ connection, canEdit }: { connection: PublicConne
               work, but add them to the catalog (Facts) so journeys and Vizzy know what they mean.
             </Banner>
           ) : null}
+          {result.warnings.some((w) => w.startsWith("bad_date:")) ? (
+            <Banner tone="info">
+              These date facts didn&apos;t come back as a date:{" "}
+              {result.warnings.filter((w) => w.startsWith("bad_date:")).map((w) => w.slice(9)).join(", ")}. Send a time
+              with a timezone (2026-10-08T09:12:00Z) or a day (2026-10-08). Until then journeys use the last value you
+              sent.
+            </Banner>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">
               <h4 className="text-xs font-semibold">Onboarding</h4>

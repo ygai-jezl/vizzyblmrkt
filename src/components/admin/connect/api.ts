@@ -90,6 +90,7 @@ const MESSAGES: Record<string, string> = {
   // Catalog saves
   catalog_changed: "The catalog was changed elsewhere since you opened it.",
   catalog_page_outdated: "This page is out of date.",
+  date_facts_unavailable: "Date facts aren't switched on in this environment yet.",
   version_not_found: "That version is no longer kept.",
   no_readable_files: "We couldn't find source files in that repository (or couldn't read it — check the connected account can access it).",
   analysis_not_queued: "That analysis had already started.",

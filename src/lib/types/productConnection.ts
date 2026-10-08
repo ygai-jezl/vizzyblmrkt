@@ -89,7 +89,11 @@ export type OnboardingStep = z.infer<typeof OnboardingStepSchema>;
 
 /** Fact ids match the `id` of facts the product returns from its context endpoint. */
 export const FACT_ID_RE = /^[a-z][a-z0-9_]{0,63}$/;
-export const FactType = z.enum(["number", "string", "boolean"]);
+/**
+ * `date` (CONNECT_DATE_FACTS): a moment, sent as text — ISO 8601 with a zone, or a
+ * plain `YYYY-MM-DD` day. Journeys read it as whole days from now (src/lib/connect/dateFacts.ts).
+ */
+export const FactType = z.enum(["number", "string", "boolean", "date"]);
 
 /**
  * A number (or value) the product can report about one user — the raw material

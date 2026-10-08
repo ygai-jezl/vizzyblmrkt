@@ -80,6 +80,11 @@ export function fieldProblem(field: string, catalog: ConnectionCatalog): string 
   if (family === "milestone" && !RESERVED.has(key) && !catalog.events.some((e) => e.name === key)) {
     return `unknown event "${key}"`;
   }
+  if (family === "days_since" || family === "days_until") {
+    const fact = (catalog.facts ?? []).find((f) => f.id === key);
+    if (!fact) return `unknown fact "${key}"`;
+    if (fact.type !== "date") return `"${key}" isn't a date fact`;
+  }
   if (family === "onboarding" && catalog.onboardingSteps.length === 0) return "the catalog has no onboarding steps";
   if (family === "entities" && (catalog.entityKinds ?? []).length === 0) return "the catalog has no entity kinds";
   return null;

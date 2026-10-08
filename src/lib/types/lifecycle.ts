@@ -28,11 +28,14 @@ import { StoredJourneyStyleSchema } from "./tenant";
  * Fields a lifecycle condition can read. Prefixed families are checked against
  * the connection's catalog when publishing (trait/step/milestone); fact.* is
  * whatever the product's context endpoint returns (unknown when absent).
+ * `days_since.*` / `days_until.*` (CONNECT_DATE_FACTS) read one of the catalog's
+ * date facts as whole days from now.
  * `signup.*` (waitlist journeys only) are the original waitlist engine's fields
  * (src/lib/journey/conditions.ts), read the same way.
  */
 export const LIFECYCLE_FIELD_RE = new RegExp(
   "^(?:(?:trait|step|fact|milestone)\\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}" +
+    "|(?:days_since|days_until)\\.[a-z][a-z0-9_]{0,63}" +
     "|onboarding\\.(?:complete|steps_done|steps_remaining)|consent\\.basis" +
     "|enrolment\\.(?:emails_sent|days_since_enrol)" +
     "|entities\\.(?:count|finished|unfinished)" +

@@ -153,6 +153,14 @@ export function fieldOptions(catalog: ConnectionCatalog | undefined): FieldOptio
     });
   }
   for (const f of catalog?.facts ?? []) {
+    if (f.type === "date") {
+      // A date is read as whole days from now, worked out when the journey checks.
+      out.push(
+        { value: `days_since.${f.id}`, label: `Days since: ${f.label}`, group: "Facts", kind: "number" },
+        { value: `days_until.${f.id}`, label: `Days until: ${f.label}`, group: "Facts", kind: "number" },
+      );
+      continue;
+    }
     out.push({ value: `fact.${f.id}`, label: f.unit ? `${f.label} (${f.unit})` : f.label, group: "Facts", kind: f.type });
   }
   const events = new Set([...RESERVED_EVENTS, ...(catalog?.events ?? []).map((e) => e.name)]);

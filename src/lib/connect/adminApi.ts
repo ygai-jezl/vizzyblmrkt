@@ -22,7 +22,7 @@ import { eraseProductUser } from "./erase";
 import { productUserDocId } from "./profile";
 import { stepPlacement } from "./stepPlacement";
 import { getUserView } from "./v2/users";
-import { isCatalogHistoryEnabled, isEntitiesEnabled } from "./v2/flags";
+import { isCatalogHistoryEnabled, isDateFactsEnabled, isEntitiesEnabled } from "./v2/flags";
 import { getCatalogRevision, listCatalogRevisions, recordCatalogRevision } from "./catalogHistory";
 import {
   SANDBOX_CATALOG,
@@ -59,6 +59,11 @@ export function publicConnection(conn: ProductConnection, nowMs = Date.now()) {
 
 async function loadConnection(ctx: TenantContext, id: string, db?: FirestoreLike) {
   return forTenant(ctx, db).productConnections.getById(id);
+}
+
+/** Whether the connection's catalog already holds this fact as a date (a save may keep what's there). */
+function wasDate(conn: ProductConnection, factId: string): boolean {
+  return (conn.catalog.facts ?? []).some((f) => f.id === factId && f.type === "date");
 }
 
 // ---- Connections -------------------------------------------------------------------
@@ -121,7 +126,7 @@ export async function getConnectionDetail(ctx: TenantContext, id: string, db?: F
   return ok({
     connection: publicConnection(conn),
     diagnostics,
-    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled() },
+    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled(), dateFacts: isDateFactsEnabled() },
   });
 }
 
@@ -173,6 +178,10 @@ export async function patchConnection(
   // A catalog save must say which version it was edited from. A page loaded before this check
   // existed doesn't, and shows the detail as is (it doesn't know the code).
   if (p.catalog && p.catalogRev === undefined) return fail(409, "catalog_page_outdated", "reload the page, then save again");
+  // Date facts are behind their own switch: where it's off no catalog holds one, so nothing downstream reads one.
+  if (p.catalog && !isDateFactsEnabled() && p.catalog.facts.some((f) => f.type === "date" && !wasDate(conn, f.id))) {
+    return fail(400, "date_facts_unavailable");
+  }
 
   if (conn.kind === "sandbox" && (p.contextEndpoint !== undefined || p.webhookEndpoint !== undefined)) {
     return fail(400, "sandbox_endpoints_fixed");

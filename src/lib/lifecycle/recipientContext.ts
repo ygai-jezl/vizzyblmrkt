@@ -5,6 +5,7 @@ import { isAllowedLink } from "@/lib/connect/contextClient";
 import { checklist, type RecipientContext } from "./fields";
 import type { RenderValues } from "./render";
 import { digestRows, kindLabel, type EntityView } from "./entities";
+import { formatFactDate } from "@/lib/connect/dateFacts";
 
 /**
  * What the runner knows about one recipient for one run: the stored profile
@@ -36,19 +37,27 @@ export function buildRecipientContext(a: {
 
 /**
  * Facts for the template: the live context's when it has any, else the latest
- * values the product pushed (API v2), labelled from the catalog.
+ * values the product pushed (API v2), labelled from the catalog. A date fact
+ * (CONNECT_DATE_FACTS) with no display of its own prints as a date in the
+ * reader's language and time zone, never as the raw text.
  */
-function renderFacts(context: ProductContext | null, user: ProductUser, catalog: RecipientContext["catalog"]): RenderValues["facts"] {
-  if (context && context.facts.length > 0) {
-    return context.facts.map((f) => ({ id: f.id, label: f.label, value: f.value, unit: f.unit ?? null, display: f.display ?? null }));
-  }
+function renderFacts(
+  context: ProductContext | null,
+  user: ProductUser,
+  catalog: RecipientContext["catalog"],
+  when: { locale?: string | null; timeZone?: string | null },
+): RenderValues["facts"] {
   const known = new Map((catalog.facts ?? []).map((f) => [f.id, f] as const));
+  const dated = (id: string, value: unknown) => (known.get(id)?.type === "date" ? formatFactDate(value, when.locale, when.timeZone) : null);
+  if (context && context.facts.length > 0) {
+    return context.facts.map((f) => ({ id: f.id, label: f.label, value: f.value, unit: f.unit ?? null, display: f.display ?? dated(f.id, f.value) }));
+  }
   return Object.entries(user.facts ?? {}).map(([id, f]) => ({
     id,
     label: known.get(id)?.label ?? id,
     value: f.value,
     unit: known.get(id)?.unit ?? null,
-    display: null,
+    display: dated(id, f.value),
   }));
 }
 
@@ -94,7 +103,7 @@ export function nextStepOf(
 
 export function buildRenderValues(a: {
   user: ProductUser;
-  connection: Pick<ProductConnection, "name" | "linkDomains">;
+  connection: Pick<ProductConnection, "name" | "linkDomains"> & Partial<Pick<ProductConnection, "defaults">>;
   rc: RecipientContext;
   context: ProductContext | null;
   insight: Insight | null;
@@ -106,13 +115,14 @@ export function buildRenderValues(a: {
   const next = nextStepOf(a.context, steps, a.connection.linkDomains);
   const view = a.rc.entities;
   const about = view?.entity?.entity;
+  const when = { locale: a.user.locale ?? a.connection.defaults?.locale, timeZone: a.user.timezone ?? a.connection.defaults?.timezone };
   return {
     entity: about ? { name: about.name, kind: kindLabel(about.kind, a.rc.catalog) } : null,
-    entities: view ? { count: view.list.length, ...digestRows(view.list, a.rc.catalog, view.maxListed) } : null,
+    entities: view ? { count: view.list.length, ...digestRows(view.list, a.rc.catalog, view.maxListed, when) } : null,
     user: { id: a.user.externalUserId, first_name: a.user.firstName, last_name: a.user.lastName, email: a.user.email },
     product: { name: a.connection.name },
     traits: a.user.traits,
-    facts: renderFacts(a.context, a.user, a.rc.catalog),
+    facts: renderFacts(a.context, a.user, a.rc.catalog, when),
     nextStep: next ? { label: next.label, url: next.url } : null,
     checklist: steps.map((s) => ({ label: s.label, done: s.done, url: s.url })),
     insight: a.insight ? { sentence: a.insight.sentence, aiLine: a.aiLine ?? null } : null,

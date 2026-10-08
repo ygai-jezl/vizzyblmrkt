@@ -193,6 +193,37 @@ export type LifecycleGraph = z.infer<typeof LifecycleGraphSchema>;
  */
 export const JOURNEY_COMPLETED_EVENT = "journey.completed";
 
+/**
+ * The trigger of a journey that STARTS WHEN A DATE PASSES (LIFECYCLE_DATE_START): nothing a
+ * product sends starts it either — a daily check does (src/lib/lifecycle/dateStart.ts), for
+ * everyone whose date fact (`trigger.date.fact`) is at least `days` days ago. "Hasn't been
+ * active for 14 days" is this with a last-active date.
+ */
+export const DATE_PASSED_EVENT = "date.passed";
+
+/** The limits of a date start, shared by the schema, the editor and Vizzy. */
+export const DATE_START_LIMITS = { maxDays: 365, defaultDays: 14, defaultWindowDays: 7, defaultReenterAfterDays: 30 } as const;
+
+export const DateStartSchema = z.object({
+  /** The catalog's date fact the journey reads. */
+  fact: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+  /** Start once the date is at least this many whole days ago. */
+  days: z.number().int().min(1).max(DATE_START_LIMITS.maxDays).default(DATE_START_LIMITS.defaultDays),
+  /**
+   * Don't start for someone already more than this many days past the line, so the first
+   * check after going live doesn't take everyone who ever went quiet.
+   */
+  windowDays: z.number().int().min(1).max(DATE_START_LIMITS.maxDays).default(DATE_START_LIMITS.defaultWindowDays),
+  /** Stop the journey when the date moves on after they entered (they came back). */
+  stopWhenDateMoves: z.boolean().default(true),
+  /**
+   * Let someone enter again once their date has moved on and passed the line again, but no
+   * sooner than this many days after they last entered. Null = each person enters once.
+   */
+  reenterAfterDays: z.number().int().min(1).max(DATE_START_LIMITS.maxDays).nullable().default(DATE_START_LIMITS.defaultReenterAfterDays),
+});
+export type DateStart = z.infer<typeof DateStartSchema>;
+
 
 export const SendPolicySchema = z.object({
   /** Allowed LOCAL weekdays, 0 = Sunday … 6 = Saturday. */
@@ -251,6 +282,8 @@ export const LifecycleSettingsSchema = z.object({
        * when they reach the end of that journey, and this journey's clock starts then.
        */
       afterJourneyId: z.string().max(64).nullable().optional(),
+      /** With `event` = DATE_PASSED_EVENT: which date, and how long after it. */
+      date: DateStartSchema.nullable().optional(),
     })
     .default({ event: "user.signed_up", maxEventAgeHours: 72 }),
   sendPolicy: SendPolicySchema.default(SendPolicySchema.parse({})),
@@ -295,6 +328,16 @@ export type LifecycleSettings = z.infer<typeof LifecycleSettingsSchema>;
 /** Whether these settings start the journey after another journey, not on a product event. */
 export function startsAfterJourney(settings: { trigger: { event: string } }): boolean {
   return settings.trigger.event === JOURNEY_COMPLETED_EVENT;
+}
+
+/** Whether these settings start the journey when a date passes, not on a product event. */
+export function startsOnDate(settings: { trigger: { event: string } }): boolean {
+  return settings.trigger.event === DATE_PASSED_EVENT;
+}
+
+/** The date start of these settings; null when something else starts the journey (or no date is chosen yet). */
+export function dateStartOf(settings: { trigger: { event: string; date?: DateStart | null } }): DateStart | null {
+  return startsOnDate(settings) ? (settings.trigger.date ?? null) : null;
 }
 
 /** The journey these settings continue from; null when a product event starts it (or none is chosen yet). */
@@ -378,6 +421,11 @@ export const LifecycleJourneySchema = z.object({
    */
   continuesFrom: z.string().max(64).nullable().optional(),
   /**
+   * Whether the published version starts when a date passes (LIFECYCLE_DATE_START). Publish
+   * copies it from the draft's trigger, so the daily check finds its journeys without version reads.
+   */
+  startsOnDate: z.boolean().optional(),
+  /**
    * Product sign-up journeys (LIFECYCLE_GO_LIVE_SWEEP): enrolling the people who
    * signed up inside the window once the journey can first email everyone (its
    * mode or the environment's ceiling rose to live). Resumable: the cursor is the
@@ -389,6 +437,23 @@ export const LifecycleJourneySchema = z.object({
       status: z.enum(["running", "done"]),
       cursor: z.string().nullable(),
       enrolled: z.number().int().nonnegative(),
+      updatedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
+  /**
+   * Journeys that start when a date passes (LIFECYCLE_DATE_START): today's check of the
+   * product's people. `day` is the UTC day it's for; resumable across ticks (the cursor is the
+   * `lastSeenAt` reached). `enrolled` counts that day's entries.
+   */
+  dateSweep: z
+    .object({
+      day: z.string(),
+      status: z.enum(["running", "done"]),
+      cursor: z.string().nullable(),
+      enrolled: z.number().int().nonnegative(),
+      /** People read so far today. */
+      checked: z.number().int().nonnegative().default(0),
       updatedAt: z.string(),
     })
     .nullable()
@@ -471,6 +536,11 @@ const EnrolmentRuntimeSchema = z.object({
   anchorAt: z.string(),
   /** The journey they finished to enter this one (a journey that continues from another). */
   fromJourneyId: z.string().nullable().optional(),
+  /**
+   * A journey that starts when a date passes: the date they entered on (UTC ISO). The journey
+   * stops when their date moves past it, and one date is one entry.
+   */
+  dateAt: z.string().nullable().optional(),
   /**
    * Product journeys about one of the person's entities (a brand, a workspace):
    * the one this enrolment is about, fixed once chosen. Null for the person.

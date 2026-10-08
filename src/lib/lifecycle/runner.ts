@@ -32,12 +32,14 @@ import { allowsMarketing, isTestRecipient, lifecycleSender, lowestMode } from ".
 import {
   isLifecycleAiDraftsEnabled,
   isLifecycleConsentAtSendEnabled,
+  isLifecycleDateStartEnabled,
   isLifecycleGoLiveSweepEnabled,
   isLifecycleJourneyLinksEnabled,
   lifecycleModeCeiling,
 } from "./flags";
 import { continueToNextJourneys, followersOf, type Follower } from "./chain";
 import { sweepGoLive } from "./goLive";
+import { sweepDateStarts } from "./dateStart";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
 import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut";
 import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
@@ -759,6 +761,8 @@ export interface LifecycleTickResult {
   waitlist?: { due: number; outcomes: Partial<Record<EnrolmentRunOutcome, number>>; deferred: number; backfilled: number; retired: number };
   /** Sign-up journeys that swept their window on going live (LIFECYCLE_GO_LIVE_SWEEP). */
   goLive?: { journeys: number; enrolled: number };
+  /** Journeys that start when a date passes: today's check of their people (LIFECYCLE_DATE_START). */
+  dateStart?: { journeys: number; checked: number; enrolled: number };
 }
 
 /**
@@ -783,6 +787,7 @@ export async function runLifecycleTick(
     drafts: { prepared: 0, fallback: 0, superseded: 0 },
     ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
     ...(product && isLifecycleGoLiveSweepEnabled() ? { goLive: { journeys: 0, enrolled: 0 } } : {}),
+    ...(product && isLifecycleDateStartEnabled() ? { dateStart: { journeys: 0, checked: 0, enrolled: 0 } } : {}),
   };
   for (const [index, t] of tenants.entries()) {
     if (clock() >= deadline) {
@@ -806,6 +811,18 @@ export async function runLifecycleTick(
         total.goLive.enrolled += s.enrolled;
       } catch (err) {
         console.warn(`[lifecycle] tenant ${t.id} (${t.region}) go-live sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
+    }
+    // The daily check for journeys that start when a date passes — before the drain too, so
+    // the people it enrols can go out this tick. At most half of what's left; it resumes next tick.
+    if (total.dateStart) {
+      try {
+        const s = await sweepDateStarts(ctx, { db: deps.db, now: clock, deadlineMs: clock() + Math.floor((tenantDeadline - clock()) / 2) });
+        total.dateStart.journeys += s.journeys;
+        total.dateStart.checked += s.checked;
+        total.dateStart.enrolled += s.enrolled;
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) date check failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }
     }
     if (product) {

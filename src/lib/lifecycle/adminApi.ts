@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import { continuesFromId, type LifecycleEnrolment, type LifecycleJourney } from "@/lib/types/lifecycle";
+import { continuesFromId, dateStartOf, type LifecycleEnrolment, type LifecycleJourney } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productConnection";
 import type { Tenant } from "@/lib/types/tenant";
 import { ConsentBasis } from "@/lib/types/productConnection";
@@ -33,10 +33,12 @@ import {
   isLifecycleAiDraftsEnabled,
   isLifecycleChatAuthoringEnabled,
   isLifecycleConsentAtSendEnabled,
+  isLifecycleDateStartEnabled,
   isLifecycleJourneyLinksEnabled,
   isLifecycleOptInAfterSignupEnabled,
   lifecycleModeCeiling,
 } from "./flags";
+import { checkDatesNow, enrolOnDateByHand } from "./dateStart";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectAfter, architectLifecycleDraft } from "./architect";
 import { duplicateJourney, exportJourneyDocument, importJourneyDocument, type ExportWhich } from "./transfer";
@@ -213,7 +215,10 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       : null,
     version: version ? { version: version.version, publishedAt: version.publishedAt, publishedBy: version.publishedBy ?? null } : null,
     issues: connection
-      ? validateLifecycleDraft(journey.draft, connection.catalog, { upstream: upstream ? (upstream.problem ?? "ok") : undefined }).issues
+      ? validateLifecycleDraft(journey.draft, connection.catalog, {
+          upstream: upstream ? (upstream.problem ?? "ok") : undefined,
+          dateStart: isLifecycleDateStartEnabled(),
+        }).issues
       : [],
     // Journey links: what this journey continues from and leads to, and the journeys it could.
     ...(links
@@ -245,10 +250,35 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       entities: isEntitiesEnabled(),
       emailStyle: isEmailStyleEnabled(),
       ...(links ? { journeyLinks: true } : {}),
+      ...(isLifecycleDateStartEnabled() ? { dateStart: true } : {}),
       ...own?.features,
     },
     ...(own ? { journeyStyle: own.journeyStyle } : {}),
   });
+}
+
+/** How long "Check now" may run in one request; a big product finishes on the next ticks. */
+const CHECK_NOW_BUDGET_MS = 20_000;
+
+/**
+ * "Check now" on a journey that starts when a date passes (LIFECYCLE_DATE_START): run today's
+ * check of the product's people straight away, instead of waiting for the daily one. The usual
+ * entry rules apply — in test mode only the test recipients enter.
+ */
+export async function checkJourneyDates(
+  ctx: TenantContext,
+  id: string,
+  deps: { db?: FirestoreLike; now?: () => number } = {},
+): Promise<ApiResult> {
+  if (!isLifecycleDateStartEnabled()) return fail(404, "not_found");
+  const journey = await loadJourney(ctx, id, deps.db);
+  if (!journey) return fail(404, "not_found");
+  if (journey.status !== "active" || !journey.publishedVersion) return fail(409, "journey_not_active");
+  if (!journey.startsOnDate) return fail(409, "not_a_date_start");
+  const now = deps.now ?? Date.now;
+  const r = await checkDatesNow(ctx, journey, { db: deps.db, now, deadlineMs: now() + CHECK_NOW_BUDGET_MS });
+  if (!r) return fail(409, "connection_unavailable");
+  return ok(r);
 }
 
 /**
@@ -397,8 +427,14 @@ export async function enrolByHand(
     user = await repo.productUsers.getById(userDocId);
     if (!user) return fail(404, "user_not_found");
   }
+  // A journey that starts when a date passes keeps the date they have now, so it stops when it moves on.
+  const start = isLifecycleDateStartEnabled() ? dateStartOf(version.settings) : null;
+  const catalog = start ? (await repo.productConnections.getById(journey.connectionId))?.catalog : null;
   // A journey about each of their entities enrols them once per entity.
-  const rs = await enrolPerson(ctx, { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString() }, { db, nowMs });
+  const rs =
+    start && catalog
+      ? await enrolOnDateByHand(ctx, { journey, version, user, catalog, start }, { db, nowMs })
+      : await enrolPerson(ctx, { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString() }, { db, nowMs });
   const enrolledOne = rs.find((r) => r.outcome === "enrolled");
   if (enrolledOne && enrolledOne.outcome === "enrolled") return ok({ enrolmentId: enrolledOne.enrolmentId }, 201);
   const r = rs[0];

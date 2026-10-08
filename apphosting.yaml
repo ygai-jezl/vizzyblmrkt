@@ -697,6 +697,18 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # A journey can start when a date passes: "Starts when" names one of the
+  # catalog's date facts and a number of days ("Last active was more than 14 days
+  # ago"), and a daily check (from 07:00 UTC, inside the lifecycle tick) reads the
+  # product's people and enrols whoever has crossed the line — and isn't more than
+  # the journey's window past it, so going live doesn't take everyone who ever went
+  # quiet. Needs CONNECT_DATE_FACTS. Off: the check doesn't run, a draft that starts
+  # this way can't be published, and the editor and Vizzy don't offer it. Off in
+  # prod until verified on dev (apphosting.prod.yaml).
+  - variable: LIFECYCLE_DATE_START
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

@@ -40,6 +40,7 @@ export function CatalogEditor({
   onSaved,
   entities = false,
   history = false,
+  dateFacts = false,
   onDirtyChange,
 }: {
   connection: PublicConnection;
@@ -50,6 +51,8 @@ export function CatalogEditor({
   entities?: boolean;
   /** Catalog history is on (CATALOG_HISTORY_ENABLED): list saved versions, with Restore. */
   history?: boolean;
+  /** A fact can be a date (CONNECT_DATE_FACTS): the type list offers it. */
+  dateFacts?: boolean;
   /** Whether there are unsaved edits — the page asks before leaving the tab. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -436,7 +439,7 @@ export function CatalogEditor({
 
       <Section
         title="Facts"
-        description="Numbers (or values) your context endpoint can return about each user — the raw material for insights, and fields journeys can branch on. Ids must match the facts your endpoint returns."
+        description={`Numbers (or values) your context endpoint can return about each user — the raw material for insights, and fields journeys can branch on. Ids must match the facts your endpoint returns.${dateFacts ? " A date is sent as text (2026-10-08T09:12:00Z, or a day: 2026-10-08); journeys read it as days since or days until." : ""}`}
       >
         {cat.facts.map((f, i) => (
           <div key={i} className={`grid gap-2 ${perVisible ? "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_2fr_8rem_auto]" : "sm:grid-cols-[1fr_1fr_7rem_5rem_2fr_2fr_auto]"}`}>
@@ -446,7 +449,7 @@ export function CatalogEditor({
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, label: e.target.value } : x)))} />
             <select {...mark("facts", i, "type")} disabled={disabled} value={f.type} aria-label="Fact type"
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, type: e.target.value as typeof f.type } : x)))}>
-              {["number", "string", "boolean"].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+              {["number", "string", "boolean", ...(dateFacts || f.type === "date" ? ["date"] : [])].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
             </select>
             <input {...mark("facts", i, "unit")} disabled={disabled} value={f.unit ?? ""} placeholder="%" aria-label="Unit"
               onChange={(e) => update("facts", cat.facts.map((x) => (x === f ? { ...x, unit: e.target.value || null } : x)))} />

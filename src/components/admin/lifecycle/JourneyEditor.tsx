@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Copy, Download, MessageSquare, Pause, Play, Rocket, Save, Sparkles } from "lucide-react";
-import { continuesFromId, type LifecycleDraft, type LifecycleGraph, type LifecycleJourney } from "@/lib/types/lifecycle";
+import { continuesFromId, startsOnDate, type LifecycleDraft, type LifecycleGraph, type LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Tabs, inputClass } from "../connect/ui";
 import { LifecycleCanvas } from "./LifecycleCanvas";
@@ -17,7 +17,7 @@ import { GeneratePanel } from "./GeneratePanel";
 import { CopyJourneyPanel } from "./CopyJourneyPanel";
 import { LifecycleChatPanel } from "./LifecycleChatPanel";
 import { useShell } from "../nav/ShellProvider";
-import { fieldOptions, issueText, waitlistFieldOptions, type GraphIssue, type JourneyDetail } from "./model";
+import { fieldOptions, issueText, startLabel, waitlistFieldOptions, type GraphIssue, type JourneyDetail } from "./model";
 import {
   draftForSave,
   isJourneyDraftCard,
@@ -232,6 +232,9 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const tabs = waitlist ? TABS.filter((t) => t.id !== "preview") : TABS;
   // Journey links: product journeys only, while the flag is on.
   const chain = (!waitlist && detail.features.journeyLinks && detail.chain) || null;
+  // A journey can start when a date passes: product journeys only, while the flag is on.
+  const dateStart = !waitlist && Boolean(detail.features.dateStart);
+  const startsOnADate = dateStart && startsOnDate(draft.settings);
   const styleChangedSincePublish =
     Boolean(ownStyle && journey.publishedVersion) && !sameJourneyStyle(draft.settings.emailStyle, journey.emailStyle);
 
@@ -409,7 +412,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           key={canvasKey}
           graph={draft.graph}
           pools={draft.pools}
-          triggerEvent={draft.settings.trigger.event}
+          triggerEvent={startsOnADate ? startLabel(draft.settings, chain ?? undefined, connection?.catalog) : draft.settings.trigger.event}
+          dateStart={startsOnADate}
           fields={fields}
           issues={issues}
           readOnly={readOnly}
@@ -462,6 +466,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           entities={detail.features.entities}
           emailStyleEnabled={detail.features.emailStyle}
           chain={chain}
+          dateStart={dateStart}
           journeyStyle={
             ownStyle
               ? {
@@ -492,6 +497,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           draft={draft}
           sandboxUserIds={(connection?.sandboxUsers ?? []).map((u) => u.userId)}
           canEdit={canEdit}
+          dateStart={dateStart}
         />
       ) : null}
       {tab === "preview" && !waitlist ? (

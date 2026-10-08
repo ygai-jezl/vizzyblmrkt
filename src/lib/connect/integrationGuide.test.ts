@@ -83,6 +83,18 @@ describe("integration guide", () => {
     expect(g.warnings).toEqual(["Onboarding progress is computed only in the browser."]);
   });
 
+  it("says how to send a date fact: the date itself, as text", () => {
+    const catalog = { ...SANDBOX_CATALOG, facts: [...SANDBOX_CATALOG.facts, { id: "last_active_at", label: "Last active", type: "date" as const, unit: null, description: "", source: "users.lastActiveAt" }] };
+    const g = buildIntegrationGuide({ connection: { ...connection, catalog }, origin: "https://yougrow.test" });
+    const row = g.send.progress.find((f) => f.field === "facts.last_active_at")!;
+    expect(row.type).toBe("ISO 8601 time or day");
+    expect(row.when).toContain("Send the latest value: the date itself, never a count of days.");
+    expect(g.agentPrompt).toMatch(/`last_active_at` — Last active; from users\.lastActiveAt; a date — send it as text, ISO 8601 with a timezone/);
+    // Every other fact reads as it did.
+    expect(g.send.progress.find((f) => f.field === "facts.share_of_voice")!.type).toBe("number");
+    expect(g.agentPrompt).not.toMatch(/`share_of_voice` —[^\n]*a date/);
+  });
+
   it("says which steps and facts go inside each entity, and which only some have", () => {
     const catalog = {
       ...SANDBOX_CATALOG,

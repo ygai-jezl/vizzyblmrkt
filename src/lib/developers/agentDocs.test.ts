@@ -256,3 +256,32 @@ describe("the old events page", () => {
     expect(eventsMarkdown().status).toBe(404);
   });
 });
+
+describe("docs for features behind a switch", () => {
+  afterEach(() => {
+    delete process.env.CONNECT_DATE_FACTS;
+    delete process.env.LIFECYCLE_DATE_START;
+  });
+
+  it("describe date facts only where they're switched on, in the pages and their markdown", () => {
+    const users = () => pageMarkdown("users", ORIGIN)!;
+    const context = () => pageMarkdown("context-endpoint", ORIGIN)!;
+    expect(users()).not.toContain("### Dates");
+    expect(context()).not.toContain("**Dates.**");
+
+    process.env.CONNECT_DATE_FACTS = "true";
+    expect(users()).toContain("### Dates");
+    expect(users()).toContain('{ "facts": { "last_active_at": "2026-10-08T09:12:00Z", "trial_ends_on": "2026-11-01" } }');
+    expect(users()).toContain("Send the date itself, not a count of days.");
+    expect(users()).toContain("listed in `ignoredFields`");
+    expect(context()).toContain("**Dates.**");
+    // Starting a journey from a date has its own switch.
+    expect(users()).not.toContain("A journey can start from it too");
+    process.env.LIFECYCLE_DATE_START = "true";
+    expect(users()).toContain("A journey can start from it too");
+  });
+
+  it("say, with or without date facts, that a request about one entity can return the person's own facts", () => {
+    expect(pageMarkdown("context-endpoint", ORIGIN)).toContain("Facts are matched by id, so the person's own facts");
+  });
+});

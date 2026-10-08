@@ -83,6 +83,10 @@ describe("starting an analysis", () => {
       { name: "TENANT_ID", value: "ten_A" },
       { name: "REGION", value: "eu" },
     ]);
+    // Asking for date facts adds one setting; not asking leaves the request exactly as it was.
+    const dated = buildProductMapRunRequest({ analysisId: "ra_1", tenantId: "ten_A", region: "eu", dateFacts: true });
+    expect(dated.overrides.containerOverrides[0]!.env.at(-1)).toEqual({ name: "DATE_FACTS", value: "true" });
+    expect(buildProductMapRunRequest({ analysisId: "ra_1", tenantId: "ten_A", region: "eu", dateFacts: false })).toEqual(req);
   });
 
   it("refuses bad input, other accounts' connections, a second run and the daily cap", async () => {
@@ -147,6 +151,23 @@ describe("accepting a product map", () => {
     expect(saved?.catalog.facts.map((f) => f.id)).toContain("visibility");
     const [a] = await listRepoAnalyses(ctx, connection.id, db);
     expect(a).toMatchObject({ acceptedBy: "jez@acme.test", accepted: { steps: 2 } });
+  });
+
+  it("adds a date fact as a date only while date facts are switched on", async () => {
+    const map = { ...MAP, facts: [...MAP.facts, { id: "last_active_at", label: "Last active", type: "date", description: "", source: "users.lastActiveAt", confidence: "high", evidence: [] }] };
+    const accept = async () => {
+      const { db, connection } = await withMap(map);
+      const r = await acceptProductMap(ctx, connection.id, "ra_done", { facts: ["last_active_at", "visibility"] }, { db, nowMs: NOW });
+      if (!r.ok) throw new Error(r.error);
+      return Object.fromEntries(r.value.catalog.facts.map((f) => [f.id, f.type]));
+    };
+    expect(await accept()).toMatchObject({ last_active_at: "string", visibility: "number" });
+    process.env.CONNECT_DATE_FACTS = "true";
+    try {
+      expect(await accept()).toMatchObject({ last_active_at: "date", visibility: "number" });
+    } finally {
+      delete process.env.CONNECT_DATE_FACTS;
+    }
   });
 
   it("adds the things people have several of, and keeps a step, fact or event per one of them only when that kind is known", async () => {

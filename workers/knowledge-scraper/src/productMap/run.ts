@@ -25,6 +25,11 @@ export interface ProductMapEnv {
   tenantId: string;
   region: Region;
   project: string;
+  /**
+   * The app that asked takes date facts (it passes DATE_FACTS=true with the run). Absent or
+   * false: the analysis is exactly as before, so this image and the app can deploy in either order.
+   */
+  dateFacts?: boolean;
 }
 
 interface AnalysisRepo {
@@ -42,7 +47,7 @@ export function readProductMapEnv(env: NodeJS.ProcessEnv = process.env): Product
   };
   const region = need("REGION") as Region;
   if (!["us", "eu", "asia"].includes(region)) throw new Error(`invalid REGION '${region}'`);
-  return { analysisId: need("ANALYSIS_ID"), tenantId: need("TENANT_ID"), region, project: need("GOOGLE_CLOUD_PROJECT") };
+  return { analysisId: need("ANALYSIS_ID"), tenantId: need("TENANT_ID"), region, project: need("GOOGLE_CLOUD_PROJECT"), dateFacts: env.DATE_FACTS === "true" };
 }
 
 export interface ProductMapDeps {
@@ -91,8 +96,11 @@ export async function runProductMap(env: ProductMapEnv = readProductMapEnv(), de
     const result = await analyseRepo(reader, model, {
       productName: doc.productName ?? "the product",
       passes: deps.passes,
+      dateFacts: env.dateFacts,
       repos: repos.map((r) => `${r.label} — ${r.url.replace(/^https:\/\//, "")}${r.ref ? ` @ ${r.ref}` : ""}`),
     });
+    // An app that didn't ask for date facts can't read one: whatever the model called it, it's text there.
+    if (!env.dateFacts) result.map.facts = result.map.facts.map((f) => (f.type === "date" ? { ...f, type: "string" as const } : f));
     const verified = verifyProductMap(result.map, reader);
     await ref.update({
       status: result.stats.submitted ? "done" : "incomplete",

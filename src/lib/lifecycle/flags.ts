@@ -77,3 +77,14 @@ export function isLifecycleOptInAfterSignupEnabled(): boolean {
 export function isLifecycleJourneyLinksEnabled(): boolean {
   return process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED === "true";
 }
+
+/**
+ * Server flag — a journey can start when a date passes: "Starts when" names one of the
+ * catalog's date facts and a number of days ("last active more than 14 days ago"), and a daily
+ * check enrols whoever has crossed the line. It stops when their date moves on, and they can
+ * enter again after a new quiet spell. Needs date facts (CONNECT_DATE_FACTS). Off: the check
+ * doesn't run, and the editor and Vizzy don't offer it.
+ */
+export function isLifecycleDateStartEnabled(): boolean {
+  return process.env.LIFECYCLE_DATE_START === "true" && process.env.CONNECT_DATE_FACTS === "true";
+}

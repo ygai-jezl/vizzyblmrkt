@@ -1,6 +1,7 @@
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import type { ProductEntity, ProductUser } from "@/lib/types/productUser";
 import type { JourneyAbout } from "@/lib/types/lifecycle";
+import { formatFactDate } from "@/lib/connect/dateFacts";
 
 /**
  * Which of a person's entities (API v2 `entities`: their workspaces, brands,
@@ -155,11 +156,12 @@ export function entitiesField(key: string, list: EntityRef[], catalog: Catalog):
   return undefined;
 }
 
-/** One line per entity for a digest (`{{block.entities}}`), most recently active first. */
+/** One line per entity for a digest (`{{block.entities}}`), most recently active first. `when`: how a date fact prints for this reader. */
 export function digestRows(
   list: EntityRef[],
   catalog: Catalog,
   maxListed: number,
+  when: { locale?: string | null; timeZone?: string | null } = {},
 ): { rows: Array<{ name: string; done: number; total: number; facts: Array<{ label: string; value: string }> }>; more: number } {
   const facts = (catalog.facts ?? []).filter((f) => f.kind);
   const rows = [...list]
@@ -174,7 +176,11 @@ export function digestRows(
         facts: facts
           .filter((f) => f.kind === entity.kind && entity.facts[f.id] !== undefined)
           .slice(0, 3)
-          .map((f) => ({ label: f.label, value: `${entity.facts[f.id]!.value}${f.unit ?? ""}` })),
+          .map((f) => {
+            const value = entity.facts[f.id]!.value;
+            const date = f.type === "date" ? formatFactDate(value, when.locale, when.timeZone) : null;
+            return { label: f.label, value: date ?? `${value}${f.unit ?? ""}` };
+          }),
       };
     });
   return { rows, more: Math.max(0, list.length - rows.length) };

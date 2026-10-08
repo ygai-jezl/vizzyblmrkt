@@ -206,6 +206,57 @@ describe("DELETE /api/v2/users/{userId}", () => {
   });
 });
 
+describe("date facts in a write", () => {
+  const CATALOG = { ...SANDBOX_CATALOG, facts: [...SANDBOX_CATALOG.facts, { id: "last_active_at", label: "Last active", type: "date" as const, unit: null, description: "", source: "" }] };
+  async function withDates() {
+    const db = new FakeFirestore();
+    const { connection, secret } = await createConnection(ctxA, { name: "Acme", kind: "custom", catalog: CATALOG }, db);
+    const auth = { keyId: connection.keyId, secret };
+    const deps: V2HttpDeps = { db, nowMs: () => NOW };
+    return { auth, deps, patch: (userId: string, body: unknown) => handlePatchUser(request("PATCH", auth, body), userId, deps) };
+  }
+  beforeEach(() => {
+    process.env.CONNECT_DATE_FACTS = "true";
+  });
+  afterEach(() => {
+    delete process.env.CONNECT_DATE_FACTS;
+  });
+
+  it("keeps a date, and leaves one that isn't a date as it was — naming it, never a 400", async () => {
+    const w = await withDates();
+    const first = await json(await w.patch("u_1", { email: "alex@example.com", facts: { last_active_at: "2026-09-20T08:00:00Z" } }));
+    expect(first).toMatchObject({ applied: true, user: { facts: { last_active_at: "2026-09-20T08:00:00Z" } } });
+    expect(first.ignoredFields).toBeUndefined();
+
+    const res = await w.patch("u_1", { firstName: "Alex", facts: { last_active_at: "last Tuesday", share_of_voice: 12 } });
+    expect(res.status).toBe(200);
+    const b = await json(res);
+    expect(b).toMatchObject({ applied: true, user: { firstName: "Alex", facts: { last_active_at: "2026-09-20T08:00:00Z", share_of_voice: 12 } } });
+    expect(b.ignoredFields).toMatchObject([{ path: "facts.last_active_at" }]);
+    expect(JSON.stringify(b.ignoredFields)).toContain("not a date");
+    // A plain day and a removal are both fine.
+    expect(await json(await w.patch("u_1", { facts: { last_active_at: "2026-09-24" } }))).toMatchObject({ user: { facts: { last_active_at: "2026-09-24" } } });
+    expect(((await json(await w.patch("u_1", { facts: { last_active_at: null } }))).user as { facts: object }).facts).not.toHaveProperty("last_active_at");
+  });
+
+  it("does the same per item in a batch", async () => {
+    const w = await withDates();
+    const b = await json(
+      await handleBatch(request("POST", w.auth, { users: [{ userId: "u_1", facts: { last_active_at: "2026-09-20T08:00:00Z" } }, { userId: "u_2", facts: { last_active_at: "soon" } }] }), w.deps),
+    );
+    expect(b).toMatchObject({ applied: 2, failed: 0 });
+    expect(b.results).toMatchObject([{ index: 1, userId: "u_2", status: "applied", reason: "fields_ignored", fields: [{ path: "facts.last_active_at" }] }]);
+  });
+
+  it("checks nothing while date facts are switched off", async () => {
+    delete process.env.CONNECT_DATE_FACTS;
+    const w = await withDates();
+    const b = await json(await w.patch("u_1", { facts: { last_active_at: "last Tuesday" } }));
+    expect(b).toMatchObject({ applied: true, user: { facts: { last_active_at: "last Tuesday" } } });
+    expect(b.ignoredFields).toBeUndefined();
+  });
+});
+
 describe("POST /api/v2/users/batch", () => {
   it("applies item by item; reports the ignored and failed ones, and applied ones with ignored fields", async () => {
     const w = await setup();

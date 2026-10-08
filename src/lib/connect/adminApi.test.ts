@@ -141,6 +141,27 @@ describe("connections admin API", () => {
     expect(r).toMatchObject({ status: 400, body: { error: "sandbox_endpoints_fixed" } });
   });
 
+  it("takes a date fact only where date facts are switched on", async () => {
+    const db = new FakeFirestore();
+    const { connection } = await create(db, "custom");
+    const catalog = { facts: [{ id: "last_active_at", label: "Last active", type: "date" }] };
+    const off = await patchConnection(ctxA, connection.id, { catalog, catalogRev: 0 }, db);
+    expect(off).toMatchObject({ status: 400, body: { error: "date_facts_unavailable" } });
+    process.env.CONNECT_DATE_FACTS = "true";
+    try {
+      const on = await patchConnection(ctxA, connection.id, { catalog, catalogRev: 0 }, db);
+      expect(on).toMatchObject({ status: 200, body: { connection: { catalogRev: 1, catalog: { facts: [{ id: "last_active_at", type: "date" }] } } } });
+      expect((await getConnectionDetail(ctxA, connection.id, db)).body).toMatchObject({ features: { dateFacts: true } });
+    } finally {
+      delete process.env.CONNECT_DATE_FACTS;
+    }
+    // Switched off again: a save keeps the date facts the catalog already holds, and takes no new one.
+    const kept = { facts: [...catalog.facts, { id: "plan", label: "Plan", type: "string" }] };
+    expect((await patchConnection(ctxA, connection.id, { catalog: kept, catalogRev: 1 }, db)).status).toBe(200);
+    const more = { facts: [...kept.facts, { id: "trial_ends_at", label: "Trial ends", type: "date" }] };
+    expect(await patchConnection(ctxA, connection.id, { catalog: more, catalogRev: 2 }, db)).toMatchObject({ status: 400, body: { error: "date_facts_unavailable" } });
+  });
+
   it("rotates (secret shown once) and revokes (routing gone, then 409)", async () => {
     const db = new FakeFirestore();
     const { connection, secret } = await create(db, "custom");

@@ -5,6 +5,7 @@ import type { ProductUser } from "@/lib/types/productUser";
 import type { ProductContext } from "@/lib/connect/protocol";
 import type { Eligibility, LifecycleBranch, LifecycleCondition } from "@/lib/types/lifecycle";
 import { entitiesField, type EntityView } from "./entities";
+import { daysSince, daysUntil, parseFactDate } from "@/lib/connect/dateFacts";
 
 /**
  * Lifecycle condition fields, resolved from what we know about one recipient:
@@ -48,6 +49,16 @@ export function checklist(rc: RecipientContext): Array<{ id: string; label: stri
     .map((s) => ({ id: s.id, label: s.label, done: Boolean(rc.user.steps[s.id]), url: s.url ?? null }));
 }
 
+/** A fact's value: the live context when it has the fact, else the latest value the product pushed (API v2). */
+function factValue(id: string, rc: Pick<RecipientContext, "context" | "user">): FieldValue {
+  return rc.context?.facts.find((f) => f.id === id)?.value ?? rc.user.facts?.[id]?.value;
+}
+
+/** A date fact as epoch milliseconds — the live value when it's a date, else the stored one; null when neither is. */
+export function factDateMs(id: string, rc: Pick<RecipientContext, "context" | "user">): number | null {
+  return parseFactDate(rc.context?.facts.find((f) => f.id === id)?.value) ?? parseFactDate(rc.user.facts?.[id]?.value);
+}
+
 export function resolveField(field: string, rc: RecipientContext): FieldValue {
   const dot = field.indexOf(".");
   const family = field.slice(0, dot);
@@ -62,9 +73,14 @@ export function resolveField(field: string, rc: RecipientContext): FieldValue {
       if (live) return live.done;
       return Boolean(rc.user.steps[key]);
     }
-    case "fact": {
-      // The live context when it has the fact, else the latest value the product pushed (API v2).
-      return rc.context?.facts.find((f) => f.id === key)?.value ?? rc.user.facts?.[key]?.value;
+    case "fact":
+      return factValue(key, rc);
+    case "days_since":
+    case "days_until": {
+      // A date fact, as whole days from now. A live value that isn't a date falls back to the one we hold.
+      const ms = factDateMs(key, rc);
+      if (ms === null) return undefined;
+      return family === "days_since" ? daysSince(ms, rc.nowMs) : daysUntil(ms, rc.nowMs);
     }
     case "milestone":
       return Boolean(rc.user.milestones[key]);

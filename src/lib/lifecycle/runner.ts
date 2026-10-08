@@ -32,12 +32,14 @@ import { allowsMarketing, isTestRecipient, lifecycleSender, lowestMode } from ".
 import {
   isLifecycleAiDraftsEnabled,
   isLifecycleConsentAtSendEnabled,
+  isLifecycleDateStartEnabled,
   isLifecycleGoLiveSweepEnabled,
   isLifecycleJourneyLinksEnabled,
   lifecycleModeCeiling,
 } from "./flags";
 import { continueToNextJourneys, followersOf, type Follower } from "./chain";
 import { sweepGoLive } from "./goLive";
+import { sweepDateStarts } from "./dateStart";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
 import { drainConnectionWebhooks, type WebhookDrainResult } from "./webhooksOut";
 import { recipientClock, walkEnvFor, walkStateOf } from "./walk";
@@ -47,7 +49,9 @@ import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } 
 import { runWaitlistTick } from "./waitlist/tick";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
-import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { dateStartOf, JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
+import { parseFactDate } from "@/lib/connect/dateFacts";
+import { factDateMs } from "./fields";
 import { entityViewFor, viewedUser, type EntityView } from "./entities";
 import {
   cursorOf,
@@ -241,6 +245,10 @@ export async function processEnrolment(
     if (user.email && (await isSuppressedFor(ctx, user.email, settings.category.key, deps.db))) {
       return await stop("unsubscribed");
     }
+    // A journey that started when a date passed stops once that date has moved on (they came
+    // back). Here from the stored state; again below from the product's live answer.
+    const dateMoved = dateMovedCheck(leased, settings);
+    if (dateMoved?.(parseFactDate(user.facts?.[dateMoved.fact]?.value))) return await stop("date_moved");
     const mode = lowestMode(leased.mode, journey.deliveryMode, lifecycleModeCeiling());
     // Held for its mode and never started: once the trigger's window has passed it
     // leaves, instead of sending the whole sequence late when the mode opens up.
@@ -331,6 +339,8 @@ export async function processEnrolment(
         if (res.ok) {
           context = res.context;
           if (context.exit) return await stop(`product_exit: ${context.exit.reason}`);
+          // The live date, just before an email: someone who came back this morning isn't nudged.
+          if (dateMoved?.(factDateMs(dateMoved.fact, { context, user }))) return await stop("date_moved");
           if (context.hold) {
             const asked = context.hold.until ? Date.parse(context.hold.until) : nowMs + PRODUCT_HOLD_DEFAULT_MS;
             const until = Math.min(Math.max(asked, nowMs + 60_000), nowMs + PRODUCT_HOLD_MAX_MS);
@@ -401,6 +411,21 @@ export async function processEnrolment(
   } catch (err) {
     return run.fail(err, leased.failures);
   }
+}
+
+/**
+ * For an enrolment in a journey that starts when a date passes (LIFECYCLE_DATE_START) and
+ * stops when it moves: whether a date (epoch ms; null = unknown) is later than the one they
+ * entered on. Null when this enrolment has no such rule. An unknown date never stops anyone.
+ */
+function dateMovedCheck(
+  enrolment: Pick<LifecycleEnrolment, "dateAt">,
+  settings: LifecycleSettings,
+): (((dateMs: number | null) => boolean) & { fact: string }) | null {
+  const start = isLifecycleDateStartEnabled() ? dateStartOf(settings) : null;
+  const enteredMs = enrolment.dateAt ? Date.parse(enrolment.dateAt) : NaN;
+  if (!start?.stopWhenDateMoves || !Number.isFinite(enteredMs)) return null;
+  return Object.assign((dateMs: number | null) => dateMs !== null && dateMs > enteredMs, { fact: start.fact });
 }
 
 /** Record context health at most once per connection per tick. */
@@ -759,6 +784,8 @@ export interface LifecycleTickResult {
   waitlist?: { due: number; outcomes: Partial<Record<EnrolmentRunOutcome, number>>; deferred: number; backfilled: number; retired: number };
   /** Sign-up journeys that swept their window on going live (LIFECYCLE_GO_LIVE_SWEEP). */
   goLive?: { journeys: number; enrolled: number };
+  /** Journeys that start when a date passes: today's check of their people (LIFECYCLE_DATE_START). */
+  dateStart?: { journeys: number; checked: number; enrolled: number };
 }
 
 /**
@@ -783,6 +810,7 @@ export async function runLifecycleTick(
     drafts: { prepared: 0, fallback: 0, superseded: 0 },
     ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
     ...(product && isLifecycleGoLiveSweepEnabled() ? { goLive: { journeys: 0, enrolled: 0 } } : {}),
+    ...(product && isLifecycleDateStartEnabled() ? { dateStart: { journeys: 0, checked: 0, enrolled: 0 } } : {}),
   };
   for (const [index, t] of tenants.entries()) {
     if (clock() >= deadline) {
@@ -806,6 +834,18 @@ export async function runLifecycleTick(
         total.goLive.enrolled += s.enrolled;
       } catch (err) {
         console.warn(`[lifecycle] tenant ${t.id} (${t.region}) go-live sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
+    }
+    // The daily check for journeys that start when a date passes — before the drain too, so
+    // the people it enrols can go out this tick. At most half of what's left; it resumes next tick.
+    if (total.dateStart) {
+      try {
+        const s = await sweepDateStarts(ctx, { db: deps.db, now: clock, deadlineMs: clock() + Math.floor((tenantDeadline - clock()) / 2) });
+        total.dateStart.journeys += s.journeys;
+        total.dateStart.checked += s.checked;
+        total.dateStart.enrolled += s.enrolled;
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) date check failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }
     }
     if (product) {

@@ -3,14 +3,16 @@ import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import {
   continuesFromId,
+  dateStartOf,
   JOURNEY_COMPLETED_EVENT,
   LifecycleDraftSchema,
   LifecycleSettingsSchema,
+  type DateStart,
   type LifecycleDraft,
   type LifecycleJourney,
 } from "@/lib/types/lifecycle";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
-import { isLifecycleChatAuthoringEnabled, isLifecycleEnabled, isLifecycleJourneyLinksEnabled } from "@/lib/lifecycle/flags";
+import { isLifecycleChatAuthoringEnabled, isLifecycleDateStartEnabled, isLifecycleEnabled, isLifecycleJourneyLinksEnabled } from "@/lib/lifecycle/flags";
 import { architectAfter, architectLifecycleDraft, LIFECYCLE_ARCHITECT_TEMPLATES } from "@/lib/lifecycle/architect";
 import { resolveUpstream } from "@/lib/lifecycle/chain";
 import { startingAfter } from "@/lib/lifecycle/templates/followOn";
@@ -114,6 +116,16 @@ function followOnTiming(draft: LifecycleDraft, from: LifecycleJourney, connectio
   }
 }
 
+/** " It starts when Last active was 14 or more days ago: …" */
+function dateStartTiming(start: DateStart, connection: { catalog: ProductConnection["catalog"] }): string {
+  const label = (connection.catalog.facts ?? []).find((f) => f.id === start.fact)?.label ?? start.fact;
+  const again = start.reenterAfterDays === null ? "Each person enters once." : `Someone can enter again after a new spell, no sooner than ${start.reenterAfterDays} days after they last entered.`;
+  return (
+    ` It starts when ${label} was ${start.days} or more days ago: a check once a day enrols people, and its waits count from that day.` +
+    `${start.stopWhenDateMoves ? " It stops when that date moves on." : ""} ${again}`
+  );
+}
+
 /** The kind's work, with injectable dependencies (tests pass a fake db and model). */
 export async function authorLifecycleDraft(
   { ctx, input, brief }: CanvasAuthorArgs,
@@ -202,7 +214,7 @@ export async function authorLifecycleDraft(
     : await createLifecycleJourney(
         ctx,
         {
-          name: req.data.name ?? (after ? `After ${after.name}`.slice(0, 120) : `${connection.name} onboarding`),
+          name: req.data.name ?? (after ? `After ${after.name}`.slice(0, 120) : dateStartOf(draft.settings) ? `${connection.name} nudge` : `${connection.name} onboarding`),
           connectionId,
           template: "product_onboarding",
           ...(after ? { afterJourneyId: after.id } : {}),
@@ -219,10 +231,12 @@ export async function authorLifecycleDraft(
   // A journey that continues from another: say when it starts and how its days fall.
   const fromId = isLifecycleJourneyLinksEnabled() ? continuesFromId(journey.draft.settings) : null;
   const from = fromId ? (after?.id === fromId ? after : await getLifecycleJourney(ctx, fromId, deps.db)) : null;
-  const timing = from ? followOnTiming(journey.draft, from, connection) : "";
+  // A journey that starts when a date passes: say what starts it, and that a daily check does.
+  const start = isLifecycleDateStartEnabled() ? dateStartOf(journey.draft.settings) : null;
+  const timing = from ? followOnTiming(journey.draft, from, connection) : start ? dateStartTiming(start, connection) : "";
   const summary = existing
     ? `I updated the draft of "${journey.name}". The live version hasn't changed — publish from the canvas when you're ready.${timing}`
-    : from
+    : from || start
       ? `I drafted "${journey.name}" for ${connection.name}, saved as a draft in test mode.${timing} ` +
         `Open the canvas to review the copy and timing, then publish when you're happy — nothing sends until you do.`
       : `I drafted "${journey.name}" for ${connection.name}: ${emails} emails across ${splits} splits on onboarding progress, ` +

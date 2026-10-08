@@ -30,6 +30,8 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
   const [entities, setEntities] = useState(false);
   /** Catalog history is on (CATALOG_HISTORY_ENABLED). */
   const [catalogHistory, setCatalogHistory] = useState(false);
+  /** A fact can be a date (CONNECT_DATE_FACTS). */
+  const [dateFacts, setDateFacts] = useState(false);
   /** The Catalog tab has unsaved edits. */
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     const r = await api<{
       connection: PublicConnection;
       diagnostics: ConnectionDiagnostics | null;
-      features?: { entities?: boolean; catalogHistory?: boolean };
+      features?: { entities?: boolean; catalogHistory?: boolean; dateFacts?: boolean };
     }>(
       `/api/admin/connections/${connectionId}`,
     );
@@ -49,6 +51,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     setDiagnostics(r.data.diagnostics);
     setEntities(Boolean(r.data.features?.entities));
     setCatalogHistory(Boolean(r.data.features?.catalogHistory));
+    setDateFacts(Boolean(r.data.features?.dateFacts));
     // ?tab=learn (etc.) opens a tab directly — e.g. from the setup wizard.
     const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
     const valid: Tab[] = ["setup", "sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
@@ -146,6 +149,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
           canEdit={canEdit}
           entities={entities}
           history={catalogHistory}
+          dateFacts={dateFacts}
           onDirtyChange={setCatalogDirty}
           onSaved={() => void load()}
         />

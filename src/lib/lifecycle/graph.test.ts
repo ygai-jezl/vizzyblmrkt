@@ -43,6 +43,19 @@ describe("validateLifecycleDraft", () => {
     expect(issues.map((i) => i.detail)).toEqual(['unknown trait "tier"', 'unknown step "not_a_step"']);
   });
 
+  it("reads days since and days until only from the catalog's date facts", () => {
+    const d = fresh();
+    const cond = d.graph.nodes.find((n) => n.id === "cond_1")!;
+    cond.data.branches = [
+      { id: "a", conditions: [{ field: "days_since.last_active_at", operator: "gte", value: 14 }] },
+      { id: "b", conditions: [{ field: "days_until.share_of_voice", operator: "lte", value: 3 }] },
+      { id: "c", conditions: [{ field: "days_since.never_heard_of", operator: "gte", value: 1 }] },
+    ];
+    const catalog = { ...SANDBOX_CATALOG, facts: [...SANDBOX_CATALOG.facts, { id: "last_active_at", label: "Last active", type: "date" as const, unit: null, description: "", source: "" }] };
+    const issues = validateLifecycleDraft(d, catalog).issues.filter((i) => i.code === "unknown_field");
+    expect(issues.map((i) => i.detail)).toEqual(['"share_of_voice" isn\'t a date fact', 'unknown fact "never_heard_of"']);
+  });
+
   it("refuses missing pools, empty emails, consecutive waits and exits that continue", () => {
     const d = fresh();
     d.graph.nodes.find((n) => n.id === "email_welcome")!.data.poolId = "nope";

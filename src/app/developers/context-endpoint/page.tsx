@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
+import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
 
 export default function ContextEndpointDocs() {
   return (
@@ -92,7 +93,8 @@ X-YouGrow-Key-Id: <your key id>
                 entities
               </Link>{" "}
               (a workspace, a project, a brand — whatever they have several of): its <C>id</C> and <C>kind</C>, as you sent
-              them. Answer for that one: its steps, facts and insights. Absent: answer for the person.
+              them. Answer for that one: its steps, facts and insights. Facts are matched by id, so the person&apos;s own
+              facts (the ones you don&apos;t keep per entity) can come back in the same list. Absent: answer for the person.
             </>,
           ],
           ["requestId", "string", <>Unique per request; it&apos;s also the token&apos;s <C>jti</C>.</>],
@@ -147,6 +149,16 @@ X-YouGrow-Key-Id: <your key id>
           ["source / observedAt", "string?", "Where it came from and when — shown to your team when they review drafts."],
         ]}
       />
+      {isDateFactsEnabled() ? (
+        <Note>
+          <strong>Dates.</strong> A fact your catalog marks as a <strong>date</strong> (when someone was last active, when a
+          trial ends) is text here too: ISO 8601 with a timezone (<C>2026-10-08T09:12:00Z</C>) or a plain day (
+          <C>2026-10-08</C>). Journeys read it as days since, or until. Returning it here means an email due today knows
+          about a change made today — someone who came back this morning isn&apos;t nudged — where the value you last sent
+          could be a day old. One that isn&apos;t a date is ignored and the value you last sent is used; Test connection
+          tells you.
+        </Note>
+      ) : null}
 
       <H3>insights — sentences we may quote (up to 20)</H3>
       <Fields

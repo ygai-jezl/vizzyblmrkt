@@ -420,6 +420,47 @@ describe("product-map job", () => {
     expect(JSON.stringify(doc.data)).not.toContain("firstSignupDate: now()"); // only excerpts, not files
   });
 
+  it("looks for date facts only when the app that asked takes them", async () => {
+    const dateFact = {
+      id: "first_signup_date",
+      label: "First sign-up",
+      type: "date",
+      source: "users.firstSignupDate",
+      evidence: [{ path: "src/auth/onUserCreated.ts", line: 2, excerpt: "firstSignupDate: now()" }],
+    };
+    const run = async (dateFacts: boolean | undefined) => {
+      const { db, doc } = fakeDb({ tenantId: "ten_A", status: "queued", repos, productName: "Acme" });
+      const systems: string[] = [];
+      const inner = scripted([
+        [{ functionCall: { name: "record_findings", args: { section: "facts", items_json: JSON.stringify([dateFact]) } } }],
+        [{ functionCall: { name: "submit_product_map", args: { summary: "Acme." } } }],
+      ]);
+      const model: ModelClient = {
+        generate: (req) => {
+          systems.push(req.system);
+          return inner.generate(req);
+        },
+      };
+      await runProductMap(
+        { ...env, ...(dateFacts === undefined ? {} : { dateFacts }) },
+        { db, model, token: async () => "tok", collect: async () => ({ files: [{ path: "src/auth/onUserCreated.ts", text: APP, isCode: true, lang: "ts" }], filesProcessed: 1 }), passes: [GENERAL_PASS] },
+      );
+      const facts = (doc.data.map as { facts: Array<{ id: string; type: string }> }).facts;
+      return { system: systems[0]!, facts };
+    };
+    const on = await run(true);
+    expect(on.system).toContain("DATES ARE FACTS TOO");
+    expect(on.system).toContain('"type":"number|string|boolean|date"');
+    expect(on.facts).toMatchObject([{ id: "first_signup_date", type: "date" }]);
+    // Not asked (an app from before date facts, or one with them off): the prompt is as it was, and a date is text.
+    for (const asked of [false, undefined]) {
+      const off = await run(asked);
+      expect(off.system).not.toContain("DATES ARE FACTS TOO");
+      expect(off.system).toContain('"type":"number|string|boolean"');
+      expect(off.facts).toMatchObject([{ id: "first_signup_date", type: "string" }]);
+    }
+  });
+
   it("refuses another tenant's analysis", async () => {
     const { db } = fakeDb({ tenantId: "ten_B", status: "queued", repos });
     await expect(runProductMap(env, { db })).rejects.toThrow("analysis_tenant_mismatch");

@@ -10,6 +10,8 @@ from root_agent_pkg.sub_agents.lifecycle_ops.prompts.instruction import (
     EMAIL_STYLE_ADDENDUM,
     EMAIL_STYLE_BRAND_LOOK,
     EMAIL_STYLE_JOURNEY_LOOK,
+    DATE_FACTS_ADDENDUM,
+    DATE_START_ADDENDUM,
     JOURNEY_LINKS_ADDENDUM,
     JOURNEY_STYLE_ADDENDUM,
     LIFECYCLE_OPS_INSTRUCTION,
@@ -220,3 +222,70 @@ def test_every_context_read_rewrites_the_journey_links_flag(monkeypatch):
     lc.get_context(state)
     assert state["journeyLinksEnabled"] is True
     assert JOURNEY_LINKS_ADDENDUM in build_lifecycle_ops_instruction(_ctx(state))
+
+
+def test_the_date_rules_only_while_their_flags_are_on():
+    assert build_lifecycle_ops_instruction(_ctx({"dateFactsEnabled": False, "dateStartEnabled": False})) == LIFECYCLE_OPS_INSTRUCTION
+    facts = build_lifecycle_ops_instruction(_ctx({"dateFactsEnabled": True}))
+    assert facts == LIFECYCLE_OPS_INSTRUCTION + "\n\n" + DATE_FACTS_ADDENDUM
+    # After the journey links rule, before the look rules.
+    every = build_lifecycle_ops_instruction(
+        _ctx({"journeyLinksEnabled": True, "dateFactsEnabled": True, "dateStartEnabled": True, "journeyStyleEnabled": True})
+    )
+    assert every == "\n\n".join(
+        [LIFECYCLE_OPS_INSTRUCTION, JOURNEY_LINKS_ADDENDUM, DATE_FACTS_ADDENDUM, DATE_START_ADDENDUM, JOURNEY_STYLE_ADDENDUM]
+    )
+
+
+def test_the_date_rules_say_how_to_branch_and_how_to_start():
+    facts = DATE_FACTS_ADDENDUM
+    assert facts.startswith("# Date facts")
+    assert "days_since.<fact id>" in facts and "days_until.<fact id>" in facts
+    assert "don't use fact.<fact id> for it" in facts
+    assert '{"field": "days_since.last_active_at", "operator": "gte", "value": 14}' in facts
+    start = DATE_START_ADDENDUM
+    assert start.startswith("# A journey that starts when a date passes")
+    assert '"trigger": {"event": "date.passed", "maxEventAgeHours": 72, "date":' in start
+    for key in ('"fact"', '"days"', '"windowDays"', '"stopWhenDateMoves"', '"reenterAfterDays"'):
+        assert key in start
+    # No date fact in the catalog: say so, never invent one.
+    assert "Never invent one" in start
+    # A new journey is saved as new, never over the journey the operator is on.
+    assert "`save_lifecycle_graph` with\n`new_journey` true" in start
+    # Drafts only, and nothing about the person's own numbers in the copy.
+    assert "never that it's live" in start
+    assert "Never write how long someone has been\naway" in start
+
+
+def test_every_context_read_rewrites_the_date_flags(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
+    state = {"ctxToken": "tok", "dateFactsEnabled": True, "dateStartEnabled": True}
+    replies = iter([{"connections": []}, {"dateFacts": {"enabled": True}, "dateStart": {"enabled": True}}])
+    monkeypatch.setattr(lc, "_request", lambda *_a, **_k: (200, json.dumps(next(replies))))
+    # A flag-off context has neither key, so a stale True from earlier goes.
+    lc.get_context(state)
+    assert state["dateFactsEnabled"] is False and state["dateStartEnabled"] is False
+    assert build_lifecycle_ops_instruction(_ctx(state)) == LIFECYCLE_OPS_INSTRUCTION
+    lc.get_context(state)
+    assert state["dateFactsEnabled"] is True and state["dateStartEnabled"] is True
+    assert DATE_START_ADDENDUM in build_lifecycle_ops_instruction(_ctx(state))
+
+
+def test_a_new_journey_is_never_saved_over_the_page_the_operator_is_on(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
+    state = {"ctxToken": "tok", "journeyId": "lcj_open", "connectionId": "pcn_1"}
+    sent = []
+
+    def fake(_method, _url, _token, payload=None):
+        sent.append(payload)
+        return 200, json.dumps({"ok": True, "id": "lcj_new", "status": "draft"})
+
+    monkeypatch.setattr(lc, "_request", fake)
+    graph = {"nodes": [], "edges": []}
+    # An edit with no journey id means the journey of the page.
+    lc.save_graph(state, "", None, graph, None, None, "tidy", None)
+    assert sent[-1]["scope"] == {"connectionId": "pcn_1", "journeyId": "lcj_open"}
+    # A new journey doesn't, even with one passed by mistake.
+    lc.save_graph(state, "", "lcj_open", graph, [], {}, "a nudge", "Come back", None, True)
+    assert sent[-1]["scope"] == {"connectionId": "pcn_1", "journeyId": None}
+    assert sent[-1]["name"] == "Come back"

@@ -6,6 +6,7 @@ import type { LifecycleDraft, LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
 import { nodeLabel, type EnrolmentRow } from "./model";
+import { DateCheckStatus } from "./DateStart";
 
 const RUN_NOW_MESSAGES: Record<string, string> = {
   draft_prepared: "Prepared the personalised version of the next email — review it in Approvals, then press Run now again to send.",
@@ -19,11 +20,14 @@ export function EnrolmentsPanel({
   draft,
   sandboxUserIds,
   canEdit,
+  dateStart = false,
 }: {
   journey: LifecycleJourney;
   draft: LifecycleDraft;
   sandboxUserIds: string[];
   canEdit: boolean;
+  /** Journeys can start when a date passes (LIFECYCLE_DATE_START): show the day's check, with "Check now". */
+  dateStart?: boolean;
 }) {
   const [rows, setRows] = useState<EnrolmentRow[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -57,6 +61,7 @@ export function EnrolmentsPanel({
 
   return (
     <div className="space-y-4">
+      {dateStart ? <DateCheckStatus journey={journey} canEdit={canEdit} onChecked={() => void load()} /> : null}
       {canEdit && byHand ? (
         <Section
           title="Enrol someone now"

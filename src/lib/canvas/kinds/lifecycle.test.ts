@@ -6,7 +6,7 @@ import { CONNECTION_ID, ctx as adminCtx, publishOnboarding, seedWorld, system } 
 import { agentLifecycleContext, agentLifecycleJourney } from "@/lib/lifecycle/agentApi";
 import { seedUser } from "@/lib/lifecycle/testing/fixtures";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
-import { JOURNEY_COMPLETED_EVENT, type LifecycleDraft } from "@/lib/types/lifecycle";
+import { DATE_PASSED_EVENT, JOURNEY_COMPLETED_EVENT, type LifecycleDraft } from "@/lib/types/lifecycle";
 import { authorLifecycleDraft, wholeDayWaitNotes } from "./lifecycle";
 
 const agent: TenantContext = { tenantId: adminCtx.tenantId, region: "eu", userId: "usr_1", role: "admin", source: "agent" };
@@ -250,6 +250,89 @@ describe("a journey that continues from another (journey links)", () => {
     expect(on.journeys[0]!.timeline!.summary).toMatch(/^5 emails over about/);
     const one = (await agentLifecycleJourney(agent, first.id, db)).body as { journey: { timeline: { emailDays: Array<{ day: number }> } } };
     expect(one.journey.timeline.emailDays.map((s) => s.day)).toEqual([1, 2, 4, 8, 10]);
+  });
+});
+
+describe("a journey that starts when a date passes (date start)", () => {
+  const nudge = {
+    graph: {
+      nodes: [
+        { id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: { label: "Gone quiet" } },
+        { id: "email_1", type: "email", position: { x: 200, y: 0 }, data: { poolId: "nudge" } },
+        { id: "exit", type: "exit", position: { x: 400, y: 0 }, data: { label: "End" } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "email_1", sourceHandle: null },
+        { id: "e2", source: "email_1", target: "exit", sourceHandle: null },
+      ],
+    },
+    pools: [{ id: "nudge", label: "Nudge", items: [{ id: "n1", label: "Come back", subject: "Still there, {{user.first_name|there}}?", body: "<p>Here's what's new in {{product.name}}.</p>" }] }],
+    settings: { trigger: { event: DATE_PASSED_EVENT, date: { fact: "last_active_at" } } },
+  };
+  async function world() {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const repo = forTenant(system, db);
+    const connection = (await repo.productConnections.getById(CONNECTION_ID))!;
+    const facts = [{ id: "last_active_at", label: "Last active", type: "date" as const, unit: null, description: "", source: "" }];
+    await repo.productConnections.update(CONNECTION_ID, { catalog: { ...connection.catalog, facts } });
+    return { db, repo };
+  }
+  const draftIt = (db: FakeFirestore) =>
+    authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...nudge }, brief: "a nudge for quiet people" }, { db });
+  beforeEach(() => {
+    process.env.CONNECT_DATE_FACTS = "true";
+    process.env.LIFECYCLE_DATE_START = "true";
+  });
+  afterEach(() => {
+    delete process.env.CONNECT_DATE_FACTS;
+    delete process.env.LIFECYCLE_DATE_START;
+  });
+
+  it("is drafted from chat as a new journey, and says what starts it", async () => {
+    const w = await world();
+    const r = await draftIt(w.db);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.card).toMatchObject({ title: "Sandbox nudge", warnings: 0 });
+    expect(r.summary).toContain('I drafted "Sandbox nudge" for Sandbox, saved as a draft in test mode.');
+    expect(r.summary).toContain("It starts when Last active was 14 or more days ago: a check once a day enrols people");
+    expect(r.summary).toContain("It stops when that date moves on. Someone can enter again after a new spell, no sooner than 30 days after they last entered.");
+    expect(r.summary).toContain("nothing sends until you do");
+    const saved = await w.repo.lifecycleJourneys.getById(r.id);
+    // A draft: nobody is checked until a person publishes it.
+    expect(saved).toMatchObject({ status: "draft", authoredBy: "agent", publishedVersion: null });
+    expect(saved!.startsOnDate ?? false).toBe(false);
+    expect(saved!.draft.settings.trigger).toMatchObject({ event: DATE_PASSED_EVENT, date: { fact: "last_active_at", days: 14, windowDays: 7, stopWhenDateMoves: true, reenterAfterDays: 30 } });
+  });
+
+  it("is saved with what's left to fix when the catalog has no such date, or the switch is off", async () => {
+    const w = await world();
+    const unknown = await authorLifecycleDraft(
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...nudge, settings: { trigger: { event: DATE_PASSED_EVENT, date: { fact: "last_login_at" } } } }, brief: "" },
+      { db: w.db },
+    );
+    if (!unknown.ok) throw new Error(unknown.error);
+    expect(unknown.warnings).toContain("date_start_fact_unknown (last_login_at)");
+    delete process.env.LIFECYCLE_DATE_START;
+    const off = await draftIt(w.db);
+    if (!off.ok) throw new Error(off.error);
+    expect(off.warnings).toContain("date_start_unavailable");
+    expect(off.summary).toContain("1 thing(s) to fix before it can be published");
+  });
+
+  it("the agent is told which of the two are switched on", async () => {
+    const w = await world();
+    const on = (await agentLifecycleContext(agent, w.db)).body as Record<string, unknown> & { connections: Array<{ catalog: { facts: unknown[] } }> };
+    expect(on).toMatchObject({ dateFacts: { enabled: true }, dateStart: { enabled: true } });
+    expect(on.connections[0]!.catalog.facts).toMatchObject([{ id: "last_active_at", type: "date" }]);
+    delete process.env.LIFECYCLE_DATE_START;
+    const factsOnly = (await agentLifecycleContext(agent, w.db)).body as Record<string, unknown>;
+    expect(factsOnly).toMatchObject({ dateFacts: { enabled: true } });
+    expect(factsOnly).not.toHaveProperty("dateStart");
+    delete process.env.CONNECT_DATE_FACTS;
+    const off = (await agentLifecycleContext(agent, w.db)).body as Record<string, unknown>;
+    expect(off).not.toHaveProperty("dateFacts");
+    expect(off).not.toHaveProperty("dateStart");
   });
 });
 

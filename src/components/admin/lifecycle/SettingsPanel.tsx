@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
-import { startsAfterJourney, type LifecycleSettings } from "@/lib/types/lifecycle";
+import { startsAfterJourney, startsOnDate, type LifecycleSettings } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { HEADER_TEXT_CHOICES, type HeaderTextChoice, type JourneyEmailStyle, type StoredJourneyStyle } from "@/lib/types/tenant";
 import { BRAND_KIT_EMAIL_STYLE_ROUTE } from "@/lib/content/brandKit";
@@ -12,6 +12,7 @@ import { averageInk, type PaletteChip } from "../brand-kit/emailStyleForm";
 import { Badge, Field, Section, inputClass } from "../connect/ui";
 import { AboutSection } from "./AboutSection";
 import { ContinuesFromField } from "./JourneyLinks";
+import { DateStartField } from "./DateStart";
 import type { JourneyChain } from "./model";
 import {
   customJourneyStyle,
@@ -50,6 +51,7 @@ export function SettingsPanel({
   emailStyleEnabled = false,
   journeyStyle = null,
   chain = null,
+  dateStart = false,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -72,9 +74,12 @@ export function SettingsPanel({
   journeyStyle?: JourneyStyleControl | null;
   /** Journey links (LIFECYCLE_JOURNEY_LINKS_ENABLED): "Starts when" can name a journey to continue from. Null = off. */
   chain?: JourneyChain | null;
+  /** "Starts when" can name a date fact and a number of days (LIFECYCLE_DATE_START). */
+  dateStart?: boolean;
 }) {
   const p = settings.sendPolicy;
   const continuing = Boolean(chain) && startsAfterJourney(settings);
+  const onDate = dateStart && startsOnDate(settings);
   const setPolicy = (patch: Partial<LifecycleSettings["sendPolicy"]>) => onChange({ ...settings, sendPolicy: { ...p, ...patch } });
   const events = [
     ...new Set([
@@ -150,13 +155,16 @@ export function SettingsPanel({
       <Section
         title="Starts when"
         description={
-          chain
-            ? "Which product event enrols someone — or the journey they finish first. Each person enters once."
-            : "Which product event enrols someone. Each person enters once."
+          onDate
+            ? "A date passing enrols someone, once a day."
+            : chain
+              ? `Which product event enrols someone — or the journey they finish first${dateStart ? ", or a date passing" : ""}. Each person enters once.`
+              : `Which product event enrols someone${dateStart ? ", or a date passing" : ""}. Each person enters once.`
         }
       >
-        {chain ? <ContinuesFromField settings={settings} chain={chain} readOnly={readOnly} onChange={onChange} /> : null}
-        <div className={continuing ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
+        {chain && !onDate ? <ContinuesFromField settings={settings} chain={chain} readOnly={readOnly} onChange={onChange} /> : null}
+        {dateStart && !continuing ? <DateStartField settings={settings} catalog={catalog} readOnly={readOnly} onChange={onChange} /> : null}
+        <div className={continuing || onDate ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
           <Field
             label="Event"
             hint={
@@ -206,7 +214,9 @@ export function SettingsPanel({
               <span className="block text-xs text-neutral-500">
                 {continuing
                   ? "Uses the consent your product sends, as it stands when they finish the journey before."
-                  : "Uses the consent your product sends. Someone who opts in while the event is still recent enough joins then, from the start."}
+                  : onDate
+                    ? "Uses the consent your product sends, as it stands on the day they're checked."
+                    : "Uses the consent your product sends. Someone who opts in while the event is still recent enough joins then, from the start."}
               </span>
             </span>
           </label>

@@ -10,6 +10,7 @@ import { ProductMapSchema, type ProductMap } from "./productMapSchema";
 import { zodReason } from "./protocol";
 import { recordCatalogRevision } from "./catalogHistory";
 import { invalidateConnectionCaches } from "./connectionAuth";
+import { isDateFactsEnabled } from "./v2/flags";
 
 /**
  * "Learn from your repo": propose a connection's catalog (onboarding steps and
@@ -131,7 +132,8 @@ export async function startRepoAnalysis(
 
 async function defaultTrigger(vars: { analysisId: string; tenantId: string; region: TenantContext["region"] }): Promise<void> {
   const { triggerProductMapJob } = await import("@/lib/knowledge/runJob");
-  await triggerProductMapJob(vars);
+  // The analysis proposes date facts only where this app takes them.
+  await triggerProductMapJob({ ...vars, dateFacts: isDateFactsEnabled() });
 }
 
 /** The Job's output re-validated; a map that doesn't parse is treated as missing. */
@@ -219,6 +221,7 @@ export async function acceptProductMap(
   const glossary = pick(map.glossary, parsed.data.glossary, (g) => g.term);
   const entityKinds = pick(map.entityKinds ?? [], parsed.data.entityKinds, (k) => k.kind);
 
+  const dateFacts = isDateFactsEnabled();
   /** The chosen items merged into `catalog` — re-run on the freshest copy inside the write's transaction. */
   const merge = (catalog: ConnectionCatalog | undefined) => {
     const current = ConnectionCatalogSchema.parse(catalog ?? {});
@@ -245,7 +248,8 @@ export async function acceptProductMap(
       traits: upsert(current.traits, traits.map((t) => ({ key: t.key, type: t.type, label: t.label, description: t.description })), (t) => t.key),
       facts: upsert(
         current.facts,
-        facts.map((f) => ({ id: f.id, label: f.label, type: f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...(f.appliesWhen ? { appliesWhen: f.appliesWhen } : {}), ...kindOf(f.entityKind) })),
+        // A date found while date facts were on, accepted after they went off: text, like any other date then.
+        facts.map((f) => ({ id: f.id, label: f.label, type: f.type === "date" && !dateFacts ? "string" : f.type, unit: f.unit ?? null, description: f.description, source: f.source, ...(f.appliesWhen ? { appliesWhen: f.appliesWhen } : {}), ...kindOf(f.entityKind) })),
         (f) => f.id,
       ),
       glossary: upsert(current.glossary, glossary.map((g) => ({ term: g.term, definition: g.definition })), (g) => g.term.toLowerCase()),

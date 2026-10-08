@@ -136,6 +136,7 @@ export function LifecycleCanvas({
   onEditContent,
   waitlist = false,
   links = null,
+  dateStart = false,
 }: {
   graph: LifecycleGraph;
   pools: ContentPool[];
@@ -149,6 +150,8 @@ export function LifecycleCanvas({
   waitlist?: boolean;
   /** Journey links (LIFECYCLE_JOURNEY_LINKS_ENABLED); null = off, or a launch's journey. */
   links?: CanvasLinks | null;
+  /** The journey starts when a date passes (LIFECYCLE_DATE_START): `triggerEvent` is then that start in words. */
+  dateStart?: boolean;
 }) {
   const ADDABLE = useMemo(() => addable(waitlist), [waitlist]);
   const seeded = useMemo(() => toRf(graph), []); // eslint-disable-line react-hooks/exhaustive-deps -- seed once; remount to reload
@@ -181,10 +184,10 @@ export function LifecycleCanvas({
       triggerEvent: links && continuing ? startLabel(links.settings, links.chain) : triggerEvent,
       fields,
       flagged,
-      ...(continuing ? { start: "the journey before" } : {}),
+      ...(continuing ? { start: "the journey before" } : dateStart ? { start: "entering" } : {}),
       nextNames: links?.chain.next.map((n) => n.name) ?? [],
     }),
-    [pools, triggerEvent, fields, flagged, links, continuing],
+    [pools, triggerEvent, fields, flagged, links, continuing, dateStart],
   );
 
   const onConnect = useCallback(
@@ -276,6 +279,7 @@ export function LifecycleCanvas({
               issues={issues.filter((i) => i.nodeId === selected.id)}
               waitlist={waitlist}
               links={links}
+              dateStart={dateStart}
               onPatch={(patch) => patchData(selected.id, patch)}
               onRemove={() => removeNode(selected.id)}
               onRemoveBranchEdges={(branchId) =>
@@ -317,6 +321,7 @@ function Inspector({
   issues,
   waitlist,
   links,
+  dateStart,
   onPatch,
   onRemove,
   onRemoveBranchEdges,
@@ -330,6 +335,7 @@ function Inspector({
   issues: GraphIssue[];
   waitlist: boolean;
   links: CanvasLinks | null;
+  dateStart: boolean;
   onPatch: (patch: Partial<LifecycleNodeData>) => void;
   onRemove: () => void;
   onRemoveBranchEdges: (branchId: string) => void;
@@ -339,9 +345,9 @@ function Inspector({
   const setWait = (patch: Partial<WaitConfig>) => onPatch({ wait: { minHours: 24, ...d.wait, ...patch } });
   const num = (v: string): number | undefined => (v.trim() === "" ? undefined : Math.max(0, Number(v)));
   const branches = d.branches ?? [];
-  // What this journey's clock counts from: sign-up, or the end of the journey it continues from.
+  // What this journey's clock counts from: sign-up, the end of the journey it continues from, or the day a date check let them in.
   const continuing = Boolean(links && startsAfterJourney(links.settings));
-  const start = continuing ? "they finish the journey before" : "sign-up";
+  const start = continuing ? "they finish the journey before" : dateStart ? "they enter" : "sign-up";
   const setBranch = (i: number, patch: Partial<LifecycleBranch>) =>
     onPatch({ branches: branches.map((b, j) => (j === i ? { ...b, ...patch } : b)) });
 
@@ -365,6 +371,10 @@ function Inspector({
 
       {node.type === "trigger" && waitlist ? (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">People enter when they join the waitlist (once their email is verified).</p>
+      ) : node.type === "trigger" && dateStart ? (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          People enter when {triggerEvent}. A check once a day enrols them. Change it on the Settings tab.
+        </p>
       ) : node.type === "trigger" && links ? (
         <div className="space-y-2">
           <ContinuesFromField settings={links.settings} chain={links.chain} readOnly={readOnly} onChange={links.onSettings} />
@@ -434,7 +444,13 @@ function Inspector({
             On a later day than the previous email
           </label>
           <Field
-            label={continuing ? "Send right away within (hours of finishing the journey before)" : "Send right away within (hours of sign-up)"}
+            label={
+              continuing
+                ? "Send right away within (hours of finishing the journey before)"
+                : dateStart
+                  ? "Send right away within (hours of entering)"
+                  : "Send right away within (hours of sign-up)"
+            }
             hint="Ignores the send window early on — for a welcome email."
           >
             <input className={inputClass} type="number" min={0} max={48} step="0.25" disabled={readOnly} value={d.wait?.windowExemptHours ?? ""} onChange={(e) => setWait({ windowExemptHours: num(e.target.value) })} />

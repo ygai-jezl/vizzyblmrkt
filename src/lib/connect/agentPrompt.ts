@@ -29,7 +29,8 @@ export interface AgentPromptInput {
   /** `per`: the kind's label when it's done or measured per entity (API v2 `entities`), e.g. "brand". */
   steps: Array<{ id: string; label: string; completion: string; how?: string | null; per?: string | null }>;
   /** `appliesWhen`: who has it, when not everyone does. */
-  facts: Array<{ id: string; label: string; unit: string | null; source: string; per?: string | null; appliesWhen?: string | null }>;
+  /** `date`: the catalog marks it a date (CONNECT_DATE_FACTS) — sent as text, never as a count of days. */
+  facts: Array<{ id: string; label: string; unit: string | null; source: string; per?: string | null; appliesWhen?: string | null; date?: boolean }>;
   /** True when those steps / facts are Learn from repo's proposals, not the customer's accepted catalog. */
   proposed?: { steps: boolean; facts: boolean };
   /** What to send, field by field (from the integration guide). */
@@ -144,7 +145,7 @@ export function buildAgentPrompt(p: AgentPromptInput): string {
           "Facts (ids must match exactly; send the latest value):",
           ...p.facts.map(
             (f) =>
-              `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}${perLine(f.per)}${f.appliesWhen ? `; only for ${f.appliesWhen} — leave it out for the rest, never 0 or an empty value` : ""}`,
+              `- \`${f.id}\` — ${f.label}${f.unit ? ` (${f.unit})` : ""}${f.source ? `; from ${f.source}` : ""}${perLine(f.per)}${f.date ? "; a date — send it as text, ISO 8601 with a timezone (`2026-10-08T09:12:00Z`) or a plain day (`2026-10-08`): the date itself, never a count of days, and only when it changes" : ""}${f.appliesWhen ? `; only for ${f.appliesWhen} — leave it out for the rest, never 0 or an empty value` : ""}`,
           ),
         );
       }

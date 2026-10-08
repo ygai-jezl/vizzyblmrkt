@@ -98,6 +98,8 @@ export interface AnalyseOptions {
   productName: string;
   /** Defaults to ANALYSIS_PASSES; tests pass one generic pass. */
   passes?: AnalysisPass[];
+  /** The app takes date facts (DATE_FACTS): also look for stored dates worth acting on. Off: the prompt is as it was. */
+  dateFacts?: boolean;
   /** Per pass. */
   maxTurns?: number;
   maxToolCalls?: number;
@@ -172,10 +174,17 @@ const GENERAL_QUESTIONS = `YOUR QUESTIONS — answer each from the code, with ev
 7. Integration hooks: account deletion (and any grace period), marketing consent / email preferences (categories, unsubscribe), timezone and locale capture, and users who should never get lifecycle email (staff, invited team members, special account types) — hooks "deletion", "consent", "preferences", "timezone", "exit_rule".
 8. Warnings: gaps a developer should know (e.g. "timezone isn't stored", "onboarding is computed only in the browser").`;
 
+/** Added to the passes that record facts, only where the app takes date facts. */
+const DATE_FACTS_NOTE =
+  'DATES ARE FACTS TOO: also record a stored date that says when the account last did something (last sign-in, last active, last report run) or when something is due (trial ends, plan renews) — the dates a "we haven\'t seen you for a while" or "your trial ends soon" email would start from. Give it "type": "date" and no unit, and say in source which field holds it and what updates it. One per real stored field; never a count of days, and never a createdAt that only says when the account began.';
+
 export function systemInstruction(o: AnalyseOptions, pass?: AnalysisPass): string {
-  const job = pass
-    ? `YOUR JOB IN THIS PASS: ${pass.focus}\nRecord ONLY these sections: ${pass.sections.join(", ")}. Other passes cover the rest.`
-    : GENERAL_QUESTIONS;
+  const dates = Boolean(o.dateFacts) && (!pass || pass.sections.includes("facts"));
+  const job =
+    (pass
+      ? `YOUR JOB IN THIS PASS: ${pass.focus}\nRecord ONLY these sections: ${pass.sections.join(", ")}. Other passes cover the rest.`
+      : GENERAL_QUESTIONS) + (dates ? `\n${DATE_FACTS_NOTE}` : "");
+  const factTypes = o.dateFacts ? "number|string|boolean|date" : "number|string|boolean";
   return `You analyse the source code of a customer's software product so a lifecycle-email platform can understand it. You can ONLY read: list_files, search, read_file. Finish with submit_product_map.
 
 The product: "${o.productName}". Repositories:
@@ -197,7 +206,7 @@ ITEM FORMATS for record_findings:
  entityKinds: {"kind","label","plural","parent","multiple","membership","limit","description","confidence","evidence"}
  events: {"name","label","description","when","entityKind","confidence","evidence"}
  traits: {"key","type":"string|number|boolean|timestamp","label","description","confidence","evidence"}
- facts: {"id","label","type":"number|string|boolean","unit","description","source","appliesWhen","entityKind","confidence","evidence"}
+ facts: {"id","label","type":"${factTypes}","unit","description","source","appliesWhen","entityKind","confidence","evidence"}
  glossary: {"term","definition","confidence","evidence"}
  hooks: {"kind":"signup|deletion|consent|preferences|exit_rule|timezone|other","description","confidence","evidence"}
 Ids, fact ids and kinds: snake_case. entityKind: omit it for what's once per person. Keep it to what the code supports; quality over quantity.`;

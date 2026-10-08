@@ -8,7 +8,8 @@ get_lifecycle_context read). Where journey styles are on (`journeyStyleEnabled`,
 written by the same reads and by the journey style tools), it adds the rule for one
 journey's own look and points the Email style rule at it. Where journeys can continue
 from one another (`journeyLinksEnabled`, written by the same reads), it adds how to
-build one that does. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
+build one that does; likewise how to branch on a date fact (`dateFactsEnabled`) and how
+to build a journey that starts when a date passes (`dateStartEnabled`). Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
 it remains unit-testable without ADK.
 """
 
@@ -18,6 +19,8 @@ from typing import TYPE_CHECKING
 
 from ...context.language import language_directive
 from .prompts.instruction import (
+    DATE_FACTS_ADDENDUM,
+    DATE_START_ADDENDUM,
     EMAIL_STYLE_ADDENDUM,
     EMAIL_STYLE_BRAND_LOOK,
     EMAIL_STYLE_JOURNEY_LOOK,
@@ -63,6 +66,10 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
         )
     if state and state.get("journeyLinksEnabled"):
         parts.append(JOURNEY_LINKS_ADDENDUM)
+    if state and state.get("dateFactsEnabled"):
+        parts.append(DATE_FACTS_ADDENDUM)
+    if state and state.get("dateStartEnabled"):
+        parts.append(DATE_START_ADDENDUM)
     journey_styles = bool(state and state.get("journeyStyleEnabled"))
     if state and state.get("emailStyleConfigured"):
         parts.append(

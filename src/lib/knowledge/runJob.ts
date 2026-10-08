@@ -93,6 +93,8 @@ export interface ProductMapJobVars {
   analysisId: string;
   tenantId: string;
   region: Region;
+  /** This app takes date facts (CONNECT_DATE_FACTS): the analysis may propose them. */
+  dateFacts?: boolean;
 }
 
 /** Build the runJob request for a repo analysis (pure — unit-tested). */
@@ -107,6 +109,8 @@ export function buildProductMapRunRequest(vars: ProductMapJobVars): ReturnType<t
             { name: "ANALYSIS_ID", value: vars.analysisId },
             { name: "TENANT_ID", value: vars.tenantId },
             { name: "REGION", value: vars.region },
+            // Only sent when on, so a job image from before date facts sees nothing new.
+            ...(vars.dateFacts ? [{ name: "DATE_FACTS", value: "true" }] : []),
           ],
         },
       ],

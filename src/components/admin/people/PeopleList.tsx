@@ -124,6 +124,9 @@ export function PeopleList() {
   }
 
   const count = (f: Filter) => found.filter((p) => matches(p, f, reachOf(p))).length;
+  // One product is the usual case: its name on every row says nothing, and the room is better spent.
+  const products = [...new Set(people.map((p) => p.product))];
+  const showProduct = products.length > 1;
   const pick = (f: Filter) => {
     setFilter(f);
     setShown(PAGE);
@@ -168,15 +171,15 @@ export function PeopleList() {
         </p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="whitespace-nowrap text-left text-xs text-neutral-500">
               <tr className="border-b border-neutral-200 dark:border-neutral-800">
                 <th className="px-3 py-2 font-medium">Person</th>
-                <th className="px-3 py-2 font-medium">Product</th>
+                {showProduct ? <th className="px-3 py-2 font-medium">Product</th> : null}
                 <th className="px-3 py-2 font-medium">Stage</th>
                 <th className="px-3 py-2 font-medium">Journey now</th>
                 <th className="px-3 py-2 font-medium" title="Emails sent, then how many of them were opened and clicked">
-                  Sent · opened · clicked
+                  Emails <span className="block font-normal">sent · opened · clicked</span>
                 </th>
                 <th className="px-3 py-2 font-medium">Last active</th>
               </tr>
@@ -199,10 +202,10 @@ export function PeopleList() {
                         {p.invited ? <Chip tone="green">Invited</Chip> : null}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-400">{p.product}</td>
+                    {showProduct ? <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-400">{p.product}</td> : null}
                     <td className="px-3 py-2">
                       <span
-                        className="flex flex-wrap gap-1"
+                        className="flex min-w-[11rem] flex-wrap gap-1"
                         title={p.onboarding.steps.length ? p.onboarding.steps.map((x) => `${x.done ? "✓" : "☐"} ${x.label}`).join("\n") : undefined}
                       >
                         {stageChips(p.stage).map((c) => (
@@ -245,6 +248,7 @@ export function PeopleList() {
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
         <span>
           Showing {visible.length} of {filtered.length}
+          {showProduct ? "" : ` on ${products[0]}`}
           {truncated ? `. This list reads each product's ${truncated} most recently updated people; a product's Users tab lists everyone.` : ""}
         </span>
         {filtered.length > visible.length ? (

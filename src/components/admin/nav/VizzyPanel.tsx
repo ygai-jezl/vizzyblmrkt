@@ -8,6 +8,7 @@ import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { activeNavKey, buildNav } from "@/lib/nav/model";
 import { vizzySuggestions } from "@/lib/nav/vizzy";
+import { personInView } from "@/lib/audience/paths";
 import { ChatPill } from "../chat/ChatPill";
 import { MessageThread } from "../chat/MessageThread";
 import { isHome, useShell } from "./ShellProvider";
@@ -42,7 +43,7 @@ export function VizzyPanel() {
 
   if (!shell || !open) return null;
   const { chat } = shell;
-  const suggestions = vizzySuggestions(activeNavKey(pathname, ITEMS));
+  const suggestions = vizzySuggestions(activeNavKey(pathname, ITEMS), { person: shell.personInContext && personInView(pathname) !== null });
 
   return (
     <aside

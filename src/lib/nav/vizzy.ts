@@ -1,6 +1,7 @@
 import type { NavKey } from "./model";
 import { isInsightsHubEnabled } from "./flags";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
+import { personInView } from "@/lib/audience/paths";
 
 /**
  * Starter questions for the Ask Vizzy panel, by the area in view. Written as the
@@ -24,7 +25,11 @@ const INVITE_SUGGESTION = "Draft an invite wave for my top 100";
 /** Answered from real numbers by Vizzy's get_insights_summary tool. */
 const INSIGHTS_SUGGESTION = "Which content brings signups?";
 
-export function vizzySuggestions(key: NavKey | null): string[] {
+/** On one product user's page, while Vizzy can read a person (LIFECYCLE_PERSON_BRIEF). */
+export const PERSON_SUGGESTIONS = ["What's happened with this person so far?", "Why have they stalled?", "What should they get next?"];
+
+export function vizzySuggestions(key: NavKey | null, opts: { person?: boolean } = {}): string[] {
+  if (opts.person) return PERSON_SUGGESTIONS;
   const base = SUGGESTIONS[key ?? "home"];
   if (key === "launches" && isInvitesUiEnabled()) return [...base, INVITE_SUGGESTION];
   if (key === "insights" && isInsightsHubEnabled()) return [...base, INSIGHTS_SUGGESTION];
@@ -98,16 +103,21 @@ export function journeyInView(pathname: string): string | null {
  * journey page the journey is "" (none), never left out: a journey from an earlier page would
  * otherwise still be "this journey" on a launch page or Home. The launch is "" off a launch page
  * for the same reason, since Vizzy styles the launch in view's welcome journey.
+ *
+ * With `personInContext` (Vizzy can read a person, a server prop), it also names the product user
+ * whose page is in view — by our id for them, never a name — and "" everywhere else, so "this
+ * person" never means someone from an earlier page.
  */
 export function shellChatContext(
   pathname: string,
   page: string,
-  opts: { phase4: boolean; journeyInContext?: boolean },
-): { page: string; campaignId: string | null; workspaceId?: string | null; planId?: string | null; journeyId?: string } {
+  opts: { phase4: boolean; journeyInContext?: boolean; personInContext?: boolean },
+): { page: string; campaignId: string | null; workspaceId?: string | null; planId?: string | null; journeyId?: string; personId?: string } {
   return {
     page,
     campaignId: opts.journeyInContext ? (launchInView(pathname) ?? "") : launchInView(pathname),
     ...(opts.phase4 ? programmeInView(pathname) : {}),
     ...(opts.journeyInContext ? { journeyId: journeyInView(pathname) ?? "" } : {}),
+    ...(opts.personInContext ? { personId: personInView(pathname) ?? "" } : {}),
   };
 }

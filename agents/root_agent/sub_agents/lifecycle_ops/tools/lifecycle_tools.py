@@ -160,3 +160,58 @@ def get_repo_analysis(tool_context: ToolContext, connection_id: str = "") -> dic
     """
     return client.get_repo_analysis(_state(tool_context), connection_id)
 
+
+def get_person_brief(tool_context: ToolContext, person_id: str = "") -> dict:
+    """Read ONE product user's situation, to explain what happened or plan what they get next.
+
+    Returns a brief of that person: the stage they're at (onboarding steps done, the
+    step they're on and for how long, whether they've gone quiet), whether they can be
+    emailed and why not, their onboarding checklist, what they have (brands,
+    workspaces…) and the facts the product reports, each journey they're in — what
+    was sent, whether each email was opened or clicked (null = it wasn't tracked),
+    what is held and why, and the emails ahead with their dates — and how many AI
+    lines are waiting in Approvals.
+
+    It never contains their name, their email address or the product's id for them,
+    and you must not ask for any of those. Call them "this person" or "they".
+
+    Args:
+        person_id: Leave empty for the person whose page the operator is on. Only
+            pass the `personId` a brief gave you earlier.
+    """
+    return client.get_person(_state(tool_context), person_id)
+
+
+def save_person_plan(
+    goal: str,
+    angle: str,
+    tool_context: ToolContext,
+    next_steps: Optional[list] = None,
+    review_in_days: Optional[int] = None,
+    person_id: str = "",
+) -> dict:
+    """Save a DRAFT plan for ONE product user: what to help them do next, and how to put it.
+
+    Call get_person_brief first, and write the plan from what it shows. The plan is a
+    draft: someone on the operator's team approves it on the person's page, and only
+    then does it shape that person's personalised line (which still goes through
+    Approvals). It sends nothing and changes no journey.
+
+    Never put the person's name or an email address in any of it — say "they". A plan
+    that names them is refused.
+
+    Args:
+        goal: The one thing you want them to do next, in a few words
+            ("Connect their site").
+        angle: How to put it to them, in a sentence or two: what to lead with, the
+            tone, what to leave out. Based on what they did (opened, clicked, ignored).
+        next_steps: Up to 6 short steps for the team, in order (e.g. "Send the next
+            reminder with this angle", "If still stuck in a week, add them to <journey>").
+        review_in_days: When to look at them again, in days from today (1-90).
+        person_id: Leave empty for the person whose page the operator is on.
+
+    Returns:
+        A status dict to relay (with a card the chat shows, linking to their page).
+    """
+    return client.save_person_plan(_state(tool_context), goal, angle, next_steps, review_in_days, person_id)
+

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { personHref } from "@/lib/audience/paths";
 import { api, errorText, timeAgo, type ProductUser, type PublicConnection } from "./api";
 import { Badge, Banner, Button } from "./ui";
 import { UserLookup } from "./UserLookup";
@@ -13,11 +15,14 @@ export function UsersTable({
   connection,
   canEdit,
   onOpenCatalog,
+  personView = false,
 }: {
   connection: PublicConnection;
   canEdit: boolean;
   /** Shown with a step the catalog counts somewhere other than where the product sends it. */
   onOpenCatalog?: () => void;
+  /** Each user's name opens their page: journeys, emails and their story (AUDIENCE_PERSON_VIEW). */
+  personView?: boolean;
 }) {
   const [users, setUsers] = useState<ProductUser[]>([]);
   const [next, setNext] = useState<string | null>(null);
@@ -81,7 +86,13 @@ export function UsersTable({
               <tr key={u.id} className="border-t border-neutral-100 dark:border-neutral-900">
                 <td className="px-3 py-2">
                   <div className="font-medium">
-                    {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || "—"}
+                    {personView && u.status !== "deleted" ? (
+                      <Link href={personHref(u.id)} className="hover:underline">
+                        {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || u.externalUserId}
+                      </Link>
+                    ) : (
+                      [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || "—"
+                    )}
                   </div>
                   <div className="font-mono text-neutral-500">{u.email ? `${u.email} · ` : ""}{u.externalUserId}</div>
                 </td>

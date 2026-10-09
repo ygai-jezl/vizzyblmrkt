@@ -139,3 +139,133 @@ def test_get_repo_analysis_reads_the_summary(monkeypatch):
     r = lc.get_repo_analysis(STATE, "pcn_9")
     assert r["status"] == "success" and r["analysis"]["status"] == "done"
     assert calls[0]["method"] == "GET" and calls[0]["url"].endswith("/connections/pcn_9/learn")
+
+
+# ---- One person (LIFECYCLE_PERSON_BRIEF) ------------------------------------------------
+
+BRIEF = {"personId": "pu_3f9a", "product": "Fernlight app", "stage": {"summary": "Onboarding, 2 of 5 steps done"}, "journeys": []}
+
+
+def test_a_person_brief_reads_the_person_in_view(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"brief": BRIEF})
+    state = {**STATE, "personId": "pu_3f9a"}
+    out = lc.get_person(state, "")
+    assert out == {"status": "success", "brief": BRIEF}
+    assert calls[0]["method"] == "GET" and calls[0]["token"] == "tok"
+    assert calls[0]["url"] == "https://app.example.com/api/agent/lifecycle/people/pu_3f9a"
+    # A read that worked means the rules for it belong in the prompt from now on.
+    assert state["personBriefEnabled"] is True
+    # A person the brief named earlier can be asked for by that id; anything odd is quoted.
+    lc.get_person(state, " pu_other ")
+    assert calls[1]["url"].endswith("/people/pu_other")
+    lc.get_person(state, "a/b?c")
+    assert calls[2]["url"].endswith("/people/a%2Fb%3Fc")
+
+
+def test_a_person_brief_needs_a_person_in_view(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"brief": BRIEF})
+    for state in (STATE, {**STATE, "personId": ""}, {**STATE, "personId": None}):
+        out = lc.get_person(dict(state), "")
+        assert out["status"] == "needs_person" and "person's page" in out["message"]
+    assert calls == []
+    assert lc.get_person({"personId": "pu_3f9a"}, "")["status"] == "unavailable"  # no chat token
+
+
+def test_a_person_brief_explains_what_went_wrong(monkeypatch):
+    state = {**STATE, "personId": "pu_3f9a"}
+    for status, code, words in (
+        (404, "person_not_found", "couldn't find that person"),
+        (404, "person_erased", "has been erased"),
+        (503, "person_brief_unavailable", "isn't switched on"),
+        (503, "unavailable", "Looking at one person isn't switched on"),
+        (429, "rate_limited", "a lot of people"),
+    ):
+        _capture(monkeypatch, status, {"error": code})
+        out = lc.get_person(dict(state), "")
+        assert out["status"] == "error" and out["code"] == code and words in out["message"]
+    _capture(monkeypatch, 401, {"error": "unauthorized"})
+    assert "session to the app expired" in lc.get_person(dict(state), "")["message"]
+    # A reply with no brief in it is never passed off as one.
+    _capture(monkeypatch, 200, {"brief": "nope"})
+    assert lc.get_person(dict(state), "")["status"] == "error"
+
+
+def test_every_context_read_rewrites_whether_a_person_can_be_read(monkeypatch):
+    state = dict(STATE)
+    _capture(monkeypatch, 200, {"connections": [], "personBrief": {"enabled": True}})
+    lc.get_context(state)
+    assert state["personBriefEnabled"] is True
+    _capture(monkeypatch, 200, {"connections": []})
+    lc.get_context(state)
+    assert state["personBriefEnabled"] is False
+
+
+# ---- A plan for one person (LIFECYCLE_PERSON_PLANS) -------------------------------------
+
+
+def test_a_brief_says_whether_a_plan_can_be_drafted(monkeypatch):
+    state = {**STATE, "personId": "pu_3f9a"}
+    _capture(monkeypatch, 200, {"brief": BRIEF, "plans": True})
+    lc.get_person(state, "")
+    assert state["personPlansEnabled"] is True
+    _capture(monkeypatch, 200, {"brief": BRIEF})
+    lc.get_person(state, "")
+    assert state["personPlansEnabled"] is False
+    _capture(monkeypatch, 200, {"connections": [], "personPlans": {"enabled": True}})
+    lc.get_context(state)
+    assert state["personPlansEnabled"] is True
+    _capture(monkeypatch, 200, {"connections": []})
+    lc.get_context(state)
+    assert state["personPlansEnabled"] is False
+
+
+def test_person_plan_payload_shape():
+    p = lc.build_person_plan_payload("pu_3f9a", " Connect their site ", "One short email.", ["Send R3", "  ", "Review"], 7)
+    assert p == {
+        "kind": "person_plan",
+        "action": "save_draft",
+        "scope": {"personId": "pu_3f9a"},
+        "goal": "Connect their site",
+        "angle": "One short email.",
+        "next": ["Send R3", "Review"],
+        "reviewInDays": 7,
+    }
+    # No review day unless it's a sensible number of days; at most six steps.
+    for odd in (None, 0, 91, True, "7"):
+        assert "reviewInDays" not in lc.build_person_plan_payload("pu_1", "g", "a", None, odd)
+    assert len(lc.build_person_plan_payload("pu_1", "g", "a", [str(i) for i in range(9)], None)["next"]) == 6
+
+
+def test_a_plan_is_saved_as_a_draft_for_the_person_in_view(monkeypatch):
+    card = {"kind": "person_plan", "id": "pp_pu_3f9a", "url": "/admin/crm/people/pu_3f9a"}
+    calls = _capture(monkeypatch, 200, {"ok": True, "id": "pp_pu_3f9a", "status": "draft", "url": card["url"], "summary": "Saved as a draft plan for this person.", "card": card})
+    out = lc.save_person_plan({**STATE, "personId": "pu_3f9a"}, "Connect their site", "One short email.", ["Send R3"], 7)
+    assert out["status"] == "success" and out["planStatus"] == "draft" and out["card"] == card
+    assert out["message"].startswith("Saved as a draft plan")
+    assert calls[0]["method"] == "POST" and calls[0]["url"].endswith("/api/agent/canvas") and calls[0]["token"] == "tok"
+    assert calls[0]["payload"]["scope"] == {"personId": "pu_3f9a"} and calls[0]["payload"]["kind"] == "person_plan"
+
+
+def test_a_plan_needs_a_person_and_its_two_parts(monkeypatch):
+    calls = _capture(monkeypatch)
+    assert lc.save_person_plan(dict(STATE), "g", "a", None, None)["status"] == "needs_person"
+    state = {**STATE, "personId": "pu_3f9a"}
+    assert lc.save_person_plan(state, " ", "a", None, None)["status"] == "needs_plan"
+    assert lc.save_person_plan(state, "g", "", None, None)["status"] == "needs_plan"
+    assert calls == []
+
+
+def test_a_plan_that_cannot_be_saved_says_why(monkeypatch):
+    state = {**STATE, "personId": "pu_3f9a"}
+    for status, body, words in (
+        (422, {"error": "names_the_person"}, 'say "they"'),
+        (403, {"error": "forbidden"}, "Only an admin"),
+        (409, {"error": "cannot_email"}, "can't be emailed"),
+        (503, {"error": "person_plans_unavailable"}, "aren't switched on"),
+        (404, {"error": "person_not_found"}, "couldn't find that person"),
+        (400, {"error": "invalid_plan", "issues": ["goal: Too long"]}, "goal: Too long"),
+        (429, {"error": "rate_limited"}, "a lot of plans"),
+    ):
+        _capture(monkeypatch, status, body)
+        out = lc.save_person_plan(dict(state), "g", "a", None, None)
+        assert out["status"] == "error" and out["code"] == body["error"] and words in out["message"]

@@ -34,6 +34,7 @@ import {
 import { zodReason } from "./protocol";
 import { ENTITY_ID_RE } from "./v2/contract";
 import { isOwnOrVerifiedAddress } from "@/lib/lifecycle/policy";
+import { isPersonViewEnabled } from "@/lib/audience/flags";
 
 /**
  * The Products admin API, as plain functions (status + body) so they're tested
@@ -127,7 +128,7 @@ export async function getConnectionDetail(ctx: TenantContext, id: string, db?: F
   return ok({
     connection: publicConnection(conn),
     diagnostics,
-    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled(), dateFacts: isDateFactsEnabled() },
+    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled(), dateFacts: isDateFactsEnabled(), personView: isPersonViewEnabled() },
   });
 }
 

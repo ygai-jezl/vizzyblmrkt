@@ -6,6 +6,8 @@ import { escapeHtml } from "@/lib/email/emailRender";
 import { zodReason } from "@/lib/connect/protocol";
 import { AI_LINE_MARKER } from "./drafts";
 import { validateAiLine, validateAiSubject } from "./insightValidator";
+import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { personHref } from "@/lib/audience/paths";
 
 /**
  * The Approvals queue for AI lines: what's waiting (soonest send first), what
@@ -37,6 +39,7 @@ async function view(ctx: TenantContext, drafts: AiDraft[], nowMs: number, db?: F
     Promise.all(journeyIds.map((id) => repo.lifecycleJourneys.getById(id))),
     Promise.all(userIds.map((id) => repo.productUsers.getById(id))),
   ]);
+  const personView = isPersonViewEnabled();
   const jName = new Map(journeys.flatMap((j) => (j ? [[j.id, j.name] as const] : [])));
   const uById = new Map(users.flatMap((u) => (u ? [[u.id, u] as const] : [])));
   return drafts.map((d) => {
@@ -49,6 +52,9 @@ async function view(ctx: TenantContext, drafts: AiDraft[], nowMs: number, db?: F
       itemLabel: d.itemLabel,
       externalUserId: d.externalUserId,
       user: u ? { email: u.email ?? null, firstName: u.firstName ?? null } : null,
+      // Their page, where the person view is on, and whether their approved plan steered this line.
+      personHref: personView && u?.status === "active" ? personHref(d.productUserId) : null,
+      planned: Boolean(d.planAt),
       status: d.status,
       requireApproval: d.requireApproval,
       sendAt: d.sendAt,

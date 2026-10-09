@@ -22,6 +22,7 @@ CANVAS_PATH = "/api/agent/canvas"
 CONTEXT_PATH = "/api/agent/lifecycle/context"
 JOURNEY_PATH = "/api/agent/lifecycle/journeys/"
 CONNECTIONS_PATH = "/api/agent/lifecycle/connections/"
+PEOPLE_PATH = "/api/agent/lifecycle/people/"
 _TIMEOUT_SECONDS = 120  # drafting writes ~10 emails with the model
 
 
@@ -193,7 +194,49 @@ def get_context(state: "dict | None") -> dict:
         state["dateFactsEnabled"] = isinstance(date_facts, dict) and bool(date_facts.get("enabled"))
         date_start = body.get("dateStart")
         state["dateStartEnabled"] = isinstance(date_start, dict) and bool(date_start.get("enabled"))
+        # And whether one person's situation can be read (sent only with that on), so its
+        # rules come and go with the flag.
+        person_brief = body.get("personBrief")
+        state["personBriefEnabled"] = isinstance(person_brief, dict) and bool(person_brief.get("enabled"))
+        # And whether a plan can be drafted for that person (sent only with plans on).
+        person_plans = body.get("personPlans")
+        state["personPlansEnabled"] = isinstance(person_plans, dict) and bool(person_plans.get("enabled"))
         return {"status": "success", **body}
+    return error_result(status_code, body)
+
+
+_PERSON_ERRORS = {
+    "person_brief_unavailable": "Looking at one person isn't switched on in this environment.",
+    "unavailable": "Looking at one person isn't switched on in this environment.",
+    "person_not_found": "I couldn't find that person in this account.",
+    "person_erased": "That person has been erased, so there's nothing I can read about them.",
+    "rate_limited": "I've looked at a lot of people in the last hour — please try again a bit later.",
+}
+
+
+def get_person(state: "dict | None", person_id: str) -> dict:
+    """One person's situation (no name, address or product id): the person asked for, else the one in view."""
+    resolved = (person_id or "").strip() or (state or {}).get("personId")
+    if not resolved:
+        return {
+            "status": "needs_person",
+            "message": "Open the person's page (Audience › Product users, then their row) and ask me there — I can only look at the person in view.",
+        }
+    got = _base_and_token(state)
+    if isinstance(got, dict):
+        return got
+    base, token = got
+    status_code, body_text = _request("GET", base + PEOPLE_PATH + urllib.parse.quote(str(resolved), safe=""), token)
+    body = _json(body_text)
+    if 200 <= status_code < 300 and isinstance(body.get("brief"), dict):
+        # A successful read proves the flag is on, whether or not the context was read first;
+        # it also says whether a plan can be drafted for them.
+        state["personBriefEnabled"] = True
+        state["personPlansEnabled"] = bool(body.get("plans"))
+        return {"status": "success", "brief": body["brief"]}
+    code = body.get("error") or f"http_{status_code}"
+    if code in _PERSON_ERRORS:
+        return {"status": "error", "code": code, "message": _PERSON_ERRORS[code]}
     return error_result(status_code, body)
 
 
@@ -322,5 +365,78 @@ def get_repo_analysis(state: "dict | None", connection_id: str) -> dict:
     body = _json(body_text)
     if 200 <= status_code < 300:
         return {"status": "success", **body}
+    return error_result(status_code, body)
+
+
+_PLAN_ERRORS = {
+    "person_plans_unavailable": "Plans for one person aren't switched on in this environment.",
+    "names_the_person": "A plan can't name the person or include an email address — say \"they\" and try again.",
+    "forbidden": "Only an admin on the team can ask for a plan for a person.",
+    "cannot_email": "This person can't be emailed at all, so there's nothing to plan for them.",
+    "person_not_found": "I couldn't find that person in this account (they may have been erased).",
+    "invalid_plan": "A plan needs a goal and an angle",
+    "rate_limited": "I've drafted a lot of plans in the last hour — please try again a bit later.",
+}
+
+
+def build_person_plan_payload(
+    person_id: str,
+    goal: str,
+    angle: str,
+    next_steps: "list | None",
+    review_in_days: "int | None",
+) -> dict:
+    payload: dict = {
+        "kind": "person_plan",
+        "action": "save_draft",
+        "scope": {"personId": person_id},
+        "goal": (goal or "").strip(),
+        "angle": (angle or "").strip(),
+        "next": [str(s).strip() for s in (next_steps or []) if str(s).strip()][:6],
+    }
+    if isinstance(review_in_days, int) and not isinstance(review_in_days, bool) and 1 <= review_in_days <= 90:
+        payload["reviewInDays"] = review_in_days
+    return payload
+
+
+def save_person_plan(
+    state: "dict | None",
+    goal: str,
+    angle: str,
+    next_steps: "list | None",
+    review_in_days: "int | None",
+    person_id: str = "",
+) -> dict:
+    """Save a DRAFT plan for the person asked for, else the one in view. Staff approve it on their page."""
+    resolved = (person_id or "").strip() or (state or {}).get("personId")
+    if not resolved:
+        return {
+            "status": "needs_person",
+            "message": "Open the person's page (Audience › Product users, then their row) and ask me there — I can only plan for the person in view.",
+        }
+    if not (goal or "").strip() or not (angle or "").strip():
+        return {"status": "needs_plan", "message": "A plan needs a goal (what they should do next) and an angle (how to put it to them)."}
+    got = _base_and_token(state)
+    if isinstance(got, dict):
+        return got
+    base, token = got
+    payload = build_person_plan_payload(str(resolved), goal, angle, next_steps, review_in_days)
+    status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
+    body = _json(body_text)
+    if 200 <= status_code < 300 and body.get("ok"):
+        return {
+            "status": "success",
+            "planId": body.get("id"),
+            "planStatus": body.get("status"),
+            "url": body.get("url"),
+            "card": body.get("card"),
+            "message": body.get("summary") or "Saved a draft plan. It needs approving on the person's page.",
+        }
+    code = body.get("error") or f"http_{status_code}"
+    if code in _PLAN_ERRORS:
+        issues = body.get("issues") or []
+        detail = "; ".join(str(i) for i in issues[:4])
+        base_message = _PLAN_ERRORS[code]
+        return {"status": "error", "code": code, "message": f"{base_message}: {detail}" if detail and code == "invalid_plan" else base_message}
     return error_result(status_code, body)
 

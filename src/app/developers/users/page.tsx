@@ -3,6 +3,8 @@ import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components
 import { V2_LIMITS } from "@/lib/connect/v2/contract";
 import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
 import { isLifecycleDateStartEnabled } from "@/lib/lifecycle/flags";
+import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { ACTIVITY_FACT, QUIET_AFTER_DAYS } from "@/lib/audience/personStage";
 import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
 import { codeText, USER_FIELDS, USER_ID_NOTES } from "@/lib/developers/userFields";
 
@@ -14,6 +16,7 @@ export default function UsersDocs() {
   // Described only where they're switched on, so the docs never promise what this YouGrow doesn't do yet.
   const dateFacts = isDateFactsEnabled();
   const dateStart = isLifecycleDateStartEnabled();
+  const personView = isPersonViewEnabled();
   return (
     <article>
       <H1>Sending users</H1>
@@ -281,6 +284,13 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
                 context endpoint
               </Link>
               .
+            </P>
+          ) : null}
+          {personView ? (
+            <P>
+              Name the date someone last used your product <C>{ACTIVITY_FACT}</C>, a date kept per person. Audience then
+              shows it as their <strong>Last active</strong> and marks them quiet once it is {QUIET_AFTER_DAYS} days old.
+              Without it we only know when you last sent us their state, which says nothing about whether they came back.
             </P>
           ) : null}
         </>

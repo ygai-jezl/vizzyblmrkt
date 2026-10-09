@@ -13,7 +13,9 @@ import type { TenantContext } from "@/lib/tenant";
  *  - `email_style`: a suggested Email style (scope: the whole brand) that an
  *    admin reviews and saves on Brand › Email style;
  *  - `journey_style`: one lifecycle journey's own Email style, in its draft
- *    (scope: the journey, or a launch's welcome journey).
+ *    (scope: the journey, or a launch's welcome journey);
+ *  - `person_plan`: a plan for one product user (scope: the person, by our id
+ *    for them), which staff approve on the person's page.
  * Each kind owns its request shape, scope loading, content fill, validation,
  * persistence and the words it says back, behind one `authorDraft`, so the
  * agent endpoint stays generic.
@@ -28,7 +30,8 @@ export type CanvasScope =
   | { kind: "content_plan"; workspaceId: string; planId?: string | null }
   | { kind: "invite_wave"; campaignId: string; waveId?: string | null }
   | { kind: "email_style" }
-  | { kind: "journey_style"; journeyId: string };
+  | { kind: "journey_style"; journeyId: string }
+  | { kind: "person_plan"; personId: string };
 
 /** What the chat shows for a saved draft (a card with an "Open canvas" link). */
 export interface CanvasCard {

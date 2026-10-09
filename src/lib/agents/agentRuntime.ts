@@ -83,6 +83,11 @@ export function contextEnvelope(
     /** The content programme / plan in view (nav v2 phase 4). */
     workspaceId?: string | null;
     planId?: string | null;
+    /**
+     * The product user whose page is in view (LIFECYCLE_PERSON_BRIEF), by OUR id for them:
+     * never a name, an address or the product's id. "" = no person in view any more.
+     */
+    personId?: string | null;
   },
 ): string {
   const payload: Record<string, unknown> = {
@@ -100,6 +105,8 @@ export function contextEnvelope(
   if (extras?.page) payload.page = extras.page;
   if (extras?.workspaceId) payload.workspaceId = extras.workspaceId;
   if (extras?.planId) payload.planId = extras.planId;
+  // Kept when empty, like the journey: "" clears the person an earlier page named.
+  if (typeof extras?.personId === "string") payload.personId = extras.personId;
   // Operator content language for the root agent. Omitted for English so the
   // common-case envelope is unchanged; the Python side no-ops on "en" anyway.
   if (extras?.locale && extras.locale !== "en") payload.locale = extras.locale;

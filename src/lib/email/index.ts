@@ -1,4 +1,5 @@
 import { carriesWebFonts } from "./emailFonts";
+import { METADATA_LIMIT_BYTES, metadataBytes } from "./mandrillWebhook";
 
 /**
  * Minimal transactional email abstraction. Provider precedence: MailChimp
@@ -108,6 +109,11 @@ async function sendViaMandrill(
     if (msg.listUnsubscribe.oneClick) {
       headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
     }
+  }
+  // Mandrill drops metadata that is over its limit, and that email's opens, clicks, bounces
+  // and complaints can then never find their way back: make it loud. (Sizes only, no content.)
+  if (msg.metadata && metadataBytes(msg.metadata) > METADATA_LIMIT_BYTES) {
+    console.error(`[email] metadata is ${metadataBytes(msg.metadata)} bytes, over Mandrill's ${METADATA_LIMIT_BYTES}: this email's events can't be attributed`);
   }
   let res: Response;
   try {

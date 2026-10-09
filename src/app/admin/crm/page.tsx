@@ -4,6 +4,7 @@ import type { ListResult } from "@/lib/admin/crm";
 import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { isPersonViewEnabled } from "@/lib/audience/flags";
 import { forTenant } from "@/lib/tenant";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
@@ -31,7 +32,7 @@ async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListRes
  * company intelligence (Agent 1) and per-contact email history. Server-renders
  * the first page of each tab; the client owns search/filter/pagination.
  */
-export default async function CrmPage({ searchParams }: { searchParams: Promise<{ q?: string; launch?: string }> }) {
+export default async function CrmPage({ searchParams }: { searchParams: Promise<{ q?: string; launch?: string; tab?: string }> }) {
   const ctx = await requireAdminContext();
   const sp = await searchParams;
   // Nav v2 phase 2: ⌘K "Search people" arrives with ?q=, pre-filtering Contacts.
@@ -41,6 +42,9 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
   const launchId = phase3 && !q ? (sp.launch ?? "").trim().slice(0, 200) : "";
   const launch = launchId ? await forTenant(ctx).campaigns.getById(launchId).catch(() => null) : null;
   const invites = isInvitesUiEnabled() && isInvitesEnabled();
+  // The person view: a fuller Product users list, and the tab kept in the address bar so
+  // coming back from a person lands where you left.
+  const personView = phase3 && isPersonViewEnabled();
   const [companies, contacts, engaged, funnel] = await Promise.all([
     tab("companies", listCompanies(ctx, {})),
     tab("contacts", listContacts(ctx, q ? { q } : launch ? { campaignId: launch.id } : {})),
@@ -76,7 +80,8 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
         engagedCursor={engaged.nextCursor}
         initialQuery={q}
         initialLaunch={launch ? { id: launch.id, name: launch.waitlistName } : null}
-        audience={phase3 ? { productUsers: isLifecycleEnabled() } : null}
+        audience={phase3 ? { productUsers: isLifecycleEnabled(), personView } : null}
+        initialTab={personView ? sp.tab : undefined}
       />
     </div>
   );

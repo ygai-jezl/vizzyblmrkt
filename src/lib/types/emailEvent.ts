@@ -21,7 +21,7 @@ export const EmailEventType = z.enum([
 export type EmailEventType = z.infer<typeof EmailEventType>;
 
 export const EmailEventSchema = z.object({
-  /** = `evt:{journeyId}:{nodeId}:{signupId}:{variantId}:{type}` (the dedupe key). */
+  /** = `evt:{journeyId}:{nodeId}:{signupId}:{variantId}:{type}` (the dedupe key), with `:{enrolmentId}` before the type when the send names one. */
   id: z.string(),
   tenantId: z.string(),
   /** Denormalised from the send metadata so the launch roll-up needs no join.
@@ -30,6 +30,11 @@ export const EmailEventSchema = z.object({
   /** `product_user` for lifecycle sends (signupId then holds the product user id). */
   recipientKind: z.enum(["signup", "product_user"]).optional(),
   connectionId: z.string().nullable().optional(),
+  /**
+   * Lifecycle sends (LIFECYCLE_SEND_TRACKING): the enrolment the email belongs to. It is part
+   * of the dedupe key too, so a second spell in a journey people can enter again has its own rows.
+   */
+  enrolmentId: z.string().nullable().optional(),
   journeyId: z.string(),
   nodeId: z.string(),
   signupId: z.string(),

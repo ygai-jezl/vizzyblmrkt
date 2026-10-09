@@ -53,3 +53,18 @@ def test_page_context_is_appended():
 def test_blank_or_odd_page_adds_nothing():
     assert build_dynamic_instruction(_ctx({"page": "   "})) == ROOT_SYSTEM_INSTRUCTION
     assert build_dynamic_instruction(_ctx({"page": 42})) == ROOT_SYSTEM_INSTRUCTION
+
+
+def test_a_persons_page_hands_this_person_to_lifecycle_ops():
+    from root_agent_pkg.context.brand_context import PERSON_IN_VIEW_BLOCK
+
+    page = "Audience › Product users › Person"
+    out = build_dynamic_instruction(_ctx({"page": page, "personId": "pu_3f9a"}))
+    assert out.endswith(PERSON_IN_VIEW_BLOCK)
+    assert "lifecycle_ops_agent" in PERSON_IN_VIEW_BLOCK
+    assert "don't ask for a name or an email address" in PERSON_IN_VIEW_BLOCK
+    # Our id for them is the tools' business, not the prompt's.
+    assert "pu_3f9a" not in out
+    # No person in view (the app sends "" off their page): nothing added.
+    for state in ({"page": page}, {"page": page, "personId": ""}):
+        assert PERSON_IN_VIEW_BLOCK not in build_dynamic_instruction(_ctx(state))

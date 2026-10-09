@@ -640,17 +640,21 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Date facts (see apphosting.yaml): OFF in prod until verified on dev and
-  # flipped with a chore(prod) change.
+  # Date facts (see apphosting.yaml): on in prod since 2026-10-09 (owner
+  # decision, to test it in prod, before the dev click-through). Set "false"
+  # here to switch them off: the catalog then takes no new date fact, and one it
+  # already holds is no longer checked on a write.
   - variable: CONNECT_DATE_FACTS
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
-  # Journeys that start when a date passes (see apphosting.yaml): OFF in prod
-  # until verified on dev and flipped with a chore(prod) change (turn
-  # CONNECT_DATE_FACTS on with it, or first).
+  # Journeys that start when a date passes (see apphosting.yaml): on in prod
+  # since 2026-10-09 (owner decision, with CONNECT_DATE_FACTS, which it needs).
+  # Set "false" here to switch it off: the daily check stops, nobody new enters
+  # such a journey, people already in one are no longer stopped when their date
+  # moves on, and the editor and Vizzy stop offering it.
   - variable: LIFECYCLE_DATE_START
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)

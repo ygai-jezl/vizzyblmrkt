@@ -272,13 +272,28 @@ describe("docs for features behind a switch", () => {
     process.env.CONNECT_DATE_FACTS = "true";
     expect(users()).toContain("### Dates");
     expect(users()).toContain('{ "facts": { "last_active_at": "2026-10-08T09:12:00Z", "trial_ends_on": "2026-11-01" } }');
-    expect(users()).toContain("Send the date itself, not a count of days.");
-    expect(users()).toContain("listed in `ignoredFields`");
+    expect(users()).toContain("**Send the date itself, never a count of days.**");
+    // Who to send it for: everyone once (a quiet person's date never changes), and nobody who has none.
+    expect(users()).toContain("**Send it once for everyone you already hold, then whenever it changes.**");
+    expect(users()).toContain("**Leave it out for someone who has no such date**");
+    expect(users()).toContain("set the fact's type to **date** in your product's Catalog");
+    expect(users()).toContain("Send any date fact a journey starts from");
+    // A bad date is reported like a bad profile field, wherever the docs describe those.
+    expect(users()).toContain("or a date fact whose value isn't a date, doesn't sink a write");
+    expect(users()).toContain("or date fact whose invalid value we left as it was");
     expect(context()).toContain("**Dates.**");
     // Starting a journey from a date has its own switch.
-    expect(users()).not.toContain("A journey can start from it too");
+    expect(users()).not.toContain("A journey can start from a date");
     process.env.LIFECYCLE_DATE_START = "true";
-    expect(users()).toContain("A journey can start from it too");
+    expect(users()).toContain("A journey can start from a date");
+    expect(users()).toContain("we check everyone's stored date once a day");
+  });
+
+  it("with date facts off, describes ignored fields exactly as before", () => {
+    const users = pageMarkdown("users", ORIGIN)!;
+    expect(users).toContain("An invalid `email`, `firstName`, `lastName`, `timezone` or `locale` doesn't sink a write");
+    expect(users).toContain("`ignoredFields` lists any profile field (`email`, `firstName`, `lastName`, `timezone`, `locale`) whose invalid value we left as it was.");
+    expect(users).not.toContain("date fact");
   });
 
   it("say, with or without date facts, that a request about one entity can return the person's own facts", () => {

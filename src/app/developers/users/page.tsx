@@ -248,23 +248,41 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
         <>
           <H3>Dates</H3>
           <P>
-            A fact can be a date: when someone was last active, when their trial ends. Mark it <strong>date</strong> in your
-            Catalog and send it as text — ISO 8601 with a timezone, or a plain day:
+            A fact can be a date: when someone was last active, when their trial ends. Send it as text — ISO 8601 with a
+            timezone, or a plain day — and set the fact&apos;s type to <strong>date</strong> in your product&apos;s Catalog
+            (Products → your product → Catalog → Facts). Until it&apos;s marked as a date it is only text to a journey.
           </P>
           <Code>{`{ "facts": { "last_active_at": "2026-10-08T09:12:00Z", "trial_ends_on": "2026-11-01" } }`}</Code>
-          <P>
-            Send the date itself, not a count of days. Journeys read it as whole days since, or until, worked out at the
-            moment they check — so the value never goes stale between your writes, and you only send it when it changes.
-            {dateStart ? (
-              <>
-                {" "}
-                A journey can start from it too (&ldquo;last active 14 or more days ago&rdquo;), and stops for someone whose
-                date has moved on.
-              </>
-            ) : null}{" "}
-            A value that isn&apos;t a date is left as it was and listed in <C>ignoredFields</C>, like an invalid profile
-            field; the rest of the write applies.
-          </P>
+          <UL>
+            <li>
+              <strong>Send the date itself, never a count of days.</strong> Journeys read it as whole days since, or
+              until, worked out at the moment they check, so the value never goes stale between your writes.
+            </li>
+            <li>
+              <strong>Send it once for everyone you already hold, then whenever it changes.</strong> Someone who has gone
+              quiet has a date that never changes, so without that first send we&apos;d never have one for them. A daily
+              re-sync covers both.
+            </li>
+            <li>
+              <strong>Leave it out for someone who has no such date</strong> (never signed in, no trial). They&apos;re
+              then left alone, rather than treated as if it happened long ago.
+            </li>
+            <li>
+              A value that isn&apos;t a date is left as it was and listed in <C>ignoredFields</C>, like an invalid profile
+              field; the rest of the write applies.
+            </li>
+          </UL>
+          {dateStart ? (
+            <P>
+              A journey can start from a date (&ldquo;last active 14 or more days ago&rdquo;): we check everyone&apos;s
+              stored date once a day, and stop the journey for someone whose date has moved on. To have a same-day return
+              noticed before the next email, also return the fact from your{" "}
+              <Link className="underline" href="/developers/context-endpoint">
+                context endpoint
+              </Link>
+              .
+            </P>
+          ) : null}
         </>
       ) : null}
       <H3>Where in your code — two ways</H3>
@@ -522,9 +540,10 @@ await yg.users.delete(user.id);                                       // the acc
         </li>
       </OL>
       <P>
-        An invalid <C>email</C>, <C>firstName</C>, <C>lastName</C>, <C>timezone</C> or <C>locale</C> doesn&apos;t sink a
-        write: the rest applies, and the response lists it in <C>ignoredFields</C>. Log it and fix the data. Any other
-        invalid field is a <C>400</C>.
+        An invalid <C>email</C>, <C>firstName</C>, <C>lastName</C>, <C>timezone</C> or <C>locale</C>
+        {dateFacts ? <>, or a date fact whose value isn&apos;t a date,</> : null} doesn&apos;t sink a write: the rest
+        applies, and the response lists it in <C>ignoredFields</C>. Log it and fix the data. Any other invalid field is a{" "}
+        <C>400</C>.
       </P>
       <Code title="A Firestore trigger (Cloud Functions 2nd gen, retries on)">{`import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { YouGrow, YouGrowError } from "@yougrowai/node";
@@ -609,6 +628,12 @@ await yg.users.batch(users.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt:
       </P>
       <UL>
         <li>Send <C>consent</C>, <C>subscribed</C> and <C>excluded</C> as well, so their choices hold from the start.</li>
+        {dateFacts ? (
+          <li>
+            Send any date fact a journey starts from, such as when they were last active, for all of them too: a journey
+            for people who&apos;ve gone quiet only sees the dates you&apos;ve sent.
+          </li>
+        ) : null}
         <li>A batch counts as one request: 600 a minute and 20,000 an hour per key.</li>
       </UL>
 
@@ -718,7 +743,7 @@ await yg.users.batch(users.map((u) => ({ userId: u.id, ...stateOf(u), updatedAt:
       <H3>Responses</H3>
       <Fields
         rows={[
-          ["200 applied: true", "", <>Saved. <C>user</C> is the state we now hold. <C>ignoredFields</C> lists any profile field (<C>email</C>, <C>firstName</C>, <C>lastName</C>, <C>timezone</C>, <C>locale</C>) whose invalid value we left as it was.</>],
+          ["200 applied: true", "", <>Saved. <C>user</C> is the state we now hold. <C>ignoredFields</C> lists any profile field (<C>email</C>, <C>firstName</C>, <C>lastName</C>, <C>timezone</C>, <C>locale</C>){dateFacts ? " or date fact" : ""} whose invalid value we left as it was.</>],
           ["200 applied: false", "", <>Skipped — we hold something newer: <C>stale_write</C> (older than the stored <C>updatedAt</C>, given as <C>storedUpdatedAt</C>) or <C>deleted_later</C> (older than a later DELETE). Nothing to fix; don&apos;t retry.</>],
           ["204", "", "DELETE: erased, or nothing to erase."],
           ["400 invalid", "", <>The body isn&apos;t valid, or has a field we don&apos;t know — or the <C>userId</C> in the URL isn&apos;t: <C>fields</C> lists each problem as a <C>path</C> and a <C>message</C>. Fix it; don&apos;t retry it as it is. (Invalid profile fields on their own don&apos;t: they&apos;re ignored.)</>],

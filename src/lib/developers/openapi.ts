@@ -86,7 +86,7 @@ export const COMPONENTS: Record<string, Component> = {
     schema: PatchResponseSchema,
     io: "output",
     description:
-      "`applied: true` — saved; `user` is what we now hold, and `ignoredFields` lists any profile field (`email`, `firstName`, `lastName`, `timezone`, `locale`) whose value was invalid and so left as it was. `applied: false` — skipped because we hold something newer: `stale_write` (older than the stored `updatedAt`) or `deleted_later` (older than a later DELETE). Neither needs a retry.",
+      "`applied: true` — saved; `user` is what we now hold, and `ignoredFields` lists any profile field (`email`, `firstName`, `lastName`, `timezone`, `locale`) whose value was invalid and so left as it was, and any fact your catalog marks as a date whose value wasn't one. `applied: false` — skipped because we hold something newer: `stale_write` (older than the stored `updatedAt`) or `deleted_later` (older than a later DELETE). Neither needs a retry.",
   },
   BatchResponse: {
     schema: BatchResponseSchema,

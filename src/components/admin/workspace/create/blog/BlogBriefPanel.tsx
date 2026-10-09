@@ -87,6 +87,16 @@ const SOURCE_STATUS: Record<BlogSource["status"], { label: string; cls: string }
   },
 };
 
+/** A source research found: the brand's own cite sources and the web are two places it
+ *  looks, and once the list holds both, each row says which it came from. */
+function sourceBadge(s: BlogSource, mixed: boolean): { label: string; cls: string } {
+  if (s.status === "verified" && s.origin === "cited") {
+    return { label: "From your cite sources", cls: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" };
+  }
+  if (s.status === "verified" && mixed) return { ...SOURCE_STATUS.verified, label: "From the web · checked on the page" };
+  return SOURCE_STATUS[s.status];
+}
+
 /** The only kind of link the brief stores, and the only kind shown as a link (the plan
  *  schema's own rule) — plus a host, so the row has something to be called. */
 const HTTPS_URL = /^https:\/\/[^\s<>"']+$/i;
@@ -335,10 +345,29 @@ function Links({ rows, onChange }: { rows: BlogLink[]; onChange: (next: BlogLink
   );
 }
 
-function Sources({ rows, onChange }: { rows: BlogSource[]; onChange: (next: BlogSource[]) => void }) {
+function Sources({
+  rows,
+  onChange,
+  onKeep,
+}: {
+  rows: BlogSource[];
+  onChange: (next: BlogSource[]) => void;
+  onKeep?: (url: string) => Promise<"kept" | "failed">;
+}) {
   const [url, setUrl] = useState("");
   const [fact, setFact] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Which pages have been kept as cite sources this visit (or are being, or couldn't be).
+  const [keeping, setKeeping] = useState<Record<string, "saving" | "kept" | "failed">>({});
+  const mixed = rows.some((r) => r.origin === "cited");
+
+  async function keep(link: string) {
+    if (!onKeep) return;
+    const key = normalizeUrl(link);
+    setKeeping((k) => ({ ...k, [key]: "saving" }));
+    const result = await onKeep(link).catch(() => "failed" as const);
+    setKeeping((k) => ({ ...k, [key]: result }));
+  }
 
   function add() {
     const link = url.trim();
@@ -372,15 +401,18 @@ function Sources({ rows, onChange }: { rows: BlogSource[]; onChange: (next: Blog
         <ul className="space-y-2">
           {rows.map((s, i) => {
             const name = s.publisher.trim() || hostOf(s.url) || s.url;
+            const badge = sourceBadge(s, mixed);
+            // A source a web search turned up, or one typed in by hand, can be kept for
+            // every later article. One from the cite sources already is.
+            const kept = keeping[normalizeUrl(s.url)];
+            const keepable = Boolean(onKeep) && s.origin !== "cited" && s.status !== "unverified" && isHttpsUrl(s.url);
             return (
               <li
                 key={`${i}-${s.url}`}
                 className="space-y-1 rounded-md border border-neutral-200 p-2 dark:border-neutral-800"
               >
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${SOURCE_STATUS[s.status].cls}`}>
-                    {SOURCE_STATUS[s.status].label}
-                  </span>
+                  <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${badge.cls}`}>{badge.label}</span>
                   <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
                     {name}
                     {s.year ? `, ${s.year}` : ""}
@@ -397,6 +429,30 @@ function Sources({ rows, onChange }: { rows: BlogSource[]; onChange: (next: Blog
                   >
                     I&apos;ve checked it
                   </button>
+                ) : null}
+                {keepable ? (
+                  kept === "kept" ? (
+                    <p role="status" className={HINT}>
+                      Kept as a cite source — it is being read now, and later articles can draw on it.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void keep(s.url)}
+                        disabled={kept === "saving"}
+                        title="Add this page to your cite sources, so every later article can draw on it"
+                        className={SMALL_BUTTON}
+                      >
+                        {kept === "saving" ? "Keeping…" : "Keep as a cite source"}
+                      </button>
+                      {kept === "failed" ? (
+                        <span role="alert" className={ERROR}>
+                          Couldn&apos;t keep it — try again.
+                        </span>
+                      ) : null}
+                    </div>
+                  )
                 ) : null}
               </li>
             );
@@ -672,9 +728,13 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
               {toCheck ? <span className="text-amber-700 dark:text-amber-400"> ({toCheck} to check)</span> : null}
             </>
           }
-          hint="The only other sites the article may cite. One that isn't confirmed is left out until you've checked it."
+          hint={
+            controls.onKeepSource
+              ? "The only other sites the article may cite: checked facts from your cite sources and from a web search, side by side — neither comes first, and the article uses the ones that fit. One that isn't confirmed is left out until you've checked it."
+              : "The only other sites the article may cite. One that isn't confirmed is left out until you've checked it."
+          }
         >
-          <Sources rows={brief.sources} onChange={(sources) => set({ sources })} />
+          <Sources rows={brief.sources} onChange={(sources) => set({ sources })} onKeep={controls.onKeepSource} />
         </Section>
         <Section
           summary={`Entities · ${brief.entities.length}`}

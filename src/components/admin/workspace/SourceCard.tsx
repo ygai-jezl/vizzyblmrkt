@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
+import { CITE_TAG, isCiteSource, isCiteSourcesUiEnabled, isWebSource } from "@/lib/knowledge/cite";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
@@ -39,9 +40,33 @@ export function SourceCard({
   onChanged: () => void | Promise<void>;
   onBrowse: () => void;
 }) {
-  const [busy, setBusy] = useState<null | "delete" | "reingest">(null);
+  const [busy, setBusy] = useState<null | "delete" | "reingest" | "cite">(null);
   const [error, setError] = useState<string | null>(null);
   const active = ["pending", "running", "embedding"].includes(source.status);
+  const canCite = isCiteSourcesUiEnabled() && isWebSource(source.source);
+  const cited = isCiteSource(source.tags);
+
+  /** Mark this source as one an article may cite, or take the mark away. Nothing is read again. */
+  async function toggleCite() {
+    setBusy("cite");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/knowledge/sources/${source.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cite: !cited }),
+      });
+      if (!res.ok) {
+        setError(res.status === 409 ? "Wait until this source has finished being read." : "Couldn't change that — try again.");
+        return;
+      }
+      await onChanged();
+    } catch {
+      setError("Couldn't change that — try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function reingest() {
     setBusy("reingest");
@@ -57,6 +82,8 @@ export function SourceCard({
       };
       if (source.ref) body.ref = source.ref;
       if (source.includeGlobs) body.includeGlobs = source.includeGlobs;
+      // A source read as one page is read as one page again.
+      if (source.onePage !== undefined) body.onePage = source.onePage;
       const res = await fetch("/api/admin/knowledge/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,14 +140,29 @@ export function SourceCard({
             {contentMatrixLabel(source.topic)}
           </span>
         ) : null}
-        {(source.tags ?? []).map((t) => (
+        {canCite && cited ? (
           <span
-            key={t}
-            className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            title="Articles can cite this, alongside what a web search finds. On someone else's site it is evidence only — never what you say about yourself."
+            className="rounded bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
           >
-            #{t}
+            Cite source
           </span>
-        ))}
+        ) : null}
+        {canCite && source.onePage ? (
+          <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+            One page
+          </span>
+        ) : null}
+        {(source.tags ?? [])
+          .filter((t) => !(canCite && t === CITE_TAG))
+          .map((t) => (
+            <span
+              key={t}
+              className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            >
+              #{t}
+            </span>
+          ))}
       </div>
 
       {source.status === "failed" && source.lastError ? (
@@ -131,7 +173,7 @@ export function SourceCard({
         <p className="text-xs text-neutral-500">{source.chunksWritten} chunks</p>
       )}
 
-      <div className="flex gap-2 text-xs">
+      <div className="flex flex-wrap gap-2 text-xs">
         <button
           onClick={onBrowse}
           disabled={source.chunksWritten === 0}
@@ -146,6 +188,20 @@ export function SourceCard({
         >
           {busy === "reingest" ? "…" : "Re-ingest"}
         </button>
+        {canCite ? (
+          <button
+            onClick={toggleCite}
+            disabled={busy !== null || active || source.chunksWritten === 0}
+            title={
+              cited
+                ? "Stop articles citing this source. It goes back to being ordinary knowledge."
+                : "Let articles cite this source, alongside what a web search finds."
+            }
+            className="rounded border border-neutral-300 px-2 py-1 disabled:opacity-40 dark:border-neutral-700"
+          >
+            {busy === "cite" ? "…" : cited ? "Stop citing" : "Cite in articles"}
+          </button>
+        ) : null}
         <button
           onClick={del}
           disabled={busy !== null}

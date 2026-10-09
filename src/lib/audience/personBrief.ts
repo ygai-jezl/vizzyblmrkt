@@ -8,10 +8,13 @@ import { reachText, stageText } from "./personStage";
  * It is the person's page with the identity taken out. There is no name, no email
  * address and none of the product's own ids, here or in anything derived from
  * them: a subject line is given as the email's name in its journey (the rendered
- * one can greet them by name), a clicked link as its path alone, and every value
- * a product supplied (a fact, a brand's name, a trait, a reason) is scrubbed of
- * the person's name and of anything shaped like an email address before it
- * leaves. Traits are included only when the product's catalog declares them.
+ * one can greet them by name), a clicked link as its path without anything that
+ * looks like an id, and traits only when the product's catalog declares them.
+ * Then EVERY string in the brief — a fact, a brand's name, a reason, a journey's
+ * name, a plan — is scrubbed of the person's name, of anything shaped like an
+ * email address and of the product's ids, so nothing relies on a field being
+ * "safe". A person called May can cost a sentence its "may"; that is the right
+ * way round.
  *
  * What is here is still personal data — behaviour tied to one person — so it is
  * read only for the operator who is looking at that person, through the signed
@@ -81,36 +84,59 @@ const EMAIL_LIKE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Takes the person out of a value a product supplied: their name and the name part of their
- * address (each part of either, three letters or more, as a whole word), and anything shaped
- * like an email address. A surname in a brand's name goes too: better a gap than a name.
+ * Takes the person out of a string: their name and the name part of their address (each part of
+ * either, three letters or more, as a whole word), anything shaped like an email address, and
+ * the product's own ids for them and for what they have, wherever one is quoted. A surname in a
+ * brand's name goes too: better a gap than a name.
  */
-export function identityScrubber(person: { name?: string | null; email?: string | null }): (value: string) => string {
+export function identityScrubber(person: { name?: string | null; email?: string | null; ids?: ReadonlyArray<string | null | undefined> }): (value: string) => string {
+  const whole = (w: string, edge: string) => new RegExp(`(?<![${edge}])${escapeRe(w)}(?![${edge}])`, "giu");
+  const longestFirst = (list: string[]) => [...new Set(list)].sort((a, b) => b.length - a.length);
   const local = (person.email ?? "").split("@")[0] ?? "";
-  const parts = [...(person.name ?? "").split(/[\s.\-_']+/), local, ...local.split(/[._\-+]+/)].map((w) => w.trim()).filter((w) => w.length >= 3);
+  const parts = [...(person.name ?? "").split(/[\s.\-_']+/), local, ...local.split(/[._\-+]+/)].map((w) => w.trim().toLowerCase()).filter((w) => w.length >= 3);
   // Longest first, so "jo.okafor" goes whole before "okafor" does.
-  const words = [...new Set(parts.map((w) => w.toLowerCase()))]
-    .sort((a, b) => b.length - a.length)
-    .map((w) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(w)}(?![\\p{L}\\p{N}])`, "giu"));
-  return (value) => words.reduce((out, re) => out.replace(re, "[name]"), value.replace(EMAIL_LIKE, "[email]"));
+  const words = longestFirst(parts).map((w) => whole(w, "\\p{L}\\p{N}"));
+  // An id that reads as an ordinary word ("main", "default") names nobody, and would take that word out of everything.
+  const ids = longestFirst((person.ids ?? []).filter((id): id is string => !!id && (/\d/.test(id) || id.length >= 12))).map((id) => whole(id, "\\p{L}\\p{N}_"));
+  return (value) => {
+    const noIds = ids.reduce((out, re) => out.replace(re, "[id]"), value.replace(EMAIL_LIKE, "[email]"));
+    return words.reduce((out, re) => out.replace(re, "[name]"), noIds);
+  };
 }
 
-/** A clicked link as a path: the query and fragment can carry ids and addresses. */
+/**
+ * A clicked link as a path Vizzy can read: no query or fragment (they can carry ids and
+ * addresses), and any part of the path that looks like an id rather than a page is left out.
+ */
 function pathOf(url: string | null): string | null {
   if (!url) return null;
   try {
     const u = new URL(url);
-    return `${u.host}${u.pathname}`.slice(0, 120);
+    const path = u.pathname
+      .split("/")
+      .map((part) => (/\d/.test(part) || part.length > 24 ? ":id" : part))
+      .join("/");
+    return `${u.host}${path}`.slice(0, 120);
   } catch {
     return null;
   }
 }
 
+/** Fields that are ours alone: ids we made, dates, and fixed words the agent's prompt names. */
+const OURS = new Set(["personId", "journeyId", "today", "signedUp", "lastActive", "timezone", "kind", "status", "mode", "wording", "on", "entered", "ended", "doneOn", "reviewOn", "can", "writtenBy"]);
+
+/** Every other string in the brief goes through the scrubber, whoever wrote it: nothing relies on a field being "safe". */
+function scrubAll<T>(value: T, scrub: (s: string) => string, key = ""): T {
+  if (typeof value === "string") return (OURS.has(key) ? value : scrub(value)) as T;
+  if (Array.isArray(value)) return value.map((v) => scrubAll(v, scrub, key)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrubAll(v, scrub, k)])) as T;
+  return value;
+}
+
 export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
-  const scrub = identityScrubber(p);
-  const opt = (s: string | null) => (s === null ? null : scrub(s));
+  const scrub = identityScrubber({ name: p.name, email: p.email, ids: [p.externalUserId, ...p.entities.map((e) => e.id)] });
   const reach = reachText(p.reach, p.categoryLabels);
-  return {
+  const brief: PersonBrief = {
     personId: p.id,
     product: p.product,
     testUser: p.sandbox,
@@ -127,17 +153,17 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
       daysOnStep: p.stage.daysOnStep,
       quietDays: p.stage.quietDays,
     },
-    canEmail: { can: p.reach.can, marketing: p.reach.marketing, why: opt(reach.why) },
+    canEmail: { can: p.reach.can, marketing: p.reach.marketing, why: reach.why },
     onboarding: p.steps.map((s) => ({ step: s.label, done: s.done, doneOn: date(s.doneAt) })),
     has: p.entities.map((e) => ({
       kind: e.kind,
-      name: opt(e.name),
+      name: e.name,
       stepsDone: e.done,
       stepsTotal: e.total,
-      facts: e.facts.map((f) => ({ label: f.label, value: scrub(f.value) })),
+      facts: e.facts.map((f) => ({ label: f.label, value: f.value })),
     })),
-    facts: p.facts.map((f) => ({ label: f.label, value: scrub(f.value) })),
-    traits: p.traits.filter((t) => t.declared).map((t) => ({ label: t.label, value: scrub(t.value).slice(0, 80) })),
+    facts: p.facts.map((f) => ({ label: f.label, value: f.value })),
+    traits: p.traits.filter((t) => t.declared).map((t) => ({ label: t.label, value: t.value.slice(0, 80) })),
     emails: p.emailCounts,
     journeys: p.journeys.map((j) => {
       const mine = p.emails.filter((e) => e.enrolmentId === j.enrolmentId);
@@ -149,8 +175,8 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
         mode: j.mode,
         entered: date(j.enteredAt) ?? "",
         ended: date(j.endedAt),
-        stopped: opt(j.stopped),
-        held: opt(j.waiting?.why ?? null),
+        stopped: j.stopped,
+        held: j.waiting?.why ?? null,
         // Oldest first, as they got them. The name of the email in its journey, never the rendered subject.
         sent: [...mine].reverse().map((e) => ({
           email: e.label,
@@ -159,16 +185,17 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
           clicked: e.status === "skipped" ? null : e.tracked.clicks ? Boolean(e.clickedAt) : null,
           clickedPath: pathOf(e.clickUrl),
           wording: e.version === "ai" ? "ai" : e.version === "fallback" ? "standard" : null,
-          aiLine: opt(e.line),
+          aiLine: e.line,
           note: e.note,
         })),
         ahead: ahead.map((s) => ({ email: s.label, on: date(s.at) ?? "", willSend: s.kind !== "would_skip", why: s.reason, hasAiLine: s.personalised })),
-        then: j.then ? (j.then.why ? `${j.then.kind}: ${scrub(j.then.why)}` : j.then.kind) : null,
+        then: j.then ? (j.then.why ? `${j.then.kind}: ${j.then.why}` : j.then.kind) : null,
       };
     }),
     approvalsWaiting: p.approvals,
     ...(p.plan ? { plan: { inForce: planView(p.plan.approved), draft: planView(p.plan.draft) } } : {}),
   };
+  return scrubAll(brief, scrub);
 }
 
 function planView(plan: NonNullable<PersonRecord["plan"]>["draft" | "approved"]): PlanView | null {

@@ -265,9 +265,19 @@ export function PeopleList() {
   );
 }
 
+/** A row whose summary didn't arrive: say so, since a dash would read as "no journey, no emails". */
+function Unknown() {
+  return (
+    <span className="text-neutral-400" title="Couldn't load this. Reload the page to try again.">
+      ?
+    </span>
+  );
+}
+
 function JourneyCell({ summary }: { summary: PersonSummary | "loading" | null | undefined }) {
   if (summary === undefined || summary === "loading") return <span className="text-neutral-400">…</span>;
-  const j = summary?.journey;
+  if (summary === null) return <Unknown />;
+  const j = summary.journey;
   if (!j) return <span className="text-neutral-400">—</span>;
   const sub =
     j.status === "active"
@@ -287,7 +297,8 @@ function JourneyCell({ summary }: { summary: PersonSummary | "loading" | null | 
 
 function EmailsCell({ summary }: { summary: PersonSummary | "loading" | null | undefined }) {
   if (summary === undefined || summary === "loading") return <span className="text-neutral-400">…</span>;
-  if (!summary || summary.emails.sent === 0) return <span className="text-neutral-400">—</span>;
+  if (summary === null) return <Unknown />;
+  if (summary.emails.sent === 0) return <span className="text-neutral-400">—</span>;
   const { sent, opened, clicked, tracked } = summary.emails;
   if (tracked === 0) {
     return (

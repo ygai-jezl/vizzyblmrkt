@@ -226,7 +226,9 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     next_step: next ? fencedContext("Their next onboarding step", "next_step", next.label) : "",
     glossary: fencedContext("Product glossary (terms you may use)", "glossary", glossary),
     brand_voice: brandVoiceSection(resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice })),
-    plan: plan ? fencedContext("What your team wants for this person, and how to put it (follow it where the rules below allow)", "plan", planGuidance(plan)) : "",
+    // On its own line after the brand voice, and nothing at all without a plan: the prompt is then
+    // exactly what it was. The block says for itself that it is untrusted (fencedContext).
+    plan: plan ? `\n${fencedContext("What your team wants for this person, and how to put it (follow it where the rules below allow)", "plan", planGuidance(plan))}` : "",
   });
 
   const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: GENERATION_TIMEOUT_MS, json: true });

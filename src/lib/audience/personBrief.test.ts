@@ -32,7 +32,12 @@ async function world() {
     lastName: "Raman",
     signedUpAt: iso(T0),
     traits: { plan: "free", nickname: "Priya R" },
-    facts: { reports_run: { value: 3, at: iso(T0) }, account_owner: { value: "Priya Raman <priya.raman@harbour.test>", at: iso(T0) } },
+    facts: {
+      reports_run: { value: 3, at: iso(T0) },
+      account_owner: { value: "Priya Raman <priya.raman@harbour.test>", at: iso(T0) },
+      // The product quoting its own ids inside a value.
+      account_ref: { value: "user_8841 / brand_771", at: iso(T0) },
+    },
     entities: {
       brand_771: { kind: "brand", name: "Priya's Bakery", parentId: null, role: "owner", steps: {}, facts: {}, activeAt: null, firstSeenAt: iso(T0), updatedAt: iso(T0) },
     },
@@ -47,7 +52,7 @@ async function world() {
   expect(await processEnrolment(system, id, deps)).toBe("sent");
   const event = { campaignId: "", recipientKind: "product_user" as const, connectionId: CONNECTION_ID, enrolmentId: id, journeyId: journey.id, nodeId: "email_welcome", signupId: user.id, variantId: "w" };
   await recordEmailEvent(system, { ...event, type: "open", ts: iso(T0 + 20 * MIN) }, db);
-  await recordEmailEvent(system, { ...event, type: "click", ts: iso(T0 + 21 * MIN), url: "https://app.example.com/brand?invite=priya.raman@harbour.test#user_8841" }, db);
+  await recordEmailEvent(system, { ...event, type: "click", ts: iso(T0 + 21 * MIN), url: "https://app.example.com/brand/brand_771/site?invite=priya.raman@harbour.test#user_8841" }, db);
   return { db, user, journey };
 }
 
@@ -64,7 +69,7 @@ describe("loadPersonBrief", () => {
     const [j] = b.journeys;
     expect(j).toMatchObject({ journeyId: w.journey.id, name: "Onboarding", status: "active", mode: "test", stopped: null, held: null, then: "finishes" });
     // The email by its name in the journey, the click as a path alone.
-    expect(j!.sent).toEqual([{ email: "W · Welcome", on: "2026-09-21", opened: true, clicked: true, clickedPath: "app.example.com/brand", wording: null, aiLine: null, note: null }]);
+    expect(j!.sent).toEqual([{ email: "W · Welcome", on: "2026-09-21", opened: true, clicked: true, clickedPath: "app.example.com/brand/:id/site", wording: null, aiLine: null, note: null }]);
     expect(j!.ahead[0]).toMatchObject({ email: "R1 · Next step", willSend: true, hasAiLine: true });
     // Only the trait the catalog declares.
     expect(b.traits).toEqual([{ label: "Plan", value: "free" }]);
@@ -83,6 +88,7 @@ describe("loadPersonBrief", () => {
     expect(r.brief.facts).toEqual([
       { label: "reports_run", value: "3" },
       { label: "account_owner", value: "[name] [name] <[email]>" },
+      { label: "account_ref", value: "[id] / [id]" },
     ]);
   });
 
@@ -102,5 +108,16 @@ describe("identityScrubber", () => {
     expect(scrub("Billing: accounts@agency.test, owner jo.okafor")).toBe("Billing: [email], owner [name]");
     expect(scrub("OKAFOR Bakery and Okaforlind")).toBe("[name] Bakery and Okaforlind");
     expect(identityScrubber({})("nothing to hide")).toBe("nothing to hide");
+  });
+
+  it("takes out the product's ids where they are quoted, but not an id that is an ordinary word", () => {
+    const scrub = identityScrubber({ ids: ["u_8841", "main", "workspace-northlane-studio", null] });
+    expect(scrub("ref u_8841, not u_88410 or xu_8841")).toBe("ref [id], not u_88410 or xu_8841");
+    expect(scrub("their main workspace is workspace-northlane-studio")).toBe("their main workspace is [id]");
+  });
+
+  it("is safe with a name full of pattern characters", () => {
+    const scrub = identityScrubber({ name: "A.*(b)+ [x] $^", email: "(a+b)*@weird.test", ids: ["id(1)+"] });
+    expect(scrub("plain text stays plain, id(1)+ goes")).toBe("plain text stays plain, [id] goes");
   });
 });

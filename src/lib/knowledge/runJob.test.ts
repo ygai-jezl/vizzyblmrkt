@@ -85,6 +85,20 @@ describe("buildRunJobRequest", () => {
   });
 });
 
+describe("a source read as one page", () => {
+  it("caps this run at one page, through the setting the worker has always read", () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
+    vi.stubEnv("KNOWLEDGE_JOB_NAME", "knowledge-scraper");
+    const page = { ...vars, source: "docs_url" as const, sourceUri: "https://research.example.org/report" };
+    const one = buildRunJobRequest({ ...page, onePage: true });
+    expect(one.overrides.containerOverrides[0]!.env.find((e) => e.name === "KNOWLEDGE_MAX_PAGES")?.value).toBe("1");
+    // Otherwise the job keeps its own cap — nothing is sent.
+    for (const v of [page, { ...page, onePage: false }]) {
+      expect(buildRunJobRequest(v).overrides.containerOverrides[0]!.env.some((e) => e.name === "KNOWLEDGE_MAX_PAGES")).toBe(false);
+    }
+  });
+});
+
 describe("triggerIngestionJob", () => {
   it("calls the injected runner with the built request", async () => {
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");

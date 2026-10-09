@@ -6,6 +6,7 @@ import {
   CONTENT_PLAN_LIMITS,
   type BlogArticleMeta,
   type BlogBrief,
+  type BlogSource,
   type ContentNode,
   type ContentPlan,
 } from "@/lib/types/contentPlan";
@@ -16,8 +17,10 @@ import {
   formatLinks,
   formatQuestions,
   formatSources,
+  hostOf,
   isCodeHostUrl,
   normalizeUrl,
+  ownHosts,
   usableSources,
 } from "./brief";
 import { citableGaps, evaluateCitable, type CitableReport } from "./citable";
@@ -175,10 +178,31 @@ function fitBody(markdown: string): { body: string; cut: boolean } {
   return { body: (at > max * 0.5 ? head.slice(0, at) : head).trimEnd(), cut: true };
 }
 
+/**
+ * Said under the sources when some of them came from the brand's cite sources: the list
+ * then holds facts from two places, and the writer is to choose on merit alone. The
+ * brand's own research can be among them, and a reader must be able to tell that it is
+ * the brand's own finding, not an outside party's. Empty otherwise, so an article with
+ * no cite source behind it is asked for exactly as before.
+ */
+function sourcesNote(sources: BlogSource[], own: Set<string>): string {
+  if (!sources.some((s) => s.origin === "cited")) return "";
+  const ownResearch = sources.some((s) => s.origin === "cited" && own.has(hostOf(s.url)));
+  return (
+    "\n(These facts come from sources the brand has chosen and from a web search. Every one was checked against its page. " +
+    "Cite the ones that best support the point you are making — it makes no difference which of the two a fact came from — and you need not use them all." +
+    (ownResearch
+      ? " A source on the brand's own site is the brand's own research: cite it the same way, and say it is the brand's own finding, never an outside party's."
+      : "") +
+    ")"
+  );
+}
+
 function buildTask(input: BlogDraftInput, today: string): string {
   const { plan, node, brief } = input;
   const primary = brief.primaryQuestion.trim() || plan.scope.spark.trim() || plan.name;
   const entities = formatEntities(brief.entities);
+  const sources = usableSources(brief);
   return renderPrompt("content.blog_draft", {
     brand_name: input.brandName.replace(/["\n]/g, " ").slice(0, 120),
     primary_question: primary,
@@ -196,7 +220,8 @@ function buildTask(input: BlogDraftInput, today: string): string {
       : "",
     knowledge_context: input.knowledgeContext,
     proof_assets: input.proofBlock,
-    sources: formatSources(usableSources(brief)),
+    sources: formatSources(sources),
+    sources_note: sourcesNote(sources, ownHosts(brief, [plan.strategy.hubUrl])),
     links: formatLinks(brief.links),
   });
 }

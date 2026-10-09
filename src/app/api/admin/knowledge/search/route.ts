@@ -20,7 +20,9 @@ const SearchSchema = z.object({
 /**
  * Admin test-retrieval: run the same nearest-neighbour retrieval an agent would,
  * for an owner the operator owns, with an optional topic OR tag pre-filter.
- * Bypasses KNOWLEDGE_RAG_ENABLED (explicit operator test).
+ * Bypasses KNOWLEDGE_RAG_ENABLED (explicit operator test). It searches everything the
+ * knowledge base holds — cite sources on other people's sites included, which the
+ * writers themselves are never handed as the brand's own material.
  */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
@@ -46,6 +48,7 @@ export async function POST(req: Request) {
     limit,
     filter: { topic: topic || undefined, tag: tag || undefined },
     bypassEnabledFlag: true,
+    includeCited: true,
   });
   return NextResponse.json({
     context: result?.formatted ?? "",

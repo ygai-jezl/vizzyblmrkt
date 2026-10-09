@@ -34,12 +34,15 @@ export interface EnqueueIngestionInput {
   topic: string | null;
   /** Normalized custom tags. */
   tags: string[];
+  /** Read a web source as one page, with no crawl. Left out = keep what the source already
+   *  is (a re-ingest that doesn't say stays one page if it was). */
+  onePage?: boolean;
 }
 
 /**
  * Deterministic ticket id / dedupeKey. tenantId is included so ids never collide
- * across tenants. topic/tags are editable metadata and NOT part of the key (the
- * same source re-ingested with a different topic is the same source).
+ * across tenants. topic/tags/onePage are editable metadata and NOT part of the key
+ * (the same source re-ingested with a different topic is the same source).
  */
 export function ingestionDedupeKey(
   tenantId: string,
@@ -72,7 +75,7 @@ export async function activeIngestionCount(
 }
 
 export type EnqueueResult =
-  | { status: "created" | "duplicate" | "retried"; ticketId: string }
+  | { status: "created" | "duplicate" | "retried"; ticketId: string; onePage: boolean }
   | { status: "rate_limited"; ticketId: null };
 
 export async function enqueueIngestionTicket(
@@ -88,7 +91,7 @@ export async function enqueueIngestionTicket(
   if (existing) {
     // Still in-flight → idempotent no-op (do NOT re-trigger), regardless of cap.
     if (!TERMINAL_STATUSES.includes(existing.status)) {
-      return { status: "duplicate", ticketId };
+      return { status: "duplicate", ticketId, onePage: existing.onePage === true };
     }
     // Terminal → allow re-ingest: it becomes active again, so respect the cap;
     // refresh topic/tags too (they may have changed), then reset to pending.
@@ -99,6 +102,7 @@ export async function enqueueIngestionTicket(
       status: "pending",
       topic: input.topic,
       tags: input.tags,
+      ...(input.onePage !== undefined ? { onePage: input.onePage } : {}),
       lastError: null,
       claimedAt: null,
       chunksWritten: 0,
@@ -106,7 +110,7 @@ export async function enqueueIngestionTicket(
       startedAt: null,
       finishedAt: null,
     });
-    return { status: "retried", ticketId };
+    return { status: "retried", ticketId, onePage: input.onePage ?? (existing.onePage === true) };
   }
 
   if ((await activeIngestionCount(ctx, db)) >= maxActiveIngestions()) {
@@ -122,6 +126,7 @@ export async function enqueueIngestionTicket(
       includeGlobs: input.includeGlobs ?? null,
       topic: input.topic,
       tags: input.tags,
+      ...(input.onePage !== undefined ? { onePage: input.onePage } : {}),
       status: "pending",
       dedupeKey: ticketId,
       attempts: 0,
@@ -134,10 +139,10 @@ export async function enqueueIngestionTicket(
       startedAt: null,
       finishedAt: null,
     });
-    return { status: "created", ticketId };
+    return { status: "created", ticketId, onePage: input.onePage === true };
   } catch (err) {
     if (err instanceof TenantIsolationError) {
-      return { status: "duplicate", ticketId };
+      return { status: "duplicate", ticketId, onePage: input.onePage === true };
     }
     throw err;
   }

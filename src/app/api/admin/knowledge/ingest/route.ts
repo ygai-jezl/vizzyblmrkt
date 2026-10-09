@@ -6,6 +6,7 @@ import { forTenant, getTenantById, verifyOwner } from "@/lib/tenant";
 import { KnowledgeChunkSource, KnowledgeOwnerKind } from "@/lib/types/knowledgeBase";
 import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
 import { normalizeTags } from "@/lib/knowledge/tags";
+import { isCiteSourcesEnabled, isWebSource } from "@/lib/knowledge/cite";
 import { enqueueIngestionTicket } from "@/lib/knowledge/tickets";
 import { triggerIngestionJob, isIngestionJobConfigured } from "@/lib/knowledge/runJob";
 import { validateIngestUrl } from "@/lib/knowledge/url";
@@ -34,6 +35,9 @@ const IngestSchema = z.object({
   topic: z.string().min(1).nullish(),
   /** Free-form custom tags (aligned to the normalizer's caps: 20 × ≤40 chars). */
   tags: z.array(z.string().max(40)).max(20).optional(),
+  /** A web source read as ONE page, with no crawl (flag CREATE_BLOG_CITE_SOURCES_ENABLED).
+   *  Left out on a re-ingest = the source stays what it was. */
+  onePage: z.boolean().optional(),
 });
 
 /** Default a scheme-less URL to https (users paste "github.com/foo"). */
@@ -64,6 +68,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_topic" }, { status: 400 });
   }
   const tags = normalizeTags(parsed.data.tags);
+  // One page is a thing a page on the web can be, and only while cite sources are on.
+  const onePage = isCiteSourcesEnabled() && isWebSource(source) ? parsed.data.onePage : undefined;
 
   const url = validateIngestUrl(sourceUri, source);
   if (!url.ok) {
@@ -93,6 +99,7 @@ export async function POST(req: Request) {
     includeGlobs: includeGlobs ?? null,
     topic: topic ?? null,
     tags,
+    ...(onePage !== undefined ? { onePage } : {}),
   });
   if (enq.status === "rate_limited") {
     return NextResponse.json({ error: "too_many_active_ingestions" }, { status: 429 });
@@ -120,6 +127,7 @@ export async function POST(req: Request) {
       includeGlobs: includeGlobs ?? null,
       topic: topic ?? null,
       tags,
+      onePage: isCiteSourcesEnabled() && isWebSource(source) && enq.onePage,
     });
   } catch (err) {
     await forTenant(ctx)

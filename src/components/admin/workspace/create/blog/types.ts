@@ -24,4 +24,10 @@ export interface BlogHubControls {
   brandName: string;
   /** Absolute URL of the brand's primary logo, or null. */
   logoUrl: string | null;
+  /**
+   * Keep a source on the brief as one of the brand's cite sources, so every later
+   * article can draw on it (it is added to the programme's knowledge, read as one page).
+   * Left out while cite sources are off — and then nothing offers to.
+   */
+  onKeepSource?: (url: string) => Promise<"kept" | "failed">;
 }

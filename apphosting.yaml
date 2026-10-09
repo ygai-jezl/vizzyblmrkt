@@ -709,6 +709,21 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Opens and clicks for product journeys. A new product journey starts with both
+  # tracked (one that continues from another keeps that journey's setting, and a
+  # copy keeps its own). Publishing copies a journey's tracking setting onto the
+  # journey itself, so switching it on or off reaches people already part-way
+  # through, whatever version they started on. Each send keeps the subject and
+  # the AI line that went out, and names its enrolment, so a second spell in a
+  # journey people can enter again has its own opens and clicks. Journeys made
+  # before this stay as they were published until they're published again;
+  # scripts/backfill-journey-tracking.ts switches a brand's existing journeys on.
+  # Off: every enrolment tracks as its version says, as before. OFF in prod
+  # (apphosting.prod.yaml) until checked here.
+  - variable: LIFECYCLE_SEND_TRACKING
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

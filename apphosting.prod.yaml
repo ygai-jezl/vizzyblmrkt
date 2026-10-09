@@ -657,6 +657,13 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Opens and clicks for product journeys (see apphosting.yaml): OFF in prod
+  # until checked on dev. Explicit, because a flag left out of this file inherits
+  # the dev value. While off, every enrolment tracks as its version was published.
+  - variable: LIFECYCLE_SEND_TRACKING
+    value: "false"
+    availability:
+      - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
   # Google Analytics — ON in prod (owner decision, 2026-09-24): `/`, `/login` and
   # `/developers` only, with Consent Mode v2 (denied by default in the EEA, UK and

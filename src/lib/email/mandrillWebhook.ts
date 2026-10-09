@@ -103,6 +103,8 @@ export interface EventMetadata {
   /** Lifecycle sends: `product_user` + the connection (signupId = product user id). */
   recipientKind?: "signup" | "product_user";
   connectionId?: string;
+  /** Lifecycle sends that named their enrolment (LIFECYCLE_SEND_TRACKING). */
+  enrolmentId?: string;
 }
 
 export function readEventMetadata(ev: MandrillEvent): EventMetadata | null {
@@ -117,7 +119,7 @@ export function readEventMetadata(ev: MandrillEvent): EventMetadata | null {
     signupId: get("signupId"),
     variantId: get("variantId") || "control",
     ...(get("recipientKind") === "product_user"
-      ? { recipientKind: "product_user" as const, connectionId: get("connectionId") }
+      ? { recipientKind: "product_user" as const, connectionId: get("connectionId"), ...(get("enrolmentId") ? { enrolmentId: get("enrolmentId") } : {}) }
       : {}),
   };
   // A non-journey send (or a malformed payload) lacks our keys — skip it.

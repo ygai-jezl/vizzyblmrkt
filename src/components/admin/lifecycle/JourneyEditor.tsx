@@ -467,6 +467,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           emailStyleEnabled={detail.features.emailStyle}
           chain={chain}
           dateStart={dateStart}
+          liveTracking={Boolean(detail.features.sendTracking)}
           journeyStyle={
             ownStyle
               ? {

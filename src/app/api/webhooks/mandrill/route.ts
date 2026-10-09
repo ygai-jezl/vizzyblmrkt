@@ -91,6 +91,7 @@ export async function POST(req: Request) {
         variantId: meta.variantId,
         recipientKind: meta.recipientKind,
         connectionId: meta.connectionId ?? null,
+        enrolmentId: meta.enrolmentId ?? null,
         type,
         ts: ev.ts
           ? new Date(ev.ts * 1000).toISOString()

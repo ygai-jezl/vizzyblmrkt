@@ -37,6 +37,7 @@ import {
   isLifecycleJourneyLinksEnabled,
   isLifecycleOptInAfterSignupEnabled,
   lifecycleModeCeiling,
+  isLifecycleSendTrackingEnabled,
 } from "./flags";
 import { checkDatesNow, enrolOnDateByHand } from "./dateStart";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
@@ -251,6 +252,7 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       emailStyle: isEmailStyleEnabled(),
       ...(links ? { journeyLinks: true } : {}),
       ...(isLifecycleDateStartEnabled() ? { dateStart: true } : {}),
+      ...(isLifecycleSendTrackingEnabled() ? { sendTracking: true } : {}),
       ...own?.features,
     },
     ...(own ? { journeyStyle: own.journeyStyle } : {}),

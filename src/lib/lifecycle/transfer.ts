@@ -59,8 +59,9 @@ export async function exportJourneyDocument(
   if ((opts.which ?? "published") === "published" && journey.publishedVersion) {
     const version = await repo.lifecycleVersions.getById(versionDocId(journey.id, journey.publishedVersion));
     if (version) {
-      // The published design wears the journey's live style (what its sends wear), not the version's copy.
-      draft = { graph: version.graph, pools: version.pools, settings: withJourneyEmailStyle(version.settings, journey.emailStyle) };
+      // The published design wears the journey's live style and tracking (what its sends use), not the version's copy.
+      const settings = withJourneyEmailStyle(version.settings, journey.emailStyle);
+      draft = { graph: version.graph, pools: version.pools, settings: journey.tracking ? { ...settings, tracking: journey.tracking } : settings };
       sourceVersion = version.version;
     }
   }
@@ -103,7 +104,7 @@ export async function importJourneyDocument(
   const created = await createLifecycleJourney(
     ctx,
     { name: parsed.data.name ?? doc.data.name, connectionId: parsed.data.connectionId, template: "blank" },
-    { db: deps.db, nowMs: deps.nowMs, authoredBy: "human", draft: readableStyle(doc.data.draft) },
+    { db: deps.db, nowMs: deps.nowMs, authoredBy: "human", draft: readableStyle(doc.data.draft), keepTracking: true },
   );
   if (!created.ok) return created;
   return { ok: true, value: { journeyId: created.value.journey.id, issues: created.value.issues } };

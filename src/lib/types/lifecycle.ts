@@ -415,6 +415,13 @@ export const LifecycleJourneySchema = z.object({
    */
   emailStyle: StoredJourneyStyleSchema.nullable().optional(),
   /**
+   * A product journey's live tracking (LIFECYCLE_SEND_TRACKING): the draft's `settings.tracking`
+   * as last published, which every send from then on uses, whatever version an enrolment is on
+   * (like `emailStyle`) — so switching opens and clicks on reaches people already part-way
+   * through. Absent = each enrolment's own version decides, as before.
+   */
+  tracking: z.object({ opens: z.boolean(), clicks: z.boolean() }).nullable().optional(),
+  /**
    * The journey this one continues from, as last published (null = a product event starts it).
    * Publish copies it from the draft's trigger, so finding the journeys that follow one needs no
    * version reads; the published version's trigger stays the authority at hand-off.
@@ -519,6 +526,13 @@ export const SentItemSchema = z.object({
   reason: z.string().max(120).nullable().optional(),
   /** For AI-line items: whether the reviewed AI line went out, or the standard version. */
   version: z.enum(["standard", "ai", "fallback"]).optional(),
+  /**
+   * What went out (LIFECYCLE_SEND_TRACKING): the subject as the person read it, and the AI line
+   * when the reviewed one was used. The version's template and the draft don't say: tokens are
+   * filled per person, and drafts expire.
+   */
+  subject: z.string().max(200).optional(),
+  line: z.string().max(400).optional(),
 });
 export type SentItem = z.infer<typeof SentItemSchema>;
 

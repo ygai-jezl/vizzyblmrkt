@@ -169,6 +169,9 @@ export type DeliverResult =
       insightId: string | null;
       atMs: number;
       version?: "standard" | "ai" | "fallback";
+      /** What went out, kept with the send: the subject as rendered, and the AI line when it was used. */
+      subject?: string;
+      line?: string;
     }
   | { kind: "skipped"; reason: string }
   | { kind: "hold"; untilMs: number; event: string; detail?: string }
@@ -316,6 +319,8 @@ export async function runWalkLoop(run: EnrolmentRun, first: WalkResult, h: WalkL
           mode: h.mode,
           reason: r.reason,
           ...(r.version ? { version: r.version } : {}),
+          ...(r.subject ? { subject: r.subject.slice(0, 200) } : {}),
+          ...(r.line ? { line: r.line.slice(0, 400) } : {}),
         });
         if (r.insightId) usedInsightIds.push(r.insightId);
         lastSentAt = iso(r.atMs);

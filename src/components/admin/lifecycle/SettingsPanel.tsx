@@ -52,6 +52,7 @@ export function SettingsPanel({
   journeyStyle = null,
   chain = null,
   dateStart = false,
+  liveTracking = false,
 }: {
   settings: LifecycleSettings;
   catalog: ConnectionCatalog | undefined;
@@ -76,6 +77,8 @@ export function SettingsPanel({
   chain?: JourneyChain | null;
   /** "Starts when" can name a date fact and a number of days (LIFECYCLE_DATE_START). */
   dateStart?: boolean;
+  /** A product journey's tracking reaches everyone in it once published (LIFECYCLE_SEND_TRACKING). */
+  liveTracking?: boolean;
 }) {
   const p = settings.sendPolicy;
   const continuing = Boolean(chain) && startsAfterJourney(settings);
@@ -309,7 +312,14 @@ export function SettingsPanel({
         </div>
       </Section>
 
-      <Section title="Tracking" description="Off by default: open and click tracking rewrites links and adds a pixel, which can hurt deliverability for personal-style emails.">
+      <Section
+        title="Tracking"
+        description={
+          liveTracking
+            ? "Shows who opened and clicked, on each person's page and in Analytics. It adds a pixel and rewrites links, so switch it off for a plain, personal-style journey. A change reaches people already in the journey once you publish."
+            : "Off by default: open and click tracking rewrites links and adds a pixel, which can hurt deliverability for personal-style emails."
+        }
+      >
         <div className="flex gap-4 text-sm">
           <label className="flex items-center gap-2">
             <input type="checkbox" disabled={readOnly} checked={settings.tracking.opens} onChange={(e) => onChange({ ...settings, tracking: { ...settings.tracking, opens: e.target.checked } })} />

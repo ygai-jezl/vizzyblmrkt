@@ -36,6 +36,9 @@ export const IngestionTicketSchema = z.object({
   topic: z.string().nullable().default(null),
   /** Free-form custom tags (normalized). */
   tags: z.array(z.string()),
+  /** A web source read as ONE page — the address given, with no crawl of the site behind
+   *  it (a study to cite is a page, not a site). Absent or false = the usual crawl. */
+  onePage: z.boolean().optional(),
   status: IngestionStatus,
   dedupeKey: z.string(),
   attempts: z.number().int().nonnegative(),

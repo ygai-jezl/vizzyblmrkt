@@ -35,6 +35,7 @@ export {
   listKnowledgeChunks,
   listKnowledgePages,
   deleteOwnerKnowledge,
+  setKnowledgeTags,
   KNOWLEDGE_SUBCOLLECTION,
 } from "./knowledge";
 export type { KnowledgeChunkView, KnowledgePage } from "./knowledge";

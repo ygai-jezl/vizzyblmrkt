@@ -1063,8 +1063,8 @@ env:
   # it keeps out of the article. No new index, secret or worker: the tag and its vector
   # index already exist, and the worker already reads its page cap per run. The server
   # flag gates all of that; the NEXT_PUBLIC mirror shows the controls (needed at BUILD).
-  # Off: a `cite` tag is a tag like any other and research is as before. OFF in prod
-  # until verified on dev (apphosting.prod.yaml).
+  # Off: a `cite` tag is a tag like any other and research is as before. On in prod too
+  # since 2026-10-09 (apphosting.prod.yaml).
   - variable: CREATE_BLOG_CITE_SOURCES_ENABLED
     value: "true"
     availability:

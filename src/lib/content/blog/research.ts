@@ -115,6 +115,13 @@ export interface BlogResearchInput {
   plan: ContentPlan;
   /** The tenant's brand name, when it has one. The programme's name stands in otherwise. */
   brandName?: string | null;
+  /**
+   * Domains the tenant is known to own (its root domain, the origins it allow-listed, the
+   * sending domains it verified). A page on one of them is the brand's own — which is
+   * what lets an article published somewhere else (a blog on another platform) still be
+   * offered the brand's site to link to.
+   */
+  ownSites?: (string | null | undefined)[];
   /** How long the searches may take before research carries on with what it has. */
   timeoutMs?: number;
 }
@@ -448,8 +455,9 @@ async function indexedSitePages(ctx: TenantContext, workspaceId: string): Promis
 }
 
 /** The site the brand's pages live on: where the article will be published, else the
- *  site most of the crawled pages are on. */
-function siteOrigin(plan: ContentPlan, brief: BlogBrief, pages: KnownPage[]): string {
+ *  site most of the crawled pages are on — looking first among the pages on a domain the
+ *  tenant is known to own (`known`), when any are. */
+function siteOrigin(plan: ContentPlan, brief: BlogBrief, pages: KnownPage[], known: Set<string>): string {
   for (const raw of [brief.publisherUrl, plan.strategy.hubUrl]) {
     try {
       if (raw && raw.startsWith("https://")) return new URL(raw).origin;
@@ -460,7 +468,8 @@ function siteOrigin(plan: ContentPlan, brief: BlogBrief, pages: KnownPage[]): st
   // Counted a site at a time (its sub-domains together), since this decides whose pages
   // are the brand's own; the address returned is the one most of that site's pages are on.
   const bySite = new Map<string, Map<string, number>>();
-  for (const p of pages) {
+  const onKnown = pages.filter((p) => known.has(siteOf(p.url)));
+  for (const p of onKnown.length ? onKnown : pages) {
     try {
       const u = new URL(p.url);
       if (u.protocol !== "https:" || isCodeHostUrl(p.url)) continue;
@@ -783,7 +792,8 @@ export async function researchBlogBrief(
   // The brand's own sites as far as is known before the crawled pages are listed (the
   // last word comes below, once they are): a cite source on one of these is the brand's.
   const operatorLinks = current.links.filter((l) => l.by === "operator").map((l) => l.url);
-  const knownOwn = sitesOf([current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks]);
+  const tenantSites = sitesOf(input.ownSites ?? []);
+  const knownOwn = sitesOf([current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks, ...tenantSites]);
   const passages = citedPassages(shelf?.chunks ?? [], (url) => knownOwn.has(siteOf(url)));
   const timeLeft = () => deadline - clock().getTime();
   // Started now and collected after the searches: it needs none of them, and they none of it.
@@ -818,11 +828,12 @@ export async function researchBlogBrief(
   const facts = parseResearch(grounded?.text ?? "").facts;
 
   // Link targets: crawled pages as they are; repo routes only once the live site answers.
-  const origin = siteOrigin(plan, current, site.pages);
-  // The brand's own site: where the article is published, and any site a person listed
-  // a page of in the brief. A knowledge base can hold someone else's page as well (a
-  // study, a competitor's pricing) — that is theirs, and is never offered as the brand's.
-  const own = sitesOf([origin, current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks]);
+  const origin = siteOrigin(plan, current, site.pages, tenantSites);
+  // The brand's own site: where the article is published, any site a person listed a
+  // page of in the brief, and the domains the tenant is known to own. A knowledge base
+  // can hold someone else's page as well (a study, a competitor's pricing) — that is
+  // theirs, and is never offered as the brand's.
+  const own = sitesOf([origin, ...knownOwn]);
   const isOwn = (url: string) => own.has(siteOf(url));
   // Asked now, collected at the end: one small request to the article's own site.
   const crawling = citeOn

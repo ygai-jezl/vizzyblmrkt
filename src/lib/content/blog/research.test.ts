@@ -262,6 +262,29 @@ describe("blog research", () => {
       expect(r.brief.links.length).toBeGreaterThan(0);
     });
 
+    it("looks among the pages on a domain the tenant owns first, when the article has no address", async () => {
+      const unpublished = plan({
+        strategy: { objective: "brand_visibility", hubUrl: null, subscriberCount: null, sequenceType: null },
+      });
+      // Someone else's site has more pages in the knowledge base than the brand's own does.
+      const d = withSomeoneElses({
+        sitePages: async () => ({
+          pages: [
+            { url: "https://research.example.org/pricing", title: "Pricing | Example Research" },
+            { url: "https://research.example.org/buyers-2026", title: "How buyers research software" },
+            { url: "https://research.example.org/about", title: "About" },
+            { url: "https://acme.example/pricing", title: "Pricing | Acme" },
+          ],
+          repoPaths: [],
+        }),
+      });
+      const guessed = await researchBlogBrief({ ctx, workspace, plan: unpublished }, d);
+      expect(guessed.brief.publisherUrl).toBe("https://research.example.org");
+      const told = await researchBlogBrief({ ctx, workspace, plan: unpublished, ownSites: ["acme.example"] }, d);
+      expect(told.brief.publisherUrl).toBe("https://acme.example");
+      expect(told.brief.links.map((l) => l.url)).toEqual(["https://acme.example/pricing"]);
+    });
+
     it("counts a site as the brand's when a person listed a page of it", async () => {
       const mine = BlogBriefSchema.parse({
         links: [{ url: "https://research.example.org/about", label: "Our research arm", intent: "learn", by: "operator" }],

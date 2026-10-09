@@ -59,7 +59,7 @@ export const USER_FIELDS: ReadonlyArray<FieldDoc<keyof UserPatch & string>> = [
     name: "facts",
     type: "object",
     notes:
-      "Fact id → its latest value: a number, a string (≤ 200 chars) or a boolean. `null` removes one. Leave out one they don't have (a feature not set up, a score not measured) rather than sending 0. Merged key by key; at most 50.",
+      "Fact id → its latest value: a number, a string (≤ 200 chars) or a boolean. A fact your catalog marks as a date is a string: ISO 8601 with a timezone (`2026-10-08T09:12:00Z`) or a day (`2026-10-08`); one that isn't a date is left as it was and listed in `ignoredFields`. `null` removes one. Leave out one they don't have (a feature not set up, a score not measured) rather than sending 0. Merged key by key; at most 50.",
   },
   {
     name: "traits",

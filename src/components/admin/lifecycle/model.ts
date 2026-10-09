@@ -107,6 +107,10 @@ export interface JourneyDetail {
     journeyLinks?: boolean;
     /** A journey can start when a date passes (LIFECYCLE_DATE_START). */
     dateStart?: boolean;
+    /** A product journey's tracking goes live for everyone in it on publish (LIFECYCLE_SEND_TRACKING); only sent while on. */
+    sendTracking?: boolean;
+    /** Each person in a product journey opens their own page (AUDIENCE_PERSON_VIEW); only sent while on. */
+    personView?: boolean;
     /** The journey's own Email style in Settings and the preview (EMAIL_JOURNEY_STYLE_ENABLED); only sent while on. */
     journeyEmailStyle?: boolean;
     /** A journey style's gradient and header text draw (EMAIL_HEADER_OPTIONS_ENABLED); only sent with journey styles on. */

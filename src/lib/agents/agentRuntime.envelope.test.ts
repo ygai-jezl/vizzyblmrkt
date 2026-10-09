@@ -70,4 +70,14 @@ describe("contextEnvelope journey in view (journey styles)", () => {
       "campaignId",
     );
   });
+
+  it("names the person in view by our id, and clears them off their page", () => {
+    const opts = { phase4: false, personInContext: true };
+    const onPerson = parse(contextEnvelope(ctx, "t1", undefined, shellChatContext("/admin/crm/people/pu_3f9a", "Audience › Product users › Person", opts)));
+    expect(onPerson).toMatchObject({ personId: "pu_3f9a", page: "Audience › Product users › Person" });
+    expect(parse(contextEnvelope(ctx, "t2", undefined, shellChatContext("/admin/crm", "Audience", opts)))).toMatchObject({ personId: "" });
+    // Not sent at all while Vizzy can't read a person.
+    expect(parse(contextEnvelope(ctx, "t3", undefined, shellChatContext("/admin/crm/people/pu_3f9a", "Page", { phase4: false })))).not.toHaveProperty("personId");
+    expect(parse(contextEnvelope(ctx, "t4", undefined, { personId: null }))).not.toHaveProperty("personId");
+  });
 });

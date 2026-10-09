@@ -88,3 +88,14 @@ export function isLifecycleJourneyLinksEnabled(): boolean {
 export function isLifecycleDateStartEnabled(): boolean {
   return process.env.LIFECYCLE_DATE_START === "true" && process.env.CONNECT_DATE_FACTS === "true";
 }
+
+/**
+ * Server flag — opens and clicks for product journeys. A new product journey starts with both
+ * tracked; publishing copies a journey's tracking setting onto the journey itself, so it reaches
+ * people already part-way through; each send keeps the subject and AI line that went out; and
+ * engagement is recorded per entry, so a second spell in a journey people can enter again has
+ * its own opens and clicks. Off: every enrolment tracks as its version was published.
+ */
+export function isLifecycleSendTrackingEnabled(): boolean {
+  return process.env.LIFECYCLE_SEND_TRACKING === "true";
+}

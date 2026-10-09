@@ -289,6 +289,21 @@ describe("docs for features behind a switch", () => {
     expect(users()).toContain("we check everyone's stored date once a day");
   });
 
+  it("say which date Audience reads as last active only where the person view is on", () => {
+    process.env.CONNECT_DATE_FACTS = "true";
+    const users = () => pageMarkdown("users", ORIGIN)!;
+    expect(users()).not.toContain("Last active");
+    process.env.AUDIENCE_PERSON_VIEW = "true";
+    process.env.LIFECYCLE_ENABLED = "true";
+    try {
+      expect(users()).toContain("Name the date someone last used your product `last_active_at`, a date kept per person.");
+      expect(users()).toContain("shows it as their **Last active** and marks them quiet once it is 14 days old");
+    } finally {
+      delete process.env.AUDIENCE_PERSON_VIEW;
+      delete process.env.LIFECYCLE_ENABLED;
+    }
+  });
+
   it("with date facts off, describes ignored fields exactly as before", () => {
     const users = pageMarkdown("users", ORIGIN)!;
     expect(users).toContain("An invalid `email`, `firstName`, `lastName`, `timezone` or `locale` doesn't sink a write");

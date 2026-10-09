@@ -65,6 +65,17 @@ export function formatFactDate(value: unknown, locale?: string | null, timeZone?
   }
 }
 
+/** A date fact as a plain day (YYYY-MM-DD): the day that was sent, or the day it was where the person is. */
+export function factDay(value: unknown, timeZone?: string | null): string | null {
+  const ms = parseFactDate(value);
+  if (ms === null) return null;
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: isDayOnly(value) ? "UTC" : timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+  } catch {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+}
+
 type FactsPatch = Record<string, unknown>;
 interface PatchWithFacts {
   facts?: FactsPatch;

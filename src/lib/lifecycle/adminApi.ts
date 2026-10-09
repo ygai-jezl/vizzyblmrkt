@@ -37,7 +37,9 @@ import {
   isLifecycleJourneyLinksEnabled,
   isLifecycleOptInAfterSignupEnabled,
   lifecycleModeCeiling,
+  isLifecycleSendTrackingEnabled,
 } from "./flags";
+import { isPersonViewEnabled } from "@/lib/audience/flags";
 import { checkDatesNow, enrolOnDateByHand } from "./dateStart";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectAfter, architectLifecycleDraft } from "./architect";
@@ -251,6 +253,8 @@ export async function getJourneyDetail(ctx: TenantContext, id: string, db?: Fire
       emailStyle: isEmailStyleEnabled(),
       ...(links ? { journeyLinks: true } : {}),
       ...(isLifecycleDateStartEnabled() ? { dateStart: true } : {}),
+      ...(isLifecycleSendTrackingEnabled() ? { sendTracking: true } : {}),
+      ...(isPersonViewEnabled() ? { personView: true } : {}),
       ...own?.features,
     },
     ...(own ? { journeyStyle: own.journeyStyle } : {}),

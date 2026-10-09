@@ -709,6 +709,71 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Opens and clicks for product journeys. A new product journey starts with both
+  # tracked (one that continues from another keeps that journey's setting, and a
+  # copy keeps its own). Publishing copies a journey's tracking setting onto the
+  # journey itself, so switching it on or off reaches people already part-way
+  # through, whatever version they started on. Each send keeps the subject and
+  # the AI line that went out, and names its enrolment, so a second spell in a
+  # journey people can enter again has its own opens and clicks. The email's
+  # metadata then carries the tenant, the enrolment and the step alone (Mandrill
+  # drops metadata over 250 bytes, and with it every open, click and bounce); the
+  # webhook reads the journey and the person from the enrolment. Journeys made
+  # before this stay as they were published until they're published again;
+  # scripts/backfill-journey-tracking.ts switches a brand's existing journeys on.
+  # Off: every enrolment tracks as its version says, as before. OFF in prod
+  # (apphosting.prod.yaml) until checked here.
+  - variable: LIFECYCLE_SEND_TRACKING
+    value: "true"
+    availability:
+      - RUNTIME
+  # The person view. Audience › Product users becomes a list worth scanning: the
+  # stage each person is at (new, onboarding, stuck, activated, quiet), the
+  # journey they're in, emails sent, opened and clicked, search and filters. Every
+  # row opens the person's page (/admin/crm/people/{id}): each journey with what
+  # was sent, where they are and what the sender does next (the runner's own
+  # walk, on stored state), every email with what they did with it, their product
+  # progress, one timeline, consent, a data export and erase. Reads only what is
+  # already held; opening a page asks the product nothing. Needs
+  # LIFECYCLE_ENABLED. Off: today's list, and the page and its APIs 404. OFF in
+  # prod (apphosting.prod.yaml) until checked here.
+  - variable: AUDIENCE_PERSON_VIEW
+    value: "true"
+    availability:
+      - RUNTIME
+  # Vizzy can read ONE person's situation: the person whose page the operator is
+  # on. The chat names that person by our id for them (a one-way hash), and
+  # Vizzy's get_person_brief reads /api/agent/lifecycle/people/{id}: their stage,
+  # onboarding, facts, journeys and emails. Never their name, their email address
+  # or the product's ids: every string goes through
+  # src/lib/audience/identityScrubber.ts before it leaves. It is pseudonymised
+  # personal data all the same (behaviour tied to one person under our id), read
+  # for the operator who is looking at that person, and it stays in that chat's
+  # session with the agent runtime. Until now Vizzy only ever got totals, so this
+  # is a new use of personal data, and the owner's decision to switch on. Needs
+  # AUDIENCE_PERSON_VIEW and LIFECYCLE_CHAT_AUTHORING_ENABLED, and a root agent
+  # deployed with the tool. Off: the person's id never leaves the app and the
+  # route answers 503. OFF in prod (apphosting.prod.yaml).
+  - variable: LIFECYCLE_PERSON_BRIEF
+    value: "true"
+    availability:
+      - RUNTIME
+  # A plan per person. Vizzy's save_person_plan (or staff, on the person's page)
+  # saves a DRAFT: a goal, how to put it to them, the next steps, a day to look
+  # again. Only staff approve it. An approved plan is added to the prompt that
+  # writes that person's AI line (lifecycle/prepare.ts), which is still checked
+  # and still goes through Approvals, where the line says it was shaped by their
+  # plan. A plan sends nothing and changes no journey. One that holds an email
+  # address or the person's full name is refused; a first name is taken out
+  # before Vizzy or the AI line reads it, and their page says so. Vizzy drafts
+  # none for someone who can't be emailed at all, only an admin can ask it to,
+  # and plans are erased and exported with the person. Needs
+  # LIFECYCLE_PERSON_BRIEF. Off: no plan is read, shown or used. OFF in prod
+  # (apphosting.prod.yaml).
+  - variable: LIFECYCLE_PERSON_PLANS
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

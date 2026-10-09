@@ -30,7 +30,7 @@ import { NO_CATALOG, validateLifecycleDraft, type GraphIssue } from "./graph";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { buildFollowOnDraft, followOnSettings, startingAfter } from "./templates/followOn";
 import { resolveUpstream, upstreamCheck } from "./chain";
-import { isLifecycleDateStartEnabled, isLifecycleJourneyLinksEnabled } from "./flags";
+import { isLifecycleDateStartEnabled, isLifecycleJourneyLinksEnabled, isLifecycleSendTrackingEnabled } from "./flags";
 import { versionDocId } from "./enrol";
 import { isOwnOrVerifiedAddress, lifecycleSender } from "./policy";
 import { waitlistJourneyId } from "./waitlist/ids";
@@ -199,6 +199,8 @@ export async function createLifecycleJourney(
     authoredBy?: "human" | "agent";
     /** A ready-made draft (the architect's) instead of the template's. */
     draft?: LifecycleDraft;
+    /** A copy of a journey (import, Copy to) keeps the tracking it came with. */
+    keepTracking?: boolean;
   } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; issues: GraphIssue[] }>> {
   const parsed = CreateJourneyInput.safeParse(input);
@@ -231,7 +233,13 @@ export async function createLifecycleJourney(
           { ...blankDraft(), ...(from ? { settings: followOnSettings(from.id, from.draft.settings) } : {}) }
         : buildProductOnboardingDraft(connection.catalog));
   // A ready-made draft keeps its own labels; a template's trigger is named after the journey before.
-  const draft = from ? startingAfter(built, from.id, deps.draft ? undefined : from.name) : built;
+  const started = from ? startingAfter(built, from.id, deps.draft ? undefined : from.name) : built;
+  // A new product journey tracks opens and clicks (LIFECYCLE_SEND_TRACKING). One that continues
+  // from another keeps that journey's setting, and a copy keeps its own.
+  const draft: LifecycleDraft =
+    isLifecycleSendTrackingEnabled() && !from && !deps.keepTracking
+      ? { ...started, settings: { ...started.settings, tracking: { opens: true, clicks: true } } }
+      : started;
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const journey = await forTenant(ctx, deps.db).lifecycleJourneys.create(newJourneyId(), {
     name: parsed.data.name,
@@ -430,6 +438,9 @@ export async function publishLifecycleJourney(
   const number = (journey.publishedVersion ?? 0) + 1;
   // The journey style goes live on publish, and only with EMAIL_JOURNEY_STYLE_ENABLED on: then the
   // version keeps it for history and the journey carries it (null = the brand's) for every send.
+  // A product journey's tracking goes live the same way (LIFECYCLE_SEND_TRACKING), so switching
+  // opens and clicks on or off reaches people already part-way through.
+  const liveTracking = isLifecycleSendTrackingEnabled() && !waitlist;
   const journeyStyle = isEmailJourneyStyleEnabled();
   const style = journeyStyle ? (draft.data.settings.emailStyle ?? null) : null;
   let version: LifecycleVersion;
@@ -458,6 +469,7 @@ export async function publishLifecycleJourney(
     // Whether it starts when a date passes, as published: how the daily check finds its journeys.
     startsOnDate: !waitlist && startsOnDate(draft.data.settings),
     ...(journeyStyle ? { emailStyle: style } : {}),
+    ...(liveTracking ? { tracking: { opens: draft.data.settings.tracking.opens, clicks: draft.data.settings.tracking.clicks } } : {}),
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
   const published = { ...journey, ...patch };

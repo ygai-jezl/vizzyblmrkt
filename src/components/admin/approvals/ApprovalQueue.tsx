@@ -23,6 +23,10 @@ interface Draft {
   itemLabel: string;
   externalUserId: string;
   user: { email: string | null; firstName: string | null } | null;
+  /** The person's page (AUDIENCE_PERSON_VIEW); null while that's off. */
+  personHref?: string | null;
+  /** Their approved plan steered this line (LIFECYCLE_PERSON_PLANS). */
+  planned?: boolean;
   status: "awaiting_approval" | "approved" | "use_fallback" | "skipped" | "used" | "pending" | "superseded";
   requireApproval: boolean;
   sendAt: string;
@@ -220,10 +224,19 @@ function DraftCard({
             </span>
           </div>
           <div className="text-xs text-neutral-500">
-            To {draft.user?.email ?? draft.externalUserId} · sends {when(draft.sendAt)}
+            To{" "}
+            {draft.personHref ? (
+              <Link href={draft.personHref} className="hover:underline">
+                {draft.user?.email ?? draft.externalUserId}
+              </Link>
+            ) : (
+              (draft.user?.email ?? draft.externalUserId)
+            )}{" "}
+            · sends {when(draft.sendAt)}
           </div>
         </div>
         <div className="flex flex-wrap gap-1">
+          {draft.planned ? <Badge>shaped by their plan</Badge> : null}
           {draft.requireApproval ? <Badge tone="amber">backfill — won&rsquo;t send unless approved</Badge> : null}
           {draft.closed ? <Badge tone="red">closed</Badge> : <Badge>decide {when(draft.approvalDeadline)}</Badge>}
         </div>

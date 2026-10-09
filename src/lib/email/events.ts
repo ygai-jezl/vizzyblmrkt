@@ -14,6 +14,8 @@ export interface RecordEventInput {
   campaignId: string;
   recipientKind?: "signup" | "product_user";
   connectionId?: string | null;
+  /** Lifecycle sends: the enrolment the email belongs to (one set of rows per entry). */
+  enrolmentId?: string | null;
   journeyId: string;
   nodeId: string;
   signupId: string;
@@ -26,9 +28,12 @@ export interface RecordEventInput {
 
 /** Build the deterministic dedupe id (= the document id). */
 export function emailEventId(
-  input: Pick<RecordEventInput, "journeyId" | "nodeId" | "signupId" | "variantId" | "type">,
+  input: Pick<RecordEventInput, "journeyId" | "nodeId" | "signupId" | "variantId" | "type" | "enrolmentId">,
 ): string {
-  return `evt:${input.journeyId}:${input.nodeId}:${input.signupId}:${input.variantId}:${input.type}`;
+  // An email that names its enrolment keeps its own rows: the same step sent again on a later
+  // entry isn't a repeat of the first. Emails sent before that (and waitlist emails) keep the old key.
+  const entry = input.enrolmentId ? `:${input.enrolmentId}` : "";
+  return `evt:${input.journeyId}:${input.nodeId}:${input.signupId}:${input.variantId}${entry}:${input.type}`;
 }
 
 export async function recordEmailEvent(
@@ -43,6 +48,7 @@ export async function recordEmailEvent(
       campaignId: input.campaignId,
       ...(input.recipientKind ? { recipientKind: input.recipientKind } : {}),
       ...(input.connectionId ? { connectionId: input.connectionId } : {}),
+      ...(input.enrolmentId ? { enrolmentId: input.enrolmentId } : {}),
       journeyId: input.journeyId,
       nodeId: input.nodeId,
       signupId: input.signupId,

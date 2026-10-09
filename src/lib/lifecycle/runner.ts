@@ -20,6 +20,7 @@ import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressedFor } from "@/lib/email/suppression";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
+import { enrolmentSendMetadata } from "@/lib/email/mandrillWebhook";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
 import type { AiDraft } from "@/lib/types/lifecycle";
@@ -35,6 +36,7 @@ import {
   isLifecycleDateStartEnabled,
   isLifecycleGoLiveSweepEnabled,
   isLifecycleJourneyLinksEnabled,
+  isLifecycleSendTrackingEnabled,
   lifecycleModeCeiling,
 } from "./flags";
 import { continueToNextJourneys, followersOf, type Follower } from "./chain";
@@ -617,6 +619,10 @@ async function deliver(
 
   const useAi = v?.version === "ai" && aiEmail !== null;
   const email = useAi ? aiEmail!.email : standard;
+  // Opens and clicks: the journey's live setting, so a change reaches people already part-way
+  // through; a journey published before that keeps its version's.
+  const recorded = isLifecycleSendTrackingEnabled();
+  const tracking = (recorded && journey.tracking) || settings.tracking;
   const version: "standard" | "ai" | "fallback" = !isAi ? "standard" : useAi ? "ai" : "fallback";
   const fallbackNote = v?.version === "fallback" ? v.reason : null;
   const insightId = v?.version === "ai" ? v.insightId : standard.insightUsed ? (standardInsight?.id ?? null) : null;
@@ -629,22 +635,27 @@ async function deliver(
     fromEmail: sender.fromEmail,
     fromName: sender.fromName,
     replyTo: sender.replyTo,
-    track: { opens: settings.tracking.opens, clicks: settings.tracking.clicks },
+    track: { opens: tracking.opens, clicks: tracking.clicks },
     // Shadow mail isn't attributed: opens in the operator's inbox aren't the user's.
     ...(mode === "shadow"
       ? { tags: ["lifecycle-shadow"] }
       : {
           tags: ["lifecycle"],
-          metadata: {
-            tenantId: ctx.tenantId,
-            journeyId: journey.id,
-            nodeId: d.nodeId,
-            signupId: user.id,
-            variantId: item.id,
-            campaignId: "",
-            recipientKind: "product_user",
-            connectionId: connection.id,
-          },
+          // Named by its enrolment: its opens and clicks belong to this entry, not to an earlier
+          // one's same email — and the whole of it fits what the provider keeps (250 bytes; the
+          // older form is 240 for a seven-letter brand id, and is dropped whole once it's over).
+          metadata: recorded
+            ? enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id })
+            : {
+                tenantId: ctx.tenantId,
+                journeyId: journey.id,
+                nodeId: d.nodeId,
+                signupId: user.id,
+                variantId: item.id,
+                campaignId: "",
+                recipientKind: "product_user",
+                connectionId: connection.id,
+              },
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
   }).catch(
@@ -653,6 +664,15 @@ async function deliver(
   );
 
   const note = (...parts: Array<string | null | undefined>) => parts.filter(Boolean).join(" · ") || null;
+  // What went out, kept with the send: the template can't say (tokens are filled per person).
+  const wentOut = recorded
+    ? {
+        subject: email.subject,
+        ...(useAi && v?.version === "ai" && v.aiLine ? { line: v.aiLine } : {}),
+        // Shadow mail goes to the operator's inbox: its opens are never the person's.
+        tracked: mode === "shadow" ? { opens: false, clicks: false } : { opens: tracking.opens, clicks: tracking.clicks },
+      }
+    : {};
   if (result.sent || result.provider === "log") {
     if (result.sent && mode !== "shadow") {
       await recordEmailEvent(
@@ -661,6 +681,7 @@ async function deliver(
           campaignId: "",
           recipientKind: "product_user",
           connectionId: connection.id,
+          ...(recorded ? { enrolmentId: s.enrolment.id } : {}),
           journeyId: journey.id,
           nodeId: d.nodeId,
           signupId: user.id,
@@ -679,10 +700,11 @@ async function deliver(
       insightId,
       atMs,
       version,
+      ...wentOut,
     };
   }
   if (result.ambiguous) {
-    return { kind: "sent", status: "unknown", reason: note(fallbackNote, result.reason ?? "ambiguous"), insightId, atMs, version };
+    return { kind: "sent", status: "unknown", reason: note(fallbackNote, result.reason ?? "ambiguous"), insightId, atMs, version, ...wentOut };
   }
 
   // A definite failure: nothing went out, so give the day's slot back and put

@@ -16,6 +16,7 @@ import {
 import { mintCanvasContextOrNull } from "@/lib/canvas/auth";
 import { getTenantById } from "@/lib/tenant/registry";
 import { normalizeLocale } from "@/lib/i18n/locale";
+import { isPersonBriefEnabled } from "@/lib/audience/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,9 @@ const Body = z.object({
   // The content programme / plan in view (nav v2 phase 4) — for Vizzy's content tools.
   workspaceId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
   planId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
+  // The product user whose page is in view, by our id for them (LIFECYCLE_PERSON_BRIEF). An
+  // empty one tells Vizzy there's no person in view any more.
+  personId: z.string().max(128).regex(/^[A-Za-z0-9_-]*$/).nullish(),
   // The admin page in view, as its breadcrumb. Brace- and bracket-free because it
   // rides inside the `[ctx:{...}]` envelope, which the agent parses non-greedily.
   page: z.string().max(160).regex(/^[^{}[\]\\"]*$/).nullish(),
@@ -71,6 +75,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
   const { message, sessionId, mode, campaignId, connectionId, journeyId, workspaceId, planId, page } = parsed.data;
+  // Only while Vizzy may read a person: otherwise the id never leaves the app.
+  const personId = isPersonBriefEnabled() ? parsed.data.personId : undefined;
 
   if (!isAgentRuntimeConfigured()) {
     return new Response(unconfiguredStream(), { headers: SSE_HEADERS });
@@ -87,7 +93,7 @@ export async function POST(req: Request) {
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const locale = normalizeLocale(tenant?.defaultLocale) ?? "en";
   const text =
-    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, workspaceId, planId, page }) + message;
+    contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, workspaceId, planId, page, personId }) + message;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

@@ -42,6 +42,7 @@ import type {
   LifecycleCounter,
 } from "@/lib/types/lifecycle";
 import type { Invite, InviteWave } from "@/lib/types/invite";
+import type { PersonPlan } from "@/lib/types/personPlan";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -386,6 +387,8 @@ export interface TenantRepositories {
   /** Invite your waitlist (nav v2 phase 4): one invite per person per launch, and the waves that send them. */
   invites: TenantCollection<Invite>;
   inviteWaves: TenantCollection<InviteWave>;
+  /** The person view: one plan per product user, drafted by Vizzy and approved by staff. */
+  personPlans: TenantCollection<PersonPlan>;
 }
 
 /**
@@ -491,5 +494,7 @@ export function forTenant(
     // hash, no address) → regional DB, like signups.
     invites: new TenantCollection<Invite>(regionalDb, "invites", t),
     inviteWaves: new TenantCollection<InviteWave>(regionalDb, "invite_waves", t),
+    // A plan is about one end user (their situation, in staff's words) → regional DB, with the person.
+    personPlans: new TenantCollection<PersonPlan>(regionalDb, "person_plans", t),
   };
 }

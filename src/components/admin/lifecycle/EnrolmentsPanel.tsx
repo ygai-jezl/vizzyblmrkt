@@ -1,6 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { personHref } from "@/lib/audience/paths";
 import { Play, RefreshCw, Square, UserPlus } from "lucide-react";
 import type { LifecycleDraft, LifecycleJourney } from "@/lib/types/lifecycle";
 import { api, errorText, timeAgo } from "../connect/api";
@@ -21,6 +23,7 @@ export function EnrolmentsPanel({
   sandboxUserIds,
   canEdit,
   dateStart = false,
+  personView = false,
 }: {
   journey: LifecycleJourney;
   draft: LifecycleDraft;
@@ -28,6 +31,8 @@ export function EnrolmentsPanel({
   canEdit: boolean;
   /** Journeys can start when a date passes (LIFECYCLE_DATE_START): show the day's check, with "Check now". */
   dateStart?: boolean;
+  /** A product journey's people each open their own page (AUDIENCE_PERSON_VIEW). */
+  personView?: boolean;
 }) {
   const [rows, setRows] = useState<EnrolmentRow[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -118,7 +123,15 @@ export function EnrolmentsPanel({
                   <Fragment key={e.id}>
                     <tr className="cursor-pointer border-t border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900" onClick={() => setOpen(open === e.id ? null : e.id)}>
                       <td className="px-3 py-2">
-                        <div className="font-medium">{e.user?.email ?? e.externalUserId}</div>
+                        <div className="font-medium">
+                          {personView && e.user?.status === "active" ? (
+                            <Link href={personHref(e.productUserId)} onClick={(ev) => ev.stopPropagation()} className="hover:underline">
+                              {e.user.email ?? e.externalUserId}
+                            </Link>
+                          ) : (
+                            (e.user?.email ?? e.externalUserId)
+                          )}
+                        </div>
                         <div className="font-mono text-xs text-neutral-500">{e.externalUserId}</div>
                       </td>
                       <td className="px-3 py-2">

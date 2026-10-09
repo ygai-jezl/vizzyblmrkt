@@ -125,7 +125,8 @@ const MESSAGES: Record<string, string> = {
   user_deleted: "That user has been deleted.",
   not_a_sandbox: "Only a Sandbox's test users can do that.",
   // A person's plan
-  names_the_person: "A plan can't include their name or an email address. Say “they” instead.",
+  names_the_person: "A plan can't include their full name or an email address. Say “they” instead.",
+  draft_changed: "This draft changed while you were reading it. Here is the one waiting now.",
   invalid_plan: "A plan needs a goal and an angle.",
   no_draft: "There's no draft to do that with — it may have been approved or discarded already.",
   no_plan: "There's no plan in force.",

@@ -41,10 +41,13 @@ export interface PersonEmail {
 
 export interface PersonEmailCounts {
   sent: number;
+  /** Opened, as far as we can tell: an open seen, or a click (which is an open too). */
   opened: number;
   clicked: number;
-  /** How many of the sent emails could have told us about an open. */
+  /** How many of the sent emails could have told us about an open: only these can be said to be unopened. */
   tracked: number;
+  /** How many could have told us about a click. */
+  trackedClicks: number;
 }
 
 interface Entry {
@@ -70,10 +73,10 @@ export function personEmails(
   events: ReadonlyArray<Pick<EmailEvent, "journeyId" | "nodeId" | "variantId" | "type" | "ts" | "url" | "enrolmentId">>,
   values: { firstName?: string | null; productName?: string | null } = {},
 ): PersonEmail[] {
-  // Rows that name their enrolment belong to that entry; older rows only name the journey step,
-  // so the earliest send of that step takes them.
-  const byEntry = new Map<string, typeof events[number][]>();
-  const byStep = new Map<string, typeof events[number][]>();
+  type Row = (typeof events)[number];
+  // Rows that name their enrolment belong to that entry. Older rows only name the journey's step.
+  const byEntry = new Map<string, Row[]>();
+  const byStep = new Map<string, Row[]>();
   for (const ev of events) {
     const map = ev.enrolmentId ? byEntry : byStep;
     const key = ev.enrolmentId ? `${ev.enrolmentId}|${ev.nodeId}|${ev.variantId}` : `${ev.journeyId}|${ev.nodeId}|${ev.variantId}`;
@@ -85,17 +88,23 @@ export function personEmails(
   const sends = entries
     .flatMap((entry) => entry.enrolment.sentItems.map((sent) => ({ entry, sent })))
     .sort((a, b) => a.sent.at.localeCompare(b.sent.at));
+  // An older row goes to the send it followed: the last send of that step made before it, among
+  // the sends from before rows named their enrolment (those kept no `tracked`). The same step sent
+  // again on a later entry would otherwise hand its open to the first.
+  const older = new Map<(typeof sends)[number], Row[]>();
+  for (const [key, rows] of byStep) {
+    const could = sends.filter((x) => x.sent.status !== "skipped" && !x.sent.tracked && `${x.entry.journey.id}|${x.sent.nodeId}|${x.sent.itemId}` === key);
+    for (const row of rows) {
+      const owner = could.findLast((x) => x.sent.at <= row.ts) ?? could[0];
+      if (owner) older.set(owner, [...(older.get(owner) ?? []), row]);
+    }
+  }
   const out: PersonEmail[] = [];
-  for (const { entry, sent } of sends) {
+  for (const send of sends) {
+    const { entry, sent } = send;
     const { enrolment, journey, version } = entry;
     const item = version?.pools.find((p) => p.id === sent.poolId)?.items.find((i) => i.id === sent.itemId);
-    let rows: typeof events[number][] = [];
-    if (sent.status !== "skipped") {
-      const own = byEntry.get(`${enrolment.id}|${sent.nodeId}|${sent.itemId}`);
-      const stepKey = `${journey.id}|${sent.nodeId}|${sent.itemId}`;
-      rows = own ?? byStep.get(stepKey) ?? [];
-      if (!own) byStep.delete(stepKey);
-    }
+    const rows = sent.status === "skipped" ? [] : (byEntry.get(`${enrolment.id}|${sent.nodeId}|${sent.itemId}`) ?? older.get(send) ?? []);
     const first = (type: EmailEvent["type"]) => rows.filter((r) => r.type === type).sort((a, b) => a.ts.localeCompare(b.ts))[0];
     const open = first("open");
     const click = first("click");
@@ -128,13 +137,14 @@ export function personEmails(
   return out.reverse();
 }
 
-/** Sent, opened and clicked, counting an email once (a click counts as an open too). */
+/** Sent, opened and clicked, counting an email once (a click counts as an open too), and how many could have told us. */
 export function emailCounts(emails: readonly PersonEmail[]): PersonEmailCounts {
   const delivered = emails.filter((e) => e.status !== "skipped");
   return {
     sent: delivered.length,
     opened: delivered.filter((e) => e.openedAt || e.clickedAt).length,
     clicked: delivered.filter((e) => e.clickedAt).length,
-    tracked: delivered.filter((e) => e.tracked.opens || e.tracked.clicks).length,
+    tracked: delivered.filter((e) => e.tracked.opens).length,
+    trackedClicks: delivered.filter((e) => e.tracked.clicks).length,
   };
 }

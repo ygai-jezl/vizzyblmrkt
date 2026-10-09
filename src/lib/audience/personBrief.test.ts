@@ -5,7 +5,9 @@ import { eraseProductUser } from "@/lib/connect/erase";
 import { enrolUser, enrolmentDocId } from "@/lib/lifecycle/enrol";
 import { processEnrolment } from "@/lib/lifecycle/runner";
 import { CONNECTION_ID, T0, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "@/lib/lifecycle/testing/fixtures";
-import { identityScrubber, loadPersonBrief } from "./personBrief";
+import { forTenant } from "@/lib/tenant";
+import { loadPersonBrief } from "./personBrief";
+import { loadPersonRecord } from "./personRecord";
 
 const MIN = 60_000;
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -65,7 +67,7 @@ describe("loadPersonBrief", () => {
     expect(b).toMatchObject({ personId: w.user.id, product: "Sandbox", testUser: false, today: "2026-09-21", signedUp: "2026-09-21", lastActive: null });
     expect(b.stage).toMatchObject({ kind: "new", stepsDone: 0, stepsTotal: 3, nextStep: "Add your brand" });
     expect(b.canEmail).toEqual({ can: "yes", marketing: true, why: null });
-    expect(b.emails).toEqual({ sent: 1, opened: 1, clicked: 1, tracked: 1 });
+    expect(b.emails).toEqual({ sent: 1, opened: 1, clicked: 1, tracked: 1, trackedClicks: 1 });
     const [j] = b.journeys;
     expect(j).toMatchObject({ journeyId: w.journey.id, name: "Onboarding", status: "active", mode: "test", stopped: null, held: null, then: "finishes" });
     // The email by its name in the journey, the click as a path alone.
@@ -92,32 +94,25 @@ describe("loadPersonBrief", () => {
     ]);
   });
 
+  it("gives a date as a plain day, so a person called May keeps the month", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const repo = forTenant(system, db).productConnections;
+    const connection = (await repo.getById(CONNECTION_ID))!;
+    await repo.update(CONNECTION_ID, { catalog: { ...connection.catalog, facts: [{ id: "trial_ends_at", label: "Trial ends", type: "date", unit: null, description: "", source: "" }] } });
+    const user = seedUser(db, "user_52", { firstName: "May", lastName: "August", email: "may@harbour.test", emailNormalized: "may@harbour.test", facts: { trial_ends_at: { value: "2026-05-15", at: iso(T0) } } });
+    const page = await loadPersonRecord(ctx, user.id, { db, nowMs: T0 });
+    expect(page.found && page.person.facts).toMatchObject([{ label: "Trial ends", value: "15 May 2026", day: "2026-05-15" }]);
+    const r = await loadPersonBrief(ctx, user.id, { db, nowMs: T0 });
+    expect(r.found && r.brief.facts).toEqual([{ label: "Trial ends", value: "2026-05-15" }]);
+    // The stage's own wording keeps its "may"; her name, written as one, still goes.
+    expect(r.found && JSON.stringify(r.brief)).not.toMatch(/\bMay\b|August/);
+  });
+
   it("finds nobody for another brand or once they're erased", async () => {
     const w = await world();
     expect(await loadPersonBrief({ ...ctx, tenantId: "ten_other" }, w.user.id, { db: w.db })).toEqual({ found: false, erased: false });
     await eraseProductUser(ctx, CONNECTION_ID, w.user.id, w.db);
     expect(await loadPersonBrief(ctx, w.user.id, { db: w.db })).toEqual({ found: false, erased: true });
-  });
-});
-
-describe("identityScrubber", () => {
-  it("takes out each part of the name as a whole word, and anything shaped like an address", () => {
-    const scrub = identityScrubber({ name: "Jo Okafor-Lind", email: "jo.okafor@agency.test" });
-    // "Jo" is too short to tell from an ordinary word; each part of the surname goes.
-    expect(scrub("Okafor-Lind Studio, set up by Jo")).toBe("[name]-[name] Studio, set up by Jo");
-    expect(scrub("Billing: accounts@agency.test, owner jo.okafor")).toBe("Billing: [email], owner [name]");
-    expect(scrub("OKAFOR Bakery and Okaforlind")).toBe("[name] Bakery and Okaforlind");
-    expect(identityScrubber({})("nothing to hide")).toBe("nothing to hide");
-  });
-
-  it("takes out the product's ids where they are quoted, but not an id that is an ordinary word", () => {
-    const scrub = identityScrubber({ ids: ["u_8841", "main", "workspace-northlane-studio", null] });
-    expect(scrub("ref u_8841, not u_88410 or xu_8841")).toBe("ref [id], not u_88410 or xu_8841");
-    expect(scrub("their main workspace is workspace-northlane-studio")).toBe("their main workspace is [id]");
-  });
-
-  it("is safe with a name full of pattern characters", () => {
-    const scrub = identityScrubber({ name: "A.*(b)+ [x] $^", email: "(a+b)*@weird.test", ids: ["id(1)+"] });
-    expect(scrub("plain text stays plain, id(1)+ goes")).toBe("plain text stays plain, [id] goes");
   });
 });

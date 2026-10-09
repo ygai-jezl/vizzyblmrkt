@@ -671,9 +671,9 @@ env:
     availability:
       - RUNTIME
   # Vizzy reads one person's situation (see apphosting.yaml): OFF in prod. It is
-  # a new use of personal data, so switch it on only once the DPA covers it and
-  # the prod root agent has been redeployed with the tool. While off, a person's
-  # id never leaves the app.
+  # a new use of personal data (their pseudonymised situation goes to the model),
+  # so it is the owner's decision to switch on, and the prod root agent must be
+  # redeployed with the tool first. While off, a person's id never leaves the app.
   - variable: LIFECYCLE_PERSON_BRIEF
     value: "false"
     availability:

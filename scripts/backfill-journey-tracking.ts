@@ -7,8 +7,12 @@
  * in the journey is tracked without a republish (a published version is never
  * changed). Launch journeys already track; archived ones are left alone.
  *
- * DRY RUN by default. Pass --apply to write. Idempotent: a journey already tracking
- * both is left alone, so it's safe to re-run.
+ * DRY RUN by default. Pass --apply to write.
+ *
+ * Safe to re-run: it only touches a journey that has no live tracking setting yet —
+ * one made before this switch and not published since. A journey whose live setting
+ * is off was switched off on purpose (in the editor, then published) after that, so
+ * it is listed and left alone; pass --all to switch those on too.
  *
  *   GOOGLE_CLOUD_PROJECT=<your-project> npx tsx scripts/backfill-journey-tracking.ts --tenant <tenantId>
  *   GOOGLE_CLOUD_PROJECT=<your-project> npx tsx scripts/backfill-journey-tracking.ts --tenant <tenantId> --apply
@@ -28,7 +32,10 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { isWaitlistJourney } from "@/lib/types/lifecycle";
 
 const APPLY = process.argv.includes("--apply");
+const ALL = process.argv.includes("--all");
 const ON = { opens: true, clicks: true };
+/** How many journeys one read asks for: a brand with more than this is told so, not cut short in silence. */
+const PAGE = 500;
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -54,11 +61,22 @@ async function main() {
 
   const ctx: TenantContext = { tenantId: tenant.id, region: tenant.region, source: "system" };
   const repo = forTenant(ctx).lifecycleJourneys;
-  const journeys = (await repo.find({ limit: 200 })).filter((j) => !isWaitlistJourney(j) && j.status !== "archived");
+  const found = await repo.find({ limit: PAGE });
+  if (found.length >= PAGE) {
+    console.warn(`[tracking] this brand has ${PAGE} journeys or more: only the first ${PAGE} were looked at.`);
+  }
+  const journeys = found.filter((j) => !isWaitlistJourney(j) && j.status !== "archived");
   let changed = 0;
+  let left = 0;
   for (const j of journeys) {
     if (both(j.tracking) && both(j.draft.settings.tracking)) {
       console.log(`  = ${j.id} "${j.name}" (${j.status}): already tracking`);
+      continue;
+    }
+    // It has a live setting, so it was published (or its draft changed) since tracking came in: someone's choice.
+    if (j.tracking && !ALL) {
+      console.log(`  - ${j.id} "${j.name}" (${j.status}): set since (live ${shown(j.tracking)}; draft ${shown(j.draft.settings.tracking)}); left alone, --all to switch it on`);
+      left += 1;
       continue;
     }
     console.log(`  + ${j.id} "${j.name}" (${j.status}): live ${shown(j.tracking)}; draft ${shown(j.draft.settings.tracking)}`);
@@ -71,7 +89,9 @@ async function main() {
       updatedAt: now,
     }));
   }
-  console.log(`[tracking] ${journeys.length} product journeys, ${changed} ${APPLY ? "switched on" : "to switch on (run again with --apply)"}`);
+  console.log(
+    `[tracking] ${journeys.length} product journeys, ${changed} ${APPLY ? "switched on" : "to switch on (run again with --apply)"}${left ? `, ${left} left off on purpose` : ""}`,
+  );
 }
 
 main().catch((err) => {

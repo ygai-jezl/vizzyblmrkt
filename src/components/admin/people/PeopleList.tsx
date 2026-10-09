@@ -77,7 +77,7 @@ export function PeopleList() {
     };
   }, []);
 
-  // An opt-out made in one of our emails only arrives with the row's summary.
+  // The list's own answer covers everyone; a row's summary, once loaded, is the same answer read later.
   const reachOf = (p: AudiencePerson): PersonReach => {
     const s = summaries[p.id];
     return s && s !== "loading" ? s.reach : p.reach;
@@ -299,11 +299,12 @@ function EmailsCell({ summary }: { summary: PersonSummary | "loading" | null | u
   if (summary === undefined || summary === "loading") return <span className="text-neutral-400">…</span>;
   if (summary === null) return <Unknown />;
   if (summary.emails.sent === 0) return <span className="text-neutral-400">—</span>;
-  const { sent, opened, clicked, tracked } = summary.emails;
+  const { sent, opened, clicked, tracked, trackedClicks } = summary.emails;
   if (tracked === 0) {
+    // No email could tell us about an open: a dash, never a nought.
     return (
-      <span className="whitespace-nowrap tabular-nums" title="Opens and clicks weren't tracked for these emails">
-        {sent} · <span className="text-neutral-400">–</span> · <span className="text-neutral-400">–</span>
+      <span className="whitespace-nowrap tabular-nums" title={trackedClicks ? "Opens weren't tracked for these emails" : "Opens and clicks weren't tracked for these emails"}>
+        {sent} · <span className="text-neutral-400">–</span> · {trackedClicks ? clicked : <span className="text-neutral-400">–</span>}
       </span>
     );
   }

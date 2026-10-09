@@ -1,9 +1,10 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import { identityScrubber } from "./identityScrubber";
 import { loadPersonRecord, type PersonRecord } from "./personRecord";
 import { reachText, stageText } from "./personStage";
 
 /**
- * What Vizzy may know about ONE person: their situation, never who they are.
+ * What Vizzy may know about ONE person: their situation, not who they are.
  *
  * It is the person's page with the identity taken out. There is no name, no email
  * address and none of the product's own ids, here or in anything derived from
@@ -11,14 +12,16 @@ import { reachText, stageText } from "./personStage";
  * one can greet them by name), a clicked link as its path without anything that
  * looks like an id, and traits only when the product's catalog declares them.
  * Then EVERY string in the brief — a fact, a brand's name, a reason, a journey's
- * name, a plan — is scrubbed of the person's name, of anything shaped like an
- * email address and of the product's ids, so nothing relies on a field being
- * "safe". A person called May can cost a sentence its "may"; that is the right
- * way round.
+ * name, a plan — goes through `identityScrubber`, so nothing relies on a field
+ * being "safe".
  *
- * What is here is still personal data — behaviour tied to one person — so it is
- * read only for the operator who is looking at that person, through the signed
- * chat token, and never stored on our side.
+ * What is here is still personal data, pseudonymised: behaviour tied to one
+ * person under our id for them, and a brand's name can point at its owner. So it
+ * is read only for the operator who is looking at that person, through the signed
+ * chat token, and every read is logged by id. We keep no copy of a brief, but the
+ * chat it is read into does: a tool's result is part of that conversation's
+ * session, which is held by the agent's runtime (in its own region) for as long
+ * as the session lasts, and erasing the person does not reach into it.
  */
 
 export interface PersonBrief {
@@ -27,6 +30,7 @@ export interface PersonBrief {
   product: string;
   /** A Sandbox's test user: made-up data. */
   testUser: boolean;
+  /** Every day in the brief is a day on the person's own calendar (`timezone`; UTC when the product sent none). */
   today: string;
   timezone: string | null;
   signedUp: string;
@@ -39,7 +43,8 @@ export interface PersonBrief {
   has: Array<{ kind: string; name: string | null; stepsDone: number; stepsTotal: number; facts: Array<{ label: string; value: string }> }>;
   facts: Array<{ label: string; value: string }>;
   traits: Array<{ label: string; value: string }>;
-  emails: { sent: number; opened: number; clicked: number; tracked: number };
+  /** `tracked`: how many of the sent emails could show an open; `trackedClicks`: a click. Only those can be said to be unopened or unclicked. */
+  emails: { sent: number; opened: number; clicked: number; tracked: number; trackedClicks: number };
   journeys: Array<{
     journeyId: string;
     name: string;
@@ -62,9 +67,13 @@ export interface PersonBrief {
       aiLine: string | null;
       note: string | null;
     }>;
-    /** What the sender does next, on the state the product last sent: it can change when they do something. */
+    /**
+     * What the sender does next, on the state the product last sent: it can change when they do
+     * something. Empty while the entry is `held` by how things stand (nothing goes out until
+     * that changes), and when it stops at its next run.
+     */
     ahead: Array<{ email: string; on: string; willSend: boolean; why: string | null; hasAiLine: boolean }>;
-    /** What comes after the emails ahead: "finishes", or "stops: <why>". Null when it's further off than we look. */
+    /** What comes after the emails ahead: "finishes", "stops: <why>", or "stops at its next run: <why>". Null when it's further off than we look. */
     then: string | null;
   }>;
   /** AI lines for this person waiting for staff in Approvals. */
@@ -78,29 +87,18 @@ export interface PersonBrief {
 
 type PlanView = { goal: string; angle: string; next: string[]; reviewOn: string | null; writtenBy: "agent" | "human" };
 
-const date = (iso: string | null | undefined) => (iso && Number.isFinite(Date.parse(iso)) ? new Date(iso).toISOString().slice(0, 10) : null);
-
-const EMAIL_LIKE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * Takes the person out of a string: their name and the name part of their address (each part of
- * either, three letters or more, as a whole word), anything shaped like an email address, and
- * the product's own ids for them and for what they have, wherever one is quoted. A surname in a
- * brand's name goes too: better a gap than a name.
- */
-export function identityScrubber(person: { name?: string | null; email?: string | null; ids?: ReadonlyArray<string | null | undefined> }): (value: string) => string {
-  const whole = (w: string, edge: string) => new RegExp(`(?<![${edge}])${escapeRe(w)}(?![${edge}])`, "giu");
-  const longestFirst = (list: string[]) => [...new Set(list)].sort((a, b) => b.length - a.length);
-  const local = (person.email ?? "").split("@")[0] ?? "";
-  const parts = [...(person.name ?? "").split(/[\s.\-_']+/), local, ...local.split(/[._\-+]+/)].map((w) => w.trim().toLowerCase()).filter((w) => w.length >= 3);
-  // Longest first, so "jo.okafor" goes whole before "okafor" does.
-  const words = longestFirst(parts).map((w) => whole(w, "\\p{L}\\p{N}"));
-  // An id that reads as an ordinary word ("main", "default") names nobody, and would take that word out of everything.
-  const ids = longestFirst((person.ids ?? []).filter((id): id is string => !!id && (/\d/.test(id) || id.length >= 12))).map((id) => whole(id, "\\p{L}\\p{N}_"));
-  return (value) => {
-    const noIds = ids.reduce((out, re) => out.replace(re, "[id]"), value.replace(EMAIL_LIKE, "[email]"));
-    return words.reduce((out, re) => out.replace(re, "[name]"), noIds);
+/** Days as the person's own calendar has them (the timezone their product sent; UTC without one). */
+function daysIn(timeZone: string | null): (iso: string | number | null | undefined) => string | null {
+  let local: Intl.DateTimeFormat | null = null;
+  try {
+    local = timeZone ? new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }) : null;
+  } catch {
+    local = null;
+  }
+  return (iso) => {
+    const ms = typeof iso === "number" ? iso : iso ? Date.parse(iso) : NaN;
+    if (!Number.isFinite(ms)) return null;
+    return local ? local.format(new Date(ms)) : new Date(ms).toISOString().slice(0, 10);
   };
 }
 
@@ -134,13 +132,14 @@ function scrubAll<T>(value: T, scrub: (s: string) => string, key = ""): T {
 }
 
 export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
-  const scrub = identityScrubber({ name: p.name, email: p.email, ids: [p.externalUserId, ...p.entities.map((e) => e.id)] });
+  const scrub = identityScrubber({ name: p.name, email: p.email, userId: p.externalUserId, otherIds: p.entities.map((e) => e.id) });
   const reach = reachText(p.reach, p.categoryLabels);
+  const date = daysIn(p.timezone);
   const brief: PersonBrief = {
     personId: p.id,
     product: p.product,
     testUser: p.sandbox,
-    today: new Date(nowMs).toISOString().slice(0, 10),
+    today: date(nowMs) ?? "",
     timezone: p.timezone,
     signedUp: date(p.signedUpAt) ?? "",
     lastActive: date(p.lastActiveAt),
@@ -160,10 +159,11 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
       name: e.name,
       stepsDone: e.done,
       stepsTotal: e.total,
-      facts: e.facts.map((f) => ({ label: f.label, value: f.value })),
+      facts: e.facts.map(factView),
     })),
-    facts: p.facts.map((f) => ({ label: f.label, value: f.value })),
-    traits: p.traits.filter((t) => t.declared).map((t) => ({ label: t.label, value: t.value.slice(0, 80) })),
+    facts: p.facts.map(factView),
+    // Scrubbed before it's cut short: half a name is still a name.
+    traits: p.traits.filter((t) => t.declared).map((t) => ({ label: t.label, value: scrub(t.value).slice(0, 80) })),
     emails: p.emailCounts,
     journeys: p.journeys.map((j) => {
       const mine = p.emails.filter((e) => e.enrolmentId === j.enrolmentId);
@@ -189,7 +189,7 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
           note: e.note,
         })),
         ahead: ahead.map((s) => ({ email: s.label, on: date(s.at) ?? "", willSend: s.kind !== "would_skip", why: s.reason, hasAiLine: s.personalised })),
-        then: j.then ? (j.then.why ? `${j.then.kind}: ${j.then.why}` : j.then.kind) : null,
+        then: j.then ? `${j.then.kind}${j.then.atNextRun ? " at its next run" : ""}${j.then.why ? `: ${j.then.why}` : ""}` : null,
       };
     }),
     approvalsWaiting: p.approvals,
@@ -197,6 +197,9 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
   };
   return scrubAll(brief, scrub);
 }
+
+/** A date as a plain day, not in words: a person called May or August would lose the month to the scrubber. */
+const factView = (f: PersonRecord["facts"][number] | PersonRecord["entities"][number]["facts"][number]) => ({ label: f.label, value: f.day ?? f.value });
 
 function planView(plan: NonNullable<PersonRecord["plan"]>["draft" | "approved"]): PlanView | null {
   return plan ? { goal: plan.goal, angle: plan.angle, next: plan.next, reviewOn: plan.reviewOn, writtenBy: plan.by } : null;

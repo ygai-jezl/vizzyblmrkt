@@ -35,7 +35,11 @@ export async function PUT(req: Request, { params }: Params) {
   return respond(await savePlanDraft(gate.ctx, (await params).personId, await readJson(req), { by: "human" }), (plan) => ({ plan }));
 }
 
-const Action = z.object({ action: z.enum(["approve", "discard_draft", "end_plan"]) });
+const Action = z.discriminatedUnion("action", [
+  // The draft as the approver saw it (its `at`): a draft saved since isn't the one they read.
+  z.object({ action: z.literal("approve"), draftAt: z.string().min(1).max(40) }),
+  z.object({ action: z.enum(["discard_draft", "end_plan"]) }),
+]);
 
 /** Approve the draft, throw it away, or end the plan in force. Admins only: this is the human step. */
 export async function POST(req: Request, { params }: Params) {
@@ -47,7 +51,7 @@ export async function POST(req: Request, { params }: Params) {
   const { personId } = await params;
   const r =
     parsed.data.action === "approve"
-      ? await approvePlan(gate.ctx, personId)
+      ? await approvePlan(gate.ctx, personId, { draftAt: parsed.data.draftAt })
       : await dropPlan(gate.ctx, personId, parsed.data.action === "discard_draft" ? "draft" : "approved");
   return respond(r, (plan) => ({ plan }));
 }

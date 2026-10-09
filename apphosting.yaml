@@ -715,7 +715,10 @@ env:
   # journey itself, so switching it on or off reaches people already part-way
   # through, whatever version they started on. Each send keeps the subject and
   # the AI line that went out, and names its enrolment, so a second spell in a
-  # journey people can enter again has its own opens and clicks. Journeys made
+  # journey people can enter again has its own opens and clicks. The email's
+  # metadata then carries the tenant, the enrolment and the step alone (Mandrill
+  # drops metadata over 250 bytes, and with it every open, click and bounce); the
+  # webhook reads the journey and the person from the enrolment. Journeys made
   # before this stay as they were published until they're published again;
   # scripts/backfill-journey-tracking.ts switches a brand's existing journeys on.
   # Off: every enrolment tracks as its version says, as before. OFF in prod
@@ -742,13 +745,15 @@ env:
   # on. The chat names that person by our id for them (a one-way hash), and
   # Vizzy's get_person_brief reads /api/agent/lifecycle/people/{id}: their stage,
   # onboarding, facts, journeys and emails. Never their name, their email address
-  # or the product's ids, and every value a product supplied is scrubbed of the
-  # person's name and of anything shaped like an address before it leaves
-  # (src/lib/audience/personBrief.ts). Until now Vizzy only ever got totals, so
-  # this is a new use of personal data: it belongs in the DPA before it is on in
-  # prod. Needs AUDIENCE_PERSON_VIEW and LIFECYCLE_CHAT_AUTHORING_ENABLED, and a
-  # root agent deployed with the tool. Off: the person's id never leaves the app
-  # and the route answers 503. OFF in prod (apphosting.prod.yaml).
+  # or the product's ids: every string goes through
+  # src/lib/audience/identityScrubber.ts before it leaves. It is pseudonymised
+  # personal data all the same (behaviour tied to one person under our id), read
+  # for the operator who is looking at that person, and it stays in that chat's
+  # session with the agent runtime. Until now Vizzy only ever got totals, so this
+  # is a new use of personal data, and the owner's decision to switch on. Needs
+  # AUDIENCE_PERSON_VIEW and LIFECYCLE_CHAT_AUTHORING_ENABLED, and a root agent
+  # deployed with the tool. Off: the person's id never leaves the app and the
+  # route answers 503. OFF in prod (apphosting.prod.yaml).
   - variable: LIFECYCLE_PERSON_BRIEF
     value: "true"
     availability:
@@ -758,11 +763,13 @@ env:
   # again. Only staff approve it. An approved plan is added to the prompt that
   # writes that person's AI line (lifecycle/prepare.ts), which is still checked
   # and still goes through Approvals, where the line says it was shaped by their
-  # plan. A plan sends nothing and changes no journey. Its text can't name the
-  # person or hold an email address (the save refuses it), Vizzy drafts none for
-  # someone who can't be emailed at all, and plans are erased and exported with
-  # the person. Needs LIFECYCLE_PERSON_BRIEF. Off: no plan is read, shown or
-  # used. OFF in prod (apphosting.prod.yaml).
+  # plan. A plan sends nothing and changes no journey. One that holds an email
+  # address or the person's full name is refused; a first name is taken out
+  # before Vizzy or the AI line reads it, and their page says so. Vizzy drafts
+  # none for someone who can't be emailed at all, only an admin can ask it to,
+  # and plans are erased and exported with the person. Needs
+  # LIFECYCLE_PERSON_BRIEF. Off: no plan is read, shown or used. OFF in prod
+  # (apphosting.prod.yaml).
   - variable: LIFECYCLE_PERSON_PLANS
     value: "true"
     availability:

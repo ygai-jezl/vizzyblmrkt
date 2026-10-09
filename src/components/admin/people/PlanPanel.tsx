@@ -20,6 +20,16 @@ type Body = Pick<PlanBody, "goal" | "angle" | "next" | "reviewOn">;
 
 const EMPTY: Body = { goal: "", angle: "", next: [], reviewOn: null };
 
+/** Words in a plan that match their name: Vizzy and the AI line read the plan without them. */
+function Unseen({ words }: { words: string[] }) {
+  if (words.length === 0) return null;
+  return (
+    <p className="text-xs text-neutral-600 dark:text-neutral-400">
+      Vizzy and their personalised line read this without {words.map((w) => `“${w}”`).join(", ")}: {words.length === 1 ? "it matches" : "they match"} their name. Reword it if the plan needs {words.length === 1 ? "that word" : "those words"}.
+    </p>
+  );
+}
+
 function PlanBodyView({ plan }: { plan: Body }) {
   return (
     <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
@@ -83,11 +93,18 @@ export function PlanPanel({
     setError(null);
     const r = await api<{ plan: PersonPlan }>(path, init);
     setBusy(null);
-    if (!r.ok) return setError(errorText(r.data));
+    if (!r.ok) {
+      setError(errorText(r.data));
+      // Someone (or Vizzy) saved another draft since this one was shown: show that one.
+      if ((r.data as { error?: string } | null)?.error === "draft_changed") await onChanged();
+      return;
+    }
     setEditing(null);
     await onChanged();
   };
-  const act = (action: "approve" | "discard_draft" | "end_plan") => run(action, { method: "POST", body: JSON.stringify({ action }) });
+  // Approving names the draft that was read (its `at`), so a draft saved since is never approved unseen.
+  const act = (action: "approve" | "discard_draft" | "end_plan") =>
+    run(action, { method: "POST", body: JSON.stringify(action === "approve" ? { action, draftAt: plan.draft?.at } : { action }) });
   const save = () => {
     if (!editing) return;
     const next = steps
@@ -142,6 +159,7 @@ export function PlanPanel({
           </div>
           <div className="space-y-3 p-3">
             <PlanBodyView plan={draft} />
+            <Unseen words={plan.unseen.draft} />
             {canEdit ? (
               <div className="flex flex-wrap gap-2">
                 <Button tone="primary" disabled={busy !== null} onClick={() => void act("approve")}>
@@ -170,6 +188,7 @@ export function PlanPanel({
           </div>
           <div className="space-y-3 p-3">
             <PlanBodyView plan={approved} />
+            <Unseen words={plan.unseen.approved} />
             {canEdit && !draft ? (
               <div className="flex flex-wrap gap-2">
                 <Button disabled={busy !== null} onClick={() => edit(approved)}>

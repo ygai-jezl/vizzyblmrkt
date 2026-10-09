@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import type { EngagedContact } from "@/lib/types/engagedContact";
@@ -53,18 +54,20 @@ export function CrmClient({
   initialTab?: string;
 }) {
   const personView = Boolean(audience?.personView && audience.productUsers);
-  const [tab, setTabState] = useState<Tab>(() => {
-    const asked = TABS.find((t) => t === initialTab);
-    return asked && (asked !== "product" || personView) ? asked : "contacts";
-  });
+  const [picked, setPicked] = useState<Tab>("contacts");
+  // With the person view the tab lives in the address bar (?tab=), so Back from a person's page
+  // returns to the tab they were opened from. It is read from the router, not from the page's
+  // props: Back restores the page as it was first rendered, with the address as it was left.
+  const params = useSearchParams();
+  const asked = personView ? TABS.find((t) => t === (params.get("tab") ?? initialTab)) : undefined;
+  const tab: Tab = personView ? (asked ?? "contacts") : picked;
   const setTab = (next: Tab) => {
-    setTabState(next);
-    if (!personView) return;
-    // Keep the tab in the address bar, so Back from a person's page returns to it.
+    if (!personView) return setPicked(next);
     const url = new URL(window.location.href);
     if (next === "contacts") url.searchParams.delete("tab");
     else url.searchParams.set("tab", next);
-    window.history.replaceState(window.history.state, "", url);
+    // `null`, not the router's own state object: that is how the router learns the new address.
+    window.history.replaceState(null, "", url);
   };
   return (
     <div className="space-y-4">

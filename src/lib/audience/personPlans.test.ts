@@ -14,7 +14,8 @@ import { draftDocId } from "@/lib/lifecycle/drafts";
 import { CONNECTION_ID, T0, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "@/lib/lifecycle/testing/fixtures";
 import { exportPerson } from "./personExport";
 import { loadPersonBrief } from "./personBrief";
-import { approvePlan, dropPlan, getPersonPlan, personPlanDocId, savePlanDraft } from "./personPlans";
+import { personScrubber } from "./identityScrubber";
+import { approvePlan, dropPlan, getPersonPlan, personPlanDocId, planGuidance, savePlanDraft } from "./personPlans";
 import { loadPersonRecord } from "./personRecord";
 
 const MIN = 60_000;
@@ -46,10 +47,10 @@ describe("a person's plan", () => {
     const saved = await savePlanDraft(agent, user.id, PLAN, { db, nowMs: T0, by: "agent" });
     expect(saved.ok && saved.value).toMatchObject({ id: personPlanDocId(user.id), productUserId: user.id, connectionId: CONNECTION_ID, approved: null, draft: { ...PLAN, by: "agent", at: iso(T0) } });
 
-    const approved = await approvePlan(ctx, user.id, { db, nowMs: T0 + HOUR });
+    const approved = await approvePlan(ctx, user.id, { db, nowMs: T0 + HOUR, draftAt: iso(T0) });
     expect(approved.ok && approved.value).toMatchObject({ draft: null, approved: { ...PLAN, by: "agent", approvedBy: ctx.email, at: iso(T0 + HOUR) } });
     // Nothing left to approve.
-    expect(await approvePlan(ctx, user.id, { db })).toMatchObject({ ok: false, status: 409, error: "no_draft" });
+    expect(await approvePlan(ctx, user.id, { db, draftAt: iso(T0) })).toMatchObject({ ok: false, status: 409, error: "no_draft" });
 
     // A new draft waits beside the plan in force until it is approved or thrown away.
     await savePlanDraft(ctx, user.id, { ...PLAN, goal: "Run their first report" }, { db, by: "human" });
@@ -60,11 +61,22 @@ describe("a person's plan", () => {
     expect(await dropPlan(ctx, user.id, "approved", { db })).toMatchObject({ ok: false, error: "no_plan" });
   });
 
-  it("can't name the person or hold an address", async () => {
+  it("approves only the draft the approver read", async () => {
+    const { db, user } = world();
+    await savePlanDraft(ctx, user.id, PLAN, { db, nowMs: T0, by: "human" });
+    // Vizzy saves another draft while the first is still on the admin's screen.
+    await savePlanDraft(agent, user.id, { ...PLAN, goal: "Upgrade to Pro" }, { db, nowMs: T0 + MIN, by: "agent" });
+    expect(await approvePlan(ctx, user.id, { db, draftAt: iso(T0) })).toMatchObject({ ok: false, status: 409, error: "draft_changed" });
+    expect(await getPersonPlan(ctx, user.id, db)).toMatchObject({ approved: null, draft: { goal: "Upgrade to Pro", by: "agent" } });
+    // Having seen the new one, they can approve it.
+    expect((await approvePlan(ctx, user.id, { db, draftAt: iso(T0 + MIN) })).ok).toBe(true);
+  });
+
+  it("can't hold an address or their full name", async () => {
     const { db, user } = world();
     for (const bad of [
-      { ...PLAN, angle: "Priya opens everything; keep it short." },
-      { ...PLAN, goal: "Get raman to connect the site" },
+      { ...PLAN, angle: "Priya Raman opens everything; keep it short." },
+      { ...PLAN, goal: "Get raman, priya to connect the site" },
       { ...PLAN, next: ["Email priya.raman@harbour.test directly"] },
       { ...PLAN, next: ["Copy in support@fernlight.test"] },
     ]) {
@@ -76,6 +88,24 @@ describe("a person's plan", () => {
     expect(await savePlanDraft({ ...ctx, tenantId: "ten_other" }, user.id, PLAN, { db })).toMatchObject({ ok: false, status: 404 });
   });
 
+  it("keeps a first name as staff wrote it, and takes it out for Vizzy and the AI line", async () => {
+    const { db, user } = world();
+    const named = { ...PLAN, angle: "Priya opens everything; keep it short." };
+    expect((await savePlanDraft(ctx, user.id, named, { db, nowMs: T0 })).ok).toBe(true);
+    const page = await loadPersonRecord(ctx, user.id, { db });
+    // Their page shows the plan as written, and which word won't be seen.
+    expect(page.found && page.person.plan).toMatchObject({ draft: { angle: named.angle }, unseen: { draft: ["Priya"], approved: [] } });
+    const brief = await loadPersonBrief(ctx, user.id, { db });
+    expect(brief.found && brief.brief.plan?.draft?.angle).toBe("[name] opens everything; keep it short.");
+    const scrub = personScrubber(user);
+    expect(planGuidance(named, scrub)).toBe("Goal: Connect their site\nHow to put it: [name] opens everything; keep it short.");
+    // A person whose name is an everyday word can have a plan like anyone else.
+    const will = seedUser(db, "user_31", { email: "team@harbour.test", emailNormalized: "team@harbour.test", firstName: "Will", lastName: "May" });
+    const plan = { ...PLAN, angle: "We will lead with the benefit; they may want the team plan." };
+    expect((await savePlanDraft(ctx, will.id, plan, { db })).ok).toBe(true);
+    expect(planGuidance(plan, personScrubber(will))).toContain(plan.angle);
+  });
+
   it("is on their page and in Vizzy's brief, and goes when they're erased", async () => {
     const { db, user } = world();
     await savePlanDraft(agent, user.id, PLAN, { db, nowMs: T0, by: "agent" });
@@ -85,6 +115,17 @@ describe("a person's plan", () => {
     expect(brief.found && brief.brief.plan).toEqual({ inForce: null, draft: { ...PLAN, writtenBy: "agent" } });
     const exported = await exportPerson(ctx, user.id, { db });
     expect(exported.found && exported.document.plans).toHaveLength(1);
+    expect(exported.found && exported.document).toMatchObject({ complete: true });
+    expect(exported.found && "truncated" in exported.document).toBe(false);
+    // A section that comes back full says so: the file never passes for the whole of it.
+    const cut = await exportPerson(ctx, user.id, { db, limits: { plans: 1 } });
+    expect(cut.found && cut.document).toMatchObject({ complete: false, truncated: { plans: "only the first 1 are here: there may be more" } });
+    // An id that could never be one of ours is nobody, not an error.
+    expect(await exportPerson(ctx, "pu_a/b", { db })).toEqual({ found: false });
+    expect(await getPersonPlan(ctx, "pu_a/b", db)).toBeNull();
+    expect(await savePlanDraft(ctx, "pu_a/b", PLAN, { db })).toMatchObject({ ok: false, status: 404 });
+    expect(await approvePlan(ctx, "pu_a/b", { db, draftAt: iso(T0) })).toMatchObject({ ok: false, status: 409 });
+    expect(await dropPlan(ctx, "pu_a/b", "draft", { db })).toMatchObject({ ok: false, status: 409 });
 
     await eraseProductUser(ctx, CONNECTION_ID, user.id, db);
     expect(await getPersonPlan(ctx, user.id, db)).toBeNull();
@@ -116,9 +157,14 @@ describe("the person_plan canvas kind (Vizzy)", () => {
     expect(await getPersonPlan(ctx, user.id, db)).toMatchObject({ approved: null, draft: { by: "agent", reviewOn: "2026-09-28" } });
   });
 
-  it("plans nothing for someone who can't be emailed, or a plan that names them, or while it's off", async () => {
+  it("plans nothing for someone who can't be emailed, or a plan that names them, or for a member, or while it's off", async () => {
     const { db, user } = world();
-    expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { angle: "Tell Priya it takes two minutes." }), brief: "" }, { db })).toMatchObject({ ok: false, status: 422, error: "names_the_person" });
+    expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { angle: "Tell Priya Raman it takes two minutes." }), brief: "" }, { db })).toMatchObject({ ok: false, status: 422, error: "names_the_person" });
+    // Writing a plan is for admins on the person's page, so it is through Vizzy too; a token with no role is refused.
+    for (const role of ["member", undefined] as const) {
+      expect(await authorPersonPlan({ ctx: { ...agent, role }, input: input(user.id), brief: "" }, { db })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
+    }
+    expect(await getPersonPlan(ctx, user.id, db)).toBeNull();
     expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { goal: 7 }), brief: "" }, { db })).toMatchObject({ ok: false, status: 400, error: "invalid_input" });
     await suppressEmail(system, { email: user.email!, reason: "unsubscribe", source: "footer" }, db);
     expect(await authorPersonPlan({ ctx: agent, input: input(user.id), brief: "" }, { db })).toMatchObject({ ok: false, status: 409, error: "cannot_email" });
@@ -132,15 +178,15 @@ describe("the person_plan canvas kind (Vizzy)", () => {
 describe("an approved plan steers the person's AI line", () => {
   const LINE = "That's a strong start — connecting your site shows where to focus next.";
 
-  async function booked(opts: { plan: "approved" | "draft" | "none" }) {
+  async function booked(opts: { plan: "approved" | "draft" | "none"; body?: typeof PLAN }) {
     const db = new FakeFirestore();
     seedWorld(db);
     const user = seedUser(db, "alex");
     const { journey, version } = await publishOnboarding(db, { testUserIds: ["alex"] });
     await enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0) }, { db, nowMs: T0 });
     const id = enrolmentDocId(journey.id, user.id);
-    if (opts.plan !== "none") await savePlanDraft(agent, user.id, PLAN, { db, nowMs: T0, by: "agent" });
-    if (opts.plan === "approved") await approvePlan(ctx, user.id, { db, nowMs: T0 + MIN });
+    if (opts.plan !== "none") await savePlanDraft(agent, user.id, opts.body ?? PLAN, { db, nowMs: T0, by: "agent" });
+    if (opts.plan === "approved") await approvePlan(ctx, user.id, { db, nowMs: T0 + MIN, draftAt: iso(T0) });
     let now = T0;
     const prompts: string[] = [];
     const deps = {
@@ -172,6 +218,14 @@ describe("an approved plan steers the person's AI line", () => {
     // Staff reviewing the line see what shaped it, and can open the person.
     const queue = (await listApprovals(ctx, { view: "waiting" }, w.db, w.now)).body as { drafts: ApprovalView[] };
     expect(queue.drafts[0]).toMatchObject({ planned: true, personHref: `/admin/crm/people/${w.user.id}` });
+  });
+
+  it("reads the plan without their name, even when staff wrote it in", async () => {
+    // The fixture's person is Alex (and the product's id for them is "alex").
+    const w = await booked({ plan: "approved", body: { ...PLAN, angle: "Alex likes it short: one link, no preamble." } });
+    const plan = /<plan>[\s\S]*?<\/plan>/.exec(w.prompts[0]!)?.[0] ?? "";
+    expect(plan).toContain("likes it short: one link, no preamble.");
+    expect(plan).not.toMatch(/alex/i);
   });
 
   it("uses only a plan staff approved, and none while plans are off", async () => {

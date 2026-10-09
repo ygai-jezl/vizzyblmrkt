@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { recordEmailEvent } from "@/lib/email/events";
-import { suppressEmailCategory } from "@/lib/email/suppression";
+import { suppressEmail, suppressEmailCategory } from "@/lib/email/suppression";
 import { eraseProductUser } from "@/lib/connect/erase";
 import { enrolUser, enrolmentDocId } from "@/lib/lifecycle/enrol";
 import { processEnrolment } from "@/lib/lifecycle/runner";
@@ -76,7 +76,8 @@ describe("loadPersonRecord", () => {
       clickedAt: null,
       tracked: { opens: true, clicks: true },
     });
-    expect(p.emailCounts).toEqual({ sent: 1, opened: 1, clicked: 0, tracked: 1 });
+    expect(p.emailCounts).toEqual({ sent: 1, opened: 1, clicked: 0, tracked: 1, trackedClicks: 1 });
+    expect(p.storyCut).toBe(false);
     // Already in the only journey, so there's nothing to add them to.
     expect(p.canJoin).toEqual([]);
     expect(p.timeline.map((m) => m.text)).toEqual(['Opened "Welcome to Sandbox, Alex"', 'Sent "Welcome to Sandbox, Alex"', "Entered Onboarding", "Signed up"]);
@@ -118,11 +119,106 @@ describe("loadPersonRecord", () => {
     expect(stopped.timeline.map((m) => m.text)).toContain("Left Onboarding");
   });
 
+  describe("what the sender will do next is what it then does", () => {
+    const journeys = (w: Awaited<ReturnType<typeof world>>) => forTenant(system, w.db).lifecycleJourneys;
+    const users = (w: Awaited<ReturnType<typeof world>>) => forTenant(system, w.db).productUsers;
+    /** The page before the next run, then that run, then the enrolment after it. */
+    async function next(w: Awaited<ReturnType<typeof world>>) {
+      const due = Date.parse((await w.enrolment()).nextRunAt!);
+      const [before] = (await w.person(T0 + 30 * MIN)).journeys;
+      const outcome = await w.run(due);
+      return { before: before!, outcome, after: await w.enrolment(), due };
+    }
+    const ahead = (j: { steps: Array<{ kind: string }> }) => j.steps.filter((s) => s.kind === "next" || s.kind === "later" || s.kind === "would_skip");
+
+    it.each([
+      ["the journey is archived", (w) => journeys(w).update(w.journey.id, { status: "archived" }), "journey_archived", "the journey was archived"],
+      ["they opt out in the product", (w) => users(w).update(w.user.id, { subscribed: false }), "unsubscribed_in_product", "they opted out in your product"],
+      ["the product excludes them", (w) => users(w).update(w.user.id, { excluded: { reason: "internal account", at: iso(T0) } }), "excluded: internal account", "excluded by your product: internal account"],
+      ["their address bounces", (w) => suppressEmail(system, { email: w.user.email!, reason: "hard_bounce", source: "mandrill-hard_bounce" }, w.db), "unsubscribed", "they unsubscribed from these emails"],
+      ["the connection is revoked", (w) => forTenant(system, w.db).productConnections.update(CONNECTION_ID, { status: "revoked" }), "connection_revoked", "the product's connection was revoked"],
+    ] as Array<[string, (w: Awaited<ReturnType<typeof world>>) => Promise<unknown>, string, string]>)("stops, promising no email, once %s", async (_name, change, reason, why) => {
+      const w = await world();
+      await change(w);
+      const r = await next(w);
+      expect(r.before.then).toEqual({ kind: "stops", why, atNextRun: true });
+      expect(ahead(r.before)).toEqual([]);
+      expect(r.outcome).toBe("exited");
+      expect(r.after.stopReason).toBe(reason);
+    });
+
+    it("is held, promising no email, while the journey is paused, and says nothing stale once it resumes", async () => {
+      const w = await world();
+      await journeys(w).update(w.journey.id, { status: "paused" });
+      const paused = await next(w);
+      expect(paused.before).toMatchObject({ waiting: { why: "The journey is paused" }, then: null });
+      expect(ahead(paused.before)).toEqual([]);
+      expect(paused.outcome).toBe("held");
+      // Resumed: the hold's log line is still the last one, and it's no longer true.
+      await journeys(w).update(w.journey.id, { status: "active" });
+      const [resumed] = (await w.person(paused.due + MIN)).journeys;
+      expect(resumed!.waiting).toEqual({ until: paused.after.nextRunAt, why: null });
+      expect(ahead(resumed!)[0]).toMatchObject({ kind: "next", itemId: "r1" });
+    });
+
+    it("is held while they have no address, or aren't a test recipient of a journey in test mode", async () => {
+      const w = await world();
+      await users(w).update(w.user.id, { email: null, emailNormalized: null });
+      expect((await w.person(T0 + 30 * MIN)).journeys[0]).toMatchObject({ waiting: { why: "They have no email address" }, then: null });
+      const blocked = await world();
+      await journeys(blocked).update(blocked.journey.id, { testRecipients: { userIds: [], emails: [] } });
+      const r = await next(blocked);
+      expect(r.before.waiting?.why).toBe("The journey is in test mode and they aren't a test recipient");
+      expect(ahead(r.before)).toEqual([]);
+      expect(r.outcome).toBe("held");
+      expect(r.after.log.at(-1)?.event).toBe("mode_blocked");
+    });
+
+    it("shows what a run held it for only while that run is the last thing that happened", async () => {
+      const w = await world();
+      const repo = forTenant(system, w.db).lifecycleEnrolments;
+      const e = await w.enrolment();
+      const at = iso(T0 + 20 * MIN);
+      await repo.update(w.id, { log: [...e.log, { at, event: "frequency_cap", detail: null }], updatedAt: at });
+      expect((await w.person(T0 + 30 * MIN)).journeys[0]!.waiting?.why).toBe("They had another email in the last 20 hours");
+      // A later run that only booked a wait writes no log line: the hold is over.
+      await repo.update(w.id, { updatedAt: iso(T0 + 3 * 3600_000) });
+      expect((await w.person(T0 + 4 * 3600_000)).journeys[0]!.waiting?.why).toBeNull();
+    });
+
+    it("runs by hand only while its emails go out in test or shadow mode", async () => {
+      const w = await world();
+      const repo = forTenant(system, w.db).lifecycleEnrolments;
+      await repo.update(w.id, { mode: "live" });
+      // The entry says live, the journey is still in test: test is how its emails go out.
+      expect((await w.person(T0 + 30 * MIN)).journeys[0]).toMatchObject({ mode: "test", canRunNow: true });
+      await journeys(w).update(w.journey.id, { deliveryMode: "live" });
+      expect((await w.person(T0 + 30 * MIN)).journeys[0]).toMatchObject({ mode: "live", canRunNow: false });
+    });
+  });
+
+  it("names a journey the product's own list doesn't reach, and says when their story is longer than the page", async () => {
+    const w = await world();
+    // The journey sits with another connection now: it is still found by its id, not shown as deleted.
+    await forTenant(system, w.db).lifecycleJourneys.update(w.journey.id, { connectionId: "pcn_elsewhere" });
+    const [row] = await loadPersonSummaries(ctx, [w.user.id], { db: w.db, nowMs: T0 + 30 * MIN });
+    expect(row!.journey?.name).toBe("Onboarding");
+    expect((await w.person(T0 + 30 * MIN)).journeys[0]!.name).toBe("Onboarding");
+
+    for (let i = 0; i < 500; i += 1) {
+      w.db.seed("product_events", `pe_${i}`, { tenantId: system.tenantId, connectionId: CONNECTION_ID, productUserId: w.user.id, externalUserId: "alex", messageId: `m_${i}`, type: "track", event: "report.created", payload: {}, timestamp: iso(T0 + i * MIN), receivedAt: iso(T0 + i * MIN), applied: true });
+    }
+    expect((await w.person(T0 + 30 * MIN)).storyCut).toBe(true);
+  });
+
   it("finds nobody in another brand, and only when they were erased once they're gone", async () => {
     const w = await world();
     const other: TenantContext = { ...ctx, tenantId: "ten_other" };
     expect(await loadPersonRecord(other, w.user.id, { db: w.db })).toEqual({ found: false });
     expect(await loadPersonRecord(ctx, "pu_nobody", { db: w.db })).toEqual({ found: false });
+    // An id that could never be one of ours is nobody, not an error.
+    expect(await loadPersonRecord(ctx, "pu_a/b", { db: w.db })).toEqual({ found: false });
+    expect(await loadPersonSummaries(ctx, ["pu_a/b", ""], { db: w.db })).toEqual([]);
     await eraseProductUser(ctx, CONNECTION_ID, w.user.id, w.db, T0 + 86_400_000);
     expect(await loadPersonRecord(ctx, w.user.id, { db: w.db })).toEqual({ found: false, erasedAt: iso(T0 + 86_400_000) });
   });

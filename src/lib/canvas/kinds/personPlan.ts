@@ -14,8 +14,8 @@ import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types
  * on the person's page, and only then does it steer that person's AI line.
  *
  * The person is named by our id for them and found only in the token's tenant.
- * The plan's text can't name them (the save refuses it), and a person who can't
- * be emailed at all gets no plan from Vizzy.
+ * A plan that holds an email address or their full name is refused, and a person
+ * who can't be emailed at all gets no plan from Vizzy.
  */
 
 const PersonPlanInput = z.object({
@@ -34,6 +34,8 @@ export async function authorPersonPlan(
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isPersonPlansEnabled()) return { ok: false, status: 503, error: "person_plans_unavailable" };
+  // Writing a plan is admin-only on the person's page, so drafting one through Vizzy is too. A token without a role fails closed.
+  if (ctx.role !== "admin") return { ok: false, status: 403, error: "forbidden" };
   const req = PersonPlanInput.safeParse(input);
   if (!req.success) {
     return { ok: false, status: 400, error: "invalid_input", issues: req.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };

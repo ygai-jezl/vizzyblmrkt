@@ -259,6 +259,7 @@ def test_a_plan_that_cannot_be_saved_says_why(monkeypatch):
     state = {**STATE, "personId": "pu_3f9a"}
     for status, body, words in (
         (422, {"error": "names_the_person"}, 'say "they"'),
+        (403, {"error": "forbidden"}, "Only an admin"),
         (409, {"error": "cannot_email"}, "can't be emailed"),
         (503, {"error": "person_plans_unavailable"}, "aren't switched on"),
         (404, {"error": "person_not_found"}, "couldn't find that person"),

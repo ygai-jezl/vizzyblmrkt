@@ -162,7 +162,7 @@ export function JourneyCard({
 
       {j.then || hasAhead ? (
         <p className="text-xs text-neutral-500">
-          {j.then ? (j.then.kind === "finishes" ? "Then the journey finishes. " : `Then it stops${j.then.why ? `: ${j.then.why}` : ""}. `) : null}
+          {j.then ? (j.then.kind === "finishes" ? "Then the journey finishes. " : `${j.then.atNextRun ? "It stops the next time the sender looks" : "Then it stops"}${j.then.why ? `: ${j.then.why}` : ""}. `) : null}
           {hasAhead ? "What's ahead follows what your product last told us, so it can change as they do things." : null}
         </p>
       ) : null}

@@ -41,9 +41,11 @@ const basisText = (basis: string) => BASIS[basis] ?? basis.replace(/_/g, " ");
 /** Where they stand, in a couple of sentences. */
 function summaryOf(p: PersonRecord): string {
   const parts: string[] = [];
-  const { sent, opened, clicked, tracked } = p.emailCounts;
+  const { sent, opened, clicked, tracked, trackedClicks } = p.emailCounts;
   if (sent === 0) parts.push("No emails sent yet.");
-  else if (tracked === 0) parts.push(`${plural(sent, "email")} sent. Opens and clicks weren't tracked.`);
+  else if (tracked === 0 && trackedClicks === 0) parts.push(`${plural(sent, "email")} sent. Opens and clicks weren't tracked.`);
+  // Clicks alone were tracked: an unclicked email may still have been read.
+  else if (tracked === 0) parts.push(`${plural(sent, "email")} sent. Opens weren't tracked; ${clicked} of ${trackedClicks} clicked.`);
   else if (tracked < sent) parts.push(`${plural(sent, "email")} sent. Of the ${tracked} we could track, ${opened} opened and ${clicked} clicked.`);
   else if (sent > 1 && opened === sent && clicked === 0) parts.push("Opens every email and hasn't clicked one.");
   else if (sent > 1 && opened === 0) parts.push(`Hasn't opened any of ${sent} emails.`);
@@ -56,7 +58,11 @@ function summaryOf(p: PersonRecord): string {
   if (s.quietDays !== null) parts.push(`Not active for ${plural(s.quietDays, "day")}.`);
 
   const next = p.journeys.flatMap((j) => (j.status === "active" ? j.steps.filter((x) => x.kind === "next").map((x) => ({ ...x, journey: j.name })) : [])).sort((a, b) => a.at.localeCompare(b.at))[0];
+  // Nothing is promised while a journey is held or about to stop: say that instead.
+  const stuck = p.journeys.find((j) => j.status === "active" && (j.waiting?.why || j.then?.atNextRun));
   if (next) parts.push(`Next email: ${next.label}, ${day(next.at, p.timezone)}.`);
+  else if (stuck?.then?.atNextRun) parts.push(`${stuck.name} stops the next time the sender looks${stuck.then.why ? `: ${stuck.then.why}` : ""}.`);
+  else if (stuck?.waiting?.why) parts.push(`${stuck.name} is held: ${stuck.waiting.why.charAt(0).toLowerCase()}${stuck.waiting.why.slice(1)}.`);
   const reach = reachText(p.reach, p.categoryLabels);
   if (reach.why) parts.push(`${reach.why}.`);
   return parts.join(" ");
@@ -355,6 +361,7 @@ export function PersonView({
 
       <Section title="Their story" description={p.timeline.length ? undefined : "Nothing yet."}>
         {p.timeline.length ? <Story moments={p.timeline} /> : null}
+        {p.storyCut ? <p className="text-xs text-neutral-500">There is more than fits here: this isn&rsquo;t everything they have done in your product.</p> : null}
       </Section>
 
       <Section title="Consent and opt-outs">

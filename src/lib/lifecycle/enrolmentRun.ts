@@ -15,7 +15,8 @@ import { nextNodeId } from "./graph";
  */
 
 export const DAY_MS = 86_400_000;
-const LEASE_MS = 3 * 60_000;
+/** How long one run may hold an enrolment. */
+export const LEASE_MS = 3 * 60_000;
 export const MAX_FAILURES = 8;
 const MAX_LOG = 40;
 

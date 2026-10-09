@@ -2,6 +2,7 @@ import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import { onboardingSummary, type OnboardingSummary } from "@/lib/connect/onboardingSummary";
+import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductUser } from "@/lib/types/productUser";
 import { lastActiveAt, personReach, personStage, type PersonReach, type PersonStage } from "./personStage";
 
@@ -21,7 +22,7 @@ export interface AudiencePerson {
   product: string;
   onboarding: OnboardingSummary;
   stage: PersonStage;
-  /** From their profile alone; an opt-out made in one of our emails arrives with the row's summary. */
+  /** Whether they can be emailed: their profile, and any bounce, complaint or unsubscribe in our emails. */
   reach: PersonReach;
   signedUpAt: string;
   /** The last time the product sent us anything about them. */
@@ -51,13 +52,19 @@ export async function loadAudiencePeople(
     ),
   );
   const users = perConnection.flat().filter((u) => u.status === "active");
-  // Which of them are also signups: contacts are keyed by the same normalised email.
+  // By address, 30 at a time (`in`, no index needed): which of them are also signups (contacts are
+  // keyed by the same normalised email), and who bounced, complained or unsubscribed in our emails —
+  // so "Can't email" counts everyone in the list, not only the rows whose summary has loaded.
   const keys = [...new Set(users.map((u) => u.emailNormalized).filter((k): k is string => !!k))];
-  const waitlist = new Set<string>();
-  for (let i = 0; i < keys.length; i += 30) {
-    const found = await repos.contacts.find({ where: [["contactKey", "in", keys.slice(i, i + 30)]] }).catch(() => []);
-    for (const c of found) if (c.status !== "deleted") waitlist.add(c.contactKey);
-  }
+  const chunks: string[][] = [];
+  for (let i = 0; i < keys.length; i += 30) chunks.push(keys.slice(i, i + 30));
+  const [contacts, suppressions] = await Promise.all([
+    Promise.all(chunks.map((chunk) => repos.contacts.find({ where: [["contactKey", "in", chunk]] }).catch(() => []))),
+    Promise.all(chunks.map((chunk) => repos.emailSuppressions.find({ where: [["normalizedEmail", "in", chunk]], limit: 2000 }))),
+  ]);
+  const waitlist = new Set(contacts.flat().filter((c) => c.status !== "deleted").map((c) => c.contactKey));
+  const optOuts = new Map<string, EmailSuppression[]>();
+  for (const o of suppressions.flat()) optOuts.set(o.normalizedEmail, [...(optOuts.get(o.normalizedEmail) ?? []), o]);
   const byId = new Map(connections.map((c) => [c.id, c]));
   const people = users
     .map((u): AudiencePerson => {
@@ -71,7 +78,7 @@ export async function loadAudiencePeople(
         product: `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}`,
         onboarding: onboardingSummary(u, { onboardingSteps: c.catalog?.onboardingSteps ?? [], entityKinds: c.catalog?.entityKinds ?? [] }),
         stage: personStage(u, c.catalog, nowMs),
-        reach: personReach(u, c.consentPolicy, []),
+        reach: personReach(u, c.consentPolicy, (u.emailNormalized && optOuts.get(u.emailNormalized)) || []),
         signedUpAt: u.signedUpAt ?? u.firstSeenAt,
         lastSyncAt: u.lastSeenAt,
         lastActiveAt: lastActiveAt(u, c.catalog),

@@ -371,6 +371,7 @@ def get_repo_analysis(state: "dict | None", connection_id: str) -> dict:
 _PLAN_ERRORS = {
     "person_plans_unavailable": "Plans for one person aren't switched on in this environment.",
     "names_the_person": "A plan can't name the person or include an email address — say \"they\" and try again.",
+    "forbidden": "Only an admin on the team can ask for a plan for a person.",
     "cannot_email": "This person can't be emailed at all, so there's nothing to plan for them.",
     "person_not_found": "I couldn't find that person in this account (they may have been erased).",
     "invalid_plan": "A plan needs a goal and an angle",

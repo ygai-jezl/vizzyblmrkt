@@ -847,15 +847,16 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # Cite sources (see apphosting.yaml): OFF in prod until verified on dev, then flipped
-  # with a chore(prod) change. Both must be set here: this file only overrides
-  # apphosting.yaml, so a flag left out would be on.
+  # Cite sources (see apphosting.yaml): on in prod since 2026-10-09 (owner decision, with
+  # the dev build checked but before a click-through in the app). To switch it off, set
+  # BOTH to "false" here: this file only overrides apphosting.yaml, so a flag left out
+  # would be on.
   - variable: CREATE_BLOG_CITE_SOURCES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BLOG_CITE_SOURCES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

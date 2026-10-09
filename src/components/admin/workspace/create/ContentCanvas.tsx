@@ -19,6 +19,7 @@ import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type { BlogBrief, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
+import { CITE_TAG, isCiteSourcesUiEnabled } from "@/lib/knowledge/cite";
 import { EMPTY_BLOG_BRIEF } from "@/lib/content/blog/brief";
 import {
   HubNode,
@@ -429,7 +430,14 @@ export function ContentCanvas({
       const data = (await res.json().catch(() => ({}))) as {
         brief?: BlogBrief;
         searched?: boolean;
-        found?: { questions: number; links: number; facts: number; sources: number; verifiedSources: number };
+        found?: {
+          questions: number;
+          links: number;
+          facts: number;
+          sources: number;
+          verifiedSources: number;
+          citedSources?: number;
+        };
       };
       if (res.ok && data.brief) {
         setBlogBrief(data.brief);
@@ -437,7 +445,11 @@ export function ContentCanvas({
         setBlogNote(
           !f
             ? "Research done."
-            : `Found ${f.questions} questions, ${f.links} pages to link to and ${f.sources} sources (${f.verifiedSources} checked on the page).` +
+            : `Found ${f.questions} questions, ${f.links} pages to link to and ${f.sources} sources ` +
+                // Both places research looked, when the brand's cite sources gave any.
+                (f.citedSources
+                  ? `— ${f.citedSources} from your cite sources and ${f.sources - f.citedSources} from the web (${f.verifiedSources} checked).`
+                  : `(${f.verifiedSources} checked on the page).`) +
                 (data.searched === false ? " Search wasn't available, so the questions are yours alone." : "") +
                 (f.facts > 0 && f.sources === 0
                   ? " Search found facts but not the pages behind them this time — research again for sources."
@@ -456,6 +468,28 @@ export function ContentCanvas({
       setBlogNote("Research didn't finish. You can still write the article, or try again.", "research");
     } finally {
       setBlogBusy(null);
+    }
+  }
+
+  /** Keep a source from the brief as one of the programme's cite sources: it is added to
+   *  the knowledge base, read as one page, and every later article can draw on it. */
+  async function keepSource(url: string): Promise<"kept" | "failed"> {
+    try {
+      const res = await fetch("/api/admin/knowledge/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerKind: "workspace",
+          ownerId: workspaceId,
+          source: "docs_url",
+          sourceUri: url,
+          tags: [CITE_TAG],
+          onePage: true,
+        }),
+      });
+      return res.ok ? "kept" : "failed";
+    } catch {
+      return "failed";
     }
   }
 
@@ -725,6 +759,7 @@ export function ContentCanvas({
           pageUrl: initial.strategy.hubUrl ?? null,
           brandName: brandName ?? "",
           logoUrl: primaryLogoUrl ?? null,
+          ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
         }
       : undefined;
   const total = nodes.length;

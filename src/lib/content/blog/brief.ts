@@ -2,6 +2,7 @@ import {
   BlogBriefSchema,
   CONTENT_PLAN_LIMITS,
   type BlogBrief,
+  type BlogCrawlerCheck,
   type BlogEntity,
   type BlogLink,
   type BlogQuestion,
@@ -117,6 +118,9 @@ export interface BlogResearchFindings {
   entities: BlogEntity[];
   publisherName: string;
   publisherUrl: string;
+  /** What robots.txt says to the AI crawlers: null = it could not be read this time (so
+   *  an older answer is not left standing); left out = not looked at, the brief keeps its own. */
+  crawlers?: BlogCrawlerCheck | null;
 }
 
 /**
@@ -150,6 +154,7 @@ export function mergeResearch(current: BlogBrief, found: BlogResearchFindings, r
     publisherName: current.publisherName.trim() || found.publisherName.trim().slice(0, 120),
     publisherUrl: current.publisherUrl || found.publisherUrl,
     researchedAt,
+    ...(found.crawlers !== undefined ? { crawlers: found.crawlers } : {}),
   });
 }
 

@@ -30,6 +30,8 @@ export interface IngestionJobVars {
   includeGlobs?: string[] | null;
   topic: string | null;
   tags: string[];
+  /** Read the address given and nothing else — no crawl of the site behind it. */
+  onePage?: boolean;
 }
 
 export function isIngestionJobConfigured(): boolean {
@@ -68,6 +70,9 @@ export function buildRunJobRequest(vars: IngestionJobVars): {
   if (vars.tags && vars.tags.length > 0) {
     env.push({ name: "TAGS", value: JSON.stringify(vars.tags) });
   }
+  // The worker's page cap, for this run only. It has read KNOWLEDGE_MAX_PAGES since it
+  // was first built, so a one-page source needs no new worker.
+  if (vars.onePage) env.push({ name: "KNOWLEDGE_MAX_PAGES", value: "1" });
   return {
     name: ingestionJobResourceName(),
     overrides: { containerOverrides: [{ env }] },

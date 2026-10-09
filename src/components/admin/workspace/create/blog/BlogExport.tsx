@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { BlogArticleMeta, BlogBrief } from "@/lib/types/contentPlan";
+import type { BlogArticleMeta, BlogBrief, BlogCrawlerCheck } from "@/lib/types/contentPlan";
+import { hostOf } from "@/lib/content/blog/brief";
+import { crawlerLabel } from "@/lib/content/blog/crawlers";
 import { renderArticleHtml } from "@/lib/content/blog/markdown";
 import { schemaScriptTag, suggestBlogSchema } from "@/lib/content/blog/schema";
 
@@ -27,6 +29,41 @@ const BUTTON =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
 
 type CopyKind = "markdown" | "html" | "schema";
+
+/** "7 Oct 2026" */
+function day(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * Whether the AI answer engines' crawlers may read the article, as the site's robots.txt
+ * had it when research last ran. Part of the hand-over because only whoever runs the site
+ * can change it — and a page a crawler is kept out of cannot be cited at all.
+ */
+function CrawlerNote({ check }: { check: BlogCrawlerCheck }) {
+  const site = hostOf(check.site) || check.site;
+  const where = check.path && check.path !== "/" ? "this article" : "the site";
+  const checked = day(check.checkedAt);
+  const when = checked ? ` Checked ${checked}; research again to re-check.` : "";
+  if (check.blocked.length) {
+    return (
+      <p role="status" className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+        <span className="font-medium">AI crawlers kept out.</span> robots.txt on {site} keeps{" "}
+        {check.blocked.map(crawlerLabel).join(", ")} away from {where}. An answer engine that can&apos;t read the page
+        can&apos;t cite it — ask whoever runs the site to let them in.{when}
+      </p>
+    );
+  }
+  return (
+    <p role="status" className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
+      {check.found
+        ? `robots.txt on ${site} lets the AI crawlers read ${where}.`
+        : `${site} has no robots.txt, so no AI crawler is kept out.`}
+      {when}
+    </p>
+  );
+}
 
 function Count({ id, length, aim }: { id: string; length: number; aim: number }) {
   return (
@@ -170,6 +207,8 @@ export function BlogExport({
           {copied ? (copied.ok ? "Copied" : "Couldn't copy") : ""}
         </span>
       </div>
+
+      {brief.crawlers ? <CrawlerNote check={brief.crawlers} /> : null}
 
       <details className="mt-3 text-xs">
         <summary className={`cursor-pointer ${LABEL}`}>Suggested schema markup</summary>

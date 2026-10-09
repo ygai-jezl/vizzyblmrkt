@@ -1052,3 +1052,25 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Cite sources (Knowledge + Create): a web source in a programme's knowledge can be
+  # marked as one an article may cite (a study, a report, a page of data) and read as one
+  # page instead of crawled. Blog research then reads those sources BESIDE its web search
+  # (never instead of it): it picks facts out of the stored text, keeps one only if its
+  # figures are in that text, and hands the writer one list drawn from both. A cite source
+  # on someone else's site is evidence only — every other reader of the knowledge base
+  # (posts, emails, Vizzy, the fact check) is no longer handed it as the brand's own
+  # material. Research also reads the publisher's robots.txt and notes which AI crawlers
+  # it keeps out of the article. No new index, secret or worker: the tag and its vector
+  # index already exist, and the worker already reads its page cap per run. The server
+  # flag gates all of that; the NEXT_PUBLIC mirror shows the controls (needed at BUILD).
+  # Off: a `cite` tag is a tag like any other and research is as before. OFF in prod
+  # until verified on dev (apphosting.prod.yaml).
+  - variable: CREATE_BLOG_CITE_SOURCES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_CITE_SOURCES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

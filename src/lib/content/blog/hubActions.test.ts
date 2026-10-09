@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const tenants = vi.hoisted(() => ({ getTenantById: vi.fn() }));
 vi.mock("@/lib/tenant", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tenant")>();
-  return { ...actual, getTenantById: vi.fn(async () => ({ tenantName: "Acme Ltd" })) };
+  return { ...actual, getTenantById: tenants.getTenantById };
 });
 
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -55,7 +56,10 @@ function seed(db: FakeFirestore, over: Partial<ContentPlan> = {}, node: ContentN
 const retrieve = (async () => ({ formatted: "Harbor's share of voice rose from 6% to 21%.", chunks: [] })) as never;
 const now = () => new Date("2026-10-07T10:00:00.000Z");
 
-beforeEach(() => vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true"));
+beforeEach(() => {
+  vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+  tenants.getTenantById.mockResolvedValue({ tenantName: "Acme Ltd" });
+});
 afterEach(() => vi.unstubAllEnvs());
 
 describe("blog hub actions", () => {
@@ -91,6 +95,52 @@ describe("blog hub actions", () => {
       researchedAt: "2026-10-07T10:00:00.000Z",
     });
     expect(saved!.links[0]).toMatchObject({ url: "https://acme.example/pricing", intent: "convert" });
+  });
+
+  it("tells research which domains the tenant owns, so an article published elsewhere still links to the brand's site", async () => {
+    tenants.getTenantById.mockResolvedValue({
+      tenantName: "Acme Ltd",
+      rootDomain: "acme.example",
+      allowedOrigins: ["https://app.acme-labs.example"],
+      emailSenderConfig: {
+        domains: [
+          { domain: "mail.acme-mail.example", status: "verified" },
+          { domain: "not-ours-yet.example", status: "pending" },
+        ],
+      },
+    });
+    const db = new FakeFirestore();
+    // The article goes on a blogging platform, not on the brand's own site.
+    const plan = seed(db, {
+      blog: BlogBriefSchema.parse({}),
+      strategy: { objective: "brand_visibility", hubUrl: "https://acme-example.substack.com/p/visibility" },
+    } as Partial<ContentPlan>);
+    const r = await researchPlanBlog(
+      ctx,
+      { workspace: ws, plan },
+      {
+        db,
+        now,
+        grounded: (async () => null) as never,
+        retrieve,
+        robots: async () => null,
+        sitePages: async () => ({
+          pages: [
+            { url: "https://acme.example/pricing", title: "Pricing" },
+            { url: "https://app.acme-labs.example/demo", title: "Book a demo" },
+            { url: "https://help.acme-mail.example/features", title: "Features" },
+            { url: "https://not-ours-yet.example/pricing", title: "Pricing" },
+            { url: "https://rival-example.substack.com/p/pricing", title: "Pricing" },
+          ],
+          repoPaths: [],
+        }),
+      },
+    );
+    expect(r.ok && r.brief.links.map((l) => l.url)).toEqual([
+      "https://acme.example/pricing",
+      "https://app.acme-labs.example/demo",
+      "https://help.acme-mail.example/features",
+    ]);
   });
 
   it("refuses research when switched off or when the hub is not a blog", async () => {

@@ -222,6 +222,16 @@ export type BlogLink = z.infer<typeof BlogLinkSchema>;
 export const BlogSourceStatus = z.enum(["verified", "unverified", "operator"]);
 export type BlogSourceStatus = z.infer<typeof BlogSourceStatus>;
 
+/**
+ * Where research found a source (flag CREATE_BLOG_CITE_SOURCES_ENABLED). `web` = its web
+ * search found the page. `cited` = it is one of the brand's CITE SOURCES — a knowledge
+ * source marked as one an article may cite — and the fact was checked against the text
+ * held from that page. Research looks in both and neither is preferred. Absent on a row
+ * a person added, and on every row from before cite sources (those came from the web).
+ */
+export const BlogSourceOrigin = z.enum(["web", "cited"]);
+export type BlogSourceOrigin = z.infer<typeof BlogSourceOrigin>;
+
 export const BlogSourceSchema = z.object({
   url: HttpsUrl,
   title: z.string().max(200).default(""),
@@ -232,6 +242,7 @@ export const BlogSourceSchema = z.object({
   /** One sentence the article may state and cite to this source. */
   fact: z.string().max(600).default(""),
   status: BlogSourceStatus.default("operator"),
+  origin: BlogSourceOrigin.optional(),
 });
 export type BlogSource = z.infer<typeof BlogSourceSchema>;
 
@@ -253,6 +264,25 @@ export const BlogEntitySchema = z.object({
   by: BlogRowBy.default("operator"),
 });
 export type BlogEntity = z.infer<typeof BlogEntitySchema>;
+
+/**
+ * What the publisher's robots.txt says to the AI answer engines' crawlers (flag
+ * CREATE_BLOG_CITE_SOURCES_ENABLED): a page they are kept out of cannot be cited. Read
+ * when research runs; shown to the operator with the hand-over, since only whoever runs
+ * the site can change it.
+ */
+export const BlogCrawlerCheckSchema = z.object({
+  /** The site whose robots.txt was read, e.g. https://example.com. */
+  site: z.string().max(300),
+  /** The path the rules were read for: the article's own when its address is known, else "/". */
+  path: z.string().max(2000).default("/"),
+  /** False when the site has no robots.txt — nobody is kept out. */
+  found: z.boolean(),
+  /** The crawlers kept away from that path, by the name robots.txt knows them by. */
+  blocked: z.array(z.string().max(40)).max(20).default([]),
+  checkedAt: z.string(),
+});
+export type BlogCrawlerCheck = z.infer<typeof BlogCrawlerCheckSchema>;
 
 const MAX_BLOG_QUESTIONS = 10;
 const MAX_BLOG_LINKS = 12;
@@ -281,6 +311,9 @@ export const BlogBriefSchema = z.object({
   author: z.string().max(120).default(""),
   /** When research last ran (ISO); null = never. */
   researchedAt: z.string().nullable().default(null),
+  /** Whether AI crawlers may read the article, as of the last research. Null or absent =
+   *  not looked at, or the site's robots.txt could not be read. */
+  crawlers: BlogCrawlerCheckSchema.nullable().optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 

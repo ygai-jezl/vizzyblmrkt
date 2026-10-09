@@ -5,6 +5,7 @@ import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspace
 import type { BlogBrief, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
 import { fenceProof } from "@/lib/content/create/generateNode";
+import { tenantDomains } from "@/lib/knowledge/site";
 import { briefOf } from "./brief";
 import { evaluateCitable } from "./citable";
 import { BLOG_WARNINGS, blogWarnings } from "./draft";
@@ -28,12 +29,18 @@ export function isCitableBlogPlan(plan: ContentPlan): boolean {
   return isBlogCitableEnabled() && plan.topology.hubChannel === "blog" && plan.strategy.objective !== "email_sequence";
 }
 
-/** The tenant's own name, when it has one — the brand an article is published by. */
-async function tenantBrandName(ctx: TenantContext): Promise<string | null> {
+/**
+ * What the tenant record says about the brand: its own name, when it has one (the brand
+ * an article is published by), and the domains it is known to own — its root domain, the
+ * origins it allow-listed and the sending domains it verified. Research uses those to
+ * tell the brand's own pages from everyone else's.
+ */
+async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; sites: string[] }> {
   try {
-    return (await getTenantById(ctx.tenantId))?.tenantName?.trim() || null;
+    const tenant = await getTenantById(ctx.tenantId);
+    return { name: tenant?.tenantName?.trim() || null, sites: tenantDomains(tenant) };
   } catch {
-    return null;
+    return { name: null, sites: [] };
   }
 }
 
@@ -48,8 +55,9 @@ export async function researchPlanBlog(
   const { workspace, plan } = args;
   if (!isBlogCitableEnabled()) return { ok: false, status: 503, error: "unavailable" };
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
+  const brand = await tenantBrand(ctx);
   const result = await researchBlogBrief(
-    { ctx, workspace, plan, brandName: await tenantBrandName(ctx), timeoutMs: args.timeoutMs },
+    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs },
     deps,
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);

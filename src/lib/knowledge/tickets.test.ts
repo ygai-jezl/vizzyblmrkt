@@ -104,4 +104,31 @@ describe("enqueueIngestionTicket", () => {
     const again = await enqueueIngestionTicket(ctx, input, db); // same in-flight source
     expect(again.status).toBe("duplicate"); // idempotent, not a 429
   });
+
+  it("remembers a source read as one page, and keeps it so on a re-ingest that doesn't say", async () => {
+    const db = new FakeFirestore();
+    const page = { ...input, source: "docs_url" as const, sourceUri: "https://research.example.org/report" };
+
+    // Not said at all: nothing new is stored, and the job crawls as it always has.
+    const crawl = await enqueueIngestionTicket(ctx, { ...page, sourceUri: "https://acme.example" }, db);
+    expect(crawl).toMatchObject({ status: "created", onePage: false });
+    expect("onePage" in db.raw("ingestion_tickets", crawl.ticketId!)!).toBe(false);
+
+    const first = await enqueueIngestionTicket(ctx, { ...page, onePage: true }, db);
+    expect(first).toMatchObject({ status: "created", onePage: true });
+    const id = first.ticketId!;
+    expect(db.raw("ingestion_tickets", id)!.onePage).toBe(true);
+
+    // Still being read: the answer says what the source is.
+    expect(await enqueueIngestionTicket(ctx, page, db)).toMatchObject({ status: "duplicate", onePage: true });
+
+    db.seed("ingestion_tickets", id, { ...db.raw("ingestion_tickets", id)!, status: "done" });
+    expect(await enqueueIngestionTicket(ctx, page, db)).toMatchObject({ status: "retried", onePage: true });
+    expect(db.raw("ingestion_tickets", id)!.onePage).toBe(true);
+
+    // Said otherwise: it is crawled again from now on.
+    db.seed("ingestion_tickets", id, { ...db.raw("ingestion_tickets", id)!, status: "done" });
+    expect(await enqueueIngestionTicket(ctx, { ...page, onePage: false }, db)).toMatchObject({ status: "retried", onePage: false });
+    expect(db.raw("ingestion_tickets", id)!.onePage).toBe(false);
+  });
 });

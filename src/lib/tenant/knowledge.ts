@@ -1,3 +1,4 @@
+import type { QueryDocumentSnapshot, QuerySnapshot } from "firebase-admin/firestore";
 import { getDb } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { forTenant } from "./repository";
@@ -162,6 +163,40 @@ export async function listKnowledgePages(
     });
   }
   return [...pages.values()];
+}
+
+/**
+ * Give every chunk of one source a new set of tags, in place — no re-crawl and no
+ * re-embedding, so a source can be re-tagged in a moment. The tags on a chunk are what
+ * retrieval filters on, so they have to move with the source's own. CALLER MUST have
+ * verified ownership first. Returns the count re-stamped.
+ *
+ * Pages through refs only (`select()` with no fields), like the delete below, so a large
+ * source costs flat memory. With no ordering of its own the query runs in document-id
+ * order, which is what lets it carry on from the last one it saw.
+ */
+export async function setKnowledgeTags(
+  ctx: TenantContext,
+  ownerKind: KnowledgeOwnerKind,
+  ownerId: string,
+  opts: { ticketId: string; tags: string[] },
+): Promise<number> {
+  const PAGE = 400;
+  const col = rawChunksCollection(ctx, ownerKind, ownerId);
+  const base = col.where("ticketId", "==", opts.ticketId).select();
+  let updated = 0;
+  let last: QueryDocumentSnapshot | null = null;
+  for (;;) {
+    const snap: QuerySnapshot = await (last ? base.startAfter(last) : base).limit(PAGE).get();
+    if (snap.empty) break;
+    const batch = col.firestore.batch();
+    for (const d of snap.docs) batch.update(d.ref, { tags: opts.tags });
+    await batch.commit();
+    updated += snap.size;
+    if (snap.size < PAGE) break;
+    last = snap.docs[snap.docs.length - 1] ?? null;
+  }
+  return updated;
 }
 
 /**

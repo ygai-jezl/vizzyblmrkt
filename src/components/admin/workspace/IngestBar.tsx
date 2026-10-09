@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CONTENT_MATRIX_TOPICS } from "@/lib/content/contentMatrix";
+import { CITE_TAG, isCiteSourcesUiEnabled, isWebSource, withCiteTag } from "@/lib/knowledge/cite";
 import { GitConnectHint, gitRepoDatalistId } from "./GitConnectHint";
 
 const SOURCE_TYPES = [
@@ -34,10 +35,30 @@ export function IngestBar({
   const [tags, setTags] = useState<string[]>([]);
   const [tagDraft, setTagDraft] = useState("");
   const [gitRef, setGitRef] = useState("");
+  // Read the address given and nothing behind it (a study is a page, not a site).
+  const [onePage, setOnePage] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   const isRepo = source === "github" || source === "gitlab";
+  // A cite source is the `cite` tag, shown as a tick-box so it can't be mistyped. Only a
+  // page on the web can be one.
+  const canCite = isCiteSourcesUiEnabled() && isWebSource(source);
+  const cite = tags.includes(CITE_TAG);
+
+  function changeSource(next: string) {
+    setSource(next);
+    if (!isWebSource(next)) {
+      setTags(withCiteTag(tags, false));
+      setOnePage(false);
+    }
+  }
+
+  function setCite(on: boolean) {
+    setTags(withCiteTag(tags, on));
+    // What an article cites is one page; the box can be unticked to crawl from it instead.
+    if (on) setOnePage(true);
+  }
 
   function addTag(raw: string) {
     const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -59,6 +80,7 @@ export function IngestBar({
         tags,
       };
       if (topic) body.topic = topic;
+      if (canCite) body.onePage = onePage;
       if (isRepo && gitRef.trim()) body.ref = gitRef.trim();
       const res = await fetch("/api/admin/knowledge/ingest", {
         method: "POST",
@@ -88,6 +110,7 @@ export function IngestBar({
       setGitRef("");
       setTags([]);
       setTagDraft("");
+      setOnePage(false);
       await onIngested();
     } finally {
       setBusy(false);
@@ -102,7 +125,7 @@ export function IngestBar({
       <div className="flex flex-wrap gap-2">
         <select
           value={source}
-          onChange={(e) => setSource(e.target.value)}
+          onChange={(e) => changeSource(e.target.value)}
           className="rounded-md border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         >
           {SOURCE_TYPES.map((s) => (
@@ -149,7 +172,8 @@ export function IngestBar({
         </select>
 
         <div className="flex flex-1 flex-wrap items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700">
-          {tags.map((t) => (
+          {/* The cite tag has its own tick-box below; it is not shown twice. */}
+          {tags.filter((t) => !(canCite && t === CITE_TAG)).map((t) => (
             <span
               key={t}
               className="flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800"
@@ -174,7 +198,7 @@ export function IngestBar({
               }
             }}
             onBlur={() => tagDraft && addTag(tagDraft)}
-            placeholder={tags.length ? "" : "custom tags (Enter)"}
+            placeholder={tags.some((t) => !(canCite && t === CITE_TAG)) ? "" : "custom tags (Enter)"}
             className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm outline-none"
           />
         </div>
@@ -187,6 +211,27 @@ export function IngestBar({
           {busy ? "Ingesting…" : "Ingest"}
         </button>
       </div>
+      {canCite ? (
+        <div className="space-y-1 text-xs">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={cite} onChange={(e) => setCite(e.target.checked)} />
+              Cite source
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={onePage} onChange={(e) => setOnePage(e.target.checked)} />
+              This page only
+            </label>
+          </div>
+          <p className="text-neutral-500">
+            {cite
+              ? "A study, report or data page your articles can cite, alongside what a web search finds. On someone else's site it is used as evidence only — never as what you say about yourself."
+              : onePage
+                ? "Reads the address above and nothing else on that site."
+                : "Tick Cite source for a study, report or data page your articles can cite."}
+          </p>
+        </div>
+      ) : null}
       {note ? <p className="text-xs text-amber-600 dark:text-amber-400">{note}</p> : null}
     </form>
   );

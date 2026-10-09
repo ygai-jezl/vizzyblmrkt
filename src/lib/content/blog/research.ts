@@ -375,9 +375,10 @@ export function sourcesToList<T extends ListedSource>(tickets: T[], citeOn = isC
 }
 
 /**
- * A site's robots.txt. No such file (any "not there" answer) means no rules — nobody is
- * kept out. A page of HTML where the file should be is no file either. An error or a
- * timeout is neither: null, and nothing is said about a site that could not be asked.
+ * A site's robots.txt. No such file means no rules — nobody is kept out. A page of HTML
+ * where the file should be is no file either. Anything else that is not the file — a
+ * refusal (the site may be turning every robot away, ours included), an error, a timeout
+ * — is null: nothing is said about a site that could not be asked.
  */
 async function readRobots(origin: string): Promise<RobotsFile | null> {
   try {
@@ -386,7 +387,7 @@ async function readRobots(origin: string): Promise<RobotsFile | null> {
       { headers: { "User-Agent": UA, Accept: "text/plain" } },
       { timeoutMs: 4000, maxRedirects: 3 },
     );
-    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+    if (res.status === 404 || res.status === 410) {
       await res.body?.cancel().catch(() => undefined);
       return { found: false, text: "" };
     }

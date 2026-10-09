@@ -691,8 +691,8 @@ env:
   # a zone, or a plain day), and journeys read it as whole days from now — "Days
   # since" and "Days until", worked out when they check, so a value never goes
   # stale between writes. A value that isn't a date is left as it was and listed in
-  # ignoredFields. Off: the catalog refuses the type. Off in prod until verified on
-  # dev (apphosting.prod.yaml).
+  # ignoredFields. Off: the catalog refuses the type. On in prod too since
+  # 2026-10-09 (apphosting.prod.yaml).
   - variable: CONNECT_DATE_FACTS
     value: "true"
     availability:
@@ -703,8 +703,8 @@ env:
   # product's people and enrols whoever has crossed the line — and isn't more than
   # the journey's window past it, so going live doesn't take everyone who ever went
   # quiet. Needs CONNECT_DATE_FACTS. Off: the check doesn't run, a draft that starts
-  # this way can't be published, and the editor and Vizzy don't offer it. Off in
-  # prod until verified on dev (apphosting.prod.yaml).
+  # this way can't be published, and the editor and Vizzy don't offer it. On in
+  # prod too since 2026-10-09 (apphosting.prod.yaml).
   - variable: LIFECYCLE_DATE_START
     value: "true"
     availability:

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Plus, Send } from "lucide-react";
+import { personHref } from "@/lib/audience/paths";
 import { api, errorText, timeAgo, type PublicConnection, type SandboxUser } from "./api";
 import { Banner, Button, Field, JsonBlock, Section, inputClass } from "./ui";
 
@@ -26,13 +28,16 @@ export function SandboxPanel({
   connection,
   canEdit,
   onChanged,
+  personView = false,
 }: {
   connection: PublicConnection;
   canEdit: boolean;
   onChanged: () => void;
+  /** A test user can open or click their last email, and has a page to see it on (AUDIENCE_PERSON_VIEW). */
+  personView?: boolean;
 }) {
   const [users, setUsers] = useState<SandboxUser[]>(connection.sandbox?.users ?? []);
-  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string; href?: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<unknown>(null);
   const steps = [...connection.catalog.onboardingSteps].sort((a, b) => a.order - b.order);
@@ -67,6 +72,24 @@ export function SandboxPanel({
     onChanged();
   }
 
+  /** As the test user's inbox: open, or click a link in, the last email they were sent. */
+  async function engage(userId: string, action: "open" | "click") {
+    setBusy(`${userId}:${action}`);
+    setMsg(null);
+    const r = await api<{ outcome: "recorded" | "duplicate"; personId: string }>(`/api/admin/connections/${connection.id}/sandbox/engage`, {
+      method: "POST",
+      body: JSON.stringify({ userId, action }),
+    });
+    setBusy(null);
+    if (!r.ok) return setMsg({ tone: "err", text: errorText(r.data) });
+    const did = action === "open" ? "opened" : "clicked a link in";
+    setMsg({
+      tone: "ok",
+      text: r.data.outcome === "duplicate" ? `${userId} had already ${did} their last email.` : `${userId} ${did} their last email.`,
+      href: personHref(r.data.personId),
+    });
+  }
+
   async function testWebhook() {
     setBusy("webhook");
     const r = await api<{ ok: boolean; error?: string }>(`/api/admin/connections/${connection.id}/test-webhook`, {
@@ -83,7 +106,19 @@ export function SandboxPanel({
 
   return (
     <div className="space-y-4">
-      {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+      {msg ? (
+        <Banner tone={msg.tone}>
+          {msg.text}
+          {msg.href ? (
+            <>
+              {" "}
+              <Link href={msg.href} className="underline underline-offset-2">
+                Open their page
+              </Link>
+            </>
+          ) : null}
+        </Banner>
+      ) : null}
 
       <Section
         title="Test users"
@@ -167,6 +202,17 @@ export function SandboxPanel({
                 ) : null}
                 <Button tone="danger" disabled={busy !== null} onClick={() => void fire(u.userId, { kind: "deleted" }, "user deleted")}>
                   Delete user
+                </Button>
+              </div>
+            ) : null}
+            {canEdit && personView ? (
+              <div className="flex flex-wrap gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-900">
+                <span className="self-center text-xs text-neutral-500">As their inbox, with the last email they were sent:</span>
+                <Button disabled={busy !== null} onClick={() => void engage(u.userId, "open")}>
+                  Open it
+                </Button>
+                <Button disabled={busy !== null} onClick={() => void engage(u.userId, "click")}>
+                  Click a link in it
                 </Button>
               </div>
             ) : null}

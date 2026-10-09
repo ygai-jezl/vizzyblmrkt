@@ -123,6 +123,8 @@ const MESSAGES: Record<string, string> = {
   not_a_test_recipient: "In test mode only listed test users can be enrolled.",
   enrolment_cap: "Today's enrolment cap for this journey is reached.",
   user_deleted: "That user has been deleted.",
+  not_a_sandbox: "Only a Sandbox's test users can do that.",
+  no_email_sent: "They haven't been sent an email yet. Enrol them in a journey and run its first step.",
   live: "Run-now is only for test and shadow enrolments.",
   busy: "That enrolment is being processed right now — try again in a moment.",
   not_active: "That enrolment has already finished.",

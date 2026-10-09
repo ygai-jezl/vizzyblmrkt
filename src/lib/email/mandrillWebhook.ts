@@ -103,8 +103,50 @@ export interface EventMetadata {
   /** Lifecycle sends: `product_user` + the connection (signupId = product user id). */
   recipientKind?: "signup" | "product_user";
   connectionId?: string;
-  /** Lifecycle sends that named their enrolment (LIFECYCLE_SEND_TRACKING). */
+  /** A product journey's email that named its enrolment (LIFECYCLE_SEND_TRACKING; see `enrolmentSendMetadata`). */
   enrolmentId?: string;
+}
+
+/**
+ * Mandrill keeps at most this much metadata per message (as JSON) and, past it, drops ALL of
+ * it — and with it every open, click, bounce and complaint for that email, since the metadata
+ * is how an event finds its way back to us.
+ */
+export const METADATA_LIMIT_BYTES = 250;
+
+/** A message's metadata as Mandrill counts it: JSON, with anything outside ASCII taken at its escaped length. */
+export function metadataBytes(metadata: Record<string, string>): number {
+  return JSON.stringify(metadata).replace(/[\u0080-\uffff]/g, "\\u0000").length;
+}
+
+/** A product journey's email, named by its enrolment alone. */
+export interface EnrolmentSendRef {
+  tenantId: string;
+  enrolmentId: string;
+  /** "" when the ids were too long to carry it: the event then can't be put against a step. */
+  nodeId: string;
+  variantId: string;
+}
+
+/**
+ * The metadata for a product journey's email (LIFECYCLE_SEND_TRACKING): its tenant, its
+ * enrolment, and which email of the journey it is. The journey, the person and the connection
+ * are read from the enrolment when an event comes back, so this stays well inside the limit
+ * whatever the ids (four short keys: 221 bytes at every id's longest). Should an id ever be
+ * longer than that, the step is left out before the bounces and complaints are put at risk.
+ */
+export function enrolmentSendMetadata(a: EnrolmentSendRef): Record<string, string> {
+  const full = { t: a.tenantId, e: a.enrolmentId, n: a.nodeId, v: a.variantId };
+  return metadataBytes(full) <= METADATA_LIMIT_BYTES ? full : { t: a.tenantId, e: a.enrolmentId };
+}
+
+/** Read metadata written by `enrolmentSendMetadata`, or null when the message carries another kind (or none). */
+export function readEnrolmentSendRef(ev: MandrillEvent): EnrolmentSendRef | null {
+  const m = ev.msg?.metadata;
+  if (!m) return null;
+  const get = (k: string) => (typeof m[k] === "string" ? (m[k] as string) : "");
+  if (!get("t") || !get("e")) return null;
+  return { tenantId: get("t"), enrolmentId: get("e"), nodeId: get("n"), variantId: get("v") };
 }
 
 export function readEventMetadata(ev: MandrillEvent): EventMetadata | null {
@@ -119,7 +161,7 @@ export function readEventMetadata(ev: MandrillEvent): EventMetadata | null {
     signupId: get("signupId"),
     variantId: get("variantId") || "control",
     ...(get("recipientKind") === "product_user"
-      ? { recipientKind: "product_user" as const, connectionId: get("connectionId"), ...(get("enrolmentId") ? { enrolmentId: get("enrolmentId") } : {}) }
+      ? { recipientKind: "product_user" as const, connectionId: get("connectionId") }
       : {}),
   };
   // A non-journey send (or a malformed payload) lacks our keys — skip it.

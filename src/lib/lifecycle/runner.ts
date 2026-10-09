@@ -20,6 +20,7 @@ import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressedFor } from "@/lib/email/suppression";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
+import { enrolmentSendMetadata } from "@/lib/email/mandrillWebhook";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { resolveJourneyEmailStyle } from "@/lib/email/resolveEmailStyle";
 import type { AiDraft } from "@/lib/types/lifecycle";
@@ -640,18 +641,21 @@ async function deliver(
       ? { tags: ["lifecycle-shadow"] }
       : {
           tags: ["lifecycle"],
-          metadata: {
-            tenantId: ctx.tenantId,
-            journeyId: journey.id,
-            nodeId: d.nodeId,
-            signupId: user.id,
-            variantId: item.id,
-            campaignId: "",
-            recipientKind: "product_user",
-            connectionId: connection.id,
-            // Its opens and clicks belong to this entry, not to an earlier one's same email.
-            ...(recorded ? { enrolmentId: s.enrolment.id } : {}),
-          },
+          // Named by its enrolment: its opens and clicks belong to this entry, not to an earlier
+          // one's same email — and the whole of it fits what the provider keeps (250 bytes; the
+          // older form is 240 for a seven-letter brand id, and is dropped whole once it's over).
+          metadata: recorded
+            ? enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id })
+            : {
+                tenantId: ctx.tenantId,
+                journeyId: journey.id,
+                nodeId: d.nodeId,
+                signupId: user.id,
+                variantId: item.id,
+                campaignId: "",
+                recipientKind: "product_user",
+                connectionId: connection.id,
+              },
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
   }).catch(

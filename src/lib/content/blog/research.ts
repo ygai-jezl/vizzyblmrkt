@@ -4,6 +4,7 @@ import { retrieveSemanticKnowledgeContext, type ContextRetrievalRequest } from "
 import { forTenant, listKnowledgePages, verifyOwner } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { assertSafeHttpsUrl, readTextCapped, safeFetch } from "@/lib/security/ssrf";
+import { siteOf, sitesOf } from "@/lib/knowledge/site";
 import { htmlToText } from "@/lib/content/create/siteText";
 import {
   BlogEntityRelation,
@@ -15,7 +16,7 @@ import {
   type BlogSource,
   type ContentPlan,
 } from "@/lib/types/contentPlan";
-import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl, ownHosts } from "./brief";
+import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl } from "./brief";
 import { factFiguresOnPage } from "./figures";
 import { blogResearchThinkingBudget } from "./flags";
 import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
@@ -35,6 +36,8 @@ import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
  *     unverified, for a person to check.
  *  3. LINK TARGETS — the brand's own pages, from what the programme has already indexed
  *     (a crawled site, or the page files of a connected repo, each checked to be live).
+ *     Only a page on the brand's OWN SITE counts: a knowledge base can hold someone
+ *     else's page too, and that is never offered as one of the brand's.
  *  4. The merge — a person's rows in the brief always stay; research replaces only its own.
  *
  * Fail-soft throughout: with Gemini off, a timeout or a blocked page, the article is
@@ -333,16 +336,24 @@ function siteOrigin(plan: ContentPlan, brief: BlogBrief, pages: KnownPage[]): st
       /* not a URL */
     }
   }
-  const counts = new Map<string, number>();
+  // Counted a site at a time (its sub-domains together), since this decides whose pages
+  // are the brand's own; the address returned is the one most of that site's pages are on.
+  const bySite = new Map<string, Map<string, number>>();
   for (const p of pages) {
     try {
       const u = new URL(p.url);
-      if (u.protocol === "https:" && !isCodeHostUrl(p.url)) counts.set(u.origin, (counts.get(u.origin) ?? 0) + 1);
+      if (u.protocol !== "https:" || isCodeHostUrl(p.url)) continue;
+      const site = siteOf(p.url);
+      const origins = bySite.get(site) ?? new Map<string, number>();
+      origins.set(u.origin, (origins.get(u.origin) ?? 0) + 1);
+      bySite.set(site, origins);
     } catch {
       /* skip */
     }
   }
-  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  const total = (origins: Map<string, number>) => [...origins.values()].reduce((a, b) => a + b, 0);
+  const most = [...bySite.values()].sort((a, b) => total(b) - total(a))[0];
+  return most ? ([...most].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "") : "";
 }
 
 /** Run `fn` over `items`, a few at a time, keeping order. */
@@ -370,10 +381,10 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 async function sourcesFromFacts(
   facts: FoundFact[],
   grounded: GroundedTextResult,
-  skipHosts: Set<string>,
+  isOwn: (url: string) => boolean,
   deps: Required<Pick<BlogResearchDeps, "resolve" | "fetchPage">>,
 ): Promise<BlogSource[]> {
-  const usable = (url: string) => url.startsWith("https://") && !isCodeHostUrl(url) && !skipHosts.has(hostOf(url));
+  const usable = (url: string) => url.startsWith("https://") && !isCodeHostUrl(url) && !isOwn(url);
   const backing = facts.map((f) => ({ ...f, indexes: sourcesBacking(f.fact, grounded.text, grounded.supports) }));
   const wanted = [...new Set(backing.flatMap((b) => b.indexes))];
   const resolved = new Map<number, string>();
@@ -496,6 +507,16 @@ export async function researchBlogBrief(
 
   // Link targets: crawled pages as they are; repo routes only once the live site answers.
   const origin = siteOrigin(plan, current, site.pages);
+  // The brand's own site: where the article is published, and any site a person listed
+  // a page of in the brief. A knowledge base can hold someone else's page as well (a
+  // study, a competitor's pricing) — that is theirs, and is never offered as the brand's.
+  const own = sitesOf([
+    origin,
+    current.publisherUrl,
+    plan.strategy.hubUrl,
+    ...current.links.filter((l) => l.by === "operator").map((l) => l.url),
+  ]);
+  const isOwn = (url: string) => own.has(siteOf(url));
   const guessed = origin ? pagesFromRepoPaths(site.repoPaths, origin, MAX_ROUTES_CHECKED) : [];
   const live = (
     await mapLimit(guessed, 6, async (p) => {
@@ -504,13 +525,15 @@ export async function researchBlogBrief(
     })
   ).filter((p): p is KnownPage => p !== null);
   const related = (rag?.chunks ?? []).map((c) => c.sourceUri).filter((u) => u && !isCodeHostUrl(u));
-  const links = chooseLinkTargets([...site.pages, ...live], { related, exclude: [plan.strategy.hubUrl] });
+  const links = chooseLinkTargets(
+    [...site.pages, ...live].filter((p) => isOwn(p.url)),
+    { related, exclude: [plan.strategy.hubUrl] },
+  );
   const publisherUrl = origin || (links[0] ? new URL(links[0].url).origin : "");
 
   // Third-party facts — never from the brand's own site.
-  const skipHosts = ownHosts(current, [plan.strategy.hubUrl, publisherUrl, ...links.map((l) => l.url)]);
   const sources = grounded
-    ? await sourcesFromFacts(facts, grounded, skipHosts, {
+    ? await sourcesFromFacts(facts, grounded, isOwn, {
         resolve: deps.resolve ?? resolveGroundingRedirect,
         fetchPage: deps.fetchPage ?? fetchSourcePage,
       })

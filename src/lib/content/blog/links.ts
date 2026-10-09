@@ -83,7 +83,8 @@ export function linkLabel(url: string, title = ""): string {
   }
 }
 
-/** A page an article could link to: https, the brand's own site, and not a utility page. */
+/** A page an article could link to: https, not a code host, and not a utility page.
+ *  WHOSE page it is, this cannot tell — the caller hands in only the brand's own. */
 export function isLinkablePage(url: string): boolean {
   const n = normalizeUrl(url);
   if (!n.startsWith("https://") || isCodeHostUrl(n)) return false;
@@ -99,7 +100,10 @@ const ORDER: BlogLinkIntent[] = ["convert", "product", "proof", "compare", "lear
 
 /**
  * Choose the link targets for an article: a few pages of each kind, conversion pages
- * first. `related` are the pages the knowledge search found for this article's topic —
+ * first. `pages` must be the brand's OWN pages only (research keeps those on the brand's
+ * site): every one may be offered to the writer as a page of the brand's, and a pricing
+ * page as the place to send the reader. `related` are the pages the knowledge search
+ * found for this article's topic —
  * they win the "goes deeper" places, and break ties everywhere else. Shallow pages beat
  * deep ones (a /pricing page beats /blog/2021/pricing-update).
  */

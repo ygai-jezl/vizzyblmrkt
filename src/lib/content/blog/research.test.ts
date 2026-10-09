@@ -204,6 +204,68 @@ describe("blog research", () => {
     expect(d.grounded).toHaveBeenCalledTimes(2);
   });
 
+  describe("whose page it is", () => {
+    // The brand's knowledge also holds a research firm's report, and the firm's pricing
+    // page that came with it — and the knowledge search returns the report for this subject.
+    const withSomeoneElses = (over: Partial<BlogResearchDeps> = {}) =>
+      deps({
+        retrieve: (async () => ({
+          formatted: "[Source: Integrations — https://acme.example/integrations]\nAcme Visibility integrates with ExampleChat.",
+          chunks: [
+            { title: "", content: "x", sourceUri: "https://research.example.org/buyers-2026", path: null, heading: null, topic: null, tags: [] },
+            { title: "", content: "x", sourceUri: "https://acme.example/blog/citation-gaps", path: null, heading: null, topic: null, tags: [] },
+          ],
+        })) as never,
+        sitePages: async () => ({
+          pages: [
+            { url: "https://research.example.org/pricing", title: "Pricing | Example Research" },
+            { url: "https://research.example.org/buyers-2026", title: "How buyers research software" },
+            { url: "https://acme.example/pricing", title: "Pricing | Acme" },
+            { url: "https://docs.acme.example/integrations", title: "Integrations" },
+            { url: "https://acme.example/blog/citation-gaps", title: "Citation gaps, explained" },
+          ],
+          repoPaths: [],
+        }),
+        ...over,
+      });
+
+    it("offers only pages on the brand's own site — never someone else's, whatever the knowledge base holds", async () => {
+      const r = await researchBlogBrief({ ctx, workspace, plan: plan(), brandName: "Acme" }, withSomeoneElses());
+      // The brand's site and its sub-domains. Not the firm's pricing page as a place to send
+      // a reader, and not its report as a page of the brand's.
+      expect(r.brief.links.map((l) => `${l.intent}:${l.url}`)).toEqual([
+        "convert:https://acme.example/pricing",
+        "product:https://docs.acme.example/integrations",
+        "learn:https://acme.example/blog/citation-gaps",
+      ]);
+      expect(r.brief.publisherUrl).toBe("https://acme.example");
+      // And the firm stays what it is — a third party whose facts can be cited.
+      expect(r.brief.sources.map((s) => `${s.status}:${s.url}`)).toContain("verified:https://research.example.org/buyers-2026");
+    });
+
+    it("with no address for the article, takes the site most of the crawled pages are on as the brand's", async () => {
+      const unpublished = plan({
+        strategy: { objective: "brand_visibility", hubUrl: null, subscriberCount: null, sequenceType: null },
+      });
+      const r = await researchBlogBrief({ ctx, workspace, plan: unpublished }, withSomeoneElses());
+      expect(r.brief.publisherUrl).toBe("https://acme.example");
+      expect(r.brief.links.every((l) => l.url.includes("acme.example"))).toBe(true);
+      expect(r.brief.links.length).toBeGreaterThan(0);
+    });
+
+    it("counts a site as the brand's when a person listed a page of it", async () => {
+      const mine = BlogBriefSchema.parse({
+        links: [{ url: "https://research.example.org/about", label: "Our research arm", intent: "learn", by: "operator" }],
+      });
+      const r = await researchBlogBrief({ ctx, workspace, plan: plan({ blog: mine }) }, withSomeoneElses());
+      const urls = r.brief.links.map((l) => l.url);
+      expect(urls).toContain("https://research.example.org/about");
+      expect(urls).toContain("https://research.example.org/pricing");
+      // Its own site is not a third party to cite.
+      expect(r.brief.sources.some((s) => s.url.includes("research.example.org"))).toBe(false);
+    });
+  });
+
   it("marks a fact unverified when its page doesn't hold the figures", async () => {
     const r = await researchBlogBrief(
       { ctx, workspace, plan: plan() },

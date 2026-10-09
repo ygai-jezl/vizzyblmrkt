@@ -222,6 +222,16 @@ export type BlogLink = z.infer<typeof BlogLinkSchema>;
 export const BlogSourceStatus = z.enum(["verified", "unverified", "operator"]);
 export type BlogSourceStatus = z.infer<typeof BlogSourceStatus>;
 
+/**
+ * Where research found a source (flag CREATE_BLOG_CITE_SOURCES_ENABLED). `web` = its web
+ * search found the page. `cited` = it is one of the brand's CITE SOURCES — a knowledge
+ * source marked as one an article may cite — and the fact was checked against the text
+ * held from that page. Research looks in both and neither is preferred. Absent on a row
+ * a person added, and on every row from before cite sources (those came from the web).
+ */
+export const BlogSourceOrigin = z.enum(["web", "cited"]);
+export type BlogSourceOrigin = z.infer<typeof BlogSourceOrigin>;
+
 export const BlogSourceSchema = z.object({
   url: HttpsUrl,
   title: z.string().max(200).default(""),
@@ -232,6 +242,7 @@ export const BlogSourceSchema = z.object({
   /** One sentence the article may state and cite to this source. */
   fact: z.string().max(600).default(""),
   status: BlogSourceStatus.default("operator"),
+  origin: BlogSourceOrigin.optional(),
 });
 export type BlogSource = z.infer<typeof BlogSourceSchema>;
 

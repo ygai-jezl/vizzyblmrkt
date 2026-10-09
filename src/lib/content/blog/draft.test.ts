@@ -173,4 +173,43 @@ describe("the blog writer", () => {
     expect(await draftBlogArticle(input(), { generate: async () => null })).toBeNull();
     expect(await draftBlogArticle(input(), { generate: async () => "Sorry, I can't." })).toBeNull();
   });
+
+  it("tells the writer to choose on merit when the sources came from the brand's cite sources and the web", async () => {
+    const prompts: string[] = [];
+    const generate = async (prompt: string) => {
+      prompts.push(prompt);
+      return SAMPLE_ARTICLE;
+    };
+    await draftBlogArticle(input({ quick: true }), { generate, now: clock(1000) });
+    const withShelf = {
+      ...SAMPLE_BRIEF,
+      sources: [
+        ...SAMPLE_BRIEF.sources,
+        {
+          url: "https://analyst.example.com/reports/ai-search-2026",
+          title: "AI search 2026",
+          publisher: "Example Analyst",
+          year: 2026,
+          fact: "63% of 2,400 buyers surveyed asked an AI assistant for a shortlist.",
+          status: "verified" as const,
+          origin: "cited" as const,
+        },
+      ],
+    };
+    await draftBlogArticle(input({ quick: true, brief: withShelf }), { generate, now: clock(1000) });
+
+    const [plain, both] = prompts as [string, string];
+    const note = "it makes no difference which of the two a fact came from";
+    // No cite source behind the article: it is asked for exactly as it always was.
+    expect(plain).not.toContain(note);
+    expect(plain).toContain("SOURCES YOU MAY CITE");
+    // One list, in the order research made it, and nothing in it says where a fact came from.
+    expect(both).toContain(note);
+    expect(both).toContain("- Cite as [Example Analyst, 2026](https://analyst.example.com/reports/ai-search-2026)");
+    expect(both).not.toMatch(/origin|cited source|from the web:/i);
+    // Taking the new source and the note back out leaves the first prompt, to the letter.
+    const added = both.slice(both.indexOf("- Cite as [Example Analyst, 2026]"), both.indexOf("YOUR OWN PAGES YOU MAY LINK TO"));
+    expect(both.replace(added, "\n")).toBe(plain);
+  });
 });
+

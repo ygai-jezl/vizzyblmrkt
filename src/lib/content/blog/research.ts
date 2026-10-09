@@ -1,10 +1,21 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateGroundedText, type GroundedSupport, type GroundedTextResult } from "@/lib/agents/gemini";
-import { retrieveSemanticKnowledgeContext, type ContextRetrievalRequest } from "@/lib/agents/knowledgeRetrieval";
+import {
+  generateGroundedText,
+  generateTextWithDeadline,
+  type GroundedSupport,
+  type GroundedTextResult,
+} from "@/lib/agents/gemini";
+import {
+  retrieveSemanticKnowledgeContext,
+  type ContextRetrievalRequest,
+  type RetrievedChunk,
+} from "@/lib/agents/knowledgeRetrieval";
 import { forTenant, listKnowledgePages, verifyOwner } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { assertSafeHttpsUrl, readTextCapped, safeFetch } from "@/lib/security/ssrf";
+import { CITE_TAG, isCiteSource, isCiteSourcesEnabled, isWebSource } from "@/lib/knowledge/cite";
 import { siteOf, sitesOf } from "@/lib/knowledge/site";
+import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import { htmlToText } from "@/lib/content/create/siteText";
 import {
   BlogEntityRelation,
@@ -17,13 +28,13 @@ import {
   type ContentPlan,
 } from "@/lib/types/contentPlan";
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl } from "./brief";
-import { factFiguresOnPage } from "./figures";
+import { factFiguresOnPage, figureSet } from "./figures";
 import { blogResearchThinkingBudget } from "./flags";
 import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
 
 /**
  * Research for a blog hub — the up-front work that lets one article answer what buyers
- * actually ask and cite what it claims. Three searches side by side, then a merge:
+ * actually ask and cite what it claims. Searches side by side, then a merge:
  *
  *  1. QUESTIONS — a Google-Search-grounded call returns the buyer's primary question,
  *     the questions asked next and the entities to name.
@@ -38,7 +49,15 @@ import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
  *     (a crawled site, or the page files of a connected repo, each checked to be live).
  *     Only a page on the brand's OWN SITE counts: a knowledge base can hold someone
  *     else's page too, and that is never offered as one of the brand's.
- *  4. The merge — a person's rows in the brief always stay; research replaces only its own.
+ *  4. CITE SOURCES (flag CREATE_BLOG_CITE_SOURCES_ENABLED) — the brand's own shelf of
+ *     studies and reports: knowledge sources it has marked as ones an article may cite.
+ *     The passages nearest the subject are read, a model picks the facts worth citing,
+ *     and one is kept only if its figures are IN THE PASSAGE — text we hold, so this
+ *     needs no page to answer and no search result to say where a fact came from. This
+ *     runs BESIDE the web search, never instead of it: the search finds what the brand
+ *     does not know about, the shelf holds what it does. The two lists are then made
+ *     one, the best of each in turn, and the writer chooses from both.
+ *  5. The merge — a person's rows in the brief always stay; research replaces only its own.
  *
  * Fail-soft throughout: with Gemini off, a timeout or a blocked page, the article is
  * still written — from the brand's knowledge alone, with nothing invented to fill the gap.
@@ -48,6 +67,14 @@ const MAX_FACTS = 8;
 const MAX_FACTS_PER_PAGE = 2;
 const MAX_PAGES_FETCHED = 12;
 const MAX_ROUTES_CHECKED = 12;
+/** The brand's cite sources: how many passages the fact picker is shown, how many of them
+ *  one page may give (a long report must not be all it sees), and how much of each. */
+const MAX_CITED_PASSAGES = 12;
+const MAX_PASSAGES_PER_PAGE = 3;
+const PASSAGE_CHARS = 2_400;
+const MAX_CITED_FACTS = 8;
+/** Sources whose pages are listed: this many of the brand's own, this many cite sources. */
+const MAX_SOURCES_LISTED = 8;
 /** Enough of a page to find a figure on it; a 512 MiB instance opens a few of these at once. */
 const PAGE_BYTES = 800_000;
 const UA = "Vizzybl-BlogResearch/1.0";
@@ -69,6 +96,9 @@ export interface SitePages {
   pages: KnownPage[];
   /** File paths from connected repos — a route may be read off some of them. */
   repoPaths: string[];
+  /** Pages of the brand's cite sources (flag on). Whose each one is, its site decides,
+   *  like any other page — but these never help decide WHICH site is the brand's. */
+  cited?: KnownPage[];
 }
 
 export interface BlogResearchInput {
@@ -88,6 +118,8 @@ export interface BlogResearchDeps {
   /** Google's redirect link → the page's own address (null when it can't be followed). */
   resolve?: (uri: string) => Promise<string | null>;
   fetchPage?: (url: string) => Promise<FetchedPage | null>;
+  /** Picks the facts worth citing out of the brand's cite sources: a plain model call, no search. */
+  pick?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number }) => Promise<string | null>;
   /** Is this page live? Returns its address after redirects, or null. */
   reachable?: (url: string) => Promise<string | null>;
   now?: () => Date;
@@ -102,10 +134,12 @@ export interface BlogResearchResult {
     links: number;
     /** Facts search wrote down, before any was tied to a page. */
     facts: number;
-    /** Facts kept: tied to the page search returned for them. */
+    /** Facts kept: tied to the page search returned for them, or found in a cite source. */
     sources: number;
     /** Of those, the ones whose figures were found on the page. */
     verifiedSources: number;
+    /** Of those, the ones that came from the brand's cite sources (the rest are the web's). */
+    citedSources: number;
   };
 }
 
@@ -291,38 +325,55 @@ async function pageReachable(url: string): Promise<string | null> {
   return null;
 }
 
+type ListedSource = Pick<IngestionTicket, "id" | "source" | "tags" | "status" | "chunksWritten" | "finishedAt" | "createdAt">;
+
+/**
+ * Which of a workspace's sources have their pages listed: the most recently read, a few
+ * of them. With cite sources on, those are counted apart — a shelf of twenty studies
+ * added last week must not push the brand's own site (read last year) off the list.
+ */
+export function sourcesToList<T extends ListedSource>(tickets: T[], citeOn = isCiteSourcesEnabled()): { own: T[]; cited: T[] } {
+  const read = tickets
+    .filter((t) => (t.status === "done" || t.status === "partial") && t.chunksWritten > 0)
+    .sort((a, b) => (b.finishedAt ?? b.createdAt ?? "").localeCompare(a.finishedAt ?? a.createdAt ?? ""));
+  if (!citeOn) return { own: read.slice(0, MAX_SOURCES_LISTED), cited: [] };
+  const cite = (t: T) => isWebSource(t.source) && isCiteSource(t.tags);
+  return {
+    own: read.filter((t) => !cite(t)).slice(0, MAX_SOURCES_LISTED),
+    cited: read.filter(cite).slice(0, MAX_SOURCES_LISTED),
+  };
+}
+
 /** What the programme has indexed: the pages of crawled sites, and the files of connected repos. */
 async function indexedSitePages(ctx: TenantContext, workspaceId: string): Promise<SitePages> {
-  const out: SitePages = { pages: [], repoPaths: [] };
+  const out: SitePages = { pages: [], repoPaths: [], cited: [] };
   if (!(await verifyOwner(ctx, "workspace", workspaceId))) return out;
-  const tickets = (
+  const { own, cited } = sourcesToList(
     await forTenant(ctx).ingestionTickets.find({
       where: [
         ["ownerKind", "==", "workspace"],
         ["ownerId", "==", workspaceId],
       ],
       limit: 200,
-    })
-  )
-    .filter((t) => (t.status === "done" || t.status === "partial") && t.chunksWritten > 0)
-    .sort((a, b) => (b.finishedAt ?? b.createdAt ?? "").localeCompare(a.finishedAt ?? a.createdAt ?? ""))
-    .slice(0, 8);
-  const lists = await Promise.all(
-    tickets.map((t) =>
-      listKnowledgePages(ctx, "workspace", workspaceId, { ticketId: t.id, limit: 600 })
-        .then((pages) => ({ git: t.source === "github" || t.source === "gitlab", pages }))
-        .catch(() => ({ git: false, pages: [] })),
-    ),
+    }),
   );
-  for (const list of lists) {
-    for (const p of list.pages) {
-      if (list.git) {
+  const list = (t: IngestionTicket, limit: number) =>
+    listKnowledgePages(ctx, "workspace", workspaceId, { ticketId: t.id, limit }).catch(() => []);
+  const [ownLists, citedLists] = await Promise.all([
+    Promise.all(own.map(async (t) => ({ git: t.source === "github" || t.source === "gitlab", pages: await list(t, 600) }))),
+    // A cite source is a page or a handful, not a site.
+    Promise.all(cited.map((t) => list(t, 60))),
+  ]);
+  for (const l of ownLists) {
+    for (const p of l.pages) {
+      if (l.git) {
         if (p.path) out.repoPaths.push(p.path);
       } else {
         out.pages.push({ url: p.sourceUri, title: p.title });
       }
     }
   }
+  for (const pages of citedLists) for (const p of pages) out.cited!.push({ url: p.sourceUri, title: p.title });
   return out;
 }
 
@@ -431,6 +482,153 @@ async function sourcesFromFacts(
   return out;
 }
 
+// ── The brand's cite sources ────────────────────────────────────────────────
+
+/** A passage of one of the brand's cite sources, numbered for the fact picker. */
+export interface CitedPassage {
+  n: number;
+  url: string;
+  title: string;
+  text: string;
+}
+
+/**
+ * The passages the fact picker is shown: the nearest to the subject first, a few from
+ * each page, and none from a page that is the brand's own (that is the brand's material,
+ * which the writer already has — not a third party to cite).
+ */
+export function citedPassages(chunks: RetrievedChunk[], isOwn: (url: string) => boolean): CitedPassage[] {
+  const perPage = new Map<string, number>();
+  const out: CitedPassage[] = [];
+  for (const c of chunks) {
+    const url = normalizeUrl(c.sourceUri);
+    if (!isCiteSource(c.tags) || !url.startsWith("https://") || isCodeHostUrl(url) || isOwn(url)) continue;
+    const used = perPage.get(url) ?? 0;
+    if (used >= MAX_PASSAGES_PER_PAGE) continue;
+    perPage.set(url, used + 1);
+    out.push({ n: out.length + 1, url, title: c.title.replace(/\s+/g, " ").trim(), text: c.content.slice(0, PASSAGE_CHARS) });
+    if (out.length >= MAX_CITED_PASSAGES) break;
+  }
+  return out;
+}
+
+/** The passages, laid out for the prompt. Text from someone else's page cannot close the
+ *  tag it is fenced in. */
+function formatPassages(passages: CitedPassage[]): string {
+  return passages
+    .map((p) => `[${p.n}] ${p.title || hostOf(p.url)} — ${p.url}\n${p.text.replace(/<\/?\s*passages[^>]*>/gi, " ")}`)
+    .join("\n\n");
+}
+
+/** A fact the picker chose, and the passage it says it came from (null = it did not say). */
+export interface PickedFact {
+  fact: string;
+  passage: number | null;
+}
+
+/** Parse the picker's answer (FACT: <sentence> | <passage number>). Other lines are skipped. */
+export function parseCitedFacts(text: string): PickedFact[] {
+  const out: PickedFact[] = [];
+  for (const raw of (text ?? "").split(/\r?\n/)) {
+    const m = /^\s*(?:[-*•]\s*)?\**FACT\**\s*:\**\s*(.+)$/i.exec(raw);
+    if (!m) continue;
+    const parts = (m[1] ?? "").split(/\s+\|\s+/);
+    // The last part is the passage's number when it is nothing but one ("3", "[3]", "passage 3").
+    const tail = parts.length > 1 ? /^\W*(?:passage\s*)?\[?(\d{1,3})\]?\W*$/i.exec(parts[parts.length - 1] ?? "") : null;
+    const fact = clean((tail ? parts.slice(0, -1) : parts).join(" | ")).slice(0, 600);
+    if (fact) out.push({ fact, passage: tail ? Number(tail[1]) : null });
+  }
+  return out;
+}
+
+/** The same figures from the same page are the same fact, however it is worded. */
+const factKey = (url: string, fact: string) => `${normalizeUrl(url)}|${[...figureSet(fact)].sort().join(",")}`;
+
+/**
+ * Check each picked fact against the text it came from, and write the ones that hold up
+ * as sources. A fact is kept only if every figure it states is in a passage: the one the
+ * picker named, else whichever passage does hold them (its number is only a pointer; the
+ * text is the evidence). No passage holds them → the fact is dropped, not shown as
+ * unconfirmed — nothing ties it to any page.
+ *
+ * The page is then opened once, for its own name and year to cite it by. That is a
+ * courtesy to the citation, not a check: the text is already held, so a page that will
+ * not open now still gives its fact, named by its domain.
+ */
+async function sourcesFromCited(
+  picked: PickedFact[],
+  passages: CitedPassage[],
+  fetchPage: ((url: string) => Promise<FetchedPage | null>) | null,
+): Promise<BlogSource[]> {
+  const byNumber = new Map(passages.map((p) => [p.n, p] as const));
+  const holds = (p: CitedPassage, fact: string) => factFiguresOnPage(fact, `${p.title}\n${p.text}`);
+  const kept: { fact: string; passage: CitedPassage }[] = [];
+  const perPage = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const f of picked) {
+    const named = f.passage === null ? undefined : byNumber.get(f.passage);
+    const passage = named && holds(named, f.fact) ? named : passages.find((p) => holds(p, f.fact));
+    if (!passage) continue;
+    const key = factKey(passage.url, f.fact);
+    const used = perPage.get(passage.url) ?? 0;
+    if (seen.has(key) || used >= MAX_FACTS_PER_PAGE) continue;
+    seen.add(key);
+    perPage.set(passage.url, used + 1);
+    kept.push({ fact: f.fact, passage });
+    if (kept.length >= MAX_CITED_FACTS) break;
+  }
+
+  const pages = new Map<string, FetchedPage | null>();
+  if (fetchPage) {
+    await mapLimit([...new Set(kept.map((k) => k.passage.url))], 4, async (url) => {
+      pages.set(url, await fetchPage(url).catch(() => null));
+    });
+  }
+  return kept.map(({ fact, passage }) => {
+    const page = pages.get(passage.url) ?? null;
+    return {
+      url: passage.url,
+      title: (page?.title || passage.title).slice(0, 200),
+      publisher: page?.siteName || hostOf(passage.url),
+      year: page?.year ?? null,
+      fact,
+      status: "verified",
+      origin: "cited",
+    };
+  });
+}
+
+/**
+ * One list from the two places research looked — the brand's cite sources and the web.
+ * Checked facts first, the best of each in turn, so neither can crowd the other out and
+ * the writer is handed the strongest of both to choose from. A fact the search could not
+ * confirm comes last: it is there for a person to check, not for the writer. One page
+ * never gives more than two facts, wherever they were found, nor the same figures twice.
+ */
+export function fuseSources(cited: BlogSource[], web: BlogSource[]): BlogSource[] {
+  const checked = (rows: BlogSource[]) => rows.filter((r) => r.status === "verified");
+  const a = checked(cited);
+  const b = checked(web);
+  const inTurn: BlogSource[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if (a[i]) inTurn.push(a[i]!);
+    if (b[i]) inTurn.push(b[i]!);
+  }
+  const out: BlogSource[] = [];
+  const perPage = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const row of [...inTurn, ...web.filter((r) => r.status !== "verified")]) {
+    const url = normalizeUrl(row.url);
+    const key = factKey(url, row.fact);
+    const used = perPage.get(url) ?? 0;
+    if (seen.has(key) || used >= MAX_FACTS_PER_PAGE) continue;
+    seen.add(key);
+    perPage.set(url, used + 1);
+    out.push(row);
+  }
+  return out;
+}
+
 /** Search for facts; if the call fails or comes back with none, once more while there is time. */
 async function searchFacts(
   prompt: string,
@@ -471,7 +669,25 @@ export async function researchBlogBrief(
     bypassEnabledFlag: true,
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   };
-  const rag = await (deps.retrieve ?? retrieveSemanticKnowledgeContext)(req).catch(() => null);
+  const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
+  const citeOn = isCiteSourcesEnabled();
+  // The brand's cite sources are asked for by name: every other reader of the knowledge
+  // base (this first search included) is not handed the ones on someone else's site.
+  const [rag, shelf] = await Promise.all([
+    retrieve(req).catch(() => null),
+    citeOn
+      ? retrieve({
+          ctx,
+          ownerKind: "workspace",
+          ownerId: workspace.id,
+          queryText: subject,
+          limit: 20,
+          bypassEnabledFlag: true,
+          filter: { tag: CITE_TAG },
+          includeCited: true,
+        }).catch(() => null)
+      : null,
+  ]);
   const knowledgeContext = rag?.formatted ?? "";
 
   const today = now.toISOString().slice(0, 10);
@@ -494,6 +710,32 @@ export async function researchBlogBrief(
     brand_name: brandName.slice(0, 120),
   });
 
+  // The brand's own sites as far as is known before the crawled pages are listed (the
+  // last word comes below, once they are): a cite source on one of these is the brand's.
+  const operatorLinks = current.links.filter((l) => l.by === "operator").map((l) => l.url);
+  const knownOwn = sitesOf([current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks]);
+  const passages = citedPassages(shelf?.chunks ?? [], (url) => knownOwn.has(siteOf(url)));
+  const timeLeft = () => deadline - clock().getTime();
+  // Started now and collected after the searches: it needs none of them, and they none of it.
+  const citing: Promise<BlogSource[]> = passages.length
+    ? (async () => {
+        if (timeLeft() < 5_000) return [];
+        const picked = await (deps.pick ?? generateTextWithDeadline)(
+          renderPrompt("content.blog_cited_facts", {
+            today,
+            subject: (plan.scope.spark || plan.name).slice(0, 1000),
+            primary_question: current.primaryQuestion || "(not set)",
+            audience,
+            passages: formatPassages(passages),
+          }),
+          { timeoutMs: Math.min(timeLeft(), 30_000), thinkingBudget: blogResearchThinkingBudget() },
+        );
+        // The page's name and year are worth a few seconds, not the whole of what is left.
+        const fetchPage = timeLeft() > 8_000 ? (deps.fetchPage ?? fetchSourcePage) : null;
+        return sourcesFromCited(parseCitedFacts(picked ?? ""), passages, fetchPage);
+      })().catch((): BlogSource[] => [])
+    : Promise.resolve([]);
+
   const [asked, grounded, site] = await Promise.all([
     search(questionsPrompt, {
       timeoutMs: Math.max(deadline - clock().getTime(), 1_000),
@@ -510,12 +752,7 @@ export async function researchBlogBrief(
   // The brand's own site: where the article is published, and any site a person listed
   // a page of in the brief. A knowledge base can hold someone else's page as well (a
   // study, a competitor's pricing) — that is theirs, and is never offered as the brand's.
-  const own = sitesOf([
-    origin,
-    current.publisherUrl,
-    plan.strategy.hubUrl,
-    ...current.links.filter((l) => l.by === "operator").map((l) => l.url),
-  ]);
+  const own = sitesOf([origin, current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks]);
   const isOwn = (url: string) => own.has(siteOf(url));
   const guessed = origin ? pagesFromRepoPaths(site.repoPaths, origin, MAX_ROUTES_CHECKED) : [];
   const live = (
@@ -524,20 +761,29 @@ export async function researchBlogBrief(
       return url ? { url, title: p.title } : null;
     })
   ).filter((p): p is KnownPage => p !== null);
-  const related = (rag?.chunks ?? []).map((c) => c.sourceUri).filter((u) => u && !isCodeHostUrl(u));
+  // A cite source on the brand's own site is a page of the brand's worth sending a reader
+  // to, so it leads the pages that "go deeper" on this subject.
+  const ownShelf = (shelf?.chunks ?? []).map((c) => c.sourceUri).filter((u) => u && isOwn(u));
+  const related = [...new Set([...ownShelf, ...(rag?.chunks ?? []).map((c) => c.sourceUri)])].filter(
+    (u) => u && !isCodeHostUrl(u),
+  );
   const links = chooseLinkTargets(
-    [...site.pages, ...live].filter((p) => isOwn(p.url)),
+    [...site.pages, ...(site.cited ?? []), ...live].filter((p) => isOwn(p.url)),
     { related, exclude: [plan.strategy.hubUrl] },
   );
   const publisherUrl = origin || (links[0] ? new URL(links[0].url).origin : "");
 
   // Third-party facts — never from the brand's own site.
-  const sources = grounded
+  const fromWeb = grounded
     ? await sourcesFromFacts(facts, grounded, isOwn, {
         resolve: deps.resolve ?? resolveGroundingRedirect,
         fetchPage: deps.fetchPage ?? fetchSourcePage,
       })
     : [];
+  // And from the brand's cite sources. With none (or the flag off) the web's list is the
+  // list, exactly as it came.
+  const fromShelf = (await citing).filter((s) => !isOwn(s.url));
+  const sources = fromShelf.length ? fuseSources(fromShelf, fromWeb) : fromWeb;
 
   // An integration is a factual claim about the product: keep one only if the brand's
   // own material names it.
@@ -562,6 +808,7 @@ export async function researchBlogBrief(
       facts: facts.length,
       sources: sources.length,
       verifiedSources: sources.filter((s) => s.status === "verified").length,
+      citedSources: sources.filter((s) => s.origin === "cited").length,
     },
   };
 }

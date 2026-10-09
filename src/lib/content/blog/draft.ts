@@ -175,10 +175,20 @@ function fitBody(markdown: string): { body: string; cut: boolean } {
   return { body: (at > max * 0.5 ? head.slice(0, at) : head).trimEnd(), cut: true };
 }
 
+/**
+ * Said under the sources when some of them came from the brand's cite sources: the list
+ * then holds facts from two places, and the writer is to choose on merit alone. Empty
+ * otherwise, so an article with no cite source behind it is asked for exactly as before.
+ */
+const SOURCES_FROM_BOTH =
+  "\n(These facts come from sources the brand has chosen and from a web search. Every one was checked against its page. " +
+  "Cite the ones that best support the point you are making — it makes no difference which of the two a fact came from — and you need not use them all.)";
+
 function buildTask(input: BlogDraftInput, today: string): string {
   const { plan, node, brief } = input;
   const primary = brief.primaryQuestion.trim() || plan.scope.spark.trim() || plan.name;
   const entities = formatEntities(brief.entities);
+  const sources = usableSources(brief);
   return renderPrompt("content.blog_draft", {
     brand_name: input.brandName.replace(/["\n]/g, " ").slice(0, 120),
     primary_question: primary,
@@ -196,7 +206,8 @@ function buildTask(input: BlogDraftInput, today: string): string {
       : "",
     knowledge_context: input.knowledgeContext,
     proof_assets: input.proofBlock,
-    sources: formatSources(usableSources(brief)),
+    sources: formatSources(sources),
+    sources_note: sources.some((s) => s.origin === "cited") ? SOURCES_FROM_BOTH : "",
     links: formatLinks(brief.links),
   });
 }

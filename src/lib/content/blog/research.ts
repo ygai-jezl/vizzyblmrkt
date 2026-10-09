@@ -30,7 +30,7 @@ import {
 } from "@/lib/types/contentPlan";
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl } from "./brief";
 import { blockedCrawlers } from "./crawlers";
-import { factFiguresOnPage, figureSet } from "./figures";
+import { factFiguresOnPage, factWordedAs, figureSet, wordingShared, wordsOf } from "./figures";
 import { blogResearchThinkingBudget } from "./flags";
 import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
 
@@ -98,6 +98,9 @@ export interface FetchedPage {
   /** The year the page says it was published; null when it does not say. */
   year: number | null;
   text: string;
+  /** The site answered but would not let us read the page (it turns robots away). That
+   *  settles nothing about what the page says. */
+  refused?: boolean;
 }
 
 export interface SitePages {
@@ -321,6 +324,10 @@ async function fetchSourcePage(url: string): Promise<FetchedPage | null> {
       { headers: { "User-Agent": UA, Accept: "text/html,text/plain" } },
       { timeoutMs: 7000, maxRedirects: 3 },
     );
+    if ([401, 403, 429, 451].includes(res.status)) {
+      await res.body?.cancel().catch(() => undefined);
+      return { url, title: "", siteName: "", year: null, text: "", refused: true };
+    }
     if (!res.ok || !/text\/html|text\/plain|application\/xhtml/i.test(res.headers.get("content-type") ?? "")) {
       await res.body?.cancel().catch(() => undefined);
       return null;
@@ -506,14 +513,21 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 /**
  * Tie each fact to a page and check the page says so. A fact's candidate pages are the
  * ones search says back it (its redirect links, followed), then the address the model
- * gave. Found on a page → verified. Not found, but search tied it to a page → unverified
- * (a person can check). Only the model's word for it, and not found there → dropped.
+ * gave. Found on a page — its figures there, and worded as the page words it → verified.
+ * Not found, but search tied it to a page → unverified (a person can check). Only the
+ * model's word for it, and not found there → dropped.
+ *
+ * `keepRefused` (cite sources on): a page that answered but would not be read — many
+ * publishers turn robots away — settles nothing, so its fact is kept as unverified too,
+ * when the address is a page of its own and not a site's front door. A person can open
+ * what we could not.
  */
 async function sourcesFromFacts(
   facts: FoundFact[],
   grounded: GroundedTextResult,
   isOwn: (url: string) => boolean,
   deps: Required<Pick<BlogResearchDeps, "resolve" | "fetchPage">>,
+  keepRefused = false,
 ): Promise<BlogSource[]> {
   const usable = (url: string) => url.startsWith("https://") && !isCodeHostUrl(url) && !isOwn(url);
   const backing = facts.map((f) => ({ ...f, indexes: sourcesBacking(f.fact, grounded.text, grounded.supports) }));
@@ -536,14 +550,28 @@ async function sourcesFromFacts(
 
   const out: BlogSource[] = [];
   const perPage = new Map<string, number>();
+  const words = new Map<string, Set<string>>();
+  const wordsOn = (u: string, page: FetchedPage) => {
+    if (!words.has(u)) words.set(u, wordsOf(`${page.title} ${page.text}`));
+    return words.get(u)!;
+  };
+  const ownPage = (u: string) => {
+    try {
+      return new URL(u).pathname.replace(/\/+$/, "").length > 0;
+    } catch {
+      return false;
+    }
+  };
   for (const b of backing) {
     const { tied, all } = candidatesOf(b);
     const confirmed = all.find((u) => {
       const page = pages.get(u);
+      if (!page || page.refused) return false;
       // The year a page was published is on the page too, even when only its markup says so.
-      return page ? factFiguresOnPage(b.fact, `${page.text}\n${page.year ?? ""}`) : false;
+      return factFiguresOnPage(b.fact, `${page.text}\n${page.year ?? ""}`) && factWordedAs(b.fact, wordsOn(u, page));
     });
-    const url = confirmed ?? tied[0];
+    const refused = keepRefused ? all.find((u) => pages.get(u)?.refused && ownPage(u)) : undefined;
+    const url = confirmed ?? tied[0] ?? refused;
     if (!url) continue; // no page says it, and search tied it to none
     // One page should not be the article's only witness: at most two facts from each.
     const used = perPage.get(url) ?? 0;
@@ -625,25 +653,6 @@ export function parseCitedFacts(text: string): PickedFact[] {
 /** The same figures from the same page are the same fact, however it is worded. */
 const factKey = (url: string, fact: string) => `${normalizeUrl(url)}|${[...figureSet(fact)].sort().join(",")}`;
 
-/** The words that carry a text's meaning: runs of letters or digits, four characters or more. */
-const wordsOf = (text: string) => new Set(text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
-
-/** A picked fact must be worded as its passage words it: this much of it, at least. */
-const MIN_WORDING_SHARED = 0.6;
-
-/**
- * How much of a fact's wording is the passage's own, from 0 to 1. Right figures in a
- * sentence the passage never said ("63% of buyers trust AI answers" from a passage where
- * 63% of buyers asked an assistant for a shortlist) are not that passage's fact. A fact
- * too short to judge by its words — or written in a script that does not space them —
- * is judged by its figures alone.
- */
-function wordingShared(fact: string, passageWords: Set<string>): number {
-  const words = [...wordsOf(fact)];
-  if (words.length < 4) return 1;
-  return words.filter((w) => passageWords.has(w)).length / words.length;
-}
-
 /**
  * Check each picked fact against the text it came from, and write the ones that hold up
  * as sources. A fact is kept only if a passage holds every figure it states AND words it
@@ -665,9 +674,7 @@ async function sourcesFromCited(
   const read = passages.map((p) => ({ passage: p, text: `${p.title}\n${p.text}`, words: wordsOf(`${p.title} ${p.text}`) }));
   /** How well a passage backs a fact: 0 when it does not, else how much of its wording it shares. */
   const backing = (r: (typeof read)[number], fact: string) => {
-    if (!factFiguresOnPage(fact, r.text)) return 0;
-    const shared = wordingShared(fact, r.words);
-    return shared >= MIN_WORDING_SHARED ? shared : 0;
+    return factFiguresOnPage(fact, r.text) && factWordedAs(fact, r.words) ? wordingShared(fact, r.words) : 0;
   };
   const kept: { fact: string; passage: CitedPassage }[] = [];
   const perPage = new Map<string, number>();
@@ -891,10 +898,13 @@ export async function researchBlogBrief(
 
   // Third-party facts — never from the brand's own site.
   const fromWeb = grounded
-    ? await sourcesFromFacts(facts, grounded, isOwn, {
-        resolve: deps.resolve ?? resolveGroundingRedirect,
-        fetchPage: deps.fetchPage ?? fetchSourcePage,
-      })
+    ? await sourcesFromFacts(
+        facts,
+        grounded,
+        isOwn,
+        { resolve: deps.resolve ?? resolveGroundingRedirect, fetchPage: deps.fetchPage ?? fetchSourcePage },
+        citeOn,
+      )
     : [];
   // And from the brand's cite sources. With none (or the flag off) the web's list is the
   // list, exactly as it came. A page that would not open for its name is called what the

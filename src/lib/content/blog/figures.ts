@@ -109,10 +109,45 @@ export function unsupportedFigures(
 /**
  * Does `pageText` hold every figure `fact` states? False when the fact states no figure
  * at all — a claim with nothing to check is not a verified claim.
+ *
+ * The fact's figures are read as an article's are, so a digit that is part of a word or
+ * a name is not one: "three-quarters of B2B buyers, on call 24/7" states no figure, and must
+ * not pass for checked because some page somewhere has a 2 on it.
  */
 export function factFiguresOnPage(fact: string, pageText: string): boolean {
-  const cores = [...figureSet(fact)];
+  const cores = articleFigures(fact).map((f) => f.core);
   if (cores.length === 0) return false;
   const page = figureSet(pageText);
   return cores.every((c) => page.has(c));
+}
+
+/**
+ * The words that carry a text's meaning — runs of letters or digits, four characters or
+ * more — each cut to its first five, so "survey" and "surveyed", "buyer" and "buyers"
+ * are one word. Crude on purpose: this is for telling a claim from a different claim,
+ * not for telling two spellings apart.
+ */
+export function wordsOf(text: string): Set<string> {
+  return new Set(((text ?? "").toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).map((w) => w.slice(0, 5)));
+}
+
+/** A fact must be worded as its page words it: this much of it, at least. */
+const MIN_WORDING_SHARED = 0.6;
+
+/**
+ * Is `fact` worded as the page words it? The right figures in a sentence the page never
+ * said ("63% of buyers trust AI answers", of a page where 63% of buyers asked an
+ * assistant for a shortlist) are not that page's fact. Most of the fact's words must be
+ * the page's own. A fact too short to judge by its words — or written in a script that
+ * does not space them — is judged by its figures alone.
+ */
+export function factWordedAs(fact: string, pageWords: Set<string>): boolean {
+  return wordingShared(fact, pageWords) >= MIN_WORDING_SHARED;
+}
+
+/** How much of a fact's wording is the page's own, from 0 to 1. */
+export function wordingShared(fact: string, pageWords: Set<string>): number {
+  const words = [...wordsOf(fact)];
+  if (words.length < 4) return 1;
+  return words.filter((w) => pageWords.has(w)).length / words.length;
 }

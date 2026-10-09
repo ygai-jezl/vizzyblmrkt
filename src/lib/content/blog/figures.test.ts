@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { articleFigures, factFiguresOnPage, figureSet, normalizeFigure, unsupportedFigures } from "./figures";
+import {
+  articleFigures,
+  factFiguresOnPage,
+  factWordedAs,
+  figureSet,
+  normalizeFigure,
+  unsupportedFigures,
+  wordingShared,
+  wordsOf,
+} from "./figures";
 
 describe("figures", () => {
   it("normalizes separators and trailing zeros", () => {
@@ -50,5 +59,33 @@ describe("figures", () => {
     expect(factFiguresOnPage("AI search traffic converts at 41% compared to 2.8% for organic.", page)).toBe(false);
     // Nothing to check is not a verified claim.
     expect(factFiguresOnPage("AI search traffic converts better than organic search.", page)).toBe(false);
+  });
+
+  it("does not take a digit inside a word or a name for a figure the fact states", () => {
+    // A page with a 2, a 7 and a 4 on it — as any page has.
+    const page = "Founded 2 years ago, open 24/7, with 4 offices and 12.3 million visits.";
+    for (const fact of [
+      "Nearly three-quarters of B2B software buyers now use an AI assistant, according to research cited by ExampleScale.",
+      "Tier2 Research says most buyers start with an AI chatbot.",
+      "Support is available 24/7 for every customer.",
+      "It is the 2nd most used tool, after H1 headings.",
+    ]) {
+      expect(factFiguresOnPage(fact, page), fact).toBe(false);
+    }
+    // The figure a B2B fact does state is still what is looked for.
+    expect(factFiguresOnPage("B2B sites had 12.3 million visits.", page)).toBe(true);
+    expect(factFiguresOnPage("B2B sites had 99 million visits.", page)).toBe(false);
+  });
+
+  it("tells a fact worded as the page words it from the same figures in another claim", () => {
+    const page = wordsOf("Of 2,400 buyers surveyed, 63% asked an AI assistant for a shortlist before visiting a vendor site.");
+    expect(factWordedAs("63% of 2,400 buyers surveyed asked an AI assistant for a shortlist before visiting a vendor site.", page)).toBe(true);
+    // Other endings of the same words are the same words.
+    expect(factWordedAs("A survey of 2,400 buyers: 63% ask AI assistants for shortlists before they visit vendor sites.", page)).toBe(true);
+    expect(factWordedAs("63% of the 2,400 buyers surveyed trust an AI assistant more than a salesperson.", page)).toBe(false);
+    expect(wordingShared("Trust rose sharply among younger managers everywhere.", page)).toBe(0);
+    // Too short to judge by its words, or written without spaces: the figures decide alone.
+    expect(factWordedAs("63% said yes.", page)).toBe(true);
+    expect(factWordedAs("調査対象の購入者2,400人のうち63%がAIアシスタントに候補リストを求めた。", page)).toBe(true);
   });
 });

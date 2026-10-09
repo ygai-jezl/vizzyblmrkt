@@ -334,6 +334,67 @@ describe("blog research", () => {
     expect(grounded.mock.calls.filter((c) => String(c[0]).includes("FACT: <the sentence>"))).toHaveLength(1);
   });
 
+  it("does not call a fact checked because its figures happen to be on the page — the page has to say it", async () => {
+    const claims = "Analysts say 51% of software teams will replace their CRM within a year.";
+    const noFigure = "Nearly three-quarters of B2B buyers now use an assistant, according to Tier2 Research.";
+    const text = (f: string, url: string) => `FACT: ${f} | ${url}`;
+    const run = (answer: GroundedTextResult) =>
+      researchBlogBrief(
+        { ctx, workspace, plan: plan() },
+        deps({
+          grounded: vi.fn(async (prompt: string) =>
+            prompt.includes("FACT: <the sentence>") ? answer : { text: QUESTIONS, model: "m", sources: [], supports: [] },
+          ) as never,
+          // The survey page: it has a 51 on it, and a 2 — and says neither of these things.
+          fetchPage: async (url) => page({ url, text: "We surveyed 1,076 decision makers; 51% begin with an AI chatbot. Published 2 weeks ago." }),
+        }),
+      );
+
+    // Only the model's word ties them to the page: both are dropped.
+    const untied = await run({
+      text: [text(claims, "https://research.example.org/buyers-2026"), text(noFigure, "https://research.example.org/buyers-2026")].join("\n"),
+      model: "m",
+      sources: [],
+      supports: [],
+    });
+    expect(untied.brief.sources).toEqual([]);
+
+    // Search itself tied the first to the page: it is kept for a person to check, not called checked.
+    const tied = await run({
+      text: text(claims, "https://research.example.org/buyers-2026"),
+      model: "m",
+      sources: [{ uri: `${REDIRECT}a`, title: "research.example.org", domain: "research.example.org" }],
+      supports: [{ text: `FACT: ${claims}`, start: null, end: null, sourceIndexes: [0] }],
+    });
+    expect(tied.brief.sources.map((s) => s.status)).toEqual(["unverified"]);
+  });
+
+  it("keeps a fact for a person to check when its page turns robots away — with cite sources on", async () => {
+    const PRESS = "https://newsroom.example.com/press/2026-buyers-survey";
+    const facts = [
+      `FACT: A survey of 645 buyers found 45% used GenAI during a purchase. | ${PRESS}`,
+      // A site's front door is not a page that could hold the fact.
+      "FACT: Some 71% of buyers rely on chatbots for research. | https://closed.example.net/",
+    ].join("\n");
+    const d = () =>
+      deps({
+        grounded: vi.fn(async (prompt: string) =>
+          prompt.includes("FACT: <the sentence>") ? { text: facts, model: "m", sources: [], supports: [] } : { text: QUESTIONS, model: "m", sources: [], supports: [] },
+        ) as never,
+        fetchPage: async (url) => page({ url, refused: true }),
+      });
+
+    // Off: only the model's word for it, and nothing read — dropped, as before.
+    expect((await researchBlogBrief({ ctx, workspace, plan: plan() }, d())).brief.sources).toEqual([]);
+
+    vi.stubEnv("CREATE_BLOG_CITE_SOURCES_ENABLED", "true");
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan() }, d());
+    expect(r.brief.sources).toEqual([
+      { url: PRESS, title: "", publisher: "newsroom.example.com", year: null, fact: "A survey of 645 buyers found 45% used GenAI during a purchase.", status: "unverified" },
+    ]);
+    expect(r.found).toMatchObject({ sources: 1, verifiedSources: 0 });
+  });
+
   it("takes at most two facts from any one page", async () => {
     const facts = ["A: 11% of teams.", "B: 22% of teams.", "C: 33% of teams."];
     const grounded = vi.fn(async (prompt: string) =>

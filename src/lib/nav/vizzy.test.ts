@@ -130,3 +130,22 @@ describe("shellChatContext", () => {
     }
   });
 });
+
+describe("the person in view", () => {
+  const PERSON = "/admin/crm/people/pu_3f9a";
+
+  it("is named only when Vizzy can read a person, by our id, and cleared everywhere else", () => {
+    expect(shellChatContext(PERSON, "Audience › Product users › Person", { phase4: false })).not.toHaveProperty("personId");
+    expect(shellChatContext(PERSON, "Audience › Product users › Person", { phase4: false, personInContext: true })).toMatchObject({ personId: "pu_3f9a" });
+    for (const path of ["/admin/crm", "/admin", "/admin/crm/people", "/admin/lifecycle/lcj_abc"]) {
+      expect(shellChatContext(path, "Page", { phase4: false, personInContext: true })).toMatchObject({ personId: "" });
+    }
+    // Nothing the chat's envelope can't carry: an id with other characters is no person.
+    expect(shellChatContext("/admin/crm/people/pu_{x}", "Page", { phase4: false, personInContext: true })).toMatchObject({ personId: "" });
+  });
+
+  it("gets its own starter questions", () => {
+    expect(vizzySuggestions("audience", { person: true })).toEqual(["What's happened with this person so far?", "Why have they stalled?", "What should they get next?"]);
+    expect(vizzySuggestions("audience")).toContain("Who joined this week?");
+  });
+});

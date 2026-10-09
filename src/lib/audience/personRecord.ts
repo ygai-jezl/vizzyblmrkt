@@ -47,7 +47,8 @@ export interface PersonRecord {
   /** What they have several of. */
   entities: Array<{ id: string; kind: string; name: string | null; role: string | null; done: number; total: number; facts: Array<{ label: string; value: string }> }>;
   facts: Array<{ id: string; label: string; value: string; at: string | null }>;
-  traits: Array<{ label: string; value: string }>;
+  /** `declared`: the product's catalog names this trait (the rest arrived unannounced). */
+  traits: Array<{ label: string; value: string; declared: boolean }>;
   consent: { basis: string | null; asserted: string | null; at: string | null };
   optOuts: Array<{ text: string; at: string | null }>;
   journeys: PersonJourney[];
@@ -206,7 +207,10 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
       })),
       traits: Object.entries(user.traits ?? {})
         .filter(([, v]) => v !== null && v !== "")
-        .map(([key, v]) => ({ label: catalog.traits.find((t) => t.key === key)?.label || key, value: String(v) })),
+        .map(([key, v]) => {
+          const declared = catalog.traits.find((t) => t.key === key);
+          return { label: declared?.label || key, value: String(v), declared: Boolean(declared) };
+        }),
       consent: { basis: user.consent?.basis ?? null, asserted: user.consent?.assertedBasis ?? null, at: user.consent?.at ?? null },
       optOuts: optOuts.map((o) => ({
         text:

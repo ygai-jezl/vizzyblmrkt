@@ -102,3 +102,16 @@ def test_the_root_agent_and_lifecycle_ops_carry_the_journey_style_tools():
 
     for agent in (root_agent, lifecycle_ops_agent):
         assert get_journey_email_style in agent.tools and set_journey_email_style in agent.tools
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_lifecycle_ops_can_read_the_person_in_view():
+    from root_agent_pkg.sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
+    from root_agent_pkg.sub_agents.lifecycle_ops.tools.lifecycle_tools import get_person_brief
+
+    assert get_person_brief in lifecycle_ops_agent.tools
+    assert inspect.signature(get_person_brief).parameters["tool_context"].annotation is ToolContext
+    props, required = _params(FunctionTool(get_person_brief)._get_declaration())
+    # No way to ask by name or address: only the person in view, or an id a brief gave.
+    assert set(props) == {"person_id"} and not required
+

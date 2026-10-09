@@ -20,6 +20,7 @@ import { DeveloperDocsProvider } from "@/components/developers/DocsAvailability"
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
+import { isPersonBriefEnabled } from "@/lib/audience/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
@@ -156,6 +157,7 @@ export default async function AdminLayout({
             key={ctx.tenantId}
             names={crumbNames}
             journeyInContext={isEmailStyleEnabled() && isEmailJourneyStyleEnabled() && ctx.role === "admin"}
+            personInContext={isPersonBriefEnabled()}
           >
             {shell}
           </ShellProvider>

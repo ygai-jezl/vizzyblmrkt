@@ -20,6 +20,8 @@ interface Shell {
   setPaletteOpen: (open: boolean) => void;
   /** Ask Vizzy from anywhere (⌘K, suggestions): opens the panel, or uses Home's chat. */
   ask: (text: string) => void;
+  /** Vizzy can read the product user whose page is in view (LIFECYCLE_PERSON_BRIEF). */
+  personInContext: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor) can reload it. Null unless the layout
@@ -55,10 +57,13 @@ function focusHomeChat() {
 export function ShellProvider({
   names,
   journeyInContext = false,
+  personInContext = false,
   children,
 }: {
   names: CrumbNames;
   journeyInContext?: boolean;
+  /** Vizzy can read one person (LIFECYCLE_PERSON_BRIEF, from the server): the chat names the person in view. */
+  personInContext?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -69,7 +74,7 @@ export function ShellProvider({
   const chat = useDashboardChat({
     // The page, the launch in view, the programme / plan (nav v2 phase 4) and, with
     // journeyInContext, the lifecycle journey in view, for Vizzy's tools.
-    context: shellChatContext(pathname, page, { phase4: isNavV2Phase4Enabled(), journeyInContext }),
+    context: shellChatContext(pathname, page, { phase4: isNavV2Phase4Enabled(), journeyInContext, personInContext }),
     // When Vizzy saves a draft of the page you're on, show its version.
     onCanvasSaved: (card) => {
       if (card.url.split("?")[0] === pathname) router.refresh();
@@ -120,9 +125,10 @@ export function ShellProvider({
       paletteOpen,
       setPaletteOpen,
       ask,
+      personInContext,
       onCanvasSaved: journeyInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

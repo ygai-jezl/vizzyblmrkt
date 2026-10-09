@@ -139,3 +139,62 @@ def test_get_repo_analysis_reads_the_summary(monkeypatch):
     r = lc.get_repo_analysis(STATE, "pcn_9")
     assert r["status"] == "success" and r["analysis"]["status"] == "done"
     assert calls[0]["method"] == "GET" and calls[0]["url"].endswith("/connections/pcn_9/learn")
+
+
+# ---- One person (LIFECYCLE_PERSON_BRIEF) ------------------------------------------------
+
+BRIEF = {"personId": "pu_3f9a", "product": "Fernlight app", "stage": {"summary": "Onboarding, 2 of 5 steps done"}, "journeys": []}
+
+
+def test_a_person_brief_reads_the_person_in_view(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"brief": BRIEF})
+    state = {**STATE, "personId": "pu_3f9a"}
+    out = lc.get_person(state, "")
+    assert out == {"status": "success", "brief": BRIEF}
+    assert calls[0]["method"] == "GET" and calls[0]["token"] == "tok"
+    assert calls[0]["url"] == "https://app.example.com/api/agent/lifecycle/people/pu_3f9a"
+    # A read that worked means the rules for it belong in the prompt from now on.
+    assert state["personBriefEnabled"] is True
+    # A person the brief named earlier can be asked for by that id; anything odd is quoted.
+    lc.get_person(state, " pu_other ")
+    assert calls[1]["url"].endswith("/people/pu_other")
+    lc.get_person(state, "a/b?c")
+    assert calls[2]["url"].endswith("/people/a%2Fb%3Fc")
+
+
+def test_a_person_brief_needs_a_person_in_view(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"brief": BRIEF})
+    for state in (STATE, {**STATE, "personId": ""}, {**STATE, "personId": None}):
+        out = lc.get_person(dict(state), "")
+        assert out["status"] == "needs_person" and "person's page" in out["message"]
+    assert calls == []
+    assert lc.get_person({"personId": "pu_3f9a"}, "")["status"] == "unavailable"  # no chat token
+
+
+def test_a_person_brief_explains_what_went_wrong(monkeypatch):
+    state = {**STATE, "personId": "pu_3f9a"}
+    for status, code, words in (
+        (404, "person_not_found", "couldn't find that person"),
+        (404, "person_erased", "has been erased"),
+        (503, "person_brief_unavailable", "isn't switched on"),
+        (503, "unavailable", "Looking at one person isn't switched on"),
+        (429, "rate_limited", "a lot of people"),
+    ):
+        _capture(monkeypatch, status, {"error": code})
+        out = lc.get_person(dict(state), "")
+        assert out["status"] == "error" and out["code"] == code and words in out["message"]
+    _capture(monkeypatch, 401, {"error": "unauthorized"})
+    assert "session to the app expired" in lc.get_person(dict(state), "")["message"]
+    # A reply with no brief in it is never passed off as one.
+    _capture(monkeypatch, 200, {"brief": "nope"})
+    assert lc.get_person(dict(state), "")["status"] == "error"
+
+
+def test_every_context_read_rewrites_whether_a_person_can_be_read(monkeypatch):
+    state = dict(STATE)
+    _capture(monkeypatch, 200, {"connections": [], "personBrief": {"enabled": True}})
+    lc.get_context(state)
+    assert state["personBriefEnabled"] is True
+    _capture(monkeypatch, 200, {"connections": []})
+    lc.get_context(state)
+    assert state["personBriefEnabled"] is False

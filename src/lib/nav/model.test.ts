@@ -211,3 +211,18 @@ describe("phase 4 breadcrumbs", () => {
   });
 });
 
+
+describe("a person's page", () => {
+  const names = { launches: {}, workspaces: {} };
+  const crumbs = (path: string) => breadcrumbsFor(path, names, { phase3: true });
+
+  it("sits under Audience › Product users and never names the person", () => {
+    expect(crumbs("/admin/crm/people/pu_3f9a")).toEqual([
+      { label: "Audience", href: "/admin/crm" },
+      { label: "Product users", href: "/admin/crm?tab=product" },
+      { label: "Person" },
+    ]);
+    expect(crumbs("/admin/crm")).toEqual([{ label: "Audience" }]);
+    expect(crumbs("/admin/crm/people")).toEqual([{ label: "Audience" }]);
+  });
+});

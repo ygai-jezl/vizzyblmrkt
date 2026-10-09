@@ -160,3 +160,24 @@ def get_repo_analysis(tool_context: ToolContext, connection_id: str = "") -> dic
     """
     return client.get_repo_analysis(_state(tool_context), connection_id)
 
+
+def get_person_brief(tool_context: ToolContext, person_id: str = "") -> dict:
+    """Read ONE product user's situation, to explain what happened or plan what they get next.
+
+    Returns a brief of that person: the stage they're at (onboarding steps done, the
+    step they're on and for how long, whether they've gone quiet), whether they can be
+    emailed and why not, their onboarding checklist, what they have (brands,
+    workspaces…) and the facts the product reports, each journey they're in — what
+    was sent, whether each email was opened or clicked (null = it wasn't tracked),
+    what is held and why, and the emails ahead with their dates — and how many AI
+    lines are waiting in Approvals.
+
+    It never contains their name, their email address or the product's id for them,
+    and you must not ask for any of those. Call them "this person" or "they".
+
+    Args:
+        person_id: Leave empty for the person whose page the operator is on. Only
+            pass the `personId` a brief gave you earlier.
+    """
+    return client.get_person(_state(tool_context), person_id)
+

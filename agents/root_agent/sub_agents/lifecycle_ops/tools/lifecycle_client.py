@@ -22,6 +22,7 @@ CANVAS_PATH = "/api/agent/canvas"
 CONTEXT_PATH = "/api/agent/lifecycle/context"
 JOURNEY_PATH = "/api/agent/lifecycle/journeys/"
 CONNECTIONS_PATH = "/api/agent/lifecycle/connections/"
+PEOPLE_PATH = "/api/agent/lifecycle/people/"
 _TIMEOUT_SECONDS = 120  # drafting writes ~10 emails with the model
 
 
@@ -193,7 +194,44 @@ def get_context(state: "dict | None") -> dict:
         state["dateFactsEnabled"] = isinstance(date_facts, dict) and bool(date_facts.get("enabled"))
         date_start = body.get("dateStart")
         state["dateStartEnabled"] = isinstance(date_start, dict) and bool(date_start.get("enabled"))
+        # And whether one person's situation can be read (sent only with that on), so its
+        # rules come and go with the flag.
+        person_brief = body.get("personBrief")
+        state["personBriefEnabled"] = isinstance(person_brief, dict) and bool(person_brief.get("enabled"))
         return {"status": "success", **body}
+    return error_result(status_code, body)
+
+
+_PERSON_ERRORS = {
+    "person_brief_unavailable": "Looking at one person isn't switched on in this environment.",
+    "unavailable": "Looking at one person isn't switched on in this environment.",
+    "person_not_found": "I couldn't find that person in this account.",
+    "person_erased": "That person has been erased, so there's nothing I can read about them.",
+    "rate_limited": "I've looked at a lot of people in the last hour — please try again a bit later.",
+}
+
+
+def get_person(state: "dict | None", person_id: str) -> dict:
+    """One person's situation (no name, address or product id): the person asked for, else the one in view."""
+    resolved = (person_id or "").strip() or (state or {}).get("personId")
+    if not resolved:
+        return {
+            "status": "needs_person",
+            "message": "Open the person's page (Audience › Product users, then their row) and ask me there — I can only look at the person in view.",
+        }
+    got = _base_and_token(state)
+    if isinstance(got, dict):
+        return got
+    base, token = got
+    status_code, body_text = _request("GET", base + PEOPLE_PATH + urllib.parse.quote(str(resolved), safe=""), token)
+    body = _json(body_text)
+    if 200 <= status_code < 300 and isinstance(body.get("brief"), dict):
+        # A successful read proves the flag is on, whether or not the context was read first.
+        state["personBriefEnabled"] = True
+        return {"status": "success", "brief": body["brief"]}
+    code = body.get("error") or f"http_{status_code}"
+    if code in _PERSON_ERRORS:
+        return {"status": "error", "code": code, "message": _PERSON_ERRORS[code]}
     return error_result(status_code, body)
 
 

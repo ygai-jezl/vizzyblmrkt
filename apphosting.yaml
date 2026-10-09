@@ -738,6 +738,21 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Vizzy can read ONE person's situation: the person whose page the operator is
+  # on. The chat names that person by our id for them (a one-way hash), and
+  # Vizzy's get_person_brief reads /api/agent/lifecycle/people/{id}: their stage,
+  # onboarding, facts, journeys and emails. Never their name, their email address
+  # or the product's ids, and every value a product supplied is scrubbed of the
+  # person's name and of anything shaped like an address before it leaves
+  # (src/lib/audience/personBrief.ts). Until now Vizzy only ever got totals, so
+  # this is a new use of personal data: it belongs in the DPA before it is on in
+  # prod. Needs AUDIENCE_PERSON_VIEW and LIFECYCLE_CHAT_AUTHORING_ENABLED, and a
+  # root agent deployed with the tool. Off: the person's id never leaves the app
+  # and the route answers 503. OFF in prod (apphosting.prod.yaml).
+  - variable: LIFECYCLE_PERSON_BRIEF
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

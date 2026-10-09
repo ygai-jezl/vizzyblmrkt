@@ -36,6 +36,8 @@ export interface DashboardChatOptions {
     /** The content programme and plan in view (nav v2 phase 4). */
     workspaceId?: string | null;
     planId?: string | null;
+    /** The product user whose page is in view, by our id for them ("" = none). */
+    personId?: string | null;
     /** Where the operator is, as its breadcrumb, e.g. "Launches › Beta › Signups". */
     page?: string | null;
   };
@@ -122,6 +124,7 @@ export function useDashboardChat(options: DashboardChatOptions = {}): UseDashboa
             campaignId: optionsRef.current.context?.campaignId ?? null,
             workspaceId: optionsRef.current.context?.workspaceId ?? null,
             planId: optionsRef.current.context?.planId ?? null,
+            personId: optionsRef.current.context?.personId ?? null,
             page: optionsRef.current.context?.page ?? null,
           }),
         });

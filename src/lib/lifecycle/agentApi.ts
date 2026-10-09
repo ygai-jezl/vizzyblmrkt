@@ -10,6 +10,7 @@ import { isLifecycleChatAuthoringEnabled, isLifecycleDateStartEnabled, isLifecyc
 import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
 import { upstreamCheck } from "./chain";
 import { journeyTimeline, timelineText } from "./timeline";
+import { isPersonBriefEnabled } from "@/lib/audience/flags";
 
 /**
  * What Vizzy (the lifecycle_ops agent) may READ to build or edit a journey:
@@ -153,6 +154,9 @@ export async function agentLifecycleContext(ctx: TenantContext, db?: FirestoreLi
       // A journey can wear its own header and button colours (the journey_style kind), set
       // in its draft. Only sent while journey styles are on.
       ...(isEmailStyleEnabled() && isEmailJourneyStyleEnabled() ? { journeyStyle: { enabled: true } } : {}),
+      // Vizzy can read ONE person's situation, without their identity (get_person_brief). Only
+      // sent while that is on.
+      ...(isPersonBriefEnabled() ? { personBrief: { enabled: true } } : {}),
     },
   };
 }

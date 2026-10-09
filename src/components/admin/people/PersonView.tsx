@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Download, Sparkles, Trash2, UserPlus } from "lucide-react";
 import type { PersonEmail } from "@/lib/audience/personEmails";
 import type { PersonLookup, PersonRecord } from "@/lib/audience/personRecord";
 import { PEOPLE_HREF } from "@/lib/audience/paths";
@@ -13,6 +13,7 @@ import { api, errorText } from "../connect/api";
 import { Badge, Banner, Button, Section, inputClass } from "../connect/ui";
 import { Chip } from "./Chip";
 import { JourneyCard } from "./JourneyCard";
+import { useShell } from "../nav/ShellProvider";
 import { ago, day, dayTime, shortUrl, time, wallClock } from "./format";
 
 /**
@@ -56,8 +57,18 @@ function summaryOf(p: PersonRecord): string {
   return parts.join(" ");
 }
 
-export function PersonView({ personId, canEdit }: { personId: string; canEdit: boolean }) {
+export function PersonView({
+  personId,
+  canEdit,
+  vizzy = false,
+}: {
+  personId: string;
+  canEdit: boolean;
+  /** Vizzy can read this person's situation (LIFECYCLE_PERSON_BRIEF): offer to ask. */
+  vizzy?: boolean;
+}) {
   const router = useRouter();
+  const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -165,19 +176,26 @@ export function PersonView({ personId, canEdit }: { personId: string; canEdit: b
             ) : null}
           </p>
         </div>
-        {canEdit ? (
-          <div className="flex flex-wrap gap-2">
-            <a
-              href={`/api/admin/audience/people/${encodeURIComponent(p.id)}/export`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
-            >
-              <Download size={14} /> Export their data
-            </a>
-            <Button tone="danger" disabled={busy === "erase"} onClick={() => void erase()}>
-              <Trash2 size={14} /> {busy === "erase" ? "Erasing…" : "Erase"}
+        <div className="flex flex-wrap gap-2">
+          {vizzy && shell ? (
+            <Button tone="primary" onClick={() => shell.setVizzyOpen(true)} title="Vizzy sees their situation, never their name or address">
+              <Sparkles size={14} /> Ask Vizzy
             </Button>
-          </div>
-        ) : null}
+          ) : null}
+          {canEdit ? (
+            <>
+              <a
+                href={`/api/admin/audience/people/${encodeURIComponent(p.id)}/export`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
+              >
+                <Download size={14} /> Export their data
+              </a>
+              <Button tone="danger" disabled={busy === "erase"} onClick={() => void erase()}>
+                <Trash2 size={14} /> {busy === "erase" ? "Erasing…" : "Erase"}
+              </Button>
+            </>
+          ) : null}
+        </div>
       </header>
 
       <p className="max-w-3xl text-base font-medium">{summaryOf(p)}</p>

@@ -670,6 +670,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy reads one person's situation (see apphosting.yaml): OFF in prod. It is
+  # a new use of personal data, so switch it on only once the DPA covers it and
+  # the prod root agent has been redeployed with the tool. While off, a person's
+  # id never leaves the app.
+  - variable: LIFECYCLE_PERSON_BRIEF
+    value: "false"
+    availability:
+      - RUNTIME
   # (LIFECYCLE_WORKER_SECRET: inherited from apphosting.yaml — see above.)
   # Google Analytics — ON in prod (owner decision, 2026-09-24): `/`, `/login` and
   # `/developers` only, with Consent Mode v2 (denied by default in the EEA, UK and

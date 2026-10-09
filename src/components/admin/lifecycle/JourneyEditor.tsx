@@ -499,6 +499,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           sandboxUserIds={(connection?.sandboxUsers ?? []).map((u) => u.userId)}
           canEdit={canEdit}
           dateStart={dateStart}
+          personView={Boolean(detail.features.personView) && !waitlist}
         />
       ) : null}
       {tab === "preview" && !waitlist ? (

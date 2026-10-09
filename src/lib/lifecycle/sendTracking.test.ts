@@ -68,7 +68,7 @@ describe("opens and clicks for product journeys (LIFECYCLE_SEND_TRACKING)", () =
     expect(w.sent[0]!.track).toEqual(ON);
     expect(w.sent[0]!.metadata).toMatchObject({ enrolmentId: w.id, recipientKind: "product_user" });
     // The subject as Alex read it, not the template's tokens.
-    expect((await w.enrolment()).sentItems[0]).toMatchObject({ itemId: "w", status: "sent", subject: "Welcome to Sandbox, Alex" });
+    expect((await w.enrolment()).sentItems[0]).toMatchObject({ itemId: "w", status: "sent", subject: "Welcome to Sandbox, Alex", tracked: ON });
     const rows = await forTenant(system, w.db).emailEvents.find({ where: [["signupId", "==", w.user.id]] });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: `evt:${w.journey.id}:email_welcome:${w.user.id}:w:${w.id}:send`, enrolmentId: w.id, type: "send" });

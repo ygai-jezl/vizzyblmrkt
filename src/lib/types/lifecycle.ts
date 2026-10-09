@@ -533,6 +533,8 @@ export const SentItemSchema = z.object({
    */
   subject: z.string().max(200).optional(),
   line: z.string().max(400).optional(),
+  /** Whether this email asked for opens and clicks, so "not opened" is never said of one that couldn't tell. */
+  tracked: z.object({ opens: z.boolean(), clicks: z.boolean() }).optional(),
 });
 export type SentItem = z.infer<typeof SentItemSchema>;
 

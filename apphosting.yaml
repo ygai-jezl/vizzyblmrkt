@@ -724,6 +724,20 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # The person view. Audience › Product users becomes a list worth scanning: the
+  # stage each person is at (new, onboarding, stuck, activated, quiet), the
+  # journey they're in, emails sent, opened and clicked, search and filters. Every
+  # row opens the person's page (/admin/crm/people/{id}): each journey with what
+  # was sent, where they are and what the sender does next (the runner's own
+  # walk, on stored state), every email with what they did with it, their product
+  # progress, one timeline, consent, a data export and erase. Reads only what is
+  # already held; opening a page asks the product nothing. Needs
+  # LIFECYCLE_ENABLED. Off: today's list, and the page and its APIs 404. OFF in
+  # prod (apphosting.prod.yaml) until checked here.
+  - variable: AUDIENCE_PERSON_VIEW
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

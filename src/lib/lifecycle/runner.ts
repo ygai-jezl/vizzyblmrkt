@@ -661,7 +661,14 @@ async function deliver(
 
   const note = (...parts: Array<string | null | undefined>) => parts.filter(Boolean).join(" · ") || null;
   // What went out, kept with the send: the template can't say (tokens are filled per person).
-  const wentOut = recorded ? { subject: email.subject, ...(useAi && v?.version === "ai" && v.aiLine ? { line: v.aiLine } : {}) } : {};
+  const wentOut = recorded
+    ? {
+        subject: email.subject,
+        ...(useAi && v?.version === "ai" && v.aiLine ? { line: v.aiLine } : {}),
+        // Shadow mail goes to the operator's inbox: its opens are never the person's.
+        tracked: mode === "shadow" ? { opens: false, clicks: false } : { opens: tracking.opens, clicks: tracking.clicks },
+      }
+    : {};
   if (result.sent || result.provider === "log") {
     if (result.sent && mode !== "shadow") {
       await recordEmailEvent(

@@ -172,6 +172,8 @@ export type DeliverResult =
       /** What went out, kept with the send: the subject as rendered, and the AI line when it was used. */
       subject?: string;
       line?: string;
+      /** Whether it asked for opens and clicks. */
+      tracked?: { opens: boolean; clicks: boolean };
     }
   | { kind: "skipped"; reason: string }
   | { kind: "hold"; untilMs: number; event: string; detail?: string }
@@ -321,6 +323,7 @@ export async function runWalkLoop(run: EnrolmentRun, first: WalkResult, h: WalkL
           ...(r.version ? { version: r.version } : {}),
           ...(r.subject ? { subject: r.subject.slice(0, 200) } : {}),
           ...(r.line ? { line: r.line.slice(0, 400) } : {}),
+          ...(r.tracked ? { tracked: r.tracked } : {}),
         });
         if (r.insightId) usedInsightIds.push(r.insightId);
         lastSentAt = iso(r.atMs);

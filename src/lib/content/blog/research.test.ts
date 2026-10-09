@@ -415,12 +415,15 @@ const SHELF: RetrievedChunk[] = [
 const FACT_SHORTLIST = "63% of 2,400 buyers surveyed asked an AI assistant for a shortlist before visiting a vendor site.";
 const FACT_CITED_MORE = "Pages that state their sources are cited 2.3 times as often.";
 const FACT_INVENTED = "AI search will handle 75% of B2B research by 2028.";
+const FACT_OWN_BENCHMARK = "Across 180 Acme customers, visibility rose 41% in a quarter.";
 const PICKED = [
   `FACT: ${FACT_SHORTLIST} | 1`,
   // The wrong passage named: the text that holds the figures is what counts.
   `FACT: ${FACT_CITED_MORE} | 1`,
   // In no passage at all.
   `FACT: ${FACT_INVENTED} | 2`,
+  // The brand's own research, on the shelf like the rest.
+  `FACT: ${FACT_OWN_BENCHMARK} | 3`,
 ].join("\n");
 
 function withShelf(over: Partial<BlogResearchDeps> = {}) {
@@ -476,13 +479,16 @@ describe("blog research — the brand's cite sources", () => {
     expect(parseCitedFacts("NONE")).toEqual([]);
   });
 
-  it("shows the picker passages of cite sources only — a few from each page, none from the brand's own", () => {
+  it("shows the picker passages of cite sources only — a few from each page, the brand's own research included", () => {
     const many = Array.from({ length: 6 }, (_, i) => chunkOf({ sourceUri: ANALYST, title: `Part ${i}`, content: `p${i}` }));
-    const passages = citedPassages(
-      [...many, chunkOf({ sourceUri: OWN_REPORT, content: "ours" }), chunkOf({ sourceUri: STANDARDS, content: "std" }), chunkOf({ sourceUri: STANDARDS, content: "not marked", tags: [] })],
-      (url) => url.includes("acme.example"),
-    );
-    expect(passages.map((p) => `${p.n}:${p.text}`)).toEqual(["1:p0", "2:p1", "3:p2", "4:std"]);
+    const passages = citedPassages([
+      ...many,
+      chunkOf({ sourceUri: OWN_REPORT, content: "ours" }),
+      chunkOf({ sourceUri: STANDARDS, content: "std" }),
+      chunkOf({ sourceUri: STANDARDS, content: "not marked", tags: [] }),
+      chunkOf({ sourceUri: "https://github.com/acme/app/blob/HEAD/README.md", content: "code" }),
+    ]);
+    expect(passages.map((p) => `${p.n}:${p.text}`)).toEqual(["1:p0", "2:p1", "3:p2", "4:ours", "5:std"]);
   });
 
   it("makes one list of both: the best of each in turn, the unconfirmed last, no page more than twice", () => {
@@ -517,13 +523,18 @@ describe("blog research — the brand's cite sources", () => {
       `cited:verified:${ANALYST}`,
       "web:verified:https://research.example.org/buyers-2026",
       `cited:verified:${STANDARDS}`,
+      `cited:verified:${OWN_REPORT}`,
       "web:unverified:https://press.example.net/ai-search-converts",
     ]);
-    expect(r.found).toMatchObject({ sources: 4, verifiedSources: 3, citedSources: 2 });
+    expect(r.found).toMatchObject({ sources: 5, verifiedSources: 4, citedSources: 3 });
 
     // Cited by the page's own name and year when it opens; by its domain when it won't.
     expect(r.brief.sources[0]).toMatchObject({ publisher: "Example Analyst", year: 2026, title: "AI search 2026", fact: FACT_SHORTLIST });
     expect(r.brief.sources[2]).toMatchObject({ publisher: "standards.example.net", year: null, title: "Guidance on citations", fact: FACT_CITED_MORE });
+    // A page that won't open is called what the knowledge base calls the page, when it
+    // knows — not the heading of the one passage the fact was in.
+    const unopened = await researchBlogBrief({ ctx, workspace, plan: plan() }, withShelf({ fetchPage: async () => null }).d);
+    expect(unopened.brief.sources.find((s) => s.url === ANALYST)).toMatchObject({ title: "AI search 2026", publisher: "analyst.example.com", year: null });
     // The fact no passage holds is not on the list at all.
     expect(r.brief.sources.some((s) => s.fact === FACT_INVENTED)).toBe(false);
 
@@ -532,15 +543,39 @@ describe("blog research — the brand's cite sources", () => {
     expect(prompt).toContain(`[1] Key findings — ${ANALYST}`);
     expect(prompt).toContain(`[2] Guidance on citations — ${STANDARDS}`);
     expect(prompt.match(/<\/passages>/g)).toHaveLength(1);
-    // The brand's own benchmark is the brand's material, not a third party to cite…
-    expect(prompt).not.toContain("Acme benchmark 2026");
-    expect(r.brief.sources.some((s) => s.url.includes("acme.example"))).toBe(false);
-    // …it is a page of the brand's to send a reader to. The analyst's pricing page is not.
+    // The brand's own benchmark is on the shelf like the rest: its fact can be cited…
+    expect(prompt).toContain(`[3] Acme benchmark 2026 — ${OWN_REPORT}`);
+    expect(r.brief.sources[3]).toMatchObject({ url: OWN_REPORT, fact: FACT_OWN_BENCHMARK, origin: "cited" });
+    // …and it is a page of the brand's to send a reader to. The analyst's pricing page is not.
     expect(r.brief.links.map((l) => `${l.intent}:${l.url}`)).toEqual([
       "convert:https://acme.example/pricing",
       `learn:${OWN_REPORT}`,
       "learn:https://acme.example/blog/citation-gaps",
     ]);
+  });
+
+  it("keeps a picked fact only when a passage words it as the fact does — the right figures are not enough", async () => {
+    on();
+    // Both pages hold "63%" and "2,400"; only the analyst's says what the first fact says.
+    const lookalike = chunkOf({
+      sourceUri: "https://lookalike.example.io/notes",
+      title: "Notes",
+      content: "Our newsletter has 2,400 readers and a 63% open rate, well above the average for the sector.",
+    });
+    const { d } = withShelf({
+      retrieve: (async (req: ContextRetrievalRequest) =>
+        req.filter?.tag === "cite" ? { formatted: "", chunks: [lookalike, ...SHELF] } : { formatted: "", chunks: [] }) as never,
+      grounded: (async () => null) as never,
+      pick: async () =>
+        [
+          // No passage named: it goes to the page whose words it shares, not the first with the figures.
+          `FACT: ${FACT_SHORTLIST}`,
+          // The figures are the analyst's; the claim is nobody's.
+          "FACT: 63% of the 2,400 buyers surveyed trust an AI assistant more than a salesperson. | 2",
+        ].join("\n"),
+    });
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan() }, d);
+    expect(r.brief.sources.map((s) => `${s.url} :: ${s.fact}`)).toEqual([`${ANALYST} :: ${FACT_SHORTLIST}`]);
   });
 
   it("gives the web's list as it came when the shelf has nothing for this article", async () => {
@@ -557,8 +592,8 @@ describe("blog research — the brand's cite sources", () => {
     const { d } = withShelf({ grounded: (async () => null) as never });
     const r = await researchBlogBrief({ ctx, workspace, plan: plan() }, d);
     expect(r.searched).toBe(false);
-    expect(r.brief.sources.map((s) => s.url)).toEqual([ANALYST, STANDARDS]);
-    expect(r.found).toMatchObject({ facts: 0, sources: 2, verifiedSources: 2, citedSources: 2 });
+    expect(r.brief.sources.map((s) => s.url)).toEqual([ANALYST, STANDARDS, OWN_REPORT]);
+    expect(r.found).toMatchObject({ facts: 0, sources: 3, verifiedSources: 3, citedSources: 3 });
   });
 
   it("carries on with the web's facts when the picker fails", async () => {
@@ -578,7 +613,14 @@ describe("blog research — the brand's cite sources", () => {
     });
     const { d } = withShelf();
     const r = await researchBlogBrief({ ctx, workspace, plan: plan({ blog: mine }) }, d);
-    expect(r.brief.sources.map((s) => s.fact)).toEqual(["A fact I checked: 12%.", FACT_SHORTLIST, FACT_SURVEY, FACT_CITED_MORE, FACT_CONVERTS]);
+    expect(r.brief.sources.map((s) => s.fact)).toEqual([
+      "A fact I checked: 12%.",
+      FACT_SHORTLIST,
+      FACT_SURVEY,
+      FACT_CITED_MORE,
+      FACT_OWN_BENCHMARK,
+      FACT_CONVERTS,
+    ]);
   });
 
   it("does none of it while the flag is off — the shelf is never read and nothing is picked", async () => {

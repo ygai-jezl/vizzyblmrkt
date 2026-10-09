@@ -58,7 +58,8 @@ import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
  *     needs no page to answer and no search result to say where a fact came from. This
  *     runs BESIDE the web search, never instead of it: the search finds what the brand
  *     does not know about, the shelf holds what it does. The two lists are then made
- *     one, the best of each in turn, and the writer chooses from both.
+ *     one, the best of each in turn, and the writer chooses from both. The brand's own
+ *     research can be on the shelf too, and is cited the same way.
  *  5. The merge — a person's rows in the brief always stay; research replaces only its own.
  *
  * With the same flag it also reads the publisher's robots.txt, and notes which of the AI
@@ -572,16 +573,17 @@ export interface CitedPassage {
 }
 
 /**
- * The passages the fact picker is shown: the nearest to the subject first, a few from
- * each page, and none from a page that is the brand's own (that is the brand's material,
- * which the writer already has — not a third party to cite).
+ * The passages the fact picker is shown: the nearest to the subject first, and a few
+ * from each page. Whose page it is makes no difference here — the brand's own research,
+ * marked as a cite source, is cited like anyone else's (and, being the brand's own, is
+ * never counted as a third party backing it).
  */
-export function citedPassages(chunks: RetrievedChunk[], isOwn: (url: string) => boolean): CitedPassage[] {
+export function citedPassages(chunks: RetrievedChunk[]): CitedPassage[] {
   const perPage = new Map<string, number>();
   const out: CitedPassage[] = [];
   for (const c of chunks) {
     const url = normalizeUrl(c.sourceUri);
-    if (!isCiteSource(c.tags) || !url.startsWith("https://") || isCodeHostUrl(url) || isOwn(url)) continue;
+    if (!isCiteSource(c.tags) || !url.startsWith("https://") || isCodeHostUrl(url)) continue;
     const used = perPage.get(url) ?? 0;
     if (used >= MAX_PASSAGES_PER_PAGE) continue;
     perPage.set(url, used + 1);
@@ -623,31 +625,61 @@ export function parseCitedFacts(text: string): PickedFact[] {
 /** The same figures from the same page are the same fact, however it is worded. */
 const factKey = (url: string, fact: string) => `${normalizeUrl(url)}|${[...figureSet(fact)].sort().join(",")}`;
 
+/** The words that carry a text's meaning: runs of letters or digits, four characters or more. */
+const wordsOf = (text: string) => new Set(text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
+
+/** A picked fact must be worded as its passage words it: this much of it, at least. */
+const MIN_WORDING_SHARED = 0.6;
+
+/**
+ * How much of a fact's wording is the passage's own, from 0 to 1. Right figures in a
+ * sentence the passage never said ("63% of buyers trust AI answers" from a passage where
+ * 63% of buyers asked an assistant for a shortlist) are not that passage's fact. A fact
+ * too short to judge by its words — or written in a script that does not space them —
+ * is judged by its figures alone.
+ */
+function wordingShared(fact: string, passageWords: Set<string>): number {
+  const words = [...wordsOf(fact)];
+  if (words.length < 4) return 1;
+  return words.filter((w) => passageWords.has(w)).length / words.length;
+}
+
 /**
  * Check each picked fact against the text it came from, and write the ones that hold up
- * as sources. A fact is kept only if every figure it states is in a passage: the one the
- * picker named, else whichever passage does hold them (its number is only a pointer; the
- * text is the evidence). No passage holds them → the fact is dropped, not shown as
- * unconfirmed — nothing ties it to any page.
+ * as sources. A fact is kept only if a passage holds every figure it states AND words it
+ * much as the fact does: the passage the picker named, else the one that shares most of
+ * its wording (the number is only a pointer; the text is the evidence). No passage does
+ * → the fact is dropped, not shown as unconfirmed — nothing ties it to any page.
  *
  * The page is then opened once, for its own name and year to cite it by. That is a
  * courtesy to the citation, not a check: the text is already held, so a page that will
- * not open now still gives its fact, named by its domain.
+ * not open now still gives its fact, named by its domain. `named` lists the pages that
+ * did open — the rest carry their passage's heading for a title, which the caller can
+ * better with the page's own.
  */
 async function sourcesFromCited(
   picked: PickedFact[],
   passages: CitedPassage[],
   fetchPage: ((url: string) => Promise<FetchedPage | null>) | null,
-): Promise<BlogSource[]> {
-  const byNumber = new Map(passages.map((p) => [p.n, p] as const));
-  const holds = (p: CitedPassage, fact: string) => factFiguresOnPage(fact, `${p.title}\n${p.text}`);
+): Promise<{ rows: BlogSource[]; named: Set<string> }> {
+  const read = passages.map((p) => ({ passage: p, text: `${p.title}\n${p.text}`, words: wordsOf(`${p.title} ${p.text}`) }));
+  /** How well a passage backs a fact: 0 when it does not, else how much of its wording it shares. */
+  const backing = (r: (typeof read)[number], fact: string) => {
+    if (!factFiguresOnPage(fact, r.text)) return 0;
+    const shared = wordingShared(fact, r.words);
+    return shared >= MIN_WORDING_SHARED ? shared : 0;
+  };
   const kept: { fact: string; passage: CitedPassage }[] = [];
   const perPage = new Map<string, number>();
   const seen = new Set<string>();
   for (const f of picked) {
-    const named = f.passage === null ? undefined : byNumber.get(f.passage);
-    const passage = named && holds(named, f.fact) ? named : passages.find((p) => holds(p, f.fact));
-    if (!passage) continue;
+    const named = read.find((r) => r.passage.n === f.passage);
+    const best =
+      named && backing(named, f.fact) > 0
+        ? named
+        : read.map((r) => ({ r, score: backing(r, f.fact) })).sort((a, b) => b.score - a.score).find((x) => x.score > 0)?.r;
+    if (!best) continue;
+    const passage = best.passage;
     const key = factKey(passage.url, f.fact);
     const used = perPage.get(passage.url) ?? 0;
     if (seen.has(key) || used >= MAX_FACTS_PER_PAGE) continue;
@@ -663,7 +695,7 @@ async function sourcesFromCited(
       pages.set(url, await fetchPage(url).catch(() => null));
     });
   }
-  return kept.map(({ fact, passage }) => {
+  const rows = kept.map(({ fact, passage }): BlogSource => {
     const page = pages.get(passage.url) ?? null;
     return {
       url: passage.url,
@@ -675,6 +707,7 @@ async function sourcesFromCited(
       origin: "cited",
     };
   });
+  return { rows, named: new Set([...pages].filter(([, page]) => page?.title).map(([url]) => url)) };
 }
 
 /**
@@ -789,17 +822,15 @@ export async function researchBlogBrief(
     brand_name: brandName.slice(0, 120),
   });
 
-  // The brand's own sites as far as is known before the crawled pages are listed (the
-  // last word comes below, once they are): a cite source on one of these is the brand's.
   const operatorLinks = current.links.filter((l) => l.by === "operator").map((l) => l.url);
   const tenantSites = sitesOf(input.ownSites ?? []);
-  const knownOwn = sitesOf([current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks, ...tenantSites]);
-  const passages = citedPassages(shelf?.chunks ?? [], (url) => knownOwn.has(siteOf(url)));
+  const passages = citedPassages(shelf?.chunks ?? []);
   const timeLeft = () => deadline - clock().getTime();
   // Started now and collected after the searches: it needs none of them, and they none of it.
-  const citing: Promise<BlogSource[]> = passages.length
+  const nothingCited = { rows: [] as BlogSource[], named: new Set<string>() };
+  const citing = passages.length
     ? (async () => {
-        if (timeLeft() < 5_000) return [];
+        if (timeLeft() < 5_000) return nothingCited;
         const picked = await (deps.pick ?? generateTextWithDeadline)(
           renderPrompt("content.blog_cited_facts", {
             today,
@@ -813,8 +844,8 @@ export async function researchBlogBrief(
         // The page's name and year are worth a few seconds, not the whole of what is left.
         const fetchPage = timeLeft() > 8_000 ? (deps.fetchPage ?? fetchSourcePage) : null;
         return sourcesFromCited(parseCitedFacts(picked ?? ""), passages, fetchPage);
-      })().catch((): BlogSource[] => [])
-    : Promise.resolve([]);
+      })().catch(() => nothingCited)
+    : Promise.resolve(nothingCited);
 
   const [asked, grounded, site] = await Promise.all([
     search(questionsPrompt, {
@@ -833,7 +864,7 @@ export async function researchBlogBrief(
   // page of in the brief, and the domains the tenant is known to own. A knowledge base
   // can hold someone else's page as well (a study, a competitor's pricing) — that is
   // theirs, and is never offered as the brand's.
-  const own = sitesOf([origin, ...knownOwn]);
+  const own = sitesOf([origin, current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks, ...tenantSites]);
   const isOwn = (url: string) => own.has(siteOf(url));
   // Asked now, collected at the end: one small request to the article's own site.
   const crawling = citeOn
@@ -846,8 +877,8 @@ export async function researchBlogBrief(
       return url ? { url, title: p.title } : null;
     })
   ).filter((p): p is KnownPage => p !== null);
-  // A cite source on the brand's own site is a page of the brand's worth sending a reader
-  // to, so it leads the pages that "go deeper" on this subject.
+  // A cite source on the brand's own site is also a page of the brand's worth sending a
+  // reader to, so it leads the pages that "go deeper" on this subject.
   const ownShelf = (shelf?.chunks ?? []).map((c) => c.sourceUri).filter((u) => u && isOwn(u));
   const related = [...new Set([...ownShelf, ...(rag?.chunks ?? []).map((c) => c.sourceUri)])].filter(
     (u) => u && !isCodeHostUrl(u),
@@ -866,8 +897,13 @@ export async function researchBlogBrief(
       })
     : [];
   // And from the brand's cite sources. With none (or the flag off) the web's list is the
-  // list, exactly as it came.
-  const fromShelf = (await citing).filter((s) => !isOwn(s.url));
+  // list, exactly as it came. A page that would not open for its name is called what the
+  // knowledge base calls it (its first heading), rather than the heading of one passage.
+  const cited = await citing;
+  const pageTitles = new Map((site.cited ?? []).map((p) => [normalizeUrl(p.url), p.title.replace(/\s+/g, " ").trim()] as const));
+  const fromShelf = cited.rows.map((s) =>
+    cited.named.has(s.url) ? s : { ...s, title: (pageTitles.get(s.url) || s.title).slice(0, 200) },
+  );
   const sources = fromShelf.length ? fuseSources(fromShelf, fromWeb) : fromWeb;
 
   // An integration is a factual claim about the product: keep one only if the brand's

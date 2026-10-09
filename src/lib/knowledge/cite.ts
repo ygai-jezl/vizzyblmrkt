@@ -6,7 +6,8 @@
  * A cite source on SOMEONE ELSE'S site is evidence — what a third party found. It is
  * never the brand's own material: everything else that reads the knowledge base (posts,
  * emails, Vizzy, the fact check's idea of what the brand says) leaves it out. A cite
- * source on the brand's own site stays the brand's material, like any other page of it.
+ * source on the brand's own site — its own research — can be cited just the same, and
+ * stays the brand's material as well, like any other page of it.
  *
  * It is an ordinary tag on purpose: a tag is already stamped on every passage of a source
  * and already has its vector index, so nothing new is stored and nothing is migrated.

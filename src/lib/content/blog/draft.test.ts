@@ -210,6 +210,28 @@ describe("the blog writer", () => {
     // Taking the new source and the note back out leaves the first prompt, to the letter.
     const added = both.slice(both.indexOf("- Cite as [Example Analyst, 2026]"), both.indexOf("YOUR OWN PAGES YOU MAY LINK TO"));
     expect(both.replace(added, "\n")).toBe(plain);
+
+    // The brand's own research on the shelf is cited the same way — and called what it is.
+    const ownFinding = "say it is the brand's own finding, never an outside party's";
+    expect(both).not.toContain(ownFinding);
+    const withOwn = {
+      ...withShelf,
+      sources: [
+        ...withShelf.sources,
+        {
+          url: "https://acme.example/research/benchmark-2026",
+          title: "Acme benchmark 2026",
+          publisher: "Acme",
+          year: 2026,
+          fact: "Across 180 Acme customers, visibility rose 41% in a quarter.",
+          status: "verified" as const,
+          origin: "cited" as const,
+        },
+      ],
+    };
+    await draftBlogArticle(input({ quick: true, brief: withOwn }), { generate, now: clock(1000) });
+    expect(prompts[2]).toContain(ownFinding);
+    expect(prompts[2]).toContain("- Cite as [Acme, 2026](https://acme.example/research/benchmark-2026)");
   });
 });
 

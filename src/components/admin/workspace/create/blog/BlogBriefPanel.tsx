@@ -730,7 +730,7 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
           }
           hint={
             controls.onKeepSource
-              ? "The only other sites the article may cite: checked facts from your cite sources and from a web search, side by side — neither comes first, and the article uses the ones that fit. One that isn't confirmed is left out until you've checked it."
+              ? "The only sources the article may cite: checked facts from your cite sources and from a web search, side by side — neither comes first, and the article uses the ones that fit. One that isn't confirmed is left out until you've checked it."
               : "The only other sites the article may cite. One that isn't confirmed is left out until you've checked it."
           }
         >

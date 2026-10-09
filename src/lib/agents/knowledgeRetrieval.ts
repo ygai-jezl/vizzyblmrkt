@@ -1,4 +1,4 @@
-import { forTenant, verifyOwner, knowledgeChunksRef } from "@/lib/tenant";
+import { forTenant, getTenantById, verifyOwner, knowledgeChunksRef } from "@/lib/tenant";
 import type {
   FirestoreLike,
   KnowledgeCollectionLike,
@@ -6,7 +6,7 @@ import type {
 } from "@/lib/tenant/types";
 import type { KnowledgeOwnerKind } from "@/lib/types/knowledgeBase";
 import { isCiteSource, isCiteSourcesEnabled, isWebSource } from "@/lib/knowledge/cite";
-import { siteOf, sitesOf } from "@/lib/knowledge/site";
+import { siteOf, sitesOf, tenantDomains } from "@/lib/knowledge/site";
 import { embedQuery as defaultEmbedQuery } from "./embeddings";
 
 /**
@@ -182,24 +182,29 @@ interface Nearest {
 }
 
 /**
- * The sites that are the owner's own, as its knowledge base tells it: where its web
- * sources that are NOT cite sources live. A cite source on one of these is the brand's
- * own page; on any other it is someone else's. Asked only when a cite passage turns up.
- * If it can't be read, nothing is taken as the brand's own.
+ * The sites that are the owner's own: where its web sources that are NOT cite sources
+ * live (what its knowledge base tells it), and the domains its tenant record vouches for.
+ * A cite source on one of these is the brand's own research; on any other it is someone
+ * else's. Asked only when a cite passage turns up. What can't be read adds nothing — and
+ * with nothing read, nothing is taken as the brand's own.
  */
 async function ownSites(req: ContextRetrievalRequest, db?: FirestoreLike): Promise<Set<string>> {
-  try {
-    const tickets = await forTenant(req.ctx, db).ingestionTickets.find({
-      where: [
-        ["ownerKind", "==", req.ownerKind],
-        ["ownerId", "==", req.ownerId],
-      ],
-      limit: 200,
-    });
-    return sitesOf(tickets.filter((t) => isWebSource(t.source) && !isCiteSource(t.tags)).map((t) => t.sourceUri));
-  } catch {
-    return new Set();
-  }
+  const [tickets, tenant] = await Promise.all([
+    forTenant(req.ctx, db)
+      .ingestionTickets.find({
+        where: [
+          ["ownerKind", "==", req.ownerKind],
+          ["ownerId", "==", req.ownerId],
+        ],
+        limit: 200,
+      })
+      .catch(() => []),
+    (db ? getTenantById(req.ctx.tenantId, db) : getTenantById(req.ctx.tenantId)).catch(() => null),
+  ]);
+  return sitesOf([
+    ...tickets.filter((t) => isWebSource(t.source) && !isCiteSource(t.tags)).map((t) => t.sourceUri),
+    ...tenantDomains(tenant),
+  ]);
 }
 
 // Ingested chunk content is attacker-influenceable (an operator can point ingestion

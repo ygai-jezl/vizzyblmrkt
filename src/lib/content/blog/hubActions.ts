@@ -5,6 +5,7 @@ import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspace
 import type { BlogBrief, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
 import { fenceProof } from "@/lib/content/create/generateNode";
+import { tenantDomains } from "@/lib/knowledge/site";
 import { briefOf } from "./brief";
 import { evaluateCitable } from "./citable";
 import { BLOG_WARNINGS, blogWarnings } from "./draft";
@@ -37,12 +38,7 @@ export function isCitableBlogPlan(plan: ContentPlan): boolean {
 async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; sites: string[] }> {
   try {
     const tenant = await getTenantById(ctx.tenantId);
-    if (!tenant) return { name: null, sites: [] };
-    const verified = (tenant.emailSenderConfig?.domains ?? []).filter((d) => d.status === "verified").map((d) => d.domain);
-    return {
-      name: tenant.tenantName?.trim() || null,
-      sites: [tenant.rootDomain, ...(tenant.allowedOrigins ?? []), ...verified].filter(Boolean),
-    };
+    return { name: tenant?.tenantName?.trim() || null, sites: tenantDomains(tenant) };
   } catch {
     return { name: null, sites: [] };
   }

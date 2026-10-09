@@ -42,6 +42,26 @@ export function siteOf(urlOrHost: string): string {
   return domain;
 }
 
+/**
+ * The domains a tenant's own record vouches for as the brand's: its root domain, the
+ * origins it allow-listed, and the sending domains it verified (one still being verified
+ * proves nothing yet). Structural, so a partial record (or none) gives what it can.
+ */
+export function tenantDomains(
+  tenant:
+    | {
+        rootDomain?: string | null;
+        allowedOrigins?: string[] | null;
+        emailSenderConfig?: { domains?: { domain: string; status?: string }[] | null } | null;
+      }
+    | null
+    | undefined,
+): string[] {
+  if (!tenant) return [];
+  const verified = (tenant.emailSenderConfig?.domains ?? []).filter((d) => d.status === "verified").map((d) => d.domain);
+  return [tenant.rootDomain ?? "", ...(tenant.allowedOrigins ?? []), ...verified].filter(Boolean);
+}
+
 /** The sites these URLs are on, without the ones that name no host. */
 export function sitesOf(urls: (string | null | undefined)[]): Set<string> {
   const out = new Set<string>();

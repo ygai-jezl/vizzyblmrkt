@@ -210,6 +210,30 @@ describe("a cite source on someone else's site", () => {
     expect(res!.chunks.map((c) => c.content)).toEqual(["From the repo"]);
   });
 
+  it("stays the brand's own on a domain its tenant record vouches for, though its knowledge holds no page of that site", async () => {
+    on();
+    const fs = dbWithWorkspace();
+    fs.seed("tenants", "ten_A", {
+      tenantName: "Acme",
+      rootDomain: "acme.example",
+      status: "active",
+      region: "us",
+      allowedOrigins: [],
+      billingTier: "mvp_free",
+      ownerId: "usr_owner",
+      createdAt: "2026-06-15T16:00:00Z",
+      updatedAt: "2026-06-15T16:00:00Z",
+    });
+    fs.seed("ingestion_tickets", "t", {
+      tenantId: "ten_A", ownerKind: "workspace", ownerId: "ws1", status: "done",
+      source: "docs_url", sourceUri: "https://docs.acme.example/benchmark-2026", tags: ["cite"],
+    });
+    const ownReport = page("https://docs.acme.example/benchmark-2026", "Our own benchmark", ["cite"]);
+    const chunks = nearestOf([ownReport, study(1)]);
+    const res = await retrieveSemanticKnowledgeContext({ ...baseReq, limit: 2 }, { db: fs, embed: async () => [0.1], chunks });
+    expect(res!.chunks.map((c) => c.content)).toEqual(["Our own benchmark"]);
+  });
+
   it("is not what a code repo is, even one that carries the tag", async () => {
     on();
     const repo = chunk({ source: "github", content: "From the repo", tags: ["cite"] });

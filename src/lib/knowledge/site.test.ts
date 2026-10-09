@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { siteOf, sitesOf } from "./site";
+import { siteOf, sitesOf, tenantDomains } from "./site";
 
 describe("siteOf", () => {
   it("puts a site's sub-domains on one site", () => {
@@ -36,4 +36,17 @@ describe("siteOf", () => {
       "example.org",
     ]);
   });
+
+  it("lists the domains a tenant record vouches for — and not one still being verified", () => {
+    expect(
+      tenantDomains({
+        rootDomain: "acme.example",
+        allowedOrigins: ["https://app.acme.example", "http://localhost:3000"],
+        emailSenderConfig: { domains: [{ domain: "mail.acme-mail.example", status: "verified" }, { domain: "pending.example", status: "pending" }] },
+      }),
+    ).toEqual(["acme.example", "https://app.acme.example", "http://localhost:3000", "mail.acme-mail.example"]);
+    expect(tenantDomains({ rootDomain: "" })).toEqual([]);
+    expect(tenantDomains(null)).toEqual([]);
+  });
 });
+

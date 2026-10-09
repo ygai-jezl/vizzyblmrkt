@@ -34,6 +34,10 @@ const RUN_NOW: Record<string, string> = {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
+/** The basis a product sent for emailing someone, in words. */
+const BASIS: Record<string, string> = { consent: "Consent given", soft_opt_in: "Soft opt-in", corporate_subscriber: "Corporate subscriber", none: "None" };
+const basisText = (basis: string) => BASIS[basis] ?? basis.replace(/_/g, " ");
+
 /** Where they stand, in a couple of sentences. */
 function summaryOf(p: PersonRecord): string {
   const parts: string[] = [];
@@ -295,7 +299,7 @@ export function PersonView({
             {p.steps.length ? (
               <>
                 {p.stepsAbout ? <p className="text-xs text-neutral-500">Counting {p.stepsAbout}</p> : null}
-                <ul className="space-y-1.5 text-sm">
+                <ul className="max-w-md space-y-1.5 text-sm">
                   {p.steps.map((s) => {
                     const next = !s.done && s.label === p.stage.nextStep;
                     return (
@@ -319,7 +323,7 @@ export function PersonView({
             {p.facts.length + p.traits.length === 0 ? (
               <p className="text-sm text-neutral-500">Your product hasn&rsquo;t sent any facts about them.</p>
             ) : (
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+              <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
                 {p.facts.map((f) => (
                   <Pair key={`f:${f.id}`} label={f.label} value={f.value} />
                 ))}
@@ -354,12 +358,12 @@ export function PersonView({
       </Section>
 
       <Section title="Consent and opt-outs">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
           <Pair
             label="Consent"
             value={
               p.consent.basis
-                ? `${p.consent.basis.replace(/_/g, " ")}${p.consent.asserted && p.consent.asserted !== p.consent.basis ? ` (your product said ${p.consent.asserted.replace(/_/g, " ")})` : ""}${p.consent.at ? `, since ${day(p.consent.at)}` : ""}`
+                ? `${basisText(p.consent.basis)}${p.consent.asserted && p.consent.asserted !== p.consent.basis ? ` (your product said ${basisText(p.consent.asserted).toLowerCase()})` : ""}${p.consent.at ? `, since ${day(p.consent.at)}` : ""}`
                 : "None sent"
             }
           />
@@ -394,7 +398,7 @@ function EmailList({ emails }: { emails: PersonEmail[] }) {
   return (
     <ul className="divide-y divide-neutral-100 text-sm dark:divide-neutral-900">
       {emails.map((e) => (
-        <li key={`${e.enrolmentId}:${e.nodeId}:${e.itemId}:${e.at}`} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 py-2 md:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
+        <li key={`${e.enrolmentId}:${e.nodeId}:${e.itemId}:${e.at}`} className="grid grid-cols-1 gap-x-3 gap-y-1 py-2 sm:grid-cols-[5.5rem_minmax(0,1fr)] md:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
           <span className="whitespace-nowrap text-xs text-neutral-500" title={dayTime(e.at)}>
             {day(e.at)}
           </span>
@@ -407,7 +411,7 @@ function EmailList({ emails }: { emails: PersonEmail[] }) {
             </span>
             {e.line ? <span className="mt-0.5 block text-xs italic text-neutral-600 dark:text-neutral-400">“{e.line}”</span> : null}
           </span>
-          <span className="col-start-2 flex flex-wrap items-center gap-1 md:col-start-3 md:justify-end">
+          <span className="flex flex-wrap items-center gap-1 sm:col-start-2 md:col-start-3 md:justify-end">
             <EmailMarks email={e} />
           </span>
         </li>
@@ -478,7 +482,7 @@ function Story({ moments }: { moments: PersonMoment[] }) {
       </p>
       <ol className="space-y-1.5 text-sm">
         {shown.map((m, i) => (
-          <li key={i} className="grid grid-cols-[5.5rem_0.5rem_minmax(0,1fr)] items-baseline gap-x-3">
+          <li key={i} className="grid grid-cols-[4.75rem_0.5rem_minmax(0,1fr)] items-baseline gap-x-2 sm:grid-cols-[5.5rem_0.5rem_minmax(0,1fr)] sm:gap-x-3">
             <span className="whitespace-nowrap text-xs text-neutral-500" title={dayTime(m.at)}>
               {day(m.at)}
             </span>

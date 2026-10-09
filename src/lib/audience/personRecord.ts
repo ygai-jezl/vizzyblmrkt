@@ -60,7 +60,7 @@ export interface PersonRecord {
   timeline: PersonMoment[];
   /** AI lines for this person waiting in Approvals. */
   approvals: number;
-  /** Active journeys of this product they aren't in, for "Add to a journey". */
+  /** Active journeys of this product they've never been in, for "Add to a journey". */
   canJoin: Array<{ id: string; name: string; mode: LifecycleJourney["deliveryMode"] }>;
   /** Their signup, when the same address is on one of your waitlists. */
   waitlistContactId: string | null;
@@ -166,7 +166,8 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
   // A step done on the brand they're setting up is found there, not on the person.
   const focus = progress.focus.map((f) => user.entities?.[f.id]).filter((e) => e !== undefined);
   const doneAt = (stepId: string) => user.steps[stepId]?.doneAt ?? focus.find((e) => e.steps[stepId])?.steps[stepId]?.doneAt ?? null;
-  const active = new Set(journeys.filter((j) => j.status === "active").map((j) => j.journeyId));
+  // One entry per person per journey: a journey they've been in, finished or not, can't take them again.
+  const beenIn = new Set(journeys.map((j) => j.journeyId));
   const waitlist = contacts.find((c) => c.status !== "deleted");
 
   return {
@@ -239,7 +240,7 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
       timeline: personTimeline({ user, catalog, events: writes, journeys, emails, optOuts, categoryLabels }),
       approvals: drafts.filter((d) => d.status === "awaiting_approval").length,
       canJoin: productJourneys
-        .filter((j) => j.status === "active" && j.publishedVersion && j.audience?.kind !== "waitlist" && !active.has(j.id))
+        .filter((j) => j.status === "active" && j.publishedVersion && j.audience?.kind !== "waitlist" && !beenIn.has(j.id))
         .map((j) => ({ id: j.id, name: j.name, mode: j.deliveryMode })),
       waitlistContactId: waitlist?.id ?? null,
       ...(plans ? { plan: { draft: plan?.draft ?? null, approved: plan?.approved ?? null } } : {}),
@@ -314,6 +315,8 @@ export async function loadPersonSummaries(ctx: TenantContext, personIds: string[
     });
     const j = mine.journeys[0];
     const next = j?.steps.find((s) => s.kind === "next");
+    // Nothing ahead will go out as things stand (no marketing consent): say so, not "1 sent".
+    const wont = next ? undefined : j?.steps.find((s) => s.kind === "would_skip");
     return [
       {
         id: user.id,
@@ -323,7 +326,7 @@ export async function loadPersonSummaries(ctx: TenantContext, personIds: string[
               status: j.status,
               sent: j.steps.filter((s) => s.kind === "sent" || s.kind === "unknown").length,
               next: next ? { label: next.label, at: next.at } : null,
-              note: j.status === "active" ? (j.waiting?.why ?? null) : j.stopped,
+              note: j.status === "active" ? (j.waiting?.why ?? (wont?.reason ? `The next email won't send: ${wont.reason.toLowerCase()}` : null)) : j.stopped,
             }
           : null,
         activeJourneys: mine.journeys.filter((x) => x.status === "active").length,

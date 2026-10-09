@@ -90,6 +90,13 @@ export function stopText(reason: string | null | undefined): string | null {
   return STOP_TEXT[reason] ?? reason.replace(/_/g, " ");
 }
 
+/** Why the walk ahead ends in a stop: the same reasons, as something still to come. */
+function aheadStopText(reason: string): string | null {
+  if (reason === "hard_stop") return "the journey reaches its last day first";
+  const text = stopText(reason);
+  return text ? text.charAt(0).toLowerCase() + text.slice(1) : null;
+}
+
 const HOLD_TEXT: Record<string, string> = {
   journey_paused: "The journey is paused",
   connection_paused: "The product's connection is paused",
@@ -174,7 +181,7 @@ function stepsAhead(
       state = { ...walk.state, nowMs: d.runAtMs };
       continue;
     }
-    if (d.kind !== "send") return { steps, then: { kind: d.kind === "complete" ? "finishes" : "stops", why: d.kind === "exit" ? stopText(d.reason) : null } };
+    if (d.kind !== "send") return { steps, then: { kind: d.kind === "complete" ? "finishes" : "stops", why: d.kind === "exit" ? aheadStopText(d.reason) : null } };
     // A marketing email without consent is skipped at send time, never sent late.
     const skip = noMarketing && d.item.messageClass === "marketing";
     steps.push({

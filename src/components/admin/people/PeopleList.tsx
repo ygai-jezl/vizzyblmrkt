@@ -169,7 +169,7 @@ export function PeopleList() {
       ) : (
         <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
           <table className="w-full min-w-[820px] text-sm">
-            <thead className="text-left text-xs text-neutral-500">
+            <thead className="whitespace-nowrap text-left text-xs text-neutral-500">
               <tr className="border-b border-neutral-200 dark:border-neutral-800">
                 <th className="px-3 py-2 font-medium">Person</th>
                 <th className="px-3 py-2 font-medium">Product</th>
@@ -199,7 +199,7 @@ export function PeopleList() {
                         {p.invited ? <Chip tone="green">Invited</Chip> : null}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-neutral-600 dark:text-neutral-400">{p.product}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-400">{p.product}</td>
                     <td className="px-3 py-2">
                       <span
                         className="flex flex-wrap gap-1"
@@ -224,7 +224,7 @@ export function PeopleList() {
                     <td className="px-3 py-2">
                       <EmailsCell summary={s} />
                     </td>
-                    <td className="px-3 py-2 text-neutral-500">
+                    <td className="whitespace-nowrap px-3 py-2 text-neutral-500">
                       {p.lastActiveAt ? (
                         <span title={day(p.lastActiveAt)}>{ago(p.lastActiveAt)}</span>
                       ) : (

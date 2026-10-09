@@ -61,7 +61,8 @@ export interface PersonBrief {
     }>;
     /** What the sender does next, on the state the product last sent: it can change when they do something. */
     ahead: Array<{ email: string; on: string; willSend: boolean; why: string | null; hasAiLine: boolean }>;
-    then: "finishes" | "stops" | null;
+    /** What comes after the emails ahead: "finishes", or "stops: <why>". Null when it's further off than we look. */
+    then: string | null;
   }>;
   /** AI lines for this person waiting for staff in Approvals. */
   approvalsWaiting: number;
@@ -162,7 +163,7 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
           note: e.note,
         })),
         ahead: ahead.map((s) => ({ email: s.label, on: date(s.at) ?? "", willSend: s.kind !== "would_skip", why: s.reason, hasAiLine: s.personalised })),
-        then: j.then?.kind ?? null,
+        then: j.then ? (j.then.why ? `${j.then.kind}: ${scrub(j.then.why)}` : j.then.kind) : null,
       };
     }),
     approvalsWaiting: p.approvals,

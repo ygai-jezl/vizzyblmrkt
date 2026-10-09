@@ -721,8 +721,8 @@ env:
   # webhook reads the journey and the person from the enrolment. Journeys made
   # before this stay as they were published until they're published again;
   # scripts/backfill-journey-tracking.ts switches a brand's existing journeys on.
-  # Off: every enrolment tracks as its version says, as before. OFF in prod
-  # (apphosting.prod.yaml) until checked here.
+  # Off: every enrolment tracks as its version says, as before. On in prod too
+  # since 2026-10-09 (apphosting.prod.yaml).
   - variable: LIFECYCLE_SEND_TRACKING
     value: "true"
     availability:
@@ -735,8 +735,8 @@ env:
   # walk, on stored state), every email with what they did with it, their product
   # progress, one timeline, consent, a data export and erase. Reads only what is
   # already held; opening a page asks the product nothing. Needs
-  # LIFECYCLE_ENABLED. Off: today's list, and the page and its APIs 404. OFF in
-  # prod (apphosting.prod.yaml) until checked here.
+  # LIFECYCLE_ENABLED. Off: the older list, and the page and its APIs 404. On in
+  # prod too since 2026-10-09 (apphosting.prod.yaml).
   - variable: AUDIENCE_PERSON_VIEW
     value: "true"
     availability:

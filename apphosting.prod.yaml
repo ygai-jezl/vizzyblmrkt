@@ -657,17 +657,22 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Opens and clicks for product journeys (see apphosting.yaml): OFF in prod
-  # until checked on dev. Explicit, because a flag left out of this file inherits
-  # the dev value. While off, every enrolment tracks as its version was published.
+  # Opens and clicks for product journeys (see apphosting.yaml): on in prod since
+  # 2026-10-09 (owner decision). A new product journey starts tracked, and a
+  # journey's tracking setting reaches people already in it the next time it is
+  # published. A journey made before this keeps what it was published with until
+  # then, or until scripts/backfill-journey-tracking.ts is run for its brand.
+  # Set "false" here to switch it off: every enrolment tracks as its version was
+  # published, a send keeps no subject, and emails carry the older metadata.
   - variable: LIFECYCLE_SEND_TRACKING
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
-  # The person view (see apphosting.yaml): OFF in prod until checked on dev.
-  # While off, Audience › Product users is today's list and a person's page 404s.
+  # The person view (see apphosting.yaml): on in prod since 2026-10-09 (owner
+  # decision). Set "false" here to switch it off: Audience › Product users is the
+  # older list again and a person's page 404s.
   - variable: AUDIENCE_PERSON_VIEW
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # Vizzy reads one person's situation (see apphosting.yaml): OFF in prod. It is

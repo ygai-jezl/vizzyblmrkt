@@ -22,12 +22,14 @@ import {
   BlogIntent,
   CONTENT_PLAN_LIMITS,
   type BlogBrief,
+  type BlogCrawlerCheck,
   type BlogEntity,
   type BlogQuestion,
   type BlogSource,
   type ContentPlan,
 } from "@/lib/types/contentPlan";
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl } from "./brief";
+import { blockedCrawlers } from "./crawlers";
 import { factFiguresOnPage, figureSet } from "./figures";
 import { blogResearchThinkingBudget } from "./flags";
 import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
@@ -59,6 +61,10 @@ import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
  *     one, the best of each in turn, and the writer chooses from both.
  *  5. The merge — a person's rows in the brief always stay; research replaces only its own.
  *
+ * With the same flag it also reads the publisher's robots.txt, and notes which of the AI
+ * answer engines' crawlers it keeps away from the article: a page they cannot read is a
+ * page they cannot cite, and only whoever runs the site can change that.
+ *
  * Fail-soft throughout: with Gemini off, a timeout or a blocked page, the article is
  * still written — from the brand's knowledge alone, with nothing invented to fill the gap.
  */
@@ -80,6 +86,8 @@ const PAGE_BYTES = 800_000;
 const UA = "Vizzybl-BlogResearch/1.0";
 /** Google's redirect host for a grounded search result; the page itself is one hop behind it. */
 const GROUNDING_HOST = "vertexaisearch.cloud.google.com";
+/** More robots.txt than any site needs; the rest of a longer one is not read. */
+const ROBOTS_BYTES = 200_000;
 
 export interface FetchedPage {
   /** The page's address after any redirects of its own. */
@@ -122,7 +130,14 @@ export interface BlogResearchDeps {
   pick?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number }) => Promise<string | null>;
   /** Is this page live? Returns its address after redirects, or null. */
   reachable?: (url: string) => Promise<string | null>;
+  /** A site's robots.txt: its text, `found: false` when it has none, null when it can't be read. */
+  robots?: (origin: string) => Promise<RobotsFile | null>;
   now?: () => Date;
+}
+
+export interface RobotsFile {
+  found: boolean;
+  text: string;
 }
 
 export interface BlogResearchResult {
@@ -342,6 +357,61 @@ export function sourcesToList<T extends ListedSource>(tickets: T[], citeOn = isC
     own: read.filter((t) => !cite(t)).slice(0, MAX_SOURCES_LISTED),
     cited: read.filter(cite).slice(0, MAX_SOURCES_LISTED),
   };
+}
+
+/**
+ * A site's robots.txt. No such file (any "not there" answer) means no rules — nobody is
+ * kept out. A page of HTML where the file should be is no file either. An error or a
+ * timeout is neither: null, and nothing is said about a site that could not be asked.
+ */
+async function readRobots(origin: string): Promise<RobotsFile | null> {
+  try {
+    const res = await safeFetch(
+      `${origin}/robots.txt`,
+      { headers: { "User-Agent": UA, Accept: "text/plain" } },
+      { timeoutMs: 4000, maxRedirects: 3 },
+    );
+    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+      await res.body?.cancel().catch(() => undefined);
+      return { found: false, text: "" };
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      return null;
+    }
+    const text = await readTextCapped(res, ROBOTS_BYTES);
+    return /^\s*<(!doctype|html)\b/i.test(text) ? { found: false, text: "" } : { found: true, text };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which AI crawlers the article's site keeps away from it. The rules are the ones of the
+ * host the article is on, read for the article's own path — or, before the article has
+ * an address, of the publisher's site, for its front door.
+ */
+async function checkCrawlers(
+  origin: string,
+  articleUrl: string | null | undefined,
+  robots: (origin: string) => Promise<RobotsFile | null>,
+  checkedAt: string,
+): Promise<BlogCrawlerCheck | null> {
+  let site = origin;
+  let path = "/";
+  try {
+    if (articleUrl && articleUrl.startsWith("https://")) {
+      const u = new URL(articleUrl);
+      site = u.origin;
+      path = u.pathname || "/";
+    }
+  } catch {
+    /* not a URL: the publisher's front door it is */
+  }
+  if (!site) return null;
+  const file = await robots(site).catch(() => null);
+  if (!file) return null;
+  return { site, path: path.slice(0, 2000), found: file.found, blocked: file.found ? blockedCrawlers(file.text, path) : [], checkedAt };
 }
 
 /** What the programme has indexed: the pages of crawled sites, and the files of connected repos. */
@@ -754,6 +824,10 @@ export async function researchBlogBrief(
   // study, a competitor's pricing) — that is theirs, and is never offered as the brand's.
   const own = sitesOf([origin, current.publisherUrl, plan.strategy.hubUrl, ...operatorLinks]);
   const isOwn = (url: string) => own.has(siteOf(url));
+  // Asked now, collected at the end: one small request to the article's own site.
+  const crawling = citeOn
+    ? checkCrawlers(origin, plan.strategy.hubUrl, deps.robots ?? readRobots, now.toISOString()).catch(() => null)
+    : null;
   const guessed = origin ? pagesFromRepoPaths(site.repoPaths, origin, MAX_ROUTES_CHECKED) : [];
   const live = (
     await mapLimit(guessed, 6, async (p) => {
@@ -796,7 +870,16 @@ export async function researchBlogBrief(
 
   const brief = mergeResearch(
     current,
-    { primaryQuestion: parsed.primary, questions: parsed.questions, links, sources, entities, publisherName: brandName, publisherUrl },
+    {
+      primaryQuestion: parsed.primary,
+      questions: parsed.questions,
+      links,
+      sources,
+      entities,
+      publisherName: brandName,
+      publisherUrl,
+      ...(crawling ? { crawlers: await crawling } : {}),
+    },
     now.toISOString(),
   );
   return {

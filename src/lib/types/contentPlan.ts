@@ -265,6 +265,25 @@ export const BlogEntitySchema = z.object({
 });
 export type BlogEntity = z.infer<typeof BlogEntitySchema>;
 
+/**
+ * What the publisher's robots.txt says to the AI answer engines' crawlers (flag
+ * CREATE_BLOG_CITE_SOURCES_ENABLED): a page they are kept out of cannot be cited. Read
+ * when research runs; shown to the operator with the hand-over, since only whoever runs
+ * the site can change it.
+ */
+export const BlogCrawlerCheckSchema = z.object({
+  /** The site whose robots.txt was read, e.g. https://example.com. */
+  site: z.string().max(300),
+  /** The path the rules were read for: the article's own when its address is known, else "/". */
+  path: z.string().max(2000).default("/"),
+  /** False when the site has no robots.txt — nobody is kept out. */
+  found: z.boolean(),
+  /** The crawlers kept away from that path, by the name robots.txt knows them by. */
+  blocked: z.array(z.string().max(40)).max(20).default([]),
+  checkedAt: z.string(),
+});
+export type BlogCrawlerCheck = z.infer<typeof BlogCrawlerCheckSchema>;
+
 const MAX_BLOG_QUESTIONS = 10;
 const MAX_BLOG_LINKS = 12;
 const MAX_BLOG_SOURCES = 12;
@@ -292,6 +311,9 @@ export const BlogBriefSchema = z.object({
   author: z.string().max(120).default(""),
   /** When research last ran (ISO); null = never. */
   researchedAt: z.string().nullable().default(null),
+  /** Whether AI crawlers may read the article, as of the last research. Null or absent =
+   *  not looked at, or the site's robots.txt could not be read. */
+  crawlers: BlogCrawlerCheckSchema.nullable().optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 

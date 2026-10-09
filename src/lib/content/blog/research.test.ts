@@ -118,6 +118,8 @@ function deps(over: Partial<BlogResearchDeps> = {}): BlogResearchDeps & { ground
       url.includes("research.example.org")
         ? page({ url, title: "How buyers research software", siteName: "Example Research", year: 2026, text: "We surveyed 1,076 decision makers; 51% begin with an AI chatbot." })
         : null, // the press site blocks us
+    // No test reaches a real site: a robots.txt that can't be read is the default.
+    robots: async () => null,
     now: () => new Date("2026-10-07T09:00:00.000Z"),
     ...over,
     ...(over.grounded ? {} : {}),
@@ -583,6 +585,66 @@ describe("blog research — the brand's cite sources", () => {
     const off = sourcesToList([site, repo, ...studies, unread], false);
     expect(off.cited).toEqual([]);
     expect(off.own.map((x) => x.id)).toEqual(studies.slice(4).reverse().map((x) => x.id));
+  });
+});
+
+describe("blog research — can the AI crawlers read the article", () => {
+  const on = () => vi.stubEnv("CREATE_BLOG_CITE_SOURCES_ENABLED", "true");
+  const BLOCKS_TWO = ["User-agent: GPTBot", "User-agent: ClaudeBot", "Disallow: /", "", "User-agent: *", "Disallow: /admin/"].join("\n");
+
+  it("reads the robots.txt of the site the article is on, for the article's own path", async () => {
+    on();
+    const asked: string[] = [];
+    const r = await researchBlogBrief(
+      { ctx, workspace, plan: plan() },
+      deps({ robots: async (origin) => (asked.push(origin), { found: true, text: BLOCKS_TWO }) }),
+    );
+    expect(asked).toEqual(["https://acme.example"]);
+    expect(r.brief.crawlers).toEqual({
+      site: "https://acme.example",
+      path: "/blog/visibility",
+      found: true,
+      blocked: ["GPTBot", "ClaudeBot"],
+      checkedAt: "2026-10-07T09:00:00.000Z",
+    });
+  });
+
+  it("before the article has an address, reads the publisher's site for its front door", async () => {
+    on();
+    const unpublished = plan({ strategy: { objective: "brand_visibility", hubUrl: null, subscriberCount: null, sequenceType: null } });
+    const r = await researchBlogBrief(
+      { ctx, workspace, plan: unpublished },
+      deps({ robots: async () => ({ found: true, text: "User-agent: *\nDisallow: /blog/" }) }),
+    );
+    expect(r.brief.crawlers).toMatchObject({ site: "https://acme.example", path: "/", blocked: [] });
+  });
+
+  it("says nobody is kept out when the site has no robots.txt", async () => {
+    on();
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan() }, deps({ robots: async () => ({ found: false, text: "" }) }));
+    expect(r.brief.crawlers).toMatchObject({ found: false, blocked: [] });
+  });
+
+  it("says nothing — and lets no older answer stand — when the robots.txt can't be read", async () => {
+    on();
+    const before = BlogBriefSchema.parse({
+      crawlers: { site: "https://acme.example", path: "/", found: true, blocked: ["GPTBot"], checkedAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan({ blog: before }) }, deps({ robots: async () => { throw new Error("timeout"); } }));
+    expect(r.brief.crawlers).toBeNull();
+  });
+
+  it("is not looked at while the flag is off, and what the brief holds is left alone", async () => {
+    const robots = vi.fn(async () => ({ found: true, text: BLOCKS_TWO }));
+    const fresh = await researchBlogBrief({ ctx, workspace, plan: plan() }, deps({ robots }));
+    expect(robots).not.toHaveBeenCalled();
+    expect("crawlers" in fresh.brief).toBe(false);
+
+    const before = BlogBriefSchema.parse({
+      crawlers: { site: "https://acme.example", path: "/", found: true, blocked: ["GPTBot"], checkedAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const kept = await researchBlogBrief({ ctx, workspace, plan: plan({ blog: before }) }, deps({ robots }));
+    expect(kept.brief.crawlers).toMatchObject({ blocked: ["GPTBot"], checkedAt: "2026-01-01T00:00:00.000Z" });
   });
 });
 

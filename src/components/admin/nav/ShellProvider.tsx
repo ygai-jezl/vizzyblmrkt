@@ -24,8 +24,8 @@ interface Shell {
   personInContext: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
-   * data isn't the server's render (the journey editor) can reload it. Null unless the layout
-   * passes `journeyInContext`.
+   * data isn't the server's render (the journey editor, a person's page) can reload it. Null
+   * unless the layout passes `journeyInContext` or `personInContext`.
    */
   onCanvasSaved: ((listener: (card: CanvasCardData) => void) => () => void) | null;
 }
@@ -78,7 +78,7 @@ export function ShellProvider({
     // When Vizzy saves a draft of the page you're on, show its version.
     onCanvasSaved: (card) => {
       if (card.url.split("?")[0] === pathname) router.refresh();
-      if (journeyInContext) saved.emit(card);
+      if (journeyInContext || personInContext) saved.emit(card);
     },
   });
   const [vizzyOpen, setVizzyOpen] = useState(false);
@@ -126,7 +126,7 @@ export function ShellProvider({
       setPaletteOpen,
       ask,
       personInContext,
-      onCanvasSaved: journeyInContext ? saved.add : null,
+      onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
     [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, saved],
   );

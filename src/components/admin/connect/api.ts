@@ -124,6 +124,13 @@ const MESSAGES: Record<string, string> = {
   enrolment_cap: "Today's enrolment cap for this journey is reached.",
   user_deleted: "That user has been deleted.",
   not_a_sandbox: "Only a Sandbox's test users can do that.",
+  // A person's plan
+  names_the_person: "A plan can't include their name or an email address. Say “they” instead.",
+  invalid_plan: "A plan needs a goal and an angle.",
+  no_draft: "There's no draft to do that with — it may have been approved or discarded already.",
+  no_plan: "There's no plan in force.",
+  cannot_email: "They can't be emailed, so there's nothing to plan.",
+  person_not_found: "YouGrow doesn't hold this person any more.",
   no_email_sent: "They haven't been sent an email yet. Enrol them in a journey and run its first step.",
   live: "Run-now is only for test and shadow enrolments.",
   busy: "That enrolment is being processed right now — try again in a moment.",

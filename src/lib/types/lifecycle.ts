@@ -738,6 +738,11 @@ export const AiDraftSchema = z.object({
   decidedAt: z.string().nullable().optional(),
   usedAt: z.string().nullable().optional(),
   usedVersion: z.enum(["ai", "fallback", "skip"]).nullable().optional(),
+  /**
+   * The person's approved plan that steered this line (LIFECYCLE_PERSON_PLANS): when it was
+   * approved, so staff reviewing the line can see what shaped it. Absent = no plan was in force.
+   */
+  planAt: z.string().nullable().optional(),
   ttlAt: z.unknown().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

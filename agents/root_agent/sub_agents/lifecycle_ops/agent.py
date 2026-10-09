@@ -27,6 +27,7 @@ from .tools.lifecycle_tools import (
     get_repo_analysis,
     learn_product_from_repo,
     save_lifecycle_graph,
+    save_person_plan,
 )
 from ...model_config import DEFAULT_MODEL
 from ...tools.journey_style import get_journey_email_style, set_journey_email_style
@@ -49,8 +50,10 @@ lifecycle_ops_agent = LlmAgent(
         save_lifecycle_graph,
         learn_product_from_repo,
         get_repo_analysis,
-        # One person's situation, without their identity (the page in view).
+        # One person's situation, without their identity (the page in view), and a draft
+        # plan for them that staff approve.
         get_person_brief,
+        save_person_plan,
         # One journey's own look (header and button colours), in its draft.
         get_journey_email_style,
         set_journey_email_style,

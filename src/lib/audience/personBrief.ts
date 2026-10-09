@@ -65,7 +65,14 @@ export interface PersonBrief {
   }>;
   /** AI lines for this person waiting for staff in Approvals. */
   approvalsWaiting: number;
+  /**
+   * Their plan, while plans are on: the one staff approved (it steers their AI line) and the
+   * draft still waiting for a decision. Absent while plans are off.
+   */
+  plan?: { inForce: PlanView | null; draft: PlanView | null };
 }
+
+type PlanView = { goal: string; angle: string; next: string[]; reviewOn: string | null; writtenBy: "agent" | "human" };
 
 const date = (iso: string | null | undefined) => (iso && Number.isFinite(Date.parse(iso)) ? new Date(iso).toISOString().slice(0, 10) : null);
 
@@ -159,7 +166,12 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
       };
     }),
     approvalsWaiting: p.approvals,
+    ...(p.plan ? { plan: { inForce: planView(p.plan.approved), draft: planView(p.plan.draft) } } : {}),
   };
+}
+
+function planView(plan: NonNullable<PersonRecord["plan"]>["draft" | "approved"]): PlanView | null {
+  return plan ? { goal: plan.goal, angle: plan.angle, next: plan.next, reviewOn: plan.reviewOn, writtenBy: plan.by } : null;
 }
 
 export async function loadPersonBrief(

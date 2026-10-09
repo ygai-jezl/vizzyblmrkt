@@ -753,6 +753,20 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # A plan per person. Vizzy's save_person_plan (or staff, on the person's page)
+  # saves a DRAFT: a goal, how to put it to them, the next steps, a day to look
+  # again. Only staff approve it. An approved plan is added to the prompt that
+  # writes that person's AI line (lifecycle/prepare.ts), which is still checked
+  # and still goes through Approvals, where the line says it was shaped by their
+  # plan. A plan sends nothing and changes no journey. Its text can't name the
+  # person or hold an email address (the save refuses it), Vizzy drafts none for
+  # someone who can't be emailed at all, and plans are erased and exported with
+  # the person. Needs LIFECYCLE_PERSON_BRIEF. Off: no plan is read, shown or
+  # used. OFF in prod (apphosting.prod.yaml).
+  - variable: LIFECYCLE_PERSON_PLANS
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: LIFECYCLE_WORKER_SECRET
     secret: lifecycle-worker-secret
     availability:

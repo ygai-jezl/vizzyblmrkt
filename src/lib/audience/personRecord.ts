@@ -5,11 +5,14 @@ import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { LifecycleEnrolment, LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
 import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
+import type { PersonPlan } from "@/lib/types/personPlan";
 import { formatFactDate } from "@/lib/connect/dateFacts";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import { kindLabel, onboardingProgress, progressOf } from "@/lib/lifecycle/entities";
+import { isPersonPlansEnabled } from "./flags";
 import { emailCounts, personEmails, type PersonEmail, type PersonEmailCounts } from "./personEmails";
 import { personJourney, type PersonJourney } from "./personJourneys";
+import { personPlanDocId } from "./personPlans";
 import { lastActiveAt, personReach, personStage, type PersonReach, type PersonStage } from "./personStage";
 import { personTimeline, type PersonMoment } from "./personTimeline";
 
@@ -61,6 +64,11 @@ export interface PersonRecord {
   canJoin: Array<{ id: string; name: string; mode: LifecycleJourney["deliveryMode"] }>;
   /** Their signup, when the same address is on one of your waitlists. */
   waitlistContactId: string | null;
+  /**
+   * Their plan (LIFECYCLE_PERSON_PLANS): the draft waiting for a decision and the one in force.
+   * Absent while plans are off; both null when there is none yet.
+   */
+  plan?: Pick<PersonPlan, "draft" | "approved">;
 }
 
 export type PersonLookup = { found: true; person: PersonRecord } | { found: false; erasedAt?: string };
@@ -137,7 +145,8 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
   if (!connection) return { found: false };
 
   // Equality only (no composite index): one person's rows are few, so they're sorted here.
-  const [enrolments, events, optOuts, writes, drafts, contacts, productJourneys] = await Promise.all([
+  const plans = isPersonPlansEnabled();
+  const [enrolments, events, optOuts, writes, drafts, contacts, productJourneys, plan] = await Promise.all([
     repo.lifecycleEnrolments.find({ where: [["productUserId", "==", user.id]], limit: ENROLMENT_LIMIT }),
     repo.emailEvents.find({ where: [["signupId", "==", user.id]], limit: 1000 }),
     user.emailNormalized ? repo.emailSuppressions.find({ where: [["normalizedEmail", "==", user.emailNormalized]], limit: 50 }) : Promise.resolve([] as EmailSuppression[]),
@@ -145,6 +154,7 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
     repo.lifecycleDrafts.find({ where: [["productUserId", "==", user.id]], limit: 30 }),
     user.emailNormalized ? repo.contacts.find({ where: [["contactKey", "==", user.emailNormalized]], limit: 1 }).catch(() => []) : Promise.resolve([]),
     repo.lifecycleJourneys.find({ where: [["connectionId", "==", user.connectionId]], limit: 100 }),
+    plans ? repo.personPlans.getById(personPlanDocId(user.id)).catch(() => null) : Promise.resolve(null),
   ]);
   const versions = await versionsOf(ctx, enrolments, deps.db);
   const journeysById = new Map(productJourneys.map((j) => [j.id, j]));
@@ -232,6 +242,7 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
         .filter((j) => j.status === "active" && j.publishedVersion && j.audience?.kind !== "waitlist" && !active.has(j.id))
         .map((j) => ({ id: j.id, name: j.name, mode: j.deliveryMode })),
       waitlistContactId: waitlist?.id ?? null,
+      ...(plans ? { plan: { draft: plan?.draft ?? null, approved: plan?.approved ?? null } } : {}),
     },
   };
 }

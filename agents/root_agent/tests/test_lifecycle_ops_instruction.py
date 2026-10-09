@@ -327,3 +327,21 @@ def test_the_person_rules_keep_the_person_anonymous_and_the_answers_honest():
     assert "wasn't tracked" in text and "never that\nthey didn't open it" in text
     assert 'If it is "no", say why and suggest nothing to send' in text
     assert "You can't send anything" in text
+
+
+def test_the_plan_rules_show_only_while_plans_are_on():
+    from root_agent_pkg.sub_agents.lifecycle_ops.prompts.instruction import PERSON_BRIEF_ADDENDUM, PERSON_PLANS_ADDENDUM
+
+    assert build_lifecycle_ops_instruction(_ctx({"personBriefEnabled": True, "personPlansEnabled": False})) == (
+        LIFECYCLE_OPS_INSTRUCTION + "\n\n" + PERSON_BRIEF_ADDENDUM
+    )
+    on = build_lifecycle_ops_instruction(_ctx({"personId": "pu_3f9a", "personBriefEnabled": True, "personPlansEnabled": True}))
+    assert on == LIFECYCLE_OPS_INSTRUCTION + "\n\n" + PERSON_BRIEF_ADDENDUM + "\n\n" + PERSON_PLANS_ADDENDUM + "\n\n" + PERSON_IN_VIEW
+
+    text = PERSON_PLANS_ADDENDUM
+    assert text.startswith("# A plan for one person")
+    assert "save_person_plan" in text and "get_person_brief first" in text
+    assert "It is a draft" in text and "approves it on the person's page" in text
+    assert "It sends nothing" in text
+    assert "Never put a name or an email address in a plan" in text
+    assert "never that the plan is live" in text

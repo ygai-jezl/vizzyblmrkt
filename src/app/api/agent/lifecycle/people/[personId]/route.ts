@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isRateLimited } from "@/lib/tenant";
-import { isPersonBriefEnabled } from "@/lib/audience/flags";
+import { isPersonBriefEnabled, isPersonPlansEnabled } from "@/lib/audience/flags";
 import { loadPersonBrief } from "@/lib/audience/personBrief";
 import { agentGate } from "@/lib/lifecycle/agentApi";
 
@@ -26,5 +26,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ personId
   // Who asked about whom, by id only: a person's data left for the model.
   console.info(`[person-brief] tenant=${gate.ctx.tenantId} operator=${gate.ctx.userId ?? "unknown"} person=${personId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80)} found=${r.found}`);
   if (!r.found) return NextResponse.json({ error: r.erased ? "person_erased" : "person_not_found" }, { status: 404 });
-  return NextResponse.json({ brief: r.brief }, { headers: { "cache-control": "no-store" } });
+  // `plans`: a plan can be drafted for them (LIFECYCLE_PERSON_PLANS).
+  return NextResponse.json({ brief: r.brief, plans: isPersonPlansEnabled() }, { headers: { "cache-control": "no-store" } });
 }

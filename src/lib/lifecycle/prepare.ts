@@ -20,6 +20,8 @@ import { COUNTER_TTL_MS, utcDayKey } from "./enrol";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
 import { entityViewFor, viewedUser } from "./entities";
+import { isPersonPlansEnabled } from "@/lib/audience/flags";
+import { approvedPlanFor, planGuidance } from "@/lib/audience/personPlans";
 
 /**
  * Prepare AI-line drafts that are due (≈12 h before their send): re-predict the
@@ -213,6 +215,9 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     ? context.facts.filter((f) => insight.factIds.includes(f.id))
     : context.facts.slice(0, 10);
   const glossary = connection.catalog.glossary.map((g) => `- ${g.term}: ${g.definition}`).join("\n");
+  // Their plan, when staff have approved one: how to put things to this person. It can't name
+  // them (a plan that does isn't saved), and the line is still checked and reviewed as before.
+  const plan = isPersonPlansEnabled() ? await approvedPlanFor(ctx, stored.id, deps.db).catch(() => null) : null;
   const prompt = renderPrompt("lifecycle.insight_line", {
     product_name: connection.name,
     insight: insight.sentence,
@@ -221,6 +226,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     next_step: next ? fencedContext("Their next onboarding step", "next_step", next.label) : "",
     glossary: fencedContext("Product glossary (terms you may use)", "glossary", glossary),
     brand_voice: brandVoiceSection(resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice })),
+    plan: plan ? fencedContext("What your team wants for this person, and how to put it (follow it where the rules below allow)", "plan", planGuidance(plan)) : "",
   });
 
   const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: GENERATION_TIMEOUT_MS, json: true });
@@ -242,6 +248,7 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     aiLine: line,
     factsSnapshot: snapshot,
     allowedTerms: allowed,
+    ...(plan ? { planAt: plan.at } : {}),
   };
   if (!lineCheck.ok) return fallBack("validation_failed", { ...base, validationIssues: lineCheck.issues.slice(0, 20) });
   const subjectVariant = subject && validateAiSubject(subject, allowed).ok ? subject : null;

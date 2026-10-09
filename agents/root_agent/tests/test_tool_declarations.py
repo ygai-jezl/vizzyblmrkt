@@ -115,3 +115,15 @@ def test_lifecycle_ops_can_read_the_person_in_view():
     # No way to ask by name or address: only the person in view, or an id a brief gave.
     assert set(props) == {"person_id"} and not required
 
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_lifecycle_ops_can_draft_a_plan_for_the_person_in_view():
+    from root_agent_pkg.sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
+    from root_agent_pkg.sub_agents.lifecycle_ops.tools.lifecycle_tools import save_person_plan
+
+    assert save_person_plan in lifecycle_ops_agent.tools
+    assert inspect.signature(save_person_plan).parameters["tool_context"].annotation is ToolContext
+    props, required = _params(FunctionTool(save_person_plan)._get_declaration())
+    assert set(props) == {"goal", "angle", "next_steps", "review_in_days", "person_id"}
+    assert sorted(required) == ["angle", "goal"]
+

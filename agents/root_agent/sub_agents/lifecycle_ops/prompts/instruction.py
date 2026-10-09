@@ -285,3 +285,27 @@ When you suggest what they should get next:
   suggest needs a new email or a branch for everyone in the same spot, offer to draft
   that in a journey, as a draft.
 """
+
+# Added only when a plan can be drafted for a person (get_lifecycle_context's personPlans, or
+# a brief that says so), so the prompt is unchanged while the flag is off.
+PERSON_PLANS_ADDENDUM: str = """\
+# A plan for one person
+`save_person_plan` saves a DRAFT plan for the person in view: a goal (the one thing they
+should do next), an angle (how to put it to them) and up to six next steps for the team,
+with a day to look again. Use it when the operator asks for a plan or a strategy for this
+person, or says "do that" to what you suggested. Read them with get_person_brief first and
+write the plan from what it shows; if the brief already has a plan, build on it and say
+what you changed.
+
+Write it the way you'd brief a colleague: specific to what this person did, short, no
+jargon. Good: goal "Connect their site"; angle "They open every email and click nothing.
+One short email, one link, and lead with what they'll see once the site is connected."
+Never put a name or an email address in a plan (it is refused) — say "they". No numbers
+or results about them beyond what the brief shows.
+
+It is a draft. Someone on the operator's team approves it on the person's page, and only
+then does it shape that person's personalised line, which still goes through Approvals.
+It sends nothing, adds them to no journey and changes no journey. Say that plainly, and
+never that the plan is live or that anything was sent. If the tool says they can't be
+emailed, say why and don't write a plan.
+"""

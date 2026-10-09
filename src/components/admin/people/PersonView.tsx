@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Download, Sparkles, Trash2, UserPlus } from "lucide-react";
 import type { PersonEmail } from "@/lib/audience/personEmails";
 import type { PersonLookup, PersonRecord } from "@/lib/audience/personRecord";
-import { PEOPLE_HREF } from "@/lib/audience/paths";
+import { PEOPLE_HREF, personHref } from "@/lib/audience/paths";
 import { reachText, stageChips } from "@/lib/audience/personStage";
 import type { PersonMoment } from "@/lib/audience/personTimeline";
 import { api, errorText } from "../connect/api";
 import { Badge, Banner, Button, Section, inputClass } from "../connect/ui";
 import { Chip } from "./Chip";
 import { JourneyCard } from "./JourneyCard";
+import { PlanPanel } from "./PlanPanel";
 import { useShell } from "../nav/ShellProvider";
 import { ago, day, dayTime, shortUrl, time, wallClock } from "./format";
 
@@ -84,6 +85,15 @@ export function PersonView({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Vizzy drafted a plan for this person in the chat: show it.
+  const subscribe = shell?.onCanvasSaved ?? null;
+  useEffect(() => {
+    if (!subscribe) return;
+    return subscribe((card) => {
+      if (card.kind === "person_plan" && card.url === personHref(personId)) void load();
+    });
+  }, [subscribe, personId, load]);
 
   const back = (
     <Link href={PEOPLE_HREF} className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
@@ -262,6 +272,22 @@ export function PersonView({
       >
         {p.emails.length ? <EmailList emails={p.emails} /> : null}
       </Section>
+
+      {p.plan ? (
+        <Section
+          title="Their plan"
+          description="What to help them do next, and how to put it. An approved plan shapes their personalised line, which still goes through Approvals. A plan sends nothing by itself."
+        >
+          <PlanPanel
+            personId={p.id}
+            plan={p.plan}
+            cannotEmail={p.reach.can === "no" ? reach.why : null}
+            canEdit={canEdit}
+            onAskVizzy={vizzy && shell ? () => shell.ask("Draft a plan for this person") : null}
+            onChanged={load}
+          />
+        </Section>
+      ) : null}
 
       <Section title="In the product">
         <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">

@@ -12,7 +12,8 @@ build one that does; likewise how to branch on a date fact (`dateFactsEnabled`) 
 to build a journey that starts when a date passes (`dateStartEnabled`). Where one person's
 situation can be read (`personBriefEnabled`, written by the same reads, or a `personId` in the
 session: the app only names the person in view while it can), it adds how to read them and
-the rules for it. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
+the rules for it; and where a plan can be drafted for that person (`personPlansEnabled`,
+written by the same reads and by each brief), how to write one. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
 it remains unit-testable without ADK.
 """
 
@@ -31,6 +32,7 @@ from .prompts.instruction import (
     JOURNEY_STYLE_ADDENDUM,
     LIFECYCLE_OPS_INSTRUCTION,
     PERSON_BRIEF_ADDENDUM,
+    PERSON_PLANS_ADDENDUM,
 )
 
 if TYPE_CHECKING:
@@ -87,6 +89,8 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
     person_id = state.get("personId") if state else None
     if person_id or (state and state.get("personBriefEnabled")):
         parts.append(PERSON_BRIEF_ADDENDUM)
+    if state and state.get("personPlansEnabled"):
+        parts.append(PERSON_PLANS_ADDENDUM)
     if person_id:
         parts.append(
             "# The person in view\n"

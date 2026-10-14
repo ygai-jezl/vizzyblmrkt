@@ -1,4 +1,5 @@
 import type { BlogBrief } from "@/lib/types/contentPlan";
+import type { ArticleMap } from "@/lib/content/blog/articleMap";
 
 /**
  * What the canvas hands the inspector for a blog hub written to the CITABLE structure:
@@ -30,4 +31,6 @@ export interface BlogHubControls {
    * Left out while cite sources are off — and then nothing offers to.
    */
   onKeepSource?: (url: string) => Promise<"kept" | "failed">;
+  /** The brand map the article is written from (its switch on and a map saved); absent = none. */
+  map?: ArticleMap | null;
 }

@@ -39,6 +39,7 @@ import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
 import type { BlogHubControls } from "./blog/types";
+import type { ArticleMap } from "@/lib/content/blog/articleMap";
 
 /**
  * Create Canvas — the visual hub-and-spoke builder (React Flow). The Architect seeds
@@ -98,6 +99,7 @@ export function ContentCanvas({
   primaryLogoUrl,
   emailStyle = null,
   footerBrand = null,
+  brandMap = null,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -111,6 +113,8 @@ export function ContentCanvas({
   emailStyle?: ResolvedEmailStyle | null;
   /** The footer's "sent by" brand, as the send resolves it; null = a placeholder. */
   footerBrand?: string | null;
+  /** A blog plan's brand map (CREATE_BLOG_BRAND_MAP_ENABLED and a saved map); null = none. */
+  brandMap?: ArticleMap | null;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -760,6 +764,7 @@ export function ContentCanvas({
           brandName: brandName ?? "",
           logoUrl: primaryLogoUrl ?? null,
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
+          ...(brandMap ? { map: brandMap } : {}),
         }
       : undefined;
   const total = nodes.length;

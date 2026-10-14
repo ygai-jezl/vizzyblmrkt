@@ -78,7 +78,7 @@ export function BlogHubReview({
         </p>
       ) : null}
 
-      <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} />
+      <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
 
       {/* A rewrite or a fact check hands back new meta, so the fields wait while one runs
           rather than take an edit that would be overwritten. */}

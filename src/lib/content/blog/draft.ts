@@ -263,7 +263,7 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
       .map((f) => f.slice(0, 60)),
     removedLinks: linked.removed,
   });
-  const report = evaluateCitable(fitted.body, { brief: input.brief, meta, pageUrl: input.plan.strategy.hubUrl });
+  const report = evaluateCitable(fitted.body, { brief: input.brief, meta, pageUrl: input.plan.strategy.hubUrl, map: input.map ?? null });
   return { body: fitted.body, meta, report, cut: fitted.cut };
 }
 

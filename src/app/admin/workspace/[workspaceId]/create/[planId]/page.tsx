@@ -13,6 +13,8 @@ import { isEmailStyleEnabled } from "@/lib/email/flags";
 import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
+import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
+import { loadArticleMap } from "@/lib/content/blog/mapActions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +28,7 @@ export default async function ContentPlanPage({
   const { workspaceId, planId } = await params;
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
-  const [plan, templates, emailPreview] = await Promise.all([
+  const [plan, templates, emailPreview, brandMap] = await Promise.all([
     getContentPlan(ctx, workspaceId, planId),
     listTemplates(ctx, workspaceId),
     // The Email style and footer "sent by" newsletter previews wear, as the send does.
@@ -36,6 +38,9 @@ export default async function ContentPlanPage({
           .then((tenant) => ({ style: resolveEmailStyle(tenant), footerBrand: resolveFooterBrand(tenant, null) }))
           .catch(() => null)
       : null,
+    // The brand map a blog article is written from: its checklist and markup read it in the
+    // browser. Flag off (or none saved): null, and the canvas is as before.
+    isBlogBrandMapEnabled() ? loadArticleMap(ctx).catch(() => null) : null,
   ]);
   if (!plan) notFound();
 
@@ -88,6 +93,7 @@ export default async function ContentPlanPage({
         primaryLogoUrl={primaryLogoUrl}
         emailStyle={emailPreview?.style ?? null}
         footerBrand={emailPreview?.footerBrand ?? null}
+        brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
       />
     </div>
   );

@@ -142,7 +142,7 @@ export async function checkPlanBlogFacts(
   if (!result.checked) return { ok: false, status: 502, error: "check_unavailable" };
 
   // Refresh the warnings the checks own; leave any other warning as it was.
-  const report = evaluateCitable(result.body, { brief, meta: result.meta, pageUrl: plan.strategy.hubUrl });
+  const report = evaluateCitable(result.body, { brief, meta: result.meta, pageUrl: plan.strategy.hubUrl, map });
   const owned = new Set<string>(BLOG_WARNINGS);
   const warnings = [...node.warnings.filter((w) => !owned.has(w)), ...blogWarnings(result.meta, report)];
   let updated: ContentNode | null;

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { CITABLE_LETTERS, citableGaps, evaluateCitable } from "./citable";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
+import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
+import { projectArticleMap } from "./articleMap";
 
 const statusOf = (md: string, id: string, ctx = {}) =>
   evaluateCitable(md, { brief: SAMPLE_BRIEF, ...ctx }).items.find((it) => it.id === id)!.status;
@@ -87,5 +89,53 @@ describe("the CITABLE check", () => {
     expect(r.items.find((it) => it.id === "b_blocks")!.status).toBe("warn");
     expect(r.items.some((it) => it.status === "fail")).toBe(false);
     expect(citableGaps(r)).toEqual([]);
+  });
+});
+
+describe("the CITABLE check with a brand map", () => {
+  const mapWith = (identity: Record<string, unknown>) =>
+    projectArticleMap({ ...BrandMapDecidedSchema.parse({ identity: { name: "Acme", ...identity } }), rev: 1 });
+  const ids = (md: string, map: ReturnType<typeof mapWith> | null) => evaluateCitable(md, { brief: SAMPLE_BRIEF, map }).items.map((it) => it.id);
+
+  it("is exactly as before without a map, or with a map that has nothing to check", () => {
+    const before = evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF });
+    expect(evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, map: null })).toEqual(before);
+    expect(evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, map: mapWith({}) })).toEqual(before);
+  });
+
+  it("checks the article keeps to the map's names", () => {
+    const map = mapWith({ category: "AI search visibility monitoring", avoid: [{ term: "GEO tool", useInstead: "AI search visibility monitoring" }] });
+    expect(ids(SAMPLE_ARTICLE, map)).toContain("l_names");
+    expect(statusOf(SAMPLE_ARTICLE, "l_names", { map })).toBe("pass");
+    // Another wording of the category in the opening: a warning.
+    const reworded = SAMPLE_ARTICLE.replace(
+      "Acme Visibility is an AI search visibility monitoring platform built for B2B marketing teams.",
+      "Acme Visibility is a platform built for B2B marketing teams.",
+    ).replace("AI search visibility monitoring is the practice", "It is the practice");
+    expect(statusOf(reworded, "l_names", { map })).toBe("warn");
+    // A name it avoids, in the article's own sentence: a fail, with what to change.
+    const avoided = SAMPLE_ARTICLE.replace("Use it when buyers research vendors", "Use this GEO tool when buyers research vendors");
+    const r = evaluateCitable(avoided, { brief: SAMPLE_BRIEF, map });
+    const item = r.items.find((it) => it.id === "l_names")!;
+    expect(item.status).toBe("fail");
+    expect(item.detail).toBe("Uses names your brand map avoids: “GEO tool” (say “AI search visibility monitoring”).");
+    expect(citableGaps(r)).toContain(
+      "In your own sentences, replace “GEO tool” with “AI search visibility monitoring”. Leave a buyer's question in a heading, a quotation and a source's title as they are.",
+    );
+  });
+
+  it("asks where the brand doesn't fit only when the map says what it is not, and only ever warns", () => {
+    const map = mapWith({ isNot: ["A general SEO suite"] });
+    // The sample has a "What are its limits?" section; without it, nothing says where it doesn't fit.
+    expect(statusOf(SAMPLE_ARTICLE, "i_limits", { map })).toBe("pass");
+    const unlimited = SAMPLE_ARTICLE.replace(/## What are its limits\?[\s\S]*?(?=## Frequently asked questions)/, "");
+    expect(statusOf(unlimited, "i_limits", { map })).toBe("warn");
+    const headed = unlimited.replace("## Frequently asked questions", "## When is Acme not the right fit?\n\nAcme is not a general SEO suite.\n\n## Frequently asked questions");
+    expect(statusOf(headed, "i_limits", { map })).toBe("pass");
+    // Saying what the map says it is not counts too.
+    expect(statusOf(unlimited.replace("Use it when buyers", "Acme is not a general SEO suite. Use it when buyers"), "i_limits", { map })).toBe("pass");
+    const r = evaluateCitable(unlimited, { brief: SAMPLE_BRIEF, map });
+    expect(r.items.find((it) => it.id === "i_limits")!.status).not.toBe("fail");
+    expect(ids(SAMPLE_ARTICLE, mapWith({}))).not.toContain("i_limits");
   });
 });

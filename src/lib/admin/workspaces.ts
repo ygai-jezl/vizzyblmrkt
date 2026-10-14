@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { forTenant, deleteOwnerKnowledge } from "@/lib/tenant";
+import { removeWorkspacePages } from "@/lib/content/blog/pageActions";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Workspace } from "@/lib/types/workspace";
 
@@ -68,7 +69,10 @@ export async function deleteWorkspace(
     await forTenant(ctx).ingestionTickets.delete(t.id).catch(() => {});
   }
 
-  // 3. The workspace doc.
+  // 3. Its articles' rows on the brand map (none while the pages switch is off).
+  await removeWorkspacePages(ctx, workspaceId).catch(() => 0);
+
+  // 4. The workspace doc.
   await forTenant(ctx).workspaces.delete(workspaceId);
   return true;
 }

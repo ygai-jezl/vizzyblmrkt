@@ -5,6 +5,7 @@ import { getContentPlan, getTemplate, updateContentPlan, updateContentPlanNode }
 import { activeBrandVoiceText } from "./activeBrandVoice";
 import { generateNode } from "./generateNode";
 import { loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
+import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 
 /**
  * Fill plan nodes with copy. Shared by the Create canvas's per-node route and
@@ -103,6 +104,8 @@ export async function fillPlanNode(
     const remaining = fresh.graph.nodes.filter((n) => n.status === "empty" || n.status === "generating");
     if (remaining.length === 0) await updateContentPlan(ctx, ws.id, plan.id, { status: "ready" }, deps.db);
   }
+  // A written blog article is a draft page on the brand map.
+  if (blogHub && fresh) await syncPlanPageSoftly(ctx, { workspaceId: ws.id, planId: plan.id, plan: fresh }, { db: deps.db });
   return { ok: true, node: updated };
 }
 

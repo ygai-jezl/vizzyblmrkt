@@ -16,6 +16,7 @@ import { runArchitect } from "@/lib/content/create/architectRun";
 import { fillPlanNodes } from "@/lib/content/create/fillPlan";
 import type { generateNode } from "@/lib/content/create/generateNode";
 import { checkPlanBlogFacts, isCitableBlogPlan, researchPlanBlog } from "@/lib/content/blog/hubActions";
+import { removePlanPageSoftly } from "@/lib/content/blog/pageActions";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -194,6 +195,8 @@ export async function authorContentPlanDraft(
   if (!built.ok) {
     // Nothing is written yet: don't leave an empty plan behind for every retry.
     await deleteContentPlan(ctx, ws.id, created.id, deps.db).catch(() => undefined);
+    // Research may have put it on the brand map already.
+    await removePlanPageSoftly(ctx, created.id, { db: deps.db });
     return { ok: false, status: built.status, error: built.error };
   }
   await updateContentPlan(ctx, ws.id, created.id, { graph: built.graph, status: "generating" }, deps.db);

@@ -44,6 +44,7 @@ import type {
 import type { Invite, InviteWave } from "@/lib/types/invite";
 import type { PersonPlan } from "@/lib/types/personPlan";
 import type { BrandMapRecord } from "@/lib/types/brandMap";
+import type { BrandMapPage } from "@/lib/types/brandMapPage";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -392,6 +393,8 @@ export interface TenantRepositories {
   personPlans: TenantCollection<PersonPlan>;
   /** The brand map: one document per brand (`bm_<tenantId>`), parsed by src/lib/brandMap/store.ts. */
   brandMaps: TenantCollection<BrandMapRecord>;
+  /** The brand map's pages: a row per article written here, and per page already on the site. */
+  brandMapPages: TenantCollection<BrandMapPage>;
 }
 
 /**
@@ -501,5 +504,6 @@ export function forTenant(
     personPlans: new TenantCollection<PersonPlan>(regionalDb, "person_plans", t),
     // The brand map sits with the content it steers (programmes and their plans) → regional DB.
     brandMaps: new TenantCollection<BrandMapRecord>(regionalDb, "brand_maps", t),
+    brandMapPages: new TenantCollection<BrandMapPage>(regionalDb, "brand_map_pages", t),
   };
 }

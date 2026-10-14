@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { createContentPlan, listContentPlans } from "@/lib/tenant/workspaceContent";
 import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
+import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
     );
   }
   const plan = await createContentPlan(ctx, workspaceId, planFromIntake(parsed.data));
+  // A new blog article is a planned page on the brand map (its pages switch on).
+  await syncPlanPageSoftly(ctx, { workspaceId, planId: plan.id, plan });
   return NextResponse.json({ plan });
 }
 

@@ -11,6 +11,7 @@ import {
 import { BlogBriefSchema, ContentGraphSchema, ContentPlanStatus } from "@/lib/types/contentPlan";
 import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
 import { articleAddressProblem } from "@/lib/content/blog/address";
+import { removePlanPageSoftly, syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +81,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
   }
   await updateContentPlan(ctx, workspaceId, planId, { ...rest, ...(address !== undefined ? { hubUrl: address } : {}) });
   const updated = await getContentPlan(ctx, workspaceId, planId);
+  await syncPlanPageSoftly(ctx, { workspaceId, planId, plan: updated });
   return NextResponse.json({ plan: updated });
 }
 
@@ -96,5 +98,6 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
+  await removePlanPageSoftly(ctx, planId);
   return NextResponse.json({ ok: true });
 }

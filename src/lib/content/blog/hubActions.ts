@@ -13,6 +13,7 @@ import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
 import { fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
+import { syncPlanPageSoftly } from "./pageActions";
 
 /**
  * The two things a blog hub does besides being written — research before, and the fact
@@ -70,6 +71,8 @@ export async function researchPlanBlog(
     deps,
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
+  // Its questions, subject and names are the page's facts on the brand map.
+  await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
   if (!result.mapFindings) return { ok: true, brief: result.brief, searched: result.searched, found: result.found };
   // Names this article uses that the map does not have go to the map as suggestions.
   const suggested = await fileArticleSuggestions(
@@ -159,5 +162,7 @@ export async function checkPlanBlogFacts(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  // The checked copy's names and links are the page's facts on the brand map.
+  await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
   return { ok: true, node: updated, corrected: result.corrected, checked: true };
 }

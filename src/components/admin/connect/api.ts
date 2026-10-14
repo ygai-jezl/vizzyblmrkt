@@ -96,6 +96,13 @@ const MESSAGES: Record<string, string> = {
   version_not_found: "That version is no longer kept.",
   no_readable_files: "We couldn't find source files in that repository (or couldn't read it — check the connected account can access it).",
   analysis_not_queued: "That analysis had already started.",
+  // Brand map
+  brand_map_disabled: "The brand map isn't switched on in this environment.",
+  map_changed: "The brand map was changed elsewhere since you opened it.",
+  map_unreadable: "Your brand map can't be read, so nothing can be changed until it is fixed.",
+  map_too_large: "The brand map is too big to save. Remove some names or suggestions.",
+  invalid_map: "Fix the lines marked below, then save.",
+  no_brand_map: "There is no brand map yet.",
   // Lifecycle journeys
   connection_not_found: "That product connection doesn't exist.",
   connection_unavailable: "The journey's product connection is revoked.",

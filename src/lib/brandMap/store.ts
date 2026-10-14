@@ -393,7 +393,7 @@ export async function dismissBrandMapSuggestions(
         updatedAt: now,
       };
     });
-    if (!saved) return { ok: false, status: 404, error: "no_map" };
+    if (!saved) return { ok: false, status: 404, error: "no_brand_map" };
     const map = parseBrandMap(saved);
     return map ? { ok: true, value: map } : { ok: false, status: 409, error: "map_unreadable" };
   } catch (err) {

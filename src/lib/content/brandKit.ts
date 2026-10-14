@@ -128,6 +128,8 @@ export const BRAND_KIT_ICONS_ROUTE = "/admin/brand-kit/icons";
 export const BRAND_KIT_GRAPHICS_ROUTE = "/admin/brand-kit/graphics";
 /** Brand › Email style (gated by EMAIL_STYLE_ENABLED, see src/lib/email/flags.ts). */
 export const BRAND_KIT_EMAIL_STYLE_ROUTE = "/admin/brand-kit/email-style";
+/** Brand › Brand map (gated by BRAND_MAP_ENABLED, see src/lib/brandMap/flags.ts). */
+export const BRAND_KIT_MAP_ROUTE = "/admin/brand-kit/map";
 
 /**
  * The DERIVED URL for an image asset's bytes, served through the authenticated

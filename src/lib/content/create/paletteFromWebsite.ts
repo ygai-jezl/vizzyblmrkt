@@ -1,8 +1,9 @@
-import { safeFetch, readTextCapped, readBytesCapped } from "@/lib/security/ssrf";
+import { safeFetch, readBytesCapped } from "@/lib/security/ssrf";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
 import { clampColors, harvestCssColors } from "./colorPalette";
-import { htmlToText, stripFenceDelimiters } from "./siteText";
+import { stripFenceDelimiters } from "./siteText";
+import { fetchHomepage } from "./homepage";
 import {
   extractPaletteFromImageBytes,
   IMAGE_PALETTE_MIME,
@@ -22,40 +23,12 @@ import type { PaletteColor } from "@/lib/types/tenant";
  */
 
 const FETCH_TIMEOUT_MS = 8000;
-const MAX_HTML_BYTES = 3 * 1024 * 1024;
 const MAX_SAMPLE_CHARS = 8000;
 const MAX_TOKENS = 200;
 
-interface Homepage {
-  html: string;
-  text: string;
-  baseUrl: string;
-}
-
-/** Fetch + reduce the homepage. Returns raw html (for token/icon harvest) + reduced text. */
-async function fetchHomepage(domain: string): Promise<Homepage | null> {
-  try {
-    const res = await safeFetch(
-      `https://${domain}`,
-      { headers: { "User-Agent": "Vizzybl-BrandColors/1.0", Accept: "text/html,text/plain" } },
-      { timeoutMs: FETCH_TIMEOUT_MS, maxRedirects: 4 },
-    );
-    if (!res.ok) {
-      await res.body?.cancel().catch(() => {});
-      return null;
-    }
-    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
-    if (!ct.includes("text/html") && !ct.includes("text/plain")) {
-      await res.body?.cancel().catch(() => {});
-      return null;
-    }
-    const baseUrl = res.url || `https://${domain}`;
-    const html = await readTextCapped(res, MAX_HTML_BYTES);
-    return { html, text: htmlToText(html).slice(0, MAX_SAMPLE_CHARS), baseUrl };
-  } catch {
-    return null;
-  }
-}
+/** Fetch + reduce the homepage: raw html (for token/icon harvest) + reduced text. */
+const homepageOf = (domain: string) =>
+  fetchHomepage(domain, { userAgent: "Vizzybl-BrandColors/1.0", maxTextChars: MAX_SAMPLE_CHARS });
 
 /**
  * Pick the best brand-image URL from the page head — og:image / twitter:image first (usually a
@@ -120,7 +93,7 @@ async function brandImageColors(html: string, baseUrl: string): Promise<PaletteC
 }
 
 export async function extractPaletteFromDomain(domain: string): Promise<PaletteColor[] | null> {
-  const page = await fetchHomepage(domain);
+  const page = await homepageOf(domain);
   const cssTokens = page ? harvestCssColors(page.html, MAX_TOKENS) : [];
   const imageColors = page ? await brandImageColors(page.html, page.baseUrl) : null;
 

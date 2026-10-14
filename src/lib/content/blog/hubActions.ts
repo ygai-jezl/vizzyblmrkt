@@ -12,6 +12,7 @@ import { BLOG_WARNINGS, blogWarnings } from "./draft";
 import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
+import { fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
 
 /**
  * The two things a blog hub does besides being written — research before, and the fact
@@ -44,24 +45,45 @@ async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; s
   }
 }
 
-export type BlogResearchOutcome = ({ ok: true; brief: BlogBrief } & Pick<BlogResearchResult, "searched" | "found">) | BlogActionError;
+export type BlogResearchOutcome =
+  | ({
+      ok: true;
+      brief: BlogBrief;
+      /** With a brand map: how many names were respelled its way, and how many new ones were suggested for it. */
+      map?: { respelled: number; suggested: number };
+    } & Pick<BlogResearchResult, "searched" | "found">)
+  | BlogActionError;
 
 /** Research a blog plan's brief and save it on the plan. */
 export async function researchPlanBlog(
   ctx: TenantContext,
   args: { workspace: WorkspaceBits; plan: ContentPlan; timeoutMs?: number },
-  deps: BlogResearchDeps & { db?: FirestoreLike } = {},
+  deps: BlogResearchDeps & MapDeps = {},
 ): Promise<BlogResearchOutcome> {
   const { workspace, plan } = args;
   if (!isBlogCitableEnabled()) return { ok: false, status: 503, error: "unavailable" };
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
-  const brand = await tenantBrand(ctx);
+  // Read side by side: the tenant record, and the brand map (null with its flag off or none saved).
+  const [brand, map] = await Promise.all([tenantBrand(ctx), loadArticleMap(ctx, deps)]);
   const result = await researchBlogBrief(
-    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs },
+    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map },
     deps,
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
-  return { ok: true, brief: result.brief, searched: result.searched, found: result.found };
+  if (!result.mapFindings) return { ok: true, brief: result.brief, searched: result.searched, found: result.found };
+  // Names this article uses that the map does not have go to the map as suggestions.
+  const suggested = await fileArticleSuggestions(
+    ctx,
+    { plan: { id: plan.id, workspaceId: workspace.id, name: plan.name }, unknown: result.mapFindings.unknown, title: result.brief.primaryQuestion },
+    deps,
+  );
+  return {
+    ok: true,
+    brief: result.brief,
+    searched: result.searched,
+    found: result.found,
+    map: { respelled: result.mapFindings.respelled.length, suggested },
+  };
 }
 
 export type BlogCheckOutcome = { ok: true; node: ContentNode; corrected: number; checked: boolean } | BlogActionError;

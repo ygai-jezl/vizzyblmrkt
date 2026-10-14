@@ -14,6 +14,8 @@ import {
   type BlogResearchDeps,
   type FetchedPage,
 } from "./research";
+import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
+import { projectArticleMap } from "./articleMap";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -150,7 +152,7 @@ describe("blog research", () => {
     expect(parseResearch("FACT: A fact with no address at all: 12%.").facts).toEqual([
       { fact: "A fact with no address at all: 12%.", url: "" },
     ]);
-    expect(parseResearch("")).toEqual({ primary: "", questions: [], facts: [], entities: [] });
+    expect(parseResearch("")).toEqual({ primary: "", questions: [], facts: [], entities: [], subject: "" });
   });
 
   it("ties a fact to the search results that back it — and to none when search didn't", () => {
@@ -774,3 +776,82 @@ describe("blog research — can the AI crawlers read the article", () => {
   });
 });
 
+
+describe("blog research with a brand map", () => {
+  const MAP = projectArticleMap({
+    ...BrandMapDecidedSchema.parse({
+      identity: { name: "Acme", category: "AI visibility tracking", avoid: [{ term: "GEO tool", useInstead: "AI visibility tracking" }] },
+      subjects: [
+        {
+          id: "sub_aaaaaaaa",
+          name: "Share of voice",
+          home: "https://acme.example/share-of-voice",
+          questions: [{ id: "q_aaaaaaaa", text: "How do I track my brand in AI answers?", intent: "how_to" }],
+        },
+      ],
+      names: [
+        { id: "n_aaaaaaaa", name: "Acme Visibility", kind: "product", home: "https://acme.example/visibility" },
+        { id: "n_bbbbbbbb", name: "ExampleCRM", kind: "integration", aliases: ["Example CRM Cloud"] },
+      ],
+    }),
+    rev: 2,
+  });
+  const ANSWER = [QUESTIONS, "ENTITY: AI search monitoring | category", "SUBJECT: share of voice"].join("\n");
+
+  it("asks with the map's names and subjects, and keeps to its spelling", async () => {
+    const d = deps();
+    d.grounded.mockImplementation(async (prompt: string) =>
+      prompt.includes("FACT: <the sentence>") ? attributed : { text: ANSWER, model: "m", sources: [], supports: [] },
+    );
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan(), brandName: "Acme Ltd", map: MAP }, d);
+    const prompt = String(d.grounded.mock.calls.map((c) => c[0]).find((p) => String(p).includes("ENTITY: <name>")));
+    expect(prompt).toContain("<brand_map>");
+    expect(prompt).toContain("- Acme Visibility (its product)");
+    expect(prompt).toContain("SUBJECT: <the one subject listed in <brand_map>");
+    // The map's brand name is the one the prompt uses.
+    expect(prompt).toContain('for the brand "Acme"');
+
+    const b = r.brief;
+    // Brand and category first, and the map's; the category research worded otherwise is reported.
+    expect(b.entities.slice(0, 2).map((e) => `${e.relation}:${e.name}`)).toEqual(["brand:Acme", "category:AI visibility tracking"]);
+    expect(r.mapFindings?.respelled).toContainEqual({ from: "AI search monitoring", to: "AI visibility tracking" });
+    // The research names the map does not have are suggested for it.
+    expect(r.mapFindings?.unknown.map((e) => e.name)).toEqual(["Rivalco", "ExampleChat"]);
+    // An integration the brand's own material does not name is still dropped.
+    expect(b.entities.some((e) => e.name === "ExampleCRM")).toBe(false);
+    // The subject research picked, and the main question is the map's own (by id).
+    expect(b.subjectId).toBe("sub_aaaaaaaa");
+    expect(b.primaryRef).toBe("q_aaaaaaaa");
+    // The map's page for its product and for the subject go ahead of the other deeper pages.
+    expect(b.links.map((l) => `${l.intent}:${l.url}`)).toEqual([
+      "convert:https://acme.example/demo",
+      "convert:https://acme.example/pricing",
+      "learn:https://acme.example/visibility",
+      "learn:https://acme.example/share-of-voice",
+      "learn:https://acme.example/blog/citation-gaps",
+    ]);
+  });
+
+  it("never overrides a subject a person chose, or their none", async () => {
+    for (const subjectId of [null, "sub_other"]) {
+      const d = deps();
+      d.grounded.mockImplementation(async (prompt: string) =>
+        prompt.includes("FACT: <the sentence>") ? attributed : { text: ANSWER, model: "m", sources: [], supports: [] },
+      );
+      const p = plan({ blog: BlogBriefSchema.parse({ subjectId }) });
+      const r = await researchBlogBrief({ ctx, workspace, plan: p, map: MAP }, d);
+      expect(r.brief.subjectId).toBe(subjectId);
+    }
+  });
+
+  it("keeps an integration its material names by another spelling", async () => {
+    const d = deps({
+      retrieve: (async () => ({ formatted: "Acme connects to Example CRM Cloud.", chunks: [] })) as never,
+    });
+    d.grounded.mockImplementation(async (prompt: string) =>
+      prompt.includes("FACT: <the sentence>") ? attributed : { text: ANSWER, model: "m", sources: [], supports: [] },
+    );
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan(), map: MAP }, d);
+    expect(r.brief.entities).toContainEqual({ name: "ExampleCRM", relation: "integration", by: "research" });
+  });
+});

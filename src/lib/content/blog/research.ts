@@ -27,11 +27,14 @@ import {
   type BlogSource,
   type ContentPlan,
 } from "@/lib/types/contentPlan";
-import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl } from "./brief";
+import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl, textKey } from "./brief";
+import { researchMapBlock, researchSubjectLine, type ArticleMap } from "./articleMap";
+import { canonicaliseEntities, indexNames } from "./names";
+import { fold } from "@/lib/brandMap/changes";
 import { blockedCrawlers } from "./crawlers";
 import { factFiguresOnPage, factWordedAs, figureSet, wordingShared, wordsOf } from "./figures";
 import { blogResearchThinkingBudget } from "./flags";
-import { chooseLinkTargets, pagesFromRepoPaths, type KnownPage } from "./links";
+import { chooseLinkTargets, isLinkablePage, linkLabel, pagesFromRepoPaths, type KnownPage } from "./links";
 
 /**
  * Research for a blog hub — the up-front work that lets one article answer what buyers
@@ -119,6 +122,8 @@ export interface BlogResearchInput {
   ownSites?: (string | null | undefined)[];
   /** How long the searches may take before research carries on with what it has. */
   timeoutMs?: number;
+  /** The brand map the article is written from (CREATE_BLOG_BRAND_MAP_ENABLED); null = none, as before. */
+  map?: ArticleMap | null;
 }
 
 export interface BlogResearchDeps {
@@ -158,6 +163,8 @@ export interface BlogResearchResult {
     /** Of those, the ones that came from the brand's cite sources (the rest are the web's). */
     citedSources: number;
   };
+  /** With a brand map: names the map does not have (suggest them), and names respelled the map's way. */
+  mapFindings?: { unknown: BlogEntity[]; respelled: Array<{ from: string; to: string }> };
 }
 
 // ── Reading the model's lines ───────────────────────────────────────────────
@@ -173,6 +180,8 @@ export interface ParsedResearch {
   questions: BlogQuestion[];
   facts: FoundFact[];
   entities: BlogEntity[];
+  /** The brand map subject research says the article belongs to ("" = none given). */
+  subject: string;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”']+|["“”']+$/g, "").trim();
@@ -188,11 +197,11 @@ function isSearchLink(url: string): boolean {
   }
 }
 
-/** Parse the research answer (PRIMARY / Q / FACT / ENTITY lines). Unknown lines are skipped. */
+/** Parse the research answer (PRIMARY / Q / FACT / ENTITY / SUBJECT lines). Unknown lines are skipped. */
 export function parseResearch(text: string): ParsedResearch {
-  const out: ParsedResearch = { primary: "", questions: [], facts: [], entities: [] };
+  const out: ParsedResearch = { primary: "", questions: [], facts: [], entities: [], subject: "" };
   for (const raw of (text ?? "").split(/\r?\n/)) {
-    const m = /^\s*(?:[-*•]\s*)?\**(PRIMARY|Q|FACT|ENTITY)\**\s*:\**\s*(.+)$/i.exec(raw);
+    const m = /^\s*(?:[-*•]\s*)?\**(PRIMARY|Q|FACT|ENTITY|SUBJECT)\**\s*:\**\s*(.+)$/i.exec(raw);
     if (!m) continue;
     const kind = (m[1] ?? "").toUpperCase();
     const parts = (m[2] ?? "").split(/\s+\|\s+/).map(clean);
@@ -200,6 +209,8 @@ export function parseResearch(text: string): ParsedResearch {
     if (!head) continue;
     if (kind === "PRIMARY") {
       out.primary ||= head.slice(0, 300);
+    } else if (kind === "SUBJECT") {
+      out.subject ||= /^none$/i.test(head) ? "" : head.slice(0, 80);
     } else if (kind === "Q") {
       const intent = BlogIntent.safeParse((parts[1] ?? "").toLowerCase().replace(/[\s-]+/g, "_"));
       out.questions.push({ question: head.slice(0, 300), intent: intent.success ? intent.data : "other", by: "research" });
@@ -713,7 +724,10 @@ export async function researchBlogBrief(
   const now = clock();
   const deadline = now.getTime() + (input.timeoutMs ?? 60_000);
   const current = briefOf(plan);
-  const brandName = current.publisherName.trim() || input.brandName?.trim() || workspace.name;
+  const map = input.map ?? null;
+  // With a brand map, the brand is called what the map calls it; the publisher field a
+  // person typed is still only filled in, never overwritten (mergeResearch).
+  const brandName = map?.identity.name.trim() || current.publisherName.trim() || input.brandName?.trim() || workspace.name;
   const subject = [current.primaryQuestion, plan.scope.spark, plan.name].map((s) => s?.trim()).find(Boolean) ?? plan.name;
 
   // The brand's own knowledge on the subject: it keeps the questions on the product's
@@ -760,6 +774,8 @@ export async function researchBlogBrief(
     audience,
     buyer_questions: current.buyerQuestions.replace(/<\/?\s*buyer_questions[^>]*>/gi, " ") || "(none given)",
     knowledge_context: knowledgeContext || "(the brand has no indexed material yet)",
+    brand_map: researchMapBlock(map, current),
+    subject_line: researchSubjectLine(map, current),
   });
   const factsPrompt = renderPrompt("content.blog_facts", {
     today,
@@ -861,21 +877,61 @@ export async function researchBlogBrief(
   const firstParty = [knowledgeContext, ...(plan.knowledge.proofAssets ?? []), plan.scope.spark, current.buyerQuestions]
     .join("\n")
     .toLowerCase();
-  const entities = parsed.entities.filter(
-    (e) => e.relation !== "integration" || firstParty.includes(e.name.toLowerCase()),
+  // With a brand map, the map's other spellings of a name count too ("GA4" for "Google Analytics 4").
+  const spellingsOf = (name: string): string[] => {
+    const hit = map?.names.find((n) => fold(n.name) === fold(name) || n.aliases.some((a) => fold(a) === fold(name)));
+    return hit ? [name, hit.name, ...hit.aliases] : [name];
+  };
+  const filtered = parsed.entities.filter(
+    (e) => e.relation !== "integration" || spellingsOf(e.name).some((n) => firstParty.includes(n.toLowerCase())),
   );
+  const named = map ? canonicaliseEntities(filtered, indexNames(map), CONTENT_PLAN_LIMITS.MAX_BLOG_ENTITIES) : null;
+  const entities = named ? named.entities : filtered;
+
+  // With a brand map: the subject research picked (when none is set), and which questions
+  // are the map's own (carried by id, so a later edit of a word does not lose them).
+  const mapSubject =
+    map && current.subjectId === undefined && parsed.subject
+      ? map.subjects.find((x) => fold(x.name) === fold(parsed.subject))
+      : map?.subjects.find((x) => x.id === current.subjectId);
+  const mapQuestions = map ? [...(mapSubject?.questions ?? []), ...map.subjects.flatMap((x) => (x === mapSubject ? [] : x.questions))] : [];
+  const refOf = (text: string) => mapQuestions.find((q) => textKey(q.text) === textKey(text))?.id;
+  const questions = map ? parsed.questions.map((q) => ({ ...q, ...(refOf(q.question) ? { ref: refOf(q.question) } : {}) })) : parsed.questions;
+  const primaryRef = map ? refOf(current.primaryQuestion || parsed.primary) : undefined;
+
+  // With a brand map: the page for each of its names the article uses, and the subject's,
+  // and live articles on the same subject, lead the pages that go deeper. Own site only.
+  if (map) {
+    const homes: Array<{ url: string; label: string }> = [];
+    const usedNames = new Set(entities.map((e) => fold(e.name)));
+    for (const n of map.names) if (n.home && n.kind !== "alternative" && usedNames.has(fold(n.name))) homes.push({ url: n.home, label: n.name });
+    if (mapSubject?.home) homes.push({ url: mapSubject.home, label: mapSubject.name });
+    for (const sib of map.siblings.filter((x) => x.subjectId === mapSubject?.id).slice(0, 2)) homes.push({ url: sib.url, label: sib.title });
+    const have = new Set(links.map((l) => normalizeUrl(l.url)));
+    const extra = homes
+      .map((h) => ({ url: normalizeUrl(h.url), label: h.label }))
+      .filter((h) => h.url && !have.has(h.url) && isOwn(h.url) && isLinkablePage(h.url) && h.url !== normalizeUrl(plan.strategy.hubUrl ?? ""))
+      .filter((h, i, all) => all.findIndex((x) => x.url === h.url) === i)
+      .slice(0, 4)
+      .map((h) => ({ url: h.url, label: h.label.slice(0, 160) || linkLabel(h.url), intent: "learn" as const, by: "research" as const }));
+    // After the pages that convert or describe the product, ahead of the rest that go deeper.
+    const at = links.findIndex((l) => l.intent === "learn");
+    links.splice(at === -1 ? links.length : at, 0, ...extra);
+  }
 
   const brief = mergeResearch(
     current,
     {
       primaryQuestion: parsed.primary,
-      questions: parsed.questions,
+      questions,
       links,
       sources,
       entities,
       publisherName: brandName,
       publisherUrl,
       ...(crawling ? { crawlers: await crawling } : {}),
+      ...(mapSubject && current.subjectId === undefined ? { subjectId: mapSubject.id } : {}),
+      ...(primaryRef ? { primaryRef } : {}),
     },
     now.toISOString(),
   );
@@ -890,5 +946,6 @@ export async function researchBlogBrief(
       verifiedSources: sources.filter((s) => s.status === "verified").length,
       citedSources: sources.filter((s) => s.origin === "cited").length,
     },
+    ...(named ? { mapFindings: { unknown: named.unknown, respelled: named.respelled } } : {}),
   };
 }

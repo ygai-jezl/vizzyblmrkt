@@ -6,6 +6,7 @@ import { hostOf } from "@/lib/content/blog/brief";
 import { crawlerLabel } from "@/lib/content/blog/crawlers";
 import { renderArticleHtml } from "@/lib/content/blog/markdown";
 import { schemaScriptTag, suggestBlogSchema } from "@/lib/content/blog/schema";
+import type { ArticleMap } from "@/lib/content/blog/articleMap";
 
 /**
  * The hand-over for a blog hub. We don't host the article, so the operator carries it to
@@ -86,6 +87,7 @@ export function BlogExport({
   pageUrl,
   brandName,
   logoUrl,
+  map = null,
 }: {
   markdown: string;
   meta: BlogArticleMeta | null | undefined;
@@ -96,11 +98,13 @@ export function BlogExport({
   /** The publisher when the brief names none. */
   brandName: string;
   logoUrl: string | null;
+  /** The brand map the article is written from: its identifiers become sameAs. */
+  map?: ArticleMap | null;
 }) {
   const id = useId();
   const schema = useMemo(
-    () => suggestBlogSchema({ markdown, meta, brief, pageUrl, brandName, logoUrl }),
-    [markdown, meta, brief, pageUrl, brandName, logoUrl],
+    () => suggestBlogSchema({ markdown, meta, brief, pageUrl, brandName, logoUrl, map }),
+    [markdown, meta, brief, pageUrl, brandName, logoUrl, map],
   );
   const [copied, setCopied] = useState<{ kind: CopyKind; ok: boolean } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

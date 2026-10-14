@@ -9,6 +9,7 @@ import { api, errorText } from "@/components/admin/connect/api";
 import { Banner, Button } from "@/components/admin/connect/ui";
 import { BrandMapIdentity } from "./BrandMapIdentity";
 import { BrandMapLookup } from "./BrandMapLookup";
+import { BrandMapMarkup } from "./BrandMapMarkup";
 import { BrandMapNames } from "./BrandMapNames";
 import { BrandMapSubjects } from "./BrandMapSubjects";
 import { BrandMapSuggestions } from "./BrandMapSuggestions";
@@ -312,6 +313,7 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onAccept={accept}
             onDismiss={dismiss}
           />
+          {baseRev > 0 ? <BrandMapMarkup saved={saved} /> : null}
         </div>
       </div>
     </div>

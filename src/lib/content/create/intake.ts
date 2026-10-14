@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BlogBriefSchema, ContentObjective, SequenceType, type ContentPlan } from "@/lib/types/contentPlan";
 import { isChannel } from "@/lib/content/channels";
 import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
+import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 
 /**
  * A new content plan's intake — shared by the Create wizard's route and Vizzy's
@@ -15,6 +16,9 @@ const HubUrl = z
   .refine((u) => /^https?:\/\//i.test(u), "must be an http(s) URL")
   .nullable()
   .optional();
+
+/** A brand map id ("sub_…", "q_…"). The plan only keeps it; research checks it is still on the map. */
+const MapId = (prefix: "sub" | "q") => z.string().regex(new RegExp(`^${prefix}_[a-z0-9]{6,24}$`));
 
 export const IntakeSchema = z.object({
   name: z.string().min(1).max(200),
@@ -43,6 +47,10 @@ export const IntakeSchema = z.object({
     .object({
       primaryQuestion: z.string().max(300).default(""),
       buyerQuestions: z.string().max(6000).default(""),
+      /** The brand map subject the article is for: absent = research picks one, null = none. */
+      subjectId: MapId("sub").nullable().optional(),
+      /** The brand map question the article answers, when it was started from one. */
+      questionId: MapId("q").optional(),
     })
     .optional(),
 });
@@ -61,11 +69,20 @@ export function planFromIntake(input: Intake): NewPlanFields {
   ];
   const primaryQuestion = input.blog?.primaryQuestion.trim() ?? "";
   const buyerQuestions = input.blog?.buyerQuestions.trim() ?? "";
+  // The brand map's subject and question ride along only while articles are written from the map.
+  const mapOn = isBlogBrandMapEnabled();
+  const subjectId = mapOn ? input.blog?.subjectId : undefined;
+  const primaryRef = mapOn ? input.blog?.questionId : undefined;
   const blogBrief =
     input.topology.hubChannel === "blog" &&
     input.strategy.objective !== "email_sequence" &&
-    (primaryQuestion || buyerQuestions)
-      ? BlogBriefSchema.parse({ primaryQuestion, buyerQuestions })
+    (primaryQuestion || buyerQuestions || subjectId !== undefined || primaryRef)
+      ? BlogBriefSchema.parse({
+          primaryQuestion,
+          buyerQuestions,
+          ...(subjectId !== undefined ? { subjectId } : {}),
+          ...(primaryRef ? { primaryRef } : {}),
+        })
       : null;
   return {
     name: input.name,

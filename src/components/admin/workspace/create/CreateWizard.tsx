@@ -29,16 +29,29 @@ const SPOKE_OPTIONS = CHANNELS.filter((c) => !["newsletter", "blog", "standalone
 
 const STEPS = ["Strategy", "Scope", "Knowledge", "Topology"] as const;
 
+/** A brand map subject a new article can be for, with its questions. */
+export interface MapSubjectChoice {
+  id: string;
+  name: string;
+  questions: Array<{ id: string; text: string }>;
+}
+
+/** "None of these" in the subject list (a map id never looks like this). */
+const NO_SUBJECT = "none";
+
 export function CreateWizard({
   workspaceId,
   topics,
   initialSources,
+  subjects = [],
   onCreated,
   onCancel,
 }: {
   workspaceId: string;
   topics: string[];
   initialSources: IngestionTicket[];
+  /** The brand map's subjects (empty without a map in force). */
+  subjects?: MapSubjectChoice[];
   onCreated: (plan: ContentPlan) => void;
   onCancel: () => void;
 }) {
@@ -58,6 +71,8 @@ export function CreateWizard({
   const [industryLens, setIndustryLens] = useState("");
   const [blogQuestion, setBlogQuestion] = useState("");
   const [blogBuyerQuestions, setBlogBuyerQuestions] = useState("");
+  // The brand map subject: "" = research picks one, NO_SUBJECT = none of them.
+  const [subject, setSubject] = useState("");
   const [sources, setSources] = useState<IngestionTicket[]>(initialSources);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -139,7 +154,13 @@ export function CreateWizard({
                 : { hubChannel, spokeChannels },
             // Blog hub only — what the operator already knows; research fills in the rest.
             ...(citableBlog
-              ? { blog: { primaryQuestion: blogQuestion.trim(), buyerQuestions: blogBuyerQuestions.trim() } }
+              ? {
+                  blog: {
+                    primaryQuestion: blogQuestion.trim(),
+                    buyerQuestions: blogBuyerQuestions.trim(),
+                    ...(subject === NO_SUBJECT ? { subjectId: null } : subject ? { subjectId: subject } : {}),
+                  },
+                }
               : {}),
           }),
         },
@@ -445,6 +466,19 @@ export function CreateWizard({
                       className={INPUT}
                     />
                   </Field>
+                  {subjects.length ? (
+                    <Field label="Subject (optional)" hint="Which subject on your brand map this article is for. Leave it and research picks one.">
+                      <select aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className={INPUT}>
+                        <option value="">Let research choose</option>
+                        {subjects.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                        <option value={NO_SUBJECT}>None of these</option>
+                      </select>
+                    </Field>
+                  ) : null}
                   <Field
                     label="What buyers ask (optional)"
                     hint="Paste what you hear on sales calls or see in search data."

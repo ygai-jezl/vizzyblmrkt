@@ -91,6 +91,17 @@ function blockFor(type: ContentNodeType): string {
   return "hook";
 }
 
+/** What research did with the brand map, for its note ("" without one, or when it did nothing). */
+function brandMapNote(m?: { respelled: number; suggested: number }): string {
+  if (!m) return "";
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    m.respelled ? `${count(m.respelled, "name", "names")} spelled its way` : "",
+    m.suggested ? `${count(m.suggested, "new name", "new names")} suggested for it` : "",
+  ].filter(Boolean);
+  return parts.length ? ` Brand map: ${parts.join(", ")}.` : "";
+}
+
 export function ContentCanvas({
   workspaceId,
   initial,
@@ -442,6 +453,8 @@ export function ContentCanvas({
           verifiedSources: number;
           citedSources?: number;
         };
+        /** With a brand map: names spelled its way, and new ones suggested for it. */
+        map?: { respelled: number; suggested: number };
       };
       if (res.ok && data.brief) {
         setBlogBrief(data.brief);
@@ -457,7 +470,8 @@ export function ContentCanvas({
                 (data.searched === false ? " Search wasn't available, so the questions are yours alone." : "") +
                 (f.facts > 0 && f.sources === 0
                   ? " Search found facts but not the pages behind them this time — research again for sources."
-                  : ""),
+                  : "") +
+                brandMapNote(data.map),
           "research",
         );
       } else {

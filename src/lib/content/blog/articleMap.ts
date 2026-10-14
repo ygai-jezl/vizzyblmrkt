@@ -101,6 +101,37 @@ const KIND_SAID: Record<BrandMapNameKind, string> = {
   use_case: "a use case",
 };
 
+/** A map question by its id, with the subject it is on. */
+export function mapQuestion(
+  map: Pick<ArticleMap, "subjects">,
+  id: string | undefined,
+): { subject: ArticleMapSubject; question: ArticleMapQuestion } | null {
+  if (!id) return null;
+  for (const subject of map.subjects) {
+    const question = subject.questions.find((q) => q.id === id);
+    if (question) return { subject, question };
+  }
+  return null;
+}
+
+/**
+ * The brief with its subject set by a person: an id, null (none), or undefined (research
+ * picks one). The map question the article answers stays linked only while it is on the
+ * subject chosen.
+ */
+export function withSubject<B extends Pick<BlogBrief, "subjectId" | "primaryRef">>(
+  brief: B,
+  subjectId: string | null | undefined,
+  map: Pick<ArticleMap, "subjects">,
+): B {
+  const next = { ...brief };
+  delete next.subjectId;
+  delete next.primaryRef;
+  if (subjectId !== undefined) next.subjectId = subjectId;
+  if (subjectId && brief.primaryRef && mapQuestion(map, brief.primaryRef)?.subject.id === subjectId) next.primaryRef = brief.primaryRef;
+  return next;
+}
+
 /** The article's subject on the map, if the brief names one that is still there. */
 export function subjectOf(map: ArticleMap, brief: Pick<BlogBrief, "subjectId">): ArticleMapSubject | null {
   return brief.subjectId ? (map.subjects.find((s) => s.id === brief.subjectId) ?? null) : null;

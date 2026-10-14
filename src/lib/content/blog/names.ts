@@ -125,6 +125,14 @@ export function canonicaliseEntities(found: BlogEntity[], index: NameIndex, max:
   return { entities: entities.slice(0, max), unknown, respelled };
 }
 
+/** Which of an article's names the map does not have (brand and category aside): the browser marks them. */
+export function notOnMap(map: Pick<ArticleMap, "identity" | "names">, entities: BlogEntity[]): (e: BlogEntity) => boolean {
+  // Read every row as research's, so a person's own rows are looked up too (never renamed: this only reads).
+  const rows = entities.map((e) => ({ ...e, by: "research" as const }));
+  const unknown = new Set(canonicaliseEntities(rows, indexNames(map), rows.length + 2).unknown.map((e) => fold(e.name)));
+  return (e) => unknown.has(fold(e.name));
+}
+
 const LETTER = "\\p{L}\\p{N}";
 const CJK = /[぀-ヿ㐀-鿿가-힯]/;
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

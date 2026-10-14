@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BlogEntity } from "@/lib/types/contentPlan";
 import type { ArticleMap } from "./articleMap";
-import { avoidedUses, canonicaliseEntities, indexNames, mentionsName, ownSentences } from "./names";
+import { avoidedUses, canonicaliseEntities, indexNames, mentionsName, notOnMap, ownSentences } from "./names";
 
 const MAP: Pick<ArticleMap, "identity" | "names"> = {
   identity: {
@@ -66,6 +66,11 @@ describe("matching an article's names to the brand map", () => {
     expect(once.entities).toContainEqual(e("Pulse", "product", "operator"));
     const twice = canonicaliseEntities(once.entities, indexNames(MAP), 16);
     expect(twice.entities).toEqual(once.entities);
+  });
+
+  it("marks the names the map does not have, a person's own included", () => {
+    const rows = [e("Acme", "brand"), e("Pulse", "product", "operator"), e("Peec", "alternative"), e("Notion", "integration", "operator"), e("Flow", "product")];
+    expect(rows.filter(notOnMap(MAP, rows)).map((r) => r.name)).toEqual(["Peec", "Notion", "Flow"]);
   });
 
   it("knows a whole name from part of a word", () => {

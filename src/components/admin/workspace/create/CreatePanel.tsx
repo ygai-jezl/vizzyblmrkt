@@ -4,7 +4,7 @@ import { useState } from "react";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CreateWizard } from "./CreateWizard";
+import { CreateWizard, type MapSubjectChoice } from "./CreateWizard";
 import { isEbookUiEnabled } from "@/lib/content/create/ebook";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentPlan } from "@/lib/types/contentPlan";
@@ -27,11 +27,14 @@ export function CreatePanel({
   initialPlans,
   topics,
   initialSources,
+  subjects = [],
 }: {
   workspaceId: string;
   initialPlans: ContentPlan[];
   topics: string[];
   initialSources: IngestionTicket[];
+  /** The brand map's subjects (empty without a map in force). */
+  subjects?: MapSubjectChoice[];
 }) {
   const router = useRouter();
   const [plans] = useState<ContentPlan[]>(initialPlans);
@@ -73,6 +76,7 @@ export function CreatePanel({
           workspaceId={workspaceId}
           topics={topics}
           initialSources={initialSources}
+          subjects={subjects}
           onCreated={onCreated}
           onCancel={() => setShowWizard(false)}
         />

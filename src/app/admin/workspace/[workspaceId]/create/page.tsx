@@ -3,6 +3,8 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
 import { CreatePanel } from "@/components/admin/workspace/create/CreatePanel";
+import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
+import { loadArticleMap } from "@/lib/content/blog/mapActions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +19,7 @@ export default async function CreatePage({
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
 
-  const [plans, sources] = await Promise.all([
+  const [plans, sources, map] = await Promise.all([
     listContentPlans(ctx, workspaceId),
     forTenant(ctx).ingestionTickets.find({
       where: [
@@ -26,6 +28,8 @@ export default async function CreatePage({
       ],
       limit: 200,
     }),
+    // The brand map's subjects, so a new article can be for one (null with its switch off or none saved).
+    isBlogBrandMapEnabled() ? loadArticleMap(ctx).catch(() => null) : null,
   ]);
   sources.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 
@@ -35,6 +39,7 @@ export default async function CreatePage({
       initialPlans={plans}
       topics={ws.topics ?? []}
       initialSources={sources}
+      subjects={(map?.subjects ?? []).map((s) => ({ id: s.id, name: s.name, questions: s.questions.map((q) => ({ id: q.id, text: q.text })) }))}
     />
   );
 }

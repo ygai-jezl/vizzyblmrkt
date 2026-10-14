@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BlogBriefSchema } from "@/lib/types/contentPlan";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
-import { mapMaterial, projectArticleMap, researchMapBlock, researchSubjectLine, writerMapBlock } from "./articleMap";
+import { mapMaterial, mapQuestion, projectArticleMap, researchMapBlock, researchSubjectLine, withSubject, writerMapBlock } from "./articleMap";
 
 const decided = BrandMapDecidedSchema.parse({
   identity: {
@@ -73,6 +73,17 @@ describe("the article's view of the brand map", () => {
     // The subject's page is not on the article's list of links, so it is not given.
     expect(block).not.toContain("share-of-voice");
     expect(block).toContain("says plainly where Acme is not the right fit");
+  });
+
+  it("keeps the map question linked only while the article stays on its subject", () => {
+    const brief = { primaryQuestion: "How is it measured?", subjectId: "sub_aaaaaaaa", primaryRef: "q_bbbbbbbb" };
+    expect(mapQuestion(map, "q_bbbbbbbb")?.subject.id).toBe("sub_aaaaaaaa");
+    expect(mapQuestion(map, "q_zzzzzzzz")).toBeNull();
+    expect(withSubject(brief, "sub_aaaaaaaa", map)).toEqual(brief);
+    expect(withSubject(brief, "sub_cccccccc", map)).toEqual({ primaryQuestion: "How is it measured?", subjectId: "sub_cccccccc" });
+    expect(withSubject(brief, null, map)).toEqual({ primaryQuestion: "How is it measured?", subjectId: null });
+    // Back to "research picks one": no subject key at all, so research may pick again.
+    expect(withSubject(brief, undefined, map)).toEqual({ primaryQuestion: "How is it measured?" });
   });
 
   it("counts the brand's own statement as its material", () => {

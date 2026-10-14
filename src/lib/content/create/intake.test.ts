@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntakeSchema, planFromIntake } from "./intake";
 
 const intake = (over: Record<string, unknown> = {}) =>
@@ -37,6 +37,33 @@ describe("content plan intake", () => {
     expect(planFromIntake(intake({ topology: { hubChannel: "blog", spokeChannels: [] } }))).not.toHaveProperty("blog");
     expect(planFromIntake(intake({ blog }))).not.toHaveProperty("blog");
     expect(IntakeSchema.safeParse({ ...intake(), blog: { primaryQuestion: "x".repeat(301) } }).success).toBe(false);
+  });
+
+  describe("with a brand map", () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const blogHub = (blog: Record<string, unknown>) => intake({ topology: { hubChannel: "blog", spokeChannels: [] }, blog });
+
+    it("starts the brief on the subject and question chosen, or on none", () => {
+      vi.stubEnv("BRAND_MAP_ENABLED", "true");
+      vi.stubEnv("CREATE_BLOG_BRAND_MAP_ENABLED", "true");
+      expect(planFromIntake(blogHub({ primaryQuestion: "How is it measured?", subjectId: "sub_aaaaaaaa", questionId: "q_bbbbbbbb" })).blog).toMatchObject({
+        primaryQuestion: "How is it measured?",
+        subjectId: "sub_aaaaaaaa",
+        primaryRef: "q_bbbbbbbb",
+      });
+      // "None of these" is a choice of its own; leaving it means research picks one.
+      expect(planFromIntake(blogHub({ subjectId: null })).blog).toMatchObject({ subjectId: null });
+      expect(planFromIntake(blogHub({ primaryQuestion: "Why?" })).blog).not.toHaveProperty("subjectId");
+      expect(IntakeSchema.safeParse({ ...intake(), blog: { subjectId: "../../x" } }).success).toBe(false);
+      expect(IntakeSchema.safeParse({ ...intake(), blog: { questionId: "sub_aaaaaaaa" } }).success).toBe(false);
+    });
+
+    it("leaves them off while articles are not written from the map", () => {
+      const plan = planFromIntake(blogHub({ primaryQuestion: "Why?", subjectId: "sub_aaaaaaaa", questionId: "q_bbbbbbbb" }));
+      expect(plan.blog).not.toHaveProperty("subjectId");
+      expect(plan.blog).not.toHaveProperty("primaryRef");
+      expect(planFromIntake(blogHub({ subjectId: null }))).not.toHaveProperty("blog");
+    });
   });
 
   it("rejects hub URLs that aren't http(s)", () => {

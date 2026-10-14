@@ -13,6 +13,8 @@ import {
   type BlogSource,
 } from "@/lib/types/contentPlan";
 import { hostOf, normalizeUrl } from "@/lib/content/blog/brief";
+import { mapQuestion, withSubject, type ArticleMap } from "@/lib/content/blog/articleMap";
+import { notOnMap } from "@/lib/content/blog/names";
 import type { BlogHubControls } from "./types";
 
 /**
@@ -498,7 +500,16 @@ function Sources({
   );
 }
 
-function Entities({ rows, onChange }: { rows: BlogEntity[]; onChange: (next: BlogEntity[]) => void }) {
+function Entities({
+  rows,
+  onChange,
+  isNew,
+}: {
+  rows: BlogEntity[];
+  onChange: (next: BlogEntity[]) => void;
+  /** With a brand map: is this a name the map does not have? */
+  isNew?: ((e: BlogEntity) => boolean) | null;
+}) {
   const [name, setName] = useState("");
   // No default: the article states the relation as fact ("X is an alternative to Y"), so
   // it has to be chosen, not left on whatever came first.
@@ -529,10 +540,14 @@ function Entities({ rows, onChange }: { rows: BlogEntity[]; onChange: (next: Blo
           {rows.map((e, i) => (
             <li
               key={`${i}-${e.name}`}
-              className="flex max-w-full items-center gap-1 rounded-full border border-neutral-300 py-0.5 pl-2.5 pr-1 text-[11px] dark:border-neutral-700"
+              title={isNew?.(e) ? "Not on your brand map" : undefined}
+              className={`flex max-w-full items-center gap-1 rounded-full border border-neutral-300 py-0.5 pl-2.5 pr-1 text-[11px] dark:border-neutral-700 ${
+                isNew?.(e) ? "border-dashed" : ""
+              }`}
             >
               <span className="min-w-0 truncate">
                 {e.name} <span className="text-neutral-500 dark:text-neutral-400">· {RELATION_LABEL[e.relation].toLowerCase()}</span>
+                {isNew?.(e) ? <span className="sr-only"> (not on your brand map)</span> : null}
               </span>
               <RemoveButton what={e.name} onClick={() => onChange(removeAt(rows, i))} />
             </li>
@@ -649,6 +664,34 @@ function Publisher({
   );
 }
 
+/** "None of these" in the subject list (a map id never looks like this). */
+const NO_SUBJECT = "none";
+
+/** Which of the brand map's subjects the article is for. */
+function SubjectPicker({ map, brief, onChange }: { map: ArticleMap; brief: BlogBrief; onChange: (next: BlogBrief) => void }) {
+  const value = brief.subjectId === null ? NO_SUBJECT : (brief.subjectId ?? "");
+  const gone = Boolean(brief.subjectId) && !map.subjects.some((s) => s.id === brief.subjectId);
+  return (
+    <label className={LABEL}>
+      Subject
+      <select
+        value={value}
+        onChange={(e) => onChange(withSubject(brief, e.target.value === NO_SUBJECT ? null : e.target.value || undefined, map))}
+        className={`mt-1 block w-full ${SELECT}`}
+      >
+        <option value="">Not chosen yet: research picks one</option>
+        {map.subjects.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+        {gone ? <option value={value}>No longer on your brand map</option> : null}
+        <option value={NO_SUBJECT}>None of these</option>
+      </select>
+    </label>
+  );
+}
+
 export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubControls; disabled?: boolean }) {
   const id = useId();
   const { brief, busy } = controls;
@@ -660,19 +703,39 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
   const locked = Boolean(disabled) || busy !== null;
   const set = (patch: Partial<BlogBrief>) => controls.onBriefChange({ ...brief, ...patch });
   const toCheck = brief.sources.filter((s) => s.status === "unverified").length;
+  // With a brand map: the map question this article answers, and the names the map does not have.
+  const map = controls.map ?? null;
+  const linked = map ? mapQuestion(map, brief.primaryRef) : null;
+  const isNew = map ? notOnMap(map, brief.entities) : null;
+  const newNames = isNew ? brief.entities.filter(isNew).length : 0;
+  const unlink = () => {
+    const next = { ...brief };
+    delete next.primaryRef;
+    controls.onBriefChange(next);
+  };
 
   return (
     <fieldset disabled={locked} aria-label="Blog brief" className="min-w-0 space-y-3">
-      <label className={LABEL}>
-        The question this article answers
-        <input
-          value={brief.primaryQuestion}
-          onChange={(e) => set({ primaryQuestion: e.target.value })}
-          maxLength={300}
-          placeholder="Worded the way a buyer would ask it"
-          className={`mt-1 w-full ${FIELD} text-sm`}
-        />
-      </label>
+      <div>
+        <label className={LABEL}>
+          The question this article answers
+          <input
+            value={brief.primaryQuestion}
+            onChange={(e) => set({ primaryQuestion: e.target.value })}
+            maxLength={300}
+            placeholder="Worded the way a buyer would ask it"
+            className={`mt-1 w-full ${FIELD} text-sm`}
+          />
+        </label>
+        {linked ? (
+          <div className="mt-1 flex items-center gap-1">
+            <p className={`min-w-0 flex-1 ${HINT}`}>Answers “{linked.question.text}” on your brand map.</p>
+            <RemoveButton what="the link to your brand map's question" onClick={unlink} />
+          </div>
+        ) : null}
+      </div>
+
+      {map?.subjects.length ? <SubjectPicker map={map} brief={brief} onChange={controls.onBriefChange} /> : null}
 
       <div>
         <label htmlFor={`${id}-asks`} className={LABEL}>
@@ -737,10 +800,19 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
           <Sources rows={brief.sources} onChange={(sources) => set({ sources })} onKeep={controls.onKeepSource} />
         </Section>
         <Section
-          summary={`Entities · ${brief.entities.length}`}
-          hint="The things the article should name, and how each relates to your brand."
+          summary={
+            <>
+              Entities · {brief.entities.length}
+              {newNames ? <span className="text-neutral-500 dark:text-neutral-400"> ({newNames} not on your brand map)</span> : null}
+            </>
+          }
+          hint={
+            map
+              ? "The things the article should name, and how each relates to your brand. A dashed one is not on your brand map."
+              : "The things the article should name, and how each relates to your brand."
+          }
         >
-          <Entities rows={brief.entities} onChange={(entities) => set({ entities })} />
+          <Entities rows={brief.entities} onChange={(entities) => set({ entities })} isNew={isNew} />
         </Section>
         <Section
           summary={`Publisher · ${brief.publisherName.trim() || controls.brandName.trim() || "not set"}`}

@@ -1,6 +1,7 @@
 "use client";
 
 import { BlogArticleMetaSchema, type BlogArticleMeta, type ContentNode } from "@/lib/types/contentPlan";
+import { BlogAddress } from "./BlogAddress";
 import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
 import { CitableChecklist } from "./CitableChecklist";
@@ -77,6 +78,8 @@ export function BlogHubReview({
           {controls.note}
         </p>
       ) : null}
+
+      {controls.onSetAddress ? <BlogAddress pageUrl={controls.pageUrl} onSave={controls.onSetAddress} /> : null}
 
       <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
 

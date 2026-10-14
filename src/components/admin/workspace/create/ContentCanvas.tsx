@@ -40,6 +40,7 @@ import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
 import type { BlogHubControls } from "./blog/types";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
+import { isAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
 
 /**
  * Create Canvas — the visual hub-and-spoke builder (React Flow). The Architect seeds
@@ -111,6 +112,7 @@ export function ContentCanvas({
   emailStyle = null,
   footerBrand = null,
   brandMap = null,
+  pagesOn = false,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -126,6 +128,8 @@ export function ContentCanvas({
   footerBrand?: string | null;
   /** A blog plan's brand map (CREATE_BLOG_BRAND_MAP_ENABLED and a saved map); null = none. */
   brandMap?: ArticleMap | null;
+  /** The brand map's pages switch (BRAND_MAP_PAGES_ENABLED): the article's address can be set here. */
+  pagesOn?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -177,6 +181,8 @@ export function ContentCanvas({
     setBlogBriefState(next);
   }, []);
   const [blogBusy, setBlogBusy] = useState<null | "research" | "check">(null);
+  // The article's address (the plan's hub URL). Saved on its own, never with the canvas.
+  const [pageUrl, setPageUrl] = useState<string | null>(initial.strategy.hubUrl ?? null);
   const [blogNote, setBlogNoteState] = useState<{ text: string; about: "research" | "check" } | null>(null);
   const setBlogNote = useCallback(
     (text: string, about: "research" | "check") => setBlogNoteState({ text, about }),
@@ -491,6 +497,23 @@ export function ContentCanvas({
 
   /** Keep a source from the brief as one of the programme's cite sources: it is added to
    *  the knowledge base, read as one page, and every later article can draw on it. */
+  /** Set the article's address; the plan's other fields are left as they are. */
+  async function saveAddress(url: string | null): Promise<AddressSaved> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hubUrl: url }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { plan?: ContentPlan; reason?: string };
+      if (!res.ok) return isAddressProblem(data.reason) ? data.reason : "failed";
+      setPageUrl(data.plan?.strategy.hubUrl ?? url);
+      return "saved";
+    } catch {
+      return "failed";
+    }
+  }
+
   async function keepSource(url: string): Promise<"kept" | "failed"> {
     try {
       const res = await fetch("/api/admin/knowledge/ingest", {
@@ -774,11 +797,12 @@ export function ContentCanvas({
           busy: blogBusy,
           note: blogNote?.text ?? null,
           noteFor: blogNote?.about ?? "research",
-          pageUrl: initial.strategy.hubUrl ?? null,
+          pageUrl,
           brandName: brandName ?? "",
           logoUrl: primaryLogoUrl ?? null,
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
+          ...(pagesOn ? { onSetAddress: saveAddress } : {}),
         }
       : undefined;
   const total = nodes.length;

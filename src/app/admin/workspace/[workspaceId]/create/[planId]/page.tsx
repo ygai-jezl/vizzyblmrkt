@@ -15,6 +15,7 @@ import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { loadArticleMap } from "@/lib/content/blog/mapActions";
+import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,7 @@ export default async function ContentPlanPage({
         emailStyle={emailPreview?.style ?? null}
         footerBrand={emailPreview?.footerBrand ?? null}
         brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
+        pagesOn={isBrandMapPagesEnabled()}
       />
     </div>
   );

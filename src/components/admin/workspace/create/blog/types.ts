@@ -1,5 +1,6 @@
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
+import type { AddressSaved } from "@/lib/content/blog/address";
 
 /**
  * What the canvas hands the inspector for a blog hub written to the CITABLE structure:
@@ -33,4 +34,7 @@ export interface BlogHubControls {
   onKeepSource?: (url: string) => Promise<"kept" | "failed">;
   /** The brand map the article is written from (its switch on and a map saved); absent = none. */
   map?: ArticleMap | null;
+  /** Set the article's address (the plan's hub URL; null clears it). Left out while the brand
+   *  map's pages switch is off, and then the address cannot be changed here. */
+  onSetAddress?: (url: string | null) => Promise<AddressSaved>;
 }

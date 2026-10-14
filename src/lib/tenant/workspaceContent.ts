@@ -409,17 +409,22 @@ export async function updateContentPlan(
   planId: string,
   patch: Partial<
     Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft" | "authoredBy" | "agentRevision" | "agentBrief" | "blog">
-  >,
+  > & {
+    /** The plan's hub URL (an article's address), written alone so the rest of its strategy stays. */
+    hubUrl?: string | null;
+  },
   // Injectable for tests (a FakeFirestore); defaults to the tenant's regional DB otherwise.
   db?: FirestoreLike,
 ): Promise<void> {
   const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
+  const { hubUrl, ...fields } = patch;
+  const strategy = hubUrl !== undefined ? { "strategy.hubUrl": hubUrl } : {};
   // Slash-path collection ref (see updateContentPlanNode) so the real SDK reads the nested
   // subcollection and the fake treats it as a flat keyed map.
   const ref = database.collection(`workspaces/${workspaceId}/${CONTENT_PLANS}`).doc(planId);
   // Fast path: no graph replacement → a plain field update can't clobber node distribution state.
   if (!patch.graph) {
-    await ref.update({ ...patch, updatedAt: new Date().toISOString() });
+    await ref.update({ ...fields, ...strategy, updatedAt: new Date().toISOString() });
     return;
   }
   // Graph replacement: overlay each existing node's server-owned distribution fields (matched by
@@ -445,7 +450,7 @@ export async function updateContentPlan(
         return keep ? { ...n, ...keep } : n;
       }),
     };
-    tx.update(ref, { ...patch, graph, updatedAt: new Date().toISOString() });
+    tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
   });
 }
 

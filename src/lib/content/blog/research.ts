@@ -10,12 +10,11 @@ import {
   type ContextRetrievalRequest,
   type RetrievedChunk,
 } from "@/lib/agents/knowledgeRetrieval";
-import { forTenant, listKnowledgePages, verifyOwner } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { assertSafeHttpsUrl, readTextCapped, safeFetch } from "@/lib/security/ssrf";
-import { CITE_TAG, isCiteSource, isCiteSourcesEnabled, isWebSource } from "@/lib/knowledge/cite";
+import { CITE_TAG, isCiteSource, isCiteSourcesEnabled } from "@/lib/knowledge/cite";
 import { siteOf, sitesOf } from "@/lib/knowledge/site";
-import type { IngestionTicket } from "@/lib/types/ingestionTicket";
+import { indexedSitePages, type SitePages } from "@/lib/knowledge/sitePages";
 import { htmlToText } from "@/lib/content/create/siteText";
 import {
   BlogEntityRelation,
@@ -80,8 +79,6 @@ const MAX_CITED_PASSAGES = 12;
 const MAX_PASSAGES_PER_PAGE = 3;
 const PASSAGE_CHARS = 2_400;
 const MAX_CITED_FACTS = 8;
-/** Sources whose pages are listed: this many of the brand's own, this many cite sources. */
-const MAX_SOURCES_LISTED = 8;
 /** Enough of a page to find a figure on it; a 512 MiB instance opens a few of these at once. */
 const PAGE_BYTES = 800_000;
 const UA = "Vizzybl-BlogResearch/1.0";
@@ -103,15 +100,9 @@ export interface FetchedPage {
   refused?: boolean;
 }
 
-export interface SitePages {
-  /** Pages of the brand's site that were crawled. */
-  pages: KnownPage[];
-  /** File paths from connected repos — a route may be read off some of them. */
-  repoPaths: string[];
-  /** Pages of the brand's cite sources (flag on). Whose each one is, its site decides,
-   *  like any other page — but these never help decide WHICH site is the brand's. */
-  cited?: KnownPage[];
-}
+// The listing of a programme's pages lives with the knowledge base now (the brand map reads
+// it too); these stay importable from here.
+export { sourcesToList, type SitePages } from "@/lib/knowledge/sitePages";
 
 export interface BlogResearchInput {
   ctx: TenantContext;
@@ -355,25 +346,6 @@ async function pageReachable(url: string): Promise<string | null> {
   return null;
 }
 
-type ListedSource = Pick<IngestionTicket, "id" | "source" | "tags" | "status" | "chunksWritten" | "finishedAt" | "createdAt">;
-
-/**
- * Which of a workspace's sources have their pages listed: the most recently read, a few
- * of them. With cite sources on, those are counted apart — a shelf of twenty studies
- * added last week must not push the brand's own site (read last year) off the list.
- */
-export function sourcesToList<T extends ListedSource>(tickets: T[], citeOn = isCiteSourcesEnabled()): { own: T[]; cited: T[] } {
-  const read = tickets
-    .filter((t) => (t.status === "done" || t.status === "partial") && t.chunksWritten > 0)
-    .sort((a, b) => (b.finishedAt ?? b.createdAt ?? "").localeCompare(a.finishedAt ?? a.createdAt ?? ""));
-  if (!citeOn) return { own: read.slice(0, MAX_SOURCES_LISTED), cited: [] };
-  const cite = (t: T) => isWebSource(t.source) && isCiteSource(t.tags);
-  return {
-    own: read.filter((t) => !cite(t)).slice(0, MAX_SOURCES_LISTED),
-    cited: read.filter(cite).slice(0, MAX_SOURCES_LISTED),
-  };
-}
-
 /**
  * A site's robots.txt. No such file means no rules — nobody is kept out. A page of HTML
  * where the file should be is no file either. Anything else that is not the file — a
@@ -428,39 +400,6 @@ async function checkCrawlers(
   const file = await robots(site).catch(() => null);
   if (!file) return null;
   return { site, path: path.slice(0, 2000), found: file.found, blocked: file.found ? blockedCrawlers(file.text, path) : [], checkedAt };
-}
-
-/** What the programme has indexed: the pages of crawled sites, and the files of connected repos. */
-async function indexedSitePages(ctx: TenantContext, workspaceId: string): Promise<SitePages> {
-  const out: SitePages = { pages: [], repoPaths: [], cited: [] };
-  if (!(await verifyOwner(ctx, "workspace", workspaceId))) return out;
-  const { own, cited } = sourcesToList(
-    await forTenant(ctx).ingestionTickets.find({
-      where: [
-        ["ownerKind", "==", "workspace"],
-        ["ownerId", "==", workspaceId],
-      ],
-      limit: 200,
-    }),
-  );
-  const list = (t: IngestionTicket, limit: number) =>
-    listKnowledgePages(ctx, "workspace", workspaceId, { ticketId: t.id, limit }).catch(() => []);
-  const [ownLists, citedLists] = await Promise.all([
-    Promise.all(own.map(async (t) => ({ git: t.source === "github" || t.source === "gitlab", pages: await list(t, 600) }))),
-    // A cite source is a page or a handful, not a site.
-    Promise.all(cited.map((t) => list(t, 60))),
-  ]);
-  for (const l of ownLists) {
-    for (const p of l.pages) {
-      if (l.git) {
-        if (p.path) out.repoPaths.push(p.path);
-      } else {
-        out.pages.push({ url: p.sourceUri, title: p.title });
-      }
-    }
-  }
-  for (const pages of citedLists) for (const p of pages) out.cited!.push({ url: p.sourceUri, title: p.title });
-  return out;
 }
 
 /** The site the brand's pages live on: where the article will be published, else the

@@ -15,6 +15,16 @@ export function isBlogCitableUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_BLOG_CITABLE_ENABLED === "true";
 }
 
+/**
+ * Server flag — articles are written from the brand map (needs the brand map itself, and a
+ * map a person has saved). Off, or no saved map: research, the writer, the fact check, the
+ * checklist and the markup are exactly as before (pins.test.ts). Pages pass the map's
+ * projection to the browser; there is no client mirror.
+ */
+export function isBlogBrandMapEnabled(): boolean {
+  return process.env.CREATE_BLOG_BRAND_MAP_ENABLED === "true" && process.env.BRAND_MAP_ENABLED === "true";
+}
+
 function envInt(name: string, fallback: number): number {
   const n = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(n) ? n : fallback;

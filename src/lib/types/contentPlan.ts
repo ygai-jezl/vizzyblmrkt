@@ -196,6 +196,9 @@ export const BlogQuestionSchema = z.object({
   question: z.string().min(1).max(300),
   intent: BlogIntent.default("other"),
   by: BlogRowBy.default("operator"),
+  /** The brand map question this is, when it is one (its id). Optional with no default, so
+   *  briefs saved before the brand map parse exactly as they did. */
+  ref: z.string().max(64).optional(),
 });
 export type BlogQuestion = z.infer<typeof BlogQuestionSchema>;
 
@@ -314,6 +317,11 @@ export const BlogBriefSchema = z.object({
   /** Whether AI crawlers may read the article, as of the last research. Null or absent =
    *  not looked at, or the site's robots.txt could not be read. */
   crawlers: BlogCrawlerCheckSchema.nullable().optional(),
+  /** The brand map subject this article is for (CREATE_BLOG_BRAND_MAP_ENABLED): absent = not
+   *  looked at yet (research may pick one), null = a person said none, an id = chosen. */
+  subjectId: z.string().max(64).nullable().optional(),
+  /** The brand map question the article's main question is (its id), when it is one. */
+  primaryRef: z.string().max(64).optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 

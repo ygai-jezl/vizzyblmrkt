@@ -177,6 +177,8 @@ export function blogReference(args: {
   brief: BlogBrief;
   knowledgeContext: string;
   proofBlock: string;
+  /** The brand map's own statements (what the brand is and is not); "" without one. */
+  extra?: string;
 }): string {
   const { plan, brief } = args;
   return [
@@ -189,6 +191,8 @@ export function blogReference(args: {
     ...brief.questions.map((q) => q.question),
     ...usableSources(brief).map((s) => `${s.fact} ${s.year ?? ""} ${s.title}`),
     plan.strategy.subscriberCount != null ? String(plan.strategy.subscriberCount) : "",
+    // Added only when there is something: without a map the reference is exactly as before.
+    ...(args.extra ? [args.extra] : []),
   ].join("\n");
 }
 

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { BlogArticleMetaSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 import { applyCorrections, checkBlogFacts, parseCorrections, type FactCheckInput } from "./factCheck";
 import { SAMPLE_BRIEF } from "./testing/sampleArticle";
+import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
+import { projectArticleMap } from "./articleMap";
 
 const BODY = [
   "# What is AI search visibility monitoring?",
@@ -162,5 +164,19 @@ describe("the blog fact check", () => {
     const down = await checkBlogFacts(input(), { generate: async () => null, now });
     expect(down).toMatchObject({ checked: false, corrected: 0, body: BODY });
     expect(down.meta.checkedAt).toBeNull();
+  });
+});
+
+describe("the fact check with a brand map", () => {
+  it("counts the map's statements as the brand's own material", async () => {
+    const map = projectArticleMap({
+      ...BrandMapDecidedSchema.parse({ identity: { name: "Acme", statement: "Acme measures how brands show up in AI answers.", isNot: ["A general SEO suite"] } }),
+      rev: 1,
+    });
+    const generate = vi.fn(async (_prompt: string) => "OK");
+    await checkBlogFacts(input({ map }), { generate: generate as never, now });
+    const prompt = String(generate.mock.calls[0]![0]);
+    expect(prompt).toContain("What Acme is (from its brand map): Acme measures how brands show up in AI answers.");
+    expect(prompt).toContain("Acme is not: A general SEO suite");
   });
 });

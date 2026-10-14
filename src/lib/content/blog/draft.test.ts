@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { draftBlogArticle, enforceLinks, parseDraft, stampLastUpdated, type BlogDraftInput } from "./draft";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
+import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
+import { projectArticleMap } from "./articleMap";
 
 const node = { id: "hub", type: "hub", channel: "blog", role: "Hub", brief: "Explain it.", body: "" } as unknown as ContentNode;
 const plan = {
@@ -235,3 +237,43 @@ describe("the blog writer", () => {
   });
 });
 
+
+describe("the blog writer with a brand map", () => {
+  const MAP = projectArticleMap({
+    ...BrandMapDecidedSchema.parse({
+      identity: {
+        name: "Acme",
+        category: "AI visibility tracking",
+        statement: "Acme tracks your brand across 12 AI engines.",
+        avoid: [{ term: "GEO tool", useInstead: "AI visibility tracking" }],
+      },
+    }),
+    rev: 1,
+  });
+
+  it("is told the brand's names, and the map's own statement counts as the brand's material", async () => {
+    const prompts: string[] = [];
+    const generate = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return answer(SAMPLE_ARTICLE.replace("## How does it differ from SEO rank tracking?", "## How does it differ from SEO rank tracking?\n\nAcme tracks your brand across 12 AI engines."));
+    });
+    const r = await draftBlogArticle(input({ map: MAP, quick: true }), { generate: generate as never, now: clock(1) });
+    expect(prompts[0]).toContain('YOUR NAMES. How the brand "Acme" names things.');
+    expect(prompts[0]).toContain("Its category, named exactly: AI visibility tracking");
+    expect(prompts[0]).toContain('- "GEO tool" → say "AI visibility tracking"');
+    // 12 is in the map's own statement, so it is not a figure nobody can trace.
+    expect(r?.meta.unsupportedFigures).not.toContain("12");
+  });
+
+  it("is asked exactly as before without one", async () => {
+    const prompts: string[] = [];
+    const generate = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return answer(SAMPLE_ARTICLE);
+    });
+    await draftBlogArticle(input({ quick: true }), { generate: generate as never, now: clock(1) });
+    await draftBlogArticle(input({ quick: true, map: null }), { generate: generate as never, now: clock(1) });
+    expect(prompts[0]).toBe(prompts[1]);
+    expect(prompts[0]).not.toContain("<brand_map>");
+  });
+});

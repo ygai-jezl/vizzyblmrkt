@@ -334,7 +334,7 @@ FACT: <the sentence> | <the number of the passage it came from>`,
   },
   "content.blog_draft": {
     id: "content.blog_draft",
-    version: 1,
+    version: 2,
     description:
       "Create pillar — write a blog hub to the CITABLE structure (answer-first, sourced, block-structured) from its brief.",
     template: `Write ONE finished blog article for the brand "[[brand_name]]" — one that AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Claude) can retrieve, quote and cite, and that a buyer can act on. It should need only a light edit before publishing.
@@ -348,7 +348,7 @@ QUESTIONS BUYERS ASK NEXT — give each a section, in the order a buyer would as
 [[questions]]
 
 [[buyer_context]]
-[[entities]]
+[[entities]][[brand_map]]
 [[knowledge_context]]
 [[proof_assets]]
 

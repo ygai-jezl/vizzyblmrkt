@@ -1,6 +1,6 @@
 import { retrieveSemanticKnowledgeContext, type ContextRetrievalRequest } from "@/lib/agents/knowledgeRetrieval";
 import { getTenantById } from "@/lib/tenant";
-import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import type { TenantContext } from "@/lib/tenant/types";
 import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import type { BlogBrief, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
@@ -92,7 +92,7 @@ export type BlogCheckOutcome = { ok: true; node: ContentNode; corrected: number;
 export async function checkPlanBlogFacts(
   ctx: TenantContext,
   args: { workspace: WorkspaceBits; plan: ContentPlan; nodeId: string; timeoutMs?: number },
-  deps: FactCheckDeps & { db?: FirestoreLike; retrieve?: typeof retrieveSemanticKnowledgeContext } = {},
+  deps: FactCheckDeps & MapDeps & { retrieve?: typeof retrieveSemanticKnowledgeContext } = {},
 ): Promise<BlogCheckOutcome> {
   const { workspace, plan } = args;
   if (!isBlogCitableEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -119,14 +119,19 @@ export async function checkPlanBlogFacts(
     bypassEnabledFlag: true,
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   };
-  const rag = await (deps.retrieve ?? retrieveSemanticKnowledgeContext)(req).catch(() => null);
+  const [rag, map] = await Promise.all([
+    (deps.retrieve ?? retrieveSemanticKnowledgeContext)(req).catch(() => null),
+    loadArticleMap(ctx, deps),
+  ]);
 
   const result = await checkBlogFacts(
     {
       plan,
       node,
       brief,
-      brandName: brief.publisherName.trim() || workspace.name,
+      // With a brand map, the brand is called what the map calls it.
+      brandName: map?.identity.name.trim() || brief.publisherName.trim() || workspace.name,
+      map,
       knowledgeContext: rag?.formatted ?? "",
       knowledgeUrls: (rag?.chunks ?? []).map((c) => c.sourceUri).filter(Boolean),
       proofBlock: fenceProof(plan.knowledge.proofAssets ?? []),

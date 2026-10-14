@@ -4,6 +4,7 @@ import type { Workspace } from "@/lib/types/workspace";
 import { getContentPlan, getTemplate, updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { activeBrandVoiceText } from "./activeBrandVoice";
 import { generateNode } from "./generateNode";
+import { loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
 
 /**
  * Fill plan nodes with copy. Shared by the Create canvas's per-node route and
@@ -19,6 +20,8 @@ export interface FillDeps {
   generate?: typeof generateNode;
   /** One writing pass per piece — the caller has a deadline (Vizzy's request must return). */
   quick?: boolean;
+  /** The saved brand map (tests inject one); read only for a blog hub, with its flag on. */
+  loadMap?: MapDeps["loadMap"];
 }
 
 type WorkspaceBits = Pick<Workspace, "id" | "brandVoice" | "audience"> & Partial<Pick<Workspace, "name">>;
@@ -42,16 +45,23 @@ export async function fillPlanNode(
     skeletonBody = tpl && tpl.channel === node.channel ? tpl.body : null;
   }
 
+  // A blog hub is written from the brand map when there is one (null otherwise: as before).
+  const blogHub = node.type === "hub" && node.channel === "blog";
+  const [brandVoice, brandMap] = await Promise.all([
+    activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
+    blogHub ? loadArticleMap(ctx, { db: deps.db, loadMap: deps.loadMap }) : Promise.resolve(null),
+  ]);
   const patch = await (deps.generate ?? generateNode)({
     ctx,
     workspaceId: ws.id,
     plan,
     node,
-    brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
+    brandVoice,
     audience: ws.audience ?? null,
     skeletonBody,
     brandName: ws.name ?? null,
     quick: deps.quick,
+    ...(brandMap ? { brandMap } : {}),
   });
 
   // The persist re-validates the merged node via ContentNodeSchema.parse (throwing):

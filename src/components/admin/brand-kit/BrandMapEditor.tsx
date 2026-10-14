@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BrandMap, BrandMapDecided, BrandMapSuggestion } from "@/lib/types/brandMap";
+import { BRAND_MAP_LIMITS, type BrandMap, type BrandMapDecided, type BrandMapLink, type BrandMapSuggestion } from "@/lib/types/brandMap";
+import { normalizeUrl } from "@/lib/content/blog/brief";
 import { applyChanges } from "@/lib/brandMap/changes";
 import { api, errorText } from "@/components/admin/connect/api";
 import { Banner, Button } from "@/components/admin/connect/ui";
 import { BrandMapIdentity } from "./BrandMapIdentity";
+import { BrandMapLookup } from "./BrandMapLookup";
 import { BrandMapNames } from "./BrandMapNames";
 import { BrandMapSubjects } from "./BrandMapSubjects";
 import { BrandMapSuggestions } from "./BrandMapSuggestions";
@@ -243,6 +245,34 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onChange={(identity) => setForm({ ...form, identity })}
             issues={issues}
             disabled={!editable}
+            findCategory={
+              editable && form.identity.category ? (
+                <BrandMapLookup
+                  name={form.identity.category}
+                  kind="category"
+                  label="Find identifier"
+                  canLookup={props.canLookup}
+                  disabled={busy}
+                  onUse={(links) =>
+                    setForm((f) => ({ ...f, identity: { ...f.identity, categorySameAs: addLinks(f.identity.categorySameAs, links, BRAND_MAP_LIMITS.categorySameAs) } }))
+                  }
+                />
+              ) : null
+            }
+            findBrand={
+              editable && form.identity.name ? (
+                <BrandMapLookup
+                  name={form.identity.name}
+                  kind="brand"
+                  label={`Find ${form.identity.name} on Wikidata`}
+                  canLookup={props.canLookup}
+                  disabled={busy}
+                  onUse={(links) =>
+                    setForm((f) => ({ ...f, identity: { ...f.identity, profiles: addLinks(f.identity.profiles, links, BRAND_MAP_LIMITS.profiles) } }))
+                  }
+                />
+              ) : null
+            }
           />
           <BrandMapSubjects
             subjects={form.subjects}
@@ -255,6 +285,22 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onChange={(names) => setForm({ ...form, names })}
             issues={issues}
             disabled={!editable}
+            find={(n, i) =>
+              editable && n.kind !== "audience" && n.kind !== "use_case" ? (
+                <BrandMapLookup
+                  name={n.name}
+                  kind={n.kind}
+                  canLookup={props.canLookup}
+                  disabled={busy}
+                  onUse={(links) =>
+                    setForm((f) => ({
+                      ...f,
+                      names: f.names.map((x, j) => (j === i ? { ...x, sameAs: addLinks(x.sameAs, links, BRAND_MAP_LIMITS.nameSameAs) } : x)),
+                    }))
+                  }
+                />
+              ) : null
+            }
           />
         </div>
         <div className="min-w-0 space-y-5">
@@ -270,4 +316,16 @@ export function BrandMapEditor(props: BrandMapPageProps) {
       </div>
     </div>
   );
+}
+
+/** Add links to a list once each, up to its cap. */
+function addLinks(list: BrandMapLink[], links: BrandMapLink[], max: number): BrandMapLink[] {
+  const seen = new Set(list.map((l) => normalizeUrl(l.url)));
+  const out = [...list];
+  for (const l of links) {
+    if (out.length >= max || seen.has(normalizeUrl(l.url))) continue;
+    seen.add(normalizeUrl(l.url));
+    out.push(l);
+  }
+  return out;
 }

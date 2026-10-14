@@ -9,6 +9,7 @@ import { tenantDomains } from "@/lib/knowledge/site";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { dismissBrandMapSuggestions, fileBrandMapSuggestions, readBrandMap, saveBrandMap, type MapResult } from "./store";
 import { proposeBrandMap, summarise, type ProposeDeps } from "./research";
+import { lookupName, type FetchJson } from "./lookup";
 import { isBrandMapEnabled } from "./flags";
 
 /**
@@ -117,4 +118,21 @@ export async function researchFromRequest(
     notes: proposed.notes,
     map: after.state === "ok" ? after.map : null,
   });
+}
+
+/** Lookups are cheap but leave the instance: a person clicking "Find" a few times a minute at most. */
+export const LOOKUP_LIMIT = { prefix: "brand_map_lookup", burstLimit: 20, hourlyLimit: 120 };
+
+const LookupBody = z.object({
+  name: z.string().trim().min(1).max(120),
+  kind: z.enum(["brand", "category", "product", "alternative", "integration"]),
+});
+
+/** POST lookup: identifier candidates for one name from Wikidata. Writes nothing. */
+export async function lookupFromRequest(ctx: TenantContext, body: unknown, deps: { fetchJson?: FetchJson } = {}): Promise<Response> {
+  const parsed = LookupBody.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  const found = await lookupName(parsed.data.name, { kind: parsed.data.kind, ownSites: await ownSitesOf(ctx) }, deps);
+  if (!found.ok) return NextResponse.json({ error: found.error }, { status: found.error === "invalid_input" ? 400 : 502 });
+  return NextResponse.json({ ok: true, candidates: found.candidates });
 }

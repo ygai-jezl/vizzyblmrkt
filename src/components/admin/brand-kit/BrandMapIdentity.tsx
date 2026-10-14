@@ -29,13 +29,16 @@ export function BrandMapIdentity({
   issues,
   disabled,
   findCategory,
+  findBrand,
 }: {
   value: Identity;
   onChange: (next: Identity) => void;
   issues: MapIssue[];
   disabled: boolean;
-  /** Identifier lookup for the category (when lookups are on). */
+  /** Identifier lookup for the category. */
   findCategory?: React.ReactNode;
+  /** Identifier lookup for the brand itself (its Wikidata item and Wikipedia page go with its profiles). */
+  findBrand?: React.ReactNode;
 }) {
   const set = <K extends keyof Identity>(key: K, v: Identity[K]) => onChange({ ...value, [key]: v });
   const at = (path: string) => issuesAt(issues, `identity.${path}`);
@@ -183,6 +186,7 @@ export function BrandMapIdentity({
               </li>
             ))}
           </ul>
+          {findBrand ? <div>{findBrand}</div> : null}
           {!disabled && value.profiles.length < LIMITS.profiles ? (
             <AddLine
               label="A profile link"

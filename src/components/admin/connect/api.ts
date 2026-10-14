@@ -107,6 +107,8 @@ const MESSAGES: Record<string, string> = {
   no_model: "The AI model isn't set up in this environment, so research can't run.",
   nothing_to_read: "There's nothing to research from yet: add your website in Settings, or a source in a programme's knowledge.",
   research_failed: "Research didn't come back with anything usable. Try again in a minute.",
+  lookup_disabled: "Looking up identifiers isn't switched on in this environment. You can paste a link instead.",
+  lookup_unavailable: "Wikidata didn't answer. Try again, or paste a link instead.",
   // Lifecycle journeys
   connection_not_found: "That product connection doesn't exist.",
   connection_unavailable: "The journey's product connection is revoked.",

@@ -5,7 +5,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { isBrandMapEnabled, isBrandMapResearchEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapEnabled, isBrandMapResearchEnabled, isBrandMapWikidataEnabled } from "@/lib/brandMap/flags";
 import { isGeminiConfigured } from "@/lib/agents/gemini";
 import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
@@ -52,7 +52,7 @@ export default async function BrandMapPage() {
         unreadable={read.state === "unreadable"}
         canEdit={ctx.role === "admin"}
         canResearch={isBrandMapResearchEnabled() && isGeminiConfigured()}
-        canLookup={false}
+        canLookup={isBrandMapWikidataEnabled()}
         defaults={{ name: tenant?.tenantName?.trim() ?? "", site: root ? `https://${root.replace(/^https?:\/\//, "")}` : "" }}
       />
     </div>

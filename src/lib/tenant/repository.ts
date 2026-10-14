@@ -43,6 +43,7 @@ import type {
 } from "@/lib/types/lifecycle";
 import type { Invite, InviteWave } from "@/lib/types/invite";
 import type { PersonPlan } from "@/lib/types/personPlan";
+import type { BrandMapRecord } from "@/lib/types/brandMap";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -389,6 +390,8 @@ export interface TenantRepositories {
   inviteWaves: TenantCollection<InviteWave>;
   /** The person view: one plan per product user, drafted by Vizzy and approved by staff. */
   personPlans: TenantCollection<PersonPlan>;
+  /** The brand map: one document per brand (`bm_<tenantId>`), parsed by src/lib/brandMap/store.ts. */
+  brandMaps: TenantCollection<BrandMapRecord>;
 }
 
 /**
@@ -496,5 +499,7 @@ export function forTenant(
     inviteWaves: new TenantCollection<InviteWave>(regionalDb, "invite_waves", t),
     // A plan is about one end user (their situation, in staff's words) → regional DB, with the person.
     personPlans: new TenantCollection<PersonPlan>(regionalDb, "person_plans", t),
+    // The brand map sits with the content it steers (programmes and their plans) → regional DB.
+    brandMaps: new TenantCollection<BrandMapRecord>(regionalDb, "brand_maps", t),
   };
 }

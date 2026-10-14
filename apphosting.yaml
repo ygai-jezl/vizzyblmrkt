@@ -1074,3 +1074,57 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # The brand map (Brand › Brand map): ONE record per brand that every blog article is
+  # written from — what the brand is, the names it uses and avoids, the subjects it wants
+  # to be known for (with the questions people ask), its profile links and identifiers,
+  # and the page on its own site that is the home of each subject and name. Research and
+  # articles and Vizzy only ever file SUGGESTIONS; a person accepts them and saves. New
+  # regional collections `brand_maps` and `brand_map_pages`, read by id or by brand only:
+  # no new index, rule or secret. Each part has its own switch, and every one needs
+  # BRAND_MAP_ENABLED. Off: nothing reads or writes a brand map and articles are written
+  # exactly as before. All "false" in prod (apphosting.prod.yaml) until checked on dev.
+  # BRAND_MAP_ENABLED: the record, the page and saving it. The NEXT_PUBLIC mirror shows
+  # the Brand map tile (needed at BUILD).
+  - variable: BRAND_MAP_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_MAP_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Research that drafts the map: one Google-Search-grounded Gemini call per run, plus a
+  # fetch of the brand's home page (for its own profile links). Rate-limited per brand.
+  - variable: BRAND_MAP_RESEARCH_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Identifier lookups for `sameAs`: sends the name being looked up to www.wikidata.org's
+  # public API, and nothing else. Off: identifiers can only be pasted.
+  - variable: BRAND_MAP_WIKIDATA_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Articles written from the map: research, the writer and the fact check read it, the
+  # checklist gains "Keeps to your names" (and "Says where it doesn't fit" when the map
+  # lists what the brand is not), and the suggested markup gains `sameAs`. Needs
+  # CREATE_BLOG_CITABLE_ENABLED too. Off (or no saved map): blog prompts, checklist and
+  # markup are byte-for-byte as before (src/lib/content/blog/pins.test.ts).
+  - variable: CREATE_BLOG_BRAND_MAP_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # The pages side: an article's address can be set after creation and checked live, each
+  # article and crawled page gets a small row, the map shows what is answered, drafted or
+  # open per subject, "Write this next", and the content map tab.
+  - variable: BRAND_MAP_PAGES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Vizzy reads the brand map and files suggestions for it (never changes what is
+  # decided). Needs a root agent redeploy for its tools.
+  - variable: BRAND_MAP_CHAT_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME

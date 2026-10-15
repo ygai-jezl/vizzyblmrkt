@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import { BRAND_MAP_PAGE_LIMITS as L, BrandMapPageFactsSchema, type BrandMapPageFacts } from "@/lib/types/brandMapPage";
 import { siteOf } from "@/lib/knowledge/site";
+import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { articleAddressProblem } from "./address";
-import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts } from "./brief";
+import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts, textKey } from "./brief";
+import { meaningWords } from "./coverage";
 import { mentionsName } from "./names";
 import { outlineArticle } from "./outline";
 
@@ -40,7 +42,7 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
   // Live only at the address it was seen at.
   const live = url && hub?.blog?.live && normalizeUrl(hub.blog.live.url) === normalizeUrl(url) ? hub.blog.live : null;
   const state = live ? "live" : hub?.status === "approved" ? "approved" : body ? "draft" : "planned";
-  return BrandMapPageFactsSchema.parse({
+  return withDerivedFacts(BrandMapPageFactsSchema.parse({
     kind: "article",
     workspaceId: plan.workspaceId,
     planId: plan.id,
@@ -54,7 +56,26 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
     links,
     state,
     liveAt: live?.at ?? null,
-  });
+  }));
+}
+
+/**
+ * With the map at any size on, a row also stores what can be worked out from its own facts,
+ * so one subject's pages can be asked for directly: the map question ids it carries, the
+ * word keys of what it says, its address normalised, and its meaningful words. Off, the row
+ * is exactly as before (and so is its fingerprint).
+ */
+export function withDerivedFacts(facts: BrandMapPageFacts): BrandMapPageFacts {
+  if (!isBrandMapScaleEnabled()) return facts;
+  const said = [facts.primaryQuestion, facts.title, ...facts.questions.map((q) => q.text)].filter(Boolean);
+  const unique = <T>(xs: T[]) => [...new Set(xs)];
+  return {
+    ...facts,
+    refs: unique([facts.primaryRef, ...facts.questions.map((q) => q.ref)].filter((r): r is string => Boolean(r))).slice(0, L.questions + 1),
+    textKeys: unique(said.map(textKey).filter((k) => k && k.length <= L.question * 2)).slice(0, L.questions + 2),
+    urlKey: facts.url ? normalizeUrl(facts.url) || null : null,
+    words: unique(said.flatMap(meaningWords).filter((w) => w.length <= 60)).sort().slice(0, L.words),
+  };
 }
 
 /** A short, stable hash of a row's facts. */
@@ -95,5 +116,5 @@ export function buildSitePage(
     linksKnown: Boolean(page.links),
     state: "live",
   });
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? withDerivedFacts(parsed.data) : null;
 }

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
-import { buildPlanPage, pageFingerprint } from "./pageRow";
+import { buildPlanPage, buildSitePage, pageFingerprint } from "./pageRow";
 import { samplePlan, sampleHub } from "./testing/samplePlan";
 
 describe("an article's row on the brand map", () => {
@@ -66,5 +66,40 @@ describe("an article's row on the brand map", () => {
     expect(pageFingerprint(row)).toBe(pageFingerprint(buildPlanPage(samplePlan())!));
     expect(pageFingerprint(row)).not.toBe(pageFingerprint({ ...row, state: "approved" }));
     expect(pageFingerprint(row)).toMatch(/^[0-9a-f]{16}$/);
+  });
+});
+
+describe("a row's worked-out facts, for the map at any size", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("are left off with the switch off, so a row (and its fingerprint) is exactly as before", () => {
+    const row = buildPlanPage(samplePlan())!;
+    expect(row).not.toHaveProperty("refs");
+    expect(row).not.toHaveProperty("words");
+    expect(buildSitePage({ url: "https://acme.example/pricing", title: "Pricing" }, new Set(["acme.example"]))).not.toHaveProperty("textKeys");
+  });
+
+  it("carry its question ids, the word keys of what it says, its address and its meaningful words", () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+    const row = buildPlanPage(samplePlan())!;
+    expect(row.refs).toEqual(["q_aaaaaaaa", "q_bbbbbbbb"]);
+    expect(row.textKeys).toEqual([
+      "what is ai search visibility monitoring",
+      "how does it differ from seo rank tracking",
+      "what does it cost",
+    ]);
+    expect(row.urlKey).toBe("https://acme.example/blog/visibility");
+    expect(row.words).toContain("visibility");
+    expect(row.words).not.toContain("what");
+    // Turning the switch on rewrites each row once (its fingerprint changes), and never again.
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "false");
+    const before = buildPlanPage(samplePlan())!;
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+    expect(pageFingerprint(row)).not.toBe(pageFingerprint(before));
+    expect(pageFingerprint(buildPlanPage(samplePlan())!)).toBe(pageFingerprint(row));
+
+    const site = buildSitePage({ url: "https://acme.example/share-of-voice/", title: "Share of voice, explained" }, new Set(["acme.example"]))!;
+    expect(site).toMatchObject({ refs: [], textKeys: ["share of voice explained"], urlKey: "https://acme.example/share-of-voice", words: ["explained", "share", "voice"] });
   });
 });

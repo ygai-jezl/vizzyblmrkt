@@ -1,5 +1,5 @@
 import type { CoveragePage, QuestionState } from "@/lib/content/blog/coverage";
-import { normalizeUrl } from "@/lib/content/blog/brief";
+import { normalizeUrl, textKey } from "@/lib/content/blog/brief";
 import { UNPLACED, type ContentMapInput, type MapPage, type MapPoint, type PointState } from "./contentMapLayout";
 
 /**
@@ -130,7 +130,8 @@ export function pointDetails(point: MapPoint, input: ContentMapInput): DetailsVi
   return {
     kicker: article ? POINT_LABEL[page.state] : "Page on your site",
     title: titleOf(page),
-    ...(article && page.primaryQuestion ? { text: page.primaryQuestion } : {}),
+    // Its main question, unless that is its title already.
+    ...(article && page.primaryQuestion && textKey(page.primaryQuestion) !== textKey(titleOf(page)) ? { text: page.primaryQuestion } : {}),
     lists,
     notes,
     actions: { ...(open ? { open } : {}), ...(viewable ? { view: viewable } : {}) },

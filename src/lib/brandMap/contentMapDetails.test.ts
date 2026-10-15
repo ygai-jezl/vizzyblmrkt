@@ -89,6 +89,8 @@ describe("what the content map says about a point", () => {
     expect(list("Should link to")).toEqual(["Share of voice, again"]);
     expect(d.notes).toEqual([{ tone: "warn", text: "Answers the same main question as “Share of voice, again”." }]);
     expect(d.actions).toEqual({ open: "/admin/workspace/ws1/create/old", view: "https://acme.example/blog/sov" });
+    // A main question that is the title already is not said twice.
+    expect(pointDetails(at("p_new"), { ...input, pages: input.pages.map((p) => (p.id === "p_new" ? { ...p, primaryQuestion: "Share of voice, again?" } : p)) }).text).toBeUndefined();
     // Not live: opened in the app, never as a page.
     expect(pointDetails(at("p_plan"), input).actions).toEqual({ open: "/admin/workspace/ws1/create/plan" });
   });

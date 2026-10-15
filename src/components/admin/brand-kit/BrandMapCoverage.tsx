@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Coverage, CoveragePage, QuestionCoverage, QuestionState } from "@/lib/content/blog/coverage";
 import { writeNextHref } from "@/lib/content/blog/articleMap";
+import { pageHref, QUESTION_STATE_LABEL } from "@/lib/brandMap/contentMapDetails";
 import { programmeWord } from "@/lib/nav/terms";
 import { Section } from "@/components/admin/connect/ui";
 import { smallLabel } from "./BrandMapParts";
@@ -11,24 +12,17 @@ import { smallLabel } from "./BrandMapParts";
 /** Coverage on the Brand map page (BRAND_MAP_PAGES_ENABLED): what the brand's pages answer. */
 
 const DOT: Record<QuestionState, string> = {
-  answered: "border-green-600 bg-green-600",
-  drafted: "border-amber-500 bg-amber-500",
-  planned: "border-amber-500 bg-transparent",
-  open: "border-neutral-400 bg-transparent dark:border-neutral-500",
+  answered: "border-blue-600 bg-blue-600",
+  drafted: "border-blue-600 bg-blue-100 dark:bg-blue-900",
+  planned: "border-dashed border-blue-600 bg-white dark:bg-transparent",
+  open: "border-neutral-500 bg-white dark:bg-transparent",
 };
 
-export const STATE_LABEL: Record<QuestionState, string> = { answered: "Answered", drafted: "Drafted", planned: "Planned", open: "Open" };
+export const STATE_LABEL = QUESTION_STATE_LABEL;
+const LEGEND_LABEL: Record<QuestionState, string> = { ...STATE_LABEL, answered: "Answered by a live page" };
 
 export function Dot({ state }: { state: QuestionState }) {
   return <span aria-hidden className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full border-2 ${DOT[state]}`} />;
-}
-
-/** Where a page opens: an article's plan in the app, or the page itself. */
-export function pageHref(p: Pick<CoveragePage, "kind" | "workspaceId" | "planId" | "url">): string | null {
-  if (p.kind === "article" && p.workspaceId && p.planId) {
-    return `/admin/workspace/${encodeURIComponent(p.workspaceId)}/create/${encodeURIComponent(p.planId)}`;
-  }
-  return p.url && /^https:\/\//i.test(p.url) ? p.url : null;
 }
 
 export function PageLink({ page }: { page: CoveragePage }) {
@@ -78,7 +72,7 @@ export function CoverageStrip({ name, coverage }: { name: string; coverage: Cove
       <div className="flex flex-wrap gap-3 text-[11px] text-neutral-500">
         {(Object.keys(STATE_LABEL) as QuestionState[]).map((state) => (
           <span key={state} className="inline-flex items-center gap-1">
-            <Dot state={state} /> {STATE_LABEL[state]}
+            <Dot state={state} /> {LEGEND_LABEL[state]}
           </span>
         ))}
       </div>

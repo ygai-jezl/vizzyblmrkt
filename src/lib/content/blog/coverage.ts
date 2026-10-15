@@ -81,6 +81,9 @@ const STOP = new Set(
 );
 const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 2 && !STOP.has(w)));
 
+/** The words that carry meaning, as close wording compares them: two texts close in wording always share one. */
+export const meaningWords = (s: string): string[] => [...words(s)];
+
 /** Close wording: most of the words that carry meaning are shared. */
 function close(a: string, b: string): boolean {
   const x = words(a);

@@ -1,10 +1,10 @@
 /**
  * Flags for the brand map. Each ships "true" in dev (apphosting.yaml) and an explicit
- * "false" in prod (apphosting.prod.yaml) until it has been checked on dev and promoted.
- * Every one needs the record itself (BRAND_MAP_ENABLED). Server flags are read at
- * runtime; pages pass what is on to their client components. The one NEXT_PUBLIC mirror
- * only shows the Brand map tile. Off: nothing reads or writes a brand map, and articles
- * are written exactly as before.
+ * "false" in prod (apphosting.prod.yaml) until it has been checked on dev, promoted, and
+ * turned on by the owner (the first seven are on in prod since 2026-10-15). Every one needs
+ * the record itself (BRAND_MAP_ENABLED). Server flags are read at runtime; pages pass what
+ * is on to their client components. The one NEXT_PUBLIC mirror only shows the Brand map
+ * tile. Off: nothing reads or writes a brand map, and articles are written exactly as before.
  */
 
 /** The record, the Brand map page and saving it. */
@@ -35,4 +35,24 @@ export function isBrandMapChatEnabled(): boolean {
 /** An article's address and live check, a row per page, coverage, "Write this next" and the content map. */
 export function isBrandMapPagesEnabled(): boolean {
   return isBrandMapEnabled() && process.env.BRAND_MAP_PAGES_ENABLED === "true";
+}
+
+/**
+ * The map at any size: subjects and their questions move out of the one record into their
+ * own (once per brand, on its first write), in groups, with no fixed count; the Subjects and
+ * Who you are tabs, the content map by levels, coverage by subject, and articles reading only
+ * the part of the map close to them.
+ */
+export function isBrandMapScaleEnabled(): boolean {
+  return isBrandMapEnabled() && process.env.BRAND_MAP_SCALE_ENABLED === "true";
+}
+
+/** Buying situations: research that finds them and what people in them ask, their tab, and an article's situation. */
+export function isBrandMapSituationsEnabled(): boolean {
+  return isBrandMapScaleEnabled() && process.env.BRAND_MAP_SITUATIONS_ENABLED === "true";
+}
+
+/** The brand's own research from a PDF: sends the uploaded file to Gemini to read, keeps only what it found. */
+export function isBrandMapImportEnabled(): boolean {
+  return isBrandMapScaleEnabled() && process.env.BRAND_MAP_IMPORT_ENABLED === "true";
 }

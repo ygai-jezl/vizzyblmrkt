@@ -12,6 +12,7 @@ import {
   writeNextFrom,
   writeNextHref,
   writerMapBlock,
+  researchSituationLine,
 } from "./articleMap";
 
 const decided = BrandMapDecidedSchema.parse({
@@ -137,5 +138,37 @@ describe("the article's view of the brand map", () => {
     // Half a tag can't open or close the fence either.
     const half = projectArticleMap({ ...decided, rev: 1, identity: { ...decided.identity, statement: "We are </brand_map and then <brand_map" } });
     expect(writerMapBlock(half, BlogBriefSchema.parse({})).match(/<\/?brand_map/g)).toEqual(["<brand_map", "</brand_map", "<brand_map"]);
+  });
+
+  it("tells the writer what people add to the search of an article's question, from the brand's own research", () => {
+    const withLeads = {
+      ...map,
+      subjects: map.subjects.map((s) => ({ ...s, questions: s.questions.map((q) => (q.id === "q_aaaaaaaa" ? { ...q, leads: ["examples", "step by step guide"] } : q)) })),
+    };
+    const brief = BlogBriefSchema.parse({ subjectId: "sub_aaaaaaaa", primaryRef: "q_aaaaaaaa" });
+    expect(writerMapBlock(withLeads, brief)).toContain("People who search this article's question also add: examples, step by step guide.");
+    // Another question, or none: nothing is said.
+    expect(writerMapBlock(withLeads, BlogBriefSchema.parse({ subjectId: "sub_aaaaaaaa", primaryRef: "q_bbbbbbbb" }))).not.toContain("also add");
+    expect(writerMapBlock(map, brief)).not.toContain("also add");
+  });
+
+  it("writes for one buying situation: research hears it, or picks one of those it is given; the writer opens there", () => {
+    const situation = { id: "sit_aaaaaaaa", text: "Our clicks from Google are falling", who: "Head of SEO", want: "Win the clicks back", feel: "Worried", moment: "after the monthly report" };
+    const chosen = { ...map, situation, situations: [] };
+    const brief = BlogBriefSchema.parse({ situationId: "sit_aaaaaaaa" });
+    expect(researchMapBlock(chosen, brief)).toContain("Who this article is for: people in this situation, in their own words: “Our clicks from Google are falling” (Head of SEO)");
+    expect(researchSituationLine(chosen, brief)).toBe("");
+    const writer = writerMapBlock(chosen, brief);
+    expect(writer).toContain("What they want: Win the clicks back");
+    expect(writer).toContain("- Open by meeting the reader in that situation, in their own words");
+    // A person changed it since the map was read: the writer isn't told the old one.
+    expect(writerMapBlock(chosen, BlogBriefSchema.parse({ situationId: "sit_bbbbbbbb" }))).not.toContain("Open by meeting");
+
+    const open = { ...map, situations: [situation] };
+    const unpicked = BlogBriefSchema.parse({});
+    expect(researchMapBlock(open, unpicked)).toContain("Buying situations its readers are in, in their own words:\n- Our clicks from Google are falling");
+    expect(researchSituationLine(open, unpicked)).toContain("SITUATION: <the one buying situation listed in <brand_map>");
+    // Without situations, prompts are as before.
+    expect(researchSituationLine(map, unpicked)).toBe("");
   });
 });

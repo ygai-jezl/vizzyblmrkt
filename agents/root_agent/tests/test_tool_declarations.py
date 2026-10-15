@@ -78,10 +78,26 @@ def test_suggest_email_style_asks_for_the_mode_and_brief_only():
 @pytest.mark.filterwarnings("ignore::UserWarning")
 def test_suggest_brand_map_asks_for_the_brief_only():
     props, required = _params(FunctionTool(suggest_brand_map)._get_declaration())
-    assert set(props) == {"brief", "mode", "brand_name", "category", "statement", "is_not", "avoid", "subjects", "questions", "names", "aliases"}
+    assert set(props) == {
+        "brief",
+        "mode",
+        "brand_name",
+        "category",
+        "statement",
+        "is_not",
+        "avoid",
+        "subjects",
+        "questions",
+        "names",
+        "aliases",
+        "situations",
+        "situation_id",
+        "customers",
+    }
     assert required == ["brief"]
+    # A large map is read a part at a time; every part is optional.
     props, required = _params(FunctionTool(get_brand_map)._get_declaration())
-    assert not props and not required
+    assert set(props) == {"find", "subject_id", "import_id"} and not required
 
 
 def test_the_root_agent_carries_the_brand_map_tools():

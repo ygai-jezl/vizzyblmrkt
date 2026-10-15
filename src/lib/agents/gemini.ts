@@ -209,25 +209,37 @@ export async function generateTextWithImage(
  * Generate text from a prompt PLUS one inline FILE (multimodal) — e.g. a brand-
  * guidelines PDF (`mimeType: "application/pdf"`). `base64` is the raw base64 (no
  * data: prefix). The total request must stay under ~20MB (callers cap the file).
- * Returns null on missing config / error.
+ * Returns null on missing config / error. With `timeoutMs`, ONE attempt, given up
+ * (and aborted) when the deadline passes, so a request with a person waiting ends.
  */
 export async function generateTextWithFile(
   prompt: string,
   base64: string,
   mimeType: string,
+  opts: { timeoutMs?: number } = {},
 ): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
+  const signal = opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined;
   try {
-    const res = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: TEXT_MODEL,
       contents: [
         { role: "user", parts: [{ text: prompt }, { inlineData: { data: base64, mimeType } }] },
       ],
+      ...(signal ? { config: { abortSignal: signal } } : {}),
     });
+    const res = signal
+      ? await Promise.race([
+          call,
+          new Promise<never>((_, reject) => {
+            signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+          }),
+        ])
+      : await call;
     return res.text ?? null;
   } catch (err) {
-    console.warn("[gemini] generateTextWithFile failed:", err);
+    console.warn("[gemini] generateTextWithFile failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
     return null;
   }
 }

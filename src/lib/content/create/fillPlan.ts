@@ -4,7 +4,7 @@ import type { Workspace } from "@/lib/types/workspace";
 import { getContentPlan, getTemplate, updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { activeBrandVoiceText } from "./activeBrandVoice";
 import { generateNode } from "./generateNode";
-import { loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
+import { askOfPlan, loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 
 /**
@@ -50,7 +50,7 @@ export async function fillPlanNode(
   const blogHub = node.type === "hub" && node.channel === "blog";
   const [brandVoice, brandMap] = await Promise.all([
     activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
-    blogHub ? loadArticleMap(ctx, { db: deps.db, loadMap: deps.loadMap }) : Promise.resolve(null),
+    blogHub ? loadArticleMap(ctx, { db: deps.db, loadMap: deps.loadMap }, { ask: askOfPlan(plan) }) : Promise.resolve(null),
   ]);
   const patch = await (deps.generate ?? generateNode)({
     ctx,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   BlogEntityRelation,
   BlogIntent,
@@ -16,6 +16,7 @@ import { hostOf, normalizeUrl } from "@/lib/content/blog/brief";
 import { mapQuestion, withSubject, type ArticleMap } from "@/lib/content/blog/articleMap";
 import { notOnMap } from "@/lib/content/blog/names";
 import type { BlogHubControls } from "./types";
+import { MapSubjectSearch } from "@/components/admin/brand-kit/MapSubjectSearch";
 
 /**
  * The blog hub's brief, editable: the question the article answers, what buyers ask, and
@@ -669,8 +670,26 @@ const NO_SUBJECT = "none";
 
 /** Which of the brand map's subjects the article is for. */
 function SubjectPicker({ map, brief, onChange }: { map: ArticleMap; brief: BlogBrief; onChange: (next: BlogBrief) => void }) {
+  // At any size, a subject just found by searching isn't on the part of the map this page read: its name comes from the pick.
+  const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const value = brief.subjectId === null ? NO_SUBJECT : (brief.subjectId ?? "");
   const gone = Boolean(brief.subjectId) && !map.subjects.some((s) => s.id === brief.subjectId);
+  if (map.atScale) {
+    // At any size, the article's own subject is on the part of the map it reads; another is found by searching.
+    const own = brief.subjectId ? map.subjects.find((s) => s.id === brief.subjectId) : undefined;
+    const name = own?.name ?? (picked && picked.id === brief.subjectId ? picked.name : "No longer on your brand map");
+    const pick = brief.subjectId === null ? null : brief.subjectId ? { id: brief.subjectId, name } : undefined;
+    return (
+      <MapSubjectSearch
+        value={pick}
+        onPick={(next) => {
+          if (next) setPicked(next);
+          onChange(withSubject(brief, next === null ? null : next?.id, map));
+        }}
+        inputClassName={`w-full ${INPUT}`}
+      />
+    );
+  }
   return (
     <label className={LABEL}>
       Subject
@@ -688,6 +707,56 @@ function SubjectPicker({ map, brief, onChange }: { map: ArticleMap; brief: BlogB
         {gone ? <option value={value}>No longer on your brand map</option> : null}
         <option value={NO_SUBJECT}>None of these</option>
       </select>
+    </label>
+  );
+}
+
+/** "Not one situation" in the buying situations list. */
+const NO_SITUATION = "none";
+
+/** Which buying situation the article is written for (BRAND_MAP_SITUATIONS_ENABLED). */
+function SituationPicker({ map, brief, onChange }: { map: ArticleMap; brief: BlogBrief; onChange: (next: BlogBrief) => void }) {
+  const [all, setAll] = useState<Array<{ id: string; text: string; focus: boolean }> | null>(null);
+  useEffect(() => {
+    let gone = false;
+    void fetch("/api/admin/brand-kit/map/situations")
+      .then((r) => (r.ok ? r.json() : { situations: [] }))
+      .then((d: { situations?: Array<{ id: string; text: string; focus: boolean; status?: string }> }) => {
+        if (!gone) setAll((d.situations ?? []).filter((x) => x.status === "decided"));
+      })
+      .catch(() => !gone && setAll([]));
+    return () => {
+      gone = true;
+    };
+  }, []);
+  const value = brief.situationId === null ? NO_SITUATION : (brief.situationId ?? "");
+  // The chosen one, the nearest to the article, then every other.
+  const options = [...(map.situation ? [map.situation] : []), ...(map.situations ?? []), ...(all ?? [])].filter((x, i, xs) => xs.findIndex((y) => y.id === x.id) === i);
+  const gone = Boolean(brief.situationId) && all !== null && !options.some((x) => x.id === brief.situationId);
+  return (
+    <label className={LABEL}>
+      Who it&apos;s for
+      <select
+        value={value}
+        onChange={(e) => {
+          const next = { ...brief };
+          if (e.target.value === NO_SITUATION) next.situationId = null;
+          else if (e.target.value) next.situationId = e.target.value;
+          else delete next.situationId;
+          onChange(next);
+        }}
+        className={`mt-1 block w-full ${SELECT}`}
+      >
+        <option value="">Not chosen yet: research picks one</option>
+        {options.map((x) => (
+          <option key={x.id} value={x.id}>
+            “{x.text}”
+          </option>
+        ))}
+        {gone ? <option value={value}>No longer on your brand map</option> : null}
+        <option value={NO_SITUATION}>Not one situation</option>
+      </select>
+      <span className={HINT}>The buying situation its reader is in. The article opens by meeting them there.</span>
     </label>
   );
 }
@@ -735,7 +804,9 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
         ) : null}
       </div>
 
-      {map?.subjects.length ? <SubjectPicker map={map} brief={brief} onChange={controls.onBriefChange} /> : null}
+      {map?.situations ? <SituationPicker map={map} brief={brief} onChange={controls.onBriefChange} /> : null}
+
+      {map?.subjects.length || map?.atScale ? <SubjectPicker map={map} brief={brief} onChange={controls.onBriefChange} /> : null}
 
       <div>
         <label htmlFor={`${id}-asks`} className={LABEL}>

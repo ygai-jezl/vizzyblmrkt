@@ -218,6 +218,18 @@ export const BrandMapResearchSchema = z.object({
 });
 export type BrandMapResearch = z.infer<typeof BrandMapResearchSchema>;
 
+/** On the brand's record once its subjects moved into records of their own (BRAND_MAP_SCALE_ENABLED). */
+export const BrandMapMovedSchema = z.object({
+  at: z.string().max(40),
+  /** A digest of the `subjects` list as stored at the move: if it changes while the switch is off, what was added is brought in. */
+  arrayHash: z.string().max(64),
+  /** Every subject and question id brought in so far: a later move never brings back one removed since. */
+  ids: z.array(z.string().max(64)).max(400).catch([]).default([]),
+  /** The waiting suggestions already turned into proposals (by key): never proposed twice. */
+  suggestions: z.array(z.string().max(200)).max(1000).catch([]).default([]),
+});
+export type BrandMapMoved = z.infer<typeof BrandMapMovedSchema>;
+
 /** The stored document: suggestions are read one row at a time (store.ts), so they are `unknown` here. */
 export const BrandMapStoredSchema = BrandMapDecidedSchema.extend({
   id: z.string(),
@@ -230,6 +242,14 @@ export const BrandMapStoredSchema = BrandMapDecidedSchema.extend({
   decidedBy: z.string().max(254).nullable().default(null),
   createdAt: z.string().default(""),
   updatedAt: z.string().default(""),
+  /** Set once the subjects moved into records; from then on `subjects` above is kept as it was. */
+  moved: BrandMapMovedSchema.nullable().catch(null).default(null),
+  /** When a person first decided one of the map's records (a subject, question or situation). */
+  recordsDecidedAt: z.string().max(40).nullable().catch(null).default(null),
+  /** The ungrouped subjects' totals, for display (brandMapRecords.ts GroupTotalsSchema). */
+  ungroupedTotals: z.record(z.string(), z.number()).nullable().catch(null).default(null),
+  /** When "Read what's already there" and the recount after it last ran to the end (the map at any size). */
+  pagesReadAt: z.string().max(40).nullable().catch(null).default(null),
 });
 
 /** The brand map as the app reads it: the decided half, its suggestions parsed, and its bookkeeping. */
@@ -244,7 +264,19 @@ export type BrandMap = BrandMapDecided & {
   decidedBy: string | null;
   createdAt: string;
   updatedAt: string;
+  moved: BrandMapMoved | null;
+  recordsDecidedAt: string | null;
+  ungroupedTotals?: Record<string, number> | null;
+  pagesReadAt?: string | null;
 };
+
+/**
+ * Saved: a person has decided something on the map — saved the page once (`rev` ≥ 1), or
+ * decided one of its records. Until then nothing reaches an article.
+ */
+export function isMapSaved(map: Pick<BrandMap, "rev" | "recordsDecidedAt">): boolean {
+  return map.rev >= 1 || Boolean(map.recordsDecidedAt);
+}
 
 /** The raw stored document, as the tenant layer hands it over (parsed by brandMap/store.ts). */
 export type BrandMapRecord = { id: string; tenantId: string } & Record<string, unknown>;

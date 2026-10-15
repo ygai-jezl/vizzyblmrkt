@@ -3,27 +3,44 @@
 import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { BrandMapLeaveGuard } from "./brandMapLeave";
 
-type Tab = "names" | "map";
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "names", label: "Names and subjects" },
-  { id: "map", label: "Content map" },
-];
+interface TabDef {
+  id: string;
+  label: string;
+}
 
 /**
- * The Brand map page's two views. The list stays mounted while the map is shown, so an
- * unsaved edit survives a look at the map; the map is drawn only while it is open. The list
- * sits in the same place with or without the tabs, so the first save (which brings them)
- * never remounts it.
+ * The Brand map page's views. The first (the list a person edits) stays mounted while
+ * another is shown, so an unsaved edit survives a look elsewhere; the others are drawn only
+ * while open. The list sits in the same place with or without the tabs, so the first save
+ * (which brings them) never remounts it. With the map at any size there are more views
+ * (Subjects, and later Buying situations) between the list and the content map.
  */
-export function BrandMapTabs({ editor, contentMap }: { editor: ReactNode; contentMap: ReactNode | null }) {
+export function BrandMapTabs({
+  editor,
+  contentMap,
+  editorLabel = "Names and subjects",
+  extra = [],
+}: {
+  editor: ReactNode;
+  contentMap: ReactNode | null;
+  editorLabel?: string;
+  /** More views, between the list and the content map. */
+  extra?: Array<TabDef & { node: ReactNode }>;
+}) {
   const id = useId();
-  const [tab, setTab] = useState<Tab>("names");
-  const tabs = Boolean(contentMap);
+  const [tab, setTab] = useState("names");
+  const views: Array<TabDef & { node: ReactNode }> = [
+    { id: "names", label: editorLabel, node: editor },
+    ...extra,
+    ...(contentMap ? [{ id: "map", label: "Content map", node: contentMap }] : []),
+  ];
+  const tabs = views.length > 1;
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
-    const next = tab === "names" ? "map" : "names";
+    const at = views.findIndex((v) => v.id === tab);
+    const next = views[(at + (e.key === "ArrowRight" ? 1 : views.length - 1)) % views.length]!.id;
     setTab(next);
     document.getElementById(`${id}-${next}-tab`)?.focus();
   };
@@ -32,8 +49,8 @@ export function BrandMapTabs({ editor, contentMap }: { editor: ReactNode; conten
     <BrandMapLeaveGuard>
       <div className="space-y-4">
         {tabs ? (
-          <div role="tablist" aria-label="Brand map views" className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
-            {TABS.map((t) => (
+          <div role="tablist" aria-label="Brand map views" className="flex flex-wrap gap-1 border-b border-neutral-200 dark:border-neutral-800">
+            {views.map((t) => (
               <button
                 key={t.id}
                 id={`${id}-${t.id}-tab`}
@@ -63,11 +80,13 @@ export function BrandMapTabs({ editor, contentMap }: { editor: ReactNode; conten
         >
           {editor}
         </div>
-        {tabs && tab === "map" ? (
-          <div id={`${id}-map`} role="tabpanel" aria-labelledby={`${id}-map-tab`}>
-            {contentMap}
-          </div>
-        ) : null}
+        {views.slice(1).map((v) =>
+          tab === v.id ? (
+            <div key={v.id} id={`${id}-${v.id}`} role="tabpanel" aria-labelledby={`${id}-${v.id}-tab`}>
+              {v.node}
+            </div>
+          ) : null,
+        )}
       </div>
     </BrandMapLeaveGuard>
   );

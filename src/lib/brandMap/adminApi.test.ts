@@ -50,4 +50,23 @@ describe("research for the brand map, end to end", () => {
     expect(res.status).toBe(502);
     expect((await readBrandMap(ctx, db)).state).toBe("none");
   });
+
+  it("at any size, reads the subjects from their records and files new ones as proposals there", async () => {
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+    const db = new FakeFirestore();
+    const decided = BrandMapDecidedSchema.parse({
+      identity: { name: "Acme Inc" },
+      subjects: [{ id: "sub_aaaaaaaa", name: "Citations", questions: [{ id: "q_aaaaaaaa", text: "Why do AI answers cite pages?", intent: "other" }] }],
+    });
+    await saveBrandMap(ctx, { baseRev: 0, decided }, { db });
+    const grounded = vi.fn(async (_prompt: string) => ({ text: ANSWER, model: "m", sources: [], supports: [] }));
+    const res = await researchFromRequest(ctx, { db, propose: { ...propose, grounded: grounded as never }, embed: { embed: async () => [], query: async () => null } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { filed: number; proposed: number; summary: string };
+    // The subject moved into its record first, and research was told it is on the map.
+    expect(grounded.mock.calls[0]![0]).toContain("<subjects_on_map>\n- Citations\n</subjects_on_map>");
+    // The new subject and its question are proposals on the records; the rest are rows as before.
+    expect(body.proposed).toBe(2);
+    expect(body.summary).toBe("what you are, 1 name; 2 proposed for your subjects");
+  });
 });

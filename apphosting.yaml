@@ -1128,3 +1128,28 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # The map at any size: a brand's subjects and their questions move out of its one
+  # record into their own (`brand_map_groups`, `brand_map_subjects`, `brand_map_questions`,
+  # `brand_map_vectors`, `brand_map_runs`), once, on the first write with this on. The old
+  # list stays as it was, so turning this off shows the map as it was at the move. No fixed
+  # count of subjects or questions (safety limits only), groups, the Subjects tab, the
+  # content map by levels, coverage per subject, and articles reading only what is close to
+  # them. Needs its Firestore indexes deployed first (firestore.indexes.json).
+  - variable: BRAND_MAP_SCALE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Buying situations (`brand_map_situations`): research that finds the situations people
+  # are in and what they ask then (Google-Search-grounded Gemini calls, a run at a time),
+  # their tab, the map arranged by situation, and an article written for one. Needs
+  # BRAND_MAP_SCALE_ENABLED.
+  - variable: BRAND_MAP_SITUATIONS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # The brand's own research from a PDF: the uploaded file is sent to Gemini to read, never
+  # stored; what it found is kept (`brand_map_imports`). Needs BRAND_MAP_SCALE_ENABLED.
+  - variable: BRAND_MAP_IMPORT_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME

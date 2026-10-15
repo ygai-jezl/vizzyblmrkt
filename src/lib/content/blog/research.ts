@@ -28,7 +28,7 @@ import {
   type ContentPlan,
 } from "@/lib/types/contentPlan";
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl, textKey } from "./brief";
-import { researchMapBlock, researchSubjectLine, type ArticleMap, mapQuestion, reconcileMapRefs } from "./articleMap";
+import { researchMapBlock, researchSituationLine, researchSubjectLine, type ArticleMap, mapQuestion, reconcileMapRefs } from "./articleMap";
 import { canonicaliseEntities, indexNames } from "./names";
 import { fold } from "@/lib/brandMap/changes";
 import { blockedCrawlers } from "./crawlers";
@@ -127,6 +127,12 @@ export interface BlogResearchInput {
 }
 
 export interface BlogResearchDeps {
+  /**
+   * With the map at any size: the subjects (with their questions) holding map questions with
+   * these words, wherever they are on the map, so research matches what it found against the
+   * whole map and not just the part it was given.
+   */
+  mapWords?: (texts: string[]) => Promise<ArticleMap["subjects"]>;
   grounded?: typeof generateGroundedText;
   retrieve?: typeof retrieveSemanticKnowledgeContext;
   sitePages?: (ctx: TenantContext, workspaceId: string) => Promise<SitePages>;
@@ -182,6 +188,8 @@ export interface ParsedResearch {
   entities: BlogEntity[];
   /** The brand map subject research says the article belongs to ("" = none given). */
   subject: string;
+  /** The buying situation research says the article is for ("" = none given). */
+  situation: string;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”']+|["“”']+$/g, "").trim();
@@ -197,11 +205,11 @@ function isSearchLink(url: string): boolean {
   }
 }
 
-/** Parse the research answer (PRIMARY / Q / FACT / ENTITY / SUBJECT lines). Unknown lines are skipped. */
+/** Parse the research answer (PRIMARY / Q / FACT / ENTITY / SUBJECT / SITUATION lines). Unknown lines are skipped. */
 export function parseResearch(text: string): ParsedResearch {
-  const out: ParsedResearch = { primary: "", questions: [], facts: [], entities: [], subject: "" };
+  const out: ParsedResearch = { primary: "", questions: [], facts: [], entities: [], subject: "", situation: "" };
   for (const raw of (text ?? "").split(/\r?\n/)) {
-    const m = /^\s*(?:[-*•]\s*)?\**(PRIMARY|Q|FACT|ENTITY|SUBJECT)\**\s*:\**\s*(.+)$/i.exec(raw);
+    const m = /^\s*(?:[-*•]\s*)?\**(PRIMARY|Q|FACT|ENTITY|SUBJECT|SITUATION)\**\s*:\**\s*(.+)$/i.exec(raw);
     if (!m) continue;
     const kind = (m[1] ?? "").toUpperCase();
     const parts = (m[2] ?? "").split(/\s+\|\s+/).map(clean);
@@ -211,6 +219,8 @@ export function parseResearch(text: string): ParsedResearch {
       out.primary ||= head.slice(0, 300);
     } else if (kind === "SUBJECT") {
       out.subject ||= /^none$/i.test(head) ? "" : head.slice(0, 80);
+    } else if (kind === "SITUATION") {
+      out.situation ||= /^none$/i.test(head) ? "" : head.slice(0, 200);
     } else if (kind === "Q") {
       const intent = BlogIntent.safeParse((parts[1] ?? "").toLowerCase().replace(/[\s-]+/g, "_"));
       out.questions.push({ question: head.slice(0, 300), intent: intent.success ? intent.data : "other", by: "research" });
@@ -723,7 +733,7 @@ export async function researchBlogBrief(
   const clock = deps.now ?? (() => new Date());
   const now = clock();
   const deadline = now.getTime() + (input.timeoutMs ?? 60_000);
-  const map = input.map ?? null;
+  let map = input.map ?? null;
   // With a map, a subject or question since taken off it, or out of step with each other, is let go first.
   const current = map ? reconcileMapRefs(briefOf(plan), map) : briefOf(plan);
   // With a brand map, the brand is called what the map calls it; the publisher field a
@@ -776,7 +786,7 @@ export async function researchBlogBrief(
     buyer_questions: current.buyerQuestions.replace(/<\/?\s*buyer_questions[^>]*>/gi, " ") || "(none given)",
     knowledge_context: knowledgeContext || "(the brand has no indexed material yet)",
     brand_map: researchMapBlock(map, current),
-    subject_line: researchSubjectLine(map, current),
+    subject_line: researchSubjectLine(map, current) + researchSituationLine(map, current),
   });
   const factsPrompt = renderPrompt("content.blog_facts", {
     today,
@@ -889,6 +899,14 @@ export async function researchBlogBrief(
   const named = map ? canonicaliseEntities(filtered, indexNames(map), CONTENT_PLAN_LIMITS.MAX_BLOG_ENTITIES) : null;
   const entities = named ? named.entities : filtered;
 
+  // At any size, the map questions with these words, wherever they are on the map, join the part read.
+  if (map && deps.mapWords) {
+    const extra = await deps.mapWords([current.primaryQuestion || parsed.primary, ...parsed.questions.map((q) => q.question)]).catch(() => []);
+    const have = new Set(map.subjects.map((x) => x.id));
+    const added = extra.filter((x) => !have.has(x.id));
+    if (added.length) map = { ...map, subjects: [...map.subjects, ...added] };
+  }
+
   // With a brand map: the subject (a person's, else research's pick), and which questions are
   // the map's own (carried by id, so a later edit of a word does not lose them).
   const chosen = map?.subjects.find((x) => x.id === current.subjectId);
@@ -925,6 +943,10 @@ export async function researchBlogBrief(
     links.splice(at === -1 ? links.length : at, 0, ...extra);
   }
 
+  // And the buying situation it is for: a person's, else research's pick from those it was given.
+  const situated =
+    map?.situations && current.situationId === undefined && parsed.situation ? map.situations.find((x) => textKey(x.text) === textKey(parsed.situation)) : undefined;
+
   const merged = mergeResearch(
     current,
     {
@@ -938,6 +960,7 @@ export async function researchBlogBrief(
       ...(crawling ? { crawlers: await crawling } : {}),
       ...(mapSubject && current.subjectId === undefined ? { subjectId: mapSubject.id } : {}),
       ...(primaryRef ? { primaryRef } : {}),
+      ...(situated ? { situationId: situated.id } : {}),
     },
     now.toISOString(),
   );

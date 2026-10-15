@@ -97,3 +97,11 @@ def test_unavailable_without_a_token_or_callback(monkeypatch):
     assert cc.get_context({})["status"] == "unavailable"
     monkeypatch.delenv("CANVAS_CALLBACK_URL", raising=False)
     assert cc.get_context({"ctxToken": "t"})["status"] == "unavailable"
+
+
+def test_a_blog_hub_can_be_for_a_buying_situation():
+    intake = cc.build_intake("x", "brand_visibility", "s", hub_channel="blog", situation_id="sit_aaaaaaaa")
+    assert intake["blog"]["situationId"] == "sit_aaaaaaaa"
+    assert cc.build_intake("x", "brand_visibility", "s", hub_channel="blog", situation_id="none")["blog"]["situationId"] is None
+    assert "blog" not in cc.build_intake("x", "newsletter_signups", "s", situation_id="sit_aaaaaaaa")
+

@@ -29,7 +29,10 @@ export function CreatePanel({
   topics,
   initialSources,
   subjects = [],
+  subjectSearch = false,
   prefill = null,
+  situations = false,
+  prefillSituation = null,
 }: {
   workspaceId: string;
   initialPlans: ContentPlan[];
@@ -37,6 +40,12 @@ export function CreatePanel({
   initialSources: IngestionTicket[];
   /** The brand map's subjects (empty without a map in force). */
   subjects?: MapSubjectChoice[];
+  /** The map at any size: a subject is chosen by searching for it. */
+  subjectSearch?: boolean;
+  /** Buying situations are on: a new article can be for one. */
+  situations?: boolean;
+  /** "Write this next" from a buying situation: the article is for it. */
+  prefillSituation?: { id: string; text: string } | null;
   /** "Write this next": start the wizard from a map question. */
   prefill?: WriteNext | null;
 }) {
@@ -81,7 +90,10 @@ export function CreatePanel({
           topics={topics}
           initialSources={initialSources}
           subjects={subjects}
+          subjectSearch={subjectSearch}
           prefill={prefill}
+          situations={situations}
+          prefillSituation={prefillSituation}
           onCreated={onCreated}
           onCancel={() => setShowWizard(false)}
         />

@@ -127,6 +127,12 @@ export interface BlogResearchInput {
 }
 
 export interface BlogResearchDeps {
+  /**
+   * With the map at any size: the subjects (with their questions) holding map questions with
+   * these words, wherever they are on the map, so research matches what it found against the
+   * whole map and not just the part it was given.
+   */
+  mapWords?: (texts: string[]) => Promise<ArticleMap["subjects"]>;
   grounded?: typeof generateGroundedText;
   retrieve?: typeof retrieveSemanticKnowledgeContext;
   sitePages?: (ctx: TenantContext, workspaceId: string) => Promise<SitePages>;
@@ -723,7 +729,7 @@ export async function researchBlogBrief(
   const clock = deps.now ?? (() => new Date());
   const now = clock();
   const deadline = now.getTime() + (input.timeoutMs ?? 60_000);
-  const map = input.map ?? null;
+  let map = input.map ?? null;
   // With a map, a subject or question since taken off it, or out of step with each other, is let go first.
   const current = map ? reconcileMapRefs(briefOf(plan), map) : briefOf(plan);
   // With a brand map, the brand is called what the map calls it; the publisher field a
@@ -888,6 +894,14 @@ export async function researchBlogBrief(
   );
   const named = map ? canonicaliseEntities(filtered, indexNames(map), CONTENT_PLAN_LIMITS.MAX_BLOG_ENTITIES) : null;
   const entities = named ? named.entities : filtered;
+
+  // At any size, the map questions with these words, wherever they are on the map, join the part read.
+  if (map && deps.mapWords) {
+    const extra = await deps.mapWords([current.primaryQuestion || parsed.primary, ...parsed.questions.map((q) => q.question)]).catch(() => []);
+    const have = new Set(map.subjects.map((x) => x.id));
+    const added = extra.filter((x) => !have.has(x.id));
+    if (added.length) map = { ...map, subjects: [...map.subjects, ...added] };
+  }
 
   // With a brand map: the subject (a person's, else research's pick), and which questions are
   // the map's own (carried by id, so a later edit of a word does not lose them).

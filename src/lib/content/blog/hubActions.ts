@@ -12,7 +12,9 @@ import { BLOG_WARNINGS, blogWarnings } from "./draft";
 import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
-import { fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
+import { askOfPlan, fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
+import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { mapQuestionsByWords } from "@/lib/brandMap/articleScale";
 import { syncPlanPageSoftly } from "./pageActions";
 
 /**
@@ -66,10 +68,12 @@ export async function researchPlanBlog(
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
   // Read side by side: the tenant record, and the brand map (null with its flag off or none saved).
   // With the pages switch on, the map also says what is answered and open, for research.
-  const [brand, map] = await Promise.all([tenantBrand(ctx), loadArticleMap(ctx, deps, { pages: true, planId: plan.id })]);
+  const [brand, map] = await Promise.all([tenantBrand(ctx), loadArticleMap(ctx, deps, { pages: true, planId: plan.id, ask: askOfPlan(plan) })]);
+  // At any size, research matches the questions it found against the whole map.
+  const mapWords = deps.mapWords ?? (map && isBrandMapScaleEnabled() ? (texts: string[]) => mapQuestionsByWords(ctx, texts, { db: deps.db }) : undefined);
   const result = await researchBlogBrief(
     { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map },
-    deps,
+    { ...deps, ...(mapWords ? { mapWords } : {}) },
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
   // Its questions, subject and names are the page's facts on the brand map.

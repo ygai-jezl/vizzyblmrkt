@@ -74,13 +74,13 @@ export interface SubjectCoverageRead {
   answered: Coverage["answered"];
 }
 
-/** One subject's coverage, worked out now from its own rows. */
-export async function subjectCoverage(ctx: TenantContext, subjectId: string, deps: Deps = {}): Promise<SubjectCoverageRead | null> {
+/** One subject's coverage, worked out now from its own rows (`exclude`: an article's own row never answers its own questions). */
+export async function subjectCoverage(ctx: TenantContext, subjectId: string, deps: Deps = {}, opts: { exclude?: string } = {}): Promise<SubjectCoverageRead | null> {
   const subject = await getSubject(ctx, subjectId, deps);
   if (!subject) return null;
   const questions = await subjectQuestions(ctx, subject.id, deps);
   const decided = questions.filter((q) => q.status === "decided");
-  const rows = await candidateRows(ctx, subject, decided, deps);
+  const rows = (await candidateRows(ctx, subject, decided, deps)).filter((r) => r.id !== opts.exclude);
   const c = computeCoverage(
     { subjects: [{ id: subject.id, name: subject.name, home: subject.home, questions: decided.map((q) => ({ id: q.id, text: q.text, intent: q.intent })) }] },
     rows,

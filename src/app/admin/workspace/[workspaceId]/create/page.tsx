@@ -35,7 +35,8 @@ export default async function CreatePage({
       limit: 200,
     }),
     // The brand map's subjects, so a new article can be for one (null with its switch off or none saved).
-    isBlogBrandMapEnabled() ? loadArticleMap(ctx).catch(() => null) : null,
+    // At any size, "Write this next"'s question is read by id (with its subject).
+    isBlogBrandMapEnabled() ? loadArticleMap(ctx, {}, typeof question === "string" ? { ask: { primaryRef: question } } : {}).catch(() => null) : null,
   ]);
   sources.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   // "Write this next": the wizard starts from the map question, while it is still on the map.

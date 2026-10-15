@@ -14,8 +14,8 @@ import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
-import { loadArticleMap } from "@/lib/content/blog/mapActions";
-import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
+import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +29,9 @@ export default async function ContentPlanPage({
   const { workspaceId, planId } = await params;
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
+  const planRead = getContentPlan(ctx, workspaceId, planId);
   const [plan, templates, emailPreview, brandMap] = await Promise.all([
-    getContentPlan(ctx, workspaceId, planId),
+    planRead,
     listTemplates(ctx, workspaceId),
     // The Email style and footer "sent by" newsletter previews wear, as the send does.
     // Flag off: no tenant read.
@@ -41,7 +42,10 @@ export default async function ContentPlanPage({
       : null,
     // The brand map a blog article is written from: its checklist and markup read it in the
     // browser. Flag off (or none saved): null, and the canvas is as before.
-    isBlogBrandMapEnabled() ? loadArticleMap(ctx).catch(() => null) : null,
+    // At any size, only the part of the map close to this article (read once the plan is).
+    isBlogBrandMapEnabled()
+      ? (isBrandMapScaleEnabled() ? planRead.then((p) => loadArticleMap(ctx, {}, p ? { ask: askOfPlan(p) } : {})) : loadArticleMap(ctx)).catch(() => null)
+      : null,
   ]);
   if (!plan) notFound();
 

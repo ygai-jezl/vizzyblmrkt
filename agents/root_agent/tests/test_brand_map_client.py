@@ -110,3 +110,56 @@ def test_needs_the_link_to_the_app(monkeypatch):
 def test_root_routes_the_brand_map_and_never_claims_a_change():
     assert "`get_brand_map`" in ROOT_SYSTEM_INSTRUCTION and "`suggest_brand_map`" in ROOT_SYSTEM_INSTRUCTION
     assert "never say the map changed" in ROOT_SYSTEM_INSTRUCTION
+
+
+def test_reads_a_large_map_a_part_at_a_time(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"subjects": []})
+    bm.get_map(STATE, find="tracking AI answers")
+    bm.get_map(STATE, subject_id="sub_aaaaaaaa")
+    bm.get_map(STATE, import_id="latest")
+    assert [c["url"] for c in calls] == [
+        "https://app.example.com/api/agent/brand-map?find=tracking+AI+answers",
+        "https://app.example.com/api/agent/brand-map?subject=sub_aaaaaaaa",
+        "https://app.example.com/api/agent/brand-map?import=latest",
+    ]
+
+
+def test_proposes_buying_situations_and_links_questions_to_one(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True, "summary": "Filed 2 suggestions.", "card": {"kind": "brand_map"}})
+    r = bm.suggest(
+        STATE,
+        "add",
+        "From our chat",
+        questions=["AI answers tracking | How do I report AI visibility to the board?"],
+        situations=["Our clicks from Google are falling | Head of SEO | Win the clicks back", "The board asked what ChatGPT says about us"],
+        situation_id="sit_aaaaaaaa",
+    )
+    assert r["status"] == "success"
+    payload = calls[0]["payload"]
+    assert payload["mode"] == "add" and payload["situationId"] == "sit_aaaaaaaa"
+    assert payload["situations"] == [
+        {"text": "Our clicks from Google are falling", "who": "Head of SEO", "want": "Win the clicks back"},
+        {"text": "The board asked what ChatGPT says about us"},
+    ]
+    # Buying situations alone are enough to file.
+    assert bm.suggest(STATE, "add", "x", situations=["We're launching a product"])["status"] == "success"
+
+
+def test_researches_situations_and_one_situations_questions(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True, "summary": "Research proposed 3 buying situations."})
+    bm.suggest(STATE, "situations", "Find them", customers="Two said their traffic fell", subjects=["ignored"])
+    bm.suggest(STATE, "situation_questions", "What do they ask?", situation_id="sit_aaaaaaaa")
+    assert calls[0]["payload"] == {"kind": "brand_map", "action": "save_draft", "mode": "situations", "brief": "Find them", "customers": "Two said their traffic fell"}
+    assert calls[1]["payload"]["situationId"] == "sit_aaaaaaaa"
+    assert calls[0]["timeout"] == bm._RESEARCH_TIMEOUT_SECONDS and calls[1]["timeout"] == bm._RESEARCH_TIMEOUT_SECONDS
+    # Which situation to research is needed; nothing is sent without it.
+    assert bm.suggest(STATE, "situation_questions", "x")["code"] == "no_situation_id"
+    assert len(calls) == 2
+
+
+def test_never_advises_a_set_number_of_subjects():
+    from root_agent_pkg.tools import brand_map
+
+    doc = brand_map.suggest_brand_map.__doc__ or ""
+    assert "three to five" not in doc and "3 to 5" not in doc
+    assert "no set number" in doc

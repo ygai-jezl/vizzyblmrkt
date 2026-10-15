@@ -34,6 +34,9 @@ Use `draft_content_plan`:
   returns a `brandMap`. subject_id is the subject the article is for ("none" for
   none of them); question_id is the map question it answers, with primary_question
   set to that question's text. Use only ids from `brandMap`.
+- situation_id: only for a blog hub, when `brandMap` lists `situations`: the buying
+  situation the article is for (the moment its reader is in), or "none". A question
+  from a situation carries its situationId: use it.
 The server lays out the pieces and writes the hub (or every email of a sequence)
 in the brand voice. eBooks are written in the eBook studio, not from chat.
 
@@ -41,7 +44,9 @@ in the brand voice. eBooks are written in the eBook studio, not from chat.
 When the operator asks what to write next, and `brandMap` lists questions, offer the
 open ones (state "open"), a few per subject, in their words. Never offer a question
 that is answered. When they pick one, draft a blog hub for it with its subject_id,
-question_id and primary_question. Without `statesKnown`, say you can't tell which are
+question_id and primary_question (and its situation_id, when it has one). A large map
+(`atAnySize`) lists only the open questions of the buying situations the brand
+focuses on: say so, and that the brand map has the rest. Without `statesKnown`, say you can't tell which are
 already answered, and that the Brand map page shows it.
 
 A blog hub may come back researched and fact-checked. Where that is switched on,

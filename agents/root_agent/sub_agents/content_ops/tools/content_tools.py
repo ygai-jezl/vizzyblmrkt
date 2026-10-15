@@ -22,7 +22,9 @@ def get_content_context(tool_context: ToolContext) -> dict:
     and recent plans, and the values a plan's intake accepts. Call this before drafting.
     Where blog articles are written from a brand map, `brandMap` lists its subjects and
     their questions (with each one's state when `statesKnown` is true: answered, in
-    progress or open), for a blog article's subject_id and question_id.
+    progress or open), for a blog article's subject_id and question_id. A large map
+    (`atAnySize`) lists only the open questions of the buying `situations` the brand
+    focuses on, each question with its situationId.
 
     Returns:
         {"programmes": [...], "brandMap"?: {...}, "allowed": {"objectives", "hubChannels", "spokeChannels", "topics", ...}}
@@ -45,6 +47,7 @@ def draft_content_plan(
     buyer_questions: str = "",
     subject_id: str = "",
     question_id: str = "",
+    situation_id: str = "",
 ) -> dict:
     """Draft a content plan in a programme and save it as a DRAFT.
 
@@ -74,13 +77,16 @@ def draft_content_plan(
             research picks one.
         question_id: Blog hub only, with a brandMap. The id of the map question the
             article answers ("write this next"); set primary_question to its text too.
+        situation_id: Blog hub only, with a brandMap that lists situations. The id of the
+            buying situation the article is for (the article opens by meeting its reader
+            there), or "none". Leave empty and research picks one.
 
     Returns:
         A status dict to relay (includes a card the chat shows with an Open link).
     """
     intake = client.build_intake(
         name, objective, spark, hub_channel, spoke_channels, topics, hub_url, sequence_type,
-        primary_question, buyer_questions, subject_id, question_id,
+        primary_question, buyer_questions, subject_id, question_id, situation_id,
     )
     return client.draft_plan(_state(tool_context), workspace_id, intake, spark)
 

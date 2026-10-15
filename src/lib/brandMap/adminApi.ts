@@ -7,7 +7,8 @@ import { getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { tenantDomains } from "@/lib/knowledge/site";
 import { BrandMapDecidedSchema, type BrandMap } from "@/lib/types/brandMap";
-import { dismissBrandMapSuggestions, fileBrandMapSuggestions, readBrandMap, saveBrandMap, type MapResult } from "./store";
+import { dismissBrandMapSuggestions, readBrandMap, saveBrandMap, type MapResult } from "./store";
+import { fileSuggestions } from "./filing";
 import { proposeBrandMap, summarise, type ProposeDeps } from "./research";
 import { lookupName, type FetchJson } from "./lookup";
 import { isBrandMapEnabled } from "./flags";
@@ -108,17 +109,18 @@ export async function runBrandMapResearch(ctx: TenantContext, deps: ResearchDeps
   const proposed = await proposeBrandMap(ctx, { current, timeoutMs: deps.timeoutMs }, { db: deps.db, ...deps.propose });
   if (!proposed.ok) return proposed;
   const at = new Date(deps.nowMs ?? Date.now()).toISOString();
-  const filed = await fileBrandMapSuggestions(
+  const filed = await fileSuggestions(
     ctx,
     { from: "research", replaceOwn: true, items: proposed.items, research: { at, notes: proposed.notes } },
     { db: deps.db, nowMs: deps.nowMs },
   );
   if (!filed.ok) return { ok: false, status: filed.status, error: filed.error };
   const after = await readBrandMap(ctx, deps.db);
+  const proposals = filed.value.proposed.length;
   return {
     ok: true,
-    filed: filed.value.filed.length,
-    summary: summarise(filed.value.filed.map((s) => s.change)),
+    filed: filed.value.filed.length + proposals,
+    summary: [summarise(filed.value.filed.map((s) => s.change)), proposals ? `${proposals} proposed for your subjects` : ""].filter(Boolean).join("; "),
     notes: proposed.notes,
     map: after.state === "ok" ? after.map : null,
   };

@@ -5,7 +5,8 @@ import { BrandMapChangeSchema, type BrandMapChange } from "@/lib/types/brandMap"
 import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
 import { describeChange } from "@/lib/brandMap/changes";
 import { isBrandMapChatEnabled, isBrandMapResearchEnabled } from "@/lib/brandMap/flags";
-import { fileBrandMapSuggestions, readBrandMap } from "@/lib/brandMap/store";
+import { readBrandMap } from "@/lib/brandMap/store";
+import { fileSuggestions } from "@/lib/brandMap/filing";
 import { RESEARCH_LIMIT, runBrandMapResearch, type ResearchDeps } from "@/lib/brandMap/adminApi";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
@@ -116,14 +117,14 @@ export async function authorBrandMapSuggestions(
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
 
   const reason = brief.replace(/\s+/g, " ").trim().slice(0, 200) || "Suggested in chat";
-  const filed = await fileBrandMapSuggestions(
+  const filed = await fileSuggestions(
     ctx,
     { from: "vizzy", items: parsed.changes.map((change) => ({ change, reason, evidence: "asked" as const })) },
     { db: deps.db, nowMs: deps.nowMs },
   );
   if (!filed.ok) return { ok: false, status: filed.status, error: filed.error };
   const after = await readBrandMap(ctx, deps.db).catch(() => null);
-  const said = filed.value.filed.map((s) => describeChange(s.change));
+  const said = [...filed.value.filed.map((s) => describeChange(s.change)), ...filed.value.proposed];
   const { inMap, waiting, dismissed } = filed.value.skipped;
   const skipped = [
     inMap ? `${plural(inMap, "was", "were")} already on the map` : "",

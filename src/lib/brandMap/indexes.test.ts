@@ -31,6 +31,8 @@ const SHAPES: Shape[] = [
   { collection: "brand_map_groups", order: "ref" },
   { collection: "brand_map_subjects", order: "ref" },
   { collection: "brand_map_subjects", eq: ["groupId"], order: "ref" },
+  // A group's totals: its decided subjects only.
+  { collection: "brand_map_subjects", eq: ["groupId", "status"], order: "ref" },
   { collection: "brand_map_subjects", eq: ["status"], order: "ref" },
   { collection: "brand_map_questions", eq: ["subjectId"], order: "ref" },
   { collection: "brand_map_questions", eq: ["status"], order: "ref" },

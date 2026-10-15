@@ -26,11 +26,12 @@ import { parseBrandMap } from "./store";
  * `record_changed`), the way a save of the whole map is. Saving one subject never touches
  * another.
  *
- * Results say which subjects a change touched, so their counts and embeddings can follow.
+ * Results say which subjects a change touched, so their counts and embeddings can follow, and
+ * which groups lost one (a move, a removal, a merge), so their totals follow too.
  */
 
 export type RecordResult<T> =
-  | { ok: true; value: T; touched: string[] }
+  | { ok: true; value: T; touched: string[]; groups?: Array<string | null> }
   | { ok: false; status: number; error: string; current?: unknown };
 
 const iso = (nowMs?: number) => new Date(nowMs ?? Date.now()).toISOString();
@@ -187,7 +188,7 @@ export async function editSubject(
     if (other && other.id !== id && other.status !== "dismissed") return fail(409, "subject_exists", parseSubject(other));
   }
   if (input.groupId && !parseGroup(await store.get("grp", input.groupId))) return fail(404, "no_group");
-  const seen: { conflict: BrandMapSubjectRecord | null } = { conflict: null };
+  const seen: { conflict: BrandMapSubjectRecord | null; left: string | null | undefined } = { conflict: null, left: undefined };
   const saved = await store.claim("sub", id, (cur) => {
     const current = parseSubject(cur);
     if (!current) return null;
@@ -195,6 +196,7 @@ export async function editSubject(
       seen.conflict = current;
       return null;
     }
+    if (input.groupId !== undefined && input.groupId !== current.groupId) seen.left = current.groupId;
     return {
       ...(name !== undefined ? { name, nameKey: key } : {}),
       ...(input.home !== undefined ? { home: input.home, urlKey: urlKey(input.home), suggestedHome: input.home ? null : current.suggestedHome } : {}),
@@ -205,17 +207,18 @@ export async function editSubject(
   });
   if (seen.conflict) return fail(409, "record_changed", seen.conflict);
   const value = parseSubject(saved);
-  return value ? { ok: true, value, touched: [id] } : fail(404, "no_subject");
+  return value ? { ok: true, value, touched: [id], ...(seen.left !== undefined ? { groups: [seen.left] } : {}) } : fail(404, "no_subject");
 }
 
 /** Remove a subject and its questions. Articles written for it keep their link, and say it is no longer on the map. */
 export async function removeSubject(ctx: TenantContext, id: string, deps: Deps = {}): Promise<RecordResult<{ id: string; questions: number }>> {
   const store = storeOf(ctx, deps);
-  if (!(await store.get("sub", id))) return fail(404, "no_subject");
+  const subject = parseSubject(await store.get("sub", id));
+  if (!subject) return fail(404, "no_subject");
   const questions = await store.pageAll("q", { where: [["subjectId", "==", id]], fields: ["subjectId"] });
   for (const q of questions) await store.remove("q", q.id).catch(() => undefined);
   await store.remove("sub", id);
-  return { ok: true, value: { id, questions: questions.length }, touched: [id] };
+  return { ok: true, value: { id, questions: questions.length }, touched: [id], groups: [subject.groupId] };
 }
 
 /**
@@ -245,7 +248,8 @@ export async function mergeSubjects(ctx: TenantContext, input: { from: string; i
     moved += 1;
   }
   await store.claim("sub", from.id, (cur) => ({ mergedInto: into.id, status: "dismissed", rev: Number(cur.rev ?? 0) + 1, updatedAt: now }));
-  return { ok: true, value: { moved, dropped }, touched: [from.id, into.id] };
+  // The merged-away subject now reads as the one it went into: its own group is said here.
+  return { ok: true, value: { moved, dropped }, touched: [from.id, into.id], groups: [from.groupId] };
 }
 
 export async function addQuestion(

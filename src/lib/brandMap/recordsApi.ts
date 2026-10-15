@@ -65,9 +65,9 @@ async function moved(ctx: TenantContext, deps: Deps): Promise<Response | null> {
   return r.ok ? null : NextResponse.json({ error: r.error }, { status: r.status });
 }
 
-/** After a write: the touched subjects' counts and embeddings follow (best effort, never failing it). */
+/** After a write: the touched subjects' counts, their groups' totals and their embeddings follow (best effort, never failing it). */
 async function settle<T>(ctx: TenantContext, r: RecordResult<T>, deps: Deps): Promise<Response> {
-  if (r.ok && r.touched.length) await afterRecordsChange(ctx, { subjects: r.touched }, deps);
+  if (r.ok && (r.touched.length || r.groups?.length)) await afterRecordsChange(ctx, { subjects: r.touched, groups: r.groups }, deps);
   return recordResponse(r);
 }
 
@@ -151,7 +151,8 @@ export async function recountFromRequest(ctx: TenantContext, body: unknown, deps
   if (await isRateLimited(`tenant:${ctx.tenantId}`, RECOUNT_LIMIT, { db: deps.db })) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   const store = brandMapRecords(ctx, deps.db);
   const batch = await store.find("sub", { orderBy: [["ref", "asc"]], ...(parsed.data.cursor ? { startAfter: [parsed.data.cursor] } : {}), limit: RECOUNT_BATCH });
-  for (let i = 0; i < batch.length; i += 5) await Promise.all(batch.slice(i, i + 5).map((s) => recountSubject(ctx, s.id, deps).catch(() => null)));
+  // Groups are added up once, at the end of the pass.
+  for (let i = 0; i < batch.length; i += 5) await Promise.all(batch.slice(i, i + 5).map((s) => recountSubject(ctx, s.id, deps, { group: false }).catch(() => null)));
   if (batch.length === RECOUNT_BATCH) return NextResponse.json({ ok: true, done: false, next: batch[batch.length - 1]!.id, subjects: batch.length });
   const groups = await listGroups(ctx, deps);
   await Promise.all([...groups.map((g) => recountGroup(ctx, g.id, deps).catch(() => null)), recountGroup(ctx, null, deps).catch(() => null)]);

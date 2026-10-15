@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BrandMapPageFactsSchema } from "@/lib/types/brandMapPage";
+import { brandMapDocId } from "@/lib/types/brandMap";
+import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { withDerivedFacts } from "@/lib/content/blog/pageRow";
 
 // The brand's own domains come from its tenant record; here it has one.
@@ -60,6 +62,29 @@ describe("the map at any size's admin APIs", () => {
     const decided = await json(await api.proposalsFromRequest(ctx, { accept: { subjects: [id] } }, { db }));
     expect(decided).toMatchObject({ status: 200, body: { ok: true, accepted: 0 } });
     expect((await json(await api.subjectNamesFromRequest(ctx, { db }))).body).toEqual({ subjects: [{ id, name: "Citations", groupId: null, status: "decided" }] });
+  });
+
+  it("keeps a group's totals with its subjects as they're added, moved in, merged away and removed", async () => {
+    const db = new FakeFirestore();
+    const totals = async (gid: string) => ((await brandMapRecords(ctx, db).get("grp", gid))?.totals ?? {}) as Record<string, number>;
+    const ungrouped = () => (db.raw("brand_maps", brandMapDocId("ten_A"))?.ungroupedTotals ?? {}) as Record<string, number>;
+    const g = await json(await api.createGroupFromRequest(ctx, { name: "Tracking" }, { db }));
+    const gid = (g.body.value as { id: string }).id;
+    const s = await json(await api.createSubjectFromRequest(ctx, { name: "Share of voice" }, { db }));
+    const sid = (s.body.value as { id: string }).id;
+    expect(ungrouped()).toMatchObject({ subjects: 1 });
+
+    await api.editSubjectFromRequest(ctx, sid, { baseRev: 0, groupId: gid }, { db });
+    expect(await totals(gid)).toMatchObject({ subjects: 1 });
+    expect(ungrouped()).toMatchObject({ subjects: 0 });
+
+    const t = await json(await api.createSubjectFromRequest(ctx, { name: "Citations", groupId: gid }, { db }));
+    const tid = (t.body.value as { id: string }).id;
+    expect(await totals(gid)).toMatchObject({ subjects: 2 });
+    await api.mergeSubjectsFromRequest(ctx, { from: tid, into: sid }, { db });
+    expect(await totals(gid)).toMatchObject({ subjects: 1 });
+    await api.removeSubjectFromRequest(ctx, sid, { db });
+    expect(await totals(gid)).toMatchObject({ subjects: 0 });
   });
 
   it("hands the content map a subject's own pages when asked, and the ungrouped subjects' totals beside the groups", async () => {

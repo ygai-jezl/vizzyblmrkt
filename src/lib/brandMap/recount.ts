@@ -121,15 +121,18 @@ export function countsOf(coverage: SubjectCoverage): { counts: SubjectCounts; an
 
 const sameCounts = (a: unknown, b: SubjectCounts) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Work a subject's counts out again; store them, and its group's totals, when they changed. */
-export async function recountSubject(ctx: TenantContext, subjectId: string, deps: Deps = {}): Promise<SubjectCoverageRead | null> {
+/**
+ * Work a subject's counts out again; store them, and its group's totals, when they changed
+ * (`group: false` leaves the group to the caller, which adds up each group once).
+ */
+export async function recountSubject(ctx: TenantContext, subjectId: string, deps: Deps = {}, opts: { group?: boolean } = {}): Promise<SubjectCoverageRead | null> {
   const read = await subjectCoverage(ctx, subjectId, deps);
   if (!read) return null;
   const { counts, answeredIds, draftedIds, plannedIds } = countsOf(read.coverage);
   const share = shareOf(counts.answered, counts.questions);
   if (!sameCounts(read.subject.counts, counts) || read.subject.answeredShare !== share) {
     await brandMapRecords(ctx, deps.db).claim("sub", read.subject.id, () => ({ counts, answeredShare: share, answeredIds, draftedIds, plannedIds }));
-    await recountGroup(ctx, read.subject.groupId, deps);
+    if (opts.group !== false) await recountGroup(ctx, read.subject.groupId, deps);
   }
   return read;
 }
@@ -151,10 +154,19 @@ export function totalsOf(subjects: BrandMapSubjectRecord[]): GroupTotals {
   return t;
 }
 
-/** Add a group's totals up again from its subjects (null: the ungrouped ones, kept on the brand's record). */
+/**
+ * Add a group's totals up again from its decided subjects (null: the ungrouped ones, kept on
+ * the brand's record). Proposals aren't read: they never count.
+ */
 export async function recountGroup(ctx: TenantContext, groupId: string | null, deps: Deps = {}): Promise<GroupTotals> {
   const store = brandMapRecords(ctx, deps.db);
-  const rows = await store.pageAll("sub", { where: [["groupId", "==", groupId]], fields: ["status", "counts", "mergedInto", "name", "nameKey", "groupId"] });
+  const rows = await store.pageAll("sub", {
+    where: [
+      ["groupId", "==", groupId],
+      ["status", "==", "decided"],
+    ],
+    fields: ["status", "counts", "mergedInto", "name", "nameKey", "groupId"],
+  });
   const totals = totalsOf(rows.flatMap((r) => parseSubject(r) ?? []));
   if (groupId) {
     await store.claim("grp", groupId, (cur) => (JSON.stringify(cur.totals) === JSON.stringify(totals) ? null : { totals }));

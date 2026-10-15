@@ -61,7 +61,9 @@ async function readSubjects(group: string): Promise<CirclesLevel | Failed> {
 async function readTop(): Promise<{ level: CirclesLevel; groups: BrandMapGroup[] } | Failed> {
   const r = await api<{ groups?: BrandMapGroup[]; ungrouped?: Partial<GroupTotals> | null; error?: string }>(`${MAP}/groups`);
   if (!r.ok || !r.data.groups) return { error: errorText(r.data) };
-  if (r.data.groups.length) return { level: { kind: "circles", noun: "groups", items: topItems(r.data.groups, r.data.ungrouped ?? null) }, groups: r.data.groups };
+  // A proposed group holds nothing until it's added (its subjects are only suggested for it).
+  const groups = r.data.groups.filter((g) => g.status === "decided");
+  if (groups.length) return { level: { kind: "circles", noun: "groups", items: topItems(groups, r.data.ungrouped ?? null) }, groups };
   const all = await readSubjects(UNGROUPED);
   return "error" in all ? all : { level: all, groups: [] };
 }

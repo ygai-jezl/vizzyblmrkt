@@ -124,7 +124,7 @@ export function BrandMapEditor(props: BrandMapPageProps) {
   const research = async () => {
     setBusy(true);
     setNote({ tone: "info", text: "Researching your brand. This takes about a minute." });
-    const res = await api<{ map?: BrandMap; filed?: number; error?: string }>(`${MAP_ROUTE}/research`, { method: "POST", body: "{}" });
+    const res = await api<{ map?: BrandMap; filed?: number; proposed?: number; error?: string }>(`${MAP_ROUTE}/research`, { method: "POST", body: "{}" });
     setBusy(false);
     if (!res.ok || !res.data.map) {
       setNote({
@@ -134,16 +134,23 @@ export function BrandMapEditor(props: BrandMapPageProps) {
       return;
     }
     setStarted(true);
+    // At any size, what research proposes for subjects waits on the Subjects tab.
+    const proposed = props.scale ? (res.data.proposed ?? 0) : 0;
+    const onSubjects = proposed ? ` ${proposed} proposal${proposed === 1 ? "" : "s"} (new subjects, questions or home pages) wait for you on the Subjects tab.` : "";
     // First time, on a blank map: fill the form with what research found, for one save.
     if (baseRev === 0 && isBlank(form)) {
       const fill = firstRunFill(form, res.data.map.suggestions);
       setForm(fill.decided);
       setAccepted(fill.accepted);
       setFreshSuggestions(res.data.map.suggestions);
-      setNote({ tone: "info", text: "Drafted from your website and a web search. Review, edit, then save. Nothing is used until you do." });
+      setNote({ tone: "info", text: `Drafted from your website and a web search. Review, edit, then save. Nothing is used until you do.${onSubjects}` });
     } else {
       setFreshSuggestions(res.data.map.suggestions);
-      setNote({ tone: "info", text: res.data.filed ? `Research found ${res.data.filed} new suggestion${res.data.filed === 1 ? "" : "s"}.` : "Research found nothing new." });
+      const here = (res.data.filed ?? 0) - proposed;
+      setNote({
+        tone: "info",
+        text: here || proposed ? `${here ? `Research found ${here} new suggestion${here === 1 ? "" : "s"}.` : "Research found nothing new here."}${onSubjects}` : "Research found nothing new.",
+      });
     }
     router.refresh();
   };

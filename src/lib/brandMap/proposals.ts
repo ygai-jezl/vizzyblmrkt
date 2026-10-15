@@ -105,28 +105,52 @@ export interface ProposalIds {
   subjects?: string[];
   questions?: string[];
   situations?: string[];
+  /** A proposed group, or a group's suggested subjects ("Sort into groups"). */
+  groups?: string[];
 }
 
-const KIND: Record<keyof ProposalIds, RecordKind> = { subjects: "sub", questions: "q", situations: "sit" };
+const KIND: Record<keyof ProposalIds, RecordKind> = { subjects: "sub", questions: "q", situations: "sit", groups: "grp" };
 
 async function eachLimited<T>(items: T[], limit: number, run: (item: T) => Promise<unknown>): Promise<void> {
   for (let i = 0; i < items.length; i += limit) await Promise.all(items.slice(i, i + limit).map(run));
 }
 
 /**
+ * A group's suggested subjects: moved into it (`move`), or the suggestion let go. A subject a
+ * person has put in a group since only loses the suggestion. Returns the subjects moved.
+ */
+async function answerSuggestions(store: BrandMapRecordStore, groupId: string, move: boolean, now: string): Promise<string[]> {
+  const waiting = await store.pageAll("sub", { where: [["suggestedGroupId", "==", groupId]], fields: ["suggestedGroupId", "groupId"] });
+  const moved: string[] = [];
+  await eachLimited(waiting, 10, async (s) => {
+    const done = await store.claim("sub", s.id, (cur) => {
+      if (cur.suggestedGroupId !== groupId) return null;
+      if (!move || cur.groupId != null) return { suggestedGroupId: null };
+      return { groupId, suggestedGroupId: null, rev: Number(cur.rev ?? 0) + 1, updatedAt: now };
+    });
+    if (move && done?.groupId === groupId) moved.push(s.id);
+  });
+  await store.claim("grp", groupId, (cur) => (cur.suggested ? { suggested: 0 } : null)).catch(() => null);
+  return moved;
+}
+
+/**
  * A person accepts or dismisses proposals, many at once. Accepting a question also accepts
  * the subject it is proposed for (a decided question can't sit in a proposed subject);
- * dismissing a subject dismisses the questions proposed for it. Only proposals change:
- * something already decided is left as it is. Returns the subjects touched.
+ * dismissing a subject dismisses the questions proposed for it. Accepting a group decides it
+ * (if proposed) and moves in the subjects suggested for it; dismissing one lets those
+ * suggestions go. Only proposals change status: something already decided is left as it is.
+ * Returns the subjects touched, and the groups that lost one.
  */
 export async function decideProposals(
   ctx: TenantContext,
   input: { accept?: ProposalIds; dismiss?: ProposalIds },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
-): Promise<{ accepted: number; dismissed: number; touched: string[] }> {
+): Promise<{ accepted: number; dismissed: number; touched: string[]; groups: Array<string | null> }> {
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const store = brandMapRecords(ctx, deps.db);
   const touched = new Set<string>();
+  const left = new Set<string | null>();
   let accepted = 0;
   let dismissed = 0;
   const set = (kind: RecordKind, id: string, status: "decided" | "dismissed") =>
@@ -152,6 +176,16 @@ export async function decideProposals(
   await eachLimited(accept.situations ?? [], 10, async (id) => {
     if (await set(KIND.situations, id, "decided")) accepted += 1;
   });
+  for (const id of new Set(accept.groups ?? [])) {
+    const group = await store.get(KIND.groups, id);
+    if (!group || group.status === "dismissed") continue;
+    if (await set(KIND.groups, id, "decided")) accepted += 1;
+    const moved = await answerSuggestions(store, id, true, now);
+    accepted += moved.length;
+    for (const s of moved) touched.add(s);
+    // They were in no group: the ungrouped totals lose them.
+    if (moved.length) left.add(null);
+  }
 
   const dismiss = input.dismiss ?? {};
   await eachLimited(dismiss.subjects ?? [], 10, async (id) => {
@@ -170,7 +204,11 @@ export async function decideProposals(
   await eachLimited(dismiss.situations ?? [], 10, async (id) => {
     if (await set(KIND.situations, id, "dismissed")) dismissed += 1;
   });
+  for (const id of new Set(dismiss.groups ?? [])) {
+    if (await set(KIND.groups, id, "dismissed")) dismissed += 1;
+    await answerSuggestions(store, id, false, now);
+  }
 
   if (accepted) await markRecordsDecided(ctx, deps);
-  return { accepted, dismissed, touched: [...touched] };
+  return { accepted, dismissed, touched: [...touched], groups: [...left] };
 }

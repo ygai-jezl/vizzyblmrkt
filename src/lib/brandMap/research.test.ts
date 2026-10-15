@@ -176,3 +176,45 @@ describe("research for the brand map", () => {
     expect(r).toEqual({ ok: false, status: 502, error: "research_failed" });
   });
 });
+
+describe("research on a map at any size", () => {
+  it("proposes every subject the answer gives, with no set number, and files subjects apart from the rest", () => {
+    const lines = ["IS: Acme measures how brands show up in AI answers.", "CATEGORY: AI visibility tracking"];
+    for (let i = 0; i < 12; i += 1) {
+      lines.push(`SUBJECT: Subject ${i}`);
+      for (let q = 0; q < 8; q += 1) lines.push(`Q: Question ${i}.${q}? | how_to`);
+    }
+    for (let i = 0; i < 40; i += 1) lines.push(`NAME: Use ${i} | use_case`);
+    lines.push("HOME: Citations | 2");
+    const items = checkProposal(parseMapProposal(lines.join("\n")), context({ scale: { known: ["Citations"] } }));
+    expect(items.filter((i) => i.change.type === "add_subject")).toHaveLength(12);
+    // Six questions a subject is one run's batch, not a limit on the map.
+    expect(items.filter((i) => i.change.type === "add_question")).toHaveLength(12 * 6);
+    // A home page for a subject already on the map, though research didn't name it.
+    expect(items.some((i) => i.change.type === "set_home" && i.change.target === "subject" && i.change.name === "Citations")).toBe(true);
+    // What the brand is comes first among the rest, as before.
+    expect(items.find((i) => i.change.type === "set_identity")?.change).toMatchObject({ field: "name" });
+  });
+
+  it("asks with the prompt that sets no number, listing the subjects already on the map", async () => {
+    const grounded = vi.fn(async (_prompt: string) => ({ text: ANSWER, model: "m", sources: [], supports: [] }));
+    const r = await proposeBrandMap(
+      { tenantId: "ten_acme", region: "us", source: "idtoken" },
+      { current: BrandMapDecidedSchema.parse({}), scale: { total: 70, known: ["Share of voice", "Citations"] } },
+      {
+        grounded: grounded as never,
+        modelReady: () => true,
+        retrieve: (async () => ({ formatted: "Acme Pulse sends a weekly report.", chunks: [] })) as never,
+        sitePages: async () => ({ pages: [{ url: "https://acme.example/pulse", title: "Pulse" }], repoPaths: [] }),
+        fetchHome: async () => null,
+        plans: (async () => []) as never,
+        now: () => new Date("2026-10-15T09:00:00.000Z"),
+      },
+    );
+    expect(r.ok).toBe(true);
+    const prompt = grounded.mock.calls[0]![0];
+    expect(prompt).toContain("There is no set number");
+    expect(prompt).not.toContain("3 to 5");
+    expect(prompt).toContain("- Share of voice\n- Citations\n(and 68 more, further from what the brand is)");
+  });
+});

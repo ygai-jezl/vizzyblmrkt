@@ -33,6 +33,8 @@ const SHAPES: Shape[] = [
   { collection: "brand_map_subjects", eq: ["groupId"], order: "ref" },
   // A group's totals: its decided subjects only.
   { collection: "brand_map_subjects", eq: ["groupId", "status"], order: "ref" },
+  // The subjects "Sort into groups" suggested for a group, when it is accepted or dismissed.
+  { collection: "brand_map_subjects", eq: ["suggestedGroupId"], order: "ref" },
   { collection: "brand_map_subjects", eq: ["status"], order: "ref" },
   { collection: "brand_map_questions", eq: ["subjectId"], order: "ref" },
   { collection: "brand_map_questions", eq: ["status"], order: "ref" },

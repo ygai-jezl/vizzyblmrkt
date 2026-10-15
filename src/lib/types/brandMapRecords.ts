@@ -124,6 +124,8 @@ export const BrandMapGroupSchema = z.object({
   nameKey: z.string().max(200),
   order: z.number().int().default(0),
   totals: GroupTotalsSchema.prefault({}),
+  /** Subjects "Sort into groups" suggested for it, waiting for a person (display only). */
+  suggested: Count,
 });
 export type BrandMapGroup = z.infer<typeof BrandMapGroupSchema>;
 
@@ -141,6 +143,8 @@ export const BrandMapSubjectRecordSchema = z.object({
   suggestedHome: Url.nullable().catch(null).default(null),
   /** A proposal close in meaning to this subject on the map: shown as "looks like", never merged by itself. */
   looksLike: SubjectId.nullable().catch(null).default(null),
+  /** A group "Sort into groups" suggested for it, waiting for a person (it never moves it by itself). */
+  suggestedGroupId: GroupId.nullable().catch(null).default(null),
   counts: SubjectCountsSchema.prefault({}),
   /** Answered ÷ questions, in thousandths, so a list can be sorted least answered first. */
   answeredShare: z.number().int().min(0).max(1000).default(0),
@@ -224,7 +228,7 @@ export type BrandMapSituation = z.infer<typeof BrandMapSituationSchema>;
 export const BrandMapRunSchema = z.object({
   id: RunId,
   tenantId: z.string(),
-  kind: z.enum(["situations", "subjects", "import"]),
+  kind: z.enum(["situations", "subjects", "groups", "import"]),
   startedAt: z.string().max(40),
   startedBy: z.string().max(254).nullable().default(null),
   expiresAt: z.string().max(40),

@@ -108,6 +108,13 @@ const MESSAGES: Record<string, string> = {
   no_model: "The AI model isn't set up in this environment, so research can't run.",
   nothing_to_read: "There's nothing to research from yet: add your website in Settings, or a source in a programme's knowledge.",
   research_failed: "Research didn't come back with anything usable. Try again in a minute.",
+  brand_map_scale_disabled: "The brand map at any size isn't switched on in this environment.",
+  situations_disabled: "Buying situations aren't switched on in this environment.",
+  import_disabled: "Research from a PDF isn't switched on in this environment.",
+  no_run: "That run has gone. Start again.",
+  wrong_run: "That run was for something else. Start again.",
+  run_expired: "That run ended after half an hour. Start again to carry on.",
+  run_used_up: "That run has taken all its steps. Start again to carry on.",
   lookup_disabled: "Looking up identifiers isn't switched on in this environment. You can paste a link instead.",
   lookup_unavailable: "Wikidata didn't answer. Try again, or paste a link instead.",
   // Lifecycle journeys

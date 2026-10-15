@@ -77,26 +77,36 @@ export async function subjectQuestions(ctx: TenantContext, subjectId: string, de
 /** What a list of subjects shows of each: everything but the id lists. */
 export const SUBJECT_SUMMARY_FIELDS = [
   "id", "tenantId", "status", "from", "reason", "evidence", "rev", "createdAt", "updatedAt", "decidedAt",
-  "groupId", "name", "nameKey", "home", "urlKey", "suggestedHome", "looksLike", "counts", "answeredShare", "mergedInto", "order",
+  "groupId", "name", "nameKey", "home", "urlKey", "suggestedHome", "looksLike", "suggestedGroupId", "counts", "answeredShare", "mergedInto", "order",
 ];
 
-/** A brand's subjects: all of them, or one group's (null = ungrouped), and of one status. */
+/** A brand's subjects: all of them, one group's (null = ungrouped), those suggested for a group, and of one status. */
 export async function listSubjects(
   ctx: TenantContext,
-  opts: { groupId?: string | null; status?: RecordStatus } = {},
+  opts: { groupId?: string | null; suggestedGroupId?: string; status?: RecordStatus } = {},
   deps: Deps = {},
 ): Promise<BrandMapSubjectRecord[]> {
   const where: Array<[string, "==", unknown]> = [];
-  if (opts.groupId !== undefined) where.push(["groupId", "==", opts.groupId]);
+  if (opts.suggestedGroupId) where.push(["suggestedGroupId", "==", opts.suggestedGroupId]);
+  else if (opts.groupId !== undefined) where.push(["groupId", "==", opts.groupId]);
   else if (opts.status) where.push(["status", "==", opts.status]);
   const rows = await storeOf(ctx, deps).pageAll("sub", { where, fields: SUBJECT_SUMMARY_FIELDS });
   return parseAll(rows, parseSubject).filter((s) => !s.mergedInto && (!opts.status || s.status === opts.status));
 }
 
+/** A brand's groups: decided, and proposed ("Sort into groups"). A dismissed one is kept, so it isn't proposed again, but not listed. */
 export async function listGroups(ctx: TenantContext, deps: Deps = {}): Promise<BrandMapGroup[]> {
   const rows = await storeOf(ctx, deps).pageAll("grp");
-  return parseAll(rows, parseGroup).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  return parseAll(rows, parseGroup)
+    .filter((g) => g.status !== "dismissed")
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
+
+/** A group a subject can be put in: one that is there and not dismissed. */
+const usableGroup = async (store: BrandMapRecordStore, id: string) => {
+  const group = parseGroup(await store.get("grp", id));
+  return group && group.status !== "dismissed" ? group : null;
+};
 
 /** Every subject's name, for search: a few hundred KB at 5,000 subjects. */
 export async function subjectIndex(ctx: TenantContext, deps: Deps = {}): Promise<Array<{ id: string; name: string; groupId: string | null; status: RecordStatus }>> {
@@ -150,7 +160,7 @@ export async function createSubject(
   const [existing] = await store.find("sub", { where: [["nameKey", "==", key]], limit: 1 });
   if (existing && existing.status !== "dismissed") return fail(409, "subject_exists", parseSubject(existing));
   if ((await store.count("sub")) >= LIMITS.subjects) return fail(409, "too_many_subjects");
-  if (input.groupId && !parseGroup(await store.get("grp", input.groupId))) return fail(404, "no_group");
+  if (input.groupId && !(await usableGroup(store, input.groupId))) return fail(404, "no_group");
   const parsed = BrandMapSubjectRecordSchema.safeParse({
     id: existing?.id ?? freshId("sub"),
     ...base(ctx, now),
@@ -187,7 +197,7 @@ export async function editSubject(
     const [other] = await store.find("sub", { where: [["nameKey", "==", key]], limit: 2 });
     if (other && other.id !== id && other.status !== "dismissed") return fail(409, "subject_exists", parseSubject(other));
   }
-  if (input.groupId && !parseGroup(await store.get("grp", input.groupId))) return fail(404, "no_group");
+  if (input.groupId && !(await usableGroup(store, input.groupId))) return fail(404, "no_group");
   const seen: { conflict: BrandMapSubjectRecord | null; left: string | null | undefined } = { conflict: null, left: undefined };
   const saved = await store.claim("sub", id, (cur) => {
     const current = parseSubject(cur);
@@ -200,7 +210,8 @@ export async function editSubject(
     return {
       ...(name !== undefined ? { name, nameKey: key } : {}),
       ...(input.home !== undefined ? { home: input.home, urlKey: urlKey(input.home), suggestedHome: input.home ? null : current.suggestedHome } : {}),
-      ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
+      // A person putting it in a group answers any group suggested for it.
+      ...(input.groupId !== undefined ? { groupId: input.groupId, suggestedGroupId: null } : {}),
       rev: current.rev + 1,
       updatedAt: now,
     };
@@ -347,7 +358,12 @@ export async function createGroup(ctx: TenantContext, input: { name: string }, d
   const key = subjectKey(name);
   if (!key) return fail(400, "invalid_name");
   const [existing] = await store.find("grp", { where: [["nameKey", "==", key]], limit: 1 });
-  if (existing) return fail(409, "group_exists", parseGroup(existing));
+  if (existing?.status === "decided") return fail(409, "group_exists", parseGroup(existing));
+  if (existing) {
+    // Proposed, or dismissed before: a person adding it by name decides it.
+    const revived = parseGroup(await store.claim("grp", existing.id, (cur) => ({ status: "decided", name, decidedAt: now, rev: Number(cur.rev ?? 0) + 1, updatedAt: now })));
+    return revived ? { ok: true, value: revived, touched: [] } : fail(500, "not_saved");
+  }
   const groups = await store.count("grp");
   if (groups >= LIMITS.groups) return fail(409, "too_many_groups");
   const parsed = BrandMapGroupSchema.safeParse({ id: groupIdFor(ctx.tenantId, name), ...base(ctx, now), name, nameKey: key, order: groups });

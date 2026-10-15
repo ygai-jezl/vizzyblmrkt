@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BrandMapGroup, BrandMapQuestionRecord, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
 import type { Coverage, SubjectCoverage } from "@/lib/content/blog/coverage";
-import { api, errorText } from "@/components/admin/connect/api";
+import { api, errorText, type ApiResponse } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { PageLink, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { matchSubjects, type SubjectName } from "./MapSubjectSearch";
@@ -20,7 +20,7 @@ import { useMapMove } from "./brandMapMove";
 const MAP = "/api/admin/brand-kit/map";
 const SMALL = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
 
-type View = { kind: "all" } | { kind: "none" } | { kind: "proposed" } | { kind: "group"; id: string };
+type View = { kind: "all" } | { kind: "none" } | { kind: "proposed" } | { kind: "group"; id: string } | { kind: "suggested"; id: string };
 
 interface SubjectRead {
   subject: BrandMapSubjectRecord;
@@ -31,6 +31,9 @@ interface SubjectRead {
 }
 
 const pct = (answered: number, questions: number) => (questions ? Math.round((100 * answered) / questions) : 0);
+
+/** One batch of "Sort into groups", as the route answers it. */
+type SortStep = { done?: boolean; next?: string | null; suggested?: number; proposedGroups?: string[]; error?: string };
 
 export function BrandMapSubjectsTab({
   canEdit,
@@ -55,6 +58,7 @@ export function BrandMapSubjectsTab({
   const [busy, setBusy] = useState(false);
   const [newSubject, setNewSubject] = useState("");
   const [newGroup, setNewGroup] = useState("");
+  const [sorting, setSorting] = useState<string | null>(null);
 
   const loadGroups = useCallback(async () => {
     const r = await api<{ groups?: BrandMapGroup[]; ungrouped?: Partial<GroupTotals> | null }>(`${MAP}/groups`);
@@ -63,7 +67,16 @@ export function BrandMapSubjectsTab({
   }, []);
 
   const loadSubjects = useCallback(async (v: View) => {
-    const q = v.kind === "group" ? `?group=${encodeURIComponent(v.id)}` : v.kind === "none" ? "?group=none" : v.kind === "proposed" ? "?status=proposed" : "";
+    const q =
+      v.kind === "group"
+        ? `?group=${encodeURIComponent(v.id)}`
+        : v.kind === "suggested"
+          ? `?suggested=${encodeURIComponent(v.id)}`
+          : v.kind === "none"
+            ? "?group=none"
+            : v.kind === "proposed"
+              ? "?status=proposed"
+              : "";
     const r = await api<{ subjects?: BrandMapSubjectRecord[] }>(`${MAP}/subjects${q}`);
     setSubjects(r.ok && r.data.subjects ? r.data.subjects : []);
   }, []);
@@ -115,8 +128,51 @@ export function BrandMapSubjectsTab({
     return r.ok;
   }
 
-  const decide = (kind: "subjects" | "questions", id: string, accept: boolean) =>
-    act(() => api(`${MAP}/proposals`, { method: "POST", body: JSON.stringify({ [accept ? "accept" : "dismiss"]: { [kind]: [id] } }) }));
+  const decide = (kind: "subjects" | "questions" | "groups", id: string, accept: boolean, done?: string) =>
+    act(() => api(`${MAP}/proposals`, { method: "POST", body: JSON.stringify({ [accept ? "accept" : "dismiss"]: { [kind]: [id] } }) }), done);
+
+  /** "Sort into groups": one research allowance, then a batch of subjects in no group per step. */
+  async function sortIntoGroups() {
+    setBusy(true);
+    setNote(null);
+    const start = await api<{ run?: { id: string }; error?: string }>(`${MAP}/runs`, { method: "POST", body: JSON.stringify({ kind: "groups" }) });
+    if (!start.ok || !start.data.run) {
+      setBusy(false);
+      setNote({ tone: "err", text: errorText(start.data) });
+      return;
+    }
+    let cursor: string | null = null;
+    let suggested = 0;
+    const made: string[] = [];
+    for (let batch = 1; batch <= 40; batch += 1) {
+      setSorting(`Sorting your subjects into groups (batch ${batch})…`);
+      const r: ApiResponse<SortStep> = await api<SortStep>(`${MAP}/groups/sort`, {
+        method: "POST",
+        body: JSON.stringify({ runId: start.data.run.id, cursor }),
+      });
+      if (!r.ok) {
+        setNote({ tone: "err", text: errorText(r.data) });
+        break;
+      }
+      suggested += r.data.suggested ?? 0;
+      made.push(...(r.data.proposedGroups ?? []));
+      if (r.data.done || !r.data.next) {
+        setNote(
+          suggested
+            ? {
+                tone: "ok",
+                text: `Suggested a group for ${suggested} subject${suggested === 1 ? "" : "s"}${made.length ? `, with ${made.length} new group${made.length === 1 ? "" : "s"} proposed` : ""}. Nothing has moved: add the groups you want, below.`,
+              }
+            : { tone: "info", text: "None of the subjects in no group fit a group yet." },
+        );
+        break;
+      }
+      cursor = r.data.next;
+    }
+    setSorting(null);
+    setBusy(false);
+    await refresh();
+  }
 
   const sorted = useMemo(
     () =>
@@ -127,6 +183,10 @@ export function BrandMapSubjectsTab({
   );
   const found = useMemo(() => (names && query.trim() ? matchSubjects(names, query, 20) : []), [names, query]);
   const groupName = (id: string | null) => (id ? (groups.find((g) => g.id === id)?.name ?? "A group") : "Ungrouped");
+  const decidedGroups = groups.filter((g) => g.status === "decided");
+  const proposedGroups = groups.filter((g) => g.status === "proposed");
+  // The group being looked at, and the subjects suggested for it.
+  const shown = view.kind === "group" || view.kind === "suggested" ? (groups.find((g) => g.id === view.id) ?? null) : null;
 
   if (!moved) {
     // The page says how the move is going.
@@ -135,6 +195,11 @@ export function BrandMapSubjectsTab({
 
   return (
     <div className="space-y-4">
+      {sorting ? (
+        <p role="status" className="text-xs text-neutral-500">
+          {sorting}
+        </p>
+      ) : null}
       {note ? <Banner tone={note.tone}>{note.text}</Banner> : null}
 
       <div className="flex flex-wrap items-end gap-2">
@@ -191,11 +256,11 @@ export function BrandMapSubjectsTab({
               view: { kind: "none" } as View,
               meta: ungroupedTotals ? `${ungroupedTotals.subjects ?? 0} subjects · ${ungroupedTotals.answered ?? 0} of ${ungroupedTotals.questions ?? 0} answered` : null,
             },
-            ...groups.map((g) => ({
+            ...decidedGroups.map((g) => ({
               key: g.id,
               label: g.name,
               view: { kind: "group", id: g.id } as View,
-              meta: `${g.totals.subjects} subjects · ${g.totals.answered} of ${g.totals.questions} answered`,
+              meta: `${g.totals.subjects} subjects · ${g.totals.answered} of ${g.totals.questions} answered${g.suggested ? ` · ${g.suggested} suggested` : ""}`,
             })),
           ].map((item) => {
             const on = JSON.stringify(item.view) === JSON.stringify(view);
@@ -228,9 +293,65 @@ export function BrandMapSubjectsTab({
               </button>
             </form>
           ) : null}
+          {canEdit ? (
+            <button type="button" disabled={busy} onClick={() => void sortIntoGroups()} className={`${SMALL} w-full`}>
+              Sort into groups
+            </button>
+          ) : null}
+          {proposedGroups.length ? (
+            <div className="space-y-1 pt-2">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Proposed groups</span>
+              {proposedGroups.map((g) => {
+                const on = view.kind === "suggested" && view.id === g.id;
+                return (
+                  <div key={g.id} className={`rounded-md border border-dashed px-2.5 py-1.5 ${on ? "border-neutral-900 dark:border-white" : "border-neutral-400"}`}>
+                    <button type="button" aria-pressed={on} onClick={() => setView({ kind: "suggested", id: g.id })} className="block w-full text-left">
+                      <span className="block text-sm">{g.name}</span>
+                      <span className="block text-[11px] text-neutral-500">
+                        {g.suggested} subject{g.suggested === 1 ? "" : "s"} would move here
+                      </span>
+                    </button>
+                    {canEdit ? (
+                      <span className="mt-1 flex gap-1.5">
+                        <button type="button" disabled={busy} onClick={() => void decide("groups", g.id, true, `Added “${g.name}”, with the subjects suggested for it.`)} className={SMALL}>
+                          Add
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => void decide("groups", g.id, false)} className={SMALL}>
+                          Dismiss
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </nav>
 
         <section aria-label="Subjects" className="min-w-0 space-y-1.5">
+          {shown && shown.status === "decided" && shown.suggested > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-neutral-400 px-2.5 py-1.5 text-xs">
+              <span className="flex-1">
+                {shown.suggested} subject{shown.suggested === 1 ? " is" : "s are"} suggested for {shown.name}.
+              </span>
+              <button type="button" onClick={() => setView(view.kind === "suggested" ? { kind: "group", id: shown.id } : { kind: "suggested", id: shown.id })} className={SMALL}>
+                {view.kind === "suggested" ? "Back to the group" : "See them"}
+              </button>
+              {canEdit ? (
+                <>
+                  <button type="button" disabled={busy} onClick={() => void decide("groups", shown.id, true, `Moved them into “${shown.name}”.`)} className={SMALL}>
+                    Move them here
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => void decide("groups", shown.id, false)} className={SMALL}>
+                    Dismiss
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {view.kind === "suggested" && shown?.status === "proposed" ? (
+            <div className="text-[11px] text-neutral-500">Suggested for the proposed group “{shown.name}”. Nothing moves until you add it.</div>
+          ) : null}
           <div className="text-[11px] text-neutral-500">Least answered first. No limit on how many.</div>
           {subjects === null ? <p className="text-xs text-neutral-500">Loading…</p> : null}
           {subjects && !sorted.length ? <p className="text-xs text-neutral-500">Nothing here yet.</p> : null}
@@ -247,6 +368,9 @@ export function BrandMapSubjectsTab({
                     {s.counts.answered} of {s.counts.questions} answered
                   </span>
                   {view.kind === "all" ? <span className="text-[11px] text-neutral-500">{groupName(s.groupId)}</span> : null}
+                  {s.suggestedGroupId && view.kind !== "suggested" ? (
+                    <span className="text-[11px] text-neutral-500">Suggested group: {groupName(s.suggestedGroupId)}</span>
+                  ) : null}
                 </button>
                 {proposed ? (
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500">
@@ -400,11 +524,14 @@ function SubjectDetail({
             className={`${inputClass} text-xs`}
           >
             <option value="">Ungrouped</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
+            {/* Decided groups (a proposed one is added from the list of groups first). */}
+            {groups
+              .filter((g) => g.status === "decided" || g.id === subject.groupId)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
           </select>
         </label>
       </div>

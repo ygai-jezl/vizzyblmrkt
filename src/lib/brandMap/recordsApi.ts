@@ -8,6 +8,9 @@ import { ensureMoved } from "./move";
 import { decideProposals } from "./proposals";
 import { recountGroup, recountSubject, subjectViewRows } from "./recount";
 import { mapPageOf } from "./contentMapLayout";
+import { isBrandMapImportEnabled, isBrandMapSituationsEnabled } from "./flags";
+import { startRun, takeStep } from "./runs";
+import { sortIntoGroups, type SortDeps } from "./sortGroups";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import {
@@ -41,7 +44,7 @@ type Deps = { db?: FirestoreLike; nowMs?: number };
 
 const Id = z.string().min(1).max(64);
 const Ids = z.array(Id).max(500).default([]);
-const ProposalSet = z.object({ subjects: Ids, questions: Ids, situations: Ids }).partial();
+const ProposalSet = z.object({ subjects: Ids, questions: Ids, situations: Ids, groups: Ids }).partial();
 const Name = z.string().min(1).max(200);
 const Home = z.string().max(300).nullable();
 
@@ -85,19 +88,24 @@ export async function proposalsFromRequest(ctx: TenantContext, body: unknown, de
   const blocked = await moved(ctx, deps);
   if (blocked) return blocked;
   const r = await decideProposals(ctx, parsed.data, deps);
-  if (r.touched.length) await afterRecordsChange(ctx, { subjects: r.touched }, deps);
-  return NextResponse.json({ ok: true, ...r });
+  if (r.touched.length || r.groups.length) await afterRecordsChange(ctx, { subjects: r.touched, groups: r.groups }, deps);
+  return NextResponse.json({ ok: true, accepted: r.accepted, dismissed: r.dismissed, touched: r.touched });
 }
 
-/** GET subjects: all, one group's (`group=<id>`), or the ungrouped ones (`group=none`); `status=proposed` for proposals. */
+/**
+ * GET subjects: all, one group's (`group=<id>`), the ungrouped ones (`group=none`), or those
+ * "Sort into groups" suggested for a group (`suggested=<id>`); `status=proposed` for proposals.
+ */
 export async function listSubjectsFromRequest(ctx: TenantContext, url: URL, deps: Deps = {}): Promise<Response> {
   const read = await readBrandMap(ctx, deps.db).catch(() => null);
   if (read?.state !== "ok" || !read.map.moved) return NextResponse.json({ moved: false, subjects: [] });
   const group = url.searchParams.get("group");
+  const suggested = url.searchParams.get("suggested");
   const status = url.searchParams.get("status");
   const subjects = await listSubjects(
     ctx,
     {
+      ...(suggested ? { suggestedGroupId: suggested.slice(0, 64) } : {}),
       ...(group && group !== "all" ? { groupId: group === "none" ? null : group } : {}),
       ...(status === "proposed" || status === "decided" ? { status } : {}),
     },
@@ -229,6 +237,35 @@ export async function removeQuestionFromRequest(ctx: TenantContext, id: string, 
   const blocked = await moved(ctx, deps);
   if (blocked) return blocked;
   return settle(ctx, await removeQuestion(ctx, id, deps), deps);
+}
+
+const RunBody = z.object({ kind: z.enum(["groups", "situations", "import"]) });
+
+/** POST a run: it uses one research allowance, then its steps carry its id (runs.ts). */
+export async function startRunFromRequest(ctx: TenantContext, body: unknown, deps: Deps = {}): Promise<Response> {
+  const parsed = RunBody.safeParse(body);
+  if (!parsed.success) return invalid();
+  const { kind } = parsed.data;
+  if (kind === "situations" && !isBrandMapSituationsEnabled()) return NextResponse.json({ error: "situations_disabled" }, { status: 503 });
+  if (kind === "import" && !isBrandMapImportEnabled()) return NextResponse.json({ error: "import_disabled" }, { status: 503 });
+  const r = await startRun(ctx, kind, deps);
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, run: { id: r.value.id, kind, stepsLeft: r.value.stepsLeft, expiresAt: r.value.expiresAt } });
+}
+
+const SortBody = z.object({ runId: z.string().min(1).max(64), cursor: Id.nullable().default(null) });
+
+/** POST one batch of "Sort into groups", a step of a "groups" run: hands back where to carry on until done. */
+export async function sortGroupsFromRequest(ctx: TenantContext, body: unknown, deps: Deps & { sort?: Omit<SortDeps, "db" | "nowMs"> } = {}): Promise<Response> {
+  const parsed = SortBody.safeParse(body);
+  if (!parsed.success) return invalid();
+  const step = await takeStep(ctx, parsed.data.runId, "groups", deps);
+  if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
+  const blocked = await moved(ctx, deps);
+  if (blocked) return blocked;
+  const r = await sortIntoGroups(ctx, { cursor: parsed.data.cursor }, { db: deps.db, nowMs: deps.nowMs, ...deps.sort });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, done: r.done, next: r.next, suggested: r.suggested, proposedGroups: r.proposedGroups, stepsLeft: step.value.stepsLeft });
 }
 
 /** GET the groups, with the ungrouped subjects' totals (kept on the brand's record). */

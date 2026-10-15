@@ -33,6 +33,7 @@ export function CreatePanel({
   prefill = null,
   situations = false,
   prefillSituation = null,
+  suggestAngle = false,
 }: {
   workspaceId: string;
   initialPlans: ContentPlan[];
@@ -48,6 +49,8 @@ export function CreatePanel({
   prefillSituation?: { id: string; text: string } | null;
   /** "Write this next": start the wizard from a map question. */
   prefill?: WriteNext | null;
+  /** "Suggest an angle" is on: the Spark can be suggested (and is, from "Write this next"). */
+  suggestAngle?: boolean;
 }) {
   const router = useRouter();
   const [plans] = useState<ContentPlan[]>(initialPlans);
@@ -94,6 +97,7 @@ export function CreatePanel({
           prefill={prefill}
           situations={situations}
           prefillSituation={prefillSituation}
+          suggestAngle={suggestAngle}
           onCreated={onCreated}
           onCancel={() => setShowWizard(false)}
         />

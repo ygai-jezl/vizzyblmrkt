@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { programmeWord } from "@/lib/nav/terms";
 import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
@@ -55,6 +55,7 @@ export function CreateWizard({
   prefill = null,
   situations: situationsOn = false,
   prefillSituation = null,
+  suggestAngle = false,
   onCreated,
   onCancel,
 }: {
@@ -71,6 +72,8 @@ export function CreateWizard({
   situations?: boolean;
   /** "Write this next" from a buying situation: the article is for it. */
   prefillSituation?: { id: string; text: string } | null;
+  /** "Suggest an angle" is on: the Spark can be suggested from the brand map and knowledge. */
+  suggestAngle?: boolean;
   onCreated: (plan: ContentPlan) => void;
   onCancel: () => void;
 }) {
@@ -82,6 +85,13 @@ export function CreateWizard({
   const [subscriberCount, setSubscriberCount] = useState("");
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [spark, setSpark] = useState("");
+  // The Spark holds a suggestion nobody has edited yet (from the map, or the brand's own material).
+  const [sparkSuggested, setSparkSuggested] = useState<"map" | "brand" | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestErr, setSuggestErr] = useState<string | null>(null);
+  // A person has typed in the Spark: a suggestion arriving late never goes over it.
+  const sparkTyped = useRef(false);
+  const autoSuggested = useRef(false);
   const [groundingScope, setGroundingScope] = useState<"global" | "scoped">("global");
   const [proof, setProof] = useState("");
   const [hubChannel, setHubChannel] = useState<"newsletter" | "blog">(prefill ? "blog" : "newsletter");
@@ -134,6 +144,47 @@ export function CreateWizard({
       gone = true;
     };
   }, [askSituation, situationChoices]);
+
+  /**
+   * "Suggest an angle": the Spark from what the brand has said (the map question and its
+   * situation when there is one, the name and question otherwise). From "Write this next"
+   * it runs by itself as the wizard opens, and then only fills a Spark nobody has typed in.
+   */
+  async function suggestSpark(auto = false) {
+    setSuggesting(true);
+    setSuggestErr(null);
+    const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/suggest-angle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        question: blogQuestion.trim(),
+        questionId: linkedQuestion?.id ?? null,
+        situationId: situation && situation !== NO_SITUATION ? situation : null,
+        // "Suggest another": the one showing, so the next says something different.
+        previous: sparkSuggested ? spark : "",
+      }),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => ({}))) as { spark?: string; basis?: string } | undefined;
+    setSuggesting(false);
+    if (!res?.ok || !body?.spark) {
+      if (!auto) setSuggestErr("Couldn't suggest one just now. Try again in a moment.");
+      return;
+    }
+    if (auto && sparkTyped.current) return;
+    sparkTyped.current = false;
+    setSpark(body.spark);
+    setSparkSuggested(body.basis === "map" ? "map" : "brand");
+  }
+
+  // From "Write this next": the angle is suggested as the wizard opens, ready by the Scope step.
+  useEffect(() => {
+    if (!suggestAngle || !prefill || autoSuggested.current) return;
+    autoSuggested.current = true;
+    void suggestSpark(true);
+    // Once, as the wizard opens: later changes to the form don't ask again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestAngle, prefill]);
 
   async function refreshSources() {
     try {
@@ -387,11 +438,36 @@ export function CreateWizard({
             <Field label="Spark — the angle / thesis" hint="The point of view this workflow should make.">
               <textarea
                 value={spark}
-                onChange={(e) => setSpark(e.target.value)}
+                onChange={(e) => {
+                  setSpark(e.target.value);
+                  // Edited: it's the person's own now, and no suggestion goes over it.
+                  sparkTyped.current = true;
+                  setSparkSuggested(null);
+                }}
                 rows={4}
                 placeholder="e.g. Founders who write weekly compound trust faster than those who run ads."
                 className={INPUT}
               />
+              {suggestAngle ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                  {suggesting ? (
+                    <span role="status">Suggesting an angle from {prefill ? "your brand map" : "what your brand has said"}…</span>
+                  ) : sparkSuggested ? (
+                    <>
+                      <span>Suggested from {sparkSuggested === "map" ? "your brand map" : "your brand’s own material"}: edit it to say what you believe.</span>
+                      <button type="button" onClick={() => void suggestSpark()} className={SUGGEST}>
+                        Suggest another
+                      </button>
+                    </>
+                  ) : !spark.trim() ? (
+                    // Only into an empty Spark: never over what a person wrote.
+                    <button type="button" disabled={!name.trim() && !blogQuestion.trim() && !linkedQuestion} onClick={() => void suggestSpark()} className={SUGGEST}>
+                      Suggest an angle
+                    </button>
+                  ) : null}
+                  {suggestErr ? <span className="text-red-600 dark:text-red-400">{suggestErr}</span> : null}
+                </div>
+              ) : null}
             </Field>
             {useEbook ? (
               <Field label="Industry lens" hint="The industry framing to write the eBook through — grounds the table of contents + every chapter.">
@@ -668,6 +744,9 @@ export function CreateWizard({
     </div>
   );
 }
+
+const SUGGEST =
+  "rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800";
 
 const INPUT =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900";

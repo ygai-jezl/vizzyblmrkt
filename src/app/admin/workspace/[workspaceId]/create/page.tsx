@@ -7,6 +7,7 @@ import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { loadArticleMap } from "@/lib/content/blog/mapActions";
 import { writeNextFrom } from "@/lib/content/blog/articleMap";
 import { isBrandMapPagesEnabled, isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
+import { isSuggestAngleEnabled } from "@/lib/content/create/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,7 @@ export default async function CreatePage({
       prefill={prefill}
       situations={situations && Boolean(map?.atScale)}
       prefillSituation={prefill && map?.situation ? { id: map.situation.id, text: map.situation.text } : null}
+      suggestAngle={isSuggestAngleEnabled()}
     />
   );
 }

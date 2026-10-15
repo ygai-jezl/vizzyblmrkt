@@ -5,6 +5,7 @@ import type { RecordFrom } from "@/lib/types/brandMapRecords";
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import { isBrandMapScaleEnabled } from "./flags";
 import { subjectKey } from "./keys";
+import { embedSubjects } from "./embed";
 import { ensureMoved } from "./move";
 import { proposedQuestion, proposedSubject } from "./proposals";
 import { fileBrandMapSuggestions, readBrandMap, type FileInput, type Filed, type MapResult } from "./store";
@@ -44,6 +45,7 @@ export async function fileSuggestions(
   const from: RecordFrom = input.from;
   const proposed: string[] = [];
   const skipped = { inMap: 0, waiting: 0, dismissed: 0 };
+  const touched = new Set<string>();
   for (const item of subjectItems) {
     const c = item.change;
     const base = {
@@ -56,11 +58,13 @@ export async function fileSuggestions(
     };
     if (c.type === "add_subject") {
       const made = await proposedSubject(ctx, store, { ...base, name: c.name });
+      if (made) touched.add(made.id);
       if (made) proposed.push(`Add a subject: “${made.name}”`);
       else skipped.inMap += 1;
     } else if (c.type === "add_question") {
       const subject = await proposedSubject(ctx, store, { ...base, name: c.subject, existingOk: true });
       const made = subject ? await proposedQuestion(ctx, store, { ...base, subjectId: subject.id, subjectName: String(subject.name), text: c.text, intent: c.intent }) : null;
+      if (subject) touched.add(subject.id);
       if (made) proposed.push(`Add a question to “${String(subject!.name)}”: “${made.text}”`);
       else skipped.inMap += 1;
     } else if (c.type === "set_home") {
@@ -74,6 +78,8 @@ export async function fileSuggestions(
       else skipped.inMap += 1;
     }
   }
+  // Proposals get their meaning too, so a later step can place questions in them (best effort).
+  await embedSubjects(ctx, [...touched], deps).catch(() => 0);
   const rest = input.items.filter((i) => !aboutSubjects(i.change));
   if (!rest.length && input.research === undefined && !input.replaceOwn) {
     return { ok: true, value: { filed: [], skipped, proposed } };

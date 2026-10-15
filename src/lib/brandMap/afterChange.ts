@@ -1,10 +1,11 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import { embedSubjects } from "./embed";
 import { recountSubject } from "./recount";
 
 /**
  * What follows a change to the map's records (BRAND_MAP_SCALE_ENABLED), for the subjects it
- * touched: their counts and their group's totals are worked out again (and, next, their
- * embeddings rewritten). Best effort, after the change is saved: it never fails the change.
+ * touched: their counts and their group's totals are worked out again, and their embeddings
+ * rewritten (with their status). Best effort, after the change is saved: it never fails it.
  */
 export async function afterRecordsChange(
   ctx: TenantContext,
@@ -22,4 +23,8 @@ export async function afterRecordsChange(
       ),
     );
   }
+  await embedSubjects(ctx, subjects, deps).catch((err: unknown) => {
+    console.warn("[brand-map] embedding after a change failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+    return 0;
+  });
 }

@@ -10,6 +10,7 @@ import {
   type RecordStatus,
 } from "@/lib/types/brandMapRecords";
 import { normalizeUrl } from "@/lib/content/blog/brief";
+import { embedSubjects } from "./embed";
 import { proposedQuestion, proposedSubject } from "./proposals";
 import { questionKey, subjectKey, urlKey } from "./keys";
 import { parseBrandMap, readBrandMap } from "./store";
@@ -141,5 +142,8 @@ export async function ensureMoved(ctx: TenantContext, deps: { db?: FirestoreLike
     // The list as it was copied: if it changed meanwhile, the next move brings that in.
     return { moved: { at: fresh.moved?.at ?? now, arrayHash: hash }, updatedAt: now } as never;
   });
+  // Their meaning, for finding the subjects close to an article (best effort; never failing the move).
+  const ids = [...map.subjects.map((s) => s.id), ...(await store.find("sub", { where: [["status", "==", "proposed"]], limit: 200 }).catch(() => [])).map((s) => s.id)];
+  await embedSubjects(ctx, ids, deps).catch(() => 0);
   return { ok: true, moved: true, subjects: copied.subjects, questions: copied.questions, proposals };
 }

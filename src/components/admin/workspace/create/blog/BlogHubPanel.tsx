@@ -79,7 +79,14 @@ export function BlogHubReview({
         </p>
       ) : null}
 
-      {controls.onSetAddress ? <BlogAddress pageUrl={controls.pageUrl} onSave={controls.onSetAddress} /> : null}
+      {controls.onSetAddress ? (
+        <BlogAddress
+          pageUrl={controls.pageUrl}
+          onSave={controls.onSetAddress}
+          live={node.blog?.live ?? null}
+          onLive={controls.onLive ? (action) => controls.onLive!(node.id, action) : undefined}
+        />
+      ) : null}
 
       <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
 

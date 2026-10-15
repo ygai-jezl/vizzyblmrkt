@@ -38,9 +38,10 @@ import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
-import type { BlogHubControls } from "./blog/types";
+import type { BlogHubControls, LiveResult } from "./blog/types";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { isAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
+import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
 
 /**
  * Create Canvas — the visual hub-and-spoke builder (React Flow). The Architect seeds
@@ -514,6 +515,24 @@ export function ContentCanvas({
     }
   }
 
+  /** Check, mark or clear that the article is live; the server saves it on the hub's meta. */
+  async function setLive(id: string, action: LiveAction): Promise<LiveResult> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; check?: LiveCheck | null; error?: string };
+      if (!res.ok || !data.node) return { ok: false, error: data.error ?? (res.status === 429 ? "rate_limited" : "failed") };
+      // The canvas saves the whole node, so it takes the server's meta now (or a save would undo it).
+      patchNode(id, { cn: data.node });
+      return { ok: true, check: data.check ?? null };
+    } catch {
+      return { ok: false, error: "failed" };
+    }
+  }
+
   async function keepSource(url: string): Promise<"kept" | "failed"> {
     try {
       const res = await fetch("/api/admin/knowledge/ingest", {
@@ -802,7 +821,7 @@ export function ContentCanvas({
           logoUrl: primaryLogoUrl ?? null,
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
-          ...(pagesOn ? { onSetAddress: saveAddress } : {}),
+          ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
         }
       : undefined;
   const total = nodes.length;

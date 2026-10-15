@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { buildPlanPage, pageFingerprint } from "./pageRow";
 import { samplePlan, sampleHub } from "./testing/samplePlan";
 
@@ -35,6 +36,14 @@ describe("an article's row on the brand map", () => {
     expect(planned.names).toEqual(["Acme Visibility", "AI search visibility monitoring", "Rivalco", "ExampleChat"]);
     expect(buildPlanPage(samplePlan({}, sampleHub({ status: "approved" })))!.state).toBe("approved");
     expect(buildPlanPage(samplePlan({}, null))!.state).toBe("planned");
+  });
+
+  it("is live once seen at its address, and only at that address", () => {
+    const live = { url: "https://acme.example/blog/visibility", at: "2026-10-15T10:00:00.000Z", by: "check" as const, titleMatched: true };
+    const hub = sampleHub({ status: "approved", blog: { ...BlogArticleMetaSchema.parse({}), live } });
+    expect(buildPlanPage(samplePlan({}, hub))).toMatchObject({ state: "live", liveAt: "2026-10-15T10:00:00.000Z" });
+    const moved = samplePlan({ strategy: { objective: "brand_visibility", hubUrl: "https://acme.example/blog/moved", subscriberCount: null, sequenceType: null } }, hub);
+    expect(buildPlanPage(moved)).toMatchObject({ state: "approved", liveAt: null });
   });
 
   it("has no address until an https one is set, and no row unless it is a blog article", () => {

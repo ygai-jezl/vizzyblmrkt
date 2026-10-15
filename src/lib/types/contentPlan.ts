@@ -337,6 +337,18 @@ export const BlogCorrectionSchema = z.object({
 export type BlogCorrection = z.infer<typeof BlogCorrectionSchema>;
 
 /** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
+/** That the article is live at its address (BRAND_MAP_PAGES_ENABLED): seen by the live check,
+ *  or said by a person (for a site that turns the check away, or fills its title in late). */
+export const BlogArticleLiveSchema = z.object({
+  /** The address it was live at; a different address since means it has not been seen there. */
+  url: z.string().max(2000),
+  at: z.string().max(40),
+  by: z.enum(["check", "operator"]),
+  /** The page's title was the article's when it was checked. */
+  titleMatched: z.boolean().default(false),
+});
+export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
+
 export const BlogArticleMetaSchema = z.object({
   metaTitle: z.string().max(120).default(""),
   metaDescription: z.string().max(320).default(""),
@@ -351,6 +363,8 @@ export const BlogArticleMetaSchema = z.object({
   checkedAt: z.string().nullable().default(null),
   /** What the fact check changed, for the operator to see. */
   corrections: z.array(BlogCorrectionSchema).max(12).default([]),
+  /** Live at its address. Optional with no default, so metas saved before parse exactly as they did. */
+  live: BlogArticleLiveSchema.nullable().optional(),
 });
 export type BlogArticleMeta = z.infer<typeof BlogArticleMetaSchema>;
 

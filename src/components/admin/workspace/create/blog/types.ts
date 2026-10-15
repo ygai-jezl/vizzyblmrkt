@@ -1,6 +1,10 @@
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import type { AddressSaved } from "@/lib/content/blog/address";
+import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
+
+/** How a live check, or a person's word on it, went. */
+export type LiveResult = { ok: true; check: LiveCheck | null } | { ok: false; error: string };
 
 /**
  * What the canvas hands the inspector for a blog hub written to the CITABLE structure:
@@ -37,4 +41,6 @@ export interface BlogHubControls {
   /** Set the article's address (the plan's hub URL; null clears it). Left out while the brand
    *  map's pages switch is off, and then the address cannot be changed here. */
   onSetAddress?: (url: string | null) => Promise<AddressSaved>;
+  /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
+  onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
 }

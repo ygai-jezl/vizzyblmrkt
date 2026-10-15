@@ -33,7 +33,9 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
     .filter((e) => !outline || mentionsName(outline.plain, e.name))
     .map((e) => e.name.slice(0, L.name))
     .slice(0, L.names);
-  const state = hub?.status === "approved" ? "approved" : body ? "draft" : "planned";
+  // Live only at the address it was seen at.
+  const live = url && hub?.blog?.live && normalizeUrl(hub.blog.live.url) === normalizeUrl(url) ? hub.blog.live : null;
+  const state = live ? "live" : hub?.status === "approved" ? "approved" : body ? "draft" : "planned";
   return BrandMapPageFactsSchema.parse({
     kind: "article",
     workspaceId: plan.workspaceId,
@@ -47,6 +49,7 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
     names,
     links,
     state,
+    liveAt: live?.at ?? null,
   });
 }
 

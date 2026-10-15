@@ -319,7 +319,7 @@ export function readPageMeta(html: string, now = new Date()): Pick<FetchedPage, 
   return { title, siteName: metaContent(html, "og:site_name").slice(0, 120), year };
 }
 
-async function fetchSourcePage(url: string): Promise<FetchedPage | null> {
+export async function fetchSourcePage(url: string): Promise<FetchedPage | null> {
   try {
     const res = await safeFetch(
       url,

@@ -11,6 +11,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { BlogBriefSchema, ContentPlanSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 import { checkPlanBlogFacts, isCitableBlogPlan, researchPlanBlog } from "./hubActions";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
+import { readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const ws = { id: "ws1", name: "Acme programme", audience: null };
@@ -95,6 +96,50 @@ describe("blog hub actions", () => {
       researchedAt: "2026-10-07T10:00:00.000Z",
     });
     expect(saved!.links[0]).toMatchObject({ url: "https://acme.example/pricing", intent: "convert" });
+  });
+
+  it("with a saved brand map, keeps to its names and suggests the new ones for it", async () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_BRAND_MAP_ENABLED", "true");
+    const db = new FakeFirestore();
+    await saveBrandMap(ctx, { baseRev: 0, decided: { identity: { name: "Acme", category: "AI visibility tracking" } } }, { db });
+    const plan = seed(db, { blog: BlogBriefSchema.parse({}) });
+    const r = await researchPlanBlog(
+      ctx,
+      { workspace: ws, plan },
+      {
+        db,
+        now,
+        grounded: (async () => ({
+          text: "PRIMARY: How do I track my brand?\nENTITY: Rivalco | alternative\nENTITY: AI search monitoring | category",
+          model: "m",
+          sources: [],
+          supports: [],
+        })) as never,
+        retrieve,
+        sitePages: async () => ({ pages: [], repoPaths: [] }),
+      },
+    );
+    expect(r).toMatchObject({ ok: true, map: { respelled: 1, suggested: 1 } });
+    const saved = db.raw(KEY, "p1")!.blog as ContentPlan["blog"];
+    expect(saved!.entities.map((e) => e.name)).toEqual(["Acme", "AI visibility tracking", "Rivalco"]);
+    const read = await readBrandMap(ctx, db);
+    expect(read.state === "ok" && read.map.suggestions.map((s) => [s.key, s.from, s.ref?.planId])).toEqual([["name:rivalco", "article", "p1"]]);
+  });
+
+  it("without the switch, ignores a saved map", async () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    const db = new FakeFirestore();
+    await saveBrandMap(ctx, { baseRev: 0, decided: { identity: { name: "Acme" } } }, { db });
+    const plan = seed(db, { blog: BlogBriefSchema.parse({}) });
+    const r = await researchPlanBlog(
+      ctx,
+      { workspace: ws, plan },
+      { db, now, grounded: (async () => ({ text: "ENTITY: Rivalco | alternative", model: "m", sources: [], supports: [] })) as never, retrieve, sitePages: async () => ({ pages: [], repoPaths: [] }) },
+    );
+    expect(r).not.toHaveProperty("map");
+    const read = await readBrandMap(ctx, db);
+    expect(read.state === "ok" && read.map.suggestions).toEqual([]);
   });
 
   it("tells research which domains the tenant owns, so an article published elsewhere still links to the brand's site", async () => {

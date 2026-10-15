@@ -20,6 +20,7 @@ import {
 import { enforceLinks } from "./draft";
 import { unsupportedFigures } from "./figures";
 import { blogCheckerThinkingBudget } from "./flags";
+import { mapMaterial, type ArticleMap } from "./articleMap";
 
 /**
  * The blog hub's fact check — a second reader whose only job is to find what the brand's
@@ -45,6 +46,8 @@ export interface FactCheckInput {
   knowledgeUrls: string[];
   proofBlock: string;
   timeoutMs?: number;
+  /** The brand map the article was written from; its statements count as the brand's own material. */
+  map?: ArticleMap | null;
 }
 
 export interface FactCheckDeps {
@@ -147,6 +150,7 @@ function materialOf(input: FactCheckInput): string {
     brief.entities.length
       ? `Entities the article may name, and how each relates to the brand:\n${formatEntities(brief.entities)}`
       : "",
+    mapMaterial(input.map ?? null),
   ]
     .filter(Boolean)
     .join("\n\n")
@@ -166,6 +170,7 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
     brief,
     knowledgeContext: input.knowledgeContext,
     proofBlock: input.proofBlock,
+    extra: mapMaterial(input.map ?? null),
   });
   const figuresBefore = unsupportedFigures(node.body, reference, { ignoreYears: [year] });
 

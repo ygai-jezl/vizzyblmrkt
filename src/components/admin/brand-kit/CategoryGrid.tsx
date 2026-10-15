@@ -13,6 +13,7 @@ import {
   Compass,
   FileText,
   Mail,
+  Map as MapIcon,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
   BRAND_KIT_ICONS_ROUTE,
   BRAND_KIT_GRAPHICS_ROUTE,
   BRAND_KIT_EMAIL_STYLE_ROUTE,
+  BRAND_KIT_MAP_ROUTE,
   isBrandVoiceUiEnabled,
   isBrandKitLogosUiEnabled,
   isContentSteeringUiEnabled,
@@ -34,6 +36,7 @@ import {
   isBrandAssetsUiEnabled,
 } from "@/lib/content/brandKit";
 import { isEmailStyleUiEnabled } from "@/lib/email/flags";
+import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 
 interface Category {
   key: string;
@@ -78,6 +81,8 @@ const CATEGORIES: Category[] = [
   ...(isEmailStyleUiEnabled()
     ? [{ key: "email-style", label: "Email style", icon: Mail, href: BRAND_KIT_EMAIL_STYLE_ROUTE }]
     : []),
+  // Hidden (not "Soon") while the Brand map flag is off.
+  ...(isBrandMapUiEnabled() ? [{ key: "brand-map", label: "Brand map", icon: MapIcon, href: BRAND_KIT_MAP_ROUTE }] : []),
   { key: "images", label: "Images", icon: Images, href: BRAND_KIT_IMAGES_ROUTE },
   {
     key: "content-steering",

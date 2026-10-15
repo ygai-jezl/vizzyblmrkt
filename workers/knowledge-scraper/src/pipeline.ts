@@ -4,7 +4,8 @@ import { getDb, FieldValue } from "./firestore";
 import { embedDocuments, EMBEDDING_DIM, EMBEDDING_MODEL } from "./embed";
 import { chunkSource, type Chunk } from "./chunk";
 import { cloneAndCollect } from "./sources/git";
-import { crawlAndCollect } from "./sources/web";
+import { crawlAndCollect, type CrawledPage } from "./sources/web";
+import { pageRecords } from "./pages";
 import { fetchGitToken } from "./gitToken";
 import { updateTicket } from "./ticket";
 
@@ -24,7 +25,7 @@ function blobUrl(repoUrl: string, ref: string | null, path: string): string {
   return `${base}/blob/${ref || "HEAD"}/${path}`;
 }
 
-async function collectChunks(env: JobEnv): Promise<{ chunks: PreparedChunk[]; pagesProcessed: number }> {
+async function collectChunks(env: JobEnv): Promise<{ chunks: PreparedChunk[]; pagesProcessed: number; pages: CrawledPage[] }> {
   const chunks: PreparedChunk[] = [];
   if (env.source === "github" || env.source === "gitlab") {
     const { files, filesProcessed } = await cloneAndCollect({
@@ -40,7 +41,7 @@ async function collectChunks(env: JobEnv): Promise<{ chunks: PreparedChunk[]; pa
         chunks.push({ ...c, sourceUri: uri });
       }
     }
-    return { chunks, pagesProcessed: filesProcessed };
+    return { chunks, pagesProcessed: filesProcessed, pages: [] };
   }
   const { pages, pagesProcessed } = await crawlAndCollect({
     sourceUri: env.sourceUri,
@@ -58,7 +59,32 @@ async function collectChunks(env: JobEnv): Promise<{ chunks: PreparedChunk[]; pa
       chunks.push({ ...c, title: c.heading || p.title, sourceUri: p.url });
     }
   }
-  return { chunks, pagesProcessed };
+  return { chunks, pagesProcessed, pages };
+}
+
+/**
+ * One small record per crawled page beside the chunks (`knowledge_pages`): its address,
+ * title and links to its own site. The app lists a source's pages from these (one read a
+ * page, not a scan of its chunks), and the brand map reads which page links to which. Ids
+ * are per source and address, so a re-read overwrites; a page the re-read no longer found
+ * is removed after. Never fails the ingest: the chunks are what it is for.
+ */
+async function writePageRecords(db: Firestore, env: JobEnv, pages: CrawledPage[]): Promise<void> {
+  const ref = db.collection(ownerCollection(env.ownerKind)).doc(env.ownerId).collection("knowledge_pages");
+  const records = pageRecords(pages, env, nowIso());
+  for (let i = 0; i < records.length; i += 400) {
+    const wb = db.batch();
+    for (const r of records.slice(i, i + 400)) wb.set(ref.doc(r.id), r);
+    await wb.commit();
+  }
+  const keep = new Set(records.map((r) => r.id));
+  const snap = await ref.where("ticketId", "==", env.ticketId).select().get();
+  const stale = snap.docs.filter((d) => !keep.has(d.id));
+  for (let i = 0; i < stale.length; i += 400) {
+    const wb = db.batch();
+    for (const d of stale.slice(i, i + 400)) wb.delete(d.ref);
+    await wb.commit();
+  }
 }
 
 /**
@@ -101,7 +127,7 @@ export async function run(env: JobEnv = readEnv()): Promise<void> {
       lastError: null,
     });
 
-    const { chunks, pagesProcessed } = await collectChunks(env);
+    const { chunks, pagesProcessed, pages } = await collectChunks(env);
 
     if (chunks.length === 0) {
       // Surface WHY nothing was indexed instead of a bare "done" (0 chunks). The most
@@ -167,6 +193,11 @@ export async function run(env: JobEnv = readEnv()): Promise<void> {
 
     // New chunks are all written; now prune any stale tail from a prior run.
     await deleteStaleChunks(kbRef, env.ticketId, written);
+    if (pages.length) {
+      await writePageRecords(db, env, pages).catch((err) => {
+        console.warn("[knowledge-scraper] page records not written", err instanceof Error ? err.message : err);
+      });
+    }
 
     await patch({ status: "done", chunksWritten: written, pagesProcessed, finishedAt: nowIso() });
   } catch (err) {

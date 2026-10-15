@@ -1,6 +1,9 @@
 import type { BlogArticleMeta, BlogBrief } from "@/lib/types/contentPlan";
 import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts } from "./brief";
 import { outlineArticle } from "./outline";
+import type { ArticleMap } from "./articleMap";
+import { mentionsName } from "./names";
+import { fold } from "@/lib/brandMap/changes";
 
 /**
  * Suggested schema markup for a blog article — JSON-LD the site that hosts the article
@@ -24,6 +27,9 @@ export interface BlogSchemaInput {
   brandName?: string | null;
   /** Absolute URL of the brand's logo, when there is one. */
   logoUrl?: string | null;
+  /** The brand map the article is written from: its confirmed profile links and identifiers
+   *  become `sameAs`. Without one, the markup is exactly as before. */
+  map?: ArticleMap | null;
 }
 
 export interface BlogSchemaSuggestion {
@@ -61,27 +67,49 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
   const description = (input.meta?.metaDescription ?? "").trim() || clip(o.bluf, 160);
   const lower = o.plain.toLowerCase();
 
+  // The brand map's confirmed profile links go on the publisher only when the publisher IS
+  // the brand (its site is the map's): an article placed on someone else's site never puts
+  // the brand's profiles on its host. Then the publisher is the map's site too, so its @id is
+  // the one the home page's Organization markup has.
+  const map = input.map ?? null;
+  const mapSite = map?.identity.site ? hostOf(map.identity.site) : "";
+  const isBrand = Boolean(map && mapSite && publisherUrl && hostOf(publisherUrl) === mapSite && isHttps(map.identity.site));
+  const orgUrl = isBrand ? map!.identity.site.replace(/\/+$/, "") : publisherUrl;
+  const orgSameAs = isBrand ? map!.identity.profiles : [];
   // The publisher is its own entry in the graph when it has a site to be identified by,
   // so the article (and anything else on the site) can point at one Organization.
-  const orgId = publisherUrl ? `${publisherUrl.replace(/\/+$/, "")}/#organization` : null;
+  const orgId = orgUrl ? `${orgUrl.replace(/\/+$/, "")}/#organization` : null;
   const organization: Record<string, unknown> | null = publisherName
     ? {
         "@type": "Organization",
         ...(orgId ? { "@id": orgId } : {}),
         name: publisherName,
-        ...(publisherUrl ? { url: publisherUrl } : {}),
+        ...(orgUrl ? { url: orgUrl } : {}),
         ...(logoUrl ? { logo: logoUrl } : {}),
+        ...(orgSameAs.length ? { sameAs: [...orgSameAs] } : {}),
       }
     : null;
   const publisherRef = organization ? (orgId ? { "@id": orgId } : organization) : null;
 
   // Only what the article actually names: the subject goes in `about`, the rest in `mentions`.
   const visible = brief.entities.filter((e) => lower.includes(e.name.toLowerCase()));
-  const thing = (name: string) => ({ "@type": "Thing", name });
-  const about = visible.filter((e) => e.relation === "product" || e.relation === "category").map((e) => thing(e.name));
-  const mentions = visible
-    .filter((e) => e.relation === "alternative" || e.relation === "integration")
-    .map((e) => thing(e.name));
+  // With a brand map, a name the article uses carries its confirmed identifiers, and the
+  // brand's own product its page — only when the article writes the name out whole.
+  const decorate = (e: (typeof visible)[number]): Record<string, unknown> => {
+    if (!map || !mentionsName(o.plain, e.name)) return {};
+    if (e.relation === "category") {
+      return fold(e.name) === fold(map.identity.category) && map.identity.categorySameAs.length ? { sameAs: [...map.identity.categorySameAs] } : {};
+    }
+    const n = map.names.find((x) => fold(x.name) === fold(e.name) || x.aliases.some((a) => fold(a) === fold(e.name)));
+    if (!n) return {};
+    return {
+      ...(n.kind === "product" && n.home ? { url: n.home } : {}),
+      ...(n.sameAs.length ? { sameAs: [...n.sameAs] } : {}),
+    };
+  };
+  const thing = (e: (typeof visible)[number]) => ({ "@type": "Thing", name: e.name, ...decorate(e) });
+  const about = visible.filter((e) => e.relation === "product" || e.relation === "category").map(thing);
+  const mentions = visible.filter((e) => e.relation === "alternative" || e.relation === "integration").map(thing);
 
   // Each third-party page the copy links to, once. A page is linked as a short citation
   // in the body and by its title in the Sources list — the title (the longer text) names it.
@@ -143,7 +171,11 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
   if (!o.faq.length) notes.push("The article answers no question outright (no FAQ), so no FAQPage markup is suggested.");
   if (organization) {
     notes.push(
-      "The Organization entry names the publisher. Add your profile pages to it as sameAs (LinkedIn, X, Wikidata) — only you know them — and keep Product markup for your product pages.",
+      orgSameAs.length
+        ? "The Organization entry names the publisher and lists your confirmed profile links from your brand map as sameAs. Keep Product markup for your product pages."
+        : map
+          ? "The Organization entry names the publisher. Add your profile links on Brand › Brand map and they are listed here as sameAs. Keep Product markup for your product pages."
+          : "The Organization entry names the publisher. Add your profile pages to it as sameAs (LinkedIn, X, Wikidata) — only you know them — and keep Product markup for your product pages.",
     );
   }
   notes.push("Check the page with a structured-data validator (for example Google's Rich Results Test) before you publish.");

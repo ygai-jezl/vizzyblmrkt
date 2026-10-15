@@ -31,6 +31,7 @@ import { retrievePostPatterns } from "@/lib/distribute/feedback/patterns";
 import { buildTrendingBlock } from "@/lib/agents/trending";
 import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
 import { briefOf } from "@/lib/content/blog/brief";
+import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { draftBlogArticle } from "@/lib/content/blog/draft";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { BlogArticleMeta, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
@@ -69,6 +70,8 @@ export interface GenerateNodeInput {
   brandName?: string | null;
   /** One writing pass only — the caller has a deadline (Vizzy's request must return). */
   quick?: boolean;
+  /** A blog hub's brand map (CREATE_BLOG_BRAND_MAP_ENABLED); null/absent = written as before. */
+  brandMap?: ArticleMap | null;
 }
 
 export interface GeneratedNodePatch {
@@ -232,13 +235,15 @@ export async function generateNode(
       plan,
       node,
       brief,
-      brandName: brief.publisherName.trim() || input.brandName?.trim() || plan.name,
+      // With a brand map, the brand is called what the map calls it.
+      brandName: input.brandMap?.identity.name.trim() || brief.publisherName.trim() || input.brandName?.trim() || plan.name,
       knowledgeContext,
       knowledgeUrls: (rag?.chunks ?? []).map((c) => c.sourceUri).filter(Boolean),
       proofBlock,
       brandVoice: input.brandVoice,
       audience: input.audience,
       quick: input.quick,
+      map: input.brandMap ?? null,
     }).catch(() => null);
     if (!drafted) {
       return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };

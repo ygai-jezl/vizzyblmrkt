@@ -1,6 +1,7 @@
 "use client";
 
 import { BlogArticleMetaSchema, type BlogArticleMeta, type ContentNode } from "@/lib/types/contentPlan";
+import { BlogAddress } from "./BlogAddress";
 import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
 import { CitableChecklist } from "./CitableChecklist";
@@ -78,7 +79,18 @@ export function BlogHubReview({
         </p>
       ) : null}
 
-      <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} />
+      {controls.onSetAddress ? (
+        <BlogAddress
+          pageUrl={controls.pageUrl}
+          onSave={controls.onSetAddress}
+          live={node.blog?.live ?? null}
+          onLive={controls.onLive ? (action) => controls.onLive!(node.id, action) : undefined}
+          // While the article is written or checked, its meta is about to be replaced: wait.
+          disabled={disabled || controls.busy !== null}
+        />
+      ) : null}
+
+      <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
 
       {/* A rewrite or a fact check hands back new meta, so the fields wait while one runs
           rather than take an edit that would be overwritten. */}
@@ -91,6 +103,7 @@ export function BlogHubReview({
           pageUrl={controls.pageUrl}
           brandName={controls.brandName}
           logoUrl={controls.logoUrl}
+          map={controls.map ?? null}
         />
       </fieldset>
     </div>

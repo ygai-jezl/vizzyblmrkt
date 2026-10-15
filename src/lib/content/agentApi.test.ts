@@ -65,6 +65,33 @@ describe("content agent API", () => {
     expect(JSON.stringify(r.body)).not.toContain("@");
   });
 
+  it("offers the brand map's questions to write next, with its chat switch on", async () => {
+    const db = world();
+    db.seed("brand_maps", "bm_ten_A", {
+      tenantId: "ten_A",
+      rev: 1,
+      identity: { name: "Acme" },
+      subjects: [{ id: "sub_aaaaaaaa", name: "Share of voice", questions: [{ id: "q_aaaaaaaa", text: "What is share of voice?", intent: "definition" }] }],
+      names: [],
+      suggestions: [],
+      dismissed: [],
+      createdAt: T,
+      updatedAt: T,
+    });
+    expect(((await agentContentContext(ctx, {}, db)).body as Record<string, unknown>).brandMap).toBeUndefined();
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_CHAT_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_BRAND_MAP_ENABLED", "true");
+    expect(((await agentContentContext(ctx, {}, db)).body as Record<string, unknown>).brandMap).toEqual({
+      statesKnown: false,
+      subjects: [{ id: "sub_aaaaaaaa", name: "Share of voice", questions: [{ id: "q_aaaaaaaa", text: "What is share of voice?" }] }],
+    });
+    vi.stubEnv("BRAND_MAP_PAGES_ENABLED", "true");
+    expect(((await agentContentContext(ctx, {}, db)).body as { brandMap: { subjects: Array<{ questions: unknown[] }> } }).brandMap.subjects[0]!.questions).toEqual([
+      { id: "q_aaaaaaaa", text: "What is share of voice?", state: "open" },
+    ]);
+  });
+
   it("shows one plan's pieces, and nothing from another tenant", async () => {
     const db = world();
     const r = await agentContentPlan(ctx, "ws1", "p1", db);

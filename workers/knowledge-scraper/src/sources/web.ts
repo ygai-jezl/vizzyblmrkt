@@ -18,10 +18,15 @@ const STRIP = ["script", "style", "noscript", "nav", "header", "footer", "aside"
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 
+/** At most this many of a page's links to its own site are kept with it. */
+export const MAX_PAGE_LINKS = 100;
+
 export interface CrawledPage {
   url: string;
   title: string;
   markdown: string;
+  /** Its links to pages on the same site (https, no #fragment, outside the stripped chrome), once each. */
+  links: string[];
 }
 
 function extract(
@@ -92,7 +97,7 @@ export async function crawlAndCollect(opts: {
             if (r.markdown.length > markdown.length) ({ title, markdown, links } = r);
           }
         }
-        if (markdown) pages.push({ url: next, title, markdown });
+        if (markdown) pages.push({ url: next, title, markdown, links: [...new Set(links)].slice(0, MAX_PAGE_LINKS) });
         for (const link of links) {
           if (!seen.has(link) && queue.length + pages.length < opts.maxPages * 4) {
             queue.push(link);

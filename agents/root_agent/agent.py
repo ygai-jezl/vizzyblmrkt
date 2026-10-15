@@ -32,6 +32,7 @@ from .tools.retrieve_knowledge import retrieve_knowledge
 from .tools.insights_summary import get_insights_summary
 from .tools.email_style import get_email_style, suggest_email_style
 from .tools.journey_style import get_journey_email_style, set_journey_email_style
+from .tools.brand_map import get_brand_map, suggest_brand_map
 
 root_agent = LlmAgent(
     name="vizzybl_marketing_root",
@@ -47,8 +48,9 @@ root_agent = LlmAgent(
     # (RAG); get_insights_summary answers "how are we doing?" from the Insights
     # numbers (aggregates only); get/suggest_email_style read the brand-wide Email
     # style and save a suggestion an admin applies; get/set_journey_email_style read
-    # and set one journey's own look, in its draft (Lifecycle Ops has them too). More
-    # marketing FunctionTools land alongside them.
+    # and set one journey's own look, in its draft (Lifecycle Ops has them too);
+    # get_brand_map/suggest_brand_map read the brand map and file suggestions an admin
+    # accepts. More marketing FunctionTools land alongside them.
     tools=[
         retrieve_knowledge,
         get_insights_summary,
@@ -56,6 +58,8 @@ root_agent = LlmAgent(
         suggest_email_style,
         get_journey_email_style,
         set_journey_email_style,
+        get_brand_map,
+        suggest_brand_map,
     ],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
     # connected-product lifecycle journeys. Both save drafts only.

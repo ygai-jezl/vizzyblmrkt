@@ -6,6 +6,9 @@ import { getContentPlan, listContentPlans, listTemplates } from "@/lib/tenant/wo
 import { isContentChatAuthoringEnabled } from "./chatAuthoring";
 import { CONTENT_MATRIX_TOPICS } from "./contentMatrix";
 import { CHANNELS } from "./channels";
+import { isBrandMapChatEnabled, isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { isBlogBrandMapEnabled } from "./blog/flags";
+import { loadArticleMap } from "./blog/mapActions";
 
 /**
  * What Vizzy (the content_ops agent, nav v2 phase 4) may READ to draft or edit a
@@ -45,13 +48,39 @@ function planSummary(p: ContentPlan) {
   };
 }
 
+/**
+ * The brand map's subjects and their questions, for "write this next" (BRAND_MAP_CHAT_ENABLED,
+ * with articles written from the map). A question's state is known only with the pages
+ * switch on: answered (a live page), in progress (planned or drafted), or open.
+ */
+async function mapSubjects(ctx: TenantContext, db?: FirestoreLike) {
+  const map = await loadArticleMap(ctx, { db }, { pages: true });
+  if (!map) return null;
+  const known = isBrandMapPagesEnabled();
+  return {
+    statesKnown: known,
+    subjects: map.subjects.map((s) => ({
+      id: s.id,
+      name: s.name,
+      questions: s.questions.map((q) => {
+        const by = map.answered[q.id];
+        return { id: q.id, text: q.text, ...(known ? { state: by?.state === "live" ? "answered" : by ? "in progress" : "open" } : {}) };
+      }),
+    })),
+  };
+}
+
 /** The brand's programmes (the one in view first), each with template counts and recent plans. */
 export async function agentContentContext(
   ctx: TenantContext,
   opts: { workspaceId?: string | null } = {},
   db?: FirestoreLike,
 ): Promise<ApiResult> {
-  const all = (await forTenant(ctx, db).workspaces.find({ where: [], limit: 200 })).filter((w) => !w.archivedAt);
+  const [found, brandMap] = await Promise.all([
+    forTenant(ctx, db).workspaces.find({ where: [], limit: 200 }),
+    isBrandMapChatEnabled() && isBlogBrandMapEnabled() ? mapSubjects(ctx, db).catch(() => null) : null,
+  ]);
+  const all = found.filter((w) => !w.archivedAt);
   all.sort((a, b) => (a.id === opts.workspaceId ? -1 : b.id === opts.workspaceId ? 1 : 0));
   const programmes = await Promise.all(
     all.slice(0, 20).map(async (w) => {
@@ -80,6 +109,8 @@ export async function agentContentContext(
     status: 200,
     body: {
       programmes,
+      // A blog article can be for a subject, and answer one of its questions (subject_id, question_id).
+      ...(brandMap ? { brandMap } : {}),
       allowed: {
         objectives: ContentObjective.options,
         sequenceTypes: SequenceType.options,

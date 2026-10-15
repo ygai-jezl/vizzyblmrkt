@@ -196,6 +196,9 @@ export const BlogQuestionSchema = z.object({
   question: z.string().min(1).max(300),
   intent: BlogIntent.default("other"),
   by: BlogRowBy.default("operator"),
+  /** The brand map question this is, when it is one (its id). Optional with no default, so
+   *  briefs saved before the brand map parse exactly as they did. */
+  ref: z.string().max(64).optional(),
 });
 export type BlogQuestion = z.infer<typeof BlogQuestionSchema>;
 
@@ -314,6 +317,11 @@ export const BlogBriefSchema = z.object({
   /** Whether AI crawlers may read the article, as of the last research. Null or absent =
    *  not looked at, or the site's robots.txt could not be read. */
   crawlers: BlogCrawlerCheckSchema.nullable().optional(),
+  /** The brand map subject this article is for (CREATE_BLOG_BRAND_MAP_ENABLED): absent = not
+   *  looked at yet (research may pick one), null = a person said none, an id = chosen. */
+  subjectId: z.string().max(64).nullable().optional(),
+  /** The brand map question the article's main question is (its id), when it is one. */
+  primaryRef: z.string().max(64).optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 
@@ -327,6 +335,21 @@ export const BlogCorrectionSchema = z.object({
   reason: z.string().max(200).default(""),
 });
 export type BlogCorrection = z.infer<typeof BlogCorrectionSchema>;
+
+/** That the article is live at its address (BRAND_MAP_PAGES_ENABLED): seen by the live check,
+ *  or said by a person (for a site that turns the check away, or fills its title in late). */
+export const BlogArticleLiveSchema = z.object({
+  /** The address it was live at; a different address since means it has not been seen there. */
+  url: z.string().max(2000),
+  /** When it was first seen live at that address (kept by later checks: "newer" and "older" go by it). */
+  at: z.string().max(40),
+  by: z.enum(["check", "operator"]),
+  /** The page's title was the article's when it was checked. */
+  titleMatched: z.boolean().default(false),
+  /** When the live check last found it. */
+  checkedAt: z.string().max(40).optional(),
+});
+export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 
 /** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
 export const BlogArticleMetaSchema = z.object({
@@ -343,6 +366,8 @@ export const BlogArticleMetaSchema = z.object({
   checkedAt: z.string().nullable().default(null),
   /** What the fact check changed, for the operator to see. */
   corrections: z.array(BlogCorrectionSchema).max(12).default([]),
+  /** Live at its address. Optional with no default, so metas saved before parse exactly as they did. */
+  live: BlogArticleLiveSchema.nullable().optional(),
 });
 export type BlogArticleMeta = z.infer<typeof BlogArticleMetaSchema>;
 

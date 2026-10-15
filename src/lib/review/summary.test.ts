@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import {
@@ -6,6 +6,7 @@ import {
   agentLaunchJourneyItem,
   agentInviteWaveItem,
   agentContentPlanItem,
+  brandMapItem,
   connectionItem,
   contentHubItem,
   countReview,
@@ -128,6 +129,44 @@ describe("content plans from Vizzy (nav v2 phase 4)", () => {
     expect(agentContentPlanItem(ws, plan({ authoredBy: "human" }))).toBeNull();
     expect(agentContentPlanItem(ws, plan({ graph: { nodes: [{ id: "hub", type: "hub", status: "approved" }], edges: [] } }))).toBeNull();
     expect(agentContentPlanItem(ws, plan({ status: "scheduled" }))).toBeNull();
+  });
+});
+
+describe("brand map suggestions in Review", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const sg = (from: "research" | "article" | "vizzy") => ({ from }) as never;
+
+  it("is one row, however many wait, saying where they came from", () => {
+    expect(brandMapItem(null)).toBeNull();
+    expect(brandMapItem({ suggestions: [] })).toBeNull();
+    expect(brandMapItem({ suggestions: [sg("vizzy")] })).toMatchObject({ title: "1 suggestion for your brand map", detail: "From Vizzy", href: "/admin/brand-kit/map" });
+    expect(brandMapItem({ suggestions: [sg("article"), sg("research"), sg("article"), sg("vizzy")] })).toMatchObject({
+      id: "brand_map",
+      kind: "brand_map",
+      title: "4 suggestions for your brand map",
+      detail: "From research, your articles and Vizzy",
+      action: "Review",
+    });
+  });
+
+  it("is read only with the brand map switched on", async () => {
+    const db = new FakeFirestore();
+    db.seed("brand_maps", "bm_ten_A", {
+      tenantId: "ten_A",
+      rev: 1,
+      identity: { name: "Acme" },
+      subjects: [],
+      names: [],
+      suggestions: [
+        { id: "sg_aaaaaaaa", key: "subject:audits", change: { type: "add_subject", name: "Audits" }, reason: "", from: "research", at: "2026-10-15T00:00:00Z" },
+      ],
+      dismissed: [],
+      createdAt: "2026-10-15T00:00:00Z",
+      updatedAt: "2026-10-15T00:00:00Z",
+    });
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.map((i) => i.title)).toEqual(["1 suggestion for your brand map"]);
   });
 });
 

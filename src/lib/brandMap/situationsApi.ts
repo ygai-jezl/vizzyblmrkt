@@ -6,6 +6,7 @@ import type { EmbedDeps } from "./embed";
 import { findSituations, type FindDeps } from "./findSituations";
 import { moveFirst, recordResponse } from "./recordsApi";
 import { takeStep } from "./runs";
+import { askSituationQuestions, type AskDeps } from "./situationQuestions";
 import { createSituation, editSituation, listSituations, readSituation, removeSituation } from "./situations";
 
 /**
@@ -77,4 +78,27 @@ export async function findSituationsFromRequest(ctx: TenantContext, body: unknow
   const r = await findSituations(ctx, { customers: parsed.data.customers }, { db: deps.db, nowMs: deps.nowMs, embed: deps.embed, ...deps.find });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   return NextResponse.json({ ok: true, found: r.found, skipped: r.skipped, notes: r.notes, stepsLeft: step.value.stepsLeft });
+}
+
+const AskBody = z.object({ runId: z.string().min(1).max(64) });
+
+/**
+ * POST research's second step for one situation, as a step of the same run: the questions
+ * people in it ask, each placed in a subject (or a new one), proposed.
+ */
+export async function situationQuestionsFromRequest(
+  ctx: TenantContext,
+  id: string,
+  body: unknown,
+  deps: Deps & { ask?: Omit<AskDeps, "db" | "nowMs" | "embed"> } = {},
+): Promise<Response> {
+  const parsed = AskBody.safeParse(body);
+  if (!parsed.success) return invalid();
+  const step = await takeStep(ctx, parsed.data.runId, "situations", deps);
+  if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
+  const blocked = await moveFirst(ctx, deps);
+  if (blocked) return blocked;
+  const r = await askSituationQuestions(ctx, id, { db: deps.db, nowMs: deps.nowMs, embed: deps.embed, ...deps.ask });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, questions: r.questions, stepsLeft: step.value.stepsLeft });
 }

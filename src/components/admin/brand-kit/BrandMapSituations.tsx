@@ -9,6 +9,7 @@ import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { Dot, STATE_LABEL, WriteNext } from "./BrandMapCoverage";
 import { smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
+import { BrandMapFindSituations } from "./BrandMapFindSituations";
 
 /**
  * The Buying situations tab (BRAND_MAP_SITUATIONS_ENABLED): the situations people are in when
@@ -43,8 +44,20 @@ const shows = (f: Filter, s: BrandMapSituation) =>
   (f.kind === "w" && s.w === f.w) ||
   (f.kind === "side" && s.side === f.side);
 
-export function BrandMapSituations({ canEdit, programmes }: { canEdit: boolean; programmes: Array<{ id: string; name: string }> | null }) {
+export function BrandMapSituations({
+  canEdit,
+  canFind,
+  brandName,
+  programmes,
+}: {
+  canEdit: boolean;
+  /** Research can run here (its switch, and a model). */
+  canFind: boolean;
+  brandName: string;
+  programmes: Array<{ id: string; name: string }> | null;
+}) {
   const { round } = useMapMove();
+  const [finding, setFinding] = useState(false);
   const [list, setList] = useState<BrandMapSituation[] | null>(null);
   const [filter, setFilter] = useState<Filter>({ kind: "all" });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -111,12 +124,20 @@ export function BrandMapSituations({ canEdit, programmes }: { canEdit: boolean; 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-2xl text-sm text-neutral-600 dark:text-neutral-300">The situations people are in when they look for something like you, and what they ask.</p>
         {canEdit ? (
-          <Button disabled={busy} onClick={() => setAdding((a) => !a)}>
-            Add a situation
-          </Button>
+          <span className="flex flex-wrap gap-2">
+            <Button disabled={busy} onClick={() => setAdding((a) => !a)}>
+              Add a situation
+            </Button>
+            {canFind ? (
+              <Button tone="primary" disabled={busy || finding} onClick={() => setFinding(true)}>
+                Find buying situations
+              </Button>
+            ) : null}
+          </span>
         ) : null}
       </div>
       {note ? <Banner tone={note.tone}>{note.text}</Banner> : null}
+      {finding ? <BrandMapFindSituations brandName={brandName} onChanged={() => void load()} onClose={() => setFinding(false)} /> : null}
       {adding ? (
         <SituationForm
           busy={busy}

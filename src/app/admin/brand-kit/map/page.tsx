@@ -91,7 +91,22 @@ export default async function BrandMapPage() {
       extra={
         scale
           ? [
-              ...(situations ? [{ id: "situations", label: "Buying situations", node: <BrandMapSituations canEdit={ctx.role === "admin"} programmes={programmes} /> }] : []),
+              ...(situations
+                ? [
+                    {
+                      id: "situations",
+                      label: "Buying situations",
+                      node: (
+                        <BrandMapSituations
+                          canEdit={ctx.role === "admin"}
+                          canFind={isBrandMapResearchEnabled() && isGeminiConfigured()}
+                          brandName={map?.identity.name || tenant?.tenantName?.trim() || ""}
+                          programmes={programmes}
+                        />
+                      ),
+                    },
+                  ]
+                : []),
               { id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} /> },
             ]
           : []

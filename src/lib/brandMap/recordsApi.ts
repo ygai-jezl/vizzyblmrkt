@@ -6,6 +6,9 @@ import { ownSitesOf } from "./adminApi";
 import { afterRecordsChange } from "./afterChange";
 import { ensureMoved } from "./move";
 import { decideProposals } from "./proposals";
+import { recountGroup, recountSubject } from "./recount";
+import { isRateLimited } from "@/lib/tenant/rateLimit";
+import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import {
   addQuestion,
   createGroup,
@@ -102,10 +105,47 @@ export async function listSubjectsFromRequest(ctx: TenantContext, url: URL, deps
   return NextResponse.json({ moved: true, subjects });
 }
 
+/**
+ * GET one subject: its questions and what the brand's pages answer of them, worked out now
+ * (opening a subject also brings its stored counts up to date).
+ */
 export async function subjectFromRequest(ctx: TenantContext, id: string, deps: Deps = {}): Promise<Response> {
+  const read = await recountSubject(ctx, id, deps).catch(() => null);
+  if (read) {
+    return NextResponse.json({
+      subject: read.subject,
+      questions: read.questions,
+      coverage: read.coverage,
+      overlaps: read.overlaps,
+      missingLinks: read.missingLinks,
+    });
+  }
   const subject = await getSubject(ctx, id, deps);
   if (!subject) return NextResponse.json({ error: "no_subject" }, { status: 404 });
-  return NextResponse.json({ subject, questions: await subjectQuestions(ctx, subject.id, deps) });
+  return NextResponse.json({ subject, questions: await subjectQuestions(ctx, subject.id, deps), coverage: null, overlaps: [], missingLinks: [] });
+}
+
+/** A batch per call, with a person waiting on each: generous, but bounded. */
+export const RECOUNT_LIMIT = { prefix: "brand_map_recount", burstLimit: 60, hourlyLimit: 2000 };
+const RECOUNT_BATCH = 20;
+const RecountBody = z.object({ cursor: Id.nullable().default(null) });
+
+/**
+ * POST the recount pass (after "Read what's already there"): every subject's counts worked
+ * out again, a batch per call in id order, then every group's totals. Hands back where to
+ * carry on until done.
+ */
+export async function recountFromRequest(ctx: TenantContext, body: unknown, deps: Deps = {}): Promise<Response> {
+  const parsed = RecountBody.safeParse(body ?? {});
+  if (!parsed.success) return invalid();
+  if (await isRateLimited(`tenant:${ctx.tenantId}`, RECOUNT_LIMIT, { db: deps.db })) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  const store = brandMapRecords(ctx, deps.db);
+  const batch = await store.find("sub", { orderBy: [["ref", "asc"]], ...(parsed.data.cursor ? { startAfter: [parsed.data.cursor] } : {}), limit: RECOUNT_BATCH });
+  for (let i = 0; i < batch.length; i += 5) await Promise.all(batch.slice(i, i + 5).map((s) => recountSubject(ctx, s.id, deps).catch(() => null)));
+  if (batch.length === RECOUNT_BATCH) return NextResponse.json({ ok: true, done: false, next: batch[batch.length - 1]!.id, subjects: batch.length });
+  const groups = await listGroups(ctx, deps);
+  await Promise.all([...groups.map((g) => recountGroup(ctx, g.id, deps).catch(() => null)), recountGroup(ctx, null, deps).catch(() => null)]);
+  return NextResponse.json({ ok: true, done: true, next: null, subjects: batch.length });
 }
 
 export async function subjectNamesFromRequest(ctx: TenantContext, deps: Deps = {}): Promise<Response> {

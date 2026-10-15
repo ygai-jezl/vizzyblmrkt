@@ -242,6 +242,8 @@ export const BrandMapStoredSchema = BrandMapDecidedSchema.extend({
   moved: BrandMapMovedSchema.nullable().catch(null).default(null),
   /** When a person first decided one of the map's records (a subject, question or situation). */
   recordsDecidedAt: z.string().max(40).nullable().catch(null).default(null),
+  /** The ungrouped subjects' totals, for display (brandMapRecords.ts GroupTotalsSchema). */
+  ungroupedTotals: z.record(z.string(), z.number()).nullable().catch(null).default(null),
 });
 
 /** The brand map as the app reads it: the decided half, its suggestions parsed, and its bookkeeping. */
@@ -258,6 +260,7 @@ export type BrandMap = BrandMapDecided & {
   updatedAt: string;
   moved: BrandMapMoved | null;
   recordsDecidedAt: string | null;
+  ungroupedTotals?: Record<string, number> | null;
 };
 
 /**

@@ -4,7 +4,8 @@ import type { BrandMapPage, BrandMapPageFacts } from "@/lib/types/brandMapPage";
 import { planPageId } from "@/lib/types/brandMapPage";
 import { forTenant } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
-import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { recountForRows } from "@/lib/brandMap/recount";
 import { buildPlanPage, pageFingerprint } from "./pageRow";
 import { softly } from "./mapActions";
 
@@ -18,6 +19,17 @@ import { softly } from "./mapActions";
 export interface PageDeps {
   db?: FirestoreLike;
   now?: () => Date;
+  /**
+   * With the map at any size on, the subjects a written or removed row points at (before and
+   * after) are recounted. "Read what's already there" turns it off: a recount pass follows it.
+   */
+  recount?: boolean;
+}
+
+/** Recount what a row pointed at, before and after (the map at any size; never failing the write). */
+async function recountAfter(ctx: TenantContext, rows: Array<Partial<BrandMapPage> | null | undefined>, deps: PageDeps): Promise<void> {
+  if (!isBrandMapScaleEnabled() || deps.recount === false) return;
+  await recountForRows(ctx, rows, { db: deps.db }).catch(() => 0);
 }
 
 export type PageSync = "written" | "unchanged" | "removed" | "off";
@@ -48,17 +60,21 @@ export async function writePageRow(ctx: TenantContext, id: string, facts: BrandM
   };
   // Each attempt of the transaction decides afresh; the last one is what was written.
   let wrote = false;
+  let before: BrandMapPage | null = null;
   await forTenant(ctx, deps.db).brandMapPages.upsert(
     id,
     () => {
       wrote = true;
+      before = null;
       return row;
     },
     (current) => {
       wrote = current.fingerprint !== fingerprint;
+      before = current;
       return wrote ? row : null;
     },
   );
+  if (wrote) await recountAfter(ctx, [before, facts], deps);
   return wrote;
 }
 
@@ -67,8 +83,10 @@ export async function removePlanPage(ctx: TenantContext, planId: string, deps: P
   if (!isBrandMapPagesEnabled()) return false;
   const pages = forTenant(ctx, deps.db).brandMapPages;
   const id = planPageId(planId);
-  if (!(await pages.getById(id))) return false;
+  const row = await pages.getById(id);
+  if (!row) return false;
   await pages.delete(id);
+  await recountAfter(ctx, [row], deps);
   return true;
 }
 

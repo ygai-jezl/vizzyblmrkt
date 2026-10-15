@@ -158,7 +158,9 @@ function staleSiteRows<R extends SiteRowFacts>(rows: R[], listing: SiteListing, 
   });
 }
 
-export async function readExistingPages(ctx: TenantContext, cursor: BackfillCursor | null, deps: BackfillDeps = {}): Promise<BackfillStep> {
+export async function readExistingPages(ctx: TenantContext, cursor: BackfillCursor | null, given: BackfillDeps = {}): Promise<BackfillStep> {
+  // A recount pass follows this, so a row written here doesn't recount its subjects one by one.
+  const deps = { ...given, recount: false };
   const at = cursor ?? START;
   const step: BackfillStep = { done: false, next: null, articles: 0, sitePages: 0, removed: 0 };
   const programmes = await (deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: LISTED })))(ctx);

@@ -6,7 +6,7 @@ import type { AdminGate } from "@/lib/connect/admin";
 import { getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { tenantDomains } from "@/lib/knowledge/site";
-import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
+import { BrandMapDecidedSchema, type BrandMap } from "@/lib/types/brandMap";
 import { dismissBrandMapSuggestions, fileBrandMapSuggestions, readBrandMap, saveBrandMap, type MapResult } from "./store";
 import { proposeBrandMap, summarise, type ProposeDeps } from "./research";
 import { lookupName, type FetchJson } from "./lookup";
@@ -94,30 +94,40 @@ export const RESEARCH_LIMIT = { prefix: "brand_map_research", burstLimit: 2, hou
  * what it found as suggestions (replacing research's earlier ones). Nothing decided changes.
  * Answers with the map as it now is, so a first run can fill the form at once.
  */
-export async function researchFromRequest(
-  ctx: TenantContext,
-  deps: { db?: FirestoreLike; propose?: ProposeDeps; nowMs?: number; timeoutMs?: number } = {},
-): Promise<Response> {
+export type ResearchDeps = { db?: FirestoreLike; propose?: ProposeDeps; nowMs?: number; timeoutMs?: number };
+
+export type ResearchRun =
+  | { ok: true; filed: number; summary: string; notes: string[]; map: BrandMap | null }
+  | { ok: false; status: number; error: string };
+
+/** Research the map and file what it finds (from the page, or from chat). Nothing decided changes. */
+export async function runBrandMapResearch(ctx: TenantContext, deps: ResearchDeps = {}): Promise<ResearchRun> {
   const read = await readBrandMap(ctx, deps.db);
-  if (read.state === "unreadable") return NextResponse.json({ error: "map_unreadable" }, { status: 409 });
+  if (read.state === "unreadable") return { ok: false, status: 409, error: "map_unreadable" };
   const current = BrandMapDecidedSchema.parse(read.state === "ok" ? { identity: read.map.identity, subjects: read.map.subjects, names: read.map.names } : {});
   const proposed = await proposeBrandMap(ctx, { current, timeoutMs: deps.timeoutMs }, { db: deps.db, ...deps.propose });
-  if (!proposed.ok) return NextResponse.json({ error: proposed.error }, { status: proposed.status });
+  if (!proposed.ok) return proposed;
   const at = new Date(deps.nowMs ?? Date.now()).toISOString();
   const filed = await fileBrandMapSuggestions(
     ctx,
     { from: "research", replaceOwn: true, items: proposed.items, research: { at, notes: proposed.notes } },
     { db: deps.db, nowMs: deps.nowMs },
   );
-  if (!filed.ok) return NextResponse.json({ error: filed.error }, { status: filed.status });
+  if (!filed.ok) return { ok: false, status: filed.status, error: filed.error };
   const after = await readBrandMap(ctx, deps.db);
-  return NextResponse.json({
+  return {
     ok: true,
     filed: filed.value.filed.length,
     summary: summarise(filed.value.filed.map((s) => s.change)),
     notes: proposed.notes,
     map: after.state === "ok" ? after.map : null,
-  });
+  };
+}
+
+export async function researchFromRequest(ctx: TenantContext, deps: ResearchDeps = {}): Promise<Response> {
+  const r = await runBrandMapResearch(ctx, deps);
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, filed: r.filed, summary: r.summary, notes: r.notes, map: r.map });
 }
 
 /** Lookups are cheap but leave the instance: a person clicking "Find" a few times a minute at most. */

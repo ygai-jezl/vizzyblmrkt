@@ -20,9 +20,12 @@ def _state(tool_context: ToolContext) -> dict:
 def get_content_context(tool_context: ToolContext) -> dict:
     """List the brand's content programmes (the one on screen first), their templates
     and recent plans, and the values a plan's intake accepts. Call this before drafting.
+    Where blog articles are written from a brand map, `brandMap` lists its subjects and
+    their questions (with each one's state when `statesKnown` is true: answered, in
+    progress or open), for a blog article's subject_id and question_id.
 
     Returns:
-        {"programmes": [...], "allowed": {"objectives", "hubChannels", "spokeChannels", "topics", ...}}
+        {"programmes": [...], "brandMap"?: {...}, "allowed": {"objectives", "hubChannels", "spokeChannels", "topics", ...}}
     """
     return client.get_context(_state(tool_context))
 
@@ -40,6 +43,8 @@ def draft_content_plan(
     workspace_id: str = "",
     primary_question: str = "",
     buyer_questions: str = "",
+    subject_id: str = "",
+    question_id: str = "",
 ) -> dict:
     """Draft a content plan in a programme and save it as a DRAFT.
 
@@ -64,13 +69,18 @@ def draft_content_plan(
             buyer would ask it. Leave empty and research finds it.
         buyer_questions: Blog hub only. Anything the operator said buyers ask, in
             their words. Leave empty if they said nothing.
+        subject_id: Blog hub only, with a brandMap from get_content_context. The id of
+            the subject the article is for, or "none" for none of them. Leave empty and
+            research picks one.
+        question_id: Blog hub only, with a brandMap. The id of the map question the
+            article answers ("write this next"); set primary_question to its text too.
 
     Returns:
         A status dict to relay (includes a card the chat shows with an Open link).
     """
     intake = client.build_intake(
         name, objective, spark, hub_channel, spoke_channels, topics, hub_url, sequence_type,
-        primary_question, buyer_questions,
+        primary_question, buyer_questions, subject_id, question_id,
     )
     return client.draft_plan(_state(tool_context), workspace_id, intake, spark)
 

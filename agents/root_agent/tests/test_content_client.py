@@ -34,6 +34,23 @@ def test_a_blog_hub_carries_what_the_operator_knows_buyers_ask():
     assert "blog" not in cc.build_intake("Issue 12", "newsletter_signups", "spark", primary_question="Why?")
 
 
+def test_a_blog_hub_can_be_for_a_brand_map_subject_and_answer_its_question():
+    blog = cc.build_intake(
+        "Measuring share of voice", "brand_visibility", "spark", hub_channel="blog",
+        primary_question="How is share of voice measured?", subject_id="sub_aaaaaaaa", question_id="q_bbbbbbbb",
+    )
+    assert blog["blog"] == {
+        "primaryQuestion": "How is share of voice measured?",
+        "buyerQuestions": "",
+        "subjectId": "sub_aaaaaaaa",
+        "questionId": "q_bbbbbbbb",
+    }
+    # "none" is a choice of its own: none of the map's subjects.
+    assert cc.build_intake("x", "brand_visibility", "s", hub_channel="blog", subject_id="none")["blog"]["subjectId"] is None
+    # Never on a newsletter.
+    assert "blog" not in cc.build_intake("x", "newsletter_signups", "s", subject_id="sub_aaaaaaaa")
+
+
 def test_draft_uses_the_programme_in_view_and_relays_the_card(monkeypatch):
     monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com/")
     seen = {}

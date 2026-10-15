@@ -110,6 +110,8 @@ def build_intake(
     sequence_type: str = "",
     primary_question: str = "",
     buyer_questions: str = "",
+    subject_id: str = "",
+    question_id: str = "",
 ) -> dict:
     """The same intake the Create wizard sends (the server validates and normalises it)."""
     strategy: dict = {"objective": objective}
@@ -125,11 +127,19 @@ def build_intake(
         "topology": {"hubChannel": hub_channel or "newsletter", "spokeChannels": list(spoke_channels or [])[:8]},
     }
     # A blog hub's brief starts from what the operator already knows; research fills in the rest.
-    if (hub_channel or "") == "blog" and (primary_question or buyer_questions):
+    # With a brand map, it can be for one of its subjects ("none" = none of them) and answer one
+    # of its questions (by id); the server keeps them only while articles are written from the map.
+    subject = (subject_id or "").strip()
+    question = (question_id or "").strip()
+    if (hub_channel or "") == "blog" and (primary_question or buyer_questions or subject or question):
         intake["blog"] = {
             "primaryQuestion": (primary_question or "")[:300],
             "buyerQuestions": (buyer_questions or "")[:6000],
         }
+        if subject:
+            intake["blog"]["subjectId"] = None if subject.lower() == "none" else subject
+        if question:
+            intake["blog"]["questionId"] = question
     return intake
 
 

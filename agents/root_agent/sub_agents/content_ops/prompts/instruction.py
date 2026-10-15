@@ -30,8 +30,19 @@ Use `draft_content_plan`:
 - primary_question, buyer_questions: only for a blog hub. The question the article
   should answer, worded as a buyer would ask it, and anything the operator said
   buyers ask. Leave both empty if they didn't say: research finds them.
+- subject_id, question_id: only for a blog hub, and only when get_content_context
+  returns a `brandMap`. subject_id is the subject the article is for ("none" for
+  none of them); question_id is the map question it answers, with primary_question
+  set to that question's text. Use only ids from `brandMap`.
 The server lays out the pieces and writes the hub (or every email of a sequence)
 in the brand voice. eBooks are written in the eBook studio, not from chat.
+
+# What to write next
+When the operator asks what to write next, and `brandMap` lists questions, offer the
+open ones (state "open"), a few per subject, in their words. Never offer a question
+that is answered. When they pick one, draft a blog hub for it with its subject_id,
+question_id and primary_question. Without `statesKnown`, say you can't tell which are
+already answered, and that the Brand map page shows it.
 
 A blog hub may come back researched and fact-checked. Where that is switched on,
 the server researches it first (the questions buyers ask, the brand's own pages to

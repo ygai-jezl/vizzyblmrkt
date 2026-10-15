@@ -15,6 +15,7 @@ pytest.importorskip("google.adk")
 
 from google.adk.tools import FunctionTool, ToolContext  # noqa: E402
 
+from root_agent_pkg.tools.brand_map import get_brand_map, suggest_brand_map  # noqa: E402
 from root_agent_pkg.tools.email_style import get_email_style, suggest_email_style  # noqa: E402
 from root_agent_pkg.tools.insights_summary import get_insights_summary  # noqa: E402
 from root_agent_pkg.tools.journey_style import get_journey_email_style, set_journey_email_style  # noqa: E402
@@ -27,6 +28,8 @@ TOOLS = [
     suggest_email_style,
     get_journey_email_style,
     set_journey_email_style,
+    get_brand_map,
+    suggest_brand_map,
 ]
 
 
@@ -70,6 +73,21 @@ def test_suggest_email_style_asks_for_the_mode_and_brief_only():
         "use_brand_fonts",
     }
     assert sorted(required) == ["brief", "mode"]
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_suggest_brand_map_asks_for_the_brief_only():
+    props, required = _params(FunctionTool(suggest_brand_map)._get_declaration())
+    assert set(props) == {"brief", "mode", "brand_name", "category", "statement", "is_not", "avoid", "subjects", "questions", "names", "aliases"}
+    assert required == ["brief"]
+    props, required = _params(FunctionTool(get_brand_map)._get_declaration())
+    assert not props and not required
+
+
+def test_the_root_agent_carries_the_brand_map_tools():
+    from root_agent_pkg.agent import root_agent
+
+    assert get_brand_map in root_agent.tools and suggest_brand_map in root_agent.tools
 
 
 def test_the_root_agent_carries_the_email_style_tools():

@@ -167,6 +167,11 @@ export const BrandMapQuestionRecordSchema = z.object({
   intent: BlogIntent.catch("other").default("other"),
   situationIds: z.array(SituationId).max(BRAND_MAP_RECORD_LIMITS.situationsPerQuestion).catch([]).default([]),
   order: z.number().int().default(0),
+  /**
+   * What people add to the search this question came from ("examples", "free", "step by step
+   * guide"), from the brand's own research: leads for an article written for it.
+   */
+  leads: z.array(OptionalLine(80)).max(8).catch([]).default([]),
 });
 export type BrandMapQuestionRecord = z.infer<typeof BrandMapQuestionRecordSchema>;
 
@@ -256,6 +261,16 @@ export const ImportItemSchema = z.object({
   fits: z.boolean().catch(true).default(true),
   /** What it adds to its search ("examples", "step by step guide"), for a related search. */
   adds: OptionalLine(80).catch("").default(""),
+  /** Placed in a subject the map doesn't have yet: its name (made when a person adds it). */
+  newSubject: OptionalLine(BRAND_MAP_RECORD_LIMITS.subjectName).catch("").default(""),
+  /** The heading of the research's AI answer it falls under. */
+  theme: OptionalLine(BRAND_MAP_RECORD_LIMITS.label).catch("").default(""),
+  /** The buying situation it clearly belongs to. */
+  situationId: SituationId.nullable().catch(null).default(null),
+  /** Why it doesn't fit what the brand does, in a few words. */
+  why: OptionalLine(BRAND_MAP_RECORD_LIMITS.reason).catch("").default(""),
+  /** Placing has looked at it (placed or not), so it isn't asked about again. */
+  tried: z.boolean().catch(false).default(false),
 });
 export type ImportItem = z.infer<typeof ImportItemSchema>;
 

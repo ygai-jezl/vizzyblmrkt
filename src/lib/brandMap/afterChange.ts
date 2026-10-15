@@ -1,5 +1,5 @@
-import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import { embedSubjects } from "./embed";
+import type { TenantContext } from "@/lib/tenant/types";
+import { embedSubjects, type EmbedDeps } from "./embed";
 import { recountGroup, recountSubject } from "./recount";
 
 /**
@@ -12,7 +12,7 @@ import { recountGroup, recountSubject } from "./recount";
 export async function afterRecordsChange(
   ctx: TenantContext,
   touched: { subjects: string[]; groups?: Array<string | null> },
-  deps: { db?: FirestoreLike; nowMs?: number } = {},
+  deps: EmbedDeps = {},
 ): Promise<void> {
   const subjects = [...new Set(touched.subjects)];
   const groups = new Set<string | null>(touched.groups ?? []);

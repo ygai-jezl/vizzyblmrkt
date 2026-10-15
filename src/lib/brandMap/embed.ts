@@ -102,6 +102,39 @@ export async function nearestSubjects(
   return nearestByWords(ctx, text, opts.limit, statuses, deps);
 }
 
+/**
+ * The subjects nearest each of many short texts (a PDF's questions, a batch at a time): one
+ * embedding call for them all, then one lookup each; when meaning can't be had, by shared
+ * words, every name read once.
+ */
+export async function nearestSubjectsMany(
+  ctx: TenantContext,
+  texts: string[],
+  opts: { limit: number; statuses?: string[] },
+  deps: EmbedDeps = {},
+): Promise<BrandMapNeighbour[][]> {
+  if (!texts.length) return [];
+  const statuses = opts.statuses ?? ["decided"];
+  const vectors = await (deps.embed ?? embedDocuments)(texts.map((content) => ({ content, title: "Question" })), ctx.region).catch(() => texts.map(() => null));
+  if (vectors.some(Boolean)) {
+    return Promise.all(
+      vectors.map((vector) => (vector ? nearestBrandMapRecords(ctx, { kind: "subject", vector, limit: opts.limit, statuses }, deps.vectors).catch(() => []) : Promise.resolve([]))),
+    );
+  }
+  const names = (await subjectIndex(ctx, deps).catch(() => [])).filter((n) => statuses.includes(n.status));
+  return texts.map((text) => {
+    const words = new Set(meaningWords(text));
+    return names
+      .map((n) => {
+        const own = meaningWords(n.name);
+        return { ref: n.id, status: n.status, sim: own.length ? own.filter((w) => words.has(w)).length / own.length : 0 };
+      })
+      .filter((n) => n.sim > 0)
+      .sort((a, b) => b.sim - a.sim || a.ref.localeCompare(b.ref))
+      .slice(0, opts.limit);
+  });
+}
+
 /** The buying situations nearest a piece of text (by meaning only: a brand has far fewer). */
 export async function nearestSituations(
   ctx: TenantContext,

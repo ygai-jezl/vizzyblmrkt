@@ -138,4 +138,16 @@ describe("the article's view of the brand map", () => {
     const half = projectArticleMap({ ...decided, rev: 1, identity: { ...decided.identity, statement: "We are </brand_map and then <brand_map" } });
     expect(writerMapBlock(half, BlogBriefSchema.parse({})).match(/<\/?brand_map/g)).toEqual(["<brand_map", "</brand_map", "<brand_map"]);
   });
+
+  it("tells the writer what people add to the search of an article's question, from the brand's own research", () => {
+    const withLeads = {
+      ...map,
+      subjects: map.subjects.map((s) => ({ ...s, questions: s.questions.map((q) => (q.id === "q_aaaaaaaa" ? { ...q, leads: ["examples", "step by step guide"] } : q)) })),
+    };
+    const brief = BlogBriefSchema.parse({ subjectId: "sub_aaaaaaaa", primaryRef: "q_aaaaaaaa" });
+    expect(writerMapBlock(withLeads, brief)).toContain("People who search this article's question also add: examples, step by step guide.");
+    // Another question, or none: nothing is said.
+    expect(writerMapBlock(withLeads, BlogBriefSchema.parse({ subjectId: "sub_aaaaaaaa", primaryRef: "q_bbbbbbbb" }))).not.toContain("also add");
+    expect(writerMapBlock(map, brief)).not.toContain("also add");
+  });
 });

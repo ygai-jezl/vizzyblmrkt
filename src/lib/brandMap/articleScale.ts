@@ -51,7 +51,7 @@ async function asArticleSubjects(ctx: TenantContext, subjects: BrandMapSubjectRe
     id: s.id,
     name: s.name,
     home: s.home,
-    questions: questions[i]!.filter((q) => q.status === "decided").map((q) => ({ id: q.id, text: q.text, intent: q.intent })),
+    questions: questions[i]!.filter((q) => q.status === "decided").map((q) => ({ id: q.id, text: q.text, intent: q.intent, ...(q.leads.length ? { leads: q.leads } : {}) })),
   }));
 }
 

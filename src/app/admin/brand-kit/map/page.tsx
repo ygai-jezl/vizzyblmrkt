@@ -8,6 +8,7 @@ import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import {
   isBrandMapEnabled,
+  isBrandMapImportEnabled,
   isBrandMapPagesEnabled,
   isBrandMapResearchEnabled,
   isBrandMapScaleEnabled,
@@ -26,6 +27,7 @@ import { BrandMapContentMap } from "@/components/admin/brand-kit/BrandMapContent
 import { BrandMapContentMapLevels } from "@/components/admin/brand-kit/BrandMapContentMapLevels";
 import { BrandMapMoveProvider } from "@/components/admin/brand-kit/brandMapMove";
 import { BrandMapSituations } from "@/components/admin/brand-kit/BrandMapSituations";
+import { BrandMapImport } from "@/components/admin/brand-kit/BrandMapImport";
 import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
@@ -108,6 +110,7 @@ export default async function BrandMapPage() {
                   ]
                 : []),
               { id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} /> },
+              ...(isBrandMapImportEnabled() ? [{ id: "research", label: "Your research", node: <BrandMapImport canEdit={ctx.role === "admin"} programmes={programmes} /> }] : []),
             ]
           : []
       }

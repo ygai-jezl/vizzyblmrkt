@@ -25,6 +25,8 @@ export interface ArticleMapQuestion {
   id: string;
   text: string;
   intent: BlogIntent;
+  /** What people add to the search it came from ("examples", "step by step guide"), from the brand's own research. */
+  leads?: string[];
 }
 
 export interface ArticleMapSubject {
@@ -252,7 +254,7 @@ export function researchSubjectLine(map: ArticleMap | null, brief: Pick<BlogBrie
  * never to write (and what to say instead), and the pages to link names to — only pages the
  * article is allowed to link, so nothing it is told to link is then taken out. "" without a map.
  */
-export function writerMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "links" | "entities" | "subjectId">): string {
+export function writerMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "links" | "entities" | "subjectId"> & Partial<Pick<BlogBrief, "primaryRef">>): string {
   if (!map) return "";
   const i = map.identity;
   // The brand's own name is map text too: it is said inside the fence, never outside it.
@@ -281,6 +283,9 @@ export function writerMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "l
     lines.push("Pages for these names. Link the FIRST mention of each to its page (they are among your own pages below, and count towards them):");
     lines.push(...pages.slice(0, 6));
   }
+  // The brand's own research: what people add when they search this article's question.
+  const leads = brief.primaryRef ? (mapQuestion(map, brief.primaryRef)?.question.leads ?? []) : [];
+  if (leads.length) lines.push(`People who search this article's question also add: ${leads.map(fenceSafe).join(", ")}. Readers expect that: meet it where it fits the article.`);
   if (lines.length < (i.name ? 2 : 1)) return "";
   const rules = [
     "- Write each name in the list above exactly as it is spelled there, every time.",

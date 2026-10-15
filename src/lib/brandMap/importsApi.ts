@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BRAND_MAP_RECORD_LIMITS as LIMITS } from "@/lib/types/brandMapRecords";
+import { addImported, importReport } from "./importCompare";
+import { placeImport, type PlaceDeps } from "./importPlace";
 import { getImport, listImports, readImport, removeImport, type ImportDeps } from "./imports";
 import { moveFirst } from "./recordsApi";
 import { startRun, takeStep } from "./runs";
@@ -38,9 +41,38 @@ export async function listImportsFromRequest(ctx: TenantContext, deps: Deps = {}
   });
 }
 
+/** GET one import with its report, worked out against the map as it is now. */
 export async function importFromRequest(ctx: TenantContext, id: string, deps: Deps = {}): Promise<Response> {
   const found = await getImport(ctx, id, deps);
-  return found ? NextResponse.json({ import: found }) : NextResponse.json({ error: "no_import" }, { status: 404 });
+  if (!found) return NextResponse.json({ error: "no_import" }, { status: 404 });
+  return NextResponse.json({ import: found, report: await importReport(ctx, found, deps) });
+}
+
+const PlaceBody = z.object({ runId: z.string().min(1).max(64) });
+
+/** POST one batch of placing, as a step of the import's run: hands back whether any are left. */
+export async function placeImportFromRequest(ctx: TenantContext, id: string, body: unknown, deps: Deps & { place?: Omit<PlaceDeps, "db" | "nowMs"> } = {}): Promise<Response> {
+  const parsed = PlaceBody.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  const step = await takeStep(ctx, parsed.data.runId, "import", deps);
+  if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
+  const r = await placeImport(ctx, id, { db: deps.db, nowMs: deps.nowMs, ...deps.place });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, ...r.value, stepsLeft: step.value.stepsLeft });
+}
+
+const AddBody = z.object({ items: z.array(z.string().min(1).max(40)).min(1).max(LIMITS.importItems) });
+
+/** POST "Add ticked": the ticked items go on the map, decided; answers with the report as it now is. */
+export async function addImportedFromRequest(ctx: TenantContext, id: string, body: unknown, deps: Deps = {}): Promise<Response> {
+  const parsed = AddBody.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  const blocked = await moveFirst(ctx, deps);
+  if (blocked) return blocked;
+  const r = await addImported(ctx, id, parsed.data.items, deps);
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  const now = await getImport(ctx, id, deps);
+  return NextResponse.json({ ok: true, ...r.value, ...(now ? { import: now, report: await importReport(ctx, now, deps) } : {}) });
 }
 
 export async function removeImportFromRequest(ctx: TenantContext, id: string, deps: Deps = {}): Promise<Response> {

@@ -101,6 +101,11 @@ export function parseImportLines(text: string, max: number = LIMITS.importItems)
         questionId: null,
         fits: true,
         adds: kind === "ALSO" && search ? addedWords(search, said) : "",
+        newSubject: "",
+        theme: "",
+        situationId: null,
+        why: "",
+        tried: false,
       });
     }
   }

@@ -94,8 +94,8 @@ describe("what the blog hub sends and shows today (no brand map)", () => {
       { generate: generate as never, now: NOW },
     );
     expect(prompts).toHaveLength(2);
-    expect(digest(prompts[0])).toBe("eb78f6cec1fbef33");
-    expect(digest(prompts[1])).toBe("82a9e5ba9c1cd92b");
+    expect(digest(prompts[0])).toBe("123d805c01dc4f3d");
+    expect(digest(prompts[1])).toBe("dfde111de7da23da");
   });
 
   it("gives the fact check the same material", async () => {
@@ -104,7 +104,7 @@ describe("what the blog hub sends and shows today (no brand map)", () => {
       { plan, node, brief: SAMPLE_BRIEF, brandName: "Acme", knowledgeContext: KNOWLEDGE, knowledgeUrls: [], proofBlock: "" },
       { generate: generate as never, now: NOW },
     );
-    expect(digest(String((generate.mock.calls[0] as unknown[])[0]))).toBe("421eb4a9fb944c7a");
+    expect(digest(String((generate.mock.calls[0] as unknown[])[0]))).toBe("7149d8caf9815dbc");
   });
 
   it("scores an article the same way", () => {

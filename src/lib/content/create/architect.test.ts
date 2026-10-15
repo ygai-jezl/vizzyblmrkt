@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
@@ -33,6 +33,7 @@ const baseInput: ArchitectInput = {
 
 describe("architectPlan", () => {
   beforeEach(() => mocked.mockReset());
+  afterEach(() => vi.unstubAllEnvs());
 
   it("builds hub + promos + an (angle × channel) spoke matrix from the proposed angles", async () => {
     mocked.mockResolvedValue(
@@ -132,6 +133,22 @@ describe("architectPlan", () => {
     expect(nodes.find((n) => n.type === "spoke" && n.channel === "linkedin")!.templateId).toBe("t-li");
     // No template for X → composes freely.
     expect(nodes.find((n) => n.type === "spoke" && n.channel === "x")!.templateId).toBeNull();
+  });
+
+  it("never gives a blog article written to the CITABLE structure a template; its spokes still get theirs", async () => {
+    mocked.mockResolvedValue(null);
+    const templates = [
+      { id: "t-launch", channel: "blog", tier: "hub", blockType: "full-post" },
+      { id: "t-li", channel: "linkedin", tier: "spoke", blockType: "takeaway-list" },
+    ];
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    const citable = await architectPlan({ ...baseInput, objective: "brand_visibility", hubChannel: "blog", templates });
+    expect(citable.nodes.find((n) => n.type === "hub")!.templateId).toBeNull();
+    expect(citable.nodes.find((n) => n.type === "spoke" && n.channel === "linkedin")!.templateId).toBe("t-li");
+    // CITABLE off: a blog hub takes the programme's template, as before.
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "false");
+    const plain = await architectPlan({ ...baseInput, objective: "brand_visibility", hubChannel: "blog", templates });
+    expect(plain.nodes.find((n) => n.type === "hub")!.templateId).toBe("t-launch");
   });
 
   it("leaves templateId null when no templates are provided", async () => {

@@ -1115,6 +1115,15 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Suggest an angle": a new workflow's Spark (its angle / thesis) is suggested from what
+  # the brand has already said — the brand map's question, subject and buying situation,
+  # what the brand is, and its knowledge. One quick Gemini call, no web search; a person
+  # edits it. Filled by itself when a workflow starts from "Write this next". Off: the
+  # Spark field is exactly as before.
+  - variable: CREATE_SUGGEST_ANGLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # The pages side: an article's address can be set after creation and checked live, each
   # article and crawled page gets a small row, the map shows what is answered, drafted or
   # open per subject, "Write this next", and the content map tab.

@@ -884,6 +884,12 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Suggest an angle" (see apphosting.yaml): OFF in prod until checked on dev and the
+  # owner turns it on.
+  - variable: CREATE_SUGGEST_ANGLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: BRAND_MAP_PAGES_ENABLED
     value: "true"
     availability:

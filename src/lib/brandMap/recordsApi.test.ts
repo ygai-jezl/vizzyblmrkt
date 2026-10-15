@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
+import { BrandMapPageFactsSchema } from "@/lib/types/brandMapPage";
+import { withDerivedFacts } from "@/lib/content/blog/pageRow";
 
 // The brand's own domains come from its tenant record; here it has one.
 vi.mock("@/lib/tenant", async (original) => ({
@@ -58,5 +60,30 @@ describe("the map at any size's admin APIs", () => {
     const decided = await json(await api.proposalsFromRequest(ctx, { accept: { subjects: [id] } }, { db }));
     expect(decided).toMatchObject({ status: 200, body: { ok: true, accepted: 0 } });
     expect((await json(await api.subjectNamesFromRequest(ctx, { db }))).body).toEqual({ subjects: [{ id, name: "Citations", groupId: null, status: "decided" }] });
+  });
+
+  it("hands the content map a subject's own pages when asked, and the ungrouped subjects' totals beside the groups", async () => {
+    const db = new FakeFirestore();
+    const made = await json(await api.createSubjectFromRequest(ctx, { name: "Citations" }, { db }));
+    const id = (made.body.value as { id: string }).id;
+    await api.addQuestionFromRequest(ctx, id, { text: "Which sources do AI engines cite?", intent: "other" }, { db });
+    const row = (rowId: string, over: Record<string, unknown>) => ({
+      ...withDerivedFacts(BrandMapPageFactsSchema.parse({ kind: "article", workspaceId: "ws1", planId: rowId, title: rowId, state: "live", ...over })),
+      id: rowId,
+      tenantId: "ten_A",
+      fingerprint: `f_${rowId}`,
+      updatedAt: "",
+    });
+    db.seed("brand_map_pages", "p_1", row("p_1", { primaryQuestion: "Which sources do AI engines cite?", url: "https://acme.example/blog/cite" }) as never);
+    db.seed("brand_map_pages", "p_2", row("p_2", { primaryQuestion: "Which engines matter most?" }) as never);
+
+    expect((await json(await api.subjectFromRequest(ctx, id, { db }))).body.pages).toBeUndefined();
+    const view = await json(await api.subjectFromRequest(ctx, id, { db }, { view: "map" }));
+    const pages = view.body.pages as Array<Record<string, unknown>>;
+    expect(pages.map((p) => p.id)).toEqual(["p_1"]);
+    // As the browser gets a row: its facts, no fingerprint or tenant.
+    expect(pages[0]).not.toHaveProperty("fingerprint");
+    expect(pages[0]).not.toHaveProperty("tenantId");
+    expect((await json(await api.groupsFromRequest(ctx, { db }))).body).toEqual({ groups: [], ungrouped: expect.objectContaining({ subjects: 1, questions: 1, answered: 1 }) });
   });
 });

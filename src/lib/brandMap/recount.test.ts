@@ -8,7 +8,7 @@ import { computeCoverage } from "@/lib/content/blog/coverage";
 import { withDerivedFacts } from "@/lib/content/blog/pageRow";
 import { writePageRow } from "@/lib/content/blog/pageActions";
 import { ensureMoved } from "./move";
-import { recountGroup, recountSubject, subjectCoverage } from "./recount";
+import { recountGroup, recountSubject, subjectCoverage, subjectViewRows } from "./recount";
 import { createGroup, editSubject } from "./records";
 import { saveBrandMap } from "./store";
 
@@ -80,6 +80,13 @@ describe("coverage one subject at a time", () => {
     }
     const sov = await subjectCoverage(ctx, "sub_aaaaaaaa", { db });
     expect(sov?.missingLinks).toEqual(today.missingLinks.filter((m) => m.subjectId === "sub_aaaaaaaa"));
+  });
+
+  it("draws a subject's own view from its own rows: written for it, answering it for sure, or its home page", async () => {
+    const db = await setup(rows());
+    const read = await subjectCoverage(ctx, "sub_aaaaaaaa", { db });
+    // p_c is only close in wording; p_f and the rest are another subject's or nobody's.
+    expect(subjectViewRows(read!).map((r) => r.id).sort()).toEqual(["p_a", "p_b", "p_d", "s_e"]);
   });
 
   it("stores a subject's counts and its group's totals, and the ungrouped ones' on the brand's record", async () => {

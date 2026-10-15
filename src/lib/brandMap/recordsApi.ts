@@ -6,7 +6,8 @@ import { ownSitesOf } from "./adminApi";
 import { afterRecordsChange } from "./afterChange";
 import { ensureMoved } from "./move";
 import { decideProposals } from "./proposals";
-import { recountGroup, recountSubject } from "./recount";
+import { recountGroup, recountSubject, subjectViewRows } from "./recount";
+import { mapPageOf } from "./contentMapLayout";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import {
@@ -107,9 +108,10 @@ export async function listSubjectsFromRequest(ctx: TenantContext, url: URL, deps
 
 /**
  * GET one subject: its questions and what the brand's pages answer of them, worked out now
- * (opening a subject also brings its stored counts up to date).
+ * (opening a subject also brings its stored counts up to date). `view=map` adds the pages
+ * its view of the content map draws.
  */
-export async function subjectFromRequest(ctx: TenantContext, id: string, deps: Deps = {}): Promise<Response> {
+export async function subjectFromRequest(ctx: TenantContext, id: string, deps: Deps = {}, opts: { view?: string | null } = {}): Promise<Response> {
   const read = await recountSubject(ctx, id, deps).catch(() => null);
   if (read) {
     return NextResponse.json({
@@ -118,11 +120,19 @@ export async function subjectFromRequest(ctx: TenantContext, id: string, deps: D
       coverage: read.coverage,
       overlaps: read.overlaps,
       missingLinks: read.missingLinks,
+      ...(opts.view === "map" ? { pages: subjectViewRows(read).map(mapPageOf) } : {}),
     });
   }
   const subject = await getSubject(ctx, id, deps);
   if (!subject) return NextResponse.json({ error: "no_subject" }, { status: 404 });
-  return NextResponse.json({ subject, questions: await subjectQuestions(ctx, subject.id, deps), coverage: null, overlaps: [], missingLinks: [] });
+  return NextResponse.json({
+    subject,
+    questions: await subjectQuestions(ctx, subject.id, deps),
+    coverage: null,
+    overlaps: [],
+    missingLinks: [],
+    ...(opts.view === "map" ? { pages: [] } : {}),
+  });
 }
 
 /** A batch per call, with a person waiting on each: generous, but bounded. */
@@ -220,8 +230,10 @@ export async function removeQuestionFromRequest(ctx: TenantContext, id: string, 
   return settle(ctx, await removeQuestion(ctx, id, deps), deps);
 }
 
+/** GET the groups, with the ungrouped subjects' totals (kept on the brand's record). */
 export async function groupsFromRequest(ctx: TenantContext, deps: Deps = {}): Promise<Response> {
-  return NextResponse.json({ groups: await listGroups(ctx, deps) });
+  const [groups, read] = await Promise.all([listGroups(ctx, deps), readBrandMap(ctx, deps.db).catch(() => null)]);
+  return NextResponse.json({ groups, ungrouped: read?.state === "ok" ? (read.map.ungroupedTotals ?? null) : null });
 }
 
 export async function createGroupFromRequest(ctx: TenantContext, body: unknown, deps: Deps = {}): Promise<Response> {

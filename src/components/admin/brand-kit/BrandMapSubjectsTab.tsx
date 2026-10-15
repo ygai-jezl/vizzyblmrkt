@@ -7,13 +7,14 @@ import { api, errorText } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { PageLink, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { matchSubjects, type SubjectName } from "./MapSubjectSearch";
+import { useMapMove } from "./brandMapMove";
 
 /**
  * The Subjects tab of a map at any size (BRAND_MAP_SCALE_ENABLED): groups on the left, a
  * group's subjects least answered first, and one subject's questions, home page and what
  * its pages answer. Proposals sit in place, dashed, to add or dismiss. Members see it all;
- * admins change it. The first time an admin opens it, the brand's subjects move into their
- * records, then its pages are read and counted (a progress line says how far).
+ * admins change it. The page moves the brand's subjects into their records the first time
+ * an admin opens it (brandMapMove); this tab reads them again when that finishes.
  */
 
 const MAP = "/api/admin/brand-kit/map";
@@ -31,37 +32,21 @@ interface SubjectRead {
 
 const pct = (answered: number, questions: number) => (questions ? Math.round((100 * answered) / questions) : 0);
 
-/** Run a step-at-a-time route to the end, saying how far it got. */
-async function runAll(path: string, say: (n: number) => void, cursorKey: "cursor" = "cursor"): Promise<boolean> {
-  let cursor: unknown = null;
-  for (let call = 0; call < 400; call += 1) {
-    const r = await api<{ done?: boolean; next?: unknown; error?: string }>(path, { method: "POST", body: JSON.stringify({ [cursorKey]: cursor }) });
-    if (!r.ok) return false;
-    say(call + 1);
-    if (r.data.done || !r.data.next) return true;
-    cursor = r.data.next;
-  }
-  return false;
-}
-
 export function BrandMapSubjectsTab({
   canEdit,
-  moved: movedAtLoad,
   programmes,
-  ungroupedTotals,
+  ungroupedTotals: ungroupedAtLoad,
 }: {
   canEdit: boolean;
-  /** The map's subjects are in records already. */
-  moved: boolean;
   /** The programmes an open question can be written in; null = not offered. */
   programmes: Array<{ id: string; name: string }> | null;
   ungroupedTotals: Partial<GroupTotals> | null;
 }) {
-  const [moved, setMoved] = useState(movedAtLoad);
-  const [progress, setProgress] = useState<string | null>(null);
+  const { moved, progress, round } = useMapMove();
   const [note, setNote] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
   const [view, setView] = useState<View>({ kind: "all" });
   const [groups, setGroups] = useState<BrandMapGroup[]>([]);
+  const [ungroupedTotals, setUngroupedTotals] = useState(ungroupedAtLoad);
   const [subjects, setSubjects] = useState<BrandMapSubjectRecord[] | null>(null);
   const [names, setNames] = useState<SubjectName[] | null>(null);
   const [query, setQuery] = useState("");
@@ -72,8 +57,9 @@ export function BrandMapSubjectsTab({
   const [newGroup, setNewGroup] = useState("");
 
   const loadGroups = useCallback(async () => {
-    const r = await api<{ groups?: BrandMapGroup[] }>(`${MAP}/groups`);
+    const r = await api<{ groups?: BrandMapGroup[]; ungrouped?: Partial<GroupTotals> | null }>(`${MAP}/groups`);
     if (r.ok && r.data.groups) setGroups(r.data.groups);
+    if (r.ok && r.data.ungrouped !== undefined) setUngroupedTotals(r.data.ungrouped);
   }, []);
 
   const loadSubjects = useCallback(async (v: View) => {
@@ -96,38 +82,16 @@ export function BrandMapSubjectsTab({
     }
   }, []);
 
-  // The first time an admin opens it: move, read the pages, count them.
-  useEffect(() => {
-    if (moved || !canEdit) return;
-    let gone = false;
-    void (async () => {
-      setProgress("Moving your subjects into their own records…");
-      const m = await api<{ ok?: boolean; error?: string }>(`${MAP}/move`, { method: "POST", body: "{}" });
-      if (gone) return;
-      if (!m.ok) {
-        setProgress(null);
-        setNote({ tone: "err", text: errorText(m.data) });
-        return;
-      }
-      setMoved(true);
-      await runAll(`${MAP}/pages`, (n) => setProgress(`Reading what's already there (batch ${n})…`));
-      await runAll(`${MAP}/recount`, (n) => setProgress(`Counting what your pages answer (batch ${n})…`));
-      if (!gone) setProgress(null);
-    })();
-    return () => {
-      gone = true;
-    };
-  }, [moved, canEdit]);
-
+  // Read again when the page's move (and its count) finishes: `round` goes up.
   useEffect(() => {
     if (!moved) return;
     void loadGroups();
-  }, [moved, loadGroups]);
+  }, [moved, round, loadGroups]);
   useEffect(() => {
     if (!moved) return;
     setSubjects(null);
     void loadSubjects(view);
-  }, [moved, view, loadSubjects]);
+  }, [moved, round, view, loadSubjects]);
   useEffect(() => {
     if (openId) {
       void loadOpen(openId);
@@ -165,22 +129,12 @@ export function BrandMapSubjectsTab({
   const groupName = (id: string | null) => (id ? (groups.find((g) => g.id === id)?.name ?? "A group") : "Ungrouped");
 
   if (!moved) {
-    return progress ? (
-      <p role="status" className="text-sm text-neutral-500">
-        {progress}
-      </p>
-    ) : (
-      <Banner tone="info">{note?.text ?? "Your subjects move here the first time an admin opens this page."}</Banner>
-    );
+    // The page says how the move is going.
+    return progress ? null : <Banner tone="info">Your subjects move here the first time an admin opens this page.</Banner>;
   }
 
   return (
     <div className="space-y-4">
-      {progress ? (
-        <p role="status" className="text-xs text-neutral-500">
-          {progress}
-        </p>
-      ) : null}
       {note ? <Banner tone={note.tone}>{note.text}</Banner> : null}
 
       <div className="flex flex-wrap items-end gap-2">

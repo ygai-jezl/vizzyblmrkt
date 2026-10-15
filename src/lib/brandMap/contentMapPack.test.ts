@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { packSiblings, type Circle } from "./packSiblings";
-import { groupItem, MAX_CIRCLES, packLevel, subjectItem, type PackItem } from "./contentMapPack";
+import { groupItem, levelTotals, MAX_CIRCLES, packLevel, subjectItem, topItems, UNGROUPED, type PackItem } from "./contentMapPack";
 
 /** A fixed pseudo-random sequence, so the tests are the same every run. */
 function rand(seed: number) {
@@ -90,8 +90,41 @@ describe("a level of the content map", () => {
       label: "Tracking",
       value: 11,
       score: "4 of 11 answered",
+      questions: 11,
+      answered: 4,
+      subjects: 3,
       dots: { answered: 2, drafted: 0, open: 1 },
     });
-    expect(packLevel([], { width: 100, height: 100 })).toMatchObject({ circles: [], more: 0 });
+    expect(packLevel([], { width: 100, height: 100 })).toMatchObject({ circles: [], more: 0, rings: { decided: "", proposed: "" } });
+  });
+
+  it("fills proposed circles apart from decided ones, under the dots", () => {
+    const level = packLevel(items(20, 5), { width: 880, height: 600 });
+    const proposed = level.circles.filter((c) => c.proposed).length;
+    expect(dotCount(level.rings.proposed)).toBe(proposed);
+    expect(dotCount(level.rings.decided)).toBe(20 - proposed);
+  });
+});
+
+describe("the top of the map", () => {
+  const groups = [
+    { id: "grp_a", name: "Tracking", totals: { subjects: 3, questions: 11, answered: 4 } },
+    { id: "grp_b", name: "Getting cited", totals: { subjects: 2, questions: 5, answered: 1 } },
+  ];
+
+  it("shows the groups, then the subjects in none as one more, unless they're counted and there are none", () => {
+    expect(topItems(groups, { subjects: 4, questions: 9, answered: 0 }).map((i) => i.label)).toEqual(["Tracking", "Getting cited", "Ungrouped"]);
+    expect(topItems(groups, { subjects: 0, questions: 0, answered: 0 }).map((i) => i.id)).toEqual(["grp_a", "grp_b"]);
+    // Not counted yet: shown, so nothing goes missing.
+    expect(topItems(groups, null).map((i) => i.id)).toEqual(["grp_a", "grp_b", UNGROUPED]);
+  });
+
+  it("adds a level up for the line under its title, leaving proposals out of the totals", () => {
+    expect(levelTotals(topItems(groups, null))).toEqual({ subjects: 5, questions: 16, answered: 5, proposed: 0 });
+    const subjects = [
+      subjectItem({ id: "sub_a", name: "A", status: "decided", counts: { questions: 4, answered: 1, drafted: 0, planned: 0, open: 3 } }),
+      subjectItem({ id: "sub_b", name: "B", status: "proposed", counts: { questions: 0, answered: 0, drafted: 0, planned: 0, open: 0 } }),
+    ];
+    expect(levelTotals(subjects)).toEqual({ subjects: 1, questions: 4, answered: 1, proposed: 1 });
   });
 });

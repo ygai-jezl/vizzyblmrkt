@@ -72,6 +72,8 @@ export interface SubjectCoverageRead {
   missingLinks: Coverage["missingLinks"];
   siblings: Coverage["siblings"];
   answered: Coverage["answered"];
+  /** The rows it was worked out from. */
+  rows: BrandMapPage[];
 }
 
 /** One subject's coverage, worked out now from its own rows (`exclude`: an article's own row never answers its own questions). */
@@ -85,7 +87,16 @@ export async function subjectCoverage(ctx: TenantContext, subjectId: string, dep
     { subjects: [{ id: subject.id, name: subject.name, home: subject.home, questions: decided.map((q) => ({ id: q.id, text: q.text, intent: q.intent })) }] },
     rows,
   );
-  return { subject, questions, coverage: c.subjects[0]!, overlaps: c.overlaps, missingLinks: c.missingLinks, siblings: c.siblings, answered: c.answered };
+  return { subject, questions, coverage: c.subjects[0]!, overlaps: c.overlaps, missingLinks: c.missingLinks, siblings: c.siblings, answered: c.answered, rows };
+}
+
+/**
+ * The rows a subject's own view of the content map draws: written for it, answering one of
+ * its questions for sure, or at its home page. A row that only shares a word stays off.
+ */
+export function subjectViewRows(read: Pick<SubjectCoverageRead, "subject" | "coverage" | "rows">): BrandMapPage[] {
+  const answering = new Set(read.coverage.questions.flatMap((q) => q.pages.map((p) => p.id)));
+  return read.rows.filter((r) => r.subjectId === read.subject.id || answering.has(r.id) || Boolean(read.subject.urlKey && r.urlKey === read.subject.urlKey));
 }
 
 /** A subject's counts, from its coverage. */

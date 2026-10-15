@@ -16,6 +16,8 @@ import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
 import { BrandMapTabs } from "@/components/admin/brand-kit/BrandMapTabs";
 import { BrandMapContentMap } from "@/components/admin/brand-kit/BrandMapContentMap";
+import { BrandMapContentMapLevels } from "@/components/admin/brand-kit/BrandMapContentMapLevels";
+import { BrandMapMoveProvider } from "@/components/admin/brand-kit/brandMapMove";
 import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
@@ -56,6 +58,51 @@ export default async function BrandMapPage() {
   const programmes = writeNextOn ? workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name })) : null;
   const root = tenant?.rootDomain?.trim();
 
+  const tabs = (
+    <BrandMapTabs
+      editor={
+        <BrandMapEditor
+          initial={decidedOf(map)}
+          rev={map?.rev ?? 0}
+          suggestions={map?.suggestions ?? []}
+          research={map?.research ?? null}
+          unreadable={read.state === "unreadable"}
+          canEdit={ctx.role === "admin"}
+          canResearch={isBrandMapResearchEnabled() && isGeminiConfigured()}
+          canLookup={isBrandMapWikidataEnabled()}
+          defaults={{ name: tenant?.tenantName?.trim() ?? "", site: root ? `https://${root.replace(/^https?:\/\//, "")}` : "" }}
+          coverage={coverage}
+          programmes={programmes}
+          scale={scale}
+          recordsDecided={Boolean(map?.recordsDecidedAt)}
+        />
+      }
+      editorLabel={scale ? "Who you are" : undefined}
+      extra={
+        scale
+          ? [{ id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} /> }]
+          : []
+      }
+      contentMap={
+        scale ? (
+          pagesOn && map ? (
+            <BrandMapContentMapLevels
+              brand={{ name: map.identity.name, statement: map.identity.statement }}
+              // A subject's own page is added when it is open.
+              homes={homesOf({ identity: map.identity, names: map.names, subjects: [] })}
+              programmes={programmes}
+            />
+          ) : null
+        ) : coverage && map ? (
+          <BrandMapContentMap
+            input={{ brand: { name: map.identity.name, statement: map.identity.statement }, coverage, pages: pages.map(mapPageOf), homes: homesOf(map) }}
+            programmes={programmes}
+          />
+        ) : null
+      }
+    />
+  );
+
   return (
     <div className="space-y-5">
       <div>
@@ -68,45 +115,14 @@ export default async function BrandMapPage() {
         <h1 className="mt-1 text-lg font-semibold">Brand map</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">One set of names and subjects. Every article is written from it.</p>
       </div>
-      <BrandMapTabs
-        editor={
-          <BrandMapEditor
-            initial={decidedOf(map)}
-            rev={map?.rev ?? 0}
-            suggestions={map?.suggestions ?? []}
-            research={map?.research ?? null}
-            unreadable={read.state === "unreadable"}
-            canEdit={ctx.role === "admin"}
-            canResearch={isBrandMapResearchEnabled() && isGeminiConfigured()}
-            canLookup={isBrandMapWikidataEnabled()}
-            defaults={{ name: tenant?.tenantName?.trim() ?? "", site: root ? `https://${root.replace(/^https?:\/\//, "")}` : "" }}
-            coverage={coverage}
-            programmes={programmes}
-            scale={scale}
-            recordsDecided={Boolean(map?.recordsDecidedAt)}
-          />
-        }
-        editorLabel={scale ? "Who you are" : undefined}
-        extra={
-          scale
-            ? [
-                {
-                  id: "subjects",
-                  label: "Subjects",
-                  node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} moved={Boolean(map?.moved)} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} />,
-                },
-              ]
-            : []
-        }
-        contentMap={
-          coverage && map ? (
-            <BrandMapContentMap
-              input={{ brand: { name: map.identity.name, statement: map.identity.statement }, coverage, pages: pages.map(mapPageOf), homes: homesOf(map) }}
-              programmes={programmes}
-            />
-          ) : null
-        }
-      />
+      {scale ? (
+        // The first time an admin opens the page, whichever tab shows, the subjects move into their records.
+        <BrandMapMoveProvider canMove={ctx.role === "admin" && read.state !== "unreadable"} moved={Boolean(map?.moved)}>
+          {tabs}
+        </BrandMapMoveProvider>
+      ) : (
+        tabs
+      )}
     </div>
   );
 }

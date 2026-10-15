@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { BlogArticleMeta, BlogBrief } from "@/lib/types/contentPlan";
 import { CITABLE_LETTERS, evaluateCitable, type CitableStatus } from "@/lib/content/blog/citable";
+import type { ArticleMap } from "@/lib/content/blog/articleMap";
 
 /**
  * The CITABLE check, live in the inspector: the same evaluateCitable the server runs after
@@ -27,6 +28,7 @@ export function CitableChecklist({
   brief,
   meta,
   pageUrl,
+  map = null,
 }: {
   markdown: string;
   brief: BlogBrief;
@@ -34,10 +36,12 @@ export function CitableChecklist({
   meta?: BlogArticleMeta | null;
   /** The article's own URL (the plan's hub URL), so links to it count as the brand's own. */
   pageUrl: string | null;
+  /** The brand map the article is written from; adds its two checks. */
+  map?: ArticleMap | null;
 }) {
   const report = useMemo(
-    () => (markdown.trim() ? evaluateCitable(markdown, { brief, meta, pageUrl }) : null),
-    [markdown, brief, meta, pageUrl],
+    () => (markdown.trim() ? evaluateCitable(markdown, { brief, meta, pageUrl, map }) : null),
+    [markdown, brief, meta, pageUrl, map],
   );
   if (!report) return null;
 

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { schemaScriptTag, suggestBlogSchema } from "./schema";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
+import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
+import { organizationJsonLd } from "@/lib/brandMap/orgMarkup";
+import { projectArticleMap } from "./articleMap";
 
 type Node = Record<string, unknown>;
 const graphOf = (jsonLd: Record<string, unknown> | null) => (jsonLd?.["@graph"] ?? []) as Node[];
@@ -93,5 +96,68 @@ describe("suggested schema markup", () => {
     expect(JSON.parse(tag.replace(/^<script[^>]*>\n/, "").replace(/\n<\/script>$/, ""))["@graph"][0].headline).toContain(
       "</script>",
     );
+  });
+});
+
+describe("suggested markup with a brand map", () => {
+  const map = projectArticleMap({
+    ...BrandMapDecidedSchema.parse({
+      identity: {
+        name: "Acme",
+        category: "AI search visibility monitoring",
+        site: "https://acme.example",
+        profiles: [{ url: "https://www.linkedin.com/company/acme-example", source: "site", confirmedAt: "t" }],
+        categorySameAs: [{ url: "https://www.wikidata.org/wiki/Q1001", source: "wikidata", confirmedAt: "t" }],
+      },
+      names: [
+        { id: "n_aaaaaaaa", name: "Acme Visibility", kind: "product", home: "https://acme.example/product", sameAs: [] },
+        { id: "n_bbbbbbbb", name: "Rivalco", kind: "alternative", home: "https://acme.example/vs/rivalco", sameAs: [{ url: "https://www.wikidata.org/wiki/Q1002", source: "wikidata", confirmedAt: "t" }] },
+      ],
+    }),
+    rev: 1,
+  });
+  const graph = (s: ReturnType<typeof suggestBlogSchema>) => (s.jsonLd!["@graph"] as Array<Record<string, unknown>>);
+  const posting = (s: ReturnType<typeof suggestBlogSchema>) => graph(s).find((g) => g["@type"] === "BlogPosting")!;
+
+  it("puts the brand's confirmed profiles on the publisher, and identifiers on the names the article uses", () => {
+    const s = suggestBlogSchema({ markdown: SAMPLE_ARTICLE, brief: SAMPLE_BRIEF, pageUrl: "https://acme.example/blog/visibility", map });
+    expect(graph(s).find((g) => g["@type"] === "Organization")).toMatchObject({ sameAs: ["https://www.linkedin.com/company/acme-example"] });
+    expect(posting(s).about).toEqual([
+      { "@type": "Thing", name: "Acme Visibility", url: "https://acme.example/product" },
+      { "@type": "Thing", name: "AI search visibility monitoring", sameAs: ["https://www.wikidata.org/wiki/Q1001"] },
+    ]);
+    // An alternative carries its identifier, never the brand's own comparison page as its url.
+    expect(posting(s).mentions).toContainEqual({ "@type": "Thing", name: "Rivalco", sameAs: ["https://www.wikidata.org/wiki/Q1002"] });
+    expect(s.notes.join(" ")).toContain("lists your confirmed profile links from your brand map as sameAs");
+  });
+
+  it("gives the brand's publisher the map's site, so its @id is the home page markup's", () => {
+    const www = { ...SAMPLE_BRIEF, publisherUrl: "https://www.acme.example/" };
+    const s = suggestBlogSchema({ markdown: SAMPLE_ARTICLE, brief: www, pageUrl: "https://acme.example/blog/visibility", map });
+    expect(graph(s).find((g) => g["@type"] === "Organization")).toMatchObject({ "@id": "https://acme.example/#organization", url: "https://acme.example" });
+  });
+
+  it("never puts the brand's profiles on someone else's site", () => {
+    const guest = { ...SAMPLE_BRIEF, publisherUrl: "https://partner.example", publisherName: "Partner" };
+    const s = suggestBlogSchema({ markdown: SAMPLE_ARTICLE, brief: guest, pageUrl: "https://partner.example/blog/x", map });
+    expect(graph(s).find((g) => g["@type"] === "Organization")).not.toHaveProperty("sameAs");
+  });
+
+  it("is exactly as before without a map", () => {
+    const input = { markdown: SAMPLE_ARTICLE, brief: SAMPLE_BRIEF, pageUrl: "https://acme.example/blog/visibility" };
+    expect(suggestBlogSchema({ ...input, map: null })).toEqual(suggestBlogSchema(input));
+  });
+
+  it("builds the home page's Organization markup from the saved map", () => {
+    expect(organizationJsonLd(BrandMapDecidedSchema.parse({ identity: { name: "Acme", site: "https://acme.example/", statement: "We measure AI answers.", profiles: [{ url: "https://x.com/acme_example" }] } }))).toEqual({
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "@id": "https://acme.example/#organization",
+      name: "Acme",
+      url: "https://acme.example",
+      description: "We measure AI answers.",
+      sameAs: ["https://x.com/acme_example"],
+    });
+    expect(organizationJsonLd(BrandMapDecidedSchema.parse({ identity: { name: "Acme" } }))).toBeNull();
   });
 });

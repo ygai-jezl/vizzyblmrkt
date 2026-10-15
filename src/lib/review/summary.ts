@@ -12,6 +12,10 @@ import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
+import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
+import { isBrandMapEnabled } from "@/lib/brandMap/flags";
+import { readBrandMap } from "@/lib/brandMap/store";
+import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -23,7 +27,7 @@ import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
  * so the sidebar count caches that part — see countReview.
  */
 
-export type ReviewKind = "ai_line" | "repo_results" | "agent_draft" | "content_hub" | "failed_post" | "connection";
+export type ReviewKind = "ai_line" | "repo_results" | "agent_draft" | "brand_map" | "content_hub" | "failed_post" | "connection";
 
 export interface ReviewItem {
   id: string;
@@ -48,6 +52,10 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "Drafts from Vizzy",
     description: "Vizzy only saves drafts. Check them, then publish or turn them on when you're happy.",
   },
+  brand_map: {
+    title: "Brand map suggestions",
+    description: "Names, subjects and questions found by research, your articles and Vizzy, waiting for you to accept or dismiss them.",
+  },
   content_hub: {
     title: "Content waiting for approval",
     description: "Approve a hub to let its spokes be written.",
@@ -63,7 +71,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "agent_draft", "repo_results", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "agent_draft", "repo_results", "brand_map", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -186,6 +194,24 @@ export function contentHubItem(
   };
 }
 
+const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", article: "your articles", vizzy: "Vizzy" };
+
+/** Suggestions waiting on the brand map: one row, however many (BRAND_MAP_ENABLED). */
+export function brandMapItem(map: Pick<BrandMap, "suggestions"> | null): ReviewItem | null {
+  const n = map?.suggestions.length ?? 0;
+  if (!map || n === 0) return null;
+  const from = (["research", "article", "vizzy"] as const).filter((f) => map.suggestions.some((s) => s.from === f)).map((f) => FROM[f]);
+  const said = from.length > 1 ? `${from.slice(0, -1).join(", ")} and ${from.at(-1)}` : (from[0] ?? "");
+  return {
+    id: "brand_map",
+    kind: "brand_map",
+    title: `${n} suggestion${n === 1 ? "" : "s"} for your brand map`,
+    detail: said ? `From ${said}` : "Waiting for you",
+    href: BRAND_KIT_MAP_ROUTE,
+    action: "Review",
+  };
+}
+
 const CHANNEL: Record<string, string> = {
   blog: "Blog",
   newsletter: "Newsletter",
@@ -274,7 +300,7 @@ export async function loadReview(
 ): Promise<Review> {
   const repos = forTenant(ctx, db);
   const invites = isInvitesUiEnabled() && isInvitesEnabled();
-  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves] = await Promise.all([
+  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves, brandMap] = await Promise.all([
     opts.lifecycle ? soft("ai lines", countWaitingApprovals(ctx, db), 0) : 0,
     opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : [],
     opts.lifecycle || isWaitlistEngineUiEnabled()
@@ -307,6 +333,7 @@ export async function loadReview(
           [],
         )
       : [],
+    isBrandMapEnabled() ? soft("brand map", readBrandMap(ctx, db).then((r) => (r.state === "ok" ? r.map : null)), null) : null,
   ]);
 
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
@@ -326,6 +353,7 @@ export async function loadReview(
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
+    brandMapItem(brandMap),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

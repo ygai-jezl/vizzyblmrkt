@@ -17,6 +17,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type { BlogBrief, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
+import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { CITE_TAG, isCiteSourcesUiEnabled } from "@/lib/knowledge/cite";
@@ -38,7 +39,10 @@ import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
-import type { BlogHubControls } from "./blog/types";
+import type { BlogHubControls, LiveResult } from "./blog/types";
+import type { ArticleMap } from "@/lib/content/blog/articleMap";
+import { isAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
+import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
 
 /**
  * Create Canvas — the visual hub-and-spoke builder (React Flow). The Architect seeds
@@ -90,6 +94,17 @@ function blockFor(type: ContentNodeType): string {
   return "hook";
 }
 
+/** What research did with the brand map, for its note ("" without one, or when it did nothing). */
+function brandMapNote(m?: { respelled: number; suggested: number }): string {
+  if (!m) return "";
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    m.respelled ? `${count(m.respelled, "name", "names")} spelled its way` : "",
+    m.suggested ? `${count(m.suggested, "new name", "new names")} suggested for it` : "",
+  ].filter(Boolean);
+  return parts.length ? ` Brand map: ${parts.join(", ")}.` : "";
+}
+
 export function ContentCanvas({
   workspaceId,
   initial,
@@ -98,6 +113,8 @@ export function ContentCanvas({
   primaryLogoUrl,
   emailStyle = null,
   footerBrand = null,
+  brandMap = null,
+  pagesOn = false,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -111,6 +128,10 @@ export function ContentCanvas({
   emailStyle?: ResolvedEmailStyle | null;
   /** The footer's "sent by" brand, as the send resolves it; null = a placeholder. */
   footerBrand?: string | null;
+  /** A blog plan's brand map (CREATE_BLOG_BRAND_MAP_ENABLED and a saved map); null = none. */
+  brandMap?: ArticleMap | null;
+  /** The brand map's pages switch (BRAND_MAP_PAGES_ENABLED): the article's address can be set here. */
+  pagesOn?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -162,6 +183,8 @@ export function ContentCanvas({
     setBlogBriefState(next);
   }, []);
   const [blogBusy, setBlogBusy] = useState<null | "research" | "check">(null);
+  // The article's address (the plan's hub URL). Saved on its own, never with the canvas.
+  const [pageUrl, setPageUrl] = useState<string | null>(initial.strategy.hubUrl ?? null);
   const [blogNote, setBlogNoteState] = useState<{ text: string; about: "research" | "check" } | null>(null);
   const setBlogNote = useCallback(
     (text: string, about: "research" | "check") => setBlogNoteState({ text, about }),
@@ -438,6 +461,8 @@ export function ContentCanvas({
           verifiedSources: number;
           citedSources?: number;
         };
+        /** With a brand map: names spelled its way, and new ones suggested for it. */
+        map?: { respelled: number; suggested: number };
       };
       if (res.ok && data.brief) {
         setBlogBrief(data.brief);
@@ -453,7 +478,8 @@ export function ContentCanvas({
                 (data.searched === false ? " Search wasn't available, so the questions are yours alone." : "") +
                 (f.facts > 0 && f.sources === 0
                   ? " Search found facts but not the pages behind them this time — research again for sources."
-                  : ""),
+                  : "") +
+                brandMapNote(data.map),
           "research",
         );
       } else {
@@ -473,6 +499,49 @@ export function ContentCanvas({
 
   /** Keep a source from the brief as one of the programme's cite sources: it is added to
    *  the knowledge base, read as one page, and every later article can draw on it. */
+  /** Set the article's address; the plan's other fields are left as they are. */
+  async function saveAddress(url: string | null): Promise<AddressSaved> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hubUrl: url }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { plan?: ContentPlan; reason?: string };
+      if (!res.ok) return isAddressProblem(data.reason) ? data.reason : "failed";
+      setPageUrl(data.plan?.strategy.hubUrl ?? url);
+      return "saved";
+    } catch {
+      return "failed";
+    }
+  }
+
+  /** Check, mark or clear that the article is live; the server saves it on the hub's meta. */
+  async function setLive(id: string, action: LiveAction): Promise<LiveResult> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; check?: LiveCheck | null; error?: string };
+      if (!res.ok || !data.node) return { ok: false, error: data.error ?? (res.status === 429 ? "rate_limited" : "failed") };
+      // Only the live mark comes back into the canvas: an edit not saved yet stays as it is.
+      // (The server keeps its own mark whatever a save sends, so nothing here can undo it.)
+      const live = data.node.blog?.live ?? null;
+      applyNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          const cur = (n.data as ContentNodeData).cn;
+          return { ...n, data: { ...n.data, cn: { ...cur, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
+        }),
+      );
+      return { ok: true, check: data.check ?? null };
+    } catch {
+      return { ok: false, error: "failed" };
+    }
+  }
+
   async function keepSource(url: string): Promise<"kept" | "failed"> {
     try {
       const res = await fetch("/api/admin/knowledge/ingest", {
@@ -756,10 +825,12 @@ export function ContentCanvas({
           busy: blogBusy,
           note: blogNote?.text ?? null,
           noteFor: blogNote?.about ?? "research",
-          pageUrl: initial.strategy.hubUrl ?? null,
+          pageUrl,
           brandName: brandName ?? "",
           logoUrl: primaryLogoUrl ?? null,
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
+          ...(brandMap ? { map: brandMap } : {}),
+          ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
         }
       : undefined;
   const total = nodes.length;

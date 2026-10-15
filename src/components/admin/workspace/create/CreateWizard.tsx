@@ -10,6 +10,7 @@ import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { IngestBar } from "@/components/admin/workspace/IngestBar";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentObjective, ContentPlan, SequenceType } from "@/lib/types/contentPlan";
+import type { WriteNext } from "@/lib/content/blog/articleMap";
 
 /**
  * Create intake wizard — 4 short steps (Strategy / Scope / Knowledge / Topology) +
@@ -29,22 +30,38 @@ const SPOKE_OPTIONS = CHANNELS.filter((c) => !["newsletter", "blog", "standalone
 
 const STEPS = ["Strategy", "Scope", "Knowledge", "Topology"] as const;
 
+/** A brand map subject a new article can be for, with its questions. */
+export interface MapSubjectChoice {
+  id: string;
+  name: string;
+  questions: Array<{ id: string; text: string }>;
+}
+
+/** "None of these" in the subject list (a map id never looks like this). */
+const NO_SUBJECT = "none";
+
 export function CreateWizard({
   workspaceId,
   topics,
   initialSources,
+  subjects = [],
+  prefill = null,
   onCreated,
   onCancel,
 }: {
   workspaceId: string;
   topics: string[];
   initialSources: IngestionTicket[];
+  /** The brand map's subjects (empty without a map in force). */
+  subjects?: MapSubjectChoice[];
+  /** "Write this next": a blog article that answers this map question. */
+  prefill?: WriteNext | null;
   onCreated: (plan: ContentPlan) => void;
   onCancel: () => void;
 }) {
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
-  const [objective, setObjective] = useState<ContentObjective>("newsletter_signups");
+  const [name, setName] = useState(prefill ? prefill.question.slice(0, 200) : "");
+  const [objective, setObjective] = useState<ContentObjective>(prefill ? "brand_visibility" : "newsletter_signups");
   const [sequenceType, setSequenceType] = useState<SequenceType>("welcome");
   const [hubUrl, setHubUrl] = useState("");
   const [subscriberCount, setSubscriberCount] = useState("");
@@ -52,12 +69,17 @@ export function CreateWizard({
   const [spark, setSpark] = useState("");
   const [groundingScope, setGroundingScope] = useState<"global" | "scoped">("global");
   const [proof, setProof] = useState("");
-  const [hubChannel, setHubChannel] = useState<"newsletter" | "blog">("newsletter");
+  const [hubChannel, setHubChannel] = useState<"newsletter" | "blog">(prefill ? "blog" : "newsletter");
   const [spokeChannels, setSpokeChannels] = useState<string[]>(["linkedin", "x"]);
   const [isEbook, setIsEbook] = useState(false);
   const [industryLens, setIndustryLens] = useState("");
-  const [blogQuestion, setBlogQuestion] = useState("");
+  const [blogQuestion, setBlogQuestion] = useState(prefill?.question ?? "");
   const [blogBuyerQuestions, setBlogBuyerQuestions] = useState("");
+  // The brand map subject: "" = research picks one, NO_SUBJECT = none of them. And the map
+  // question the article answers ("Write this next"), kept while it is on that subject.
+  const [subject, setSubject] = useState(prefill?.subjectId ?? "");
+  const [questionId, setQuestionId] = useState<string | null>(prefill?.questionId ?? null);
+  const linkedQuestion = questionId ? subjects.flatMap((s) => s.questions).find((q) => q.id === questionId) : undefined;
   const [sources, setSources] = useState<IngestionTicket[]>(initialSources);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -139,7 +161,14 @@ export function CreateWizard({
                 : { hubChannel, spokeChannels },
             // Blog hub only — what the operator already knows; research fills in the rest.
             ...(citableBlog
-              ? { blog: { primaryQuestion: blogQuestion.trim(), buyerQuestions: blogBuyerQuestions.trim() } }
+              ? {
+                  blog: {
+                    primaryQuestion: blogQuestion.trim(),
+                    buyerQuestions: blogBuyerQuestions.trim(),
+                    ...(subject === NO_SUBJECT ? { subjectId: null } : subject ? { subjectId: subject } : {}),
+                    ...(linkedQuestion ? { questionId: linkedQuestion.id } : {}),
+                  },
+                }
               : {}),
           }),
         },
@@ -194,6 +223,11 @@ export function CreateWizard({
       </div>
 
       <div className="space-y-4 p-4">
+        {prefill ? (
+          <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-600 dark:bg-neutral-900/40 dark:text-neutral-300">
+            Writing next from your brand map: “{prefill.question}” ({prefill.subjectName}).
+          </p>
+        ) : null}
         {/* Step 0 — Strategy */}
         {step === 0 ? (
           <div className="space-y-4">
@@ -444,7 +478,43 @@ export function CreateWizard({
                       maxLength={300}
                       className={INPUT}
                     />
+                    {linkedQuestion ? (
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <span className="min-w-0 flex-1">Answers “{linkedQuestion.text}” on your brand map.</span>
+                        <button
+                          type="button"
+                          aria-label="Stop counting this article as answering it"
+                          onClick={() => setQuestionId(null)}
+                          className="rounded px-1.5 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : null}
                   </Field>
+                  {subjects.length ? (
+                    <Field label="Subject (optional)" hint="Which subject on your brand map this article is for. Leave it and research picks one.">
+                      <select
+                        aria-label="Subject"
+                        value={subject}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setSubject(next);
+                          // The map question belongs to one subject: moving off it unlinks it.
+                          if (questionId && !subjects.find((s) => s.id === next)?.questions.some((q) => q.id === questionId)) setQuestionId(null);
+                        }}
+                        className={INPUT}
+                      >
+                        <option value="">Let research choose</option>
+                        {subjects.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                        <option value={NO_SUBJECT}>None of these</option>
+                      </select>
+                    </Field>
+                  ) : null}
                   <Field
                     label="What buyers ask (optional)"
                     hint="Paste what you hear on sales calls or see in search data."

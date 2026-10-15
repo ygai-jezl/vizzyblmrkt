@@ -1,6 +1,6 @@
 import { retrieveSemanticKnowledgeContext, type ContextRetrievalRequest } from "@/lib/agents/knowledgeRetrieval";
 import { getTenantById } from "@/lib/tenant";
-import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import type { TenantContext } from "@/lib/tenant/types";
 import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import type { BlogBrief, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
@@ -12,6 +12,8 @@ import { BLOG_WARNINGS, blogWarnings } from "./draft";
 import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
+import { fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
+import { syncPlanPageSoftly } from "./pageActions";
 
 /**
  * The two things a blog hub does besides being written — research before, and the fact
@@ -44,24 +46,48 @@ async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; s
   }
 }
 
-export type BlogResearchOutcome = ({ ok: true; brief: BlogBrief } & Pick<BlogResearchResult, "searched" | "found">) | BlogActionError;
+export type BlogResearchOutcome =
+  | ({
+      ok: true;
+      brief: BlogBrief;
+      /** With a brand map: how many names were respelled its way, and how many new ones were suggested for it. */
+      map?: { respelled: number; suggested: number };
+    } & Pick<BlogResearchResult, "searched" | "found">)
+  | BlogActionError;
 
 /** Research a blog plan's brief and save it on the plan. */
 export async function researchPlanBlog(
   ctx: TenantContext,
   args: { workspace: WorkspaceBits; plan: ContentPlan; timeoutMs?: number },
-  deps: BlogResearchDeps & { db?: FirestoreLike } = {},
+  deps: BlogResearchDeps & MapDeps = {},
 ): Promise<BlogResearchOutcome> {
   const { workspace, plan } = args;
   if (!isBlogCitableEnabled()) return { ok: false, status: 503, error: "unavailable" };
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
-  const brand = await tenantBrand(ctx);
+  // Read side by side: the tenant record, and the brand map (null with its flag off or none saved).
+  // With the pages switch on, the map also says what is answered and open, for research.
+  const [brand, map] = await Promise.all([tenantBrand(ctx), loadArticleMap(ctx, deps, { pages: true, planId: plan.id })]);
   const result = await researchBlogBrief(
-    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs },
+    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map },
     deps,
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
-  return { ok: true, brief: result.brief, searched: result.searched, found: result.found };
+  // Its questions, subject and names are the page's facts on the brand map.
+  await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
+  if (!result.mapFindings) return { ok: true, brief: result.brief, searched: result.searched, found: result.found };
+  // Names this article uses that the map does not have go to the map as suggestions.
+  const suggested = await fileArticleSuggestions(
+    ctx,
+    { plan: { id: plan.id, workspaceId: workspace.id, name: plan.name }, unknown: result.mapFindings.unknown, title: result.brief.primaryQuestion },
+    deps,
+  );
+  return {
+    ok: true,
+    brief: result.brief,
+    searched: result.searched,
+    found: result.found,
+    map: { respelled: result.mapFindings.respelled.length, suggested },
+  };
 }
 
 export type BlogCheckOutcome = { ok: true; node: ContentNode; corrected: number; checked: boolean } | BlogActionError;
@@ -70,7 +96,7 @@ export type BlogCheckOutcome = { ok: true; node: ContentNode; corrected: number;
 export async function checkPlanBlogFacts(
   ctx: TenantContext,
   args: { workspace: WorkspaceBits; plan: ContentPlan; nodeId: string; timeoutMs?: number },
-  deps: FactCheckDeps & { db?: FirestoreLike; retrieve?: typeof retrieveSemanticKnowledgeContext } = {},
+  deps: FactCheckDeps & MapDeps & { retrieve?: typeof retrieveSemanticKnowledgeContext } = {},
 ): Promise<BlogCheckOutcome> {
   const { workspace, plan } = args;
   if (!isBlogCitableEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -97,14 +123,19 @@ export async function checkPlanBlogFacts(
     bypassEnabledFlag: true,
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   };
-  const rag = await (deps.retrieve ?? retrieveSemanticKnowledgeContext)(req).catch(() => null);
+  const [rag, map] = await Promise.all([
+    (deps.retrieve ?? retrieveSemanticKnowledgeContext)(req).catch(() => null),
+    loadArticleMap(ctx, deps),
+  ]);
 
   const result = await checkBlogFacts(
     {
       plan,
       node,
       brief,
-      brandName: brief.publisherName.trim() || workspace.name,
+      // With a brand map, the brand is called what the map calls it.
+      brandName: map?.identity.name.trim() || brief.publisherName.trim() || workspace.name,
+      map,
       knowledgeContext: rag?.formatted ?? "",
       knowledgeUrls: (rag?.chunks ?? []).map((c) => c.sourceUri).filter(Boolean),
       proofBlock: fenceProof(plan.knowledge.proofAssets ?? []),
@@ -115,7 +146,7 @@ export async function checkPlanBlogFacts(
   if (!result.checked) return { ok: false, status: 502, error: "check_unavailable" };
 
   // Refresh the warnings the checks own; leave any other warning as it was.
-  const report = evaluateCitable(result.body, { brief, meta: result.meta, pageUrl: plan.strategy.hubUrl });
+  const report = evaluateCitable(result.body, { brief, meta: result.meta, pageUrl: plan.strategy.hubUrl, map });
   const owned = new Set<string>(BLOG_WARNINGS);
   const warnings = [...node.warnings.filter((w) => !owned.has(w)), ...blogWarnings(result.meta, report)];
   let updated: ContentNode | null;
@@ -132,5 +163,7 @@ export async function checkPlanBlogFacts(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  // The checked copy's names and links are the page's facts on the brand map.
+  await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
   return { ok: true, node: updated, corrected: result.corrected, checked: true };
 }

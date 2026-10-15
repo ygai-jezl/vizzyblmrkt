@@ -27,6 +27,7 @@ import { citableGaps, evaluateCitable, type CitableReport } from "./citable";
 import { unsupportedFigures } from "./figures";
 import { blogWriterThinkingBudget } from "./flags";
 import { slugify } from "./markdown";
+import { mapMaterial, writerMapBlock, type ArticleMap } from "./articleMap";
 
 /**
  * The blog hub's writer. One call writes the article to the CITABLE structure from its
@@ -60,6 +61,8 @@ export interface BlogDraftInput {
   audience?: string | null;
   /** One pass only — the caller has a deadline. */
   quick?: boolean;
+  /** The brand map the article is written from (CREATE_BLOG_BRAND_MAP_ENABLED); null = none, as before. */
+  map?: ArticleMap | null;
 }
 
 export interface BlogDraftDeps {
@@ -223,6 +226,7 @@ function buildTask(input: BlogDraftInput, today: string): string {
     sources: formatSources(sources),
     sources_note: sourcesNote(sources, ownHosts(brief, [plan.strategy.hubUrl])),
     links: formatLinks(brief.links),
+    brand_map: writerMapBlock(input.map ?? null, brief),
   });
 }
 
@@ -259,7 +263,7 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
       .map((f) => f.slice(0, 60)),
     removedLinks: linked.removed,
   });
-  const report = evaluateCitable(fitted.body, { brief: input.brief, meta, pageUrl: input.plan.strategy.hubUrl });
+  const report = evaluateCitable(fitted.body, { brief: input.brief, meta, pageUrl: input.plan.strategy.hubUrl, map: input.map ?? null });
   return { body: fitted.body, meta, report, cut: fitted.cut };
 }
 
@@ -290,6 +294,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
     brief,
     knowledgeContext: input.knowledgeContext,
     proofBlock: input.proofBlock,
+    extra: mapMaterial(input.map ?? null),
   });
 
   const thinking = { thinkingBudget: blogWriterThinkingBudget() };

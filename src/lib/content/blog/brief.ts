@@ -107,7 +107,7 @@ function dedupe<T>(rows: T[], key: (row: T) => string, max: number): T[] {
 
 /** Letters and digits of any script, so two spellings of one question — in any language —
  *  compare equal (and a question in Japanese is not mistaken for an empty one). */
-const textKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+export const textKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 /** What research found, before it is merged into a brief. */
 export interface BlogResearchFindings {
@@ -121,6 +121,10 @@ export interface BlogResearchFindings {
   /** What robots.txt says to the AI crawlers: null = it could not be read this time (so
    *  an older answer is not left standing); left out = not looked at, the brief keeps its own. */
   crawlers?: BlogCrawlerCheck | null;
+  /** The brand map subject research picked (only kept when the brief has none yet). */
+  subjectId?: string;
+  /** The brand map question the main question is (only kept when the brief has none yet). */
+  primaryRef?: string;
 }
 
 /**
@@ -155,6 +159,10 @@ export function mergeResearch(current: BlogBrief, found: BlogResearchFindings, r
     publisherUrl: current.publisherUrl || found.publisherUrl,
     researchedAt,
     ...(found.crawlers !== undefined ? { crawlers: found.crawlers } : {}),
+    // From the brand map: research only fills these in, never over what is there (a
+    // person's "none" for the subject included).
+    ...(found.subjectId && current.subjectId === undefined ? { subjectId: found.subjectId } : {}),
+    ...(found.primaryRef && !current.primaryRef ? { primaryRef: found.primaryRef } : {}),
   });
 }
 
@@ -169,6 +177,8 @@ export function blogReference(args: {
   brief: BlogBrief;
   knowledgeContext: string;
   proofBlock: string;
+  /** The brand map's own statements (what the brand is and is not); "" without one. */
+  extra?: string;
 }): string {
   const { plan, brief } = args;
   return [
@@ -181,6 +191,8 @@ export function blogReference(args: {
     ...brief.questions.map((q) => q.question),
     ...usableSources(brief).map((s) => `${s.fact} ${s.year ?? ""} ${s.title}`),
     plan.strategy.subscriberCount != null ? String(plan.strategy.subscriberCount) : "",
+    // Added only when there is something: without a map the reference is exactly as before.
+    ...(args.extra ? [args.extra] : []),
   ].join("\n");
 }
 

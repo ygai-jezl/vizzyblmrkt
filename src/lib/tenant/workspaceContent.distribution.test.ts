@@ -84,4 +84,16 @@ describe("updateContentPlan — server-owned distribution guard", () => {
     expect(raw.status).toBe("ready");
     expect(raw.graph.nodes[0]!.distributionStatus).toBe("scheduled");
   });
+
+  it("sets the hub URL (an article's address) alone, keeping the rest of the strategy", async () => {
+    const db = new FakeFirestore();
+    seedPlan(db, { ...baseNode });
+    await updateContentPlan(ctx(), WS, PLAN, { hubUrl: "https://acme.example/blog/x" }, db);
+    const raw = db.raw(PATH, PLAN) as Record<string, unknown> & { strategy: Record<string, unknown> };
+    expect(raw.strategy).toMatchObject({ objective: "product_launch", hubUrl: "https://acme.example/blog/x" });
+    expect(raw).not.toHaveProperty("hubUrl");
+    // Beside a graph save too, and cleared with null.
+    await updateContentPlan(ctx(), WS, PLAN, { hubUrl: null, graph: ContentGraphSchema.parse({ nodes: [baseNode], edges: [] }) }, db);
+    expect((db.raw(PATH, PLAN) as { strategy: Record<string, unknown> }).strategy).toMatchObject({ objective: "product_launch", hubUrl: null });
+  });
 });

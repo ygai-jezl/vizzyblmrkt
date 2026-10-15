@@ -16,6 +16,8 @@ import { runArchitect } from "@/lib/content/create/architectRun";
 import { fillPlanNodes } from "@/lib/content/create/fillPlan";
 import type { generateNode } from "@/lib/content/create/generateNode";
 import { checkPlanBlogFacts, isCitableBlogPlan, researchPlanBlog } from "@/lib/content/blog/hubActions";
+import { removePlanPageSoftly } from "@/lib/content/blog/pageActions";
+import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -164,10 +166,13 @@ export async function authorContentPlanDraft(
   if (intake.data.topology.hubChannel === "ebook") {
     return { ok: false, status: 422, error: "ebook_in_studio", issues: ["eBooks are written in the eBook studio, not from chat."] };
   }
+  const fields = planFromIntake(intake.data);
+  // A subject and question Vizzy named by id are checked against the saved map before they're kept.
+  if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog, { db: deps.db });
   const created = await createContentPlan(
     ctx,
     ws.id,
-    { ...planFromIntake(intake.data), authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) },
+    { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) },
     deps.db,
   );
   // A blog hub is researched while the architect lays out the plan (neither needs the
@@ -194,6 +199,8 @@ export async function authorContentPlanDraft(
   if (!built.ok) {
     // Nothing is written yet: don't leave an empty plan behind for every retry.
     await deleteContentPlan(ctx, ws.id, created.id, deps.db).catch(() => undefined);
+    // Research may have put it on the brand map already.
+    await removePlanPageSoftly(ctx, created.id, { db: deps.db });
     return { ok: false, status: built.status, error: built.error };
   }
   await updateContentPlan(ctx, ws.id, created.id, { graph: built.graph, status: "generating" }, deps.db);

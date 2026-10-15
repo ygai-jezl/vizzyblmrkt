@@ -906,7 +906,10 @@ export async function researchBlogBrief(
     const usedNames = new Set(entities.map((e) => fold(e.name)));
     for (const n of map.names) if (n.home && n.kind !== "alternative" && usedNames.has(fold(n.name))) homes.push({ url: n.home, label: n.name });
     if (mapSubject?.home) homes.push({ url: mapSubject.home, label: mapSubject.name });
-    for (const sib of map.siblings.filter((x) => x.subjectId === mapSubject?.id).slice(0, 2)) homes.push({ url: sib.url, label: sib.title });
+    const self = normalizeUrl(plan.strategy.hubUrl ?? "");
+    for (const sib of map.siblings.filter((x) => x.subjectId === mapSubject?.id && normalizeUrl(x.url) !== self).slice(0, 2)) {
+      homes.push({ url: sib.url, label: sib.title });
+    }
     const have = new Set(links.map((l) => normalizeUrl(l.url)));
     const extra = homes
       .map((h) => ({ url: normalizeUrl(h.url), label: h.label }))

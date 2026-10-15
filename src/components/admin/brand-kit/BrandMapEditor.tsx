@@ -10,6 +10,7 @@ import { Banner, Button } from "@/components/admin/connect/ui";
 import { BrandMapIdentity } from "./BrandMapIdentity";
 import { BrandMapLookup } from "./BrandMapLookup";
 import { BrandMapMarkup } from "./BrandMapMarkup";
+import { CoverageStrip, NeedsALook, QuestionStatus } from "./BrandMapCoverage";
 import { BrandMapNames } from "./BrandMapNames";
 import { BrandMapSubjects } from "./BrandMapSubjects";
 import { BrandMapSuggestions } from "./BrandMapSuggestions";
@@ -40,6 +41,11 @@ export function BrandMapEditor(props: BrandMapPageProps) {
   const [freshSuggestions, setFreshSuggestions] = useState<BrandMapSuggestion[] | null>(null);
   const dirty = isDirty(form, saved) || accepted.length > 0;
   const editable = props.canEdit && !props.unreadable;
+  // Each saved question's coverage, by its id (a question added since is not on it yet).
+  const coverageOf = useMemo(
+    () => (props.coverage ? new Map(props.coverage.subjects.flatMap((s) => s.questions.map((q) => [q.id, q] as const))) : null),
+    [props.coverage],
+  );
 
   // Whatever the server says is waiting, less what this person has just accepted or dismissed.
   const suggestions = useMemo(() => {
@@ -239,6 +245,8 @@ export function BrandMapEditor(props: BrandMapPageProps) {
         </ul>
       ) : null}
 
+      {props.coverage && props.coverage.subjects.length ? <CoverageStrip name={saved.identity.name} coverage={props.coverage} /> : null}
+
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-5">
           <BrandMapIdentity
@@ -280,6 +288,7 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onChange={(subjects) => setForm({ ...form, subjects })}
             issues={issues}
             disabled={!editable}
+            status={coverageOf ? (q) => <QuestionStatus q={coverageOf.get(q.id)} /> : undefined}
           />
           <BrandMapNames
             names={form.names}
@@ -313,6 +322,7 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onAccept={accept}
             onDismiss={dismiss}
           />
+          {props.coverage ? <NeedsALook coverage={props.coverage} /> : null}
           {baseRev > 0 ? <BrandMapMarkup saved={saved} /> : null}
         </div>
       </div>

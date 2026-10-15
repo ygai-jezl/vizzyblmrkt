@@ -50,6 +50,8 @@ export const BrandMapPageFactsSchema = z.object({
   names: z.array(z.string().max(L.name)).max(L.names).default([]),
   /** Its links to the brand's own pages, normalised. */
   links: z.array(z.string().max(L.url)).max(L.links).default([]),
+  /** Its links were read (always, for an article; for a page on the site, once it was crawled with them). */
+  linksKnown: z.boolean().default(true),
   state: BrandMapPageState.default("planned"),
   /** When it was first seen live (ISO), for "newer" and "older". */
   liveAt: z.string().max(40).nullable().default(null),

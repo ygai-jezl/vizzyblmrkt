@@ -9,6 +9,7 @@ import {
   type BrandMapSuggestion,
 } from "@/lib/types/brandMap";
 import { applyChanges } from "@/lib/brandMap/changes";
+import type { Coverage } from "@/lib/content/blog/coverage";
 
 /**
  * The Brand map editor's pure helpers: what the page starts from, whether it has unsaved
@@ -31,6 +32,8 @@ export interface BrandMapPageProps {
   canLookup: boolean;
   /** Filled into a blank map when a person starts it by hand. */
   defaults: { name: string; site: string };
+  /** What the brand's pages answer (BRAND_MAP_PAGES_ENABLED and a saved map); null = not shown. */
+  coverage?: Coverage | null;
 }
 
 export interface MapIssue {

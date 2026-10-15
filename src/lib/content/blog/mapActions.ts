@@ -2,7 +2,11 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BlogEntity, ContentPlan } from "@/lib/types/contentPlan";
 import { BrandMapChangeSchema, type BrandMap } from "@/lib/types/brandMap";
 import { decidedBrandMap, fileBrandMapSuggestions, type SuggestionInput } from "@/lib/brandMap/store";
+import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { listBrandMapPages } from "@/lib/brandMap/pages";
+import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import { projectArticleMap, type ArticleMap } from "./articleMap";
+import { computeCoverage } from "./coverage";
 import { isBlogBrandMapEnabled } from "./flags";
 
 /**
@@ -15,13 +19,27 @@ export interface MapDeps {
   db?: FirestoreLike;
   /** The saved map (tests inject one). */
   loadMap?: (ctx: TenantContext, db?: FirestoreLike) => Promise<BrandMap | null>;
+  /** The brand's page rows (tests inject them). */
+  listPages?: (ctx: TenantContext, db?: FirestoreLike) => Promise<BrandMapPage[]>;
 }
 
-/** The map an article is written from, or null (flag off, none saved, or unreadable) — then it is written as before. */
-export async function loadArticleMap(ctx: TenantContext, deps: MapDeps = {}): Promise<ArticleMap | null> {
+/**
+ * The map an article is written from, or null (flag off, none saved, or unreadable) — then it
+ * is written as before. With `pages` (research) and the pages switch on, it also carries which
+ * map questions are answered and the live articles on each subject, read beside the map.
+ */
+export async function loadArticleMap(ctx: TenantContext, deps: MapDeps = {}, opts: { pages?: boolean } = {}): Promise<ArticleMap | null> {
   if (!isBlogBrandMapEnabled()) return null;
-  const map = await (deps.loadMap ?? decidedBrandMap)(ctx, deps.db).catch(() => null);
-  return map ? projectArticleMap(map) : null;
+  const withPages = Boolean(opts.pages) && isBrandMapPagesEnabled();
+  const [map, rows] = await Promise.all([
+    (deps.loadMap ?? decidedBrandMap)(ctx, deps.db).catch(() => null),
+    withPages ? (deps.listPages ?? listBrandMapPages)(ctx, deps.db).catch((): BrandMapPage[] => []) : Promise.resolve([]),
+  ]);
+  if (!map) return null;
+  const article = projectArticleMap(map);
+  if (!rows.length) return article;
+  const coverage = computeCoverage(article, rows);
+  return { ...article, answered: coverage.answered, siblings: coverage.siblings };
 }
 
 /** Run a best-effort side job, waiting at most `ms`. A failure is logged, never thrown. */

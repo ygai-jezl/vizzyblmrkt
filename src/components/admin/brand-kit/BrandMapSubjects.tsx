@@ -1,6 +1,6 @@
 "use client";
 
-import { BRAND_MAP_LIMITS as LIMITS, type BrandMapSubject } from "@/lib/types/brandMap";
+import { BRAND_MAP_LIMITS as LIMITS, type BrandMapQuestion, type BrandMapSubject } from "@/lib/types/brandMap";
 import { BlogIntent } from "@/lib/types/contentPlan";
 import { newId } from "@/lib/brandMap/changes";
 import { Section, inputClass } from "@/components/admin/connect/ui";
@@ -27,14 +27,14 @@ export function BrandMapSubjects({
   onChange,
   issues,
   disabled,
-  below,
+  status,
 }: {
   subjects: BrandMapSubject[];
   onChange: (next: BrandMapSubject[]) => void;
   issues: MapIssue[];
   disabled: boolean;
-  /** Under each subject's questions: what is answered (coverage, when pages are on). */
-  below?: (subject: BrandMapSubject) => React.ReactNode;
+  /** Under each question: whether a page answers it (coverage, when pages are on). */
+  status?: (question: BrandMapQuestion, subject: BrandMapSubject) => React.ReactNode;
 }) {
   const update = (i: number, next: BrandMapSubject) => onChange(subjects.map((s, j) => (j === i ? next : s)));
   return (
@@ -72,7 +72,8 @@ export function BrandMapSubjects({
               <span className={smallLabel}>Questions people ask</span>
               <ul className="space-y-1.5">
                 {s.questions.map((q, j) => (
-                  <li key={q.id} className="flex flex-wrap items-center gap-2">
+                  <li key={q.id} className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
                     <input
                       aria-label={`Question ${j + 1} of ${s.name}`}
                       className={`${inputClass} min-w-[14rem] flex-1`}
@@ -97,6 +98,8 @@ export function BrandMapSubjects({
                       ))}
                     </select>
                     <RemoveButton label={`Remove the question “${q.text}”`} disabled={disabled} onClick={() => update(i, { ...s, questions: s.questions.filter((_, k) => k !== j) })} />
+                    </div>
+                    {status?.(q, s)}
                   </li>
                 ))}
               </ul>
@@ -110,7 +113,6 @@ export function BrandMapSubjects({
               ) : null}
               <Issues messages={issuesAt(issues, `subjects.${i}.questions`)} />
             </div>
-            {below?.(s)}
           </div>
         ))}
       </div>

@@ -68,7 +68,7 @@ export async function indexedSitePages(ctx: TenantContext, workspaceId: string):
       if (l.git) {
         if (p.path) out.repoPaths.push(p.path);
       } else {
-        out.pages.push({ url: p.sourceUri, title: p.title, ...(p.links ? { links: p.links } : {}) });
+        out.pages.push({ url: p.sourceUri, title: p.title });
       }
     }
   }

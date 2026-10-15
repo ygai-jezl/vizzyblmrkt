@@ -32,9 +32,11 @@ export type BrandMapPageQuestion = z.infer<typeof BrandMapPageQuestionSchema>;
 
 export const BrandMapPageFactsSchema = z.object({
   kind: z.enum(["article", "site"]),
-  /** An article's plan: where it is opened from. */
-  workspaceId: z.string().max(128).nullable().default(null),
-  planId: z.string().max(128).nullable().default(null),
+  /** An article's plan: where it is opened from. For a page on the site, the programme whose crawl read it. */
+  workspaceId: z.string().max(200).nullable().default(null),
+  planId: z.string().max(200).nullable().default(null),
+  /** For a page on the site: the source (knowledge ticket) it was read from, so a later read can tell it is gone. */
+  sourceId: z.string().max(200).nullable().default(null),
   /** The page's address (https), or null while an article has none. */
   url: z.string().max(L.url).nullable().default(null),
   title: z.string().max(L.title).default(""),

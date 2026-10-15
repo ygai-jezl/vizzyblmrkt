@@ -1,9 +1,10 @@
 import { z } from "zod";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ContentPlan } from "@/lib/types/contentPlan";
-import { forTenant, getTenantById } from "@/lib/tenant";
+import type { BrandMapPage, BrandMapPageFacts } from "@/lib/types/brandMapPage";
+import { forTenant, getTenantById, listKnowledgePages } from "@/lib/tenant";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
-import { indexedSitePages } from "@/lib/knowledge/sitePages";
+import { sourcesToList } from "@/lib/knowledge/sitePages";
 import { sitesOf, tenantDomains } from "@/lib/knowledge/site";
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import { isLinkablePage } from "@/lib/content/blog/links";
@@ -18,10 +19,13 @@ import { readBrandMap } from "./store";
  * hands back where to carry on; the Brand map page calls again until it is done. Safe to run
  * again: an unchanged row is never rewritten.
  *
- * 1. plans: every blog article in every programme, 25 at a time.
+ * 1. plans: every blog article in every programme, 25 at a time, each read fresh.
  * 2. rows: every article row, 25 at a time; one whose plan or programme is gone goes.
  * 3. site: the crawled pages on the brand's own sites (its map's site and the domains its
- *    record vouches for), from its most recent programmes; one no longer crawled goes.
+ *    record vouches for), from its most recent programmes. A page row goes only when this read
+ *    can vouch for it: its source was read again without it, its source was removed, or it is
+ *    now an article written here. A source that could not be read, or was not read this time,
+ *    takes nothing away.
  */
 
 export const BackfillCursorSchema = z.strictObject({
@@ -37,6 +41,8 @@ export const BACKFILL_BATCH = 25;
 export const BACKFILL_LIMIT = { prefix: "brand_map_pages", burstLimit: 30, hourlyLimit: 600 };
 const MAX_SITE_WORKSPACES = 4;
 const MAX_SITE_PAGES = 500;
+/** Programmes and sources listed at a time; a list this long may be missing some. */
+const LISTED = 200;
 
 export interface BackfillStep {
   done: boolean;
@@ -54,12 +60,25 @@ export interface BackfillStep {
 type Programme = { id: string; archivedAt?: string | null; updatedAt?: string };
 type SitePage = { url: string; title: string; links?: string[] | null };
 
+/** One source's crawled pages, read in full. */
+export interface ListedSource {
+  workspaceId: string;
+  ticketId: string;
+  pages: SitePage[];
+}
+
+/** What the site phase read: the sources it could read, and each programme's sources when listed in full. */
+export interface SiteListing {
+  sources: ListedSource[];
+  tickets: Map<string, Set<string>>;
+}
+
 export interface BackfillDeps {
   db?: FirestoreLike;
   workspaces?: (ctx: TenantContext) => Promise<Programme[]>;
   plans?: (ctx: TenantContext, workspaceId: string) => Promise<ContentPlan[]>;
-  /** The crawled pages of these programmes. */
-  sitePages?: (ctx: TenantContext, workspaceIds: string[]) => Promise<SitePage[]>;
+  /** The crawled pages of these programmes, source by source. */
+  siteListing?: (ctx: TenantContext, workspaceIds: string[]) => Promise<SiteListing>;
   /** The brand's own sites: its map's site and the domains its record vouches for. */
   ownSites?: (ctx: TenantContext) => Promise<string[]>;
   now?: () => Date;
@@ -76,17 +95,63 @@ async function defaultOwnSites(ctx: TenantContext, db?: FirestoreLike): Promise<
   return [read?.state === "ok" ? read.map.identity.site : "", ...tenantDomains(tenant)].filter(Boolean);
 }
 
-async function defaultSitePages(ctx: TenantContext, workspaceIds: string[]): Promise<SitePage[]> {
-  const lists = await Promise.all(workspaceIds.map((id) => indexedSitePages(ctx, id).catch(() => ({ pages: [] }))));
-  return lists.flatMap((l) => l.pages);
+/** The crawled pages of each programme, source by source, from the page records when there are some. */
+async function defaultSiteListing(ctx: TenantContext, workspaceIds: string[], db?: FirestoreLike): Promise<SiteListing> {
+  const out: SiteListing = { sources: [], tickets: new Map() };
+  await Promise.all(
+    workspaceIds.map(async (workspaceId) => {
+      let tickets;
+      try {
+        tickets = await forTenant(ctx, db).ingestionTickets.find({
+          where: [
+            ["ownerKind", "==", "workspace"],
+            ["ownerId", "==", workspaceId],
+          ],
+          limit: LISTED,
+        });
+      } catch {
+        return; // this programme was not read: nothing of it is taken away
+      }
+      if (tickets.length < LISTED) out.tickets.set(workspaceId, new Set(tickets.map((t) => t.id)));
+      // The brand's own crawled sites (a repo's files are not pages).
+      const web = sourcesToList(tickets).own.filter((t) => t.source !== "github" && t.source !== "gitlab");
+      await Promise.all(
+        web.map(async (t) => {
+          try {
+            const pages = await listKnowledgePages(ctx, "workspace", workspaceId, { ticketId: t.id, limit: 600, records: true });
+            out.sources.push({ workspaceId, ticketId: t.id, pages: pages.map((p) => ({ url: p.sourceUri, title: p.title, links: p.links ?? null })) });
+          } catch {
+            // Not read: nothing of it is taken away.
+          }
+        }),
+      );
+    }),
+  );
+  out.sources.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId) || a.ticketId.localeCompare(b.ticketId));
+  return out;
 }
 
 const START: BackfillCursor = { phase: "plans", ws: 0, offset: 0, after: "" };
 
+/** Site rows this read can vouch are gone. */
+function staleSiteRows(rows: BrandMapPage[], listing: SiteListing, articles: Set<string>): BrandMapPage[] {
+  const read = new Map(listing.sources.map((s) => [s.ticketId, new Set(s.pages.map((p) => normalizeUrl(p.url)))]));
+  return rows.filter((r) => {
+    if (r.kind !== "site" || !r.url) return false;
+    const url = normalizeUrl(r.url);
+    if (articles.has(url)) return true; // now an article written here
+    if (!r.sourceId || !r.workspaceId) return false; // where it came from is not known
+    const tickets = listing.tickets.get(r.workspaceId);
+    if (tickets && !tickets.has(r.sourceId)) return true; // its source was removed
+    const urls = read.get(r.sourceId);
+    return Boolean(urls) && !urls!.has(url); // its source was read again without it
+  });
+}
+
 export async function readExistingPages(ctx: TenantContext, cursor: BackfillCursor | null, deps: BackfillDeps = {}): Promise<BackfillStep> {
   const at = cursor ?? START;
   const step: BackfillStep = { done: false, next: null, articles: 0, sitePages: 0, removed: 0 };
-  const programmes = await (deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: 200 })))(ctx);
+  const programmes = await (deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: LISTED })))(ctx);
 
   if (at.phase === "plans") {
     const live = programmes.filter((w) => !w.archivedAt).sort((a, b) => a.id.localeCompare(b.id));
@@ -96,19 +161,29 @@ export async function readExistingPages(ctx: TenantContext, cursor: BackfillCurs
       .filter((p) => buildPlanPage(p) !== null)
       .sort((a, b) => a.id.localeCompare(b.id));
     const batch = plans.slice(at.offset, at.offset + BACKFILL_BATCH);
-    await eachLimited(batch, 5, (p) => syncPlanPage(ctx, { workspaceId: w.id, planId: p.id, plan: p }, deps));
+    // Each read fresh as its row is written, so a save made meanwhile is never undone.
+    await eachLimited(batch, 5, (p) => syncPlanPage(ctx, { workspaceId: w.id, planId: p.id }, deps));
     const offset = at.offset + batch.length;
     return { ...step, articles: batch.length, next: offset < plans.length ? { ...at, offset } : { ...START, ws: at.ws + 1 } };
   }
 
   if (at.phase === "rows") {
     const known = new Set(programmes.map((w) => w.id)); // an archived programme's articles stay
+    const exists = async (id: string): Promise<boolean> => {
+      if (known.has(id)) return true;
+      if (programmes.length < LISTED) return false; // the list was complete
+      try {
+        return Boolean(await forTenant(ctx, deps.db).workspaces.getById(id));
+      } catch {
+        return true; // not sure: keep it
+      }
+    };
     const rows = (await listBrandMapPages(ctx, deps.db))
       .filter((r) => r.kind === "article" && r.id > at.after)
       .sort((a, b) => a.id.localeCompare(b.id));
     const batch = rows.slice(0, BACKFILL_BATCH);
     const results = await eachLimited(batch, 5, async (r): Promise<PageSync> => {
-      if (r.workspaceId && r.planId && known.has(r.workspaceId)) return syncPlanPage(ctx, { workspaceId: r.workspaceId, planId: r.planId }, deps);
+      if (r.workspaceId && r.planId && (await exists(r.workspaceId))) return syncPlanPage(ctx, { workspaceId: r.workspaceId, planId: r.planId }, deps);
       await forTenant(ctx, deps.db).brandMapPages.delete(r.id);
       return "removed";
     });
@@ -125,23 +200,25 @@ export async function readExistingPages(ctx: TenantContext, cursor: BackfillCurs
     .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
     .slice(0, MAX_SITE_WORKSPACES)
     .map((w) => w.id);
-  const [listed, rows] = await Promise.all([(deps.sitePages ?? defaultSitePages)(ctx, recent), listBrandMapPages(ctx, deps.db)]);
+  const [listing, rows] = await Promise.all([
+    (deps.siteListing ?? ((c: TenantContext, ids: string[]) => defaultSiteListing(c, ids, deps.db)))(ctx, recent),
+    listBrandMapPages(ctx, deps.db),
+  ]);
   // An article written here that the crawl also read is its article row, not a second one.
   const articles = new Set(rows.flatMap((r) => (r.kind === "article" && r.url ? [normalizeUrl(r.url)] : [])));
   const seen = new Set<string>();
-  const facts = listed
-    .map((p) => buildSitePage(p, own))
-    .filter((f): f is NonNullable<typeof f> => {
-      if (!f?.url || seen.has(f.url) || articles.has(f.url) || !isLinkablePage(f.url)) return false;
+  const facts: BrandMapPageFacts[] = [];
+  for (const source of listing.sources) {
+    for (const p of source.pages) {
+      const f = buildSitePage(p, own, { workspaceId: source.workspaceId, sourceId: source.ticketId });
+      if (!f?.url || seen.has(f.url) || articles.has(f.url) || !isLinkablePage(f.url)) continue;
       seen.add(f.url);
-      return true;
-    })
-    .slice(0, MAX_SITE_PAGES);
-  const batch = facts.slice(at.offset);
+      facts.push(f);
+    }
+  }
+  const batch = facts.slice(at.offset, MAX_SITE_PAGES);
   await eachLimited(batch, 10, (f) => writePageRow(ctx, sitePageId(ctx.tenantId, f.url!), f, deps));
-  // All read: a page the crawl no longer has leaves the map.
-  const keep = new Set(facts.map((f) => sitePageId(ctx.tenantId, f.url!)));
-  const stale = rows.filter((r) => r.kind === "site" && !keep.has(r.id));
+  const stale = staleSiteRows(rows, listing, articles);
   await eachLimited(stale, 10, (r) => forTenant(ctx, deps.db).brandMapPages.delete(r.id).catch(() => undefined));
   return { ...step, done: true, sitePages: batch.length, removed: stale.length };
 }

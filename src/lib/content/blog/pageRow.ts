@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import { BRAND_MAP_PAGE_LIMITS as L, BrandMapPageFactsSchema, type BrandMapPageFacts } from "@/lib/types/brandMapPage";
 import { siteOf } from "@/lib/knowledge/site";
+import { articleAddressProblem } from "./address";
 import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts } from "./brief";
 import { mentionsName } from "./names";
 import { outlineArticle } from "./outline";
@@ -16,7 +17,9 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
   const brief = plan.blog ?? EMPTY_BLOG_BRIEF;
   const body = hub?.body.trim() ? hub.body : "";
   const outline = body ? outlineArticle(body) : null;
-  const url = plan.strategy.hubUrl && /^https:\/\//i.test(plan.strategy.hubUrl) ? plan.strategy.hubUrl : null;
+  // Only an article's own address (https, not the home page): a wizard can still take others.
+  const address = plan.strategy.hubUrl?.trim() ?? "";
+  const url = address && !articleAddressProblem(address) ? address : null;
   // Links to the brand's own pages: the hosts on its brief, and the article's own.
   const own = ownHosts(brief, [url]);
   const self = url ? normalizeUrl(url) : "";
@@ -26,7 +29,7 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
         .map((l) => l.href)
         .filter((href) => /^https:\/\//i.test(href) && own.has(hostOf(href)))
         .map(normalizeUrl)
-        .filter((href) => href && href !== self),
+        .filter((href) => href && href !== self && href.length <= L.url),
     ),
   ].slice(0, L.links);
   // Once written, the names it says; until then, the names it is to say.
@@ -66,20 +69,31 @@ export function sitePageId(tenantId: string, url: string): string {
 
 /**
  * A page already on the brand's site, as a row: live, with its links to the brand's own pages
- * when the crawl kept them (null = never read). Null for a page that is not on an own site.
+ * when the crawl kept them (null = never read), and the programme and source that read it.
+ * Null for a page that is not on an own site, or whose address is past the row's limit.
  */
-export function buildSitePage(page: { url: string; title: string; links?: string[] | null }, own: Set<string>): BrandMapPageFacts | null {
+export function buildSitePage(
+  page: { url: string; title: string; links?: string[] | null },
+  own: Set<string>,
+  from: { workspaceId: string; sourceId: string } | null = null,
+): BrandMapPageFacts | null {
   const url = normalizeUrl(page.url);
-  if (!url || !/^https:\/\//i.test(url) || !own.has(siteOf(url))) return null;
+  if (!url || url.length > L.url || !/^https:\/\//i.test(url) || !own.has(siteOf(url))) return null;
   const links = page.links
-    ? [...new Set(page.links.map(normalizeUrl).filter((l) => l && l !== url && /^https:\/\//i.test(l) && own.has(siteOf(l))))].slice(0, L.links)
+    ? [
+        ...new Set(
+          page.links.map(normalizeUrl).filter((l) => l && l !== url && l.length <= L.url && /^https:\/\//i.test(l) && own.has(siteOf(l))),
+        ),
+      ].slice(0, L.links)
     : [];
-  return BrandMapPageFactsSchema.parse({
+  const parsed = BrandMapPageFactsSchema.safeParse({
     kind: "site",
+    ...(from ? { workspaceId: from.workspaceId, sourceId: from.sourceId } : {}),
     url,
     title: page.title.replace(/\s+/g, " ").trim().slice(0, L.title),
     links,
     linksKnown: Boolean(page.links),
     state: "live",
   });
+  return parsed.success ? parsed.data : null;
 }

@@ -38,13 +38,13 @@ beforeEach(() => {
 });
 
 describe("listKnowledgePages", () => {
-  it("lists a source's pages from their records, in crawl order, with their links", async () => {
+  it("lists a source's pages from their records only when asked, in crawl order, with their links", async () => {
     rows.knowledge_pages.push(
       { url: "https://acme.example/pricing", title: "Pricing | Acme", path: "/pricing", source: "website", links: ["https://acme.example/", 7], pageIndex: 1 },
       { url: "https://acme.example/", title: "Acme", path: "/", source: "website", links: [], pageIndex: 0 },
       { title: "no address", pageIndex: 2 },
     );
-    const pages = await listKnowledgePages(ctx, "workspace", "ws1", { ticketId: "tkt_1" });
+    const pages = await listKnowledgePages(ctx, "workspace", "ws1", { ticketId: "tkt_1", records: true });
     expect(pages).toEqual([
       { sourceUri: "https://acme.example/", title: "Acme", path: "/", source: "website", links: [] },
       { sourceUri: "https://acme.example/pricing", title: "Pricing | Acme", path: "/pricing", source: "website", links: ["https://acme.example/"] },
@@ -52,6 +52,15 @@ describe("listKnowledgePages", () => {
     expect(calls.knowledge_pages).toMatchObject({ path: ["workspaces", "ws1", "knowledge_pages"], where: ["ticketId", "==", "tkt_1"], limit: 600 });
     // One read a page: the chunks are not touched.
     expect(calls.knowledge_bases).toBeUndefined();
+  });
+
+  it("never reads the records unless asked, so everyone else's listing is as before", async () => {
+    rows.knowledge_pages.push({ url: "https://acme.example/pricing", title: "Pricing plans | Acme", pageIndex: 0 });
+    rows.knowledge_bases.push({ sourceUri: "https://acme.example/pricing", title: "Pricing", path: "/pricing", source: "website", chunkIndex: 0 });
+    expect(await listKnowledgePages(ctx, "workspace", "ws1", { ticketId: "tkt_1" })).toEqual([
+      { sourceUri: "https://acme.example/pricing", title: "Pricing", path: "/pricing", source: "website" },
+    ]);
+    expect(calls.knowledge_pages).toBeUndefined();
   });
 
   it("lists a source read before page records from its chunks, once each, reading only what it returns", async () => {

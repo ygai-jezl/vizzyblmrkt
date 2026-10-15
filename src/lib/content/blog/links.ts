@@ -14,8 +14,6 @@ import { hostOf, isCodeHostUrl, normalizeUrl } from "./brief";
 export interface KnownPage {
   url: string;
   title: string;
-  /** Its links to its own site, when the crawl kept them (absent = never read). */
-  links?: string[];
 }
 
 const INTENT_RULES: { intent: BlogLinkIntent; path: RegExp; title: RegExp }[] = [

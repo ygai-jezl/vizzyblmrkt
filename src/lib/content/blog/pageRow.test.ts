@@ -49,8 +49,16 @@ describe("an article's row on the brand map", () => {
   it("has no address until an https one is set, and no row unless it is a blog article", () => {
     expect(buildPlanPage(samplePlan({ strategy: { objective: "brand_visibility", hubUrl: null, subscriberCount: null, sequenceType: null } }))!.url).toBeNull();
     expect(buildPlanPage(samplePlan({ strategy: { objective: "brand_visibility", hubUrl: "http://acme.example/x", subscriberCount: null, sequenceType: null } }))!.url).toBeNull();
+    // A home page typed in the wizard is not the article's address.
+    expect(buildPlanPage(samplePlan({ strategy: { objective: "brand_visibility", hubUrl: "https://acme.example/", subscriberCount: null, sequenceType: null } }))!.url).toBeNull();
     expect(buildPlanPage(samplePlan({ topology: { hubChannel: "newsletter", spokeChannels: [] } }))).toBeNull();
     expect(buildPlanPage(samplePlan({ strategy: { objective: "email_sequence", hubUrl: null, subscriberCount: null, sequenceType: "welcome" } }))).toBeNull();
+  });
+
+  it("leaves out a link too long to keep, rather than failing", () => {
+    const long = `https://acme.example/${"x".repeat(2100)}`;
+    const hub = sampleHub({ body: `# What is AI search visibility monitoring?\n\nSee [this](${long}) and [pricing](https://acme.example/pricing).` });
+    expect(buildPlanPage(samplePlan({}, hub))!.links).toEqual(["https://acme.example/pricing"]);
   });
 
   it("fingerprints the facts, so an unchanged page is never rewritten", () => {

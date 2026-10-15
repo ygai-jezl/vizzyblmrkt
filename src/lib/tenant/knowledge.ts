@@ -153,17 +153,22 @@ export async function listKnowledgePages(
   ctx: TenantContext,
   ownerKind: KnowledgeOwnerKind,
   ownerId: string,
-  opts: { ticketId: string; limit?: number },
+  /** `records`: prefer the page records a crawl now keeps (a read a page, with its links and
+   *  the page's own <title>). Only the brand map asks for them: everyone else lists pages from
+   *  the chunks, exactly as before records existed. */
+  opts: { ticketId: string; limit?: number; records?: boolean },
 ): Promise<KnowledgePage[]> {
   const limit = Math.min(Math.max(opts.limit ?? 600, 1), 2000);
   // A source read since pages kept their records: a read a page, with its links.
-  const recorded = await rawPagesCollection(ctx, ownerKind, ownerId)
-    .where("ticketId", "==", opts.ticketId)
-    .select("url", "title", "path", "source", "links", "pageIndex")
-    .limit(limit)
-    .get()
-    .then((snap) => snap.docs.map((d) => d.data()).filter((x) => typeof x.url === "string" && x.url))
-    .catch(() => []);
+  const recorded = !opts.records
+    ? []
+    : await rawPagesCollection(ctx, ownerKind, ownerId)
+        .where("ticketId", "==", opts.ticketId)
+        .select("url", "title", "path", "source", "links", "pageIndex")
+        .limit(limit)
+        .get()
+        .then((snap) => snap.docs.map((d) => d.data()).filter((x) => typeof x.url === "string" && x.url))
+        .catch(() => []);
   if (recorded.length) {
     return recorded
       .sort((a, b) => (Number(a.pageIndex) || 0) - (Number(b.pageIndex) || 0))

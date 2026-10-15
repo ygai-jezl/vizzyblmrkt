@@ -6,7 +6,7 @@ import { forTenant, getTenantById } from "@/lib/tenant";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { isBrandMapEnabled, isBrandMapPagesEnabled, isBrandMapResearchEnabled, isBrandMapWikidataEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapEnabled, isBrandMapPagesEnabled, isBrandMapResearchEnabled, isBrandMapScaleEnabled, isBrandMapWikidataEnabled } from "@/lib/brandMap/flags";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { computeCoverage } from "@/lib/content/blog/coverage";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
@@ -16,6 +16,7 @@ import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
 import { BrandMapTabs } from "@/components/admin/brand-kit/BrandMapTabs";
 import { BrandMapContentMap } from "@/components/admin/brand-kit/BrandMapContentMap";
+import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
 
@@ -31,6 +32,8 @@ export default async function BrandMapPage() {
   if (!isBrandMapEnabled()) notFound();
 
   const pagesOn = isBrandMapPagesEnabled();
+  // The map at any size: subjects on their own tab, read a group and a subject at a time.
+  const scale = isBrandMapScaleEnabled();
   // "Write this next" needs articles written from the map, and somewhere to write them.
   const writeNextOn = pagesOn && isBlogBrandMapEnabled();
   const [read, tenant, pages, workspaces] = await Promise.all([
@@ -39,7 +42,7 @@ export default async function BrandMapPage() {
       return { state: "none" };
     }),
     getTenantById(ctx.tenantId).catch(() => null),
-    pagesOn
+    pagesOn && !scale
       ? listBrandMapPages(ctx).catch((err): BrandMapPage[] => {
           console.error("[brand-map] pages read failed", err);
           return [];
@@ -49,7 +52,7 @@ export default async function BrandMapPage() {
   ]);
   const map = read.state === "ok" ? read.map : null;
   // What the brand's pages answer, worked out now from the saved map (never stored).
-  const coverage = pagesOn && map && isMapSaved(map) ? computeCoverage(map, pages) : null;
+  const coverage = pagesOn && !scale && map && isMapSaved(map) ? computeCoverage(map, pages) : null;
   const programmes = writeNextOn ? workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name })) : null;
   const root = tenant?.rootDomain?.trim();
 
@@ -79,7 +82,21 @@ export default async function BrandMapPage() {
             defaults={{ name: tenant?.tenantName?.trim() ?? "", site: root ? `https://${root.replace(/^https?:\/\//, "")}` : "" }}
             coverage={coverage}
             programmes={programmes}
+            scale={scale}
+            recordsDecided={Boolean(map?.recordsDecidedAt)}
           />
+        }
+        editorLabel={scale ? "Who you are" : undefined}
+        extra={
+          scale
+            ? [
+                {
+                  id: "subjects",
+                  label: "Subjects",
+                  node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} moved={Boolean(map?.moved)} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} />,
+                },
+              ]
+            : []
         }
         contentMap={
           coverage && map ? (

@@ -36,6 +36,13 @@ export interface BrandMapPageProps {
   coverage?: Coverage | null;
   /** The programmes an open question can be written in ("Write this next"); null = not offered. */
   programmes?: Array<{ id: string; name: string }> | null;
+  /**
+   * The map at any size: subjects live on their own tab, so this is "Who you are" — identity
+   * and names, saved on their own; suggestions about subjects are proposals there.
+   */
+  scale?: boolean;
+  /** A person decided one of the map's records, so it counts as saved even before this page was. */
+  recordsDecided?: boolean;
 }
 
 export interface MapIssue {

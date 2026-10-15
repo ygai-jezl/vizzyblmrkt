@@ -893,17 +893,17 @@ env:
     availability:
       - RUNTIME
   # The brand map at any size, buying situations and research from a PDF (see
-  # apphosting.yaml): OFF in prod until checked on dev, their indexes are deployed to prod,
-  # and the owner turns them on.
+  # apphosting.yaml): ON in prod, turned on by the owner after checking them on dev
+  # (2026-10-15). Their indexes are deployed to prod.
   - variable: BRAND_MAP_SCALE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_MAP_SITUATIONS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_MAP_IMPORT_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME

@@ -25,6 +25,8 @@ import type { KnowledgeOwnerKind } from "@/lib/types/knowledgeBase";
  * tenantId/ownerId.
  */
 export const KNOWLEDGE_SUBCOLLECTION = "knowledge_bases" as const;
+/** One record per crawled page beside the chunks (written by the knowledge-scraper). */
+export const KNOWLEDGE_PAGES_SUBCOLLECTION = "knowledge_pages" as const;
 
 const OWNER_COLLECTION: Record<KnowledgeOwnerKind, string> = {
   campaign: "campaigns",
@@ -78,6 +80,13 @@ function rawChunksCollection(
     .collection(KNOWLEDGE_SUBCOLLECTION);
 }
 
+function rawPagesCollection(ctx: TenantContext, ownerKind: KnowledgeOwnerKind, ownerId: string) {
+  return getDb(databaseIdForRegion(ctx.region))
+    .collection(OWNER_COLLECTION[ownerKind])
+    .doc(ownerId)
+    .collection(KNOWLEDGE_PAGES_SUBCOLLECTION);
+}
+
 export interface KnowledgeChunkView {
   id: string;
   title: string;
@@ -128,6 +137,9 @@ export interface KnowledgePage {
   title: string;
   path: string | null;
   source: string;
+  /** Its links to its own site, from the page's record; absent for a source read before
+   *  page records were kept (it was listed from its chunks). */
+  links?: string[];
 }
 
 /**
@@ -143,10 +155,31 @@ export async function listKnowledgePages(
   ownerId: string,
   opts: { ticketId: string; limit?: number },
 ): Promise<KnowledgePage[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 600, 1), 2000);
+  // A source read since pages kept their records: a read a page, with its links.
+  const recorded = await rawPagesCollection(ctx, ownerKind, ownerId)
+    .where("ticketId", "==", opts.ticketId)
+    .select("url", "title", "path", "source", "links", "pageIndex")
+    .limit(limit)
+    .get()
+    .then((snap) => snap.docs.map((d) => d.data()).filter((x) => typeof x.url === "string" && x.url))
+    .catch(() => []);
+  if (recorded.length) {
+    return recorded
+      .sort((a, b) => (Number(a.pageIndex) || 0) - (Number(b.pageIndex) || 0))
+      .map((x) => ({
+        sourceUri: x.url as string,
+        title: typeof x.title === "string" ? x.title : "",
+        path: typeof x.path === "string" ? x.path : null,
+        source: typeof x.source === "string" ? x.source : "",
+        links: Array.isArray(x.links) ? x.links.filter((l): l is string => typeof l === "string") : [],
+      }));
+  }
+  // Read before page records were kept: from its chunks.
   const snap = await rawChunksCollection(ctx, ownerKind, ownerId)
     .where("ticketId", "==", opts.ticketId)
     .select("sourceUri", "title", "path", "source", "chunkIndex")
-    .limit(Math.min(Math.max(opts.limit ?? 600, 1), 2000))
+    .limit(limit)
     .get();
   const rows = snap.docs
     .map((d) => d.data())
@@ -214,17 +247,22 @@ export async function deleteOwnerKnowledge(
   opts: { ticketId?: string } = {},
 ): Promise<number> {
   const PAGE = 400;
-  const col = rawChunksCollection(ctx, ownerKind, ownerId);
-  const base = opts.ticketId ? col.where("ticketId", "==", opts.ticketId) : col;
-  let deleted = 0;
-  for (;;) {
-    const snap = await base.select().limit(PAGE).get();
-    if (snap.empty) break;
-    const batch = col.firestore.batch();
-    for (const d of snap.docs) batch.delete(d.ref);
-    await batch.commit();
-    deleted += snap.size;
-    if (snap.size < PAGE) break;
-  }
+  const purge = async (col: ReturnType<typeof rawChunksCollection>): Promise<number> => {
+    const base = opts.ticketId ? col.where("ticketId", "==", opts.ticketId) : col;
+    let deleted = 0;
+    for (;;) {
+      const snap = await base.select().limit(PAGE).get();
+      if (snap.empty) break;
+      const batch = col.firestore.batch();
+      for (const d of snap.docs) batch.delete(d.ref);
+      await batch.commit();
+      deleted += snap.size;
+      if (snap.size < PAGE) break;
+    }
+    return deleted;
+  };
+  const deleted = await purge(rawChunksCollection(ctx, ownerKind, ownerId));
+  // The pages' records go with their chunks (best-effort: the chunks are what is searched).
+  await purge(rawPagesCollection(ctx, ownerKind, ownerId)).catch(() => 0);
   return deleted;
 }

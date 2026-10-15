@@ -1,42 +1,61 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * listKnowledgePages reads the real chunk subcollection (it is tenant-layer code), so the
- * database handle is stubbed here with just the query chain it uses.
+ * listKnowledgePages reads the real subcollections (it is tenant-layer code), so the
+ * database handle is stubbed here with just the query chain it uses: a source's page
+ * records first, and its chunks when it has none.
  */
-const calls: { path: string[]; where?: unknown[]; select?: string[]; limit?: number } = { path: [] };
-const rows: Record<string, unknown>[] = [];
-const query = {
-  where: vi.fn((...args: unknown[]) => {
-    calls.where = args;
-    return query;
-  }),
-  select: vi.fn((...fields: string[]) => {
-    calls.select = fields;
-    return query;
-  }),
-  limit: vi.fn((n: number) => {
-    calls.limit = n;
-    return query;
-  }),
-  get: vi.fn(async () => ({ docs: rows.map((r) => ({ data: () => r })) })),
-};
-const node = {
-  collection: (name: string) => {
-    calls.path.push(name);
-    return { ...query, doc: (id: string) => (calls.path.push(id), node) };
-  },
-};
-vi.mock("./firestore", () => ({ getDb: () => node }));
+type Calls = { path: string[]; where?: unknown[]; select?: string[]; limit?: number };
+const calls: Record<string, Calls> = {};
+const rows: { knowledge_pages: Record<string, unknown>[]; knowledge_bases: Record<string, unknown>[] } = { knowledge_pages: [], knowledge_bases: [] };
+
+function queryFor(name: string, path: string[]) {
+  const c: Calls = (calls[name] = { path });
+  const query = {
+    where: vi.fn((...args: unknown[]) => ((c.where = args), query)),
+    select: vi.fn((...fields: string[]) => ((c.select = fields), query)),
+    limit: vi.fn((n: number) => ((c.limit = n), query)),
+    get: vi.fn(async () => ({ docs: (name in rows ? rows[name as keyof typeof rows] : []).map((r) => ({ data: () => r })) })),
+  };
+  return query;
+}
+function node(path: string[]): { collection: (name: string) => unknown } {
+  return {
+    collection: (name: string) => ({ ...queryFor(name, [...path, name]), doc: (id: string) => node([...path, name, id]) }),
+  };
+}
+vi.mock("./firestore", () => ({ getDb: () => node([]) }));
 
 import { listKnowledgePages } from "./knowledge";
 import type { TenantContext } from "./types";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 
+beforeEach(() => {
+  rows.knowledge_pages = [];
+  rows.knowledge_bases = [];
+  for (const k of Object.keys(calls)) delete calls[k];
+});
+
 describe("listKnowledgePages", () => {
-  it("lists one source's pages once each, reading only what it returns", async () => {
-    rows.push(
+  it("lists a source's pages from their records, in crawl order, with their links", async () => {
+    rows.knowledge_pages.push(
+      { url: "https://acme.example/pricing", title: "Pricing | Acme", path: "/pricing", source: "website", links: ["https://acme.example/", 7], pageIndex: 1 },
+      { url: "https://acme.example/", title: "Acme", path: "/", source: "website", links: [], pageIndex: 0 },
+      { title: "no address", pageIndex: 2 },
+    );
+    const pages = await listKnowledgePages(ctx, "workspace", "ws1", { ticketId: "tkt_1" });
+    expect(pages).toEqual([
+      { sourceUri: "https://acme.example/", title: "Acme", path: "/", source: "website", links: [] },
+      { sourceUri: "https://acme.example/pricing", title: "Pricing | Acme", path: "/pricing", source: "website", links: ["https://acme.example/"] },
+    ]);
+    expect(calls.knowledge_pages).toMatchObject({ path: ["workspaces", "ws1", "knowledge_pages"], where: ["ticketId", "==", "tkt_1"], limit: 600 });
+    // One read a page: the chunks are not touched.
+    expect(calls.knowledge_bases).toBeUndefined();
+  });
+
+  it("lists a source read before page records from its chunks, once each, reading only what it returns", async () => {
+    rows.knowledge_bases.push(
       { sourceUri: "https://acme.example/pricing", title: "Plans", path: "/pricing", source: "website", chunkIndex: 3 },
       { sourceUri: "https://acme.example/pricing", title: "Pricing | Acme", path: "/pricing", source: "website", chunkIndex: 2 },
       { sourceUri: "https://acme.example/", title: "Acme", path: "/", source: "website", chunkIndex: 0 },
@@ -44,15 +63,15 @@ describe("listKnowledgePages", () => {
       { title: "no address field at all", chunkIndex: 4 },
     );
     const pages = await listKnowledgePages(ctx, "workspace", "ws1", { ticketId: "tkt_1", limit: 5000 });
-    // A page's title is its first chunk's; a chunk with no address is not a page.
+    // A page's title is its first chunk's; a chunk with no address is not a page; no links were kept.
     expect(pages).toEqual([
       { sourceUri: "https://acme.example/", title: "Acme", path: "/", source: "website" },
       { sourceUri: "https://acme.example/pricing", title: "Pricing | Acme", path: "/pricing", source: "website" },
     ]);
-    expect(calls.path).toEqual(["workspaces", "ws1", "knowledge_bases"]);
-    expect(calls.where).toEqual(["ticketId", "==", "tkt_1"]);
+    expect(calls.knowledge_bases!.path).toEqual(["workspaces", "ws1", "knowledge_bases"]);
+    expect(calls.knowledge_bases!.where).toEqual(["ticketId", "==", "tkt_1"]);
     // Never the text or the embedding, and never an unbounded read.
-    expect(calls.select).toEqual(["sourceUri", "title", "path", "source", "chunkIndex"]);
-    expect(calls.limit).toBe(2000);
+    expect(calls.knowledge_bases!.select).toEqual(["sourceUri", "title", "path", "source", "chunkIndex"]);
+    expect(calls.knowledge_bases!.limit).toBe(2000);
   });
 });

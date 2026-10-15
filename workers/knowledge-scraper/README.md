@@ -25,13 +25,19 @@ with per-execution env overrides), it:
 5. **Writes** chunks to `campaigns/{campaignId}/knowledge_bases/{chunkId}` in the
    tenant's regional Firestore DB, with `embedding: FieldValue.vector(...)`, and
    advances the ticket `running → embedding → done|partial|failed`.
+6. For a crawled site, **writes one page record** per page beside the chunks
+   (`{owner}/{ownerId}/knowledge_pages/{ticketId}__{hash}`: address, title, path and
+   up to 100 links to the same site), and removes the records a re-read no longer
+   found. The app lists a source's pages from these, and the brand map reads which
+   page links to which. A failure here is logged and never fails the ingest.
 
 ## Keep in sync with the app
 
 The region maps (`src/config.ts`) and the embedding request (`src/embed.ts`)
 deliberately duplicate `src/lib/tenant/region.ts` and `src/lib/agents/embeddings.ts`.
-The stored chunk shape must match `src/lib/types/knowledgeBase.ts`. If you change
-one, change the other.
+The stored chunk shape must match `src/lib/types/knowledgeBase.ts`, and the page
+record's must match what `listKnowledgePages` reads in `src/lib/tenant/knowledge.ts`.
+If you change one, change the other.
 
 ## Limitations (documented, not silent)
 

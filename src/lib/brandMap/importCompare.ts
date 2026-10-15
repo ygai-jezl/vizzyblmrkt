@@ -9,6 +9,7 @@ import type { EmbedDeps } from "./embed";
 import { getImport, type ImportResult } from "./imports";
 import { questionKey, subjectKey } from "./keys";
 import { addQuestion, createGroup, createSubject, listGroups, parseQuestion, parseSubject, subjectQuestions } from "./records";
+import { recountSituations } from "./situations";
 
 /**
  * What a brand's own research adds to its map (BRAND_MAP_IMPORT_ENABLED), worked out each time
@@ -210,6 +211,7 @@ export async function addImported(
   const made = new Map<string, string>();
   const done = new Map<string, { questionId: string; subjectId: string }>();
   const touched = new Set<string>();
+  const situations = new Set<string>();
   for (const i of chosen) {
     let subjectId = i.subjectId ?? null;
     if (!subjectId && i.newSubject) {
@@ -230,6 +232,7 @@ export async function addImported(
     await store.claim("q", qid, () => ({ from: "import", evidence, ...(leads.length ? { leads } : {}) })).catch(() => null);
     done.set(i.id, { questionId: qid, subjectId });
     touched.add(subjectId);
+    if (i.situationId) situations.add(i.situationId);
   }
   if (done.size) {
     await store.claim("imp", imp.id, (cur) => ({
@@ -239,6 +242,7 @@ export async function addImported(
       }),
     }));
     await afterRecordsChange(ctx, { subjects: [...touched] }, { db: deps.db, nowMs: deps.nowMs, ...deps.embed });
+    if (situations.size) await recountSituations(ctx, situations, { db: deps.db });
   }
   return { ok: true, value: { added: done.size, newSubjects: made.size, newGroups } };
 }

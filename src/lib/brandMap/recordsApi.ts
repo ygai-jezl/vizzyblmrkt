@@ -11,6 +11,7 @@ import { mapPageOf } from "./contentMapLayout";
 import { isBrandMapImportEnabled, isBrandMapSituationsEnabled } from "./flags";
 import { startRun, takeStep } from "./runs";
 import { sortIntoGroups, type SortDeps } from "./sortGroups";
+import { listSituations, recountSituations } from "./situations";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
@@ -70,9 +71,14 @@ export async function moveFirst(ctx: TenantContext, deps: Deps): Promise<Respons
 }
 const moved = moveFirst;
 
-/** After a write: the touched subjects' counts, their groups' totals and their embeddings follow (best effort, never failing it). */
+/**
+ * After a write: the touched subjects' counts, their groups' totals and their embeddings
+ * follow, then the counts of the buying situations its questions were or are linked to
+ * (best effort, never failing it).
+ */
 async function settle<T>(ctx: TenantContext, r: RecordResult<T>, deps: Deps): Promise<Response> {
   if (r.ok && (r.touched.length || r.groups?.length)) await afterRecordsChange(ctx, { subjects: r.touched, groups: r.groups }, deps);
+  if (r.ok && r.situations?.length) await recountSituations(ctx, r.situations, deps);
   return recordResponse(r);
 }
 
@@ -91,6 +97,7 @@ export async function proposalsFromRequest(ctx: TenantContext, body: unknown, de
   if (blocked) return blocked;
   const r = await decideProposals(ctx, parsed.data, deps);
   if (r.touched.length || r.groups.length) await afterRecordsChange(ctx, { subjects: r.touched, groups: r.groups }, deps);
+  if (r.situations.length) await recountSituations(ctx, r.situations, deps);
   // A situation's meaning carries its status, so nearest lookups only find decided ones.
   const situations = [...new Set([...(parsed.data.accept?.situations ?? []), ...(parsed.data.dismiss?.situations ?? [])])];
   if (situations.length) {
@@ -174,6 +181,11 @@ export async function recountFromRequest(ctx: TenantContext, body: unknown, deps
   if (batch.length === RECOUNT_BATCH) return NextResponse.json({ ok: true, done: false, next: batch[batch.length - 1]!.id, subjects: batch.length });
   const groups = await listGroups(ctx, deps);
   await Promise.all([...groups.map((g) => recountGroup(ctx, g.id, deps).catch(() => null)), recountGroup(ctx, null, deps).catch(() => null)]);
+  // And every buying situation's counts, from the subjects' fresh lists.
+  if (isBrandMapSituationsEnabled()) {
+    const situations = await listSituations(ctx, deps).catch(() => []);
+    await recountSituations(ctx, situations.filter((x) => x.status === "decided").map((x) => x.id), deps);
+  }
   return NextResponse.json({ ok: true, done: true, next: null, subjects: batch.length });
 }
 

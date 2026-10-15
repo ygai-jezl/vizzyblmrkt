@@ -10,7 +10,7 @@ import { embedSubjects, nearestSubjects, situationText, type EmbedDeps } from ".
 import { questionKey } from "./keys";
 import { proposedQuestion, proposedSubject } from "./proposals";
 import { parseQuestion, parseSubject } from "./records";
-import { parseSituation } from "./situations";
+import { parseSituation, recountSituations } from "./situations";
 import { readBrandMap } from "./store";
 
 /**
@@ -190,5 +190,7 @@ export async function askSituationQuestions(ctx: TenantContext, situationId: str
   }
   // New subjects get their meaning, and "looks like" one close to it on the map (best effort).
   if (fresh.size) await embedSubjects(ctx, [...fresh], { db: deps.db, nowMs: deps.nowMs, ...deps.embed }).catch(() => 0);
+  // Questions the map had are linked now: the situation's counts follow.
+  if (placed.some((q) => q.linked)) await recountSituations(ctx, [situationId], { db: deps.db });
   return { ok: true, questions: placed };
 }

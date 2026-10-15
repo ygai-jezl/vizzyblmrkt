@@ -87,6 +87,21 @@ describe("the map at any size's admin APIs", () => {
     expect(await totals(gid)).toMatchObject({ subjects: 0 });
   });
 
+  it("keeps a buying situation's counts with its questions, without anyone opening it", async () => {
+    const db = new FakeFirestore();
+    const { createSituation } = await import("./situations");
+    const sit = await createSituation(ctx, { text: "Our clicks from Google are falling" }, { db, embed: { embed: async () => [] } });
+    const sid = sit.ok ? sit.value.id : "";
+    const made = await json(await api.createSubjectFromRequest(ctx, { name: "AI Overviews" }, { db }));
+    const id = (made.body.value as { id: string }).id;
+    const counts = async () => (await brandMapRecords(ctx, db).get("sit", sid))?.counts;
+    const q = await json(await api.addQuestionFromRequest(ctx, id, { text: "Do AI Overviews reduce clicks?", situationIds: [sid] }, { db }));
+    expect(await counts()).toEqual({ questions: 1, answered: 0 });
+    const qid = (q.body.value as { id: string }).id;
+    await api.removeQuestionFromRequest(ctx, qid, { db });
+    expect(await counts()).toEqual({ questions: 0, answered: 0 });
+  });
+
   it("hands the content map a subject's own pages when asked, and the ungrouped subjects' totals beside the groups", async () => {
     const db = new FakeFirestore();
     const made = await json(await api.createSubjectFromRequest(ctx, { name: "Citations" }, { db }));

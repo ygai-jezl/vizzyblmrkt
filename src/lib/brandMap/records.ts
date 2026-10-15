@@ -26,12 +26,13 @@ import { parseBrandMap } from "./store";
  * `record_changed`), the way a save of the whole map is. Saving one subject never touches
  * another.
  *
- * Results say which subjects a change touched, so their counts and embeddings can follow, and
- * which groups lost one (a move, a removal, a merge), so their totals follow too.
+ * Results say which subjects a change touched, so their counts and embeddings can follow,
+ * which groups lost one (a move, a removal, a merge), so their totals follow too, and which
+ * buying situations a question was or is linked to, so their counts follow.
  */
 
 export type RecordResult<T> =
-  | { ok: true; value: T; touched: string[]; groups?: Array<string | null> }
+  | { ok: true; value: T; touched: string[]; groups?: Array<string | null>; situations?: string[] }
   | { ok: false; status: number; error: string; current?: unknown };
 
 const iso = (nowMs?: number) => new Date(nowMs ?? Date.now()).toISOString();
@@ -296,7 +297,7 @@ export async function addQuestion(
     : await store.create("q", parsed.data.id, strip(parsed.data));
   await markRecordsDecided(ctx, deps);
   const value = parseQuestion(saved);
-  return value ? { ok: true, value, touched: [subject.id] } : fail(500, "not_saved");
+  return value ? { ok: true, value, touched: [subject.id], ...(value.situationIds.length ? { situations: value.situationIds } : {}) } : fail(500, "not_saved");
 }
 
 export async function editQuestion(
@@ -319,7 +320,7 @@ export async function editQuestion(
     target = await getSubject(ctx, input.subjectId, deps);
     if (!target) return fail(404, "no_subject");
   }
-  const seen: { conflict: BrandMapQuestionRecord | null; from: string | null } = { conflict: null, from: null };
+  const seen: { conflict: BrandMapQuestionRecord | null; from: string | null; situations: string[] } = { conflict: null, from: null, situations: [] };
   const saved = await store.claim("q", id, (cur) => {
     const current = parseQuestion(cur);
     if (!current) return null;
@@ -328,6 +329,7 @@ export async function editQuestion(
       return null;
     }
     seen.from = current.subjectId;
+    seen.situations = current.situationIds;
     return {
       ...(text !== undefined ? { text, textKey: key } : {}),
       ...(input.intent ? { intent: input.intent } : {}),
@@ -340,7 +342,8 @@ export async function editQuestion(
   if (seen.conflict) return fail(409, "record_changed", seen.conflict);
   const value = parseQuestion(saved);
   if (!value) return fail(404, "no_question");
-  return { ok: true, value, touched: [...new Set([seen.from, value.subjectId].filter((x): x is string => Boolean(x)))] };
+  const situations = [...new Set([...seen.situations, ...value.situationIds])];
+  return { ok: true, value, touched: [...new Set([seen.from, value.subjectId].filter((x): x is string => Boolean(x)))], ...(situations.length ? { situations } : {}) };
 }
 
 export async function removeQuestion(ctx: TenantContext, id: string, deps: Deps = {}): Promise<RecordResult<{ id: string }>> {
@@ -348,7 +351,7 @@ export async function removeQuestion(ctx: TenantContext, id: string, deps: Deps 
   const question = parseQuestion(await store.get("q", id));
   if (!question) return fail(404, "no_question");
   await store.remove("q", id);
-  return { ok: true, value: { id }, touched: [question.subjectId] };
+  return { ok: true, value: { id }, touched: [question.subjectId], ...(question.situationIds.length ? { situations: question.situationIds } : {}) };
 }
 
 export async function createGroup(ctx: TenantContext, input: { name: string }, deps: Deps = {}): Promise<RecordResult<BrandMapGroup>> {

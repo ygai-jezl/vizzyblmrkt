@@ -146,11 +146,16 @@ export async function decideProposals(
   ctx: TenantContext,
   input: { accept?: ProposalIds; dismiss?: ProposalIds },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
-): Promise<{ accepted: number; dismissed: number; touched: string[]; groups: Array<string | null> }> {
+): Promise<{ accepted: number; dismissed: number; touched: string[]; groups: Array<string | null>; situations: string[] }> {
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const store = brandMapRecords(ctx, deps.db);
   const touched = new Set<string>();
   const left = new Set<string | null>();
+  // The buying situations of questions decided either way: their counts follow.
+  const situations = new Set<string>();
+  const noteSituations = (q: BrandMapStoredRecord | null) => {
+    if (q && Array.isArray(q.situationIds)) for (const id of q.situationIds as string[]) situations.add(id);
+  };
   let accepted = 0;
   let dismissed = 0;
   const set = (kind: RecordKind, id: string, status: "decided" | "dismissed") =>
@@ -163,6 +168,7 @@ export async function decideProposals(
   const questionSubjects = new Set<string>();
   await eachLimited(accept.questions ?? [], 10, async (id) => {
     const q = await set("q", id, "decided");
+    noteSituations(q);
     if (q) {
       accepted += 1;
       if (typeof q.subjectId === "string") questionSubjects.add(q.subjectId);
@@ -175,6 +181,7 @@ export async function decideProposals(
   });
   await eachLimited(accept.situations ?? [], 10, async (id) => {
     if (await set(KIND.situations, id, "decided")) accepted += 1;
+    situations.add(id);
   });
   for (const id of new Set(accept.groups ?? [])) {
     const group = await store.get(KIND.groups, id);
@@ -196,6 +203,7 @@ export async function decideProposals(
   });
   await eachLimited(dismiss.questions ?? [], 10, async (id) => {
     const q = await set("q", id, "dismissed");
+    noteSituations(q);
     if (q) {
       dismissed += 1;
       if (typeof q.subjectId === "string") touched.add(q.subjectId);
@@ -210,5 +218,5 @@ export async function decideProposals(
   }
 
   if (accepted) await markRecordsDecided(ctx, deps);
-  return { accepted, dismissed, touched: [...touched], groups: [...left] };
+  return { accepted, dismissed, touched: [...touched], groups: [...left], situations: [...situations] };
 }

@@ -267,3 +267,11 @@ export async function readSituation(ctx: TenantContext, id: string, deps: Deps =
   }
   return { situation: { ...situation, counts }, questions: shown };
 }
+
+/** Bring these situations' stored counts up to date (after their questions changed): a few at a time, best effort. */
+export async function recountSituations(ctx: TenantContext, ids: Iterable<string>, deps: Deps = {}): Promise<void> {
+  const unique = [...new Set(ids)].filter(Boolean);
+  for (let i = 0; i < unique.length; i += 5) {
+    await Promise.all(unique.slice(i, i + 5).map((id) => readSituation(ctx, id, deps).catch(() => null)));
+  }
+}

@@ -70,6 +70,8 @@ const DOTS_R = 6;
 type Dots = PackItem["dots"];
 
 const round = (n: number) => Math.round(n * 10) / 10;
+const fmt = (n: number) => n.toLocaleString("en");
+const scoreOf = (answered: number, questions: number) => `${fmt(answered)} of ${fmt(questions)} answered`;
 const dot = (x: number, y: number, r: number) =>
   `M${round(x - r)} ${round(y)}a${round(r)} ${round(r)} 0 1 0 ${round(2 * r)} 0a${round(r)} ${round(r)} 0 1 0 ${round(-2 * r)} 0`;
 const dotTotal = (d: Dots) => d.answered + d.drafted + d.open;
@@ -146,7 +148,7 @@ export function groupItem(g: { id: string; name: string; totals: Totals }): Pack
     id: g.id,
     label: g.name,
     value: Math.max(1, t.questions ?? 0, t.subjects ?? 0),
-    score: `${t.answered ?? 0} of ${t.questions ?? 0} answered`,
+    score: scoreOf(t.answered ?? 0, t.questions ?? 0),
     questions: t.questions ?? 0,
     answered: t.answered ?? 0,
     subjects: t.subjects ?? 0,
@@ -184,7 +186,7 @@ export function situationItem(s: { id: string; text: string; counts: { questions
     id: s.id,
     label: s.text,
     value: Math.max(1, c.questions),
-    score: `${c.answered} of ${c.questions} answered`,
+    score: scoreOf(c.answered, c.questions),
     questions: c.questions,
     answered: c.answered,
     subjects: 0,
@@ -210,7 +212,7 @@ export function situationSubjectItems(questions: Array<{ subjectId: string; subj
     else item.dots.drafted += 1;
     by.set(q.subjectId, item);
   }
-  return [...by.values()].map((i) => ({ ...i, score: `${i.answered} of ${i.questions} answered` }));
+  return [...by.values()].map((i) => ({ ...i, score: scoreOf(i.answered, i.questions) }));
 }
 
 /** A subject as a circle: its questions inside, by state. */
@@ -226,7 +228,7 @@ export function subjectItem(s: {
     label: s.name,
     value: Math.max(1, c.questions),
     proposed: s.status === "proposed",
-    score: `${c.answered} of ${c.questions} answered`,
+    score: scoreOf(c.answered, c.questions),
     questions: c.questions,
     answered: c.answered,
     dots: { answered: c.answered, drafted: c.drafted + c.planned, open: c.open },

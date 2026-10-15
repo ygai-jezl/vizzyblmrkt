@@ -31,6 +31,7 @@ interface SubjectRead {
 }
 
 const pct = (answered: number, questions: number) => (questions ? Math.round((100 * answered) / questions) : 0);
+const fmt = (n: number) => n.toLocaleString("en");
 
 /** One batch of "Sort into groups", as the route answers it. */
 type SortStep = { done?: boolean; next?: string | null; suggested?: number; proposedGroups?: string[]; error?: string };
@@ -254,13 +255,15 @@ export function BrandMapSubjectsTab({
               key: "none",
               label: "Ungrouped",
               view: { kind: "none" } as View,
-              meta: ungroupedTotals ? `${ungroupedTotals.subjects ?? 0} subjects · ${ungroupedTotals.answered ?? 0} of ${ungroupedTotals.questions ?? 0} answered` : null,
+              meta: ungroupedTotals
+                ? `${fmt(ungroupedTotals.subjects ?? 0)} subjects · ${fmt(ungroupedTotals.answered ?? 0)} of ${fmt(ungroupedTotals.questions ?? 0)} answered`
+                : null,
             },
             ...decidedGroups.map((g) => ({
               key: g.id,
               label: g.name,
               view: { kind: "group", id: g.id } as View,
-              meta: `${g.totals.subjects} subjects · ${g.totals.answered} of ${g.totals.questions} answered${g.suggested ? ` · ${g.suggested} suggested` : ""}`,
+              meta: `${fmt(g.totals.subjects)} subjects · ${fmt(g.totals.answered)} of ${fmt(g.totals.questions)} answered${g.suggested ? ` · ${fmt(g.suggested)} suggested` : ""}`,
             })),
           ].map((item) => {
             const on = JSON.stringify(item.view) === JSON.stringify(view);

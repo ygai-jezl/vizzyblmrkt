@@ -8,6 +8,7 @@ import { pageHref, QUESTION_STATE_LABEL } from "@/lib/brandMap/contentMapDetails
 import { programmeWord } from "@/lib/nav/terms";
 import { Section } from "@/components/admin/connect/ui";
 import { smallLabel } from "./BrandMapParts";
+import { useLeaveGuard } from "./brandMapLeave";
 
 /** Coverage on the Brand map page (BRAND_MAP_PAGES_ENABLED): what the brand's pages answer. */
 
@@ -26,11 +27,12 @@ export function Dot({ state }: { state: QuestionState }) {
 }
 
 export function PageLink({ page }: { page: CoveragePage }) {
+  const guard = useLeaveGuard();
   const href = pageHref(page);
   const cls = "text-blue-600 hover:underline dark:text-blue-400";
   if (!href) return <span>{page.title}</span>;
   return href.startsWith("/") ? (
-    <Link href={href} className={cls}>
+    <Link href={href} onClick={guard} className={cls}>
       {page.title}
     </Link>
   ) : (
@@ -150,10 +152,11 @@ const ACTION = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-n
 
 /** "Write this next": a new blog article that answers an open question, in a programme. */
 export function WriteNext({ questionId, programmes }: { questionId: string; programmes: Array<{ id: string; name: string }> }) {
+  const guard = useLeaveGuard();
   if (!programmes.length) return null;
   if (programmes.length === 1) {
     return (
-      <Link href={writeNextHref(programmes[0]!.id, questionId)} className={ACTION}>
+      <Link href={writeNextHref(programmes[0]!.id, questionId)} onClick={guard} className={ACTION}>
         Write this next
       </Link>
     );
@@ -167,6 +170,7 @@ export function WriteNext({ questionId, programmes }: { questionId: string; prog
           <Link
             key={p.id}
             href={writeNextHref(p.id, questionId)}
+            onClick={guard}
             className="block truncate rounded px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >
             {p.name}

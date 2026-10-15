@@ -65,15 +65,11 @@ export function BrandMapNames({
                         disabled={disabled}
                         onChange={(e) => update(i, { ...n, name: e.target.value })}
                       />
-                      <input
-                        // Remounted when the spellings change from elsewhere (an accepted suggestion).
-                        key={n.aliases.join("|")}
-                        aria-label={`Other spellings of ${n.name}`}
-                        className={inputClass}
-                        defaultValue={n.aliases.join(", ")}
-                        placeholder="None"
+                      <AliasesInput
+                        label={`Other spellings of ${n.name}`}
+                        aliases={n.aliases}
                         disabled={disabled}
-                        onBlur={(e) => update(i, { ...n, aliases: splitList(e.target.value, LIMITS.aliases) })}
+                        onChange={(aliases) => update(i, { ...n, aliases })}
                       />
                       <input
                         aria-label={`The page on your site for ${n.name}`}
@@ -154,5 +150,43 @@ export function BrandMapNames({
         </div>
       ) : null}
     </Section>
+  );
+}
+
+/**
+ * "Other spellings", comma separated: kept as typed (a trailing comma, a half-typed word) and
+ * saved as a list on every keystroke, so the map knows it has changed. A change from elsewhere
+ * (an accepted suggestion) replaces what is shown.
+ */
+function AliasesInput({
+  label,
+  aliases,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  aliases: string[];
+  disabled: boolean;
+  onChange: (aliases: string[]) => void;
+}) {
+  const joined = aliases.join(", ");
+  const [text, setText] = useState(joined);
+  const [held, setHeld] = useState(joined);
+  if (held !== joined) {
+    setHeld(joined);
+    if (splitList(text, LIMITS.aliases).join(", ") !== joined) setText(joined);
+  }
+  return (
+    <input
+      aria-label={label}
+      className={inputClass}
+      value={text}
+      placeholder="None"
+      disabled={disabled}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(splitList(e.target.value, LIMITS.aliases));
+      }}
+    />
   );
 }

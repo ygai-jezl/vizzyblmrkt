@@ -8,6 +8,7 @@ import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import { layoutContentMap, UNPLACED, type ContentMapInput, type MapPoint, type PointState } from "@/lib/brandMap/contentMapLayout";
 import { POINT_LABEL, pointDetails } from "@/lib/brandMap/contentMapDetails";
 import { WriteNext } from "./BrandMapCoverage";
+import { useLeaveGuard } from "./brandMapLeave";
 import { smallLabel } from "./BrandMapParts";
 
 /**
@@ -264,11 +265,12 @@ function Details({
   onShowSubject: (subjectId: string) => void;
 }) {
   const view = useMemo(() => pointDetails(point, input), [point, input]);
+  const guard = useLeaveGuard();
   const { actions } = view;
   const buttons: ReactNode[] = [];
   if (actions.open) {
     buttons.push(
-      <Link key="open" href={actions.open} className={ACTION_PRIMARY}>
+      <Link key="open" href={actions.open} onClick={guard} className={ACTION_PRIMARY}>
         Open article
       </Link>,
     );

@@ -13,6 +13,7 @@ import { BrandMapMarkup } from "./BrandMapMarkup";
 import { CoverageStrip, NeedsALook, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { BrandMapNames } from "./BrandMapNames";
 import { BrandMapPagesReader } from "./BrandMapPagesReader";
+import { useReportUnsaved } from "./brandMapLeave";
 import { BrandMapSubjects } from "./BrandMapSubjects";
 import { BrandMapSuggestions } from "./BrandMapSuggestions";
 import { decidedOf, firstRunFill, isBlank, isDirty, type BrandMapPageProps, type MapIssue } from "./brandMapForm";
@@ -41,6 +42,7 @@ export function BrandMapEditor(props: BrandMapPageProps) {
   const [started, setStarted] = useState(!isBlank(props.initial) || props.rev > 0);
   const [freshSuggestions, setFreshSuggestions] = useState<BrandMapSuggestion[] | null>(null);
   const dirty = isDirty(form, saved) || accepted.length > 0;
+  useReportUnsaved(dirty);
   const editable = props.canEdit && !props.unreadable;
   // Each saved question's coverage, by its id (a question added since is not on it yet).
   const coverageOf = useMemo(
@@ -294,8 +296,8 @@ export function BrandMapEditor(props: BrandMapPageProps) {
                 ? (q) => (
                     <QuestionStatus
                       q={coverageOf.get(q.id)}
-                      // Hidden while the map has unsaved changes: leaving now would lose them.
-                      action={props.programmes && !dirty ? <WriteNext questionId={q.id} programmes={props.programmes} /> : null}
+                      // Leaving with unsaved changes asks first (brandMapLeave).
+                      action={props.programmes ? <WriteNext questionId={q.id} programmes={props.programmes} /> : null}
                     />
                   )
                 : undefined

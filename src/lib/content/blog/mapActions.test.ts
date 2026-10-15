@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BrandMapDecidedSchema, type BrandMap } from "@/lib/types/brandMap";
 import { BrandMapPageSchema } from "@/lib/types/brandMapPage";
-import { articleSuggestions, loadArticleMap, softly } from "./mapActions";
+import { articleSuggestions, loadArticleMap, reconcileWithSavedMap, softly } from "./mapActions";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const saved = {
@@ -52,6 +52,13 @@ describe("the map an article is written from", () => {
     expect(listPages).not.toHaveBeenCalled();
   });
 
+  it("never counts the article's own page as answering its own questions", async () => {
+    vi.stubEnv("BRAND_MAP_PAGES_ENABLED", "true");
+    const map = await loadArticleMap(ctx, deps, { pages: true, planId: "a" });
+    expect(map?.answered).toEqual({});
+    expect(map?.siblings).toEqual([]);
+  });
+
   it("reads no pages while the pages switch is off, and a failed read leaves them out", async () => {
     const listPages = vi.fn(async () => [live]);
     expect((await loadArticleMap(ctx, { ...deps, listPages }, { pages: true }))?.answered).toEqual({});
@@ -59,6 +66,16 @@ describe("the map an article is written from", () => {
     vi.stubEnv("BRAND_MAP_PAGES_ENABLED", "true");
     const failing = { ...deps, listPages: async () => Promise.reject(new Error("down")) };
     expect(await loadArticleMap(ctx, failing, { pages: true })).toMatchObject({ rev: 2, answered: {}, siblings: [] });
+  });
+});
+
+describe("a new article's subject and question", () => {
+  it("are checked against the saved map, and let go without one", async () => {
+    expect(await reconcileWithSavedMap(ctx, { subjectId: "sub_madeup1", primaryRef: "q_aaaaaaaa" }, deps)).toEqual({ primaryRef: "q_aaaaaaaa", subjectId: "sub_aaaaaaaa" });
+    expect(await reconcileWithSavedMap(ctx, { subjectId: null, primaryRef: "q_aaaaaaaa" }, deps)).toEqual({ subjectId: null });
+    expect(await reconcileWithSavedMap(ctx, { primaryRef: "q_aaaaaaaa" }, deps)).toEqual({ primaryRef: "q_aaaaaaaa", subjectId: "sub_aaaaaaaa" });
+    expect(await reconcileWithSavedMap(ctx, { subjectId: "sub_aaaaaaaa", primaryRef: "q_aaaaaaaa" }, { loadMap: async () => null })).toEqual({});
+    expect(await reconcileWithSavedMap(ctx, { primaryQuestion: "Why?" } as never, deps)).toEqual({ primaryQuestion: "Why?" });
   });
 });
 

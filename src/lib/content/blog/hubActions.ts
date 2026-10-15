@@ -66,7 +66,7 @@ export async function researchPlanBlog(
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
   // Read side by side: the tenant record, and the brand map (null with its flag off or none saved).
   // With the pages switch on, the map also says what is answered and open, for research.
-  const [brand, map] = await Promise.all([tenantBrand(ctx), loadArticleMap(ctx, deps, { pages: true })]);
+  const [brand, map] = await Promise.all([tenantBrand(ctx), loadArticleMap(ctx, deps, { pages: true, planId: plan.id })]);
   const result = await researchBlogBrief(
     { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map },
     deps,

@@ -150,6 +150,28 @@ export function withSubject<B extends Pick<BlogBrief, "subjectId" | "primaryRef"
   return next;
 }
 
+/**
+ * Keep an article's subject and its map question in step with the map, by the rule the brief
+ * panel and the wizard follow: a question no longer on the map is let go; a map question
+ * belongs to one subject, so with no subject chosen it brings its own, and with another one
+ * chosen (or "none") it is unlinked. A subject a person chose stays, even once it is off the
+ * map (the brief panel says so); `newArticle` lets go of one never on it, so research may pick.
+ */
+export function reconcileMapRefs<B extends Pick<BlogBrief, "subjectId" | "primaryRef">>(
+  brief: B,
+  map: Pick<ArticleMap, "subjects">,
+  opts: { newArticle?: boolean } = {},
+): B {
+  if (brief.primaryRef === undefined && !brief.subjectId) return brief;
+  const next = { ...brief };
+  if (opts.newArticle && next.subjectId && !map.subjects.some((s) => s.id === next.subjectId)) delete next.subjectId;
+  const hit = mapQuestion(map, next.primaryRef);
+  if (!hit) delete next.primaryRef;
+  else if (next.subjectId === undefined) next.subjectId = hit.subject.id;
+  else if (next.subjectId !== hit.subject.id) delete next.primaryRef;
+  return next;
+}
+
 /** The article's subject on the map, if the brief names one that is still there. */
 export function subjectOf(map: ArticleMap, brief: Pick<BlogBrief, "subjectId">): ArticleMapSubject | null {
   return brief.subjectId ? (map.subjects.find((s) => s.id === brief.subjectId) ?? null) : null;

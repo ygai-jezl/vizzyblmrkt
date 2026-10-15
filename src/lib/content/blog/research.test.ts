@@ -844,6 +844,17 @@ describe("blog research with a brand map", () => {
     }
   });
 
+  it("lets the main question's own subject win over research's pick, and lets go of a question taken off the map", async () => {
+    const TWO = { ...MAP, subjects: [...MAP.subjects, { id: "sub_bbbbbbbb", name: "Citations", home: null, questions: [] }] };
+    const d = deps();
+    d.grounded.mockImplementation(async (prompt: string) =>
+      prompt.includes("FACT: <the sentence>") ? attributed : { text: [QUESTIONS, "SUBJECT: citations"].join("\n"), model: "m", sources: [], supports: [] },
+    );
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan({ blog: BlogBriefSchema.parse({ primaryRef: "q_gonegone" }) }), map: TWO }, d);
+    expect(r.brief.primaryRef).toBe("q_aaaaaaaa");
+    expect(r.brief.subjectId).toBe("sub_aaaaaaaa");
+  });
+
   it("keeps an integration its material names by another spelling", async () => {
     const d = deps({
       retrieve: (async () => ({ formatted: "Acme connects to Example CRM Cloud.", chunks: [] })) as never,

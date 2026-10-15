@@ -28,7 +28,7 @@ import {
   type ContentPlan,
 } from "@/lib/types/contentPlan";
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl, textKey } from "./brief";
-import { researchMapBlock, researchSubjectLine, type ArticleMap } from "./articleMap";
+import { researchMapBlock, researchSubjectLine, type ArticleMap, mapQuestion, reconcileMapRefs } from "./articleMap";
 import { canonicaliseEntities, indexNames } from "./names";
 import { fold } from "@/lib/brandMap/changes";
 import { blockedCrawlers } from "./crawlers";
@@ -723,8 +723,9 @@ export async function researchBlogBrief(
   const clock = deps.now ?? (() => new Date());
   const now = clock();
   const deadline = now.getTime() + (input.timeoutMs ?? 60_000);
-  const current = briefOf(plan);
   const map = input.map ?? null;
+  // With a map, a subject or question since taken off it, or out of step with each other, is let go first.
+  const current = map ? reconcileMapRefs(briefOf(plan), map) : briefOf(plan);
   // With a brand map, the brand is called what the map calls it; the publisher field a
   // person typed is still only filled in, never overwritten (mergeResearch).
   const brandName = map?.identity.name.trim() || current.publisherName.trim() || input.brandName?.trim() || workspace.name;
@@ -888,16 +889,18 @@ export async function researchBlogBrief(
   const named = map ? canonicaliseEntities(filtered, indexNames(map), CONTENT_PLAN_LIMITS.MAX_BLOG_ENTITIES) : null;
   const entities = named ? named.entities : filtered;
 
-  // With a brand map: the subject research picked (when none is set), and which questions
-  // are the map's own (carried by id, so a later edit of a word does not lose them).
-  const mapSubject =
-    map && current.subjectId === undefined && parsed.subject
-      ? map.subjects.find((x) => fold(x.name) === fold(parsed.subject))
-      : map?.subjects.find((x) => x.id === current.subjectId);
-  const mapQuestions = map ? [...(mapSubject?.questions ?? []), ...map.subjects.flatMap((x) => (x === mapSubject ? [] : x.questions))] : [];
+  // With a brand map: the subject (a person's, else research's pick), and which questions are
+  // the map's own (carried by id, so a later edit of a word does not lose them).
+  const chosen = map?.subjects.find((x) => x.id === current.subjectId);
+  const picked = map && current.subjectId === undefined && parsed.subject ? map.subjects.find((x) => fold(x.name) === fold(parsed.subject)) : undefined;
+  const first = chosen ?? picked;
+  const mapQuestions = map ? [...(first?.questions ?? []), ...map.subjects.flatMap((x) => (x === first ? [] : x.questions))] : [];
   const refOf = (text: string) => mapQuestions.find((q) => textKey(q.text) === textKey(text))?.id;
   const questions = map ? parsed.questions.map((q) => ({ ...q, ...(refOf(q.question) ? { ref: refOf(q.question) } : {}) })) : parsed.questions;
-  const primaryRef = map ? refOf(current.primaryQuestion || parsed.primary) : undefined;
+  const primaryRef = map ? (current.primaryRef ?? refOf(current.primaryQuestion || parsed.primary)) : undefined;
+  // A map question belongs to one subject: with none chosen, the main question's own subject
+  // wins over research's pick.
+  const mapSubject = chosen ?? (map && current.subjectId === undefined ? (mapQuestion(map, primaryRef)?.subject ?? picked) : undefined);
 
   // With a brand map: the page for each of its names the article uses, and the subject's,
   // and live articles on the same subject, lead the pages that go deeper. Own site only.
@@ -922,7 +925,7 @@ export async function researchBlogBrief(
     links.splice(at === -1 ? links.length : at, 0, ...extra);
   }
 
-  const brief = mergeResearch(
+  const merged = mergeResearch(
     current,
     {
       primaryQuestion: parsed.primary,
@@ -938,6 +941,8 @@ export async function researchBlogBrief(
     },
     now.toISOString(),
   );
+  // The subject and question research filled in are kept in step, as a person's are.
+  const brief = map ? reconcileMapRefs(merged, map) : merged;
   return {
     brief,
     searched: Boolean(asked?.text),

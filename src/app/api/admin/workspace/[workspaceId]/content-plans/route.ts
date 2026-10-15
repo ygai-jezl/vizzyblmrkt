@@ -5,6 +5,7 @@ import { forTenant } from "@/lib/tenant";
 import { createContentPlan, listContentPlans } from "@/lib/tenant/workspaceContent";
 import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
+import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
       { status: 400 },
     );
   }
-  const plan = await createContentPlan(ctx, workspaceId, planFromIntake(parsed.data));
+  const fields = planFromIntake(parsed.data);
+  // A subject and question named by id are checked against the saved map before they're kept.
+  if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog);
+  const plan = await createContentPlan(ctx, workspaceId, fields);
   // A new blog article is a planned page on the brand map (its pages switch on).
   await syncPlanPageSoftly(ctx, { workspaceId, planId: plan.id, plan });
   return NextResponse.json({ plan });

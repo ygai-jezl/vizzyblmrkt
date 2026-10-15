@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { BlogBriefSchema } from "@/lib/types/contentPlan";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
-import { mapMaterial, mapQuestion, projectArticleMap, researchMapBlock, researchSubjectLine, withSubject, writeNextFrom, writeNextHref, writerMapBlock } from "./articleMap";
+import {
+  mapMaterial,
+  mapQuestion,
+  projectArticleMap,
+  reconcileMapRefs,
+  researchMapBlock,
+  researchSubjectLine,
+  withSubject,
+  writeNextFrom,
+  writeNextHref,
+  writerMapBlock,
+} from "./articleMap";
 
 const decided = BrandMapDecidedSchema.parse({
   identity: {
@@ -84,6 +95,24 @@ describe("the article's view of the brand map", () => {
     expect(withSubject(brief, null, map)).toEqual({ primaryQuestion: "How is it measured?", subjectId: null });
     // Back to "research picks one": no subject key at all, so research may pick again.
     expect(withSubject(brief, undefined, map)).toEqual({ primaryQuestion: "How is it measured?" });
+  });
+
+  it("keeps an article's subject and its map question in step with the map", () => {
+    // The question brings its own subject when none is chosen.
+    expect(reconcileMapRefs({ primaryRef: "q_bbbbbbbb" }, map)).toEqual({ primaryRef: "q_bbbbbbbb", subjectId: "sub_aaaaaaaa" });
+    // Another subject chosen: the question is unlinked; a person's "none" likewise.
+    expect(reconcileMapRefs({ subjectId: "sub_otherone", primaryRef: "q_bbbbbbbb" }, map)).toEqual({ subjectId: "sub_otherone" });
+    expect(reconcileMapRefs({ subjectId: null, primaryRef: "q_bbbbbbbb" }, map)).toEqual({ subjectId: null });
+    // A question taken off the map is let go; a subject a person chose stays (the panel says it's gone).
+    expect(reconcileMapRefs({ subjectId: "sub_gonegone", primaryRef: "q_gonegone" }, map)).toEqual({ subjectId: "sub_gonegone" });
+    // On a new article, a subject never on the map is let go, so the question brings its own.
+    expect(reconcileMapRefs({ subjectId: "sub_madeup1", primaryRef: "q_bbbbbbbb" }, map, { newArticle: true })).toEqual({
+      primaryRef: "q_bbbbbbbb",
+      subjectId: "sub_aaaaaaaa",
+    });
+    // Nothing to do.
+    const brief = { subjectId: "sub_aaaaaaaa", primaryRef: "q_aaaaaaaa" };
+    expect(reconcileMapRefs(brief, map)).toEqual(brief);
   });
 
   it("starts a new article from a question still on the map", () => {

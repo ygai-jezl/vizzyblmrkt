@@ -338,7 +338,7 @@ function SituationDetail({
                   <Dot state={q.state} />
                   {q.status === "proposed" ? "Proposed" : STATE_LABEL[q.state]}
                   {q.subjectName ? <span>· {q.subjectName}</span> : null}
-                  {q.status === "decided" && q.state === "open" && programmes?.length ? <WriteNext questionId={q.id} programmes={programmes} /> : null}
+                  {q.status === "decided" && q.state === "open" && programmes?.length ? <WriteNext questionId={q.id} programmes={programmes} situationId={s.status === "decided" ? s.id : undefined} /> : null}
                 </span>
               </li>
             ))}

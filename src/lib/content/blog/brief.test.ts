@@ -125,3 +125,12 @@ describe("blog brief", () => {
     expect(citationName({ publisher: "", url: "https://www.example.org/x" })).toBe("example.org");
   });
 });
+
+describe("research's buying situation in the brief", () => {
+  it("fills it in only when nobody has said yet", () => {
+    const found = { primaryQuestion: "", questions: [], links: [], sources: [], entities: [], publisherName: "", publisherUrl: "", situationId: "sit_aaaaaaaa" };
+    expect(mergeResearch(BlogBriefSchema.parse({}), found, "2026-10-15T10:00:00.000Z").situationId).toBe("sit_aaaaaaaa");
+    expect(mergeResearch(BlogBriefSchema.parse({ situationId: null }), found, "2026-10-15T10:00:00.000Z").situationId).toBeNull();
+    expect(mergeResearch(BlogBriefSchema.parse({ situationId: "sit_bbbbbbbb" }), found, "2026-10-15T10:00:00.000Z").situationId).toBe("sit_bbbbbbbb");
+  });
+});

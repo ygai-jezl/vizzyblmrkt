@@ -1,14 +1,15 @@
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMap } from "@/lib/types/brandMap";
-import type { BrandMapSubjectRecord } from "@/lib/types/brandMapRecords";
+import type { BrandMapSituation, BrandMapSubjectRecord } from "@/lib/types/brandMapRecords";
 import { planPageId } from "@/lib/types/brandMapPage";
-import { projectArticleMap, type ArticleMap, type ArticleMapSubject } from "@/lib/content/blog/articleMap";
+import { projectArticleMap, type ArticleMap, type ArticleMapSituation, type ArticleMapSubject } from "@/lib/content/blog/articleMap";
 import { textKey } from "@/lib/content/blog/brief";
-import { nearestSubjects, type EmbedDeps } from "./embed";
-import { isBrandMapPagesEnabled } from "./flags";
+import { nearestSituations, nearestSubjects, type EmbedDeps } from "./embed";
+import { isBrandMapPagesEnabled, isBrandMapSituationsEnabled } from "./flags";
 import { getSubject, parseQuestion, parseSubject, subjectQuestions } from "./records";
 import { subjectCoverage } from "./recount";
+import { parseSituation } from "./situations";
 
 /**
  * What an article sees of a map at any size (BRAND_MAP_SCALE_ENABLED, once the map moved):
@@ -23,12 +24,38 @@ export interface ArticleAsk {
   subjectId?: string | null;
   /** The map question the article answers. */
   primaryRef?: string;
+  /** The brief's buying situation: an id, null (none), or undefined (research picks). */
+  situationId?: string | null;
   /** What the article is about, to find the subjects near it. */
   text?: string;
 }
 
 /** Subjects offered when none is chosen. */
 export const NEAREST_SUBJECTS = 12;
+/** Buying situations offered when none is chosen. */
+export const NEAREST_SITUATIONS = 5;
+
+const asArticleSituation = (s: BrandMapSituation): ArticleMapSituation => ({ id: s.id, text: s.text, who: s.who, want: s.want, feel: s.feel, moment: s.wText });
+
+/** The article's buying situation by id, or (none chosen) the nearest, while situations are on. */
+async function situationsFor(ctx: TenantContext, ask: ArticleAsk, deps: Deps): Promise<Pick<ArticleMap, "situation" | "situations">> {
+  if (!isBrandMapSituationsEnabled()) return {};
+  const store = brandMapRecords(ctx, deps.db);
+  // `situations` is there (if empty) whenever situations are on, so the article's page offers a choice.
+  if (ask.situationId) {
+    const s = parseSituation(await store.get("sit", ask.situationId).catch(() => null));
+    return s?.status === "decided" ? { situation: asArticleSituation(s), situations: [] } : { situations: [] };
+  }
+  if (ask.situationId !== undefined || !ask.text?.trim()) return { situations: [] };
+  const found = await within(nearestSituations(ctx, ask.text, { limit: NEAREST_SITUATIONS }, deps), BUDGET_MS, []);
+  const rows = await store.getMany("sit", found.map((n) => n.ref)).catch(() => []);
+  return {
+    situations: rows.flatMap((r) => {
+      const s = parseSituation(r);
+      return s?.status === "decided" ? [asArticleSituation(s)] : [];
+    }),
+  };
+}
 const BUDGET_MS = 3_000;
 
 type Deps = EmbedDeps & { db?: FirestoreLike };
@@ -64,6 +91,8 @@ export async function articleMapAtScale(
   const article: ArticleMap = { ...projectArticleMap({ ...map, subjects: [] }), atScale: true };
   const ask = opts.ask ?? {};
   const store = brandMapRecords(ctx, deps.db);
+  // Its buying situation is read alongside its subjects, within the same budget.
+  const situated = situationsFor(ctx, ask, deps).catch(() => ({}));
 
   // The article's own subject, and its main question's, by id.
   const own: BrandMapSubjectRecord[] = [];
@@ -88,6 +117,7 @@ export async function articleMapAtScale(
   }
   const subjects = [...own, ...near];
   article.subjects = await asArticleSubjects(ctx, subjects, deps);
+  Object.assign(article, await situated);
 
   if (opts.pages && isBrandMapPagesEnabled()) {
     // The others' state from their stored counts: enough to tell what is still open.

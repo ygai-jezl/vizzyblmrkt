@@ -122,6 +122,7 @@ export default async function BrandMapPage() {
               // A subject's own page is added when it is open.
               homes={homesOf({ identity: map.identity, names: map.names, subjects: [] })}
               programmes={programmes}
+              situations={situations}
             />
           ) : null
         ) : coverage && map ? (

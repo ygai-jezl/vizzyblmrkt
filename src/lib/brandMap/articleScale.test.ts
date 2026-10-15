@@ -8,6 +8,7 @@ import { loadArticleMap, reconcileWithSavedMap } from "@/lib/content/blog/mapAct
 import { articleMapAtScale, mapQuestionsByWords } from "./articleScale";
 import { ensureMoved } from "./move";
 import { removeSubject } from "./records";
+import { createSituation } from "./situations";
 import { readBrandMap, saveBrandMap } from "./store";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -48,6 +49,20 @@ describe("what an article sees of a map at any size", () => {
       ["sub_bbbbbbbb", ["q_cccccccc"]],
       ["sub_aaaaaaaa", ["q_aaaaaaaa", "q_bbbbbbbb"]],
     ]);
+  });
+
+  it("reads the article's buying situation by id, while situations are on", async () => {
+    vi.stubEnv("BRAND_MAP_SITUATIONS_ENABLED", "true");
+    const db = await moved();
+    const sit = await createSituation(ctx, { text: "Our clicks from Google are falling", who: "Head of SEO", want: "Win them back" }, { db, nowMs: NOW, embed: { embed: async () => [] } });
+    const id = sit.ok ? sit.value.id : "";
+    const map = await loadArticleMap(ctx, { db }, { ask: { situationId: id } });
+    expect(map?.situation).toEqual({ id, text: "Our clicks from Google are falling", who: "Head of SEO", want: "Win them back", feel: "", moment: "" });
+    expect(map?.situations).toEqual([]);
+    vi.stubEnv("BRAND_MAP_SITUATIONS_ENABLED", "false");
+    const off = await loadArticleMap(ctx, { db }, { ask: { situationId: id } });
+    expect(off).not.toHaveProperty("situation");
+    expect(off).not.toHaveProperty("situations");
   });
 
   it("never loses a link from a partial map; lets one go only when the map says it's gone", async () => {

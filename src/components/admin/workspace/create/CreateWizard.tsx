@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { programmeWord } from "@/lib/nav/terms";
 import { CHANNELS, channelLabel } from "@/lib/content/channels";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
@@ -40,6 +40,11 @@ export interface MapSubjectChoice {
 
 /** "None of these" in the subject list (a map id never looks like this). */
 const NO_SUBJECT = "none";
+/** "Not one situation" in the buying situations list. */
+const NO_SITUATION = "none";
+
+/** A buying situation a new article can be for. */
+type SituationChoice = { id: string; text: string; who: string; focus: boolean };
 
 export function CreateWizard({
   workspaceId,
@@ -48,6 +53,8 @@ export function CreateWizard({
   subjects = [],
   subjectSearch = false,
   prefill = null,
+  situations: situationsOn = false,
+  prefillSituation = null,
   onCreated,
   onCancel,
 }: {
@@ -60,6 +67,10 @@ export function CreateWizard({
   subjectSearch?: boolean;
   /** "Write this next": a blog article that answers this map question. */
   prefill?: WriteNext | null;
+  /** Buying situations are on: a blog article can be for one. */
+  situations?: boolean;
+  /** "Write this next" from a buying situation: the article is for it. */
+  prefillSituation?: { id: string; text: string } | null;
   onCreated: (plan: ContentPlan) => void;
   onCancel: () => void;
 }) {
@@ -90,6 +101,9 @@ export function CreateWizard({
       (prefill?.questionId === questionId ? { id: prefill.questionId, text: prefill.question } : undefined))
     : undefined;
   const pick: SubjectPick = subject === NO_SUBJECT ? null : subject ? { id: subject, name: subjectName || subject } : undefined;
+  // The buying situation: "" = research picks one, NO_SITUATION = none, else its id.
+  const [situation, setSituation] = useState(prefillSituation?.id ?? "");
+  const [situationChoices, setSituationChoices] = useState<SituationChoice[] | null>(null);
   const [sources, setSources] = useState<IngestionTicket[]>(initialSources);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -103,6 +117,23 @@ export function CreateWizard({
   // A blog hub written to the CITABLE structure (flag-gated) starts from a brief. The hub
   // channel choice outlives a switch to a sequence or an eBook, so gate on those too.
   const citableBlog = isBlogCitableUiEnabled() && !isSequence && !useEbook && hubChannel === "blog";
+  const askSituation = citableBlog && situationsOn;
+
+  // The brand's buying situations, read once the article's blog step is shown (focus first).
+  useEffect(() => {
+    if (!askSituation || situationChoices) return;
+    let gone = false;
+    void fetch("/api/admin/brand-kit/map/situations")
+      .then((r) => (r.ok ? r.json() : { situations: [] }))
+      .then((d: { situations?: Array<SituationChoice & { status?: string }> }) => {
+        if (gone) return;
+        setSituationChoices((d.situations ?? []).filter((x) => x.status === "decided").map((x) => ({ id: x.id, text: x.text, who: x.who, focus: x.focus })));
+      })
+      .catch(() => !gone && setSituationChoices([]));
+    return () => {
+      gone = true;
+    };
+  }, [askSituation, situationChoices]);
 
   async function refreshSources() {
     try {
@@ -177,6 +208,7 @@ export function CreateWizard({
                     buyerQuestions: blogBuyerQuestions.trim(),
                     ...(subject === NO_SUBJECT ? { subjectId: null } : subject ? { subjectId: subject } : {}),
                     ...(linkedQuestion ? { questionId: linkedQuestion.id } : {}),
+                    ...(askSituation ? (situation === NO_SITUATION ? { situationId: null } : situation ? { situationId: situation } : {}) : {}),
                   },
                 }
               : {}),
@@ -477,6 +509,22 @@ export function CreateWizard({
               </Field>
               {citableBlog ? (
                 <>
+                  {askSituation ? (
+                    <Field label="Who is it for? (optional)" hint="The buying situation its reader is in. The article opens by meeting them there. Leave it and research picks one.">
+                      <select aria-label="Who is it for?" value={situation} onChange={(e) => setSituation(e.target.value)} className={INPUT}>
+                        <option value="">Let research choose</option>
+                        {prefillSituation && !situationChoices?.some((x) => x.id === prefillSituation.id) ? (
+                          <option value={prefillSituation.id}>“{prefillSituation.text}”</option>
+                        ) : null}
+                        {(situationChoices ?? []).map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.focus ? "★ " : ""}“{x.text}”{x.who ? ` (${x.who})` : ""}
+                          </option>
+                        ))}
+                        <option value={NO_SITUATION}>Not one situation</option>
+                      </select>
+                    </Field>
+                  ) : null}
                   <Field
                     label="The question this article answers (optional)"
                     hint="Worded the way a buyer would ask it. Leave blank and research will find it."

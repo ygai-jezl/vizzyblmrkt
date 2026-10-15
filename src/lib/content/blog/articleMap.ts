@@ -36,6 +36,17 @@ export interface ArticleMapSubject {
   questions: ArticleMapQuestion[];
 }
 
+/** A buying situation as an article sees it: the moment its reader is in, in their words. */
+export interface ArticleMapSituation {
+  id: string;
+  text: string;
+  who: string;
+  want: string;
+  feel: string;
+  /** The W behind it, in a few words ("after the monthly traffic report"). */
+  moment: string;
+}
+
 /** A page that answers a map question (filled by the pages side; empty until then). */
 export interface AnsweredBy {
   title: string;
@@ -67,6 +78,10 @@ export interface ArticleMap {
    * nearest), so a subject is chosen by searching for it.
    */
   atScale?: boolean;
+  /** The buying situation the article is for, when one is chosen (BRAND_MAP_SITUATIONS_ENABLED). */
+  situation?: ArticleMapSituation | null;
+  /** With none chosen, the situations nearest the article, for research to pick from. */
+  situations?: ArticleMapSituation[];
 }
 
 /** The article's view of a saved map. Every stored link was confirmed by a person (the server stamps it on save). */
@@ -138,9 +153,9 @@ export function writeNextFrom(map: Pick<ArticleMap, "subjects">, questionId: str
   return hit ? { subjectId: hit.subject.id, subjectName: hit.subject.name, questionId: hit.question.id, question: hit.question.text } : null;
 }
 
-/** The link that starts it, in a programme. */
-export const writeNextHref = (workspaceId: string, questionId: string) =>
-  `/admin/workspace/${encodeURIComponent(workspaceId)}/create?question=${encodeURIComponent(questionId)}`;
+/** The link that starts it, in a programme (from a buying situation: for that situation too). */
+export const writeNextHref = (workspaceId: string, questionId: string, situationId?: string) =>
+  `/admin/workspace/${encodeURIComponent(workspaceId)}/create?question=${encodeURIComponent(questionId)}${situationId ? `&situation=${encodeURIComponent(situationId)}` : ""}`;
 
 /**
  * The brief with its subject set by a person: an id, null (none), or undefined (research
@@ -191,7 +206,7 @@ export function subjectOf(map: ArticleMap, brief: Pick<BlogBrief, "subjectId">):
  * Research's block: the brand's names (so ENTITY lines come back spelled its way), its
  * subjects, and for this article's subject what is answered and what is open. "" without a map.
  */
-export function researchMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "subjectId">): string {
+export function researchMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "subjectId"> & Partial<Pick<BlogBrief, "situationId">>): string {
   if (!map) return "";
   const i = map.identity;
   const lines: string[] = [];
@@ -231,6 +246,12 @@ export function researchMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, 
       lines.push(`- ${fenceSafe(s.name)}${open.length ? `: ${open.map((q) => fenceSafe(q.text)).join(" / ")}` : ""}`);
     }
   }
+  // The buying situation the article is for: the moment its reader is in.
+  if (map.situation) lines.push(...situationLines(map.situation, "Who this article is for"));
+  else if (brief.situationId === undefined && map.situations?.length) {
+    lines.push("Buying situations its readers are in, in their own words:");
+    for (const s of map.situations) lines.push(`- ${fenceSafe(s.text)}`);
+  }
   if (!lines.length) return "";
   return [
     "",
@@ -249,12 +270,28 @@ export function researchSubjectLine(map: ArticleMap | null, brief: Pick<BlogBrie
   return "\nSUBJECT: <the one subject listed in <brand_map> this article belongs to, copied exactly, or NONE>";
 }
 
+/** The extra answer line research is asked for when the article's buying situation is not known yet. */
+export function researchSituationLine(map: ArticleMap | null, brief: Partial<Pick<BlogBrief, "situationId">>): string {
+  if (!map?.situations?.length || brief.situationId !== undefined) return "";
+  return "\nSITUATION: <the one buying situation listed in <brand_map> this article is for, copied exactly, or NONE>";
+}
+
+/** A buying situation, a line each: in the reader's words, who they are, what they want, how it feels. */
+function situationLines(s: ArticleMapSituation, head: string): string[] {
+  return [
+    `${head}: people in this situation, in their own words: “${fenceSafe(s.text)}”${s.who ? ` (${fenceSafe(s.who)})` : ""}`,
+    ...(s.moment ? [`When it happens: ${fenceSafe(s.moment)}`] : []),
+    ...(s.want ? [`What they want: ${fenceSafe(s.want)}`] : []),
+    ...(s.feel ? [`How it feels: ${fenceSafe(s.feel)}`] : []),
+  ];
+}
+
 /**
  * The writer's block: what the brand is and is not, its category named exactly, the names
  * never to write (and what to say instead), and the pages to link names to — only pages the
  * article is allowed to link, so nothing it is told to link is then taken out. "" without a map.
  */
-export function writerMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "links" | "entities" | "subjectId"> & Partial<Pick<BlogBrief, "primaryRef">>): string {
+export function writerMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "links" | "entities" | "subjectId"> & Partial<Pick<BlogBrief, "primaryRef" | "situationId">>): string {
   if (!map) return "";
   const i = map.identity;
   // The brand's own name is map text too: it is said inside the fence, never outside it.
@@ -286,8 +323,12 @@ export function writerMapBlock(map: ArticleMap | null, brief: Pick<BlogBrief, "l
   // The brand's own research: what people add when they search this article's question.
   const leads = brief.primaryRef ? (mapQuestion(map, brief.primaryRef)?.question.leads ?? []) : [];
   if (leads.length) lines.push(`People who search this article's question also add: ${leads.map(fenceSafe).join(", ")}. Readers expect that: meet it where it fits the article.`);
+  // The buying situation it is written for, while the brief still says so.
+  const situation = map.situation && (brief.situationId === undefined || brief.situationId === map.situation.id) ? map.situation : null;
+  if (situation) lines.push(...situationLines(situation, "Who it is for"));
   if (lines.length < (i.name ? 2 : 1)) return "";
   const rules = [
+    situation ? "- Open by meeting the reader in that situation, in their own words, before anything else. Then answer the question." : "",
     "- Write each name in the list above exactly as it is spelled there, every time.",
     "- A name you never write may still appear in three places, unchanged: a buyer's question used as a heading, a quotation, and a source's own title. Once, beside the name you do use, you may say people also call it that.",
     i.statement ? "- Say what the brand is in the words above." : "",

@@ -5,10 +5,24 @@ import { ChevronRight } from "lucide-react";
 import { Controls, ReactFlow, ViewportPortal, useStore, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
-import type { BrandMapGroup, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
+import type { BrandMapGroup, BrandMapSituation, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
+import type { SituationRead } from "@/lib/brandMap/situations";
 import type { Coverage, SubjectCoverage } from "@/lib/content/blog/coverage";
 import type { ContentMapInput, MapPage } from "@/lib/brandMap/contentMapLayout";
-import { LABEL_R, levelTotals, MAX_CIRCLES, packLevel, SCORE_R, subjectItem, topItems, UNGROUPED, type PackCircle, type PackItem } from "@/lib/brandMap/contentMapPack";
+import {
+  LABEL_R,
+  levelTotals,
+  MAX_CIRCLES,
+  packLevel,
+  SCORE_R,
+  situationItem,
+  situationSubjectItems,
+  subjectItem,
+  topItems,
+  UNGROUPED,
+  type PackCircle,
+  type PackItem,
+} from "@/lib/brandMap/contentMapPack";
 import { api, errorText } from "@/components/admin/connect/api";
 import { Banner, inputClass } from "@/components/admin/connect/ui";
 import { BrandMapContentMap } from "./BrandMapContentMap";
@@ -23,6 +37,8 @@ import { matchSubjects, type SubjectName } from "./MapSubjectSearch";
  * they hold; what is one level down is drawn inside as dots by state, one shape under the
  * circles, from counts the circles already have. Names show when there's room, more as you
  * zoom. At most 400 circles a level can be clicked; the Subjects tab lists every subject.
+ * With buying situations on, the map can be arranged by them instead: each situation, then
+ * the subjects its questions sit on (a subject appears under each situation it serves).
  */
 
 const MAP = "/api/admin/brand-kit/map";
@@ -30,12 +46,13 @@ const W = 880;
 const H = 600;
 const BIGGEST = 8;
 
-type Step = { kind: "group"; id: string; name: string } | { kind: "subject"; id: string; name: string };
+type Step = { kind: "group" | "subject" | "situation"; id: string; name: string };
+type Arrange = "subjects" | "situations";
 type Pick = { id: string; label: string };
 
 interface CirclesLevel {
   kind: "circles";
-  noun: "groups" | "subjects";
+  noun: "groups" | "subjects" | "situations";
   items: PackItem[];
 }
 interface SubjectRead {
@@ -68,6 +85,20 @@ async function readTop(): Promise<{ level: CirclesLevel; groups: BrandMapGroup[]
   return "error" in all ? all : { level: all, groups: [] };
 }
 
+/** Arranged by buying situation: the brand's situations. */
+async function readSituations(): Promise<CirclesLevel | Failed> {
+  const r = await api<{ situations?: BrandMapSituation[]; error?: string }>(`${MAP}/situations`);
+  if (!r.ok || !r.data.situations) return { error: errorText(r.data) };
+  return { kind: "circles", noun: "situations", items: r.data.situations.filter((s) => s.status === "decided").map(situationItem) };
+}
+
+/** One situation's subjects, by its questions on each. */
+async function readSituationSubjects(id: string): Promise<CirclesLevel | Failed> {
+  const r = await api<SituationRead & { error?: string }>(`${MAP}/situations/${encodeURIComponent(id)}`);
+  if (!r.ok || !r.data.questions) return { error: errorText(r.data) };
+  return { kind: "circles", noun: "subjects", items: situationSubjectItems(r.data.questions) };
+}
+
 async function readSubject(id: string): Promise<Level | Failed> {
   const r = await api<SubjectRead & { error?: string }>(`${MAP}/subjects/${encodeURIComponent(id)}?view=map`);
   if (!r.ok || !r.data.subject) return { error: errorText(r.data) };
@@ -78,20 +109,24 @@ export function BrandMapContentMapLevels({
   brand,
   homes,
   programmes,
+  situations = false,
 }: {
   brand: ContentMapInput["brand"];
   /** The brand's site and its names' own pages (a subject's is added when it is open). */
   homes: ContentMapInput["homes"];
   programmes: Array<{ id: string; name: string }> | null;
+  /** Buying situations are on: the map can be arranged by them. */
+  situations?: boolean;
 }) {
   const { moved, progress, round } = useMapMove();
+  const [arrange, setArrange] = useState<Arrange>("subjects");
   const [path, setPath] = useState<Step[]>([]);
   const [levels, setLevels] = useState<Record<string, Level>>({});
   const [groups, setGroups] = useState<BrandMapGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const last = path[path.length - 1] ?? null;
-  const key = last ? `${last.kind}:${last.id}` : "top";
+  const key = last ? `${last.kind}:${last.id}` : `top:${arrange}`;
   const level = levels[key];
 
   // Read again when the page's move (and its count) finishes.
@@ -102,7 +137,15 @@ export function BrandMapContentMapLevels({
     let gone = false;
     setError(null);
     void (async () => {
-      const read = !last ? await readTop() : last.kind === "group" ? await readSubjects(last.id) : await readSubject(last.id);
+      const read = !last
+        ? arrange === "situations"
+          ? await readSituations()
+          : await readTop()
+        : last.kind === "group"
+          ? await readSubjects(last.id)
+          : last.kind === "situation"
+            ? await readSituationSubjects(last.id)
+            : await readSubject(last.id);
       if (gone) return;
       if ("error" in read) return setError(read.error);
       if ("groups" in read) setGroups(read.groups);
@@ -111,19 +154,20 @@ export function BrandMapContentMapLevels({
     return () => {
       gone = true;
     };
-  }, [moved, level, key, last]);
+  }, [moved, level, key, last, arrange]);
 
   const open = useCallback(
     (p: Pick) => {
       if (level?.kind !== "circles") return;
-      setPath((at) => [...at, level.noun === "groups" ? { kind: "group", id: p.id, name: p.label } : { kind: "subject", id: p.id, name: p.label }]);
+      const kind: Step["kind"] = level.noun === "groups" ? "group" : level.noun === "situations" ? "situation" : "subject";
+      setPath((at) => [...at, { kind, id: p.id, name: p.label }]);
     },
     [level],
   );
 
   const jump = (s: { id: string; name: string; groupId: string | null }) => {
     const subject: Step = { kind: "subject", id: s.id, name: s.name };
-    if (!groups?.length) return setPath([subject]);
+    if (arrange === "situations" || !groups?.length) return setPath([subject]);
     const g = s.groupId ? groups.find((x) => x.id === s.groupId) : null;
     setPath([{ kind: "group", id: g?.id ?? UNGROUPED, name: g?.name ?? "Ungrouped" }, subject]);
   };
@@ -157,7 +201,28 @@ export function BrandMapContentMapLevels({
           </span>
         ) : null}
       </div>
-      <JumpToSubject onPick={jump} />
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <JumpToSubject onPick={jump} />
+        {situations ? (
+          <div role="group" aria-label="Arrange by" className="flex items-center gap-1 text-xs">
+            <span className="text-neutral-500">Arrange by</span>
+            {(["subjects", "situations"] as const).map((a) => (
+              <button
+                key={a}
+                type="button"
+                aria-pressed={arrange === a}
+                onClick={() => {
+                  setArrange(a);
+                  setPath([]);
+                }}
+                className={`rounded-full border px-2.5 py-0.5 ${arrange === a ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 dark:border-neutral-700"}`}
+              >
+                {a === "subjects" ? "Subjects" : "Buying situations"}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <p className="text-xs text-neutral-500">Click a circle to zoom in. Names show when there&apos;s room.</p>
       {error ? <Banner tone="err">{error}</Banner> : null}
       {!level ? (
@@ -173,7 +238,7 @@ export function BrandMapContentMapLevels({
           key={key}
           level={level}
           onOpen={open}
-          kicker={!last ? "Whole map" : last.id === UNGROUPED ? "Not in a group yet" : "Group"}
+          kicker={!last ? "Whole map" : last.kind === "situation" ? "Buying situation" : last.id === UNGROUPED ? "Not in a group yet" : "Group"}
           title={last ? last.name : top}
           atTop={!last}
           more={more}
@@ -312,7 +377,9 @@ function CirclesView({
   const biggest = [...level.items].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label)).slice(0, BIGGEST);
   const line = [
     ...(level.noun === "groups" ? [`${fmt(groups)} ${groups === 1 ? "group" : "groups"}`] : []),
-    `${fmt(totals.subjects)} ${totals.subjects === 1 ? "subject" : "subjects"}`,
+    level.noun === "situations"
+      ? `${fmt(level.items.length)} buying ${level.items.length === 1 ? "situation" : "situations"}`
+      : `${fmt(totals.subjects)} ${totals.subjects === 1 ? "subject" : "subjects"}`,
     `${fmt(totals.answered)} of ${fmt(totals.questions)} questions answered`,
     ...(totals.proposed ? [`${fmt(totals.proposed)} proposed, waiting for you`] : []),
   ].join(" · ");
@@ -320,7 +387,11 @@ function CirclesView({
   if (!level.items.length) {
     return (
       <Banner tone="info">
-        {atTop ? "No subjects yet. Add them on the Subjects tab, or let research propose some." : "Nothing here yet. Add subjects to it on the Subjects tab."}
+        {level.noun === "situations"
+          ? "No buying situations yet. Find them on the Buying situations tab."
+          : atTop
+            ? "No subjects yet. Add them on the Subjects tab, or let research propose some."
+            : "Nothing here yet. Add subjects to it on the Subjects tab."}
       </Banner>
     );
   }
@@ -366,7 +437,7 @@ function CirclesView({
         <h2 className="text-base font-semibold">{title}</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-300">{line}</p>
         <div className="space-y-1 pt-1">
-          <span className={smallLabel}>{level.noun === "groups" ? "Biggest groups" : "Biggest subjects"}</span>
+          <span className={smallLabel}>{level.noun === "groups" ? "Biggest groups" : level.noun === "situations" ? "Biggest buying situations" : "Biggest subjects"}</span>
           <ul className="space-y-1">
             {biggest.map((i) => (
               <li key={i.id}>

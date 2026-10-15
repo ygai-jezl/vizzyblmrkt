@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { packSiblings, type Circle } from "./packSiblings";
-import { groupItem, levelTotals, MAX_CIRCLES, packLevel, subjectItem, topItems, UNGROUPED, type PackItem } from "./contentMapPack";
+import { groupItem, levelTotals, MAX_CIRCLES, packLevel, situationItem, situationSubjectItems, subjectItem, topItems, UNGROUPED, type PackItem } from "./contentMapPack";
 
 /** A fixed pseudo-random sequence, so the tests are the same every run. */
 function rand(seed: number) {
@@ -126,5 +126,26 @@ describe("the top of the map", () => {
       subjectItem({ id: "sub_b", name: "B", status: "proposed", counts: { questions: 0, answered: 0, drafted: 0, planned: 0, open: 0 } }),
     ];
     expect(levelTotals(subjects)).toEqual({ subjects: 1, questions: 4, answered: 1, proposed: 1 });
+  });
+});
+
+describe("the map arranged by buying situation", () => {
+  it("draws each situation by its questions, then the subjects they sit on, a subject under each situation it serves", () => {
+    expect(situationItem({ id: "sit_a", text: "Our clicks are falling", counts: { questions: 6, answered: 2 } })).toMatchObject({
+      label: "Our clicks are falling",
+      value: 6,
+      score: "2 of 6 answered",
+      dots: { answered: 2, drafted: 0, open: 4 },
+    });
+    const items = situationSubjectItems([
+      { subjectId: "sub_a", subjectName: "AI Overviews", state: "answered", status: "decided" },
+      { subjectId: "sub_a", subjectName: "AI Overviews", state: "open", status: "decided" },
+      { subjectId: "sub_b", subjectName: "Reporting", state: "drafted", status: "decided" },
+      { subjectId: "sub_c", subjectName: "Proposed one", state: "open", status: "proposed" },
+    ]);
+    expect(items.map((i) => [i.label, i.value, i.score, i.dots])).toEqual([
+      ["AI Overviews", 2, "1 of 2 answered", { answered: 1, drafted: 0, open: 1 }],
+      ["Reporting", 1, "0 of 1 answered", { answered: 0, drafted: 1, open: 0 }],
+    ]);
   });
 });

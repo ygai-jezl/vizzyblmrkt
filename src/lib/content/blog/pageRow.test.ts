@@ -103,3 +103,15 @@ describe("a row's worked-out facts, for the map at any size", () => {
     expect(site).toMatchObject({ refs: [], textKeys: ["share of voice explained"], urlKey: "https://acme.example/share-of-voice", words: ["explained", "share", "voice"] });
   });
 });
+
+describe("an article's buying situation on its row", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("is kept with the map at any size, and the row is as before without it", () => {
+    const plan = samplePlan();
+    const situated = { ...plan, blog: { ...plan.blog!, situationId: "sit_aaaaaaaa" } };
+    expect(buildPlanPage(situated)).not.toHaveProperty("situationId");
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+    expect(buildPlanPage(situated)).toMatchObject({ situationId: "sit_aaaaaaaa" });
+  });
+});

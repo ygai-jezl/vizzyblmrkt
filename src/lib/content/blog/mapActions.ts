@@ -142,6 +142,7 @@ export function askOfPlan(plan: Pick<ContentPlan, "name" | "blog" | "scope">): A
   return {
     subjectId: brief?.subjectId,
     primaryRef: brief?.primaryRef,
+    situationId: brief?.situationId,
     text: [brief?.primaryQuestion, plan.scope?.spark, plan.name].map((s) => s?.trim()).filter(Boolean).join("\n"),
   };
 }

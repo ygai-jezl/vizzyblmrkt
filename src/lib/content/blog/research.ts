@@ -28,7 +28,7 @@ import {
   type ContentPlan,
 } from "@/lib/types/contentPlan";
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl, textKey } from "./brief";
-import { researchMapBlock, researchSubjectLine, type ArticleMap, mapQuestion, reconcileMapRefs } from "./articleMap";
+import { researchMapBlock, researchSituationLine, researchSubjectLine, type ArticleMap, mapQuestion, reconcileMapRefs } from "./articleMap";
 import { canonicaliseEntities, indexNames } from "./names";
 import { fold } from "@/lib/brandMap/changes";
 import { blockedCrawlers } from "./crawlers";
@@ -188,6 +188,8 @@ export interface ParsedResearch {
   entities: BlogEntity[];
   /** The brand map subject research says the article belongs to ("" = none given). */
   subject: string;
+  /** The buying situation research says the article is for ("" = none given). */
+  situation: string;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”']+|["“”']+$/g, "").trim();
@@ -203,11 +205,11 @@ function isSearchLink(url: string): boolean {
   }
 }
 
-/** Parse the research answer (PRIMARY / Q / FACT / ENTITY / SUBJECT lines). Unknown lines are skipped. */
+/** Parse the research answer (PRIMARY / Q / FACT / ENTITY / SUBJECT / SITUATION lines). Unknown lines are skipped. */
 export function parseResearch(text: string): ParsedResearch {
-  const out: ParsedResearch = { primary: "", questions: [], facts: [], entities: [], subject: "" };
+  const out: ParsedResearch = { primary: "", questions: [], facts: [], entities: [], subject: "", situation: "" };
   for (const raw of (text ?? "").split(/\r?\n/)) {
-    const m = /^\s*(?:[-*•]\s*)?\**(PRIMARY|Q|FACT|ENTITY|SUBJECT)\**\s*:\**\s*(.+)$/i.exec(raw);
+    const m = /^\s*(?:[-*•]\s*)?\**(PRIMARY|Q|FACT|ENTITY|SUBJECT|SITUATION)\**\s*:\**\s*(.+)$/i.exec(raw);
     if (!m) continue;
     const kind = (m[1] ?? "").toUpperCase();
     const parts = (m[2] ?? "").split(/\s+\|\s+/).map(clean);
@@ -217,6 +219,8 @@ export function parseResearch(text: string): ParsedResearch {
       out.primary ||= head.slice(0, 300);
     } else if (kind === "SUBJECT") {
       out.subject ||= /^none$/i.test(head) ? "" : head.slice(0, 80);
+    } else if (kind === "SITUATION") {
+      out.situation ||= /^none$/i.test(head) ? "" : head.slice(0, 200);
     } else if (kind === "Q") {
       const intent = BlogIntent.safeParse((parts[1] ?? "").toLowerCase().replace(/[\s-]+/g, "_"));
       out.questions.push({ question: head.slice(0, 300), intent: intent.success ? intent.data : "other", by: "research" });
@@ -782,7 +786,7 @@ export async function researchBlogBrief(
     buyer_questions: current.buyerQuestions.replace(/<\/?\s*buyer_questions[^>]*>/gi, " ") || "(none given)",
     knowledge_context: knowledgeContext || "(the brand has no indexed material yet)",
     brand_map: researchMapBlock(map, current),
-    subject_line: researchSubjectLine(map, current),
+    subject_line: researchSubjectLine(map, current) + researchSituationLine(map, current),
   });
   const factsPrompt = renderPrompt("content.blog_facts", {
     today,
@@ -939,6 +943,10 @@ export async function researchBlogBrief(
     links.splice(at === -1 ? links.length : at, 0, ...extra);
   }
 
+  // And the buying situation it is for: a person's, else research's pick from those it was given.
+  const situated =
+    map?.situations && current.situationId === undefined && parsed.situation ? map.situations.find((x) => textKey(x.text) === textKey(parsed.situation)) : undefined;
+
   const merged = mergeResearch(
     current,
     {
@@ -952,6 +960,7 @@ export async function researchBlogBrief(
       ...(crawling ? { crawlers: await crawling } : {}),
       ...(mapSubject && current.subjectId === undefined ? { subjectId: mapSubject.id } : {}),
       ...(primaryRef ? { primaryRef } : {}),
+      ...(situated ? { situationId: situated.id } : {}),
     },
     now.toISOString(),
   );

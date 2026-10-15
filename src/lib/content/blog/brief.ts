@@ -125,6 +125,8 @@ export interface BlogResearchFindings {
   subjectId?: string;
   /** The brand map question the main question is (only kept when the brief has none yet). */
   primaryRef?: string;
+  /** The buying situation research picked (only kept when the brief has none yet). */
+  situationId?: string;
 }
 
 /**
@@ -163,6 +165,7 @@ export function mergeResearch(current: BlogBrief, found: BlogResearchFindings, r
     // person's "none" for the subject included).
     ...(found.subjectId && current.subjectId === undefined ? { subjectId: found.subjectId } : {}),
     ...(found.primaryRef && !current.primaryRef ? { primaryRef: found.primaryRef } : {}),
+    ...(found.situationId && current.situationId === undefined ? { situationId: found.situationId } : {}),
   });
 }
 

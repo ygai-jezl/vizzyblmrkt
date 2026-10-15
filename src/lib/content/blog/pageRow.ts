@@ -56,6 +56,8 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
     links,
     state,
     liveAt: live?.at ?? null,
+    // The buying situation it is written for (the map at any size only: off, the row is as before).
+    ...(isBrandMapScaleEnabled() && brief.situationId ? { situationId: brief.situationId } : {}),
   }));
 }
 

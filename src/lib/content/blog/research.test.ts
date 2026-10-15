@@ -152,7 +152,7 @@ describe("blog research", () => {
     expect(parseResearch("FACT: A fact with no address at all: 12%.").facts).toEqual([
       { fact: "A fact with no address at all: 12%.", url: "" },
     ]);
-    expect(parseResearch("")).toEqual({ primary: "", questions: [], facts: [], entities: [], subject: "" });
+    expect(parseResearch("")).toEqual({ primary: "", questions: [], facts: [], entities: [], subject: "", situation: "" });
   });
 
   it("ties a fact to the search results that back it — and to none when search didn't", () => {
@@ -877,5 +877,12 @@ describe("blog research with a brand map", () => {
     );
     const r = await researchBlogBrief({ ctx, workspace, plan: plan(), map: MAP }, d);
     expect(r.brief.entities).toContainEqual({ name: "ExampleCRM", relation: "integration", by: "research" });
+  });
+});
+
+describe("research's buying situation", () => {
+  it("reads a SITUATION line, and NONE as none", () => {
+    expect(parseResearch("SITUATION: Our clicks from Google are falling\nPRIMARY: Why?").situation).toBe("Our clicks from Google are falling");
+    expect(parseResearch("SITUATION: none").situation).toBe("");
   });
 });

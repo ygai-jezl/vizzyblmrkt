@@ -1,3 +1,4 @@
+import type { QuestionState } from "@/lib/content/blog/coverage";
 import { packSiblings, type Circle } from "./packSiblings";
 
 /**
@@ -174,6 +175,42 @@ export function levelTotals(items: PackItem[]): { subjects: number; questions: n
     }),
     { subjects: 0, questions: 0, answered: 0, proposed: 0 },
   );
+}
+
+/** A buying situation as a circle (the map arranged by situation): its questions inside, by state. */
+export function situationItem(s: { id: string; text: string; counts: { questions: number; answered: number } }): PackItem {
+  const c = s.counts;
+  return {
+    id: s.id,
+    label: s.text,
+    value: Math.max(1, c.questions),
+    score: `${c.answered} of ${c.questions} answered`,
+    questions: c.questions,
+    answered: c.answered,
+    subjects: 0,
+    dots: { answered: c.answered, drafted: 0, open: Math.max(0, c.questions - c.answered) },
+  };
+}
+
+/**
+ * One buying situation's subjects, each sized by that situation's questions on it (a subject
+ * serves several situations, so it appears under each), its questions inside by state.
+ */
+export function situationSubjectItems(questions: Array<{ subjectId: string; subjectName: string; state: QuestionState; status: string }>): PackItem[] {
+  const by = new Map<string, PackItem>();
+  for (const q of questions) {
+    if (q.status !== "decided") continue;
+    const item = by.get(q.subjectId) ?? { id: q.subjectId, label: q.subjectName || "A subject", value: 1, questions: 0, answered: 0, dots: { answered: 0, drafted: 0, open: 0 } };
+    item.questions += 1;
+    item.value = item.questions;
+    if (q.state === "answered") {
+      item.answered += 1;
+      item.dots.answered += 1;
+    } else if (q.state === "open") item.dots.open += 1;
+    else item.dots.drafted += 1;
+    by.set(q.subjectId, item);
+  }
+  return [...by.values()].map((i) => ({ ...i, score: `${i.answered} of ${i.questions} answered` }));
 }
 
 /** A subject as a circle: its questions inside, by state. */

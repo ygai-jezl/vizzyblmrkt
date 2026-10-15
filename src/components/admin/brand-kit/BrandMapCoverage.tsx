@@ -151,12 +151,12 @@ export function NeedsALook({ coverage }: { coverage: Coverage }) {
 const ACTION = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800";
 
 /** "Write this next": a new blog article that answers an open question, in a programme. */
-export function WriteNext({ questionId, programmes }: { questionId: string; programmes: Array<{ id: string; name: string }> }) {
+export function WriteNext({ questionId, programmes, situationId }: { questionId: string; programmes: Array<{ id: string; name: string }>; situationId?: string }) {
   const guard = useLeaveGuard();
   if (!programmes.length) return null;
   if (programmes.length === 1) {
     return (
-      <Link href={writeNextHref(programmes[0]!.id, questionId)} onClick={guard} className={ACTION}>
+      <Link href={writeNextHref(programmes[0]!.id, questionId, situationId)} onClick={guard} className={ACTION}>
         Write this next
       </Link>
     );
@@ -169,7 +169,7 @@ export function WriteNext({ questionId, programmes }: { questionId: string; prog
         {programmes.map((p) => (
           <Link
             key={p.id}
-            href={writeNextHref(p.id, questionId)}
+            href={writeNextHref(p.id, questionId, situationId)}
             onClick={guard}
             className="block truncate rounded px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >

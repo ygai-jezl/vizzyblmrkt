@@ -5,6 +5,8 @@
  * Pure + client-safe.
  */
 
+import { normalizeUrl } from "./brief";
+
 export type AddressProblem = "not_https" | "home_page";
 
 export const ADDRESS_PROBLEM: Record<AddressProblem, string> = {
@@ -28,7 +30,8 @@ export function articleAddressProblem(url: string): AddressProblem | null {
     return "not_https";
   }
   if (!parsed.hostname) return "not_https";
-  // A bare home page (give or take a #fragment) is never one article. "/?p=12" can be.
-  if (parsed.pathname === "/" && !parsed.search) return "home_page";
+  // A bare home page (give or take a #fragment or tracking) is never one article. "/?p=12" can be.
+  const page = new URL(normalizeUrl(u) || u);
+  if (page.pathname === "/" && !page.search) return "home_page";
   return null;
 }

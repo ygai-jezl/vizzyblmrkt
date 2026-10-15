@@ -159,6 +159,7 @@ export function computeCoverage(map: MapSubjects, rows: BrandMapPage[]): Coverag
 
   // Per subject, live pages oldest first: each should link to every newer one.
   const missingLinks: MissingLink[] = [];
+  const listedPairs = new Set<string>();
   const siblings: Coverage["siblings"] = [];
   for (const s of map.subjects) {
     const live = rows
@@ -170,7 +171,9 @@ export function computeCoverage(map: MapSubjects, rows: BrandMapPage[]): Coverag
         const older = live[i]!;
         const newer = live[j]!;
         // A page whose links were never read is not said to be missing one.
-        if (missingLinks.length < MAX_MISSING_LINKS && older.linksKnown && !older.links.includes(normalizeUrl(newer.url!))) {
+        const pair = `${older.id}>${newer.id}`;
+        if (missingLinks.length < MAX_MISSING_LINKS && older.linksKnown && !listedPairs.has(pair) && !older.links.includes(normalizeUrl(newer.url!))) {
+          listedPairs.add(pair);
           missingLinks.push({ subjectId: s.id, from: show(older), to: show(newer) });
         }
       }

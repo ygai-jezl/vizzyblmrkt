@@ -52,7 +52,7 @@ export const BRAND_MAP_LIMITS = {
 } as const;
 
 /** One line of plain text: no line breaks or control characters (each goes into a prompt as one line). */
-const isOneLine = (s: string) => !/[\u0000-\u001f\u007f]/.test(s);
+const isOneLine = (s: string) => !/[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(s);
 const Line = (max: number) => z.string().trim().min(1).max(max).refine(isOneLine, "must be one line of text");
 const OptionalLine = (max: number) => z.string().trim().max(max).refine(isOneLine, "must be one line of text");
 

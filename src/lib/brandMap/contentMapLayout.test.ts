@@ -89,6 +89,19 @@ describe("the content map's layout", () => {
     expect(points.find((p) => p.kind === "more")).toMatchObject({ areaId: "sub_aaaaaaaa", title: "+30 more", count: 30 });
   });
 
+  it("never shows more than so many points in all, however many areas there are", () => {
+    const subjects = Array.from({ length: 8 }, (_, s) => ({
+      id: `sub_${String(s).padStart(8, "0")}`,
+      name: `Subject ${s}`,
+      questions: Array.from({ length: 10 }, (_, q) => ({ id: `q_${String(s * 10 + q).padStart(8, "0")}`, text: `Q ${s}.${q}?`, intent: "other" as const })),
+    }));
+    const loose = Array.from({ length: 900 }, (_, i) => row(`p_${String(i).padStart(4, "0")}`, { title: `Page ${i}` }));
+    const big: ContentMapInput = { brand: { name: "Acme", statement: "" }, coverage: computeCoverage({ subjects }, loose), pages: loose.map(asMap), homes: [] };
+    const shown = layoutContentMap(big).points.filter((p) => p.kind === "article" || p.kind === "question" || p.kind === "site");
+    expect(shown.length).toBeLessThanOrEqual(300);
+    expect(layoutContentMap(big).points.filter((p) => p.kind === "more").reduce((n, p) => n + (p.count ?? 0), 0) + shown.length).toBe(980);
+  });
+
   it("shows one subject at a time, and leaves the questions not written yet out when asked", () => {
     const { points } = layoutContentMap(input([A, B, C, LOOSE, HOME]), { subjectId: "sub_bbbbbbbb", showOpen: false });
     expect(points.map((p) => p.ref).sort()).toEqual(["brand", "p_c", "sub_bbbbbbbb"]);

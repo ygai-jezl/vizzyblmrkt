@@ -131,6 +131,12 @@ describe("suggested markup with a brand map", () => {
     expect(s.notes.join(" ")).toContain("lists your confirmed profile links from your brand map as sameAs");
   });
 
+  it("gives the brand's publisher the map's site, so its @id is the home page markup's", () => {
+    const www = { ...SAMPLE_BRIEF, publisherUrl: "https://www.acme.example/" };
+    const s = suggestBlogSchema({ markdown: SAMPLE_ARTICLE, brief: www, pageUrl: "https://acme.example/blog/visibility", map });
+    expect(graph(s).find((g) => g["@type"] === "Organization")).toMatchObject({ "@id": "https://acme.example/#organization", url: "https://acme.example" });
+  });
+
   it("never puts the brand's profiles on someone else's site", () => {
     const guest = { ...SAMPLE_BRIEF, publisherUrl: "https://partner.example", publisherName: "Partner" };
     const s = suggestBlogSchema({ markdown: SAMPLE_ARTICLE, brief: guest, pageUrl: "https://partner.example/blog/x", map });

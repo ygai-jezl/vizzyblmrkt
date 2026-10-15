@@ -13,6 +13,8 @@ describe("an article's address", () => {
     expect(articleAddressProblem("https://acme.example")).toBe("home_page");
     expect(articleAddressProblem("https://acme.example/")).toBe("home_page");
     expect(articleAddressProblem("https://acme.example/#blog")).toBe("home_page");
+    // Tracking taken off, it is the home page.
+    expect(articleAddressProblem("https://acme.example/?utm_source=mail")).toBe("home_page");
     expect(articleAddressProblem("http://acme.example/blog/x")).toBe("not_https");
     expect(articleAddressProblem("acme.example/blog/x")).toBe("not_https");
     expect(articleAddressProblem("javascript:alert(1)")).toBe("not_https");

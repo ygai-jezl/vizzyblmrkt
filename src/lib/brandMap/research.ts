@@ -12,12 +12,7 @@ import { normalizeUrl } from "@/lib/content/blog/brief";
 import { blogResearchThinkingBudget } from "@/lib/content/blog/flags";
 import { isLinkablePage, linkIntent, type KnownPage } from "@/lib/content/blog/links";
 import { BlogIntent } from "@/lib/types/contentPlan";
-import {
-  BrandMapChangeSchema,
-  BrandMapNameKind,
-  type BrandMapChange,
-  type BrandMapDecided,
-} from "@/lib/types/brandMap";
+import { BRAND_MAP_LIMITS, BrandMapChangeSchema, BrandMapNameKind, type BrandMapChange, type BrandMapDecided } from "@/lib/types/brandMap";
 import { findName, findSubject, fold } from "./changes";
 import { profileLinksFromHtml } from "./profileLinks";
 import type { SuggestionInput } from "./store";
@@ -45,6 +40,8 @@ const MAX_KNOWLEDGE_CHARS = 9_000;
 const MAX_SITE_TEXT = 6_000;
 const MAX_EXISTING = 40;
 const LIMIT = { subjects: 5, questions: 6, alternatives: 8, products: 8, names: 30, isNot: 3, avoid: 3 } as const;
+/** HOME lines read from one answer. */
+const MAX_HOMES = 40;
 
 export interface MapProposal {
   is: string;
@@ -178,7 +175,7 @@ export function checkProposal(p: MapProposal, ctx: ProposalContext): SuggestionI
 
   // Homes, by page number only, for a subject or one of the brand's own names.
   const subjectNames = new Set([...p.subjects.slice(0, LIMIT.subjects).map((s) => fold(s.name)), ...ctx.current.subjects.map((s) => fold(s.name))]);
-  for (const h of p.homes) {
+  for (const h of p.homes.slice(0, MAX_HOMES)) {
     const page = ctx.pages[h.n - 1];
     if (!page) continue;
     const label = fold(h.label);
@@ -194,7 +191,9 @@ export function checkProposal(p: MapProposal, ctx: ProposalContext): SuggestionI
   }
 
   for (const url of ctx.profiles) add({ type: "add_profile", url, source: "site" }, { reason: "Linked from your home page", evidence: "site" });
-  return items;
+  // Research keeps at most this many rows: past it, the store would drop the first (the brand's
+  // name, category and statement), so the last are left out instead.
+  return items.slice(0, BRAND_MAP_LIMITS.suggestions.research);
 }
 
 /** The current map, one line each, for the prompt. */

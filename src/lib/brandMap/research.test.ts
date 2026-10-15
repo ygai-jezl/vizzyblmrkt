@@ -50,6 +50,22 @@ const context = (over: Partial<ProposalContext> = {}): ProposalContext => ({
   ...over,
 });
 
+describe("a large research answer", () => {
+  it("keeps its first rows (what the brand is) when it has more than research may file", () => {
+    const lines = ["IS: Acme measures how brands show up in AI answers.", "CATEGORY: AI visibility tracking"];
+    for (let i = 0; i < 5; i += 1) {
+      lines.push(`SUBJECT: Subject ${i}`);
+      for (let q = 0; q < 6; q += 1) lines.push(`Q: Question ${i}.${q}? | how_to`);
+    }
+    for (let i = 0; i < 30; i += 1) lines.push(`NAME: Use ${i} | use_case`);
+    for (let i = 0; i < 45; i += 1) lines.push(`HOME: Use ${i % 30} | ${i + 1}`);
+    const pages = Array.from({ length: 45 }, (_, i) => ({ url: `https://acme.example/use-${i}`, title: `Use ${i}` }));
+    const items = checkProposal(parseMapProposal(lines.join("\n")), context({ pages }));
+    expect(items.length).toBe(100);
+    expect(items.slice(0, 2).map((i) => i.change.type)).toEqual(["set_identity", "set_identity"]);
+  });
+});
+
 describe("research for the brand map", () => {
   it("reads the answer's lines, a question under the subject before it, and drops any line with an address", () => {
     const p = parseMapProposal(ANSWER);

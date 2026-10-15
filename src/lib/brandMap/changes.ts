@@ -15,12 +15,15 @@ import { hostOf, normalizeUrl } from "@/lib/content/blog/brief";
  * and resolving suggestions) and Vizzy's summary. Pure + client-safe.
  */
 
-/** Letters and digits of any script, lower case, one space between words: two spellings of one name compare equal. */
+/**
+ * Letters and digits of any script (and "+" and "#", which tell C++ from C# from C), lower
+ * case, one space between words: two spellings of one name compare equal.
+ */
 export function fold(s: string | null | undefined): string {
   return (s ?? "")
     .normalize("NFKC")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{N}+#]+/gu, " ")
     .trim();
 }
 

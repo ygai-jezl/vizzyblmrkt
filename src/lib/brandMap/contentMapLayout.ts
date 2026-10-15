@@ -132,6 +132,18 @@ function ordered(items: Candidate[]): Candidate[] {
 
 const areaRadius = (n: number) => Math.max(110, 40 + SPACING * Math.sqrt(Math.max(n, 1)));
 
+/** How many of each group to show so that all of them together are at most `max`: a few each, then shares of the rest. */
+function shares(sizes: number[], max: number): number[] {
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (total <= max) return sizes;
+  const floor = Math.min(6, Math.floor(max / Math.max(1, sizes.filter((n) => n > 0).length)));
+  const base = sizes.map((n) => Math.min(n, floor));
+  const left = Math.max(0, max - base.reduce((a, b) => a + b, 0));
+  const over = sizes.map((n, i) => n - base[i]!);
+  const overTotal = over.reduce((a, b) => a + b, 0) || 1;
+  return base.map((b, i) => b + Math.floor((left * over[i]!) / overTotal));
+}
+
 export function layoutContentMap(input: ContentMapInput, opts: LayoutOptions = {}): ContentMapLayout {
   const showOpen = opts.showOpen !== false;
   const max = opts.maxPoints ?? MAX_POINTS;
@@ -159,21 +171,21 @@ export function layoutContentMap(input: ContentMapInput, opts: LayoutOptions = {
     }
   }
 
-  // At most `max` points: each area keeps its share (at least a few), the rest is "+N more".
-  const total = ring.length + [...areas.values()].reduce((n, a) => n + a.length, 0);
-  const keep = (n: number) => (total <= max ? n : Math.min(n, Math.max(6, Math.floor((max * n) / total))));
+  // At most `max` points in all: each area keeps a few, then its share of the rest; past
+  // that, "+N more".
+  const areaIds = [...areas.keys()].filter((id) => id !== UNPLACED || areas.get(id)!.length);
+  const quota = shares([ring.length, ...areaIds.map((id) => areas.get(id)!.length)], max);
 
   const points: MapPoint[] = [{ id: "brand", kind: "brand", x: 0, y: 0, title: input.brand.name || "Your brand", state: null, areaId: null, ref: "brand" }];
 
-  const ringKept = ordered(ring).slice(0, keep(ring.length));
+  const ringKept = ordered(ring).slice(0, quota[0]);
   const r1 = ringKept.length ? 120 + 6 * ringKept.length : 0;
   ringKept.forEach((c, i) => {
     const a = -Math.PI / 2 + Math.PI / Math.max(ringKept.length, 1) + (2 * Math.PI * i) / ringKept.length;
     points.push({ ...c, x: round(r1 * Math.cos(a)), y: round(r1 * Math.sin(a)), areaId: null });
   });
 
-  const areaIds = [...areas.keys()].filter((id) => id !== UNPLACED || areas.get(id)!.length);
-  const kept = new Map(areaIds.map((id) => [id, ordered(areas.get(id)!).slice(0, keep(areas.get(id)!.length))]));
+  const kept = new Map(areaIds.map((id, i) => [id, ordered(areas.get(id)!).slice(0, quota[i + 1])]));
   const radii = new Map(areaIds.map((id) => [id, areaRadius(kept.get(id)!.length + (kept.get(id)!.length < areas.get(id)!.length ? 2 : 0))]));
   const biggest = Math.max(0, ...radii.values());
   const n = areaIds.length;

@@ -67,21 +67,24 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
   const description = (input.meta?.metaDescription ?? "").trim() || clip(o.bluf, 160);
   const lower = o.plain.toLowerCase();
 
-  // The publisher is its own entry in the graph when it has a site to be identified by,
-  // so the article (and anything else on the site) can point at one Organization.
-  const orgId = publisherUrl ? `${publisherUrl.replace(/\/+$/, "")}/#organization` : null;
   // The brand map's confirmed profile links go on the publisher only when the publisher IS
   // the brand (its site is the map's): an article placed on someone else's site never puts
-  // the brand's profiles on its host.
+  // the brand's profiles on its host. Then the publisher is the map's site too, so its @id is
+  // the one the home page's Organization markup has.
   const map = input.map ?? null;
   const mapSite = map?.identity.site ? hostOf(map.identity.site) : "";
-  const orgSameAs = map && mapSite && publisherUrl && hostOf(publisherUrl) === mapSite ? map.identity.profiles : [];
+  const isBrand = Boolean(map && mapSite && publisherUrl && hostOf(publisherUrl) === mapSite && isHttps(map.identity.site));
+  const orgUrl = isBrand ? map!.identity.site.replace(/\/+$/, "") : publisherUrl;
+  const orgSameAs = isBrand ? map!.identity.profiles : [];
+  // The publisher is its own entry in the graph when it has a site to be identified by,
+  // so the article (and anything else on the site) can point at one Organization.
+  const orgId = orgUrl ? `${orgUrl.replace(/\/+$/, "")}/#organization` : null;
   const organization: Record<string, unknown> | null = publisherName
     ? {
         "@type": "Organization",
         ...(orgId ? { "@id": orgId } : {}),
         name: publisherName,
-        ...(publisherUrl ? { url: publisherUrl } : {}),
+        ...(orgUrl ? { url: orgUrl } : {}),
         ...(logoUrl ? { logo: logoUrl } : {}),
         ...(orgSameAs.length ? { sameAs: [...orgSameAs] } : {}),
       }

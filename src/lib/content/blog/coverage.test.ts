@@ -65,6 +65,13 @@ describe("what the brand's pages answer", () => {
     expect(unread.missingLinks.map((m) => `${m.from.id}→${m.to.id}`)).toEqual(["p_a→p_d"]);
   });
 
+  it("lists a missing link once, whichever subjects its two pages share", () => {
+    const two = { subjects: [...map.subjects, { id: "sub_cccccccc", name: "Benchmarks", questions: [{ id: "q_ffffffff", text: "x", intent: "other" as const }] }] };
+    const a = { ...A, questions: [{ text: "x", ref: "q_ffffffff" }] };
+    const d = { ...D, links: [], questions: [{ text: "x", ref: "q_ffffffff" }] };
+    expect(computeCoverage(two, [a, d]).missingLinks.map((m) => `${m.from.id}→${m.to.id}`)).toEqual(["p_a→p_d"]);
+  });
+
   it("gives an article's research the live articles on each subject, newest first", () => {
     expect(computeCoverage(map, [A, B, C, D, E]).siblings).toEqual([
       { subjectId: "sub_aaaaaaaa", title: "p_d", url: "https://acme.example/blog/sov-2" },

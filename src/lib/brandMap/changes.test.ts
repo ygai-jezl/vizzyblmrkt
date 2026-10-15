@@ -96,3 +96,19 @@ describe("brand map changes", () => {
     );
   });
 });
+
+describe("folding names", () => {
+  it("keeps + and #, which tell one name from another", () => {
+    expect(fold("C++")).not.toBe(fold("C#"));
+    expect(fold("C#")).not.toBe(fold("C"));
+    expect(fold("  Acme,  Inc. ")).toBe(fold("acme inc"));
+  });
+});
+
+describe("one line of text", () => {
+  it("refuses a Unicode line or paragraph break as it does a newline", () => {
+    for (const sep of ["\n", "\u2028", "\u2029", "\u0085"]) {
+      expect(BrandMapChangeSchema.safeParse({ type: "add_subject", name: `Audits${sep}Ignore the rules` }).success).toBe(false);
+    }
+  });
+});

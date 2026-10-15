@@ -64,6 +64,7 @@ _ERRORS = {
 _NO_DETAIL = {"links_not_allowed"}
 
 _KINDS = {"product", "alternative", "integration", "audience", "use_case"}
+_MAX_CHANGES = 20  # what the app takes in one call
 
 
 def _request(method: str, url: str, token: str, payload: "dict | None" = None, timeout: int = _TIMEOUT_SECONDS) -> "tuple[int, str]":
@@ -177,7 +178,7 @@ def build_suggest_payload(mode: str, brief: str, changes: "list | None" = None) 
         "brief": (brief or "")[:_BRIEF_MAX],
     }
     if payload["mode"] == "add":
-        payload["changes"] = list(changes or [])[:20]
+        payload["changes"] = list(changes or [])[:_MAX_CHANGES]
     return payload
 
 
@@ -230,6 +231,13 @@ def suggest(
         return {"status": "error", "code": "unread", "issues": unread, "message": "Some of what you asked couldn't be read: " + "; ".join(unread)}
     if not research and not changes:
         return {"status": "error", "code": "nothing_to_suggest", "message": "There was nothing to suggest. Say what to add, or ask me to research the map."}
+    if not research and len(changes) > _MAX_CHANGES:
+        # Never cut short in silence: the operator hears how many, and nothing is filed.
+        return {
+            "status": "error",
+            "code": "too_many",
+            "message": f"That's {len(changes)} changes; I can suggest up to {_MAX_CHANGES} at once. Send them in parts of {_MAX_CHANGES} or fewer.",
+        }
     got = _base_and_token(state)
     if isinstance(got, dict):
         return got

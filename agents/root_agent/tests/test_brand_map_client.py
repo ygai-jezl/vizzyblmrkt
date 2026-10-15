@@ -62,6 +62,12 @@ def test_says_back_what_it_could_not_read_and_sends_nothing(monkeypatch):
     assert bm.suggest(STATE, "add", "nothing")["code"] == "nothing_to_suggest"
 
 
+def test_never_cuts_a_long_list_short_in_silence(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"ok": True})
+    out = bm.suggest(STATE, "add", "all our competitors", names=[f"Rival {i} | alternative" for i in range(25)])
+    assert out["code"] == "too_many" and "25 changes" in out["message"] and calls == []
+
+
 def test_files_suggestions_through_the_canvas_and_relays_the_card(monkeypatch):
     card = {"kind": "brand_map", "id": "brand_map", "cta": "Review and apply"}
     summary = "Filed 1 suggestion for your brand map: Add Rivalco as an alternative. Nothing in the map has changed."

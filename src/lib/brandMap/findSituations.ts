@@ -10,10 +10,12 @@ import { BRAND_MAP_RECORD_LIMITS as LIMITS, BrandMapSituationSchema, type BrandM
 import type { KnownPage } from "@/lib/content/blog/links";
 import { NAME_KIND_LABEL } from "./changes";
 import { embedSituations, type EmbedDeps } from "./embed";
+import { createOnce } from "./createOnce";
 import { freshId, situationIdFor, situationKey } from "./keys";
 import { gatherBrandMaterial, type ProposeDeps } from "./research";
 import { parseSituation } from "./situations";
 import { readBrandMap } from "./store";
+import { clean, fence, hasAddress, oneLine } from "./lineChecks";
 
 /**
  * Research's first step for buying situations (BRAND_MAP_SITUATIONS_ENABLED): ONE grounded
@@ -37,10 +39,6 @@ const PASSAGE_CHARS = 600;
 const MAX_HAVE = 300;
 const MAX_CUSTOMERS = 300;
 
-const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”'*]+|["“”'*]+$/g, "").trim();
-const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
-const hasAddress = (s: string) => /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|ai|co|dev|app)\/\S/i.test(s);
-const fence = (tag: string, text: string) => text.replace(new RegExp(`</?\\s*${tag}[^>]*>`, "gi"), " ");
 
 const W_WORDS: Record<string, SituationW> = {
   why: "why",
@@ -236,8 +234,13 @@ export async function findSituations(ctx: TenantContext, input: { customers?: st
     if (!parsed.success) continue;
     const { id, tenantId: _t, ...data } = parsed.data;
     void _t;
-    const saved = (await store.createIfAbsent("sit", id, data)) ?? (await store.create("sit", freshId("sit"), data));
-    const situation = parseSituation(saved);
+    const once = await createOnce(store, "sit", id, data, { same: (there) => there.textKey === key, fresh: () => freshId("sit") });
+    // Found at the same moment by another run: not proposed twice.
+    if (once.existing) {
+      skipped += 1;
+      continue;
+    }
+    const situation = parseSituation(once.created);
     if (situation) {
       found.push(situation);
       haveKeys.add(key);

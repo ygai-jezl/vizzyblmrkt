@@ -12,6 +12,7 @@ import { proposedQuestion, proposedSubject } from "./proposals";
 import { parseQuestion, parseSubject } from "./records";
 import { parseSituation, recountSituations } from "./situations";
 import { readBrandMap } from "./store";
+import { clean, fence, hasAddress, oneLine } from "./lineChecks";
 
 /**
  * Research's second step for buying situations (BRAND_MAP_SITUATIONS_ENABLED): for ONE
@@ -28,10 +29,6 @@ export const NEAREST_SUBJECTS = 25;
 const MAX_ASKED = 60;
 const MAX_COMPARES = 2;
 
-const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”'*]+|["“”'*]+$/g, "").trim();
-const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
-const hasAddress = (s: string) => /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|ai|co|dev|app)\/\S/i.test(s);
-const fence = (tag: string, text: string) => text.replace(new RegExp(`</?\\s*${tag}[^>]*>`, "gi"), " ");
 
 export interface AskedQuestion {
   text: string;

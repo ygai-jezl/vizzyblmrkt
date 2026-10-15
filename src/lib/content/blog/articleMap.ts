@@ -82,6 +82,13 @@ export interface ArticleMap {
   situation?: ArticleMapSituation | null;
   /** With none chosen, the situations nearest the article, for research to pick from. */
   situations?: ArticleMapSituation[];
+  /**
+   * Only part of the map, and a link missing from it may still be on the map (a read that
+   * failed, or the list kept from before the map grew): links are never dropped against it.
+   */
+  partial?: boolean;
+  /** Subjects and questions merged into another since (old id → where it went): links follow them. */
+  aliases?: Record<string, string>;
 }
 
 /** The article's view of a saved map. Every stored link was confirmed by a person (the server stamps it on save). */
@@ -184,11 +191,20 @@ export function withSubject<B extends Pick<BlogBrief, "subjectId" | "primaryRef"
  */
 export function reconcileMapRefs<B extends Pick<BlogBrief, "subjectId" | "primaryRef">>(
   brief: B,
-  map: Pick<ArticleMap, "subjects">,
+  map: Pick<ArticleMap, "subjects"> & Partial<Pick<ArticleMap, "partial" | "aliases">>,
   opts: { newArticle?: boolean } = {},
 ): B {
   if (brief.primaryRef === undefined && !brief.subjectId) return brief;
   const next = { ...brief };
+  // Merged since: the link follows to where it went.
+  if (next.subjectId && map.aliases?.[next.subjectId]) next.subjectId = map.aliases[next.subjectId];
+  if (next.primaryRef && map.aliases?.[next.primaryRef]) next.primaryRef = map.aliases[next.primaryRef];
+  if (map.partial) {
+    // A link missing from a partial map may still be on the map: never dropped here.
+    const hit = mapQuestion(map, next.primaryRef);
+    if (hit && next.subjectId === undefined) next.subjectId = hit.subject.id;
+    return next;
+  }
   if (opts.newArticle && next.subjectId && !map.subjects.some((s) => s.id === next.subjectId)) delete next.subjectId;
   const hit = mapQuestion(map, next.primaryRef);
   if (!hit) delete next.primaryRef;

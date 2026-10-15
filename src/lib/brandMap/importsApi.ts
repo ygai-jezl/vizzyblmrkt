@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { sniffPdf } from "@/lib/tenant/brandAsset";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BRAND_MAP_RECORD_LIMITS as LIMITS } from "@/lib/types/brandMapRecords";
 import { addImported, importReport } from "./importCompare";
@@ -22,6 +23,8 @@ export async function uploadImportFromRequest(ctx: TenantContext, form: FormData
   if (!(file instanceof File)) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   if (file.size > LIMITS.importBytes) return NextResponse.json({ error: "pdf_too_large" }, { status: 400 });
   const bytes = Buffer.from(await file.arrayBuffer());
+  // Checked before the allowance is used: a file that isn't a PDF costs nothing.
+  if (!sniffPdf(bytes)) return NextResponse.json({ error: "not_a_pdf" }, { status: 400 });
   const blocked = await moveFirst(ctx, deps);
   if (blocked) return blocked;
   const run = await startRun(ctx, "import", deps);

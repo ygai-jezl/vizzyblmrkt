@@ -11,6 +11,7 @@ import { questionKey, subjectKey } from "./keys";
 import { listGroups } from "./records";
 import { listSituations } from "./situations";
 import { readBrandMap } from "./store";
+import { clean, fence, hasAddress, hasEmail, hasPhone, oneLine } from "./lineChecks";
 
 /**
  * Placing a brand's own research on its map (BRAND_MAP_IMPORT_ENABLED), a batch of 40 items
@@ -29,10 +30,6 @@ const MAX_SUBJECTS = 60;
 const MAX_SITUATIONS = 30;
 const PLACE_MS = 55_000;
 
-const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”'*]+|["“”'*]+$/g, "").trim();
-const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
-const hasAddress = (s: string) => /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|ai|co|dev|app|uk)\/\S/i.test(s);
-const fence = (tag: string, text: string) => text.replace(new RegExp(`</?\\s*${tag}[^>]*>`, "gi"), " ");
 const numberOf = (s: string, letter: string) => {
   const m = new RegExp(`^${letter}\\s*(\\d{1,3})$`, "i").exec(s.trim());
   return m ? Number(m[1]) : null;
@@ -47,13 +44,14 @@ export interface PlaceLines {
   themes: Array<{ name: string; group: number | null }>;
 }
 
-/** The answer's PLACE, NOFIT and THEME lines, each checked against what was listed. */
+/** The answer's PLACE, NOFIT and THEME lines, each checked against what was listed (none with an address, email or phone number). */
 export function parsePlaceLines(text: string, n: { items: number; subjects: number; groups: number; situations: number }): PlaceLines {
   const out: PlaceLines = { places: [], nofit: [], themes: [] };
   const seen = new Set<number>();
   for (const raw of (text ?? "").split(/\r?\n/)) {
     const m = /^\s*(?:[-*•]\s*)?\**(PLACE|NOFIT|THEME)\**\s*:\**\s*(.+)$/i.exec(raw);
-    if (!m || hasAddress(raw)) continue;
+    // Its question, new subject and theme are the model's words, from someone else's file.
+    if (!m || hasAddress(raw) || hasEmail(raw) || hasPhone(raw)) continue;
     const parts = (m[2] ?? "").split(/\s*\|\s*/).map(clean);
     const kind = (m[1] ?? "").toUpperCase();
     if (kind === "THEME") {

@@ -107,4 +107,15 @@ describe("research from a PDF", () => {
     expect(refused.status).toBe(400);
     expect(await refused.json()).toEqual({ error: "pdf_too_large" });
   });
+
+  it("refuses a file that isn't a PDF before using a research allowance", async () => {
+    const db = new FakeFirestore();
+    const form = new FormData();
+    // Named and typed as a PDF; its first bytes say otherwise.
+    form.set("file", new File([Buffer.from("PK\u0003\u0004 a zip")], "notes.pdf", { type: "application/pdf" }));
+    const res = await uploadImportFromRequest(ctx, form, { db, nowMs: NOW });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "not_a_pdf" });
+    expect(await brandMapRecords(ctx, db).find("run")).toEqual([]);
+  });
 });

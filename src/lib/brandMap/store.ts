@@ -132,6 +132,7 @@ function emptyStored(tenantId: string, now: string) {
     updatedAt: now,
     moved: null as BrandMap["moved"],
     recordsDecidedAt: null as string | null,
+    pagesReadAt: null as string | null,
   };
 }
 

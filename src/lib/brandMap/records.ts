@@ -15,7 +15,8 @@ import {
   type RecordStatus,
 } from "@/lib/types/brandMapRecords";
 import { sitesOf, siteOf } from "@/lib/knowledge/site";
-import { freshId, groupIdFor, questionKey, subjectKey, urlKey } from "./keys";
+import { createOnce } from "./createOnce";
+import { freshId, groupIdFor, questionIdFor, questionKey, subjectIdFor, subjectKey, urlKey } from "./keys";
 import { parseBrandMap } from "./store";
 
 /**
@@ -107,7 +108,8 @@ export async function listSubjects(
   else if (opts.groupId !== undefined) where.push(["groupId", "==", opts.groupId]);
   else if (opts.status) where.push(["status", "==", opts.status]);
   const rows = await storeOf(ctx, deps).pageAll("sub", { where, fields: SUBJECT_SUMMARY_FIELDS });
-  return parseAll(rows, parseSubject).filter((s) => !s.mergedInto && (!opts.status || s.status === opts.status));
+  // A dismissed one is kept (so it isn't proposed again) but never listed as if it were on the map.
+  return parseAll(rows, parseSubject).filter((s) => !s.mergedInto && (opts.status ? s.status === opts.status : s.status !== "dismissed"));
 }
 
 /** A brand's groups: decided, and proposed ("Sort into groups"). A dismissed one is kept, so it isn't proposed again, but not listed. */
@@ -178,7 +180,7 @@ export async function createSubject(
   if ((await store.count("sub")) >= LIMITS.subjects) return fail(409, "too_many_subjects");
   if (input.groupId && !(await usableGroup(store, input.groupId))) return fail(404, "no_group");
   const parsed = BrandMapSubjectRecordSchema.safeParse({
-    id: existing?.id ?? freshId("sub"),
+    id: existing?.id ?? subjectIdFor(ctx.tenantId, name),
     ...base(ctx, now),
     name,
     nameKey: key,
@@ -188,9 +190,14 @@ export async function createSubject(
   });
   if (!parsed.success) return fail(400, "invalid_subject");
   // A subject dismissed before comes back as decided when a person adds it by hand.
-  const saved = existing
-    ? await store.claim("sub", existing.id, (cur) => ({ ...strip(parsed.data), rev: Number(cur.rev ?? 0) + 1, createdAt: cur.createdAt }))
-    : await store.create("sub", parsed.data.id, strip(parsed.data));
+  let saved;
+  if (existing) saved = await store.claim("sub", existing.id, (cur) => ({ ...strip(parsed.data), rev: Number(cur.rev ?? 0) + 1, createdAt: cur.createdAt }));
+  else {
+    const once = await createOnce(store, "sub", parsed.data.id, strip(parsed.data), { same: (there) => there.nameKey === key, fresh: () => freshId("sub") });
+    // Added by someone else at the same moment.
+    if (once.existing) return fail(409, "subject_exists", parseSubject(once.existing));
+    saved = once.created;
+  }
   await markRecordsDecided(ctx, deps);
   const value = parseSubject(saved);
   return value ? { ok: true, value, touched: [value.id] } : fail(500, "not_saved");
@@ -264,9 +271,15 @@ export async function mergeSubjects(ctx: TenantContext, input: { from: string; i
   let moved = 0;
   let dropped = 0;
   let order = intoQs.reduce((m, q) => Math.max(m, q.order), -1) + 1;
+  const askedBy = new Map(intoQs.map((q) => [q.textKey, q.id]));
   for (const q of fromQs) {
     if (asked.has(q.textKey)) {
-      await store.remove("q", q.id).catch(() => undefined);
+      // The other asks it already: this one stays as a pointer to it, so an article's link
+      // follows. Out of every lookup by its words (its key changes), so it never comes back.
+      const target = askedBy.get(q.textKey);
+      await store
+        .claim("q", q.id, (cur) => ({ status: "dismissed", mergedInto: target ?? null, textKey: `merged:${q.id}`, rev: Number(cur.rev ?? 0) + 1, updatedAt: now }))
+        .catch(() => null);
       dropped += 1;
       continue;
     }
@@ -297,7 +310,7 @@ export async function addQuestion(
   const count = await store.count("q", [["subjectId", "==", subject.id]]);
   if (count >= LIMITS.questionsPerSubject) return fail(409, "too_many_questions");
   const parsed = BrandMapQuestionRecordSchema.safeParse({
-    id: existing?.id ?? freshId("q"),
+    id: existing?.id ?? questionIdFor(ctx.tenantId, text),
     ...base(ctx, now),
     subjectId: subject.id,
     text,
@@ -307,9 +320,13 @@ export async function addQuestion(
     order: count,
   });
   if (!parsed.success) return fail(400, "invalid_question");
-  const saved = existing
-    ? await store.claim("q", existing.id, (cur) => ({ ...strip(parsed.data), rev: Number(cur.rev ?? 0) + 1, createdAt: cur.createdAt }))
-    : await store.create("q", parsed.data.id, strip(parsed.data));
+  let saved;
+  if (existing) saved = await store.claim("q", existing.id, (cur) => ({ ...strip(parsed.data), rev: Number(cur.rev ?? 0) + 1, createdAt: cur.createdAt }));
+  else {
+    const once = await createOnce(store, "q", parsed.data.id, strip(parsed.data), { same: (there) => there.textKey === key, fresh: () => freshId("q") });
+    if (once.existing) return fail(409, "question_exists", parseQuestion(once.existing));
+    saved = once.created;
+  }
   await markRecordsDecided(ctx, deps);
   const value = parseQuestion(saved);
   return value ? { ok: true, value, touched: [subject.id], ...(value.situationIds.length ? { situations: value.situationIds } : {}) } : fail(500, "not_saved");
@@ -386,8 +403,9 @@ export async function createGroup(ctx: TenantContext, input: { name: string }, d
   if (groups >= LIMITS.groups) return fail(409, "too_many_groups");
   const parsed = BrandMapGroupSchema.safeParse({ id: groupIdFor(ctx.tenantId, name), ...base(ctx, now), name, nameKey: key, order: groups });
   if (!parsed.success) return fail(400, "invalid_group");
-  const saved = (await store.createIfAbsent("grp", parsed.data.id, strip(parsed.data))) ?? (await store.create("grp", freshId("grp"), strip(parsed.data)));
-  const value = parseGroup(saved);
+  const once = await createOnce(store, "grp", parsed.data.id, strip(parsed.data), { same: (there) => there.nameKey === key, fresh: () => freshId("grp") });
+  if (once.existing) return fail(409, "group_exists", parseGroup(once.existing));
+  const value = parseGroup(once.created);
   return value ? { ok: true, value, touched: [] } : fail(500, "not_saved");
 }
 
@@ -414,13 +432,21 @@ export async function renameGroup(ctx: TenantContext, id: string, input: { baseR
   return value ? { ok: true, value, touched: [] } : fail(404, "no_group");
 }
 
-/** Remove a group: its subjects stay, ungrouped. */
+/** Remove a group: its subjects stay, ungrouped (ten moved at a time). */
 export async function removeGroup(ctx: TenantContext, id: string, deps: Deps = {}): Promise<RecordResult<{ id: string; subjects: number }>> {
   const now = iso(deps.nowMs);
   const store = storeOf(ctx, deps);
   if (!(await store.get("grp", id))) return fail(404, "no_group");
   const subjects = await store.pageAll("sub", { where: [["groupId", "==", id]], fields: ["groupId"] });
-  for (const s of subjects) await store.claim("sub", s.id, (cur) => ({ groupId: null, rev: Number(cur.rev ?? 0) + 1, updatedAt: now }));
+  for (let i = 0; i < subjects.length; i += 10) {
+    await Promise.all(
+      subjects
+        .slice(i, i + 10)
+        // One a person has moved since stays where they put it.
+        .map((s) => store.claim("sub", s.id, (cur) => (cur.groupId === id ? { groupId: null, rev: Number(cur.rev ?? 0) + 1, updatedAt: now } : null))),
+    );
+  }
   await store.remove("grp", id);
-  return { ok: true, value: { id, subjects: subjects.length }, touched: subjects.map((s) => s.id) };
+  // A move changes no subject's counts or meaning: only the ungrouped totals follow.
+  return { ok: true, value: { id, subjects: subjects.length }, touched: [], groups: [null] };
 }

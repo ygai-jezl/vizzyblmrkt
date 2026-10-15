@@ -9,6 +9,7 @@ import type { EmbedDeps } from "./embed";
 import { getImport, type ImportResult } from "./imports";
 import { questionKey, subjectKey } from "./keys";
 import { addQuestion, createGroup, createSubject, listGroups, parseQuestion, parseSubject, subjectQuestions } from "./records";
+import { decideProposals } from "./proposals";
 import { recountSituations } from "./situations";
 
 /**
@@ -224,6 +225,10 @@ export async function addImported(
       }
     }
     if (!subjectId) continue;
+    // A subject still proposed is decided with it: a decided question never sits in a proposed subject.
+    if (i.subjectId && parseSubject(await store.get("sub", subjectId).catch(() => null))?.status === "proposed") {
+      await decideProposals(ctx, { accept: { subjects: [subjectId] } }, { db: deps.db, nowMs: deps.nowMs });
+    }
     const q = await addQuestion(ctx, subjectId, { text: i.question, situationIds: i.situationId ? [i.situationId] : [] }, deps);
     const qid = q.ok ? q.value.id : q.error === "question_exists" ? (q.current as { id?: string } | undefined)?.id : undefined;
     if (!qid) continue;

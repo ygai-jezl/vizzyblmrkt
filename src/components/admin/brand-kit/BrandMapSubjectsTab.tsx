@@ -49,7 +49,7 @@ export function BrandMapSubjectsTab({
   programmes: Array<{ id: string; name: string }> | null;
   ungroupedTotals: Partial<GroupTotals> | null;
 }) {
-  const { moved, progress, round } = useMapMove();
+  const { moved, progress, round, start, running } = useMapMove();
   const [note, setNote] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
   const [view, setView] = useState<View>({ kind: "all" });
   const [groups, setGroups] = useState<BrandMapGroup[]>([]);
@@ -95,7 +95,11 @@ export function BrandMapSubjectsTab({
   const loadOpen = useCallback(async (id: string) => {
     const r = await api<SubjectRead & { error?: string }>(`${MAP}/subjects/${encodeURIComponent(id)}`);
     if (r.ok) setOpen(r.data);
-    else {
+    else if (r.status === 404) {
+      // Removed (here, or by someone else): it closes.
+      setOpenId(null);
+      setOpen(null);
+    } else {
       setOpen(null);
       setNote({ tone: "err", text: errorText(r.data) });
     }
@@ -305,6 +309,12 @@ export function BrandMapSubjectsTab({
           {canEdit ? (
             <button type="button" disabled={busy} onClick={() => void sortIntoGroups()} className={`${SMALL} w-full`}>
               Sort into groups
+            </button>
+          ) : null}
+          {canEdit && start ? (
+            // Articles written since, and pages the programmes have read on the site since.
+            <button type="button" disabled={running} onClick={start} className={`${SMALL} w-full`}>
+              {running ? "Reading…" : "Read what's already there"}
             </button>
           ) : null}
           {proposedGroups.length ? (

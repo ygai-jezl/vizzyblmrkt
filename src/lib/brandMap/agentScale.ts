@@ -12,7 +12,7 @@ import { getImport, listImports } from "./imports";
 import { listGroups, parseSubject } from "./records";
 import { subjectCoverage } from "./recount";
 import { listSituations } from "./situations";
-import { proposalsWaiting } from "./waiting";
+import { proposalsWaiting, suggestionsWaiting } from "./waiting";
 
 /**
  * What Vizzy reads of a map at any size (BRAND_MAP_SCALE_ENABLED, once its subjects moved):
@@ -75,8 +75,8 @@ export async function agentMapSummary(ctx: TenantContext, map: BrandMap, db?: Fi
       },
       waiting: {
         proposals: waiting,
-        suggestions: map.suggestions.length,
-        latest: [...map.suggestions]
+        suggestions: suggestionsWaiting(map).length,
+        latest: [...suggestionsWaiting(map)]
           .sort((a, b) => b.at.localeCompare(a.at))
           .slice(0, 5)
           .map((s) => ({ change: describeChange(s.change), from: s.from })),

@@ -71,7 +71,8 @@ const FindBody = z.object({ runId: z.string().min(1).max(64), customers: z.strin
 export async function findSituationsFromRequest(ctx: TenantContext, body: unknown, deps: Deps & { find?: Omit<FindDeps, "db" | "nowMs"> } = {}): Promise<Response> {
   const parsed = FindBody.safeParse(body);
   if (!parsed.success) return invalid();
-  const step = await takeStep(ctx, parsed.data.runId, "situations", deps);
+  // Once a run: one allowance finds at most 25 situations.
+  const step = await takeStep(ctx, parsed.data.runId, "situations", deps, { once: "find" });
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
   const blocked = await moveFirst(ctx, deps);
   if (blocked) return blocked;

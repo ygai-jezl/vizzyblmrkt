@@ -249,4 +249,18 @@ describe("the brand map's row, with the map at any size", () => {
     expect(brandMapItem({ suggestions: [] } as never, 2)).toMatchObject({ title: "2 waiting on your brand map", detail: "New subjects and questions to look at" });
     expect(brandMapItem({ suggestions: [] } as never, 0)).toBeNull();
   });
+
+  it("counts a suggestion about a subject once: as the proposal it became", () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+    const map = {
+      suggestions: [
+        { from: "research", change: { type: "add_subject", name: "Audits" } },
+        { from: "vizzy", change: { type: "add_name", name: "Rivalco", kind: "alternative" } },
+      ],
+    } as never;
+    // "Audits" is a proposal on the records now (1): counted there, not on the list as well.
+    expect(brandMapItem(map, 1)).toMatchObject({ title: "2 waiting on your brand map", detail: "From Vizzy, and new subjects and questions" });
+    vi.unstubAllEnvs();
+  });
 });

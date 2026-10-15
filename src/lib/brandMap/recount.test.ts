@@ -109,6 +109,18 @@ describe("coverage one subject at a time", () => {
     expect(await recountGroup(ctx, gid, { db })).toMatchObject({ subjects: 1, questions: 4, answered: 1 });
   });
 
+  it("saves which questions are answered when one takes another's place, the counts the same", async () => {
+    const live = { state: "live", liveAt: "2026-10-01T00:00:00.000Z", subjectId: "sub_aaaaaaaa" };
+    const db = await setup([row("p_a", { ...live, primaryRef: "q_aaaaaaaa", url: "https://acme.example/blog/a" })]);
+    await recountSubject(ctx, "sub_aaaaaaaa", { db });
+    const store = brandMapRecords(ctx, db);
+    expect(await store.get("sub", "sub_aaaaaaaa")).toMatchObject({ counts: { answered: 1 }, answeredIds: ["q_aaaaaaaa"] });
+    // The article is rewritten to answer another of the subject's questions.
+    db.seed("brand_map_pages", "p_a", row("p_a", { ...live, primaryRef: "q_cccccccc", url: "https://acme.example/blog/a" }) as never);
+    await recountSubject(ctx, "sub_aaaaaaaa", { db });
+    expect(await store.get("sub", "sub_aaaaaaaa")).toMatchObject({ counts: { answered: 1 }, answeredIds: ["q_cccccccc"] });
+  });
+
   it("recounts what a page row points at when it is written", async () => {
     const db = await setup([]);
     await recountSubject(ctx, "sub_bbbbbbbb", { db });

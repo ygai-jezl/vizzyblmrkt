@@ -32,4 +32,16 @@ describe("a research run", () => {
     for (let i = 0; i < RUN_STEPS.groups; i += 1) await takeStep(a, id, "groups", { db, nowMs: NOW });
     expect(await takeStep(a, id, "groups", { db, nowMs: NOW })).toEqual({ ok: false, status: 429, error: "run_used_up" });
   });
+
+  it("finds buying situations once a run (at most 25), then one step for each situation's questions", async () => {
+    const db = new FakeFirestore();
+    const a = ctx("ten_run3");
+    const run = await startRun(a, "situations", { db, nowMs: NOW });
+    const id = run.ok ? run.value.id : "";
+    expect(RUN_STEPS.situations).toBe(26);
+    expect(await takeStep(a, id, "situations", { db, nowMs: NOW }, { once: "find" })).toEqual({ ok: true, value: { stepsLeft: 25 } });
+    expect(await takeStep(a, id, "situations", { db, nowMs: NOW }, { once: "find" })).toEqual({ ok: false, status: 409, error: "step_done" });
+    for (let i = 0; i < 25; i += 1) expect((await takeStep(a, id, "situations", { db, nowMs: NOW })).ok).toBe(true);
+    expect(await takeStep(a, id, "situations", { db, nowMs: NOW })).toEqual({ ok: false, status: 429, error: "run_used_up" });
+  });
 });

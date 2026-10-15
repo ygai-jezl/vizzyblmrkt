@@ -148,8 +148,14 @@ export default async function BrandMapPage() {
         <p className="text-sm text-neutral-500 dark:text-neutral-400">One set of names and subjects. Every article is written from it.</p>
       </div>
       {scale ? (
-        // The first time an admin opens the page, whichever tab shows, the subjects move into their records.
-        <BrandMapMoveProvider canMove={ctx.role === "admin" && read.state !== "unreadable"} moved={Boolean(map?.moved)}>
+        // The first time an admin opens the page, whichever tab shows, the subjects move into their records;
+        // until a read of the brand's pages and a count has run to the end, it starts again.
+        <BrandMapMoveProvider
+          canMove={ctx.role === "admin" && read.state !== "unreadable"}
+          moved={Boolean(map?.moved)}
+          readPages={pagesOn}
+          pagesRead={Boolean(map?.pagesReadAt)}
+        >
           {tabs}
         </BrandMapMoveProvider>
       ) : (

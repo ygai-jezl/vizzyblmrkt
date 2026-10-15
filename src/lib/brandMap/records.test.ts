@@ -20,6 +20,7 @@ import {
   subjectQuestions,
 } from "./records";
 import { ensureMoved } from "./move";
+import { decideProposals } from "./proposals";
 import { readBrandMap } from "./store";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -93,6 +94,39 @@ describe("a person editing the map's records", () => {
     expect((await listSubjects(ctx, {}, deps)).map((s) => s.name)).toEqual(["Share of voice"]);
   });
 
+  it("keeps a question the other subject already asks as a pointer to that one", async () => {
+    const { db, deps } = await setup();
+    const a = await createSubject(ctx, { name: "Share of voice" }, deps);
+    const b = await createSubject(ctx, { name: "Voice share" }, deps);
+    const sa = a.ok ? a.value.id : "";
+    const sb = b.ok ? b.value.id : "";
+    const kept = await addQuestion(ctx, sa, { text: "What is share of voice?" }, deps);
+    const keptId = kept.ok ? kept.value.id : "";
+    // The same words on the other subject (research proposed it there, then a person added it).
+    const store = brandMapRecords(ctx, db);
+    const twin = (await store.get("q", keptId))!;
+    const { id: _id, tenantId: _t, ...data } = twin;
+    void _id;
+    void _t;
+    await store.create("q", "q_twintwin", { ...data, subjectId: sb });
+    expect(await mergeSubjects(ctx, { from: sb, into: sa }, deps)).toMatchObject({ ok: true, value: { moved: 0, dropped: 1 } });
+    expect(await store.get("q", "q_twintwin")).toMatchObject({ status: "dismissed", mergedInto: keptId });
+    // Out of every lookup by its words: the one it points at is the only one found.
+    expect((await store.find("q", { where: [["textKey", "==", twin.textKey]] })).map((q) => q.id)).toEqual([keptId]);
+  });
+
+  it("never lists a dismissed subject as if it were on the map", async () => {
+    const { db, deps } = await setup();
+    await createSubject(ctx, { name: "Citations" }, deps);
+    const store = brandMapRecords(ctx, db);
+    await store.create("sub", "sub_proposed", { status: "proposed", from: "research", name: "Audits", nameKey: "audits", groupId: null, rev: 0, createdAt: "", updatedAt: "" });
+    await decideProposals(ctx, { dismiss: { subjects: ["sub_proposed"] } }, deps);
+    expect((await listSubjects(ctx, {}, deps)).map((s) => s.name)).toEqual(["Citations"]);
+    expect((await listSubjects(ctx, { groupId: null }, deps)).map((s) => s.name)).toEqual(["Citations"]);
+    // Asked for by its status, it is there (so it isn't proposed again).
+    expect((await listSubjects(ctx, { status: "dismissed" }, deps)).map((s) => s.name)).toEqual(["Audits"]);
+  });
+
   it("groups subjects, lists one group's, and leaves them ungrouped when a group goes", async () => {
     const { deps } = await setup();
     const g = await createGroup(ctx, { name: "Tracking your brand in AI" }, deps);
@@ -105,7 +139,8 @@ describe("a person editing the map's records", () => {
     const renamed = await renameGroup(ctx, gid, { baseRev: 0, name: "Tracking" }, deps);
     expect(renamed.ok && renamed.value.name).toBe("Tracking");
     expect((await listGroups(ctx, deps)).map((x) => x.name)).toEqual(["Tracking"]);
-    expect(await removeGroup(ctx, gid, deps)).toMatchObject({ ok: true, value: { subjects: 1 } });
+    // Its subjects' counts and meaning don't change: only the ungrouped totals are worked out again.
+    expect(await removeGroup(ctx, gid, deps)).toMatchObject({ ok: true, value: { subjects: 1 }, touched: [], groups: [null] });
     expect((await listSubjects(ctx, { groupId: null }, deps)).map((s) => s.name).sort()).toEqual(["Citations", "Share of voice"]);
   });
 

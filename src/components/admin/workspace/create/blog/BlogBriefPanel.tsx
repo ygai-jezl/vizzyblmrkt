@@ -670,13 +670,25 @@ const NO_SUBJECT = "none";
 
 /** Which of the brand map's subjects the article is for. */
 function SubjectPicker({ map, brief, onChange }: { map: ArticleMap; brief: BlogBrief; onChange: (next: BlogBrief) => void }) {
+  // At any size, a subject just found by searching isn't on the part of the map this page read: its name comes from the pick.
+  const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const value = brief.subjectId === null ? NO_SUBJECT : (brief.subjectId ?? "");
   const gone = Boolean(brief.subjectId) && !map.subjects.some((s) => s.id === brief.subjectId);
   if (map.atScale) {
     // At any size, the article's own subject is on the part of the map it reads; another is found by searching.
     const own = brief.subjectId ? map.subjects.find((s) => s.id === brief.subjectId) : undefined;
-    const pick = brief.subjectId === null ? null : brief.subjectId ? { id: brief.subjectId, name: own?.name ?? "No longer on your brand map" } : undefined;
-    return <MapSubjectSearch value={pick} onPick={(next) => onChange(withSubject(brief, next === null ? null : next?.id, map))} inputClassName={`w-full ${INPUT}`} />;
+    const name = own?.name ?? (picked && picked.id === brief.subjectId ? picked.name : "No longer on your brand map");
+    const pick = brief.subjectId === null ? null : brief.subjectId ? { id: brief.subjectId, name } : undefined;
+    return (
+      <MapSubjectSearch
+        value={pick}
+        onPick={(next) => {
+          if (next) setPicked(next);
+          onChange(withSubject(brief, next === null ? null : next?.id, map));
+        }}
+        inputClassName={`w-full ${INPUT}`}
+      />
+    );
   }
   return (
     <label className={LABEL}>

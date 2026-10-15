@@ -14,7 +14,7 @@ import { sortIntoGroups, type SortDeps } from "./sortGroups";
 import { listSituations, recountSituations } from "./situations";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
-import { setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
+import { removeBrandMapVector, setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
 import {
   addQuestion,
   createGroup,
@@ -34,7 +34,9 @@ import {
   subjectQuestions,
   type RecordResult,
 } from "./records";
-import { readBrandMap } from "./store";
+import { parseBrandMap, readBrandMap } from "./store";
+import { forTenant } from "@/lib/tenant";
+import { brandMapDocId } from "@/lib/types/brandMap";
 
 /**
  * The map at any size's admin APIs (BRAND_MAP_SCALE_ENABLED): reading and editing its
@@ -104,7 +106,9 @@ export async function proposalsFromRequest(ctx: TenantContext, body: unknown, de
   if (situations.length) {
     const store = brandMapRecords(ctx, deps.db);
     for (const s of await store.getMany("sit", situations).catch(() => [])) {
-      if (typeof s.status === "string") await setBrandMapVectorStatus(ctx, { kind: "situation", ref: s.id, status: s.status }, deps.db).catch(() => undefined);
+      // A dismissed one's meaning goes: nearest lookups never find it, and it never crowds out the rest.
+      if (s.status === "dismissed") await removeBrandMapVector(ctx, "situation", s.id, deps.db).catch(() => undefined);
+      else if (typeof s.status === "string") await setBrandMapVectorStatus(ctx, { kind: "situation", ref: s.id, status: s.status }, deps.db).catch(() => undefined);
     }
   }
   return NextResponse.json({ ok: true, accepted: r.accepted, dismissed: r.dismissed, touched: r.touched });
@@ -188,6 +192,11 @@ export async function recountFromRequest(ctx: TenantContext, body: unknown, deps
     const situations = await listSituations(ctx, deps).catch(() => []);
     await recountSituations(ctx, situations.filter((x) => x.status === "decided").map((x) => x.id), deps);
   }
+  // The pass ran to the end: the page needn't start it again by itself.
+  const now = new Date(deps.nowMs ?? Date.now()).toISOString();
+  await forTenant(ctx, deps.db)
+    .brandMaps.claim(brandMapDocId(ctx.tenantId), (cur) => (parseBrandMap(cur) ? ({ pagesReadAt: now } as never) : null))
+    .catch(() => null);
   return NextResponse.json({ ok: true, done: true, next: null, subjects: batch.length });
 }
 

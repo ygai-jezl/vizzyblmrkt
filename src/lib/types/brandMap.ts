@@ -221,8 +221,12 @@ export type BrandMapResearch = z.infer<typeof BrandMapResearchSchema>;
 /** On the brand's record once its subjects moved into records of their own (BRAND_MAP_SCALE_ENABLED). */
 export const BrandMapMovedSchema = z.object({
   at: z.string().max(40),
-  /** A digest of the `subjects` list at the move: if it changes while the switch is off, what was added is brought in. */
+  /** A digest of the `subjects` list as stored at the move: if it changes while the switch is off, what was added is brought in. */
   arrayHash: z.string().max(64),
+  /** Every subject and question id brought in so far: a later move never brings back one removed since. */
+  ids: z.array(z.string().max(64)).max(400).catch([]).default([]),
+  /** The waiting suggestions already turned into proposals (by key): never proposed twice. */
+  suggestions: z.array(z.string().max(200)).max(1000).catch([]).default([]),
 });
 export type BrandMapMoved = z.infer<typeof BrandMapMovedSchema>;
 
@@ -244,6 +248,8 @@ export const BrandMapStoredSchema = BrandMapDecidedSchema.extend({
   recordsDecidedAt: z.string().max(40).nullable().catch(null).default(null),
   /** The ungrouped subjects' totals, for display (brandMapRecords.ts GroupTotalsSchema). */
   ungroupedTotals: z.record(z.string(), z.number()).nullable().catch(null).default(null),
+  /** When "Read what's already there" and the recount after it last ran to the end (the map at any size). */
+  pagesReadAt: z.string().max(40).nullable().catch(null).default(null),
 });
 
 /** The brand map as the app reads it: the decided half, its suggestions parsed, and its bookkeeping. */
@@ -261,6 +267,7 @@ export type BrandMap = BrandMapDecided & {
   moved: BrandMapMoved | null;
   recordsDecidedAt: string | null;
   ungroupedTotals?: Record<string, number> | null;
+  pagesReadAt?: string | null;
 };
 
 /**

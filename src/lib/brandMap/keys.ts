@@ -5,10 +5,10 @@ import { fold } from "./changes";
 /**
  * Ids and keys for the map's records (BRAND_MAP_SCALE_ENABLED). Server-only.
  *
- * A record proposed by research, an import or Vizzy takes its id from what it is (a
- * subject from its name, a question from its subject and words), so two research steps
- * running at once can never propose the same thing twice. A collision with a record since
- * renamed falls back to a fresh id (records.ts).
+ * A record takes its id from what it is (a subject from its name, a question from its words,
+ * a situation from its words, a group from its name), so two steps running at once can never
+ * make the same thing twice: the second finds the first at that id (createOnce). Only an id
+ * taken by a record since renamed falls back to a fresh one.
  */
 
 const digest = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
@@ -19,7 +19,8 @@ export const situationKey = (text: string) => textKey(text);
 export const urlKey = (url: string | null | undefined) => (url ? normalizeUrl(url) || null : null);
 
 export const subjectIdFor = (tenantId: string, name: string) => `sub_${digest(`${tenantId}\nsub\n${subjectKey(name)}`)}`;
-export const questionIdFor = (tenantId: string, subjectId: string, text: string) => `q_${digest(`${tenantId}\nq\n${subjectId}\n${questionKey(text)}`)}`;
+/** A question's id from its words alone: a question is on the map once, whichever subject it sits on. */
+export const questionIdFor = (tenantId: string, text: string) => `q_${digest(`${tenantId}\nq\n${questionKey(text)}`)}`;
 export const groupIdFor = (tenantId: string, name: string) => `grp_${digest(`${tenantId}\ngrp\n${fold(name)}`)}`;
 export const situationIdFor = (tenantId: string, text: string) => `sit_${digest(`${tenantId}\nsit\n${situationKey(text)}`)}`;
 

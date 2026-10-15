@@ -4,6 +4,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { BrandMapDecidedSchema, BrandMapStoredSchema, brandMapDocId, isMapSaved } from "@/lib/types/brandMap";
 import { ensureMoved } from "./move";
+import { removeQuestion, removeSubject } from "./records";
 import { decidedBrandMap, fileBrandMapSuggestions, readBrandMap, saveBrandMap } from "./store";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -112,6 +113,48 @@ describe("the move into records", () => {
     expect((await store.get("sub", "sub_cccccccc"))?.name).toBe("Audits");
     expect((await store.get("sub", "sub_aaaaaaaa"))?.name).toBe("Share of voice");
     expect(await ensureMoved(ctx, { db, nowMs: NOW + 6000 })).toMatchObject({ moved: false });
+  });
+
+  it("makes each proposal once when two moves run at the same moment", async () => {
+    const db = new FakeFirestore();
+    await saved(db);
+    await fileBrandMapSuggestions(
+      ctx,
+      {
+        from: "research",
+        items: [
+          { change: { type: "add_subject", name: "Audits" } },
+          { change: { type: "add_question", subject: "Share of voice", text: "Which tools track it?", intent: "alternatives" } },
+        ],
+      },
+      { db, nowMs: NOW },
+    );
+    // The page opening, and research, at once.
+    await Promise.all([ensureMoved(ctx, { db, nowMs: NOW }), ensureMoved(ctx, { db, nowMs: NOW })]);
+    const store = brandMapRecords(ctx, db);
+    expect((await store.find("sub")).filter((s) => s.name === "Audits")).toHaveLength(1);
+    expect((await store.find("q")).filter((q) => q.text === "Which tools track it?")).toHaveLength(1);
+    // And a later move proposes neither again.
+    const raw = db.raw("brand_maps", brandMapDocId("ten_A"))!;
+    db.seed("brand_maps", brandMapDocId("ten_A"), { ...raw, subjects: [...(raw.subjects as object[]), { id: "sub_cccccccc", name: "Prompts", questions: [] }] });
+    expect(await ensureMoved(ctx, { db, nowMs: NOW + 5000 })).toMatchObject({ moved: true, subjects: 1, proposals: 0 });
+  });
+
+  it("never brings back a subject or question a person removed since the move", async () => {
+    const db = new FakeFirestore();
+    await saved(db);
+    await ensureMoved(ctx, { db, nowMs: NOW });
+    expect((await removeSubject(ctx, "sub_bbbbbbbb", { db, nowMs: NOW + 1000 })).ok).toBe(true);
+    expect((await removeQuestion(ctx, "q_bbbbbbbb", { db, nowMs: NOW + 1000 })).ok).toBe(true);
+    // The stored list changes without changing what it says (a field a later build adds), and gains a subject.
+    const raw = db.raw("brand_maps", brandMapDocId("ten_A"))!;
+    const subjects = [...(raw.subjects as Array<Record<string, unknown>>).map((x) => ({ ...x, note: "" })), { id: "sub_cccccccc", name: "Audits", questions: [] }];
+    db.seed("brand_maps", brandMapDocId("ten_A"), { ...raw, subjects });
+    expect(await ensureMoved(ctx, { db, nowMs: NOW + 5000 })).toMatchObject({ ok: true, moved: true, subjects: 1, questions: 0 });
+    const store = brandMapRecords(ctx, db);
+    expect(await store.get("sub", "sub_bbbbbbbb")).toBeNull();
+    expect(await store.get("q", "q_bbbbbbbb")).toBeNull();
+    expect((await store.get("sub", "sub_cccccccc"))?.name).toBe("Audits");
   });
 });
 

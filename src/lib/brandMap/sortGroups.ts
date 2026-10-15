@@ -6,6 +6,7 @@ import { BRAND_MAP_RECORD_LIMITS as LIMITS, BrandMapGroupSchema } from "@/lib/ty
 import { groupIdFor, subjectKey } from "./keys";
 import { listGroups, parseGroup, parseSubject } from "./records";
 import { readBrandMap } from "./store";
+import { clean, fence, hasAddress, oneLine } from "./lineChecks";
 
 /**
  * "Sort into groups" on a map at any size (BRAND_MAP_SCALE_ENABLED): subjects in no group are
@@ -20,8 +21,6 @@ export const SORT_BATCH = 300;
 const MAX_NEW_GROUPS = 30;
 const SORT_MS = 50_000;
 
-const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”'*]+|["“”'*]+$/g, "").trim();
-const hasAddress = (s: string) => /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|ai|co|dev|app)\/\S/i.test(s);
 
 /** The answer's GROUP lines: a name and the numbers of its subjects (each subject once, the first line wins). */
 export function parseGroupLines(text: string, subjects: number): Array<{ name: string; members: number[] }> {
@@ -85,8 +84,8 @@ export async function sortIntoGroups(ctx: TenantContext, input: { cursor: string
   const prompt = renderPrompt("brand.map_groups", {
     brand_name: (identity?.name ?? "").replace(/["\n]/g, " ").slice(0, 120) || "(not named)",
     category: identity?.category ? `, in the category "${identity.category.replace(/["\n]/g, " ").slice(0, 80)}"` : "",
-    groups: groups.map((g) => `- ${g.name}`).join("\n") || "(none yet)",
-    subjects: subjects.map((s, i) => `${i + 1}. ${s.name}`).join("\n"),
+    groups: fence("groups", groups.map((g) => `- ${oneLine(g.name)}`).join("\n")) || "(none yet)",
+    subjects: fence("subjects", subjects.map((s, i) => `${i + 1}. ${oneLine(s.name)}`).join("\n")),
     max_new: MAX_NEW_GROUPS,
   });
   const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: SORT_MS })))(prompt).catch(() => null);

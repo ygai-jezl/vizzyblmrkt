@@ -4,7 +4,8 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { fileSuggestions } from "./filing";
-import { decideProposals } from "./proposals";
+import { ensureMoved } from "./move";
+import { decideProposals, proposedQuestion, proposedSubject } from "./proposals";
 import { createSubject } from "./records";
 import { readBrandMap, saveBrandMap } from "./store";
 
@@ -87,5 +88,34 @@ describe("deciding proposals", () => {
     const id = made.ok ? made.value.id : "";
     expect(await decideProposals(ctx, { dismiss: { subjects: [id] } }, { db, nowMs: NOW })).toMatchObject({ dismissed: 0 });
     expect((await brandMapRecords(ctx, db).get("sub", id))?.status).toBe("decided");
+  });
+});
+
+describe("at the same moment", () => {
+  beforeEach(() => vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true"));
+
+  it("two steps proposing the same subject, then the same question, make one record of each", async () => {
+    const db = new FakeFirestore();
+    await ensureMoved(ctx, { db, nowMs: NOW });
+    const store = brandMapRecords(ctx, db);
+    const base = { from: "research" as const, now: "2026-10-15T10:00:00.000Z", existingOk: true };
+    // Two situations' questions steps, run three at a time, both naming a new subject.
+    const [a, b] = await Promise.all([proposedSubject(ctx, store, { ...base, name: "AI Overviews" }), proposedSubject(ctx, store, { ...base, name: "AI overviews" })]);
+    expect(a?.id).toBeTruthy();
+    expect(b?.id).toBe(a?.id);
+    expect(await store.find("sub")).toHaveLength(1);
+    await Promise.all([
+      proposedQuestion(ctx, store, { ...base, subjectId: a!.id, text: "How do I get into AI Overviews?" }),
+      proposedQuestion(ctx, store, { ...base, subjectId: a!.id, text: "How do I get into AI overviews" }),
+    ]);
+    expect(await store.find("q")).toHaveLength(1);
+  });
+
+  it("a person adding the same subject twice at once gets one, and hears the other is there", async () => {
+    const db = new FakeFirestore();
+    const both = await Promise.all([createSubject(ctx, { name: "Audits" }, { db, nowMs: NOW }), createSubject(ctx, { name: "audits" }, { db, nowMs: NOW })]);
+    expect(both.filter((r) => r.ok)).toHaveLength(1);
+    expect(both.find((r) => !r.ok)).toMatchObject({ status: 409, error: "subject_exists" });
+    expect(await brandMapRecords(ctx, db).find("sub")).toHaveLength(1);
   });
 });

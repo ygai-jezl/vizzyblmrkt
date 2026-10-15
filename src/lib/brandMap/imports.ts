@@ -6,6 +6,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BRAND_MAP_RECORD_LIMITS as LIMITS, BrandMapImportSchema, type BrandMapImport, type ImportItem } from "@/lib/types/brandMapRecords";
 import { freshId, questionKey } from "./keys";
 import { readBrandMap } from "./store";
+import { clean, hasAddress, hasEmail, hasPhone } from "./lineChecks";
 
 /**
  * A brand's own research, from a PDF (BRAND_MAP_IMPORT_ENABLED): screenshots of Google
@@ -26,11 +27,6 @@ const MAX_SEARCHES = 20;
 const MAX_THEMES = 40;
 const MAX_CITED = 20;
 
-const clean = (s: string) => s.replace(/\s+/g, " ").replace(/^["“”'*]+|["“”'*]+$/g, "").trim();
-const hasAddress = (s: string) => /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|ai|co|dev|app|uk)\/\S/i.test(s);
-const hasEmail = (s: string) => /[^\s@]+@[^\s@]+\.[a-z]{2,}/i.test(s);
-// International numbers, North American ones, and UK-style ones starting with 0.
-const hasPhone = (s: string) => /\+\d[\d\s().-]{7,}\d|\b\d{3}[\s.-]\d{3}[\s.-]\d{4}\b|\b0\d{2,4}[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b/.test(s);
 
 const KINDS = { ASK: "ask", ALSO: "also", QUESTION: "question", NOTE: "note" } as const;
 

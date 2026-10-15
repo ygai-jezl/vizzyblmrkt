@@ -4,6 +4,7 @@ import type { BlogIntent } from "@/lib/types/contentPlan";
 import type { BrandMapStoredRecord, RecordFrom } from "@/lib/types/brandMapRecords";
 import { BrandMapQuestionRecordSchema, BrandMapSubjectRecordSchema } from "@/lib/types/brandMapRecords";
 import { freshId, questionIdFor, questionKey, subjectIdFor, subjectKey } from "./keys";
+import { createOnce } from "./createOnce";
 import { markRecordsDecided } from "./records";
 
 /**
@@ -60,8 +61,10 @@ export async function proposedSubject(
   });
   const { id, tenantId: _t, ...data } = record;
   void _t;
-  // The id comes from the name; one taken by a subject since renamed gets a fresh one.
-  return (await store.createIfAbsent("sub", id, data)) ?? (await store.create("sub", freshId("sub"), data));
+  // The id comes from the name: proposed at the same moment by another step, it's that one.
+  const once = await createOnce(store, "sub", id, data, { same: (there) => there.nameKey === key, fresh: () => freshId("sub") });
+  if (once.created) return once.created;
+  return input.existingOk && once.existing.status !== "dismissed" ? once.existing : null;
 }
 
 /** A question proposed for a subject. Null when the map already has it (or had it dismissed). */
@@ -80,7 +83,7 @@ export async function proposedQuestion(
   if (found) return null;
   if (input.subjectName && input.dismissedKeys?.has(`q:${subjectKey(input.subjectName)}:${subjectKey(text)}`) && !input.revive) return null;
   const record = BrandMapQuestionRecordSchema.parse({
-    id: questionIdFor(ctx.tenantId, input.subjectId, text),
+    id: questionIdFor(ctx.tenantId, text),
     tenantId: ctx.tenantId,
     status: "proposed",
     from: input.from,
@@ -98,7 +101,9 @@ export async function proposedQuestion(
   });
   const { id, tenantId: _t, ...data } = record;
   void _t;
-  return (await store.createIfAbsent("q", id, data)) ?? (await store.create("q", freshId("q"), data));
+  // The id comes from the words: asked at the same moment by another step, it's on the map already.
+  const once = await createOnce(store, "q", id, data, { same: (there) => there.textKey === key, fresh: () => freshId("q") });
+  return once.created ?? null;
 }
 
 export interface ProposalIds {
@@ -140,7 +145,7 @@ async function answerSuggestions(store: BrandMapRecordStore, groupId: string, mo
  * dismissing a subject dismisses the questions proposed for it. Accepting a group decides it
  * (if proposed) and moves in the subjects suggested for it; dismissing one lets those
  * suggestions go. Only proposals change status: something already decided is left as it is.
- * Returns the subjects touched, and the groups that lost one.
+ * Returns the subjects touched, and the groups whose totals change.
  */
 export async function decideProposals(
   ctx: TenantContext,
@@ -189,9 +194,12 @@ export async function decideProposals(
     if (await set(KIND.groups, id, "decided")) accepted += 1;
     const moved = await answerSuggestions(store, id, true, now);
     accepted += moved.length;
-    for (const s of moved) touched.add(s);
-    // They were in no group: the ungrouped totals lose them.
-    if (moved.length) left.add(null);
+    // A move changes no subject's counts or meaning, only totals: the group's, and the
+    // ungrouped ones (they were in no group). Nothing to recount or embed per subject.
+    if (moved.length) {
+      left.add(id);
+      left.add(null);
+    }
   }
 
   const dismiss = input.dismiss ?? {};

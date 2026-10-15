@@ -14,6 +14,7 @@ import {
   type SituationW,
 } from "@/lib/types/brandMapRecords";
 import { embedSituations, type EmbedDeps } from "./embed";
+import { createOnce } from "./createOnce";
 import { freshId, situationIdFor, situationKey } from "./keys";
 import { markRecordsDecided, parseQuestion, parseSubject, type RecordResult } from "./records";
 
@@ -100,9 +101,14 @@ export async function createSituation(ctx: TenantContext, input: SituationInput,
   if (!parsed.success) return fail(400, "invalid_situation");
   const { id, tenantId: _t, ...data } = parsed.data;
   void _t;
-  const saved = existing
-    ? await store.claim("sit", existing.id, (cur) => ({ ...data, rev: Number(cur.rev ?? 0) + 1, createdAt: cur.createdAt }))
-    : ((await store.createIfAbsent("sit", id, data)) ?? (await store.create("sit", freshId("sit"), data)));
+  let saved;
+  if (existing) saved = await store.claim("sit", existing.id, (cur) => ({ ...data, rev: Number(cur.rev ?? 0) + 1, createdAt: cur.createdAt }));
+  else {
+    const once = await createOnce(store, "sit", id, data, { same: (there) => there.textKey === key, fresh: () => freshId("sit") });
+    // Added by someone else at the same moment: it's on the map already.
+    if (once.existing) return fail(409, "situation_exists", parseSituation(once.existing));
+    saved = once.created;
+  }
   await markRecordsDecided(ctx, deps);
   const value = parseSituation(saved);
   await embedOne(ctx, value, deps);
@@ -151,7 +157,10 @@ export async function proposeSituation(
   if (!parsed.success) return null;
   const { id, tenantId: _t, ...data } = parsed.data;
   void _t;
-  const saved = parseSituation((await store.createIfAbsent("sit", id, data)) ?? (await store.create("sit", freshId("sit"), data)));
+  const once = await createOnce(store, "sit", id, data, { same: (there) => there.textKey === key, fresh: () => freshId("sit") });
+  // Proposed at the same moment by another step: not proposed twice.
+  if (once.existing) return null;
+  const saved = parseSituation(once.created);
   await embedOne(ctx, saved, deps);
   return saved;
 }

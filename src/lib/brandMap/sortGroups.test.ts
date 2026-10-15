@@ -74,7 +74,8 @@ describe("sorting subjects into groups", () => {
     const cited = (await listGroups(ctx, { db })).find((g) => g.name === "Getting cited")!;
 
     const r = await decideProposals(ctx, { accept: { groups: [cited.id] } }, { db, nowMs: NOW });
-    expect(r).toMatchObject({ accepted: 3, groups: [null] });
+    // Moving changes no subject's counts or meaning: only the two groups' totals are worked out again.
+    expect(r).toMatchObject({ accepted: 3, touched: [], groups: [cited.id, null] });
     await afterRecordsChange(ctx, { subjects: r.touched, groups: r.groups }, { db, nowMs: NOW });
     expect((await listSubjects(ctx, { groupId: cited.id }, { db })).map((s) => s.name).sort()).toEqual(["AI Overviews", "Citation gaps"]);
     expect(await brandMapRecords(ctx, db).get("grp", cited.id)).toMatchObject({ status: "decided", suggested: 0, totals: { subjects: 2 } });

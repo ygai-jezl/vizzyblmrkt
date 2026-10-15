@@ -14,7 +14,7 @@ import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
 import { isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
-import { proposalsWaiting } from "@/lib/brandMap/waiting";
+import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
 
@@ -202,9 +202,10 @@ const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", art
  * map at any size, the subjects, questions and buying situations proposed for it count too.
  */
 export function brandMapItem(map: Pick<BrandMap, "suggestions"> | null, proposals = 0): ReviewItem | null {
-  const n = (map?.suggestions.length ?? 0) + proposals;
+  const waiting = map ? suggestionsWaiting(map) : [];
+  const n = waiting.length + proposals;
   if (!map || n === 0) return null;
-  const from = (["research", "article", "vizzy"] as const).filter((f) => map.suggestions.some((s) => s.from === f)).map((f) => FROM[f]);
+  const from = (["research", "article", "vizzy"] as const).filter((f) => waiting.some((s) => s.from === f)).map((f) => FROM[f]);
   const said = from.length > 1 ? `${from.slice(0, -1).join(", ")} and ${from.at(-1)}` : (from[0] ?? "");
   if (proposals) {
     return {

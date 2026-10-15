@@ -75,21 +75,39 @@ export function BrandMapImport({ canEdit, programmes }: { canEdit: boolean; prog
       return;
     }
     const id = body.import.id;
-    for (let batch = 1; batch <= 10; batch += 1) {
-      setProgress(`Placing what it found on your map (batch ${batch})…`);
-      const p = await api<{ done?: boolean; error?: string }>(`${MAP}/imports/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify({ runId: body.run.id }) });
-      if (!p.ok) {
-        setNote({ tone: "err", text: `${errorText(p.data)} What was placed so far is in the report.` });
-        break;
-      }
-      if (p.data.done) break;
-    }
+    await placeAll(id, body.run.id);
     setBusy(false);
     setProgress(null);
     setFile(null);
     await load();
     setOpenId(id);
     if (openId === id) await loadOpen(id);
+  }
+
+  /** Place what an import found, a batch per step of a run, until done or a batch fails. */
+  async function placeAll(id: string, runId: string) {
+    for (let batch = 1; batch <= 10; batch += 1) {
+      setProgress(`Placing what it found on your map (batch ${batch})…`);
+      const p = await api<{ done?: boolean; error?: string }>(`${MAP}/imports/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify({ runId }) });
+      if (!p.ok) {
+        setNote({ tone: "err", text: `${errorText(p.data)} What was placed so far is in the report, and “Place the rest” carries on.` });
+        return;
+      }
+      if (p.data.done) return;
+    }
+  }
+
+  /** "Place the rest" of an import whose placing stopped: a new run, so one research allowance. */
+  async function placeRest(id: string) {
+    setBusy(true);
+    setNote(null);
+    const start = await api<{ run?: { id: string }; error?: string }>(`${MAP}/runs`, { method: "POST", body: JSON.stringify({ kind: "import" }) });
+    if (start.ok && start.data.run) await placeAll(id, start.data.run.id);
+    else setNote({ tone: "err", text: errorText(start.data) });
+    setBusy(false);
+    setProgress(null);
+    await load();
+    await loadOpen(id);
   }
 
   return (
@@ -124,6 +142,8 @@ export function BrandMapImport({ canEdit, programmes }: { canEdit: boolean; prog
           canEdit={canEdit}
           programmes={programmes}
           onChange={(next) => setOpen(next)}
+          onPlaceRest={canEdit && !open.import.placed ? () => void placeRest(open.import.id) : null}
+          placing={busy}
           onRemoved={() => {
             setOpenId(null);
             void load();
@@ -163,6 +183,8 @@ function ImportReportView({
   canEdit,
   programmes,
   onChange,
+  onPlaceRest,
+  placing,
   onRemoved,
   onClose,
 }: {
@@ -170,6 +192,9 @@ function ImportReportView({
   canEdit: boolean;
   programmes: Array<{ id: string; name: string }> | null;
   onChange: (next: Open) => void;
+  /** Placing stopped before the end: carry on (null = it finished, or not an admin). */
+  onPlaceRest: (() => void) | null;
+  placing: boolean;
   onRemoved: () => void;
   onClose: () => void;
 }) {
@@ -250,6 +275,14 @@ function ImportReportView({
         </p>
       </div>
       {note ? <Banner tone={note.tone}>{note.text}</Banner> : null}
+      {onPlaceRest ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+          Placing what it found stopped before the end.
+          <button type="button" disabled={placing || busy} onClick={onPlaceRest} className={SMALL}>
+            Place the rest
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {stat(c.newQuestions, "new questions")}
         {stat(c.newSubjects, "new subjects")}

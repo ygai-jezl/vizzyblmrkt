@@ -86,7 +86,7 @@ def suggest_brand_map(
             (e.g. "GEO tool | AI visibility tracking"), or just "term".
         subjects: Subjects it wants to be known for. There is no set number: each must be
             something the brand's own material shows it does or knows, and that buyers ask
-            about.
+            about. A map get_brand_map doesn't mark `atAnySize` holds 8 subjects at most.
         questions: Questions people ask, as "Subject | Question" (e.g.
             "Share of voice | How is share of voice measured?"). The subject is one on the
             map, or one suggested in this same call.

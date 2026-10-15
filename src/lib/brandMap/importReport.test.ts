@@ -7,6 +7,7 @@ import { withDerivedFacts } from "@/lib/content/blog/pageRow";
 import { addImported, importReport } from "./importCompare";
 import { parsePlaceLines, placeImport } from "./importPlace";
 import { getImport, readImport } from "./imports";
+import { subjectKey } from "./keys";
 import { ensureMoved } from "./move";
 import { addQuestion, createGroup, createSubject, listGroups, listSubjects } from "./records";
 
@@ -153,5 +154,19 @@ describe("what your research adds", () => {
     // Reopened, the report follows the map: the four are on it now (with the one it had), not new.
     const after = await importReport(ctx, (await getImport(ctx, importId, { db }))!, deps);
     expect(after.counts).toMatchObject({ newQuestions: 0, onMap: 5 });
+  });
+
+  it("adding a question to a subject research only proposed adds the subject too", async () => {
+    const { db, deps, importId } = await setup();
+    // Proposed a moment ago; nobody has added it yet.
+    const store = brandMapRecords(ctx, db);
+    await store.create("sub", "sub_proposed", { status: "proposed", from: "research", name: "Board reporting", nameKey: subjectKey("Board reporting"), groupId: null, rev: 0, createdAt: "", updatedAt: "" });
+    await placeImport(ctx, importId, { ...deps, modelReady: () => true, generate: PLACED });
+    const report = await importReport(ctx, (await getImport(ctx, importId, { db }))!, deps);
+    const board = report.items.find((i) => i.question === "How do I report AI mentions to my board?")!;
+    expect(board).toMatchObject({ outcome: "new", addable: true });
+    expect((await addImported(ctx, importId, [board.id], deps)).ok).toBe(true);
+    expect((await store.get("sub", "sub_proposed"))?.status).toBe("decided");
+    expect(await store.find("q", { where: [["subjectId", "==", "sub_proposed"]] })).toMatchObject([{ status: "decided", text: "How do I report AI mentions to my board?" }]);
   });
 });

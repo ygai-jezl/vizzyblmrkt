@@ -16,8 +16,11 @@ import { freshId } from "./keys";
 /** Research and Vizzy's "research" share this budget, per brand. */
 export const RESEARCH_LIMIT = { prefix: "brand_map_research", burstLimit: 2, hourlyLimit: 10 };
 
-/** The most steps a run of each kind may take. */
-export const RUN_STEPS: Record<BrandMapRun["kind"], number> = { situations: 30, subjects: 30, groups: 40, import: 12 };
+/**
+ * The most steps a run of each kind may take. Buying situations: finding them once (at most
+ * 25), then what people in each ask, one step a situation.
+ */
+export const RUN_STEPS: Record<BrandMapRun["kind"], number> = { situations: 26, subjects: 30, groups: 40, import: 12 };
 export const RUN_MINUTES = 30;
 
 type Deps = { db?: FirestoreLike; nowMs?: number };
@@ -43,10 +46,19 @@ export async function startRun(ctx: TenantContext, kind: BrandMapRun["kind"], de
   return { ok: true, value: run };
 }
 
-const REFUSED: Record<string, number> = { no_run: 404, wrong_run: 400, run_expired: 410, run_used_up: 429 };
+const REFUSED: Record<string, number> = { no_run: 404, wrong_run: 400, run_expired: 410, run_used_up: 429, step_done: 409 };
 
-/** Take one step of a run: refused when it isn't this brand's, is of another kind, has ended, or has no steps left. */
-export async function takeStep(ctx: TenantContext, runId: string, kind: BrandMapRun["kind"], deps: Deps = {}): Promise<RunResult<{ stepsLeft: number }>> {
+/**
+ * Take one step of a run: refused when it isn't this brand's, is of another kind, has ended,
+ * or has no steps left, or when `once` names a step the run has already taken.
+ */
+export async function takeStep(
+  ctx: TenantContext,
+  runId: string,
+  kind: BrandMapRun["kind"],
+  deps: Deps = {},
+  opts: { once?: string } = {},
+): Promise<RunResult<{ stepsLeft: number }>> {
   const now = deps.nowMs ?? Date.now();
   const seen = { error: "no_run" };
   const done = await brandMapRecords(ctx, deps.db)
@@ -56,7 +68,8 @@ export async function takeStep(ctx: TenantContext, runId: string, kind: BrandMap
       if (run.data.kind !== kind) seen.error = "wrong_run";
       else if (Date.parse(run.data.expiresAt) <= now) seen.error = "run_expired";
       else if (run.data.stepsLeft <= 0) seen.error = "run_used_up";
-      else return { stepsLeft: run.data.stepsLeft - 1 };
+      else if (opts.once && run.data.done.includes(opts.once)) seen.error = "step_done";
+      else return { stepsLeft: run.data.stepsLeft - 1, ...(opts.once ? { done: [...run.data.done, opts.once] } : {}) };
       return null;
     })
     .catch(() => null);

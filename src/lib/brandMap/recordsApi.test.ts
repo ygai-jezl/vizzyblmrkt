@@ -13,6 +13,7 @@ vi.mock("@/lib/tenant", async (original) => ({
 }));
 
 const api = await import("./recordsApi");
+const { createSubject } = await import("./records");
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const json = async (r: Response) => ({ status: r.status, body: (await r.json()) as Record<string, unknown> });
@@ -31,6 +32,20 @@ describe("the map at any size's admin APIs", () => {
     expect((await json(await api.moveFromRequest(ctx, { db }))).body).toMatchObject({ ok: true, moved: true });
     expect((await json(await api.moveFromRequest(ctx, { db }))).body).toMatchObject({ ok: true, moved: false });
     expect((await json(await api.listSubjectsFromRequest(ctx, url, { db }))).body).toEqual({ moved: true, subjects: [] });
+  });
+
+  it("marks the read of the brand's pages done only when the count after it reaches the end", async () => {
+    const db = new FakeFirestore();
+    await api.moveFromRequest(ctx, { db });
+    // One more than a batch.
+    for (let i = 0; i < 21; i += 1) await createSubject(ctx, { name: `Subject ${String.fromCharCode(97 + i)}` }, { db });
+    const readAt = () => db.raw("brand_maps", brandMapDocId("ten_A"))?.pagesReadAt ?? null;
+    const first = await json(await api.recountFromRequest(ctx, {}, { db, nowMs: Date.parse("2026-10-15T10:00:00.000Z") }));
+    expect(first.body).toMatchObject({ ok: true, done: false });
+    expect(readAt()).toBeNull();
+    const last = await json(await api.recountFromRequest(ctx, { cursor: first.body.next }, { db, nowMs: Date.parse("2026-10-15T10:00:00.000Z") }));
+    expect(last.body).toMatchObject({ ok: true, done: true });
+    expect(readAt()).toBe("2026-10-15T10:00:00.000Z");
   });
 
   it("adds a subject (moving the map first), checks its home page, and refuses a stale edit with the subject as it is", async () => {

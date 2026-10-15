@@ -139,6 +139,7 @@ const MESSAGES: Record<string, string> = {
   wrong_run: "That run was for something else. Start again.",
   run_expired: "That run ended after half an hour. Start again to carry on.",
   run_used_up: "That run has taken all its steps. Start again to carry on.",
+  step_done: "That part of the research has already run. Start again to run it again.",
   lookup_disabled: "Looking up identifiers isn't switched on in this environment. You can paste a link instead.",
   lookup_unavailable: "Wikidata didn't answer. Try again, or paste a link instead.",
   // Lifecycle journeys

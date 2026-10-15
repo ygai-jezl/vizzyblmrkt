@@ -6,7 +6,7 @@ import { situationKey } from "./keys";
 import { ensureMoved } from "./move";
 import { decideProposals } from "./proposals";
 import { addQuestion, createSubject } from "./records";
-import { createSituation, editSituation, listSituations, readSituation, removeSituation } from "./situations";
+import { createSituation, editSituation, listSituations, proposeSituation, readSituation, removeSituation } from "./situations";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const NOW = Date.parse("2026-10-15T10:00:00.000Z");
@@ -79,5 +79,24 @@ describe("buying situations", () => {
     expect(await removeSituation(ctx, sid, deps)).toMatchObject({ ok: true, value: { questions: 2 } });
     expect((await brandMapRecords(ctx, db).get("q", q1.ok ? q1.value.id : ""))?.situationIds).toEqual([]);
     expect(await readSituation(ctx, sid, deps)).toBeNull();
+  });
+});
+
+describe("buying situations at the same moment", () => {
+  it("research proposing the same one twice at once makes one; a person adding it twice gets one and a 409", async () => {
+    const db = await setup();
+    const deps = { db, nowMs: NOW, embed: quiet };
+    const text = "Our clicks from Google are falling";
+    const proposed = await Promise.all([
+      proposeSituation(ctx, { text }, { from: "research", reason: "" }, deps),
+      proposeSituation(ctx, { text: "Our clicks from Google are falling!" }, { from: "research", reason: "" }, deps),
+    ]);
+    expect(proposed.filter(Boolean)).toHaveLength(1);
+    expect(await brandMapRecords(ctx, db).find("sit")).toHaveLength(1);
+
+    const added = await Promise.all([createSituation(ctx, { text: "We're launching a product" }, deps), createSituation(ctx, { text: "we're launching a product" }, deps)]);
+    expect(added.filter((r) => r.ok)).toHaveLength(1);
+    expect(added.find((r) => !r.ok)).toMatchObject({ status: 409, error: "situation_exists" });
+    expect(await brandMapRecords(ctx, db).find("sit")).toHaveLength(2);
   });
 });

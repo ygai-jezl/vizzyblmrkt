@@ -52,10 +52,16 @@ export async function loadArticleMap(
   if (!map) return null;
   // At any size, once the map moved: only its identity, names and the subjects close to the article.
   if (scale && map.moved) {
-    return articleMapAtScale(ctx, map, { ask: opts.ask, pages: withPages, planId: opts.planId }, { db: deps.db }).catch(() => projectArticleMap({ ...map, subjects: [] }));
+    // A read that fails knows nothing about the article's links: they are kept, never dropped.
+    return articleMapAtScale(ctx, map, { ask: opts.ask, pages: withPages, planId: opts.planId }, { db: deps.db }).catch((err: unknown) => {
+      console.warn("[brand-map] reading the part of the map close to an article failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+      return { ...projectArticleMap({ ...map, subjects: [] }), atScale: true, partial: true };
+    });
   }
   const read = scale && withPages ? await readPages() : early;
-  const article = projectArticleMap(map);
+  // The switch turned off after the move: the list kept from before it grew. A link to a
+  // question added since is not on it, and is kept (switched back on, it reads again).
+  const article = map.moved ? { ...projectArticleMap(map), partial: true } : projectArticleMap(map);
   const own = opts.planId ? planPageId(opts.planId) : null;
   const rows = (read ?? []).filter((r) => r.id !== own);
   if (!rows.length) return article;
@@ -137,7 +143,8 @@ export async function reconcileWithSavedMap<B extends Pick<BlogBrief, "subjectId
   const map = await loadArticleMap(ctx, deps, { ask: { subjectId: brief.subjectId, primaryRef: brief.primaryRef, situationId: situation } });
   if (map) {
     const next = brief.subjectId === undefined && brief.primaryRef === undefined ? brief : reconcileMapRefs(brief, map, { newArticle: true });
-    if (!situation || map.situation?.id === situation) return next;
+    // Kept while it's on the map, or when this read can't tell (a partial map).
+    if (!situation || map.situation?.id === situation || map.partial) return next;
     const without = { ...next };
     delete without.situationId;
     return without;

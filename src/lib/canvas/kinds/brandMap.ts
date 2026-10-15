@@ -13,7 +13,7 @@ import { startRun, takeStep } from "@/lib/brandMap/runs";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { fileSuggestions } from "@/lib/brandMap/filing";
-import { proposalsWaiting } from "@/lib/brandMap/waiting";
+import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { RESEARCH_LIMIT, runBrandMapResearch, type ResearchDeps } from "@/lib/brandMap/adminApi";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
@@ -129,7 +129,7 @@ export async function authorBrandMapSuggestions(
     const proposals = await proposalsWaiting(ctx, { db: deps.db });
     return outcome({
       filed: r.filed,
-      waiting: (r.map?.suggestions.length ?? r.filed) + proposals,
+      waiting: (r.map ? suggestionsWaiting(r.map).length : r.filed) + proposals,
       summary: r.filed
         ? `Research filed ${plural(r.filed, "suggestion")} for your brand map (${r.summary}). ${UNCHANGED}`
         : `Research found nothing new for your brand map. ${UNCHANGED.replace("them", "what waits")}`,
@@ -186,7 +186,7 @@ export async function authorBrandMapSuggestions(
   const proposals = await proposalsWaiting(ctx, { db: deps.db });
   return outcome({
     filed: said.length,
-    waiting: (after?.state === "ok" ? after.map.suggestions.length : said.length) + proposals,
+    waiting: (after?.state === "ok" ? suggestionsWaiting(after.map).length : said.length) + proposals,
     summary:
       (said.length
         ? `Filed ${plural(said.length, "suggestion")} for your brand map: ${said.slice(0, 5).join("; ")}${said.length > 5 ? `; and ${said.length - 5} more` : ""}.`
@@ -208,7 +208,7 @@ async function researchSituations(
     // One research allowance for the run, then its step.
     const run = await startRun(ctx, "situations", { db: deps.db, nowMs: deps.nowMs });
     if (!run.ok) return run;
-    const step = await takeStep(ctx, run.value.id, "situations", { db: deps.db, nowMs: deps.nowMs });
+    const step = await takeStep(ctx, run.value.id, "situations", { db: deps.db, nowMs: deps.nowMs }, { once: "find" });
     if (!step.ok) return step;
     const r = await findSituations(ctx, { customers: input.customers, timeoutMs: RESEARCH_MS }, { db: deps.db, nowMs: deps.nowMs, ...deps.find });
     if (!r.ok) return r;

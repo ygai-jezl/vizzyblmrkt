@@ -172,6 +172,8 @@ export const BrandMapQuestionRecordSchema = z.object({
    * guide"), from the brand's own research: leads for an article written for it.
    */
   leads: z.array(OptionalLine(80)).max(8).catch([]).default([]),
+  /** Merged away (the subject it was on went into another that asks it too): links lead here. */
+  mergedInto: QuestionId.nullable().catch(null).default(null),
 });
 export type BrandMapQuestionRecord = z.infer<typeof BrandMapQuestionRecordSchema>;
 
@@ -238,6 +240,8 @@ export const BrandMapRunSchema = z.object({
   startedBy: z.string().max(254).nullable().default(null),
   expiresAt: z.string().max(40),
   stepsLeft: z.number().int().min(0),
+  /** Steps that run once per run, once taken (finding the buying situations: "find"). */
+  done: z.array(z.string().max(40)).max(20).catch([]).default([]),
 });
 export type BrandMapRun = z.infer<typeof BrandMapRunSchema>;
 

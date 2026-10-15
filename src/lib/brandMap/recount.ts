@@ -130,7 +130,16 @@ export async function recountSubject(ctx: TenantContext, subjectId: string, deps
   if (!read) return null;
   const { counts, answeredIds, draftedIds, plannedIds } = countsOf(read.coverage);
   const share = shareOf(counts.answered, counts.questions);
-  if (!sameCounts(read.subject.counts, counts) || read.subject.answeredShare !== share) {
+  // The lists too: one question answered in place of another leaves the counts the same.
+  const sameIds = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
+  const s = read.subject;
+  if (
+    !sameCounts(s.counts, counts) ||
+    s.answeredShare !== share ||
+    !sameIds(s.answeredIds, answeredIds) ||
+    !sameIds(s.draftedIds, draftedIds) ||
+    !sameIds(s.plannedIds, plannedIds)
+  ) {
     await brandMapRecords(ctx, deps.db).claim("sub", read.subject.id, () => ({ counts, answeredShare: share, answeredIds, draftedIds, plannedIds }));
     if (opts.group !== false) await recountGroup(ctx, read.subject.groupId, deps);
   }

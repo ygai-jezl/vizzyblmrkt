@@ -230,15 +230,17 @@ export async function subjectsOnMap(
   deps: { db?: FirestoreLike; embed?: Omit<EmbedDeps, "db"> } = {},
 ): Promise<{ total: number; known: string[] }> {
   const store = brandMapRecords(ctx, deps.db);
-  const total = await store.count("sub", [["status", "in", ["decided", "proposed"]]]).catch(() => 0);
-  if (total <= KNOWN_ALL) {
+  // A count that fails is read as a big map: the prompt never lists every subject of one.
+  const total = await store.count("sub", [["status", "in", ["decided", "proposed"]]]).catch(() => null);
+  if (total !== null && total <= KNOWN_ALL) {
     const all = await subjectIndex(ctx, { db: deps.db }).catch(() => []);
-    return { total: all.length, known: all.map((s) => s.name) };
+    return { total: all.length, known: all.slice(0, KNOWN_ALL).map((s) => s.name) };
   }
   const text = [identity.statement, identity.category, identity.name].filter(Boolean).join(". ");
   const near = await nearestSubjects(ctx, text, { limit: KNOWN_NEAREST, statuses: ["decided", "proposed"] }, { db: deps.db, ...deps.embed }).catch(() => []);
   const found = await store.getMany("sub", near.map((n) => n.ref)).catch(() => []);
-  return { total, known: found.flatMap((r) => (typeof r.name === "string" ? [r.name] : [])) };
+  const known = found.flatMap((r) => (typeof r.name === "string" ? [r.name] : []));
+  return { total: total ?? known.length, known };
 }
 
 /** The subjects on the map, for the prompt: "- name" each, and how many more there are. */

@@ -94,19 +94,27 @@ export async function articleMapAtScale(
   // Its buying situation is read alongside its subjects, within the same budget.
   const situated = situationsFor(ctx, ask, deps).catch(() => ({}));
 
-  // The article's own subject, and its main question's, by id.
+  // The article's own subject, and its main question's, by id — following a merge, so the
+  // article's link follows too (`aliases`).
   const own: BrandMapSubjectRecord[] = [];
+  const aliases: Record<string, string> = {};
   if (ask.subjectId) {
     const s = await getSubject(ctx, ask.subjectId, deps);
-    if (onMap(s)) own.push(s);
+    if (onMap(s)) {
+      own.push(s);
+      if (s.id !== ask.subjectId) aliases[ask.subjectId] = s.id;
+    }
   }
   if (ask.primaryRef) {
-    const q = parseQuestion(await store.get("q", ask.primaryRef));
+    let q = parseQuestion(await store.get("q", ask.primaryRef));
+    for (let hop = 0; hop < 3 && q?.mergedInto; hop += 1) q = parseQuestion(await store.get("q", q.mergedInto));
     if (q?.status === "decided") {
+      if (q.id !== ask.primaryRef) aliases[ask.primaryRef] = q.id;
       const s = await getSubject(ctx, q.subjectId, deps);
       if (onMap(s) && !own.some((x) => x.id === s.id)) own.push(s);
     }
   }
+  if (Object.keys(aliases).length) article.aliases = aliases;
   // With none chosen, the subjects nearest the article, for research to pick from.
   let near: BrandMapSubjectRecord[] = [];
   if (ask.subjectId === undefined && ask.text?.trim()) {

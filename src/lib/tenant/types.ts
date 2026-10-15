@@ -75,6 +75,8 @@ export interface QueryLike {
   limit(n: number): QueryLike;
   /** Cursor pagination: values aligned to the active orderBy() fields. */
   startAfter(...values: unknown[]): QueryLike;
+  /** Read only these fields of each document (a projection). Optional: not every fake has it. */
+  select?(...fields: string[]): QueryLike;
   get(): Promise<QuerySnapLike>;
   count(): AggregateQueryLike;
 }

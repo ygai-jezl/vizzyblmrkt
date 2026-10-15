@@ -1,6 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateGroundedText, isGeminiConfigured } from "@/lib/agents/gemini";
-import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
+import { retrieveSemanticKnowledgeContext, type KnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
@@ -13,8 +13,11 @@ import { blogResearchThinkingBudget } from "@/lib/content/blog/flags";
 import { isLinkablePage, linkIntent, type KnownPage } from "@/lib/content/blog/links";
 import { BlogIntent } from "@/lib/types/contentPlan";
 import { BRAND_MAP_LIMITS, BrandMapChangeSchema, BrandMapNameKind, type BrandMapChange, type BrandMapDecided } from "@/lib/types/brandMap";
+import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { findName, findSubject, fold } from "./changes";
+import { nearestSubjects, type EmbedDeps } from "./embed";
 import { profileLinksFromHtml } from "./profileLinks";
+import { subjectIndex } from "./records";
 import type { SuggestionInput } from "./store";
 
 /**
@@ -40,8 +43,16 @@ const MAX_KNOWLEDGE_CHARS = 9_000;
 const MAX_SITE_TEXT = 6_000;
 const MAX_EXISTING = 40;
 const LIMIT = { subjects: 5, questions: 6, alternatives: 8, products: 8, names: 30, isNot: 3, avoid: 3 } as const;
+/**
+ * The map at any size: what ONE run files, a batch for cost, never advice about how many a
+ * brand should have (the prompt sets no number: every subject its material backs and buyers ask).
+ */
+const SCALE_BATCH = { subjects: 40, questions: 6 } as const;
 /** HOME lines read from one answer. */
 const MAX_HOMES = 40;
+/** The subjects on a map at any size that research is shown: every one on a small map, else the nearest. */
+const KNOWN_ALL = 150;
+const KNOWN_NEAREST = 60;
 
 export interface MapProposal {
   is: string;
@@ -112,10 +123,15 @@ export interface ProposalContext {
   profiles: string[];
   brandName: string;
   site: string;
+  /** The map at any size: subjects are proposals on the records (in batches), and these are on it already. */
+  scale?: { known: string[] };
 }
+
+const aboutSubjects = (c: BrandMapChange) => c.type === "add_subject" || c.type === "add_question" || (c.type === "set_home" && c.target === "subject");
 
 /** Turn what research found into suggestions, keeping only what code can stand behind. */
 export function checkProposal(p: MapProposal, ctx: ProposalContext): SuggestionInput[] {
+  const cap = ctx.scale ? SCALE_BATCH : LIMIT;
   const items: SuggestionInput[] = [];
   const add = (change: unknown, extra: Omit<SuggestionInput, "change"> = {}) => {
     const parsed = BrandMapChangeSchema.safeParse(change);
@@ -132,11 +148,11 @@ export function checkProposal(p: MapProposal, ctx: ProposalContext): SuggestionI
   // Subjects and their questions, a subject before its questions.
   let subjects = 0;
   for (const s of p.subjects) {
-    if (subjects >= LIMIT.subjects) break;
+    if (subjects >= cap.subjects) break;
     subjects += 1;
     add({ type: "add_subject", name: s.name }, { reason: "A subject buyers ask about", evidence: "search" });
     let compares = 0;
-    for (const q of s.questions.slice(0, LIMIT.questions)) {
+    for (const q of s.questions.slice(0, cap.questions)) {
       if (q.intent === "comparison" || q.intent === "alternatives") {
         if (compares >= 2) continue;
         compares += 1;
@@ -174,7 +190,11 @@ export function checkProposal(p: MapProposal, ctx: ProposalContext): SuggestionI
   }
 
   // Homes, by page number only, for a subject or one of the brand's own names.
-  const subjectNames = new Set([...p.subjects.slice(0, LIMIT.subjects).map((s) => fold(s.name)), ...ctx.current.subjects.map((s) => fold(s.name))]);
+  const subjectNames = new Set([
+    ...p.subjects.slice(0, cap.subjects).map((s) => fold(s.name)),
+    ...ctx.current.subjects.map((s) => fold(s.name)),
+    ...(ctx.scale?.known ?? []).map(fold),
+  ]);
   for (const h of p.homes.slice(0, MAX_HOMES)) {
     const page = ctx.pages[h.n - 1];
     if (!page) continue;
@@ -192,8 +212,42 @@ export function checkProposal(p: MapProposal, ctx: ProposalContext): SuggestionI
 
   for (const url of ctx.profiles) add({ type: "add_profile", url, source: "site" }, { reason: "Linked from your home page", evidence: "site" });
   // Research keeps at most this many rows: past it, the store would drop the first (the brand's
-  // name, category and statement), so the last are left out instead.
+  // name, category and statement), so the last are left out instead. At any size, subjects are
+  // proposals on their own records, not rows on the brand's: only the rest count.
+  if (ctx.scale) {
+    return [...items.filter((i) => aboutSubjects(i.change)), ...items.filter((i) => !aboutSubjects(i.change)).slice(0, BRAND_MAP_LIMITS.suggestions.research)];
+  }
   return items.slice(0, BRAND_MAP_LIMITS.suggestions.research);
+}
+
+/**
+ * The subjects already on a map at any size, for research's prompt: every one on a small
+ * map; on a big one, the nearest in meaning to what the brand is (with how many in all).
+ */
+export async function subjectsOnMap(
+  ctx: TenantContext,
+  identity: { name: string; category: string; statement: string },
+  deps: { db?: FirestoreLike; embed?: Omit<EmbedDeps, "db"> } = {},
+): Promise<{ total: number; known: string[] }> {
+  const store = brandMapRecords(ctx, deps.db);
+  // A count that fails is read as a big map: the prompt never lists every subject of one.
+  const total = await store.count("sub", [["status", "in", ["decided", "proposed"]]]).catch(() => null);
+  if (total !== null && total <= KNOWN_ALL) {
+    const all = await subjectIndex(ctx, { db: deps.db }).catch(() => []);
+    return { total: all.length, known: all.slice(0, KNOWN_ALL).map((s) => s.name) };
+  }
+  const text = [identity.statement, identity.category, identity.name].filter(Boolean).join(". ");
+  const near = await nearestSubjects(ctx, text, { limit: KNOWN_NEAREST, statuses: ["decided", "proposed"] }, { db: deps.db, ...deps.embed }).catch(() => []);
+  const found = await store.getMany("sub", near.map((n) => n.ref)).catch(() => []);
+  const known = found.flatMap((r) => (typeof r.name === "string" ? [r.name] : []));
+  return { total: total ?? known.length, known };
+}
+
+/** The subjects on the map, for the prompt: "- name" each, and how many more there are. */
+function knownSubjects(on: { total: number; known: string[] }): string {
+  if (!on.known.length) return on.total ? `(${on.total} subjects, none listed)` : "(none yet)";
+  const more = on.total - on.known.length;
+  return [...on.known.map((n) => `- ${oneLine(n)}`), ...(more > 0 ? [`(and ${more} more, further from what the brand is)`] : [])].join("\n");
 }
 
 /** The current map, one line each, for the prompt. */
@@ -255,23 +309,45 @@ export type ProposeResult =
   | { ok: true; items: SuggestionInput[]; notes: string[] }
   | { ok: false; status: number; error: string };
 
-export async function proposeBrandMap(
-  ctx: TenantContext,
-  args: { current: BrandMapDecided; timeoutMs?: number },
-  deps: ProposeDeps = {},
-): Promise<ProposeResult> {
-  if (!(deps.modelReady ?? isGeminiConfigured)()) return { ok: false, status: 503, error: "no_model" };
-  const clock = deps.now ?? (() => new Date());
-  const started = clock().getTime();
-  const deadline = started + (args.timeoutMs ?? 60_000);
-  const notes: string[] = [];
+/** What research reads of the brand's own, before it searches. */
+export interface BrandMaterial {
+  tenant: Awaited<ReturnType<typeof getTenantById>> | null;
+  brandName: string;
+  domains: string[];
+  /** The brand's own sites, as `siteOf` gives them. */
+  own: Set<string>;
+  /** The account's domain, bare. */
+  root: string;
+  site: string;
+  /** Its own pages, the ones that convert or describe the product first. */
+  pages: KnownPage[];
+  knowledge: Array<KnowledgeContext | null>;
+  knowledgeText: string;
+  siteText: string;
+  home: Homepage | null;
+  /** Names a person typed on articles' briefs. */
+  typedNames: string[];
+  /** The names and questions its articles use, a line each ("NAME: …", "Q: …"). */
+  existing: string[];
+}
 
+/**
+ * Read what the brand says about itself: its account, its programmes' crawled pages, its
+ * knowledge (passages near `question`), its articles' briefs and its home page, each read
+ * within a few seconds or left out.
+ */
+export async function gatherBrandMaterial(
+  ctx: TenantContext,
+  identity: { name: string; site: string },
+  question: (brandName: string) => string,
+  deps: ProposeDeps = {},
+): Promise<BrandMaterial> {
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
-  const brandName = oneLine(args.current.identity.name || tenant?.tenantName || "");
+  const brandName = oneLine(identity.name || tenant?.tenantName || "");
   const domains = tenantDomains(tenant);
-  const own = sitesOf([args.current.identity.site, ...domains]);
+  const own = sitesOf([identity.site, ...domains]);
   const root = (tenant?.rootDomain ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-  const site = args.current.identity.site || (root ? `https://${root}` : "");
+  const site = identity.site || (root ? `https://${root}` : "");
 
   const listWorkspaces = deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: 200 }));
   const workspaces = (await listWorkspaces(ctx).catch(() => []))
@@ -280,43 +356,77 @@ export async function proposeBrandMap(
     .slice(0, MAX_WORKSPACES);
 
   const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
-  const question = `What is ${brandName || "this brand"}, what does it do, who is it for, and what category is it in?`;
+  const queryText = question(brandName);
   const [pageLists, knowledge, planLists, home] = await Promise.all([
     Promise.all(workspaces.map((w) => soft((deps.sitePages ?? indexedSitePages)(ctx, w.id), 8_000, { pages: [], repoPaths: [] }))),
     Promise.all(
       workspaces.slice(0, MAX_KNOWLEDGE_WORKSPACES).map((w) =>
-        soft(retrieve({ ctx, ownerKind: "workspace", ownerId: w.id, queryText: question, limit: 6, bypassEnabledFlag: true }), 8_000, null),
+        soft(retrieve({ ctx, ownerKind: "workspace", ownerId: w.id, queryText, limit: 6, bypassEnabledFlag: true }), 8_000, null),
       ),
     ),
     Promise.all(workspaces.map((w) => soft((deps.plans ?? listContentPlans)(ctx, w.id, 30), 8_000, []))),
     root ? soft((deps.fetchHome ?? ((d: string) => fetchHomepage(d, { userAgent: UA, maxTextChars: MAX_SITE_TEXT })))(root), 8_000, null) : Promise.resolve(null),
   ]);
 
-  const pages = rankPages(pageLists.flatMap((l) => l.pages), own);
-  const knowledgeText = knowledge
-    .map((k) => k?.formatted ?? "")
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0, MAX_KNOWLEDGE_CHARS);
-  const siteText = stripFenceDelimiters(home?.text ?? "").slice(0, MAX_SITE_TEXT);
+  const briefs = planLists.flat().flatMap((p) => (p.blog ? [p.blog] : []));
+  return {
+    tenant,
+    brandName,
+    domains,
+    own,
+    root,
+    site,
+    pages: rankPages(pageLists.flatMap((l) => l.pages), own),
+    knowledge,
+    knowledgeText: knowledge
+      .map((k) => k?.formatted ?? "")
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, MAX_KNOWLEDGE_CHARS),
+    siteText: stripFenceDelimiters(home?.text ?? "").slice(0, MAX_SITE_TEXT),
+    home,
+    typedNames: briefs.flatMap((b) => b.entities.filter((e) => e.by === "operator").map((e) => e.name)),
+    existing: [
+      ...new Set([
+        ...briefs.flatMap((b) => b.entities.map((e) => `NAME: ${oneLine(e.name)} (${e.relation})`)),
+        ...briefs.flatMap((b) => [b.primaryQuestion, ...b.questions.map((q) => q.question)].filter(Boolean).map((q) => `Q: ${oneLine(q)}`)),
+      ]),
+    ].slice(0, MAX_EXISTING * 2),
+  };
+}
+
+export async function proposeBrandMap(
+  ctx: TenantContext,
+  args: {
+    current: BrandMapDecided;
+    timeoutMs?: number;
+    /** The map at any size: the subjects on it (the list in `current` is left empty), and no set number to propose. */
+    scale?: { total: number; known: string[] };
+  },
+  deps: ProposeDeps = {},
+): Promise<ProposeResult> {
+  if (!(deps.modelReady ?? isGeminiConfigured)()) return { ok: false, status: 503, error: "no_model" };
+  const clock = deps.now ?? (() => new Date());
+  const started = clock().getTime();
+  const deadline = started + (args.timeoutMs ?? 60_000);
+  const notes: string[] = [];
+
+  const { tenant, brandName, domains, root, site, pages, knowledgeText, siteText, home, typedNames, existing } = await gatherBrandMaterial(
+    ctx,
+    args.current.identity,
+    (name) => `What is ${name || "this brand"}, what does it do, who is it for, and what category is it in?`,
+    deps,
+  );
   if (!knowledgeText && !siteText) return { ok: false, status: 409, error: "nothing_to_read" };
   if (!root) notes.push("Your account has no website domain, so no home pages or profile links were found. Set it in Settings.");
   if (!pages.length) notes.push("None of your programmes has crawled your site yet, so no subject or name has a home page.");
 
-  const briefs = planLists.flat().flatMap((p) => (p.blog ? [p.blog] : []));
-  const typedNames = briefs.flatMap((b) => b.entities.filter((e) => e.by === "operator").map((e) => e.name));
-  const existing = [
-    ...new Set([
-      ...briefs.flatMap((b) => b.entities.map((e) => `NAME: ${oneLine(e.name)} (${e.relation})`)),
-      ...briefs.flatMap((b) => [b.primaryQuestion, ...b.questions.map((q) => q.question)].filter(Boolean).map((q) => `Q: ${oneLine(q)}`)),
-    ]),
-  ].slice(0, MAX_EXISTING * 2);
-
-  const prompt = renderPrompt("brand.map_research", {
+  const prompt = renderPrompt(args.scale ? "brand.map_research_scale" : "brand.map_research", {
     brand_name: brandName.replace(/["\n]/g, " ").slice(0, 120) || "(not named)",
     site: site || "(no website set)",
     today: clock().toISOString().slice(0, 10),
     current_map: fence("current_map", describeMap(args.current)),
+    ...(args.scale ? { subjects_known: fence("subjects_on_map", knownSubjects(args.scale)) } : {}),
     own_pages: fence("own_pages", pages.map((p, i) => `${i + 1}. ${p.title || "(untitled)"} — ${new URL(p.url).pathname}`).join("\n") || "(none)"),
     knowledge_context: fence("brand_material", knowledgeText),
     site_text: fence("brand_material", siteText),
@@ -332,7 +442,7 @@ export async function proposeBrandMap(
 
   const firstParty = fold([knowledgeText, siteText, ...pages.map((p) => p.title), ...typedNames].join("\n"));
   const profiles = home ? profileLinksFromHtml(home.html, home.baseUrl, [...domains, site]) : [];
-  const items = checkProposal(proposal, { current: args.current, firstParty, pages, profiles, brandName, site });
+  const items = checkProposal(proposal, { current: args.current, firstParty, pages, profiles, brandName, site, ...(args.scale ? { scale: { known: args.scale.known } } : {}) });
   return { ok: true, items, notes: notes.slice(0, 5) };
 }
 

@@ -11,6 +11,12 @@ subjects it wants to be known for with the questions people ask. Vizzy only ever
 SUGGESTIONS through the canvas endpoint: nothing in the map changes until an admin
 accepts one on Brand › Brand map, and Vizzy never adds a link (profile links and home
 pages are a person's to add on the page).
+
+A map at any size (`atAnySize` in what the read returns) is read a part at a time: a
+summary, the subjects near some words (`find`), one subject (`subject`), or what an import
+of the brand's own research added (`import`). With buying situations on, Vizzy can also
+propose situations (the moments that send people looking), link the questions it proposes
+to one, and research the situations people are in or what people in one ask.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 READ_PATH = "/api/agent/brand-map"
@@ -58,6 +65,12 @@ _ERRORS = {
     "research_failed": "Research didn't finish this time. Please try again in a minute.",
     "map_unreadable": "The saved brand map can't be read. An admin needs to look at it on Brand › Brand map.",
     "map_too_large": "The brand map is full. An admin needs to dismiss some suggestions on Brand › Brand map first.",
+    "situations_disabled": "Buying situations aren't switched on in this environment yet.",
+    "import_disabled": "Research from a PDF isn't switched on in this environment yet.",
+    "no_subject": "That subject isn't on the brand map any more.",
+    "no_situation": "That buying situation isn't on the brand map any more.",
+    "no_import": "No research has been uploaded yet. It's uploaded as a PDF on Brand › Brand map › Your research.",
+    "too_many_situations": "The brand map holds as many buying situations as it can.",
     "network_error": "I couldn't reach the app just now. Please try again.",
 }
 # Whole on their own: the app's issues only say the same thing again.
@@ -65,6 +78,10 @@ _NO_DETAIL = {"links_not_allowed"}
 
 _KINDS = {"product", "alternative", "integration", "audience", "use_case"}
 _MAX_CHANGES = 20  # what the app takes in one call
+_MAX_SITUATIONS = 10  # likewise, buying situations proposed in one call
+# "add" files suggestions; the rest run research (about a minute each).
+_MODES = {"add", "research", "situations", "situation_questions"}
+_RESEARCHING = {"research", "situations", "situation_questions"}
 
 
 def _request(method: str, url: str, token: str, payload: "dict | None" = None, timeout: int = _TIMEOUT_SECONDS) -> "tuple[int, str]":
@@ -169,16 +186,50 @@ def build_changes(
     return changes, unread
 
 
-def build_suggest_payload(mode: str, brief: str, changes: "list | None" = None) -> dict:
-    """The canvas request: the changes to file as suggestions, or research."""
+def build_situations(lines: "list | None" = None) -> "tuple[list, list]":
+    """Buying situations to propose, from "Situation in the buyer's words | who | what they want" lines."""
+    situations: list = []
+    unread: list = []
+    for line in lines or []:
+        p = _parts(str(line))
+        if p and p[0]:
+            situations.append({"text": p[0], **({"who": p[1]} if len(p) > 1 and p[1] else {}), **({"want": p[2]} if len(p) > 2 and p[2] else {})})
+        elif str(line).strip():
+            unread.append(f'situation "{line}": write it as "Situation in the buyer\'s words | who | what they want"')
+    return situations, unread
+
+
+def _mode(mode: str) -> str:
+    m = (mode or "").strip().lower()
+    return m if m in _MODES else "add"
+
+
+def build_suggest_payload(
+    mode: str,
+    brief: str,
+    changes: "list | None" = None,
+    situations: "list | None" = None,
+    situation_id: str = "",
+    customers: str = "",
+) -> dict:
+    """The canvas request: the changes (and buying situations) to file as suggestions, or research."""
     payload: dict = {
         "kind": "brand_map",
         "action": "save_draft",
-        "mode": "research" if (mode or "").strip().lower() == "research" else "add",
+        "mode": _mode(mode),
         "brief": (brief or "")[:_BRIEF_MAX],
     }
+    situation = (situation_id or "").strip()
     if payload["mode"] == "add":
         payload["changes"] = list(changes or [])[:_MAX_CHANGES]
+        if situations:
+            payload["situations"] = list(situations)[:_MAX_SITUATIONS]
+        if situation:
+            payload["situationId"] = situation
+    elif payload["mode"] == "situations" and (customers or "").strip():
+        payload["customers"] = customers.strip()[:300]
+    elif payload["mode"] == "situation_questions" and situation:
+        payload["situationId"] = situation
     return payload
 
 
@@ -197,13 +248,19 @@ def parse_suggest_response(status_code: int, body_text: str) -> dict:
     return error_result(status_code, body)
 
 
-def get_map(state: "dict | None") -> dict:
+def read_path(find: str = "", subject_id: str = "", import_id: str = "") -> str:
+    """The read route, asking for one part of a map at any size when given."""
+    query = {k: v.strip() for k, v in (("find", find or ""), ("subject", subject_id or ""), ("import", import_id or "")) if v and v.strip()}
+    return READ_PATH + (("?" + urllib.parse.urlencode(query)) if query else "")
+
+
+def get_map(state: "dict | None", find: str = "", subject_id: str = "", import_id: str = "") -> dict:
     """Read the brand map: what is decided, what waits, and what is answered. Never raises."""
     got = _base_and_token(state)
     if isinstance(got, dict):
         return got
     base, token = got
-    status_code, body_text = _request("GET", base + READ_PATH, token)
+    status_code, body_text = _request("GET", base + read_path(find, subject_id, import_id), token)
     body = _json(body_text)
     if 200 <= status_code < 300:
         return {"status": "success", **body}
@@ -223,14 +280,28 @@ def suggest(
     questions: "list | None" = None,
     names: "list | None" = None,
     aliases: "list | None" = None,
+    situations: "list | None" = None,
+    situation_id: str = "",
+    customers: str = "",
 ) -> dict:
     """File brand map SUGGESTIONS for an admin to accept, or research the map. Never raises."""
-    research = (mode or "").strip().lower() == "research"
+    m = _mode(mode)
+    research = m in _RESEARCHING
     changes, unread = ([], []) if research else build_changes(brand_name, category, statement, is_not, avoid, subjects, questions, names, aliases)
+    proposed, unread_situations = ([], []) if research else build_situations(situations)
+    unread = unread + unread_situations
+    if m == "situation_questions" and not (situation_id or "").strip():
+        return {"status": "error", "code": "no_situation_id", "message": "Say which buying situation to research: its id, from get_brand_map."}
     if not research and unread:
         return {"status": "error", "code": "unread", "issues": unread, "message": "Some of what you asked couldn't be read: " + "; ".join(unread)}
-    if not research and not changes:
+    if not research and not changes and not proposed:
         return {"status": "error", "code": "nothing_to_suggest", "message": "There was nothing to suggest. Say what to add, or ask me to research the map."}
+    if len(proposed) > _MAX_SITUATIONS:
+        return {
+            "status": "error",
+            "code": "too_many",
+            "message": f"That's {len(proposed)} buying situations; I can suggest up to {_MAX_SITUATIONS} at once. Send them in parts.",
+        }
     if not research and len(changes) > _MAX_CHANGES:
         # Never cut short in silence: the operator hears how many, and nothing is filed.
         return {
@@ -242,6 +313,6 @@ def suggest(
     if isinstance(got, dict):
         return got
     base, token = got
-    payload = build_suggest_payload(mode, brief, changes)
+    payload = build_suggest_payload(m, brief, changes, proposed, situation_id, customers)
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload, _RESEARCH_TIMEOUT_SECONDS if research else _TIMEOUT_SECONDS)
     return parse_suggest_response(status_code, body_text)

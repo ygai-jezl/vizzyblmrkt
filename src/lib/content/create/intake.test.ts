@@ -43,6 +43,17 @@ describe("content plan intake", () => {
     afterEach(() => vi.unstubAllEnvs());
     const blogHub = (blog: Record<string, unknown>) => intake({ topology: { hubChannel: "blog", spokeChannels: [] }, blog });
 
+    it("starts the brief for the buying situation chosen, or none, only while situations are on", () => {
+      vi.stubEnv("BRAND_MAP_ENABLED", "true");
+      vi.stubEnv("CREATE_BLOG_BRAND_MAP_ENABLED", "true");
+      expect(planFromIntake(blogHub({ primaryQuestion: "Why?", situationId: "sit_aaaaaaaa" })).blog).not.toHaveProperty("situationId");
+      vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+      vi.stubEnv("BRAND_MAP_SITUATIONS_ENABLED", "true");
+      expect(planFromIntake(blogHub({ primaryQuestion: "Why?", situationId: "sit_aaaaaaaa" })).blog).toMatchObject({ situationId: "sit_aaaaaaaa" });
+      expect(planFromIntake(blogHub({ situationId: null })).blog).toMatchObject({ situationId: null });
+      expect(IntakeSchema.safeParse({ ...intake(), blog: { situationId: "sub_aaaaaaaa" } }).success).toBe(false);
+    });
+
     it("starts the brief on the subject and question chosen, or on none", () => {
       vi.stubEnv("BRAND_MAP_ENABLED", "true");
       vi.stubEnv("CREATE_BLOG_BRAND_MAP_ENABLED", "true");

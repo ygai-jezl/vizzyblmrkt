@@ -6,7 +6,7 @@ import { CreatePanel } from "@/components/admin/workspace/create/CreatePanel";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { loadArticleMap } from "@/lib/content/blog/mapActions";
 import { writeNextFrom } from "@/lib/content/blog/articleMap";
-import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapPagesEnabled, isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +16,13 @@ export default async function CreatePage({
   searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
-  /** `?question=q_…`: "Write this next" from the brand map. */
-  searchParams: Promise<{ question?: string | string[] }>;
+  /** `?question=q_…`: "Write this next" from the brand map (`&situation=sit_…`: from a buying situation). */
+  searchParams: Promise<{ question?: string | string[]; situation?: string | string[] }>;
 }) {
   const ctx = await requireAdminContext();
   const { workspaceId } = await params;
-  const { question } = await searchParams;
+  const { question, situation } = await searchParams;
+  const situations = isBrandMapSituationsEnabled();
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
 
@@ -35,7 +36,14 @@ export default async function CreatePage({
       limit: 200,
     }),
     // The brand map's subjects, so a new article can be for one (null with its switch off or none saved).
-    isBlogBrandMapEnabled() ? loadArticleMap(ctx).catch(() => null) : null,
+    // At any size, "Write this next"'s question is read by id (with its subject).
+    isBlogBrandMapEnabled()
+      ? loadArticleMap(
+          ctx,
+          {},
+          typeof question === "string" ? { ask: { primaryRef: question, ...(situations && typeof situation === "string" ? { situationId: situation } : { situationId: null }) } } : {},
+        ).catch(() => null)
+      : null,
   ]);
   sources.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   // "Write this next": the wizard starts from the map question, while it is still on the map.
@@ -48,7 +56,10 @@ export default async function CreatePage({
       topics={ws.topics ?? []}
       initialSources={sources}
       subjects={(map?.subjects ?? []).map((s) => ({ id: s.id, name: s.name, questions: s.questions.map((q) => ({ id: q.id, text: q.text })) }))}
+      subjectSearch={Boolean(map?.atScale)}
       prefill={prefill}
+      situations={situations && Boolean(map?.atScale)}
+      prefillSituation={prefill && map?.situation ? { id: map.situation.id, text: map.situation.text } : null}
     />
   );
 }

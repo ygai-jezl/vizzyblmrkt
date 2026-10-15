@@ -322,6 +322,9 @@ export const BlogBriefSchema = z.object({
   subjectId: z.string().max(64).nullable().optional(),
   /** The brand map question the article's main question is (its id), when it is one. */
   primaryRef: z.string().max(64).optional(),
+  /** The buying situation the article is written for (BRAND_MAP_SITUATIONS_ENABLED): absent =
+   *  not looked at yet (research may pick one), null = a person said none, an id = chosen. */
+  situationId: z.string().max(64).nullable().optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 

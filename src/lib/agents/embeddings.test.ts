@@ -6,6 +6,7 @@ import {
   isEmbeddingsConfigured,
   parsePredictResponse,
   embedQuery,
+  embedDocuments,
 } from "./embeddings";
 
 // Make the ADC client deterministic for the network-path test.
@@ -121,5 +122,29 @@ describe("embedQuery", () => {
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" }));
     expect(await embedQuery("q", "us")).toBeNull();
+  });
+});
+
+describe("embedDocuments", () => {
+  it("embeds several documents in one request, one vector per input and null for an empty one", async () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ predictions: [{ embeddings: { values: [1, 0] } }, { embeddings: { values: [0, 1] } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await embedDocuments([{ content: "Share of voice" }, { content: "  " }, { content: "Citations", title: "Subject" }], "us");
+    expect(out).toEqual([[1, 0], null, [0, 1]]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.instances.map((i: { task_type: string }) => i.task_type)).toEqual(["RETRIEVAL_DOCUMENT", "RETRIEVAL_DOCUMENT"]);
+  });
+
+  it("gives every slot null when unconfigured or when the API errors (never throws)", async () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "");
+    expect(await embedDocuments([{ content: "a" }], "us")).toEqual([null]);
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" }));
+    expect(await embedDocuments([{ content: "a" }, { content: "b" }], "us")).toEqual([null, null]);
   });
 });

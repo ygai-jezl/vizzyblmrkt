@@ -2,7 +2,8 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BlogBrief, BlogEntity, ContentPlan } from "@/lib/types/contentPlan";
 import { BrandMapChangeSchema, type BrandMap } from "@/lib/types/brandMap";
 import { decidedBrandMap, fileBrandMapSuggestions, type SuggestionInput } from "@/lib/brandMap/store";
-import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapPagesEnabled, isBrandMapScaleEnabled, isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
+import { articleMapAtScale, type ArticleAsk } from "@/lib/brandMap/articleScale";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { planPageId, type BrandMapPage } from "@/lib/types/brandMapPage";
 import { projectArticleMap, reconcileMapRefs, type ArticleMap } from "./articleMap";
@@ -31,17 +32,36 @@ export interface MapDeps {
 export async function loadArticleMap(
   ctx: TenantContext,
   deps: MapDeps = {},
-  opts: { pages?: boolean; /** The article asking: its own row never answers its own questions. */ planId?: string } = {},
+  opts: {
+    pages?: boolean;
+    /** The article asking: its own row never answers its own questions. */
+    planId?: string;
+    /** With the map at any size: what the article is, so only the part of the map close to it is read. */
+    ask?: ArticleAsk;
+  } = {},
 ): Promise<ArticleMap | null> {
   if (!isBlogBrandMapEnabled()) return null;
   const withPages = Boolean(opts.pages) && isBrandMapPagesEnabled();
-  const [map, read] = await Promise.all([
+  const scale = isBrandMapScaleEnabled();
+  const readPages = () => softly("reading the brand's pages", () => (deps.listPages ?? listBrandMapPages)(ctx, deps.db), PAGES_MS);
+  const [map, early] = await Promise.all([
     (deps.loadMap ?? decidedBrandMap)(ctx, deps.db).catch(() => null),
     // A slow read of the pages never holds research up: without them, nothing is answered.
-    withPages ? softly("reading the brand's pages", () => (deps.listPages ?? listBrandMapPages)(ctx, deps.db), PAGES_MS) : Promise.resolve(null),
+    withPages && !scale ? readPages() : Promise.resolve(null),
   ]);
   if (!map) return null;
-  const article = projectArticleMap(map);
+  // At any size, once the map moved: only its identity, names and the subjects close to the article.
+  if (scale && map.moved) {
+    // A read that fails knows nothing about the article's links: they are kept, never dropped.
+    return articleMapAtScale(ctx, map, { ask: opts.ask, pages: withPages, planId: opts.planId }, { db: deps.db }).catch((err: unknown) => {
+      console.warn("[brand-map] reading the part of the map close to an article failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+      return { ...projectArticleMap({ ...map, subjects: [] }), atScale: true, partial: true };
+    });
+  }
+  const read = scale && withPages ? await readPages() : early;
+  // The switch turned off after the move: the list kept from before it grew. A link to a
+  // question added since is not on it, and is kept (switched back on, it reads again).
+  const article = map.moved ? { ...projectArticleMap(map), partial: true } : projectArticleMap(map);
   const own = opts.planId ? planPageId(opts.planId) : null;
   const rows = (read ?? []).filter((r) => r.id !== own);
   if (!rows.length) return article;
@@ -112,12 +132,37 @@ export async function fileArticleSuggestions(
  * A new article's subject and map question, checked against the saved map (a plan made in the
  * wizard or by Vizzy names them by id). Without a map they can't be right, so they go.
  */
-export async function reconcileWithSavedMap<B extends Pick<BlogBrief, "subjectId" | "primaryRef">>(ctx: TenantContext, brief: B, deps: MapDeps = {}): Promise<B> {
-  if (brief.subjectId === undefined && brief.primaryRef === undefined) return brief;
-  const map = await loadArticleMap(ctx, deps);
-  if (map) return reconcileMapRefs(brief, map, { newArticle: true });
+export async function reconcileWithSavedMap<B extends Pick<BlogBrief, "subjectId" | "primaryRef"> & Partial<Pick<BlogBrief, "situationId">>>(
+  ctx: TenantContext,
+  brief: B,
+  deps: MapDeps = {},
+): Promise<B> {
+  // A buying situation named by id is checked too, while situations are on.
+  const situation = isBrandMapSituationsEnabled() && typeof brief.situationId === "string" ? brief.situationId : null;
+  if (brief.subjectId === undefined && brief.primaryRef === undefined && !situation) return brief;
+  const map = await loadArticleMap(ctx, deps, { ask: { subjectId: brief.subjectId, primaryRef: brief.primaryRef, situationId: situation } });
+  if (map) {
+    const next = brief.subjectId === undefined && brief.primaryRef === undefined ? brief : reconcileMapRefs(brief, map, { newArticle: true });
+    // Kept while it's on the map, or when this read can't tell (a partial map).
+    if (!situation || map.situation?.id === situation || map.partial) return next;
+    const without = { ...next };
+    delete without.situationId;
+    return without;
+  }
   const next = { ...brief };
   delete next.subjectId;
   delete next.primaryRef;
+  if (situation) delete next.situationId;
   return next;
+}
+
+/** What an article's plan says it is, for reading the part of a map at any size close to it. */
+export function askOfPlan(plan: Pick<ContentPlan, "name" | "blog" | "scope">): ArticleAsk {
+  const brief = plan.blog;
+  return {
+    subjectId: brief?.subjectId,
+    primaryRef: brief?.primaryRef,
+    situationId: brief?.situationId,
+    text: [brief?.primaryQuestion, plan.scope?.spark, plan.name].map((s) => s?.trim()).filter(Boolean).join("\n"),
+  };
 }

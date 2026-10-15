@@ -152,7 +152,7 @@ describe("blog research", () => {
     expect(parseResearch("FACT: A fact with no address at all: 12%.").facts).toEqual([
       { fact: "A fact with no address at all: 12%.", url: "" },
     ]);
-    expect(parseResearch("")).toEqual({ primary: "", questions: [], facts: [], entities: [], subject: "" });
+    expect(parseResearch("")).toEqual({ primary: "", questions: [], facts: [], entities: [], subject: "", situation: "" });
   });
 
   it("ties a fact to the search results that back it — and to none when search didn't", () => {
@@ -855,6 +855,19 @@ describe("blog research with a brand map", () => {
     expect(r.brief.subjectId).toBe("sub_aaaaaaaa");
   });
 
+  it("at any size, matches what it found against the whole map, not just the part it was given", async () => {
+    const PART = { ...MAP, subjects: [] };
+    const d = deps();
+    d.grounded.mockImplementation(async (prompt: string) =>
+      prompt.includes("FACT: <the sentence>") ? attributed : { text: ANSWER, model: "m", sources: [], supports: [] },
+    );
+    const mapWords = vi.fn(async () => MAP.subjects);
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan(), map: PART }, { ...d, mapWords });
+    expect(mapWords).toHaveBeenCalled();
+    expect(r.brief.primaryRef).toBe("q_aaaaaaaa");
+    expect(r.brief.subjectId).toBe("sub_aaaaaaaa");
+  });
+
   it("keeps an integration its material names by another spelling", async () => {
     const d = deps({
       retrieve: (async () => ({ formatted: "Acme connects to Example CRM Cloud.", chunks: [] })) as never,
@@ -864,5 +877,12 @@ describe("blog research with a brand map", () => {
     );
     const r = await researchBlogBrief({ ctx, workspace, plan: plan(), map: MAP }, d);
     expect(r.brief.entities).toContainEqual({ name: "ExampleCRM", relation: "integration", by: "research" });
+  });
+});
+
+describe("research's buying situation", () => {
+  it("reads a SITUATION line, and NONE as none", () => {
+    expect(parseResearch("SITUATION: Our clicks from Google are falling\nPRIMARY: Why?").situation).toBe("Our clicks from Google are falling");
+    expect(parseResearch("SITUATION: none").situation).toBe("");
   });
 });

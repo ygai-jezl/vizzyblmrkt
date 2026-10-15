@@ -168,6 +168,32 @@ export async function embedDocument(
 }
 
 /**
+ * Embed several DOCUMENTS at once (RETRIEVAL_DOCUMENT), up to 200 to a request: the brand
+ * map embeds its subjects and buying situations as they are written or moved. Returns one
+ * vector per input, in order; on missing config or any error every slot is null, so the
+ * caller skips storing rather than fails.
+ */
+export async function embedDocuments(
+  items: Array<{ content: string; title?: string }>,
+  region: Region,
+): Promise<Array<number[] | null>> {
+  const empty = items.map(() => null);
+  const wanted = items.map((it, i) => ({ i, content: it.content?.trim() ?? "", title: it.title })).filter((it) => it.content);
+  if (!wanted.length || !isEmbeddingsConfigured()) return empty;
+  try {
+    const vectors = await predict(region, wanted.map(({ content, title }) => ({ content, title })), "RETRIEVAL_DOCUMENT");
+    const out: Array<number[] | null> = [...empty];
+    wanted.forEach((it, k) => {
+      out[it.i] = vectors[k] ?? null;
+    });
+    return out;
+  } catch (err) {
+    console.warn("[embeddings] embedDocuments failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+    return empty;
+  }
+}
+
+/**
  * Embed a single query for nearest-neighbour retrieval. Uses RETRIEVAL_QUERY, or
  * CODE_RETRIEVAL_QUERY when the query targets code (its corpus side is still
  * RETRIEVAL_DOCUMENT). Returns null on missing config / any error so the caller

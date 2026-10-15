@@ -157,3 +157,35 @@ describe("reading what's already there", () => {
     expect(db.raw(PAGES, "s_kept")).toBeDefined();
   });
 });
+
+describe("reading what's already there, at any size", () => {
+  beforeEach(() => vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true"));
+
+  it("reads every article row and every site row, not just the first 600, and writes the site a batch per call", async () => {
+    const db = new FakeFirestore();
+    seedPlans(db, "ws1", Array.from({ length: 30 }, (_, i) => `plan_${String(i).padStart(2, "0")}`));
+    db.seed(PAGES, "p_old", { tenantId: "ten_A", kind: "article", workspaceId: "ws_gone", planId: "old", state: "draft" });
+    // 650 pages on the site from an earlier read of the source, which its new read no longer has.
+    for (let i = 0; i < 650; i += 1) {
+      const url = `https://acme.example/old/${i}`;
+      db.seed(PAGES, sitePageId("ten_A", url), siteRow(url));
+    }
+    const pages = Array.from({ length: 450 }, (_, i) => ({ url: `https://acme.example/guides/n${i}x`, title: `Guide ${i}` }));
+    const steps = await runAll({
+      db,
+      now,
+      workspaces: async () => [{ id: "ws1" }],
+      ownSites: async () => ["https://acme.example"],
+      siteListing: async () => listing(pages),
+    });
+    expect(steps.reduce((n, s) => n + s.articles, 0)).toBe(30);
+    expect(steps.map((s) => s.sitePages).filter(Boolean)).toEqual([200, 200, 50]);
+    expect(steps.reduce((n, s) => n + s.removed, 0)).toBe(651);
+    expect(steps.at(-1)).toMatchObject({ done: true });
+    const rows = db.dump(PAGES);
+    expect(rows.filter((r) => r.kind === "article")).toHaveLength(30);
+    expect(rows.filter((r) => r.kind === "site")).toHaveLength(450);
+    // Rows written with the switch on carry their worked-out facts.
+    expect(db.raw(PAGES, "p_plan_00")).toMatchObject({ refs: ["q_aaaaaaaa", "q_bbbbbbbb"], urlKey: "https://acme.example/blog/visibility" });
+  });
+});

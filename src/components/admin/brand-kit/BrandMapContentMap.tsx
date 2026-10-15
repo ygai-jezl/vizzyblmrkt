@@ -120,9 +120,19 @@ function toNode(p: MapPoint, selected: boolean, onSelect: (id: string) => void):
   return { id: p.id, type: "point", position: { x: p.x - SIZE.point / 2, y: p.y - SIZE.point / 2 }, data, zIndex: 3, selectable: false };
 }
 
-export function BrandMapContentMap({ input, programmes }: { input: ContentMapInput; programmes: Array<{ id: string; name: string }> | null }) {
+export function BrandMapContentMap({
+  input,
+  programmes,
+  subjectId: only,
+}: {
+  input: ContentMapInput;
+  programmes: Array<{ id: string; name: string }> | null;
+  /** Show this subject only, with no way to show the others (a map at any size, one level down). */
+  subjectId?: string;
+}) {
   const colorMode = useAdminColorMode();
-  const [subjectId, setSubjectId] = useState<string>("");
+  const [chosen, setSubjectId] = useState<string>("");
+  const subjectId = only ?? chosen;
   const [showOpen, setShowOpen] = useState(true);
   const [showSuggested, setShowSuggested] = useState(true);
   const [selected, setSelected] = useState<string>("brand");
@@ -150,24 +160,26 @@ export function BrandMapContentMap({ input, programmes }: { input: ContentMapInp
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-2">
-          <span className="text-neutral-600 dark:text-neutral-400">Show</span>
-          <select
-            value={subjectId}
-            onChange={(e) => {
-              setSubjectId(e.target.value);
-              setSelected("brand");
-            }}
-            className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-          >
-            <option value="">All subjects</option>
-            {input.coverage.subjects.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {only ? null : (
+          <label className="flex items-center gap-2">
+            <span className="text-neutral-600 dark:text-neutral-400">Show</span>
+            <select
+              value={subjectId}
+              onChange={(e) => {
+                setSubjectId(e.target.value);
+                setSelected("brand");
+              }}
+              className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            >
+              <option value="">All subjects</option>
+              {input.coverage.subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex items-center gap-1.5">
           <input type="checkbox" checked={showSuggested} onChange={(e) => setShowSuggested(e.target.checked)} />
           Suggested links
@@ -208,10 +220,14 @@ export function BrandMapContentMap({ input, programmes }: { input: ContentMapInp
             point={point}
             input={input}
             programmes={programmes}
-            onShowSubject={(id) => {
-              setSubjectId(id);
-              setSelected(`area:${id}`);
-            }}
+            onShowSubject={
+              only
+                ? null
+                : (id) => {
+                    setSubjectId(id);
+                    setSelected(`area:${id}`);
+                  }
+            }
           />
         </aside>
       </div>
@@ -263,7 +279,8 @@ function Details({
   point: MapPoint;
   input: ContentMapInput;
   programmes: Array<{ id: string; name: string }> | null;
-  onShowSubject: (subjectId: string) => void;
+  /** Null when the map already shows one subject only. */
+  onShowSubject: ((subjectId: string) => void) | null;
 }) {
   const view = useMemo(() => pointDetails(point, input), [point, input]);
   const guard = useLeaveGuard();
@@ -284,7 +301,7 @@ function Details({
     );
   }
   if (actions.writeNext && programmes?.length) buttons.push(<WriteNext key="write" questionId={actions.writeNext} programmes={programmes} />);
-  if (actions.showSubject) {
+  if (actions.showSubject && onShowSubject) {
     buttons.push(
       <button key="subject" type="button" className={ACTION_SECONDARY} onClick={() => onShowSubject(actions.showSubject!)}>
         Show only this subject

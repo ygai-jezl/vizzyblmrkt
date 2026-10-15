@@ -45,6 +45,7 @@ import type { Invite, InviteWave } from "@/lib/types/invite";
 import type { PersonPlan } from "@/lib/types/personPlan";
 import type { BrandMapRecord } from "@/lib/types/brandMap";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
+import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -395,6 +396,17 @@ export interface TenantRepositories {
   brandMaps: TenantCollection<BrandMapRecord>;
   /** The brand map's pages: a row per article written here, and per page already on the site. */
   brandMapPages: TenantCollection<BrandMapPage>;
+  /**
+   * The brand map at any size: its groups, subjects, questions, buying situations, research
+   * runs and imports, one document each. Reach them through brandMapRecords() in
+   * ./brandMapRecords.ts, which keys each document by a digest of brand and record id.
+   */
+  brandMapGroups: TenantCollection<BrandMapStoredRecord>;
+  brandMapSubjects: TenantCollection<BrandMapStoredRecord>;
+  brandMapQuestions: TenantCollection<BrandMapStoredRecord>;
+  brandMapSituations: TenantCollection<BrandMapStoredRecord>;
+  brandMapRuns: TenantCollection<BrandMapStoredRecord>;
+  brandMapImports: TenantCollection<BrandMapStoredRecord>;
 }
 
 /**
@@ -505,5 +517,11 @@ export function forTenant(
     // The brand map sits with the content it steers (programmes and their plans) → regional DB.
     brandMaps: new TenantCollection<BrandMapRecord>(regionalDb, "brand_maps", t),
     brandMapPages: new TenantCollection<BrandMapPage>(regionalDb, "brand_map_pages", t),
+    brandMapGroups: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_groups", t),
+    brandMapSubjects: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_subjects", t),
+    brandMapQuestions: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_questions", t),
+    brandMapSituations: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_situations", t),
+    brandMapRuns: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_runs", t),
+    brandMapImports: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_imports", t),
   };
 }

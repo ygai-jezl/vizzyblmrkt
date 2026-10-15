@@ -16,6 +16,8 @@ export const BRAND_MAP_PAGE_LIMITS = {
   name: 120,
   links: 100,
   url: 2000,
+  /** Meaningful words kept on a row (BRAND_MAP_SCALE_ENABLED). */
+  words: 80,
 } as const;
 const L = BRAND_MAP_PAGE_LIMITS;
 
@@ -57,6 +59,18 @@ export const BrandMapPageFactsSchema = z.object({
   state: BrandMapPageState.default("planned"),
   /** When it was first seen live (ISO), for "newer" and "older". */
   liveAt: z.string().max(40).nullable().default(null),
+  /*
+   * Facts worked out from the ones above and stored, so the pages of one subject can be
+   * asked for directly at any size (BRAND_MAP_SCALE_ENABLED; absent otherwise, so a row
+   * written with the switch off is exactly as before): the map question ids it carries, the
+   * word keys of its questions and title, its address normalised, its meaningful words, and
+   * the buying situation an article was written for.
+   */
+  refs: z.array(z.string().max(64)).max(L.questions + 1).optional(),
+  textKeys: z.array(z.string().max(L.question * 2)).max(L.questions + 2).optional(),
+  urlKey: z.string().max(L.url).nullable().optional(),
+  words: z.array(z.string().max(60)).max(L.words).optional(),
+  situationId: z.string().max(64).nullable().optional(),
 });
 export type BrandMapPageFacts = z.infer<typeof BrandMapPageFactsSchema>;
 

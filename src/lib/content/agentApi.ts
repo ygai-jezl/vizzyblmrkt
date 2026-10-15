@@ -6,7 +6,8 @@ import { getContentPlan, listContentPlans, listTemplates } from "@/lib/tenant/wo
 import { isContentChatAuthoringEnabled } from "./chatAuthoring";
 import { CONTENT_MATRIX_TOPICS } from "./contentMatrix";
 import { CHANNELS } from "./channels";
-import { isBrandMapChatEnabled, isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapChatEnabled, isBrandMapPagesEnabled, isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
+import { listSituations, readSituation } from "@/lib/brandMap/situations";
 import { isBlogBrandMapEnabled } from "./blog/flags";
 import { loadArticleMap } from "./blog/mapActions";
 
@@ -56,6 +57,8 @@ function planSummary(p: ContentPlan) {
 async function mapSubjects(ctx: TenantContext, db?: FirestoreLike) {
   const map = await loadArticleMap(ctx, { db }, { pages: true });
   if (!map) return null;
+  // A map at any size is never listed whole: the open questions of the situations to focus on.
+  if (map.atScale) return focusQuestions(ctx, db);
   const known = isBrandMapPagesEnabled();
   return {
     statesKnown: known,
@@ -68,6 +71,35 @@ async function mapSubjects(ctx: TenantContext, db?: FirestoreLike) {
       }),
     })),
   };
+}
+
+/** At most this many open questions are offered from a map at any size. */
+const FOCUS_QUESTIONS = 30;
+
+/**
+ * A map at any size, for "write this next": the open questions of the buying situations the
+ * brand stars to focus on (focus first wherever we suggest what to write), at most 30, with
+ * their subjects and situation. Without situations, none: Vizzy reads one subject at a time.
+ */
+async function focusQuestions(ctx: TenantContext, db?: FirestoreLike) {
+  const note = "The brand map is large: these are the open questions of the buying situations it focuses on. Ask the brand map for any other subject.";
+  if (!isBrandMapSituationsEnabled()) return { statesKnown: true, atAnySize: true, subjects: [], note };
+  const focus = (await listSituations(ctx, { db }).catch(() => [])).filter((s) => s.status === "decided" && s.focus);
+  const subjects = new Map<string, { id: string; name: string; questions: Array<{ id: string; text: string; state: "open"; situationId: string }> }>();
+  let offered = 0;
+  for (const s of focus) {
+    if (offered >= FOCUS_QUESTIONS) break;
+    const read = await readSituation(ctx, s.id, { db }).catch(() => null);
+    for (const q of read?.questions ?? []) {
+      if (offered >= FOCUS_QUESTIONS || q.status !== "decided" || q.state !== "open") continue;
+      const subject = subjects.get(q.subjectId) ?? { id: q.subjectId, name: q.subjectName, questions: [] };
+      if (subject.questions.some((x) => x.id === q.id)) continue;
+      subject.questions.push({ id: q.id, text: q.text, state: "open", situationId: s.id });
+      subjects.set(q.subjectId, subject);
+      offered += 1;
+    }
+  }
+  return { statesKnown: true, atAnySize: true, situations: focus.map((s) => ({ id: s.id, text: s.text })), subjects: [...subjects.values()], note };
 }
 
 /** The brand's programmes (the one in view first), each with template counts and recent plans. */

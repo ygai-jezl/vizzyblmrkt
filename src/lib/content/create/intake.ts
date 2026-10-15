@@ -3,6 +3,7 @@ import { BlogBriefSchema, ContentObjective, SequenceType, type ContentPlan } fro
 import { isChannel } from "@/lib/content/channels";
 import { isContentMatrixTopic } from "@/lib/content/contentMatrix";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
+import { isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
 
 /**
  * A new content plan's intake — shared by the Create wizard's route and Vizzy's
@@ -18,7 +19,7 @@ const HubUrl = z
   .optional();
 
 /** A brand map id ("sub_…", "q_…"). The plan only keeps it; research checks it is still on the map. */
-const MapId = (prefix: "sub" | "q") => z.string().regex(new RegExp(`^${prefix}_[a-z0-9]{6,24}$`));
+const MapId = (prefix: "sub" | "q" | "sit") => z.string().regex(new RegExp(`^${prefix}_[a-z0-9]{6,24}$`));
 
 export const IntakeSchema = z.object({
   name: z.string().min(1).max(200),
@@ -51,6 +52,8 @@ export const IntakeSchema = z.object({
       subjectId: MapId("sub").nullable().optional(),
       /** The brand map question the article answers, when it was started from one. */
       questionId: MapId("q").optional(),
+      /** The buying situation it is for: absent = research picks one, null = none. */
+      situationId: MapId("sit").nullable().optional(),
     })
     .optional(),
 });
@@ -73,15 +76,18 @@ export function planFromIntake(input: Intake): NewPlanFields {
   const mapOn = isBlogBrandMapEnabled();
   const subjectId = mapOn ? input.blog?.subjectId : undefined;
   const primaryRef = mapOn ? input.blog?.questionId : undefined;
+  // And its buying situation, while those are on.
+  const situationId = mapOn && isBrandMapSituationsEnabled() ? input.blog?.situationId : undefined;
   const blogBrief =
     input.topology.hubChannel === "blog" &&
     input.strategy.objective !== "email_sequence" &&
-    (primaryQuestion || buyerQuestions || subjectId !== undefined || primaryRef)
+    (primaryQuestion || buyerQuestions || subjectId !== undefined || primaryRef || situationId !== undefined)
       ? BlogBriefSchema.parse({
           primaryQuestion,
           buyerQuestions,
           ...(subjectId !== undefined ? { subjectId } : {}),
           ...(primaryRef ? { primaryRef } : {}),
+          ...(situationId !== undefined ? { situationId } : {}),
         })
       : null;
   return {

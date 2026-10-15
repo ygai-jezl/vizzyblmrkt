@@ -112,6 +112,7 @@ def build_intake(
     buyer_questions: str = "",
     subject_id: str = "",
     question_id: str = "",
+    situation_id: str = "",
 ) -> dict:
     """The same intake the Create wizard sends (the server validates and normalises it)."""
     strategy: dict = {"objective": objective}
@@ -131,7 +132,9 @@ def build_intake(
     # of its questions (by id); the server keeps them only while articles are written from the map.
     subject = (subject_id or "").strip()
     question = (question_id or "").strip()
-    if (hub_channel or "") == "blog" and (primary_question or buyer_questions or subject or question):
+    # And the buying situation it is for ("none" = not one), where situations are on.
+    situation = (situation_id or "").strip()
+    if (hub_channel or "") == "blog" and (primary_question or buyer_questions or subject or question or situation):
         intake["blog"] = {
             "primaryQuestion": (primary_question or "")[:300],
             "buyerQuestions": (buyer_questions or "")[:6000],
@@ -140,6 +143,8 @@ def build_intake(
             intake["blog"]["subjectId"] = None if subject.lower() == "none" else subject
         if question:
             intake["blog"]["questionId"] = question
+        if situation:
+            intake["blog"]["situationId"] = None if situation.lower() == "none" else situation
     return intake
 
 

@@ -63,7 +63,9 @@ export async function fileSuggestions(
       else skipped.inMap += 1;
     } else if (c.type === "add_question") {
       const subject = await proposedSubject(ctx, store, { ...base, name: c.subject, existingOk: true });
-      const made = subject ? await proposedQuestion(ctx, store, { ...base, subjectId: subject.id, subjectName: String(subject.name), text: c.text, intent: c.intent }) : null;
+      const made = subject
+        ? await proposedQuestion(ctx, store, { ...base, subjectId: subject.id, subjectName: String(subject.name), text: c.text, intent: c.intent, situationIds: input.situationIds })
+        : null;
       if (subject) touched.add(subject.id);
       if (made) proposed.push(`Add a question to “${String(subject!.name)}”: “${made.text}”`);
       else skipped.inMap += 1;

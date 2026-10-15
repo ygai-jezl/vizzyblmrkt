@@ -3,7 +3,8 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { computeCoverage } from "@/lib/content/blog/coverage";
 import { describeChange } from "./changes";
-import { isBrandMapChatEnabled, isBrandMapPagesEnabled } from "./flags";
+import { isBrandMapChatEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "./flags";
+import { agentFindSubjects, agentImportResults, agentMapSummary, agentOneSubject } from "./agentScale";
 import { listBrandMapPages } from "./pages";
 import { isMapSaved } from "@/lib/types/brandMap";
 import { readBrandMap } from "./store";
@@ -31,11 +32,26 @@ export function brandMapAgentGate(req: Request): { ok: true; ctx: TenantContext 
 
 const STATE: Record<string, string> = { answered: "answered", drafted: "being written", planned: "planned", open: "open" };
 
-export async function agentBrandMap(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
+/**
+ * The map at any size (once its subjects moved) is read a part at a time: `find` (subjects
+ * near some words), `subject` (one, by id), `import` (what research from a PDF added), or a
+ * summary. Never the whole list.
+ */
+export async function agentBrandMap(
+  ctx: TenantContext,
+  db?: FirestoreLike,
+  opts: { find?: string | null; subject?: string | null; importId?: string | null } = {},
+): Promise<ApiResult> {
   const read = await readBrandMap(ctx, db);
   if (read.state === "unreadable") return { status: 409, body: { error: "map_unreadable", note: "The saved brand map can't be read. An admin needs to look at it on the page." } };
   if (read.state === "none") return { status: 200, body: { map: null, note: `No brand map yet. ${NOTE}` } };
   const map = read.map;
+  if (isBrandMapScaleEnabled() && map.moved) {
+    if (opts.find) return agentFindSubjects(ctx, opts.find, db);
+    if (opts.subject) return agentOneSubject(ctx, opts.subject.slice(0, 64), db);
+    if (opts.importId) return agentImportResults(ctx, opts.importId.slice(0, 64), db);
+    return agentMapSummary(ctx, map, db);
+  }
   const pagesOn = isBrandMapPagesEnabled() && isMapSaved(map);
   const coverage = pagesOn ? computeCoverage(map, await listBrandMapPages(ctx, db).catch(() => [])) : null;
   const stateOf = new Map(coverage?.subjects.flatMap((s) => s.questions.map((q) => [q.id, q] as const)) ?? []);

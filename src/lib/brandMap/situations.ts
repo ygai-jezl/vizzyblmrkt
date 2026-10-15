@@ -8,6 +8,7 @@ import {
   BrandMapSituationSchema,
   type BrandMapSituation,
   type BrandMapStoredRecord,
+  type RecordFrom,
   type RecordStatus,
   type SituationSide,
   type SituationW,
@@ -106,6 +107,53 @@ export async function createSituation(ctx: TenantContext, input: SituationInput,
   const value = parseSituation(saved);
   await embedOne(ctx, value, deps);
   return value ? { ok: true, value, touched: [] } : fail(500, "not_saved");
+}
+
+/**
+ * A situation proposed (Vizzy, on a person's word): waiting for a person, never on the map by
+ * itself. One the map has is not proposed again; one a person dismissed comes back only when
+ * someone asked for it outright (`revive`).
+ */
+export async function proposeSituation(
+  ctx: TenantContext,
+  input: SituationInput,
+  opts: { from: RecordFrom; reason: string; revive?: boolean },
+  deps: Deps = {},
+): Promise<BrandMapSituation | null> {
+  const now = iso(deps.nowMs);
+  const store = brandMapRecords(ctx, deps.db);
+  const text = clip(input.text, LIMITS.situationText);
+  const key = situationKey(text);
+  if (!key) return null;
+  const [found] = await store.find("sit", { where: [["textKey", "==", key]], limit: 1 });
+  if (found) {
+    if (found.status !== "dismissed" || !opts.revive) return null;
+    const back = parseSituation(await store.claim("sit", found.id, (cur) => ({ status: "proposed", from: opts.from, reason: clip(opts.reason, 200), rev: Number(cur.rev ?? 0) + 1, updatedAt: now })));
+    await embedOne(ctx, back, deps);
+    return back;
+  }
+  const count = await store.count("sit");
+  if (count >= LIMITS.situations) return null;
+  const parsed = BrandMapSituationSchema.safeParse({
+    id: situationIdFor(ctx.tenantId, text),
+    tenantId: ctx.tenantId,
+    status: "proposed",
+    from: opts.from,
+    reason: clip(opts.reason, 200),
+    rev: 0,
+    createdAt: now,
+    updatedAt: now,
+    text,
+    textKey: key,
+    order: count,
+    ...parts(input),
+  });
+  if (!parsed.success) return null;
+  const { id, tenantId: _t, ...data } = parsed.data;
+  void _t;
+  const saved = parseSituation((await store.createIfAbsent("sit", id, data)) ?? (await store.create("sit", freshId("sit"), data)));
+  await embedOne(ctx, saved, deps);
+  return saved;
 }
 
 /** A person edits a situation, naming the revision they started from; `focus` stars it. */

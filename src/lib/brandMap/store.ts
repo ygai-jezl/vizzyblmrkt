@@ -261,6 +261,8 @@ export interface FileInput {
   allowDismissed?: boolean;
   /** Research records when it ran and what it could not do. */
   research?: BrandMapResearch | null;
+  /** The map at any size: the buying situations the questions proposed here are asked in. */
+  situationIds?: string[];
 }
 
 export interface Filed {

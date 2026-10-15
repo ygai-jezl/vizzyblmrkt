@@ -2,7 +2,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BlogBrief, BlogEntity, ContentPlan } from "@/lib/types/contentPlan";
 import { BrandMapChangeSchema, type BrandMap } from "@/lib/types/brandMap";
 import { decidedBrandMap, fileBrandMapSuggestions, type SuggestionInput } from "@/lib/brandMap/store";
-import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapPagesEnabled, isBrandMapScaleEnabled, isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
 import { articleMapAtScale, type ArticleAsk } from "@/lib/brandMap/articleScale";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { planPageId, type BrandMapPage } from "@/lib/types/brandMapPage";
@@ -126,13 +126,26 @@ export async function fileArticleSuggestions(
  * A new article's subject and map question, checked against the saved map (a plan made in the
  * wizard or by Vizzy names them by id). Without a map they can't be right, so they go.
  */
-export async function reconcileWithSavedMap<B extends Pick<BlogBrief, "subjectId" | "primaryRef">>(ctx: TenantContext, brief: B, deps: MapDeps = {}): Promise<B> {
-  if (brief.subjectId === undefined && brief.primaryRef === undefined) return brief;
-  const map = await loadArticleMap(ctx, deps, { ask: { subjectId: brief.subjectId, primaryRef: brief.primaryRef } });
-  if (map) return reconcileMapRefs(brief, map, { newArticle: true });
+export async function reconcileWithSavedMap<B extends Pick<BlogBrief, "subjectId" | "primaryRef"> & Partial<Pick<BlogBrief, "situationId">>>(
+  ctx: TenantContext,
+  brief: B,
+  deps: MapDeps = {},
+): Promise<B> {
+  // A buying situation named by id is checked too, while situations are on.
+  const situation = isBrandMapSituationsEnabled() && typeof brief.situationId === "string" ? brief.situationId : null;
+  if (brief.subjectId === undefined && brief.primaryRef === undefined && !situation) return brief;
+  const map = await loadArticleMap(ctx, deps, { ask: { subjectId: brief.subjectId, primaryRef: brief.primaryRef, situationId: situation } });
+  if (map) {
+    const next = brief.subjectId === undefined && brief.primaryRef === undefined ? brief : reconcileMapRefs(brief, map, { newArticle: true });
+    if (!situation || map.situation?.id === situation) return next;
+    const without = { ...next };
+    delete without.situationId;
+    return without;
+  }
   const next = { ...brief };
   delete next.subjectId;
   delete next.primaryRef;
+  if (situation) delete next.situationId;
   return next;
 }
 

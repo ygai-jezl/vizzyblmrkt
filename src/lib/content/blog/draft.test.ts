@@ -258,7 +258,8 @@ describe("the blog writer with a brand map", () => {
       return answer(SAMPLE_ARTICLE.replace("## How does it differ from SEO rank tracking?", "## How does it differ from SEO rank tracking?\n\nAcme tracks your brand across 12 AI engines."));
     });
     const r = await draftBlogArticle(input({ map: MAP, quick: true }), { generate: generate as never, now: clock(1) });
-    expect(prompts[0]).toContain('YOUR NAMES. How the brand "Acme" names things.');
+    expect(prompts[0]).toContain("YOUR NAMES. How the brand names things.");
+    expect(prompts[0]).toContain("The brand is called: Acme");
     expect(prompts[0]).toContain("Its category, named exactly: AI visibility tracking");
     expect(prompts[0]).toContain('- "GEO tool" → say "AI visibility tracking"');
     // 12 is in the map's own statement, so it is not a figure nobody can trace.

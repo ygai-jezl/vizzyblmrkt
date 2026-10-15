@@ -198,13 +198,29 @@ function containsTerm(sentence: string, term: string): boolean {
   return new RegExp(`(^|[^${LETTER}])${pattern}s?(?=$|[^${LETTER}])`, "iu").test(sentence);
 }
 
+/** A name blanked out of a sentence, as a whole name, so a word inside it isn't read on its own. */
+function withoutName(sentence: string, name: string): string {
+  const n = name.replace(/\s+/g, " ").trim();
+  if (!n) return sentence;
+  if (CJK.test(n)) return sentence.split(n).join(" ");
+  const pattern = n.split(" ").map(escape).join("\\s+");
+  return sentence.replace(new RegExp(`(^|[^${LETTER}])${pattern}(?=$|[^${LETTER}])`, "giu"), "$1 ");
+}
+
 /**
  * The names the map avoids that the article uses in its own sentences. A sentence that
- * also gives the name to use ("… what some call GEO tools") does not count.
+ * also gives the name to use ("… what some call GEO tools") does not count, nor does a word
+ * that is part of one of the brand's own names (`keep`: avoid "monitoring", but the product
+ * "Brand Monitoring" is still its name).
  */
-export function avoidedUses(markdown: string, avoid: Array<{ term: string; useInstead: string }>): Array<{ term: string; useInstead: string; count: number }> {
+export function avoidedUses(
+  markdown: string,
+  avoid: Array<{ term: string; useInstead: string }>,
+  keep: string[] = [],
+): Array<{ term: string; useInstead: string; count: number }> {
   if (!avoid.length) return [];
-  const sentences = ownSentences(markdown);
+  const own = [...keep].sort((a, b) => b.length - a.length);
+  const sentences = ownSentences(markdown).map((s) => own.reduce(withoutName, s));
   const out: Array<{ term: string; useInstead: string; count: number }> = [];
   for (const a of avoid) {
     const count = sentences.filter((s) => containsTerm(s, a.term) && !(a.useInstead && containsTerm(s, a.useInstead))).length;

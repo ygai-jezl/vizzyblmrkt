@@ -108,5 +108,9 @@ describe("matching an article's names to the brand map", () => {
       "See .",
     ]);
     expect(avoidedUses(md, MAP.identity.avoid)).toEqual([{ term: "GEO tool", useInstead: "AI visibility tracking", count: 2 }]);
+    // A word avoided on its own is still part of the brand's own names.
+    const own = "Teams use Brand Monitoring Pro daily. Monitoring alone misses the point.";
+    expect(avoidedUses(own, [{ term: "monitoring", useInstead: "tracking" }], ["Brand Monitoring Pro"])).toEqual([{ term: "monitoring", useInstead: "tracking", count: 1 }]);
+    expect(avoidedUses("Teams use Brand Monitoring Pro daily.", [{ term: "monitoring", useInstead: "tracking" }], ["Brand Monitoring Pro"])).toEqual([]);
   });
 });

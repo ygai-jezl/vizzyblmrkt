@@ -79,6 +79,12 @@ export interface CitableContext {
   map?: ArticleMap | null;
 }
 
+/**
+ * Map text as the checklist says it. Its fix lines become the writer's revision instructions,
+ * outside any fence, so a name from the map is said plainly and can carry nothing else.
+ */
+const said = (s: string) => s.replace(/\s+/g, " ").replace(/[<>"“”]/g, "").trim().slice(0, 120);
+
 export function evaluateCitable(markdown: string, context: CitableContext = {}): CitableReport {
   const brief = context.brief ?? EMPTY_BLOG_BRIEF;
   const o = outlineArticle(markdown);
@@ -183,7 +189,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   // With a brand map that lists what the brand is not: one section or FAQ answer says where
   // it is not the right fit. Only ever a warning: the writer adds no limit of its own.
   const map = context.map ?? null;
-  const brand = map?.identity.name || brief.publisherName || "the brand";
+  const brand = map?.identity.name ? said(map.identity.name) : brief.publisherName || "the brand";
   if (map && map.identity.isNot.length) {
     const headed = o.sections.some((sec) => LIMITS_QUESTION.test(sec.heading)) || o.faq.some((f) => LIMITS_QUESTION.test(f.question));
     const says = !headed && map.identity.isNot.some((t) => fold(o.plain).includes(fold(t)));
@@ -342,8 +348,9 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   // With a brand map: the article's own sentences use none of the names it avoids, and its
   // opening names the category the way the map does.
   if (map && (map.identity.avoid.length || map.identity.category)) {
-    const uses = avoidedUses(markdown, map.identity.avoid);
-    const category = map.identity.category;
+    const own = [map.identity.name, map.identity.category, ...map.names.flatMap((n) => [n.name, ...n.aliases])];
+    const uses = avoidedUses(markdown, map.identity.avoid, own);
+    const category = said(map.identity.category);
     const opens = !category || mentionsName(o.bluf, category);
     add(
       "l_names",
@@ -351,13 +358,15 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       "Keeps to your names",
       uses.length ? "fail" : opens ? "pass" : "warn",
       uses.length
-        ? `Uses names your brand map avoids: ${uses.map((u) => `“${u.term}”${u.useInstead ? ` (say “${u.useInstead}”)` : ""}`).join(", ")}.`
+        ? `Uses names your brand map avoids: ${uses.map((u) => `“${said(u.term)}”${u.useInstead ? ` (say “${said(u.useInstead)}”)` : ""}`).join(", ")}.`
         : opens
           ? "Uses none of the names your brand map avoids, and names your category as you do."
           : `The opening does not name your category, “${category}”.`,
       uses.length
         ? `${uses
-            .map((u) => (u.useInstead ? `In your own sentences, replace “${u.term}” with “${u.useInstead}”.` : `In your own sentences, stop using “${u.term}”.`))
+            .map((u) =>
+              u.useInstead ? `In your own sentences, replace “${said(u.term)}” with “${said(u.useInstead)}”.` : `In your own sentences, stop using “${said(u.term)}”.`,
+            )
             .join(" ")} Leave a buyer's question in a heading, a quotation and a source's title as they are.`
         : `In the opening answer, name the category exactly as “${category}”.`,
     );

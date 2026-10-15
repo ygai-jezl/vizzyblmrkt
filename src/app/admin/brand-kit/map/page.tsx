@@ -10,6 +10,7 @@ import { isBrandMapEnabled, isBrandMapPagesEnabled, isBrandMapResearchEnabled, i
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { computeCoverage } from "@/lib/content/blog/coverage";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
+import { isMapSaved } from "@/lib/types/brandMap";
 import { isGeminiConfigured } from "@/lib/agents/gemini";
 import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
@@ -48,7 +49,7 @@ export default async function BrandMapPage() {
   ]);
   const map = read.state === "ok" ? read.map : null;
   // What the brand's pages answer, worked out now from the saved map (never stored).
-  const coverage = pagesOn && map && map.rev > 0 ? computeCoverage(map, pages) : null;
+  const coverage = pagesOn && map && isMapSaved(map) ? computeCoverage(map, pages) : null;
   const programmes = writeNextOn ? workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name })) : null;
   const root = tenant?.rootDomain?.trim();
 

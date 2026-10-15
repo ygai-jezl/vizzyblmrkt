@@ -6,6 +6,7 @@ import {
   BrandMapStoredSchema,
   BrandMapSuggestionSchema,
   brandMapDocId,
+  isMapSaved,
   type BrandMap,
   type BrandMapChange,
   type BrandMapDecided,
@@ -17,7 +18,7 @@ import {
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import { changeKey, isSatisfied, newId } from "./changes";
 import { checkDecided, type MapIssue } from "./checks";
-import { isBrandMapEnabled } from "./flags";
+import { isBrandMapEnabled, isBrandMapScaleEnabled } from "./flags";
 
 /**
  * The brand map's storage: one document per brand in the regional `brand_maps` collection.
@@ -68,13 +69,13 @@ export async function readBrandMap(ctx: TenantContext, db?: FirestoreLike): Prom
 
 /**
  * The map an article is written from: only with the flag on, only when it reads, and only
- * once a person has saved it (`rev` ≥ 1). Null otherwise — and the article is written as
- * before.
+ * once a person has saved it (`rev` ≥ 1, or decided one of its records). Null otherwise —
+ * and the article is written as before.
  */
 export async function decidedBrandMap(ctx: TenantContext, db?: FirestoreLike): Promise<BrandMap | null> {
   if (!isBrandMapEnabled()) return null;
   const read = await readBrandMap(ctx, db).catch((): BrandMapRead => ({ state: "none" }));
-  return read.state === "ok" && read.map.rev >= 1 ? read.map : null;
+  return read.state === "ok" && isMapSaved(read.map) ? read.map : null;
 }
 
 function decidedOf(map: BrandMapDecided): BrandMapDecided {
@@ -129,6 +130,8 @@ function emptyStored(tenantId: string, now: string) {
     decidedBy: null as string | null,
     createdAt: now,
     updatedAt: now,
+    moved: null as BrandMap["moved"],
+    recordsDecidedAt: null as string | null,
   };
 }
 
@@ -157,13 +160,23 @@ export interface SaveInput {
  * `map_changed`, with the current map), when it does not read (409 `map_unreadable`),
  * when it fails a check (400 `invalid_map`, with the issues) or would be too big (413).
  * Accepted and dismissed suggestions leave the list, and so does any the save made true.
+ *
+ * With the map at any size on and its subjects moved into records (`moved`), a save keeps
+ * the stored `subjects` exactly as they were, whatever it was sent: a build without the
+ * switch still reads them, so turning the switch off shows the map as it was at the move.
  */
 export async function saveBrandMap(
   ctx: TenantContext,
   input: SaveInput,
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<MapResult<BrandMap>> {
-  const parsed = BrandMapDecidedSchema.safeParse(input.decided);
+  // With the switch on, a moved map's subjects are never taken from a save, so they aren't
+  // read or checked from one either. Off, a save is exactly as before (and can change them).
+  const scale = isBrandMapScaleEnabled();
+  const before = scale ? await readBrandMap(ctx, deps.db).catch((): BrandMapRead => ({ state: "none" })) : null;
+  const movedBefore = before?.state === "ok" && Boolean(before.map.moved);
+  const sent = movedBefore && input.decided && typeof input.decided === "object" ? { ...(input.decided as Record<string, unknown>), subjects: [] } : input.decided;
+  const parsed = BrandMapDecidedSchema.safeParse(sent);
   if (!parsed.success) {
     return {
       ok: false,
@@ -204,7 +217,7 @@ export async function saveBrandMap(
           seen.conflict = map;
           return null;
         }
-        const decided = stampLinks(map, parsed.data, now);
+        const decided = stampLinks(map, scale && map.moved ? { ...parsed.data, subjects: map.subjects } : parsed.data, now);
         const changed = !sameDecided(map, decided);
         const resolved = new Set([...accepted, ...dismissed]);
         const patch = {

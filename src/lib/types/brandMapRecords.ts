@@ -137,6 +137,8 @@ export const BrandMapSubjectRecordSchema = z.object({
   /** The page on the brand's own site that is this subject's home, and that address normalised. */
   home: Url.nullable().catch(null).default(null),
   urlKey: z.string().max(400).nullable().default(null),
+  /** A home page research or an article suggested for it, waiting for a person (it never replaces one). */
+  suggestedHome: Url.nullable().catch(null).default(null),
   /** A proposal close in meaning to this subject on the map: shown as "looks like", never merged by itself. */
   looksLike: SubjectId.nullable().catch(null).default(null),
   counts: SubjectCountsSchema.prefault({}),
@@ -273,13 +275,8 @@ export const BrandMapImportSchema = z.object({
 });
 export type BrandMapImport = z.infer<typeof BrandMapImportSchema>;
 
-/** On the brand's one record: when its subjects moved into records, and the old list as it was then. */
-export const BrandMapMovedSchema = z.object({
-  at: z.string().max(40),
-  /** A digest of the old `subjects` list at the move: if it changes while the switch is off, what was added is brought in. */
-  arrayHash: z.string().max(64),
-});
-export type BrandMapMoved = z.infer<typeof BrandMapMovedSchema>;
+/** On the brand's one record: when its subjects moved into records (defined with that record). */
+export { BrandMapMovedSchema, type BrandMapMoved } from "./brandMap";
 
 /**
  * A record as the tenant layer stores it. Its own id is `ref` (`sub_…`, `q_…`); the document

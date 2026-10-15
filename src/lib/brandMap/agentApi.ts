@@ -5,6 +5,7 @@ import { computeCoverage } from "@/lib/content/blog/coverage";
 import { describeChange } from "./changes";
 import { isBrandMapChatEnabled, isBrandMapPagesEnabled } from "./flags";
 import { listBrandMapPages } from "./pages";
+import { isMapSaved } from "@/lib/types/brandMap";
 import { readBrandMap } from "./store";
 
 /**
@@ -35,7 +36,7 @@ export async function agentBrandMap(ctx: TenantContext, db?: FirestoreLike): Pro
   if (read.state === "unreadable") return { status: 409, body: { error: "map_unreadable", note: "The saved brand map can't be read. An admin needs to look at it on the page." } };
   if (read.state === "none") return { status: 200, body: { map: null, note: `No brand map yet. ${NOTE}` } };
   const map = read.map;
-  const pagesOn = isBrandMapPagesEnabled() && map.rev > 0;
+  const pagesOn = isBrandMapPagesEnabled() && isMapSaved(map);
   const coverage = pagesOn ? computeCoverage(map, await listBrandMapPages(ctx, db).catch(() => [])) : null;
   const stateOf = new Map(coverage?.subjects.flatMap((s) => s.questions.map((q) => [q.id, q] as const)) ?? []);
   const i = map.identity;
@@ -44,7 +45,7 @@ export async function agentBrandMap(ctx: TenantContext, db?: FirestoreLike): Pro
     body: {
       map: {
         rev: map.rev,
-        saved: map.rev > 0,
+        saved: isMapSaved(map),
         identity: {
           name: i.name,
           category: i.category,

@@ -81,6 +81,21 @@ export const SUBJECT_SUMMARY_FIELDS = [
   "groupId", "name", "nameKey", "home", "urlKey", "suggestedHome", "looksLike", "suggestedGroupId", "counts", "answeredShare", "mergedInto", "order",
 ];
 
+/** A subject as a list or the map shows it: what a row or a circle needs, no more (5,000 of them stay small). */
+export type SubjectListItem = Pick<BrandMapSubjectRecord, "id" | "name" | "status" | "from" | "reason" | "groupId" | "suggestedGroupId" | "counts" | "answeredShare">;
+
+export const listItemOf = (s: BrandMapSubjectRecord): SubjectListItem => ({
+  id: s.id,
+  name: s.name,
+  status: s.status,
+  from: s.from,
+  reason: s.reason,
+  groupId: s.groupId,
+  suggestedGroupId: s.suggestedGroupId,
+  counts: s.counts,
+  answeredShare: s.answeredShare,
+});
+
 /** A brand's subjects: all of them, one group's (null = ungrouped), those suggested for a group, and of one status. */
 export async function listSubjects(
   ctx: TenantContext,

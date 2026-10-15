@@ -8,6 +8,7 @@ import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { PageLink, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { matchSubjects, type SubjectName } from "./MapSubjectSearch";
 import { useMapMove } from "./brandMapMove";
+import type { SubjectListItem } from "@/lib/brandMap/records";
 
 /**
  * The Subjects tab of a map at any size (BRAND_MAP_SCALE_ENABLED): groups on the left, a
@@ -18,6 +19,8 @@ import { useMapMove } from "./brandMapMove";
  */
 
 const MAP = "/api/admin/brand-kit/map";
+/** Rows of a subject list drawn at once. */
+const PAGE_ROWS = 200;
 const SMALL = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
 
 type View = { kind: "all" } | { kind: "none" } | { kind: "proposed" } | { kind: "group"; id: string } | { kind: "suggested"; id: string };
@@ -51,7 +54,7 @@ export function BrandMapSubjectsTab({
   const [view, setView] = useState<View>({ kind: "all" });
   const [groups, setGroups] = useState<BrandMapGroup[]>([]);
   const [ungroupedTotals, setUngroupedTotals] = useState(ungroupedAtLoad);
-  const [subjects, setSubjects] = useState<BrandMapSubjectRecord[] | null>(null);
+  const [subjects, setSubjects] = useState<SubjectListItem[] | null>(null);
   const [names, setNames] = useState<SubjectName[] | null>(null);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -60,6 +63,8 @@ export function BrandMapSubjectsTab({
   const [newSubject, setNewSubject] = useState("");
   const [newGroup, setNewGroup] = useState("");
   const [sorting, setSorting] = useState<string | null>(null);
+  // A few hundred rows at a time: a group of thousands stays quick to scroll.
+  const [rows, setRows] = useState(PAGE_ROWS);
 
   const loadGroups = useCallback(async () => {
     const r = await api<{ groups?: BrandMapGroup[]; ungrouped?: Partial<GroupTotals> | null }>(`${MAP}/groups`);
@@ -78,7 +83,7 @@ export function BrandMapSubjectsTab({
             : v.kind === "proposed"
               ? "?status=proposed"
               : "";
-    const r = await api<{ subjects?: BrandMapSubjectRecord[] }>(`${MAP}/subjects${q}`);
+    const r = await api<{ subjects?: SubjectListItem[] }>(`${MAP}/subjects${q}`);
     setSubjects(r.ok && r.data.subjects ? r.data.subjects : []);
   }, []);
 
@@ -104,6 +109,7 @@ export function BrandMapSubjectsTab({
   useEffect(() => {
     if (!moved) return;
     setSubjects(null);
+    setRows(PAGE_ROWS);
     void loadSubjects(view);
   }, [moved, round, view, loadSubjects]);
   useEffect(() => {
@@ -358,7 +364,7 @@ export function BrandMapSubjectsTab({
           <div className="text-[11px] text-neutral-500">Least answered first. No limit on how many.</div>
           {subjects === null ? <p className="text-xs text-neutral-500">Loading…</p> : null}
           {subjects && !sorted.length ? <p className="text-xs text-neutral-500">Nothing here yet.</p> : null}
-          {sorted.map((s) => {
+          {sorted.slice(0, rows).map((s) => {
             const proposed = s.status === "proposed";
             return (
               <div key={s.id} className={`rounded-md border p-2 ${openId === s.id ? "border-neutral-900 dark:border-white" : proposed ? "border-dashed border-neutral-400" : "border-neutral-200 dark:border-neutral-800"}`}>
@@ -393,6 +399,11 @@ export function BrandMapSubjectsTab({
               </div>
             );
           })}
+          {sorted.length > rows ? (
+            <button type="button" onClick={() => setRows((n) => n + PAGE_ROWS)} className={`${SMALL} w-full py-1`}>
+              Show {Math.min(PAGE_ROWS, sorted.length - rows).toLocaleString("en")} more ({(sorted.length - rows).toLocaleString("en")} not shown)
+            </button>
+          ) : null}
         </section>
 
         <aside aria-label="Subject" className="min-w-0">

@@ -23,6 +23,7 @@ import {
   editSubject,
   getSubject,
   listGroups,
+  listItemOf,
   listSubjects,
   mergeSubjects,
   removeGroup,
@@ -128,7 +129,8 @@ export async function listSubjectsFromRequest(ctx: TenantContext, url: URL, deps
     },
     deps,
   );
-  return NextResponse.json({ moved: true, subjects });
+  // Only what a row or a circle shows: a group of thousands stays a small answer.
+  return NextResponse.json({ moved: true, subjects: subjects.map(listItemOf) });
 }
 
 /**

@@ -7,6 +7,7 @@ import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type { BrandMapGroup, BrandMapSituation, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
 import type { SituationRead } from "@/lib/brandMap/situations";
+import type { SubjectListItem } from "@/lib/brandMap/records";
 import type { Coverage, SubjectCoverage } from "@/lib/content/blog/coverage";
 import type { ContentMapInput, MapPage } from "@/lib/brandMap/contentMapLayout";
 import {
@@ -69,9 +70,9 @@ const fmt = (n: number) => n.toLocaleString("en");
 const pct = (answered: number, questions: number) => (questions ? Math.round((100 * answered) / questions) : 0);
 
 async function readSubjects(group: string): Promise<CirclesLevel | Failed> {
-  const r = await api<{ subjects?: BrandMapSubjectRecord[]; error?: string }>(`${MAP}/subjects?group=${encodeURIComponent(group)}`);
+  const r = await api<{ subjects?: SubjectListItem[]; error?: string }>(`${MAP}/subjects?group=${encodeURIComponent(group)}`);
   if (!r.ok || !r.data.subjects) return { error: errorText(r.data) };
-  return { kind: "circles", noun: "subjects", items: r.data.subjects.filter((s) => s.status !== "dismissed" && !s.mergedInto).map(subjectItem) };
+  return { kind: "circles", noun: "subjects", items: r.data.subjects.filter((s) => s.status !== "dismissed").map(subjectItem) };
 }
 
 /** The top: the groups, or, before there are any, every subject. */

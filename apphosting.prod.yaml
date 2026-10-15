@@ -860,35 +860,35 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # The brand map (see apphosting.yaml): OFF in prod until it has been checked on dev and
-  # the owner turns it on. Every one is set to "false" here on purpose: this file only
-  # overrides apphosting.yaml, so a flag left out would be on.
+  # The brand map (see apphosting.yaml): ON in prod. The owner turned every switch on on
+  # 2026-10-15, to test it for real on the canary tenant. Each is set here on purpose: this
+  # file only overrides apphosting.yaml, so set one to "false" to turn that part off.
   - variable: BRAND_MAP_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_MAP_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: BRAND_MAP_RESEARCH_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_MAP_WIKIDATA_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: CREATE_BLOG_BRAND_MAP_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_MAP_PAGES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME

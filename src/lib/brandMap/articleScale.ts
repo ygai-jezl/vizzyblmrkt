@@ -61,7 +61,7 @@ export async function articleMapAtScale(
   opts: { ask?: ArticleAsk; pages?: boolean; planId?: string },
   deps: Deps = {},
 ): Promise<ArticleMap> {
-  const article = projectArticleMap({ ...map, subjects: [] });
+  const article: ArticleMap = { ...projectArticleMap({ ...map, subjects: [] }), atScale: true };
   const ask = opts.ask ?? {};
   const store = brandMapRecords(ctx, deps.db);
 

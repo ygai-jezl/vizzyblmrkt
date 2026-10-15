@@ -49,6 +49,7 @@ export default async function CreatePage({
       topics={ws.topics ?? []}
       initialSources={sources}
       subjects={(map?.subjects ?? []).map((s) => ({ id: s.id, name: s.name, questions: s.questions.map((q) => ({ id: q.id, text: q.text })) }))}
+      subjectSearch={Boolean(map?.atScale)}
       prefill={prefill}
     />
   );

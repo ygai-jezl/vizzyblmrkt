@@ -16,6 +16,7 @@ import { hostOf, normalizeUrl } from "@/lib/content/blog/brief";
 import { mapQuestion, withSubject, type ArticleMap } from "@/lib/content/blog/articleMap";
 import { notOnMap } from "@/lib/content/blog/names";
 import type { BlogHubControls } from "./types";
+import { MapSubjectSearch } from "@/components/admin/brand-kit/MapSubjectSearch";
 
 /**
  * The blog hub's brief, editable: the question the article answers, what buyers ask, and
@@ -671,6 +672,12 @@ const NO_SUBJECT = "none";
 function SubjectPicker({ map, brief, onChange }: { map: ArticleMap; brief: BlogBrief; onChange: (next: BlogBrief) => void }) {
   const value = brief.subjectId === null ? NO_SUBJECT : (brief.subjectId ?? "");
   const gone = Boolean(brief.subjectId) && !map.subjects.some((s) => s.id === brief.subjectId);
+  if (map.atScale) {
+    // At any size, the article's own subject is on the part of the map it reads; another is found by searching.
+    const own = brief.subjectId ? map.subjects.find((s) => s.id === brief.subjectId) : undefined;
+    const pick = brief.subjectId === null ? null : brief.subjectId ? { id: brief.subjectId, name: own?.name ?? "No longer on your brand map" } : undefined;
+    return <MapSubjectSearch value={pick} onPick={(next) => onChange(withSubject(brief, next === null ? null : next?.id, map))} inputClassName={`w-full ${INPUT}`} />;
+  }
   return (
     <label className={LABEL}>
       Subject
@@ -735,7 +742,7 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
         ) : null}
       </div>
 
-      {map?.subjects.length ? <SubjectPicker map={map} brief={brief} onChange={controls.onBriefChange} /> : null}
+      {map?.subjects.length || map?.atScale ? <SubjectPicker map={map} brief={brief} onChange={controls.onBriefChange} /> : null}
 
       <div>
         <label htmlFor={`${id}-asks`} className={LABEL}>

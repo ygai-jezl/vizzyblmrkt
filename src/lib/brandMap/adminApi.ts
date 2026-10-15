@@ -33,6 +33,24 @@ export async function brandMapAdmin(
   return { ok: true, ctx };
 }
 
+/**
+ * Reading the Brand map (any signed-in member of the brand): origin, flag and sign-in, in
+ * that order. Members can view what an admin decides; an article's subject search reads it.
+ */
+export async function brandMapReader(
+  req: Request,
+  opts: { on?: () => boolean; offError?: string } = {},
+): Promise<AdminGate> {
+  const blocked = sameOriginGuard(req);
+  if (blocked) return { ok: false, response: blocked };
+  if (!isBrandMapEnabled() || (opts.on && !opts.on())) {
+    return { ok: false, response: NextResponse.json({ error: opts.offError ?? "brand_map_disabled" }, { status: 503 }) };
+  }
+  const ctx = await getAdminContext();
+  if (!ctx) return { ok: false, response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  return { ok: true, ctx };
+}
+
 /** The domains the tenant record says the brand owns. */
 export async function ownSitesOf(ctx: TenantContext): Promise<string[]> {
   try {

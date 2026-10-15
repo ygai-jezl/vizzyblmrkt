@@ -11,6 +11,7 @@ import { IngestBar } from "@/components/admin/workspace/IngestBar";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentObjective, ContentPlan, SequenceType } from "@/lib/types/contentPlan";
 import type { WriteNext } from "@/lib/content/blog/articleMap";
+import { MapSubjectSearch, type SubjectPick } from "@/components/admin/brand-kit/MapSubjectSearch";
 
 /**
  * Create intake wizard — 4 short steps (Strategy / Scope / Knowledge / Topology) +
@@ -45,6 +46,7 @@ export function CreateWizard({
   topics,
   initialSources,
   subjects = [],
+  subjectSearch = false,
   prefill = null,
   onCreated,
   onCancel,
@@ -54,6 +56,8 @@ export function CreateWizard({
   initialSources: IngestionTicket[];
   /** The brand map's subjects (empty without a map in force). */
   subjects?: MapSubjectChoice[];
+  /** The map at any size: a subject is chosen by searching for it, not from a list. */
+  subjectSearch?: boolean;
   /** "Write this next": a blog article that answers this map question. */
   prefill?: WriteNext | null;
   onCreated: (plan: ContentPlan) => void;
@@ -78,8 +82,14 @@ export function CreateWizard({
   // The brand map subject: "" = research picks one, NO_SUBJECT = none of them. And the map
   // question the article answers ("Write this next"), kept while it is on that subject.
   const [subject, setSubject] = useState(prefill?.subjectId ?? "");
+  // The chosen subject's name, when it was found by searching (the map at any size).
+  const [subjectName, setSubjectName] = useState(prefill?.subjectName ?? "");
   const [questionId, setQuestionId] = useState<string | null>(prefill?.questionId ?? null);
-  const linkedQuestion = questionId ? subjects.flatMap((s) => s.questions).find((q) => q.id === questionId) : undefined;
+  const linkedQuestion = questionId
+    ? (subjects.flatMap((s) => s.questions).find((q) => q.id === questionId) ??
+      (prefill?.questionId === questionId ? { id: prefill.questionId, text: prefill.question } : undefined))
+    : undefined;
+  const pick: SubjectPick = subject === NO_SUBJECT ? null : subject ? { id: subject, name: subjectName || subject } : undefined;
   const [sources, setSources] = useState<IngestionTicket[]>(initialSources);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -492,7 +502,20 @@ export function CreateWizard({
                       </div>
                     ) : null}
                   </Field>
-                  {subjects.length ? (
+                  {subjectSearch ? (
+                    <Field label="Subject (optional)" hint="Which subject on your brand map this article is for. Leave it and research picks one.">
+                      <MapSubjectSearch
+                        value={pick}
+                        onPick={(next) => {
+                          setSubject(next === null ? NO_SUBJECT : (next?.id ?? ""));
+                          setSubjectName(next?.name ?? "");
+                          // The map question belongs to one subject: moving off it unlinks it.
+                          if (questionId && (!next || next.id !== prefill?.subjectId)) setQuestionId(null);
+                        }}
+                        inputClassName={INPUT}
+                      />
+                    </Field>
+                  ) : subjects.length ? (
                     <Field label="Subject (optional)" hint="Which subject on your brand map this article is for. Leave it and research picks one.">
                       <select
                         aria-label="Subject"

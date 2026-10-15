@@ -60,6 +60,11 @@ export interface ArticleMap {
   answered: Record<string, AnsweredBy>;
   /** Live articles per subject, for "goes deeper" links. */
   siblings: Array<{ subjectId: string; title: string; url: string }>;
+  /**
+   * The map at any size: `subjects` is only the part close to the article (its own, and the
+   * nearest), so a subject is chosen by searching for it.
+   */
+  atScale?: boolean;
 }
 
 /** The article's view of a saved map. Every stored link was confirmed by a person (the server stamps it on save). */

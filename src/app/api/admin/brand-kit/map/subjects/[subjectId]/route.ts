@@ -1,4 +1,4 @@
-import { brandMapAdmin } from "@/lib/brandMap/adminApi";
+import { brandMapAdmin, brandMapReader } from "@/lib/brandMap/adminApi";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { editSubjectFromRequest, removeSubjectFromRequest, subjectFromRequest } from "@/lib/brandMap/recordsApi";
 
@@ -10,10 +10,10 @@ const SCALE = { on: isBrandMapScaleEnabled, offError: "brand_map_scale_disabled"
 type RouteParams = { params: Promise<{ subjectId: string }> };
 
 /**
- * One subject with its questions; editing it (naming the revision it started from) and removing it. Admin-only.
+ * One subject with its questions; editing it (naming the revision it started from) and removing it. Members read; admins change.
  */
 export async function GET(req: Request, { params }: RouteParams) {
-  const g = await brandMapAdmin(req, SCALE);
+  const g = await brandMapReader(req, SCALE);
   if (!g.ok) return g.response;
   const { subjectId } = await params;
   return subjectFromRequest(g.ctx, subjectId);

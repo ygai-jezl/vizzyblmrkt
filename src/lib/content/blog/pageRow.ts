@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import { BRAND_MAP_PAGE_LIMITS as L, BrandMapPageFactsSchema, type BrandMapPageFacts } from "@/lib/types/brandMapPage";
+import { siteOf } from "@/lib/knowledge/site";
 import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts } from "./brief";
 import { mentionsName } from "./names";
 import { outlineArticle } from "./outline";
@@ -56,4 +57,29 @@ export function buildPlanPage(plan: ContentPlan): BrandMapPageFacts | null {
 /** A short, stable hash of a row's facts. */
 export function pageFingerprint(facts: BrandMapPageFacts): string {
   return createHash("sha256").update(JSON.stringify(facts)).digest("hex").slice(0, 16);
+}
+
+/** A page already on the brand's site: its row id. The same address gives each brand its own row. */
+export function sitePageId(tenantId: string, url: string): string {
+  return `s_${createHash("sha256").update(`${tenantId}\n${url}`).digest("hex").slice(0, 32)}`;
+}
+
+/**
+ * A page already on the brand's site, as a row: live, with its links to the brand's own pages
+ * when the crawl kept them (null = never read). Null for a page that is not on an own site.
+ */
+export function buildSitePage(page: { url: string; title: string; links?: string[] | null }, own: Set<string>): BrandMapPageFacts | null {
+  const url = normalizeUrl(page.url);
+  if (!url || !/^https:\/\//i.test(url) || !own.has(siteOf(url))) return null;
+  const links = page.links
+    ? [...new Set(page.links.map(normalizeUrl).filter((l) => l && l !== url && /^https:\/\//i.test(l) && own.has(siteOf(l))))].slice(0, L.links)
+    : [];
+  return BrandMapPageFactsSchema.parse({
+    kind: "site",
+    url,
+    title: page.title.replace(/\s+/g, " ").trim().slice(0, L.title),
+    links,
+    linksKnown: Boolean(page.links),
+    state: "live",
+  });
 }

@@ -1,6 +1,6 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ContentPlan } from "@/lib/types/contentPlan";
-import type { BrandMapPage } from "@/lib/types/brandMapPage";
+import type { BrandMapPage, BrandMapPageFacts } from "@/lib/types/brandMapPage";
 import { planPageId } from "@/lib/types/brandMapPage";
 import { forTenant } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
@@ -35,6 +35,11 @@ export async function syncPlanPage(
   const plan = args.plan !== undefined ? args.plan : await getContentPlan(ctx, args.workspaceId, args.planId, deps.db);
   const facts = plan ? buildPlanPage(plan) : null;
   if (!facts) return (await removePlanPage(ctx, args.planId, deps)) ? "removed" : "unchanged";
+  return (await writePageRow(ctx, planPageId(args.planId), facts, deps)) ? "written" : "unchanged";
+}
+
+/** Write a row when its facts changed. True when it was written. */
+export async function writePageRow(ctx: TenantContext, id: string, facts: BrandMapPageFacts, deps: PageDeps = {}): Promise<boolean> {
   const fingerprint = pageFingerprint(facts);
   const row: Omit<BrandMapPage, "id" | "tenantId"> = {
     ...facts,
@@ -44,7 +49,7 @@ export async function syncPlanPage(
   // Each attempt of the transaction decides afresh; the last one is what was written.
   let wrote = false;
   await forTenant(ctx, deps.db).brandMapPages.upsert(
-    planPageId(args.planId),
+    id,
     () => {
       wrote = true;
       return row;
@@ -54,7 +59,7 @@ export async function syncPlanPage(
       return wrote ? row : null;
     },
   );
-  return wrote ? "written" : "unchanged";
+  return wrote;
 }
 
 /** Remove an article's row (its plan was deleted). True when there was one. */

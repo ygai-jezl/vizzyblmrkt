@@ -12,6 +12,7 @@ import { BrandMapLookup } from "./BrandMapLookup";
 import { BrandMapMarkup } from "./BrandMapMarkup";
 import { CoverageStrip, NeedsALook, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { BrandMapNames } from "./BrandMapNames";
+import { BrandMapPagesReader } from "./BrandMapPagesReader";
 import { BrandMapSubjects } from "./BrandMapSubjects";
 import { BrandMapSuggestions } from "./BrandMapSuggestions";
 import { decidedOf, firstRunFill, isBlank, isDirty, type BrandMapPageProps, type MapIssue } from "./brandMapForm";
@@ -332,6 +333,7 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onAccept={accept}
             onDismiss={dismiss}
           />
+          {props.coverage && editable ? <BrandMapPagesReader /> : null}
           {props.coverage ? <NeedsALook coverage={props.coverage} /> : null}
           {baseRev > 0 ? <BrandMapMarkup saved={saved} /> : null}
         </div>

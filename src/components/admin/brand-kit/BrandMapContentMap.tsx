@@ -195,6 +195,7 @@ export function BrandMapContentMap({ input, programmes }: { input: ContentMapInp
               minZoom={0.15}
               fitView
               fitViewOptions={{ padding: 0.12 }}
+              proOptions={{ hideAttribution: true }}
             >
               <Background />
               <Controls showInteractive={false} />

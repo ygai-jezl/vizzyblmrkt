@@ -3,6 +3,7 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
 import { isChannel, channelBlueprint } from "@/lib/content/channels";
+import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
 import { isBlockType } from "@/lib/content/blocks";
 import { CORE_ANGLES, isCoreAngle, getFramework, frameworkLabel } from "@/lib/content/frameworks";
 import { WRITING_RULES } from "@/lib/content/writingRules";
@@ -247,7 +248,10 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
 
   const nodes: ContentNode[] = [];
 
-  // Hub — centered.
+  // Hub — centered. A blog article written to the CITABLE structure is never given a saved
+  // template: its skeleton would replace that structure (TL;DR, key facts, FAQ, sources), as
+  // the writer fills a template instead. A person can still choose one in the inspector.
+  const citableHub = isBlogCitableEnabled() && input.hubChannel === "blog" && input.objective !== "email_sequence";
   const hubBlock = matchModel(models, "hub", input.hubChannel);
   const hubNode = emptyNode(
     "hub",
@@ -256,7 +260,7 @@ export async function architectPlan(input: ArchitectInput): Promise<ArchitectGra
     hubBlock.blockType || "full-post",
     hubBlock.brief || `Write the comprehensive ${input.hubChannel} centerpiece${sparkHint}, grounded in the workspace knowledge.`,
     { x: CENTER.x, y: CENTER.y },
-    pickTemplate(templates, "hub", input.hubChannel, hubBlock.blockType || "full-post"),
+    citableHub ? null : pickTemplate(templates, "hub", input.hubChannel, hubBlock.blockType || "full-post"),
     null,
   );
 

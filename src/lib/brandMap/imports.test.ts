@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
-import { addedWords, getImport, listImports, parseImportLines, readImport, removeImport } from "./imports";
+import { addedWords, getImport, listImports, parseImportLines, pdfPageCount, readImport, removeImport } from "./imports";
 import { uploadImportFromRequest } from "./importsApi";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -106,6 +106,20 @@ describe("research from a PDF", () => {
     const refused = await uploadImportFromRequest(ctx, big, { db });
     expect(refused.status).toBe(400);
     expect(await refused.json()).toEqual({ error: "pdf_too_large" });
+  });
+
+  it("leaves out a question or search cut off in a screenshot", () => {
+    const read = parseImportLines(["ASK: How do I rank in AI answers? | 1", "ALSO: Generative engine... | 4", "ALSO: ai search optimization… | 4", "THEME: Measuring… | 2"].join("\n"));
+    expect(read.items.map((i) => i.text)).toEqual(["How do I rank in AI answers?"]);
+    expect(read.themes.map((t) => t.name)).toEqual(["Measuring…"]);
+  });
+
+  it("says how many pages the file has when its page tree is written out, and nothing when it isn't", () => {
+    const pdf = (body: string) => Buffer.from(`%PDF-1.4\n${body}\n%%EOF\n`, "latin1");
+    expect(pdfPageCount(pdf("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj 2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >> endobj"))).toBe(4);
+    // A branch of the tree (it has a parent) isn't the whole count; a later edit's root is.
+    expect(pdfPageCount(pdf("<< /Type /Pages /Parent 2 0 R /Count 2 >> << /Type /Pages /Kids [] /Count 3 >> << /Type /Pages /Count 5 >>"))).toBe(5);
+    expect(pdfPageCount(pdf("1 0 obj << /Type /ObjStm /N 9 /Length 99 >> stream ... endstream"))).toBe(0);
   });
 
   it("refuses a file that isn't a PDF before using a research allowance", async () => {

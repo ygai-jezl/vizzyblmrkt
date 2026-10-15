@@ -117,7 +117,7 @@ export async function placeImport(ctx: TenantContext, importId: string, deps: Pl
   let noFit = 0;
   let themes = imp.themes;
   if (batch.length) {
-    const near = await nearestSubjectsMany(ctx, batch.map((i) => i.text), { limit: NEAR_EACH, statuses: ["decided", "proposed"] }, { db: deps.db, ...deps.embed });
+    const near = await nearestSubjectsMany(ctx, batch.map((i) => i.text), { limit: NEAR_EACH, statuses: ["decided", "proposed"], fill: true }, { db: deps.db, ...deps.embed });
     const refs = [...new Set(near.flat().map((n) => n.ref))].slice(0, MAX_SUBJECTS);
     const subjects = (await store.getMany("sub", refs).catch(() => [])).flatMap((r) =>
       typeof r.name === "string" && r.status !== "dismissed" && !r.mergedInto ? [{ id: r.id, name: r.name }] : [],

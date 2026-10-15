@@ -69,28 +69,38 @@ export async function embedSituations(ctx: TenantContext, situations: BrandMapSi
   return done;
 }
 
-/** By shared meaningful words, when meaning can't be had: every name is read once. */
-async function nearestByWords(ctx: TenantContext, text: string, limit: number, statuses: string[], deps: EmbedDeps): Promise<BrandMapNeighbour[]> {
+/**
+ * Names by the share of their meaningful words the text has, most first. With `fill`, the
+ * rest of the names follow them up to the limit: placing a question needs to see the map,
+ * and on a small one few names share a word with it.
+ */
+function byWords(names: Array<{ id: string; status: string; name: string }>, text: string, limit: number, fill: boolean): BrandMapNeighbour[] {
   const words = new Set(meaningWords(text));
-  if (!words.size) return [];
-  const names = await subjectIndex(ctx, deps);
-  return names
-    .filter((n) => statuses.includes(n.status))
-    .map((n) => {
-      const own = meaningWords(n.name);
-      const shared = own.filter((w) => words.has(w)).length;
-      return { ref: n.id, status: n.status, sim: own.length ? shared / own.length : 0 };
-    })
-    .filter((n) => n.sim > 0)
-    .sort((a, b) => b.sim - a.sim || a.ref.localeCompare(b.ref))
-    .slice(0, limit);
+  const scored = names.map((n) => {
+    const own = meaningWords(n.name);
+    return { ref: n.id, status: n.status, sim: own.length ? own.filter((w) => words.has(w)).length / own.length : 0 };
+  });
+  const near = scored.filter((n) => n.sim > 0).sort((a, b) => b.sim - a.sim || a.ref.localeCompare(b.ref)).slice(0, limit);
+  if (!fill || near.length >= limit) return near;
+  const taken = new Set(near.map((n) => n.ref));
+  return [...near, ...scored.filter((n) => !taken.has(n.ref)).sort((a, b) => a.ref.localeCompare(b.ref))].slice(0, limit);
 }
 
-/** The subjects nearest a piece of text, most similar first: by meaning, else by shared words. */
+/** By shared meaningful words, when meaning can't be had: every name is read once. */
+async function nearestByWords(ctx: TenantContext, text: string, limit: number, statuses: string[], fill: boolean, deps: EmbedDeps): Promise<BrandMapNeighbour[]> {
+  if (!meaningWords(text).length && !fill) return [];
+  const names = await subjectIndex(ctx, deps);
+  return byWords(names.filter((n) => statuses.includes(n.status)), text, limit, fill);
+}
+
+/**
+ * The subjects nearest a piece of text, most similar first: by meaning, else by shared words
+ * (with `fill`, the rest of the map after them, up to the limit).
+ */
 export async function nearestSubjects(
   ctx: TenantContext,
   text: string,
-  opts: { limit: number; statuses?: string[] },
+  opts: { limit: number; statuses?: string[]; fill?: boolean },
   deps: EmbedDeps = {},
 ): Promise<BrandMapNeighbour[]> {
   const statuses = opts.statuses ?? ["decided"];
@@ -99,7 +109,7 @@ export async function nearestSubjects(
     const found = await nearestBrandMapRecords(ctx, { kind: "subject", vector, limit: opts.limit, statuses }, deps.vectors).catch(() => null);
     if (found?.length) return found;
   }
-  return nearestByWords(ctx, text, opts.limit, statuses, deps);
+  return nearestByWords(ctx, text, opts.limit, statuses, Boolean(opts.fill), deps);
 }
 
 /**
@@ -110,7 +120,7 @@ export async function nearestSubjects(
 export async function nearestSubjectsMany(
   ctx: TenantContext,
   texts: string[],
-  opts: { limit: number; statuses?: string[] },
+  opts: { limit: number; statuses?: string[]; fill?: boolean },
   deps: EmbedDeps = {},
 ): Promise<BrandMapNeighbour[][]> {
   if (!texts.length) return [];
@@ -122,17 +132,7 @@ export async function nearestSubjectsMany(
     );
   }
   const names = (await subjectIndex(ctx, deps).catch(() => [])).filter((n) => statuses.includes(n.status));
-  return texts.map((text) => {
-    const words = new Set(meaningWords(text));
-    return names
-      .map((n) => {
-        const own = meaningWords(n.name);
-        return { ref: n.id, status: n.status, sim: own.length ? own.filter((w) => words.has(w)).length / own.length : 0 };
-      })
-      .filter((n) => n.sim > 0)
-      .sort((a, b) => b.sim - a.sim || a.ref.localeCompare(b.ref))
-      .slice(0, opts.limit);
-  });
+  return texts.map((text) => byWords(names, text, opts.limit, Boolean(opts.fill)));
 }
 
 /** The buying situations nearest a piece of text (by meaning only: a brand has far fewer). */

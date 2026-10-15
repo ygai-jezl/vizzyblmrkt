@@ -105,7 +105,7 @@ export async function askSituationQuestions(ctx: TenantContext, situationId: str
   const map = read?.state === "ok" ? read.map : null;
   const identity = map?.identity;
 
-  const near = await nearestSubjects(ctx, situationText(situation), { limit: NEAREST_SUBJECTS, statuses: ["decided", "proposed"] }, { db: deps.db, ...deps.embed }).catch(() => []);
+  const near = await nearestSubjects(ctx, situationText(situation), { limit: NEAREST_SUBJECTS, statuses: ["decided", "proposed"], fill: true }, { db: deps.db, ...deps.embed }).catch(() => []);
   const subjects = (await store.getMany("sub", near.map((n) => n.ref)).catch(() => [])).flatMap((r) =>
     typeof r.name === "string" && r.status !== "dismissed" && !r.mergedInto ? [{ id: r.id, name: r.name, status: String(r.status) }] : [],
   );

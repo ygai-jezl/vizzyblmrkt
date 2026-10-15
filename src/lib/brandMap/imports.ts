@@ -71,6 +71,8 @@ export function parseImportLines(text: string, max: number = LIMITS.importItems)
     const pageNumber = bar >= 0 ? Number(/(\d{1,5})/.exec(body.slice(bar + 1))?.[1]) : NaN;
     const page = Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= 10_000 ? pageNumber : null;
     if (!said || hasEmail(said) || hasPhone(said)) continue;
+    // Cut off in a screenshot ("Generative engine..."): not something anyone asked or searched.
+    if ((kind === "ASK" || kind === "ALSO" || kind === "QUESTION") && /(\.\.\.|…)$/.test(said)) continue;
     // A site an answer cites: its name, or its bare domain (never a link to a page).
     if (kind === "CITED" ? /https?:\/\/|\//.test(said) : hasAddress(said)) continue;
     const key = `${kind}:${questionKey(said) || said.toLowerCase()}`;
@@ -126,6 +128,21 @@ export interface ImportDeps {
 
 export type ImportResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string };
 
+/**
+ * How many pages the file has, from the root of its page tree when it is written out plainly
+ * (`<< /Type /Pages /Kids [...] /Count 4 >>` with no parent; the last one, after any later
+ * edits). 0 when it can't be told this way (a compressed page tree, say).
+ */
+export function pdfPageCount(bytes: Buffer): number {
+  let count = 0;
+  for (const m of bytes.toString("latin1").matchAll(/<<((?:(?!<<|>>)[\s\S])*?\/Type\s*\/Pages\b(?:(?!<<|>>)[\s\S])*?)>>/g)) {
+    const dict = m[1] ?? "";
+    const n = /\/Count\s+(\d+)/.exec(dict);
+    if (n && !/\/Parent\b/.test(dict)) count = Number(n[1]);
+  }
+  return count > 0 && count <= 10_000 ? count : 0;
+}
+
 /** Read one PDF and keep what it found as an import record. The file itself is never kept. */
 export async function readImport(ctx: TenantContext, input: { fileName: string; bytes: Buffer }, deps: ImportDeps = {}): Promise<ImportResult<BrandMapImport>> {
   if (!(deps.modelReady ?? isGeminiConfigured)()) return { ok: false, status: 503, error: "no_model" };
@@ -151,7 +168,8 @@ export async function readImport(ctx: TenantContext, input: { fileName: string; 
     id: freshId("imp"),
     tenantId: ctx.tenantId,
     fileName: nameOf(input.fileName),
-    pages: found.pages,
+    // The file's own count; the last page something was found on when it can't be told.
+    pages: Math.max(pdfPageCount(input.bytes), found.pages),
     at: new Date(deps.nowMs ?? Date.now()).toISOString(),
     by: ctx.userId ?? null,
     searches: found.searches,

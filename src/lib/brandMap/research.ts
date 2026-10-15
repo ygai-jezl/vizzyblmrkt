@@ -1,6 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateGroundedText, isGeminiConfigured } from "@/lib/agents/gemini";
-import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
+import { retrieveSemanticKnowledgeContext, type KnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
@@ -307,6 +307,92 @@ export type ProposeResult =
   | { ok: true; items: SuggestionInput[]; notes: string[] }
   | { ok: false; status: number; error: string };
 
+/** What research reads of the brand's own, before it searches. */
+export interface BrandMaterial {
+  tenant: Awaited<ReturnType<typeof getTenantById>> | null;
+  brandName: string;
+  domains: string[];
+  /** The brand's own sites, as `siteOf` gives them. */
+  own: Set<string>;
+  /** The account's domain, bare. */
+  root: string;
+  site: string;
+  /** Its own pages, the ones that convert or describe the product first. */
+  pages: KnownPage[];
+  knowledge: Array<KnowledgeContext | null>;
+  knowledgeText: string;
+  siteText: string;
+  home: Homepage | null;
+  /** Names a person typed on articles' briefs. */
+  typedNames: string[];
+  /** The names and questions its articles use, a line each ("NAME: …", "Q: …"). */
+  existing: string[];
+}
+
+/**
+ * Read what the brand says about itself: its account, its programmes' crawled pages, its
+ * knowledge (passages near `question`), its articles' briefs and its home page, each read
+ * within a few seconds or left out.
+ */
+export async function gatherBrandMaterial(
+  ctx: TenantContext,
+  identity: { name: string; site: string },
+  question: (brandName: string) => string,
+  deps: ProposeDeps = {},
+): Promise<BrandMaterial> {
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const brandName = oneLine(identity.name || tenant?.tenantName || "");
+  const domains = tenantDomains(tenant);
+  const own = sitesOf([identity.site, ...domains]);
+  const root = (tenant?.rootDomain ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const site = identity.site || (root ? `https://${root}` : "");
+
+  const listWorkspaces = deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: 200 }));
+  const workspaces = (await listWorkspaces(ctx).catch(() => []))
+    .filter((w) => !w.archivedAt)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
+    .slice(0, MAX_WORKSPACES);
+
+  const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
+  const queryText = question(brandName);
+  const [pageLists, knowledge, planLists, home] = await Promise.all([
+    Promise.all(workspaces.map((w) => soft((deps.sitePages ?? indexedSitePages)(ctx, w.id), 8_000, { pages: [], repoPaths: [] }))),
+    Promise.all(
+      workspaces.slice(0, MAX_KNOWLEDGE_WORKSPACES).map((w) =>
+        soft(retrieve({ ctx, ownerKind: "workspace", ownerId: w.id, queryText, limit: 6, bypassEnabledFlag: true }), 8_000, null),
+      ),
+    ),
+    Promise.all(workspaces.map((w) => soft((deps.plans ?? listContentPlans)(ctx, w.id, 30), 8_000, []))),
+    root ? soft((deps.fetchHome ?? ((d: string) => fetchHomepage(d, { userAgent: UA, maxTextChars: MAX_SITE_TEXT })))(root), 8_000, null) : Promise.resolve(null),
+  ]);
+
+  const briefs = planLists.flat().flatMap((p) => (p.blog ? [p.blog] : []));
+  return {
+    tenant,
+    brandName,
+    domains,
+    own,
+    root,
+    site,
+    pages: rankPages(pageLists.flatMap((l) => l.pages), own),
+    knowledge,
+    knowledgeText: knowledge
+      .map((k) => k?.formatted ?? "")
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, MAX_KNOWLEDGE_CHARS),
+    siteText: stripFenceDelimiters(home?.text ?? "").slice(0, MAX_SITE_TEXT),
+    home,
+    typedNames: briefs.flatMap((b) => b.entities.filter((e) => e.by === "operator").map((e) => e.name)),
+    existing: [
+      ...new Set([
+        ...briefs.flatMap((b) => b.entities.map((e) => `NAME: ${oneLine(e.name)} (${e.relation})`)),
+        ...briefs.flatMap((b) => [b.primaryQuestion, ...b.questions.map((q) => q.question)].filter(Boolean).map((q) => `Q: ${oneLine(q)}`)),
+      ]),
+    ].slice(0, MAX_EXISTING * 2),
+  };
+}
+
 export async function proposeBrandMap(
   ctx: TenantContext,
   args: {
@@ -323,51 +409,15 @@ export async function proposeBrandMap(
   const deadline = started + (args.timeoutMs ?? 60_000);
   const notes: string[] = [];
 
-  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
-  const brandName = oneLine(args.current.identity.name || tenant?.tenantName || "");
-  const domains = tenantDomains(tenant);
-  const own = sitesOf([args.current.identity.site, ...domains]);
-  const root = (tenant?.rootDomain ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-  const site = args.current.identity.site || (root ? `https://${root}` : "");
-
-  const listWorkspaces = deps.workspaces ?? ((c: TenantContext) => forTenant(c, deps.db).workspaces.find({ where: [], limit: 200 }));
-  const workspaces = (await listWorkspaces(ctx).catch(() => []))
-    .filter((w) => !w.archivedAt)
-    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
-    .slice(0, MAX_WORKSPACES);
-
-  const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
-  const question = `What is ${brandName || "this brand"}, what does it do, who is it for, and what category is it in?`;
-  const [pageLists, knowledge, planLists, home] = await Promise.all([
-    Promise.all(workspaces.map((w) => soft((deps.sitePages ?? indexedSitePages)(ctx, w.id), 8_000, { pages: [], repoPaths: [] }))),
-    Promise.all(
-      workspaces.slice(0, MAX_KNOWLEDGE_WORKSPACES).map((w) =>
-        soft(retrieve({ ctx, ownerKind: "workspace", ownerId: w.id, queryText: question, limit: 6, bypassEnabledFlag: true }), 8_000, null),
-      ),
-    ),
-    Promise.all(workspaces.map((w) => soft((deps.plans ?? listContentPlans)(ctx, w.id, 30), 8_000, []))),
-    root ? soft((deps.fetchHome ?? ((d: string) => fetchHomepage(d, { userAgent: UA, maxTextChars: MAX_SITE_TEXT })))(root), 8_000, null) : Promise.resolve(null),
-  ]);
-
-  const pages = rankPages(pageLists.flatMap((l) => l.pages), own);
-  const knowledgeText = knowledge
-    .map((k) => k?.formatted ?? "")
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0, MAX_KNOWLEDGE_CHARS);
-  const siteText = stripFenceDelimiters(home?.text ?? "").slice(0, MAX_SITE_TEXT);
+  const { tenant, brandName, domains, root, site, pages, knowledgeText, siteText, home, typedNames, existing } = await gatherBrandMaterial(
+    ctx,
+    args.current.identity,
+    (name) => `What is ${name || "this brand"}, what does it do, who is it for, and what category is it in?`,
+    deps,
+  );
   if (!knowledgeText && !siteText) return { ok: false, status: 409, error: "nothing_to_read" };
   if (!root) notes.push("Your account has no website domain, so no home pages or profile links were found. Set it in Settings.");
   if (!pages.length) notes.push("None of your programmes has crawled your site yet, so no subject or name has a home page.");
-
-  const briefs = planLists.flat().flatMap((p) => (p.blog ? [p.blog] : []));
-  const typedNames = briefs.flatMap((b) => b.entities.filter((e) => e.by === "operator").map((e) => e.name));
-  const existing = [
-    ...new Set([
-      ...briefs.flatMap((b) => b.entities.map((e) => `NAME: ${oneLine(e.name)} (${e.relation})`)),
-      ...briefs.flatMap((b) => [b.primaryQuestion, ...b.questions.map((q) => q.question)].filter(Boolean).map((q) => `Q: ${oneLine(q)}`)),
-    ]),
-  ].slice(0, MAX_EXISTING * 2);
 
   const prompt = renderPrompt(args.scale ? "brand.map_research_scale" : "brand.map_research", {
     brand_name: brandName.replace(/["\n]/g, " ").slice(0, 120) || "(not named)",

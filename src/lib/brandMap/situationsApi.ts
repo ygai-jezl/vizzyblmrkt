@@ -3,7 +3,9 @@ import { z } from "zod";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { SituationSide, SituationW } from "@/lib/types/brandMapRecords";
 import type { EmbedDeps } from "./embed";
+import { findSituations, type FindDeps } from "./findSituations";
 import { moveFirst, recordResponse } from "./recordsApi";
+import { takeStep } from "./runs";
 import { createSituation, editSituation, listSituations, readSituation, removeSituation } from "./situations";
 
 /**
@@ -57,4 +59,22 @@ export async function removeSituationFromRequest(ctx: TenantContext, id: string,
   const blocked = await moveFirst(ctx, deps);
   if (blocked) return blocked;
   return recordResponse(await removeSituation(ctx, id, deps));
+}
+
+const FindBody = z.object({ runId: z.string().min(1).max(64), customers: z.string().max(300).optional() });
+
+/**
+ * POST research's first step for buying situations, as a step of a "situations" run: what it
+ * finds is proposed (unbacked ones marked), for a person to tick and add.
+ */
+export async function findSituationsFromRequest(ctx: TenantContext, body: unknown, deps: Deps & { find?: Omit<FindDeps, "db" | "nowMs"> } = {}): Promise<Response> {
+  const parsed = FindBody.safeParse(body);
+  if (!parsed.success) return invalid();
+  const step = await takeStep(ctx, parsed.data.runId, "situations", deps);
+  if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
+  const blocked = await moveFirst(ctx, deps);
+  if (blocked) return blocked;
+  const r = await findSituations(ctx, { customers: parsed.data.customers }, { db: deps.db, nowMs: deps.nowMs, embed: deps.embed, ...deps.find });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, found: r.found, skipped: r.skipped, notes: r.notes, stepsLeft: step.value.stepsLeft });
 }

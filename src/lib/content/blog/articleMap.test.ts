@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BlogBriefSchema } from "@/lib/types/contentPlan";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
-import { mapMaterial, mapQuestion, projectArticleMap, researchMapBlock, researchSubjectLine, withSubject, writerMapBlock } from "./articleMap";
+import { mapMaterial, mapQuestion, projectArticleMap, researchMapBlock, researchSubjectLine, withSubject, writeNextFrom, writeNextHref, writerMapBlock } from "./articleMap";
 
 const decided = BrandMapDecidedSchema.parse({
   identity: {
@@ -84,6 +84,13 @@ describe("the article's view of the brand map", () => {
     expect(withSubject(brief, null, map)).toEqual({ primaryQuestion: "How is it measured?", subjectId: null });
     // Back to "research picks one": no subject key at all, so research may pick again.
     expect(withSubject(brief, undefined, map)).toEqual({ primaryQuestion: "How is it measured?" });
+  });
+
+  it("starts a new article from a question still on the map", () => {
+    expect(writeNextFrom(map, "q_bbbbbbbb")).toEqual({ subjectId: "sub_aaaaaaaa", subjectName: "Share of voice", questionId: "q_bbbbbbbb", question: "How is it measured?" });
+    expect(writeNextFrom(map, "q_gonegone")).toBeNull();
+    expect(writeNextFrom(map, undefined)).toBeNull();
+    expect(writeNextHref("ws 1", "q_bbbbbbbb")).toBe("/admin/workspace/ws%201/create?question=q_bbbbbbbb");
   });
 
   it("counts the brand's own statement as its material", () => {

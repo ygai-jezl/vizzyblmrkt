@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
-import { getTenantById } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
+import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isBrandMapEnabled, isBrandMapPagesEnabled, isBrandMapResearchEnabled, isBrandMapWikidataEnabled } from "@/lib/brandMap/flags";
@@ -26,7 +27,9 @@ export default async function BrandMapPage() {
   if (!isBrandMapEnabled()) notFound();
 
   const pagesOn = isBrandMapPagesEnabled();
-  const [read, tenant, pages] = await Promise.all([
+  // "Write this next" needs articles written from the map, and somewhere to write them.
+  const writeNextOn = pagesOn && isBlogBrandMapEnabled();
+  const [read, tenant, pages, workspaces] = await Promise.all([
     readBrandMap(ctx).catch((err): BrandMapRead => {
       console.error("[brand-map] read failed", err);
       return { state: "none" };
@@ -38,6 +41,7 @@ export default async function BrandMapPage() {
           return [];
         })
       : ([] as BrandMapPage[]),
+    writeNextOn ? forTenant(ctx).workspaces.find({ where: [], limit: 200 }).catch(() => []) : [],
   ]);
   const map = read.state === "ok" ? read.map : null;
   // What the brand's pages answer, worked out now from the saved map (never stored).
@@ -67,6 +71,7 @@ export default async function BrandMapPage() {
         canLookup={isBrandMapWikidataEnabled()}
         defaults={{ name: tenant?.tenantName?.trim() ?? "", site: root ? `https://${root.replace(/^https?:\/\//, "")}` : "" }}
         coverage={coverage}
+        programmes={writeNextOn ? workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name })) : null}
       />
     </div>
   );

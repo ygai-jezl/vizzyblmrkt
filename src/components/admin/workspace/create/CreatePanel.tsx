@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CreateWizard, type MapSubjectChoice } from "./CreateWizard";
 import { isEbookUiEnabled } from "@/lib/content/create/ebook";
+import type { WriteNext } from "@/lib/content/blog/articleMap";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 
@@ -28,6 +29,7 @@ export function CreatePanel({
   topics,
   initialSources,
   subjects = [],
+  prefill = null,
 }: {
   workspaceId: string;
   initialPlans: ContentPlan[];
@@ -35,10 +37,12 @@ export function CreatePanel({
   initialSources: IngestionTicket[];
   /** The brand map's subjects (empty without a map in force). */
   subjects?: MapSubjectChoice[];
+  /** "Write this next": start the wizard from a map question. */
+  prefill?: WriteNext | null;
 }) {
   const router = useRouter();
   const [plans] = useState<ContentPlan[]>(initialPlans);
-  const [showWizard, setShowWizard] = useState(initialPlans.length === 0);
+  const [showWizard, setShowWizard] = useState(initialPlans.length === 0 || Boolean(prefill));
 
   function onCreated(plan: ContentPlan) {
     // eBook plans open the authoring studio first; everything else goes straight to the
@@ -77,6 +81,7 @@ export function CreatePanel({
           topics={topics}
           initialSources={initialSources}
           subjects={subjects}
+          prefill={prefill}
           onCreated={onCreated}
           onCancel={() => setShowWizard(false)}
         />

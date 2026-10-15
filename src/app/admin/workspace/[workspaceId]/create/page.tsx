@@ -5,17 +5,23 @@ import { listContentPlans } from "@/lib/tenant/workspaceContent";
 import { CreatePanel } from "@/components/admin/workspace/create/CreatePanel";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { loadArticleMap } from "@/lib/content/blog/mapActions";
+import { writeNextFrom } from "@/lib/content/blog/articleMap";
+import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
 /** Create pillar: list saved content workflows + the intake wizard for new ones. */
 export default async function CreatePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
+  /** `?question=q_…`: "Write this next" from the brand map. */
+  searchParams: Promise<{ question?: string | string[] }>;
 }) {
   const ctx = await requireAdminContext();
   const { workspaceId } = await params;
+  const { question } = await searchParams;
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
 
@@ -32,6 +38,8 @@ export default async function CreatePage({
     isBlogBrandMapEnabled() ? loadArticleMap(ctx).catch(() => null) : null,
   ]);
   sources.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  // "Write this next": the wizard starts from the map question, while it is still on the map.
+  const prefill = map && isBrandMapPagesEnabled() && typeof question === "string" ? writeNextFrom(map, question) : null;
 
   return (
     <CreatePanel
@@ -40,6 +48,7 @@ export default async function CreatePage({
       topics={ws.topics ?? []}
       initialSources={sources}
       subjects={(map?.subjects ?? []).map((s) => ({ id: s.id, name: s.name, questions: s.questions.map((q) => ({ id: q.id, text: q.text })) }))}
+      prefill={prefill}
     />
   );
 }

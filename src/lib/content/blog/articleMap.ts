@@ -114,6 +114,24 @@ export function mapQuestion(
   return null;
 }
 
+/** "Write this next": where a new article starts when it answers a map question. */
+export interface WriteNext {
+  subjectId: string;
+  subjectName: string;
+  questionId: string;
+  question: string;
+}
+
+/** The start for an article that answers this map question, while the question is still on the map. */
+export function writeNextFrom(map: Pick<ArticleMap, "subjects">, questionId: string | undefined): WriteNext | null {
+  const hit = mapQuestion(map, questionId);
+  return hit ? { subjectId: hit.subject.id, subjectName: hit.subject.name, questionId: hit.question.id, question: hit.question.text } : null;
+}
+
+/** The link that starts it, in a programme. */
+export const writeNextHref = (workspaceId: string, questionId: string) =>
+  `/admin/workspace/${encodeURIComponent(workspaceId)}/create?question=${encodeURIComponent(questionId)}`;
+
 /**
  * The brief with its subject set by a person: an id, null (none), or undefined (research
  * picks one). The map question the article answers stays linked only while it is on the

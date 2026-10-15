@@ -3,6 +3,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Coverage, CoveragePage, QuestionCoverage, QuestionState } from "@/lib/content/blog/coverage";
+import { writeNextHref } from "@/lib/content/blog/articleMap";
+import { programmeWord } from "@/lib/nav/terms";
 import { Section } from "@/components/admin/connect/ui";
 import { smallLabel } from "./BrandMapParts";
 
@@ -147,5 +149,36 @@ export function NeedsALook({ coverage }: { coverage: Coverage }) {
         </div>
       ) : null}
     </Section>
+  );
+}
+
+const ACTION = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800";
+
+/** "Write this next": a new blog article that answers an open question, in a programme. */
+export function WriteNext({ questionId, programmes }: { questionId: string; programmes: Array<{ id: string; name: string }> }) {
+  if (!programmes.length) return null;
+  if (programmes.length === 1) {
+    return (
+      <Link href={writeNextHref(programmes[0]!.id, questionId)} className={ACTION}>
+        Write this next
+      </Link>
+    );
+  }
+  return (
+    <details className="relative inline-block">
+      <summary className={`cursor-pointer list-none ${ACTION}`}>Write this next</summary>
+      <div className="absolute left-0 z-10 mt-1 min-w-[12rem] rounded-md border border-neutral-200 bg-white p-1 shadow-md dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="px-2 py-1 text-[11px] text-neutral-500">In which {programmeWord().one}?</div>
+        {programmes.map((p) => (
+          <Link
+            key={p.id}
+            href={writeNextHref(p.id, questionId)}
+            className="block truncate rounded px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          >
+            {p.name}
+          </Link>
+        ))}
+      </div>
+    </details>
   );
 }

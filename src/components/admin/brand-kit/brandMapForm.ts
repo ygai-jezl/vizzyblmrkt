@@ -34,6 +34,8 @@ export interface BrandMapPageProps {
   defaults: { name: string; site: string };
   /** What the brand's pages answer (BRAND_MAP_PAGES_ENABLED and a saved map); null = not shown. */
   coverage?: Coverage | null;
+  /** The programmes an open question can be written in ("Write this next"); null = not offered. */
+  programmes?: Array<{ id: string; name: string }> | null;
 }
 
 export interface MapIssue {

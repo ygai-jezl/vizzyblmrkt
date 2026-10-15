@@ -10,7 +10,7 @@ import { Banner, Button } from "@/components/admin/connect/ui";
 import { BrandMapIdentity } from "./BrandMapIdentity";
 import { BrandMapLookup } from "./BrandMapLookup";
 import { BrandMapMarkup } from "./BrandMapMarkup";
-import { CoverageStrip, NeedsALook, QuestionStatus } from "./BrandMapCoverage";
+import { CoverageStrip, NeedsALook, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { BrandMapNames } from "./BrandMapNames";
 import { BrandMapSubjects } from "./BrandMapSubjects";
 import { BrandMapSuggestions } from "./BrandMapSuggestions";
@@ -288,7 +288,17 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onChange={(subjects) => setForm({ ...form, subjects })}
             issues={issues}
             disabled={!editable}
-            status={coverageOf ? (q) => <QuestionStatus q={coverageOf.get(q.id)} /> : undefined}
+            status={
+              coverageOf
+                ? (q) => (
+                    <QuestionStatus
+                      q={coverageOf.get(q.id)}
+                      // Hidden while the map has unsaved changes: leaving now would lose them.
+                      action={props.programmes && !dirty ? <WriteNext questionId={q.id} programmes={props.programmes} /> : null}
+                    />
+                  )
+                : undefined
+            }
           />
           <BrandMapNames
             names={form.names}

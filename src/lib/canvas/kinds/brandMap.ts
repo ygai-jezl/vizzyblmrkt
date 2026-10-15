@@ -7,6 +7,7 @@ import { describeChange } from "@/lib/brandMap/changes";
 import { isBrandMapChatEnabled, isBrandMapResearchEnabled } from "@/lib/brandMap/flags";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { fileSuggestions } from "@/lib/brandMap/filing";
+import { proposalsWaiting } from "@/lib/brandMap/waiting";
 import { RESEARCH_LIMIT, runBrandMapResearch, type ResearchDeps } from "@/lib/brandMap/adminApi";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
@@ -101,9 +102,10 @@ export async function authorBrandMapSuggestions(
     if (await isRateLimited(`tenant:${ctx.tenantId}`, RESEARCH_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
     const r = await runBrandMapResearch(ctx, { db: deps.db, nowMs: deps.nowMs, timeoutMs: RESEARCH_MS, ...deps.research });
     if (!r.ok) return r;
+    const proposals = await proposalsWaiting(ctx, { db: deps.db });
     return outcome({
       filed: r.filed,
-      waiting: r.map?.suggestions.length ?? r.filed,
+      waiting: (r.map?.suggestions.length ?? r.filed) + proposals,
       summary: r.filed
         ? `Research filed ${plural(r.filed, "suggestion")} for your brand map (${r.summary}). ${UNCHANGED}`
         : `Research found nothing new for your brand map. ${UNCHANGED.replace("them", "what waits")}`,
@@ -133,9 +135,10 @@ export async function authorBrandMapSuggestions(
   ]
     .filter(Boolean)
     .join(", ");
+  const proposals = await proposalsWaiting(ctx, { db: deps.db });
   return outcome({
     filed: said.length,
-    waiting: after?.state === "ok" ? after.map.suggestions.length : said.length,
+    waiting: (after?.state === "ok" ? after.map.suggestions.length : said.length) + proposals,
     summary:
       (said.length
         ? `Filed ${plural(said.length, "suggestion")} for your brand map: ${said.slice(0, 5).join("; ")}${said.length > 5 ? `; and ${said.length - 5} more` : ""}.`

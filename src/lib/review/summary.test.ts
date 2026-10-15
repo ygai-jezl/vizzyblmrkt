@@ -240,3 +240,13 @@ describe("loadReview", () => {
     expect(await countReview(ctx, { lifecycle: true, now: 1_000 + 3 * 60_000 }, db)).toBe(6);
   });
 });
+
+describe("the brand map's row, with the map at any size", () => {
+  it("counts proposals with suggestions, and says so", () => {
+    const map = { suggestions: [{ from: "research" }] } as never;
+    expect(brandMapItem(map, 0)?.title).toBe("1 suggestion for your brand map");
+    expect(brandMapItem(map, 4)).toMatchObject({ title: "5 waiting on your brand map", detail: "From research, and new subjects and questions" });
+    expect(brandMapItem({ suggestions: [] } as never, 2)).toMatchObject({ title: "2 waiting on your brand map", detail: "New subjects and questions to look at" });
+    expect(brandMapItem({ suggestions: [] } as never, 0)).toBeNull();
+  });
+});

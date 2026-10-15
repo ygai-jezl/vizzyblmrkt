@@ -13,7 +13,8 @@ import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
-import { isBrandMapEnabled } from "@/lib/brandMap/flags";
+import { isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { proposalsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
 
@@ -196,12 +197,25 @@ export function contentHubItem(
 
 const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", article: "your articles", vizzy: "Vizzy" };
 
-/** Suggestions waiting on the brand map: one row, however many (BRAND_MAP_ENABLED). */
-export function brandMapItem(map: Pick<BrandMap, "suggestions"> | null): ReviewItem | null {
-  const n = map?.suggestions.length ?? 0;
+/**
+ * Suggestions waiting on the brand map: one row, however many (BRAND_MAP_ENABLED). With the
+ * map at any size, the subjects, questions and buying situations proposed for it count too.
+ */
+export function brandMapItem(map: Pick<BrandMap, "suggestions"> | null, proposals = 0): ReviewItem | null {
+  const n = (map?.suggestions.length ?? 0) + proposals;
   if (!map || n === 0) return null;
   const from = (["research", "article", "vizzy"] as const).filter((f) => map.suggestions.some((s) => s.from === f)).map((f) => FROM[f]);
   const said = from.length > 1 ? `${from.slice(0, -1).join(", ")} and ${from.at(-1)}` : (from[0] ?? "");
+  if (proposals) {
+    return {
+      id: "brand_map",
+      kind: "brand_map",
+      title: `${n} waiting on your brand map`,
+      detail: said ? `From ${said}, and new subjects and questions` : "New subjects and questions to look at",
+      href: BRAND_KIT_MAP_ROUTE,
+      action: "Review",
+    };
+  }
   return {
     id: "brand_map",
     kind: "brand_map",
@@ -300,7 +314,7 @@ export async function loadReview(
 ): Promise<Review> {
   const repos = forTenant(ctx, db);
   const invites = isInvitesUiEnabled() && isInvitesEnabled();
-  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves, brandMap] = await Promise.all([
+  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves, brandMap, brandMapProposals] = await Promise.all([
     opts.lifecycle ? soft("ai lines", countWaitingApprovals(ctx, db), 0) : 0,
     opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : [],
     opts.lifecycle || isWaitlistEngineUiEnabled()
@@ -334,6 +348,7 @@ export async function loadReview(
         )
       : [],
     isBrandMapEnabled() ? soft("brand map", readBrandMap(ctx, db).then((r) => (r.state === "ok" ? r.map : null)), null) : null,
+    isBrandMapScaleEnabled() ? soft("brand map proposals", proposalsWaiting(ctx, { db }), 0) : 0,
   ]);
 
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
@@ -353,7 +368,7 @@ export async function loadReview(
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
-    brandMapItem(brandMap),
+    brandMapItem(brandMap, brandMapProposals),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

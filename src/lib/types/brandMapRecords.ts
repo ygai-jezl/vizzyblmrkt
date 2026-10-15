@@ -280,3 +280,10 @@ export const BrandMapMovedSchema = z.object({
   arrayHash: z.string().max(64),
 });
 export type BrandMapMoved = z.infer<typeof BrandMapMovedSchema>;
+
+/**
+ * A record as the tenant layer stores it. Its own id is `ref` (`sub_…`, `q_…`); the document
+ * id is a digest of the brand and `ref` (src/lib/tenant/brandMapRecords.ts), so two brands'
+ * records can never collide. Parsed by src/lib/brandMap/records.ts.
+ */
+export type BrandMapStoredRecord = { id: string; tenantId: string; ref: string } & Record<string, unknown>;

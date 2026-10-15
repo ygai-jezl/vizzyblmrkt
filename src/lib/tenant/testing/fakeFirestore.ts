@@ -106,7 +106,13 @@ class FakeQuery implements QueryLike {
     protected orders: Array<[string, OrderDir]> = [],
     protected lim?: number,
     protected after?: unknown[],
+    protected fields?: string[],
   ) {}
+
+  /** A field's value for ordering and cursors; "__name__" is the document id, as in Firestore. */
+  private static valueOf(r: Row, field: string): unknown {
+    return field === "__name__" ? r.id : r.data[field];
+  }
 
   where(field: string, op: WhereOp, value: unknown): QueryLike {
     return new FakeQuery(
@@ -115,6 +121,7 @@ class FakeQuery implements QueryLike {
       this.orders,
       this.lim,
       this.after,
+      this.fields,
     );
   }
 
@@ -125,15 +132,20 @@ class FakeQuery implements QueryLike {
       [...this.orders, [field, dir]],
       this.lim,
       this.after,
+      this.fields,
     );
   }
 
   limit(n: number): QueryLike {
-    return new FakeQuery(this.store, this.filters, this.orders, n, this.after);
+    return new FakeQuery(this.store, this.filters, this.orders, n, this.after, this.fields);
   }
 
   startAfter(...values: unknown[]): QueryLike {
-    return new FakeQuery(this.store, this.filters, this.orders, this.lim, values);
+    return new FakeQuery(this.store, this.filters, this.orders, this.lim, values, this.fields);
+  }
+
+  select(...fields: string[]): QueryLike {
+    return new FakeQuery(this.store, this.filters, this.orders, this.lim, this.after, fields);
   }
 
   protected rows(): Row[] {
@@ -146,12 +158,12 @@ class FakeQuery implements QueryLike {
     }
     // Real Firestore excludes any document missing an ordered field.
     for (const [field] of this.orders) {
-      rows = rows.filter((r) => r.data[field] !== undefined);
+      rows = rows.filter((r) => FakeQuery.valueOf(r, field) !== undefined);
     }
     for (const [field, dir] of [...this.orders].reverse()) {
       rows = [...rows].sort((a, b) => {
-        const av = a.data[field] as number | string;
-        const bv = b.data[field] as number | string;
+        const av = FakeQuery.valueOf(a, field) as number | string;
+        const bv = FakeQuery.valueOf(b, field) as number | string;
         const c = av < bv ? -1 : av > bv ? 1 : 0;
         return dir === "asc" ? c : -c;
       });
@@ -163,7 +175,7 @@ class FakeQuery implements QueryLike {
       rows = rows.filter((r) => {
         for (let i = 0; i < this.orders.length; i++) {
           const [field, dir] = this.orders[i]!;
-          const av = r.data[field] as number | string;
+          const av = FakeQuery.valueOf(r, field) as number | string;
           const bv = cursor[i] as number | string;
           const c = av < bv ? -1 : av > bv ? 1 : 0;
           if (c !== 0) return (dir === "asc" ? c : -c) > 0;
@@ -180,7 +192,10 @@ class FakeQuery implements QueryLike {
     return {
       empty: rows.length === 0,
       size: rows.length,
-      docs: rows.map((r) => ({ id: r.id, data: () => r.data })),
+      docs: rows.map((r) => ({
+        id: r.id,
+        data: () => (this.fields ? Object.fromEntries(this.fields.filter((f) => f in r.data).map((f) => [f, r.data[f]])) : r.data),
+      })),
     };
   }
 

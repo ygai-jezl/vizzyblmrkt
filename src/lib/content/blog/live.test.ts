@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import type { ContentPlan } from "@/lib/types/contentPlan";
+import { BlogArticleMetaSchema, type ContentPlan } from "@/lib/types/contentPlan";
+import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { checkLive, setArticleLive, titlesMatch } from "./live";
 import { sampleHub, samplePlan } from "./testing/samplePlan";
 
@@ -27,6 +28,9 @@ describe("is the article live?", () => {
     expect(titlesMatch("What is AI search visibility monitoring? | Acme", [TITLE])).toBe(true);
     expect(titlesMatch("What Is AI Search Visibility Monitoring — Acme Blog", [TITLE])).toBe(true);
     expect(titlesMatch("What is AI search visibility…", [TITLE])).toBe(true);
+    // A site answering every address with its own name is not the article.
+    expect(titlesMatch("Acme AI visibility", ["Acme AI visibility platform for growing brands"])).toBe(false);
+    expect(titlesMatch("Acme AI visibility platform for growing", ["Acme AI visibility platform for growing brands"])).toBe(true);
     expect(titlesMatch("Acme Blog", [TITLE])).toBe(false);
     expect(titlesMatch("", [TITLE])).toBe(false);
     expect(titlesMatch("Pricing | Acme", ["", "Pricing"])).toBe(true);
@@ -42,7 +46,13 @@ describe("is the article live?", () => {
     const db = new FakeFirestore();
     const plan = seed(db, samplePlan({}, sampleHub({ status: "approved" })));
     const r = await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: page(`${TITLE} | Acme`) });
-    expect(r.ok && r.node.blog?.live).toEqual({ url: "https://acme.example/blog/visibility", at: "2026-10-15T10:00:00.000Z", by: "check", titleMatched: true });
+    expect(r.ok && r.node.blog?.live).toEqual({
+      url: "https://acme.example/blog/visibility",
+      at: "2026-10-15T10:00:00.000Z",
+      by: "check",
+      titleMatched: true,
+      checkedAt: "2026-10-15T10:00:00.000Z",
+    });
     expect(db.raw("brand_map_pages", "p_plan_1")).toMatchObject({ state: "live", liveAt: "2026-10-15T10:00:00.000Z" });
   });
 
@@ -63,6 +73,34 @@ describe("is the article live?", () => {
     const cleared = await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "clear" }, { db, now });
     expect(cleared.ok && cleared.node.blog?.live).toBeNull();
     expect(db.raw("brand_map_pages", "p_plan_1")).toMatchObject({ state: "draft", liveAt: null });
+  });
+
+  it("keeps the day it was first seen live when checked again, and nothing else can take the mark away", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db, samplePlan({}, sampleHub({ status: "approved" })));
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark" }, { db, now: () => new Date("2026-01-10T00:00:00.000Z") });
+    const later = await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now: () => new Date("2026-10-15T00:00:00.000Z"), fetchPage: page(`${TITLE} | Acme`) });
+    expect(later.ok && later.node.blog?.live).toEqual({
+      url: "https://acme.example/blog/visibility",
+      at: "2026-01-10T00:00:00.000Z",
+      by: "check",
+      titleMatched: true,
+      checkedAt: "2026-10-15T00:00:00.000Z",
+    });
+    type Stored = { graph: { nodes: Array<{ body: string; blog: { metaTitle: string; live?: { at: string } } }> } };
+    const hub = () => (db.raw(PLANS, "plan_1") as Stored).graph.nodes[0]!;
+    // A fact check or a rewrite writes the node's meta afresh: the mark stays.
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }) }, db);
+    expect(hub()).toMatchObject({ blog: { metaTitle: "New title", live: { at: "2026-01-10T00:00:00.000Z" } } });
+    // A canvas save sends the whole graph, its own copy of the meta without the mark: the mark stays.
+    const stale = samplePlan({}, sampleHub({ status: "approved", body: "edited" }));
+    await updateContentPlan(ctx, "ws1", "plan_1", { graph: stale.graph }, db);
+    expect(hub()).toMatchObject({ body: "edited", blog: { live: { at: "2026-01-10T00:00:00.000Z" } } });
+    // Taken away by the person, it stays away whatever a stale canvas sends back.
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "clear" }, { db });
+    const withMark = samplePlan({}, sampleHub({ status: "approved", blog: { ...BlogArticleMetaSchema.parse({}), live: { url: "https://acme.example/blog/visibility", at: "2026-01-10T00:00:00.000Z", by: "operator", titleMatched: false } } }));
+    await updateContentPlan(ctx, "ws1", "plan_1", { graph: withMark.graph }, db);
+    expect((db.raw(PLANS, "plan_1") as { graph: { nodes: Array<{ blog: { live: unknown } }> } }).graph.nodes[0]!.blog.live).toBeNull();
   });
 
   it("needs a blog article with an address", async () => {

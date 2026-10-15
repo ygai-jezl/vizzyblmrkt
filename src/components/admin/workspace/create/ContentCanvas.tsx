@@ -17,6 +17,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type { BlogBrief, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
+import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { CITE_TAG, isCiteSourcesUiEnabled } from "@/lib/knowledge/cite";
@@ -525,8 +526,16 @@ export function ContentCanvas({
       });
       const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; check?: LiveCheck | null; error?: string };
       if (!res.ok || !data.node) return { ok: false, error: data.error ?? (res.status === 429 ? "rate_limited" : "failed") };
-      // The canvas saves the whole node, so it takes the server's meta now (or a save would undo it).
-      patchNode(id, { cn: data.node });
+      // Only the live mark comes back into the canvas: an edit not saved yet stays as it is.
+      // (The server keeps its own mark whatever a save sends, so nothing here can undo it.)
+      const live = data.node.blog?.live ?? null;
+      applyNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          const cur = (n.data as ContentNodeData).cn;
+          return { ...n, data: { ...n.data, cn: { ...cur, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
+        }),
+      );
       return { ok: true, check: data.check ?? null };
     } catch {
       return { ok: false, error: "failed" };

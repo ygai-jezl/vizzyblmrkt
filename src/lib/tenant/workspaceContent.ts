@@ -8,11 +8,13 @@ import { IdeaItemSchema, type IdeaItem } from "@/lib/types/ideaItem";
 import { TemplateSchema, type Template } from "@/lib/types/template";
 import { EmailTemplateSchema, type EmailTemplate } from "@/lib/types/emailTemplate";
 import {
+  BlogArticleMetaSchema,
   ContentPlanSchema,
   ContentNodeSchema,
   EbookDocSchema,
   EbookChapterSchema,
   CONTENT_PLAN_LIMITS,
+  type BlogArticleLive,
   type ContentPlan,
   type ContentNode,
   type EbookDoc,
@@ -439,19 +441,40 @@ export async function updateContentPlan(
       ? new Map(
           current.data.graph.nodes.map(
             (n) =>
-              [n.id, { distributionStatus: n.distributionStatus ?? null, scheduledAt: n.scheduledAt ?? null }] as const,
+              [
+                n.id,
+                { distributionStatus: n.distributionStatus ?? null, scheduledAt: n.scheduledAt ?? null, live: n.blog?.live },
+              ] as const,
           ),
         )
-      : new Map<string, { distributionStatus: ContentNode["distributionStatus"]; scheduledAt: ContentNode["scheduledAt"] }>();
+      : new Map<
+          string,
+          { distributionStatus: ContentNode["distributionStatus"]; scheduledAt: ContentNode["scheduledAt"]; live: BlogArticleLive | null | undefined }
+        >();
     const graph = {
       ...incoming,
       nodes: incoming.nodes.map((n) => {
         const keep = owned.get(n.id);
-        return keep ? { ...n, ...keep } : n;
+        if (!keep) return n;
+        const { live, ...distribution } = keep;
+        return withStoredLive({ ...n, ...distribution }, live);
       }),
     };
     tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
   });
+}
+
+/**
+ * A blog article's live mark (`blog.live`) is set only by the live check, or a person's word
+ * on it (`setLive` below): every other write (a canvas save, a fact check, a rewrite) keeps
+ * the stored one, so none of them can undo it, or bring back one that was taken away.
+ */
+function withStoredLive<N extends Pick<ContentNode, "blog">>(node: N, live: BlogArticleLive | null | undefined): N {
+  if (live === undefined && node.blog?.live === undefined) return node;
+  const blog = { ...(node.blog ?? BlogArticleMetaSchema.parse({})) };
+  if (live === undefined) delete blog.live;
+  else blog.live = live;
+  return { ...node, blog };
 }
 
 /**
@@ -492,6 +515,8 @@ export async function updateContentPlanNode(
   // FakeFirestore under test) reflects node status against the SAME db instead of reaching
   // for the real getDb(). Defaults to the tenant's regional DB for all normal callers.
   db?: FirestoreLike,
+  /** The live check's own write: the new live mark, from the one stored (read in the transaction). */
+  opts: { setLive?: (stored: BlogArticleLive | null) => BlogArticleLive | null } = {},
 ): Promise<ContentNode | null> {
   const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
   // Slash-path collection ref (`workspaces/{ws}/content_plans`): the real admin SDK reads it as
@@ -510,7 +535,10 @@ export async function updateContentPlanNode(
     if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
     const idx = plan.graph.nodes.findIndex((n) => n.id === nodeId);
     if (idx < 0) return null;
-    const next = ContentNodeSchema.parse({ ...plan.graph.nodes[idx], ...patch });
+    const stored = plan.graph.nodes[idx]!;
+    const merged = ContentNodeSchema.parse({ ...stored, ...patch });
+    const live = opts.setLive ? opts.setLive(stored.blog?.live ?? null) : stored.blog?.live;
+    const next = ContentNodeSchema.parse(withStoredLive(merged, live));
     const nodes = [...plan.graph.nodes];
     nodes[idx] = next;
     tx.update(ref, {

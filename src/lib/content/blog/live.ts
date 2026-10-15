@@ -2,6 +2,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BlogArticleMetaSchema, type BlogArticleLive, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 import { updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { articleAddressProblem } from "./address";
+import { normalizeUrl } from "./brief";
 import { outlineArticle } from "./outline";
 import { fetchSourcePage } from "./research";
 import { syncPlanPageSoftly } from "./pageActions";
@@ -38,13 +39,20 @@ const foldTitle = (s: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
-/** Is the page's title the article's? A site often adds its name ("… | Acme"), or shortens a long one. */
+/**
+ * Is the page's title the article's? A site often adds its name ("… | Acme"), or cuts a long
+ * one short. Only the start of the article's title counts when it was cut short (it ends in an
+ * ellipsis) or covers most of it: a site that answers every address with its own name ("Acme
+ * AI visibility") is not the article "Acme AI visibility platform for brands".
+ */
 export function titlesMatch(pageTitle: string, articleTitles: string[]): boolean {
   const page = foldTitle(pageTitle);
   if (!page) return false;
+  const cut = /(…|\.{3})\s*$/.test(pageTitle.trim());
   return articleTitles.some((t) => {
     const want = foldTitle(t);
-    return Boolean(want) && (page.includes(want) || (page.length >= 16 && want.startsWith(page)));
+    if (!want) return false;
+    return page.includes(want) || (page.length >= 16 && want.startsWith(page) && (cut || page.length >= want.length * 0.8));
   });
 }
 
@@ -78,20 +86,26 @@ export async function setArticleLive(
   const meta = node.blog ?? BlogArticleMetaSchema.parse({});
   const at = (deps.now ?? (() => new Date()))().toISOString();
   let check: LiveCheck | null = null;
-  let live: BlogArticleLive | null | undefined;
   if (args.action === "check") {
     const title = node.body.trim() ? outlineArticle(node.body).title : null;
     check = await checkLive(url, [title ?? "", meta.metaTitle], deps.fetchPage);
     // A match is live; anything else leaves it as it was, and says why.
-    live = check.matched ? { url, at, by: "check", titleMatched: true } : undefined;
-  } else {
-    live = args.action === "mark" ? { url, at, by: "operator", titleMatched: false } : null;
+    if (!check.matched) return { ok: true, node, check };
   }
-  if (live === undefined) return { ok: true, node, check };
+  // Seen live at this address before: it keeps the day it was first seen ("newer" and "older" go by it).
+  const sameAddress = (stored: BlogArticleLive | null) => (stored && normalizeUrl(stored.url) === normalizeUrl(url) ? stored : null);
+  const setLive = (stored: BlogArticleLive | null): BlogArticleLive | null => {
+    const before = sameAddress(stored);
+    if (args.action === "clear") return null;
+    if (args.action === "check") return { url, at: before?.at ?? at, by: "check", titleMatched: true, checkedAt: at };
+    return { url, at: before?.at ?? at, by: "operator", titleMatched: before?.titleMatched ?? false, ...(before?.checkedAt ? { checkedAt: before.checkedAt } : {}) };
+  };
 
   let updated: ContentNode | null;
   try {
-    updated = await updateContentPlanNode(ctx, args.workspaceId, plan.id, node.id, { blog: { ...meta, live } }, deps.db);
+    // Only the live mark is written, in the node's own transaction: the rest of its meta is
+    // whatever is stored then, never this request's copy of it.
+    updated = await updateContentPlanNode(ctx, args.workspaceId, plan.id, node.id, {}, deps.db, { setLive });
   } catch {
     return { ok: false, status: 422, error: "invalid_node" };
   }

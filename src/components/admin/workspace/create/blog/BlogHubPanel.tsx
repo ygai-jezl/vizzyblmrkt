@@ -85,6 +85,8 @@ export function BlogHubReview({
           onSave={controls.onSetAddress}
           live={node.blog?.live ?? null}
           onLive={controls.onLive ? (action) => controls.onLive!(node.id, action) : undefined}
+          // While the article is written or checked, its meta is about to be replaced: wait.
+          disabled={disabled || controls.busy !== null}
         />
       ) : null}
 

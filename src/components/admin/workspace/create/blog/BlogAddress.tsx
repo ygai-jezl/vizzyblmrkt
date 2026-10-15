@@ -31,11 +31,19 @@ function checkSaid(c: LiveCheck): string {
 
 const LIVE_ERROR: Record<string, string> = {
   rate_limited: "Too many checks just now. Try again in a few minutes.",
-  no_address: "Save the article's address first.",
+  no_address: "Give the article its own address first: a full https:// link that isn't the home page.",
 };
 
 /** Is it live at this address? A check, or a person's word for it. */
-function LiveRow({ live, onLive }: { live: BlogArticleLive | null; onLive: (action: LiveAction) => Promise<LiveResult> }) {
+function LiveRow({
+  live,
+  onLive,
+  disabled,
+}: {
+  live: BlogArticleLive | null;
+  onLive: (action: LiveAction) => Promise<LiveResult>;
+  disabled: boolean;
+}) {
   const [busy, setBusy] = useState<LiveAction | null>(null);
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
 
@@ -55,7 +63,7 @@ function LiveRow({ live, onLive }: { live: BlogArticleLive | null; onLive: (acti
           {live ? (
             <>
               <span aria-hidden className="text-green-600 dark:text-green-400">● </span>
-              Live · {live.by === "check" ? `checked ${day(live.at)}` : `you said so ${day(live.at)}`}
+              Live · {live.by === "check" ? `checked ${day(live.checkedAt ?? live.at)}` : `you said so ${day(live.at)}`}
             </>
           ) : (
             <>
@@ -64,15 +72,15 @@ function LiveRow({ live, onLive }: { live: BlogArticleLive | null; onLive: (acti
             </>
           )}
         </span>
-        <button type="button" onClick={() => void run("check")} disabled={busy !== null} className={SMALL_BUTTON}>
+        <button type="button" onClick={() => void run("check")} disabled={disabled || busy !== null} className={SMALL_BUTTON}>
           {busy === "check" ? "Checking…" : live ? "Check again" : "Check it's live"}
         </button>
         {live ? (
-          <button type="button" onClick={() => void run("clear")} disabled={busy !== null} className={SMALL_BUTTON}>
+          <button type="button" onClick={() => void run("clear")} disabled={disabled || busy !== null} className={SMALL_BUTTON}>
             Not live
           </button>
         ) : (
-          <button type="button" onClick={() => void run("mark")} disabled={busy !== null} title="For a site that turns the check away" className={SMALL_BUTTON}>
+          <button type="button" onClick={() => void run("mark")} disabled={disabled || busy !== null} title="For a site that turns the check away" className={SMALL_BUTTON}>
             It&apos;s live
           </button>
         )}
@@ -96,12 +104,15 @@ export function BlogAddress({
   onSave,
   live = null,
   onLive,
+  disabled = false,
 }: {
   pageUrl: string | null;
   onSave: (url: string | null) => Promise<AddressSaved>;
   /** The hub's live mark, if any. It counts only at the address it was made for. */
   live?: BlogArticleLive | null;
   onLive?: (action: LiveAction) => Promise<LiveResult>;
+  /** Something else is running on the article. */
+  disabled?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(pageUrl ?? "");
@@ -149,10 +160,10 @@ export function BlogAddress({
             }}
             maxLength={2000}
             placeholder="https://example.com/blog/your-article"
-            disabled={busy}
+            disabled={busy || disabled}
             className={INPUT}
           />
-          <button type="button" onClick={() => void save()} disabled={busy || (!draft.trim() && !pageUrl)} className={SMALL_BUTTON}>
+          <button type="button" onClick={() => void save()} disabled={busy || disabled || (!draft.trim() && !pageUrl)} className={SMALL_BUTTON}>
             {busy ? "Saving…" : "Save"}
           </button>
           {pageUrl ? (
@@ -193,6 +204,7 @@ export function BlogAddress({
               setDraft(pageUrl);
               setEditing(true);
             }}
+            disabled={disabled}
             className={SMALL_BUTTON}
           >
             Change
@@ -206,7 +218,7 @@ export function BlogAddress({
       ) : open ? (
         <p className={HINT}>Where the article lives, or will. Its markup and your brand map use it.</p>
       ) : null}
-      {!open && onLive ? <LiveRow live={liveHere} onLive={onLive} /> : null}
+      {!open && onLive ? <LiveRow live={liveHere} onLive={onLive} disabled={disabled} /> : null}
     </div>
   );
 }

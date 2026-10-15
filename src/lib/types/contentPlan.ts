@@ -336,19 +336,22 @@ export const BlogCorrectionSchema = z.object({
 });
 export type BlogCorrection = z.infer<typeof BlogCorrectionSchema>;
 
-/** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
 /** That the article is live at its address (BRAND_MAP_PAGES_ENABLED): seen by the live check,
  *  or said by a person (for a site that turns the check away, or fills its title in late). */
 export const BlogArticleLiveSchema = z.object({
   /** The address it was live at; a different address since means it has not been seen there. */
   url: z.string().max(2000),
+  /** When it was first seen live at that address (kept by later checks: "newer" and "older" go by it). */
   at: z.string().max(40),
   by: z.enum(["check", "operator"]),
   /** The page's title was the article's when it was checked. */
   titleMatched: z.boolean().default(false),
+  /** When the live check last found it. */
+  checkedAt: z.string().max(40).optional(),
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 
+/** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
 export const BlogArticleMetaSchema = z.object({
   metaTitle: z.string().max(120).default(""),
   metaDescription: z.string().max(320).default(""),

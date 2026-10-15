@@ -6,7 +6,14 @@ import { forTenant, getTenantById } from "@/lib/tenant";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { isBrandMapEnabled, isBrandMapPagesEnabled, isBrandMapResearchEnabled, isBrandMapScaleEnabled, isBrandMapWikidataEnabled } from "@/lib/brandMap/flags";
+import {
+  isBrandMapEnabled,
+  isBrandMapPagesEnabled,
+  isBrandMapResearchEnabled,
+  isBrandMapScaleEnabled,
+  isBrandMapSituationsEnabled,
+  isBrandMapWikidataEnabled,
+} from "@/lib/brandMap/flags";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { computeCoverage } from "@/lib/content/blog/coverage";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
@@ -18,6 +25,7 @@ import { BrandMapTabs } from "@/components/admin/brand-kit/BrandMapTabs";
 import { BrandMapContentMap } from "@/components/admin/brand-kit/BrandMapContentMap";
 import { BrandMapContentMapLevels } from "@/components/admin/brand-kit/BrandMapContentMapLevels";
 import { BrandMapMoveProvider } from "@/components/admin/brand-kit/brandMapMove";
+import { BrandMapSituations } from "@/components/admin/brand-kit/BrandMapSituations";
 import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
@@ -36,6 +44,8 @@ export default async function BrandMapPage() {
   const pagesOn = isBrandMapPagesEnabled();
   // The map at any size: subjects on their own tab, read a group and a subject at a time.
   const scale = isBrandMapScaleEnabled();
+  // Buying situations (implies the map at any size): a tab of their own.
+  const situations = isBrandMapSituationsEnabled();
   // "Write this next" needs articles written from the map, and somewhere to write them.
   const writeNextOn = pagesOn && isBlogBrandMapEnabled();
   const [read, tenant, pages, workspaces] = await Promise.all([
@@ -80,7 +90,10 @@ export default async function BrandMapPage() {
       editorLabel={scale ? "Who you are" : undefined}
       extra={
         scale
-          ? [{ id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} /> }]
+          ? [
+              ...(situations ? [{ id: "situations", label: "Buying situations", node: <BrandMapSituations canEdit={ctx.role === "admin"} programmes={programmes} /> }] : []),
+              { id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} /> },
+            ]
           : []
       }
       contentMap={

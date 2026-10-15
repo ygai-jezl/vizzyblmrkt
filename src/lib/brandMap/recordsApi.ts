@@ -13,6 +13,7 @@ import { startRun, takeStep } from "./runs";
 import { sortIntoGroups, type SortDeps } from "./sortGroups";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
+import { setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
 import {
   addQuestion,
   createGroup,
@@ -63,10 +64,11 @@ async function ownSites(ctx: TenantContext, deps: Deps): Promise<string[]> {
 }
 
 /** Move first; a map that can't be read refuses every write. */
-async function moved(ctx: TenantContext, deps: Deps): Promise<Response | null> {
+export async function moveFirst(ctx: TenantContext, deps: Deps): Promise<Response | null> {
   const r = await ensureMoved(ctx, deps);
   return r.ok ? null : NextResponse.json({ error: r.error }, { status: r.status });
 }
+const moved = moveFirst;
 
 /** After a write: the touched subjects' counts, their groups' totals and their embeddings follow (best effort, never failing it). */
 async function settle<T>(ctx: TenantContext, r: RecordResult<T>, deps: Deps): Promise<Response> {
@@ -89,6 +91,14 @@ export async function proposalsFromRequest(ctx: TenantContext, body: unknown, de
   if (blocked) return blocked;
   const r = await decideProposals(ctx, parsed.data, deps);
   if (r.touched.length || r.groups.length) await afterRecordsChange(ctx, { subjects: r.touched, groups: r.groups }, deps);
+  // A situation's meaning carries its status, so nearest lookups only find decided ones.
+  const situations = [...new Set([...(parsed.data.accept?.situations ?? []), ...(parsed.data.dismiss?.situations ?? [])])];
+  if (situations.length) {
+    const store = brandMapRecords(ctx, deps.db);
+    for (const s of await store.getMany("sit", situations).catch(() => [])) {
+      if (typeof s.status === "string") await setBrandMapVectorStatus(ctx, { kind: "situation", ref: s.id, status: s.status }, deps.db).catch(() => undefined);
+    }
+  }
   return NextResponse.json({ ok: true, accepted: r.accepted, dismissed: r.dismissed, touched: r.touched });
 }
 

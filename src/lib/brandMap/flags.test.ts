@@ -24,10 +24,10 @@ describe("the brand map's switches for size, buying situations and research from
     expect([isBrandMapScaleEnabled(), isBrandMapSituationsEnabled(), isBrandMapImportEnabled()]).toEqual([false, false, false]);
   });
 
-  it("are on in dev and set off in prod on purpose (a variable left out of the prod file is on there)", () => {
+  it("are on in dev, and on in prod since the owner turned them on, each set there on purpose", () => {
     for (const v of ["BRAND_MAP_SCALE_ENABLED", "BRAND_MAP_SITUATIONS_ENABLED", "BRAND_MAP_IMPORT_ENABLED"]) {
       expect(valueIn("apphosting.yaml", v)).toBe("true");
-      expect(valueIn("apphosting.prod.yaml", v)).toBe("false");
+      expect(valueIn("apphosting.prod.yaml", v)).toBe("true");
     }
   });
 });

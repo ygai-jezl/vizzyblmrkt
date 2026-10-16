@@ -347,6 +347,29 @@ export async function processEmailJobsForAllTenants(
 
 /** The MailChimp tag/segment a broadcast targets: the launch's weekly-newsletter
  *  segment for a "weekly" send, else its waitlist segment. */
+/**
+ * The order guard for broadcasts: would this send find anyone? A weekly newsletter
+ * goes only to people tagged for this launch's weekly segment, which exists once
+ * someone has reached the weekly step; until then the worker refuses the send. Checked
+ * when a send is scheduled, so it fails now rather than silently at send time. A
+ * Mailchimp outage reads as fine (the worker still refuses safely later).
+ */
+export async function broadcastAudienceProblem(
+  ctx: TenantContext,
+  b: { audienceMode?: "launch" | "weekly" | null },
+  campaignId: string,
+): Promise<string | null> {
+  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+  const cfg = resolveMailchimpConfig(tenant);
+  if (!cfg.ok) return `mailchimp_config:${cfg.reason}`;
+  try {
+    const segmentId = await findTagSegmentId(cfg.config, broadcastAudienceTag(b.audienceMode, campaignId));
+    return segmentId == null ? "no_audience_segment_for_launch" : null;
+  } catch {
+    return null;
+  }
+}
+
 export function broadcastAudienceTag(
   audienceMode: "launch" | "weekly" | null | undefined,
   campaignId: string,

@@ -114,3 +114,73 @@ describe("the invite step (nav v2 phase 4)", () => {
   });
 });
 
+
+describe("the setup guide", () => {
+  const SETUP_NONE = {
+    domainVerified: false,
+    senderDetails: false,
+    logo: false,
+    voice: false,
+    emailStyle: false,
+    knowledge: false,
+    brandMapSaved: false,
+    social: false,
+    git: false,
+  };
+  const SETUP_READY = { ...SETUP_NONE, domainVerified: true, senderDetails: true, logo: true, voice: true, emailStyle: true };
+  const stage = (s: GrowthSignals, key: string) => computeGrowth(s).stages.find((st) => st.key === key)!;
+  const step = (s: GrowthSignals, key: string, label: string) => stage(s, key).steps.find((st) => st.label === label)!;
+
+  it("adds Get ready first, and a brand-new brand starts there", () => {
+    const g = computeGrowth({ ...NOTHING, setup: SETUP_NONE });
+    expect(g.stages.map((s) => s.key)).toEqual(["ready", "launch", "grow", "product", "retain"]);
+    expect(g.current).toBe("ready");
+    expect(nextStepOf(g.stages[0]!)?.label).toBe("Verify your sending domain");
+  });
+
+  it("leaves the path exactly as before without it", () => {
+    expect(computeGrowth(NOTHING).stages.every((s) => s.steps.every((st) => !st.howTo && !st.needs))).toBe(true);
+  });
+
+  it("sender details wait for a verified domain, and Get ready is done with everything in it", () => {
+    const none = { ...NOTHING, setup: SETUP_NONE };
+    expect(step(none, "ready", "Add your sender details").needs).toEqual([{ label: "Verify your sending domain", href: "/admin/account" }]);
+    expect(step({ ...NOTHING, setup: { ...SETUP_NONE, domainVerified: true } }, "ready", "Add your sender details").needs).toBeUndefined();
+    expect(computeGrowth({ ...NOTHING, setup: SETUP_READY }).current).toBe("launch");
+    expect(computeGrowth({ ...NOTHING, setup: { ...SETUP_READY, voice: false } }).current).toBe("ready");
+  });
+
+  it("drops Email style and the brand map where they're off", () => {
+    const off = { ...NOTHING, setup: { ...SETUP_READY, emailStyle: null, brandMapSaved: null } };
+    expect(stage(off, "ready").steps.map((s) => s.label)).not.toContain("Style your emails");
+    expect(stage(off, "grow").steps.map((s) => s.label)).not.toContain("Save your brand map");
+    expect(computeGrowth(off).current).toBe("launch");
+  });
+
+  it("warns before the welcome email and before scheduling without an account", () => {
+    const s = { ...LAUNCHED, welcomeEmailLive: false, setup: SETUP_READY };
+    expect(step(s, "launch", "Turn on the welcome email").warning).toMatch(/everyone already signed up/);
+    const post = step({ ...s, workspaces: 1, firstWorkspaceId: "w1" }, "grow", "Schedule your first post");
+    expect(post.needs).toEqual([{ label: "Connect LinkedIn or X", href: "/admin/account/connections" }]);
+  });
+
+  it("Grow also needs knowledge, and suggests required steps before optional ones", () => {
+    const ws = { ...LAUNCHED, workspaces: 1, firstWorkspaceId: "w1", postsScheduled: 1, setup: SETUP_READY };
+    expect(computeGrowth(ws).current).toBe("grow");
+    expect(nextStepOf(stage(ws, "grow"))?.label).toBe("Add your website to its knowledge");
+    expect(step(ws, "grow", "Add your website to its knowledge").href).toBe("/admin/workspace/w1/curate/grounding");
+    expect(computeGrowth({ ...ws, setup: { ...SETUP_READY, knowledge: true } }).current).toBe("product");
+  });
+
+  it("going live needs a published journey and the sender set up", () => {
+    const s = { ...LAUNCHED, products: 1, firstProductId: "p1", catalogReady: true, eventsReceived: true, journeys: 1, journeyPublished: true, setup: SETUP_NONE };
+    expect(step(s, "retain", "Switch it to live").needs?.map((n) => n.label)).toEqual(["Verify your sending domain", "Add your sender details"]);
+    expect(step({ ...s, setup: SETUP_READY }, "retain", "Switch it to live").needs).toBeUndefined();
+    expect(step({ ...s, catalogReady: false }, "retain", "Publish it in test mode").needs?.map((n) => n.label)).toEqual(["Learn it from your repo"]);
+  });
+
+  it("every step links to a help page", () => {
+    const g = computeGrowth({ ...LAUNCHED, invited: 0, setup: SETUP_NONE });
+    for (const st of g.stages.flatMap((s) => s.steps)) expect(st.howTo, st.label).toMatch(/^\/help(\/[a-z-]+)?(#[a-z-]+)?$/);
+  });
+});

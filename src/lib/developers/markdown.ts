@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
-import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
+import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, Pairs, UL } from "@/components/developers/Doc";
+import { HELP_PAGES } from "@/lib/help/pages";
 import { DOC_PAGES, hasMarkdown } from "./docs";
 
 /**
@@ -21,7 +22,7 @@ interface Ctx {
   origin: string;
 }
 
-const BLOCKS = new Set<unknown>([H1, H2, H3, P, Lead, Code, UL, OL, Note, Fields]);
+const BLOCKS = new Set<unknown>([H1, H2, H3, P, Lead, Code, UL, OL, Note, Fields, Pairs]);
 const HOST_BLOCKS = new Set(["article", "section", "div", "p", "ul", "ol", "pre", "blockquote", "h1", "h2", "h3"]);
 
 export function docToMarkdown(tree: ReactNode, origin: string): string {
@@ -109,6 +110,8 @@ function block(el: Element, ctx: Ctx): string[] {
     }
     case Fields:
       return [table(el.props.rows as Array<[string, string, ReactNode]>, ctx, el.props.head as [string, string, string] | undefined)];
+    case Pairs:
+      return [pairs(el.props.rows as Array<[ReactNode, ReactNode]>, el.props.head as [string, string], ctx)];
     default:
       return blocks(kids, ctx); // article, section, div
   }
@@ -157,14 +160,19 @@ function table(rows: Array<[string, string, ReactNode]>, ctx: Ctx, names: [strin
   return [head, ...body].join("\n");
 }
 
+function pairs(rows: Array<[ReactNode, ReactNode]>, head: [string, string], ctx: Ctx): string {
+  const cell = (n: ReactNode) => inline(n, ctx).replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
+  return [`| ${head[0]} | ${head[1]} |`, "| --- | --- |", ...rows.map(([a, b]) => `| ${cell(a)} | ${cell(b)} |`)].join("\n");
+}
+
 function link(text: string, href: string, ctx: Ctx): string {
   if (href.startsWith("#")) return text; // in-page anchors don't survive the move to Markdown
   const url = absolute(href, ctx);
   return !text || text === url ? `<${url}>` : `[${text}](${url})`;
 }
 
-/** Docs pages with a Markdown twin. Others (the API reference) and files like llms-full.txt or schema/*.json stay as they are. */
-const TWINS = new Set(DOC_PAGES.filter(hasMarkdown).map((p) => p.path));
+/** Docs and help pages with a Markdown twin. Others (the API reference) and files like llms-full.txt or schema/*.json stay as they are. */
+const TWINS = new Set([...DOC_PAGES.filter(hasMarkdown).map((p) => p.path), ...HELP_PAGES.map((p) => p.path)]);
 
 function absolute(href: string, ctx: Ctx): string {
   if (!href.startsWith("/")) return href;

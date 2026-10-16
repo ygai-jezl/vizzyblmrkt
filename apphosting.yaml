@@ -1162,3 +1162,18 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Help pages and the setup guide (feat/setup-guide-help). NEXT_PUBLIC_HELP_PAGES_ENABLED:
+  # the public /help pages, their Markdown copies and /help/llms.txt. NEXT_PUBLIC_SETUP_GUIDE_ENABLED
+  # (needs the help pages): Home's "Get ready" stage, what each step needs first, How to links,
+  # the How to drawer, Help in the sidebar and ⌘K, and Vizzy's setup tools (/api/agent/setup,
+  # /api/agent/help). Both are read in the browser, so they're needed at BUILD.
+  - variable: NEXT_PUBLIC_HELP_PAGES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SETUP_GUIDE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

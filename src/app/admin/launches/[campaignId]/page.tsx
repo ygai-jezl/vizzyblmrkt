@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
 import { computeCampaignAnalytics } from "@/lib/analytics/analytics";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { forTenant } from "@/lib/tenant";
 import { loadWelcomeJourney } from "@/lib/journey/launchJourneyLoad";
 import { launchEmails } from "@/lib/journey/launchEmails";
@@ -76,6 +77,7 @@ async function loadChecklist(ctx: Awaited<ReturnType<typeof requireAdminContext>
           signedUp: funnel?.signedUp ?? 0,
         }
       : null,
+    guide: isSetupGuideEnabled(),
   });
 }
 

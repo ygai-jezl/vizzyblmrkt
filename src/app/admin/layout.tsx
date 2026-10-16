@@ -16,6 +16,8 @@ import { SidebarV2 } from "@/components/admin/nav/SidebarV2";
 import { ShellProvider } from "@/components/admin/nav/ShellProvider";
 import { VizzyPanel } from "@/components/admin/nav/VizzyPanel";
 import { CommandPalette } from "@/components/admin/nav/CommandPalette";
+import { HowToDrawer } from "@/components/help/HowToDrawer";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { DeveloperDocsProvider } from "@/components/developers/DocsAvailability";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
@@ -138,6 +140,7 @@ export default async function AdminLayout({
           </main>
         </div>
         {phase2 ? <VizzyPanel /> : null}
+        {isSetupGuideEnabled() ? <HowToDrawer /> : null}
         {phase2 ? (
           <CommandPalette
             launches={launches}

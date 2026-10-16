@@ -20,6 +20,7 @@ from root_agent_pkg.tools.email_style import get_email_style, suggest_email_styl
 from root_agent_pkg.tools.insights_summary import get_insights_summary  # noqa: E402
 from root_agent_pkg.tools.journey_style import get_journey_email_style, set_journey_email_style  # noqa: E402
 from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: E402
+from root_agent_pkg.tools.setup_help import get_setup_status, read_help_page  # noqa: E402
 
 TOOLS = [
     retrieve_knowledge,
@@ -30,6 +31,8 @@ TOOLS = [
     set_journey_email_style,
     get_brand_map,
     suggest_brand_map,
+    get_setup_status,
+    read_help_page,
 ]
 
 

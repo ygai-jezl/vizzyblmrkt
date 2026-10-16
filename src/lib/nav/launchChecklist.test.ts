@@ -44,3 +44,19 @@ describe("launch checklist", () => {
     });
   });
 });
+
+describe("with the setup guide", () => {
+  const input = { campaignId: "c1", signups: 12, welcomeLive: false, spotsPerReferral: 0, newslettersSent: 0, invites: null };
+
+  it("puts the welcome email before publishing, and links each step to its help", () => {
+    const steps = launchChecklist({ ...input, guide: true });
+    expect(steps.map((s) => s.key)).toEqual(["welcome", "publish", "referral", "content"]);
+    expect(steps.every((s) => s.howTo?.startsWith("/help/"))).toBe(true);
+  });
+
+  it("warns that turning it on sends to the list, only while people are waiting", () => {
+    expect(launchChecklist({ ...input, guide: true })[0]!.warning).toMatch(/everyone on the list/);
+    expect(launchChecklist({ ...input, signups: 0, guide: true })[0]!.warning).toBeUndefined();
+    expect(launchChecklist(input).map((s) => s.key)[0]).toBe("publish");
+  });
+});

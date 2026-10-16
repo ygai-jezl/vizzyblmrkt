@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { BookOpen, Check, TriangleAlert } from "lucide-react";
+import { HowToLink } from "@/components/help/HowToLink";
 import type { LaunchChecklistStep } from "@/lib/nav/launchChecklist";
 
 /** A launch's Overview checklist (nav v2 phase 4). Server-safe. */
@@ -37,7 +38,19 @@ export function LaunchChecklist({ steps }: { steps: LaunchChecklistStep[] }) {
                   <span className="sr-only">{s.done ? " (done)" : ""}</span>
                 </p>
                 <p className="truncate text-xs text-neutral-500">{s.detail}</p>
+                {s.warning && !s.done ? (
+                  <p className="mt-0.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                    <TriangleAlert size={12} aria-hidden className="mt-0.5 shrink-0" />
+                    {s.warning}
+                  </p>
+                ) : null}
               </div>
+              {s.howTo && !s.done ? (
+                <HowToLink path={s.howTo} className="inline-flex shrink-0 items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400">
+                  <BookOpen size={12} aria-hidden />
+                  How to
+                </HowToLink>
+              ) : null}
               {!s.done ? (
                 <Link
                   href={s.href}

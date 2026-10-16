@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  BookOpen,
   Archive,
   Box,
   ChartLine,
@@ -22,6 +23,9 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { openHowTo } from "@/components/help/openHowTo";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
+import { HELP_PAGES } from "@/lib/help/pages";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
@@ -61,6 +65,7 @@ const KEYWORDS: Partial<Record<NavKey, string[]>> = {
 const lifecycle = isLifecycleUiEnabled();
 const PHASE3 = isNavV2Phase3Enabled();
 const INVITES = isInvitesUiEnabled();
+const GUIDE = isSetupGuideEnabled();
 const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3 }).flatMap((s) => s.items);
 
 const ITEM =
@@ -261,6 +266,25 @@ export function CommandPalette({
               >
                 <Box size={16} aria-hidden className="shrink-0 text-shell-muted" />
                 <span className="truncate">{p.name}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+        ) : null}
+
+        {GUIDE ? (
+          <Command.Group heading="Help">
+            {HELP_PAGES.map((p) => (
+              <Command.Item
+                key={p.path}
+                value={`help how to ${p.label} ${p.summary}`}
+                onSelect={() => {
+                  close();
+                  if (!openHowTo(p.path)) window.open(p.path, "_blank", "noopener");
+                }}
+                className={ITEM}
+              >
+                <BookOpen size={16} aria-hidden className="shrink-0 text-shell-muted" />
+                {p.slug ? p.label : "Get set up"}
               </Command.Item>
             ))}
           </Command.Group>

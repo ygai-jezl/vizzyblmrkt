@@ -6,6 +6,7 @@ import SecurityDocs from "@/app/developers/security/page";
 import UsersDocs from "@/app/developers/users/page";
 import WebhooksDocs from "@/app/developers/webhooks/page";
 import { DOC_PAGES, hasMarkdown, markdownPath } from "./docs";
+import { isHelpPagesEnabled } from "@/lib/help/flags";
 import { docsOrigin, isDevelopersDocsEnabled } from "./flags";
 import { docToMarkdown } from "./markdown";
 import { SCHEMAS } from "./schemas";
@@ -54,6 +55,7 @@ export function llmsTxt(origin = docsOrigin()): string {
     "",
     "## Optional",
     `- [Every page in one file](${origin}/developers/llms-full.txt)`,
+    ...(isHelpPagesEnabled() ? [`- [Help for people using YouGrow](${origin}/help/llms.txt): setting up and running it, step by step.`] : []),
     "- [The Node SDK on npm](https://www.npmjs.com/package/@yougrowai/node)",
   ];
   return `${lines.join("\n")}\n`;

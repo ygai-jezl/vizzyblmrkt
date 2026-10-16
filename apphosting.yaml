@@ -1115,6 +1115,15 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Suggest an angle": a new workflow's Spark (its angle / thesis) is suggested from what
+  # the brand has already said — the brand map's question, subject and buying situation,
+  # what the brand is, and its knowledge. One quick Gemini call, no web search; a person
+  # edits it. Filled by itself when a workflow starts from "Write this next". Off: the
+  # Spark field is exactly as before.
+  - variable: CREATE_SUGGEST_ANGLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # The pages side: an article's address can be set after creation and checked live, each
   # article and crawled page gets a small row, the map shows what is answered, drafted or
   # open per subject, "Write this next", and the content map tab.
@@ -1152,4 +1161,19 @@ env:
   - variable: BRAND_MAP_IMPORT_ENABLED
     value: "true"
     availability:
+      - RUNTIME
+  # Help pages and the setup guide (feat/setup-guide-help). NEXT_PUBLIC_HELP_PAGES_ENABLED:
+  # the public /help pages, their Markdown copies and /help/llms.txt. NEXT_PUBLIC_SETUP_GUIDE_ENABLED
+  # (needs the help pages): Home's "Get ready" stage, what each step needs first, How to links,
+  # the How to drawer, Help in the sidebar and ⌘K, and Vizzy's setup tools (/api/agent/setup,
+  # /api/agent/help). Both are read in the browser, so they're needed at BUILD.
+  - variable: NEXT_PUBLIC_HELP_PAGES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SETUP_GUIDE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
       - RUNTIME

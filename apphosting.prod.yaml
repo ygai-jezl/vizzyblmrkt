@@ -884,6 +884,12 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Suggest an angle" (see apphosting.yaml): OFF in prod until checked on dev and the
+  # owner turns it on.
+  - variable: CREATE_SUGGEST_ANGLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: BRAND_MAP_PAGES_ENABLED
     value: "true"
     availability:
@@ -906,4 +912,16 @@ env:
   - variable: BRAND_MAP_IMPORT_ENABLED
     value: "true"
     availability:
+      - RUNTIME
+  # Help pages and the setup guide (see apphosting.yaml): ON in prod from the start, at the
+  # owner's request (2026-10-16). Set here on purpose; set one to "false" to turn it off.
+  - variable: NEXT_PUBLIC_HELP_PAGES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SETUP_GUIDE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
       - RUNTIME

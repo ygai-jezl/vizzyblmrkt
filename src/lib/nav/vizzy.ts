@@ -37,8 +37,9 @@ export function vizzySuggestions(key: NavKey | null, opts: { person?: boolean } 
 }
 
 /** Prompts on Home, for the stage the brand is in ("first" = nothing set up yet). */
-const HOME_PROMPTS: Record<"first" | "launch" | "grow" | "product" | "retain", string[]> = {
+const HOME_PROMPTS: Record<"first" | "ready" | "launch" | "grow" | "product" | "retain", string[]> = {
   first: ["Help me plan a launch for my idea", "What should I set up first?"],
+  ready: ["What should I set up first?", "Write my brand voice from my website"],
   launch: ["Write a nudge for people who haven't shared their link", "Draft a broadcast announcing our beta dates"],
   grow: ["Plan next week's posts around what's working", "Draft this week's newsletter"],
   product: ["Explain the context endpoint to my developer", "What did you learn from our repo?"],

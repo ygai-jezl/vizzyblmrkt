@@ -14,6 +14,11 @@ export interface LaunchChecklistInput {
   newslettersSent: number;
   /** Present when invites are switched on. */
   invites?: { lockText: string | null; invited: number; signedUp: number } | null;
+  /**
+   * The setup guide: the welcome email comes before publishing (its first publish
+   * goes to everyone already on the list), and each step links to its help.
+   */
+  guide?: boolean;
 }
 
 export interface LaunchChecklistStep {
@@ -22,7 +27,19 @@ export interface LaunchChecklistStep {
   detail: string;
   done: boolean;
   href: string;
+  /** The help page section for this step (setup guide on). */
+  howTo?: string;
+  /** Why the order matters here (setup guide on), shown until it's done. */
+  warning?: string;
 }
+
+const HOW_TO: Record<LaunchChecklistStep["key"], string> = {
+  publish: "/help/launch-and-waitlist#share",
+  welcome: "/help/launch-and-waitlist#welcome",
+  referral: "/help/launch-and-waitlist#share",
+  content: "/help/write-and-schedule#newsletter",
+  invite: "/help/invite-your-waitlist",
+};
 
 const n = (x: number) => x.toLocaleString("en-GB");
 const hostOf = (url: string) => {
@@ -85,5 +102,15 @@ export function launchChecklist(input: LaunchChecklistInput): LaunchChecklistSte
       href: lockText && invited === 0 ? "/admin/products" : `${base}/invites`,
     });
   }
-  return steps;
+  if (!input.guide) return steps;
+  const order: LaunchChecklistStep["key"][] = ["welcome", "publish", "referral", "content", "invite"];
+  return [...steps]
+    .sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+    .map((st) => ({
+      ...st,
+      howTo: HOW_TO[st.key],
+      ...(st.key === "welcome" && !input.welcomeLive && input.signups > 0
+        ? { warning: "Turning it on sends it to everyone on the list who has confirmed their email." }
+        : {}),
+    }));
 }

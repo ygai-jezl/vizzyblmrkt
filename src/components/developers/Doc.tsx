@@ -83,3 +83,27 @@ export function Fields({ rows, head = ["Field", "Type", "Notes"] }: { rows: Arra
     </div>
   );
 }
+
+/** A two-column table of plain text: e.g. a message the app shows, and what to do about it. */
+export function Pairs({ rows, head }: { rows: Array<[ReactNode, ReactNode]>; head: [string, string] }) {
+  return (
+    <div className="mt-4 overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900">
+          <tr>
+            <th className="px-3 py-2 font-medium">{head[0]}</th>
+            <th className="px-3 py-2 font-medium">{head[1]}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          {rows.map(([a, b], i) => (
+            <tr key={i} className="align-top">
+              <td className="px-3 py-2 leading-6 text-neutral-900 dark:text-neutral-100">{a}</td>
+              <td className="px-3 py-2 leading-6 text-neutral-700 dark:text-neutral-300">{b}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

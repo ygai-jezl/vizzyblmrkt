@@ -34,6 +34,18 @@ export interface SetupStep {
   href?: string;
 }
 
+/** The help page section for each step, for the How to links (setup guide). */
+export const SETUP_HOW_TO: Record<string, string> = {
+  connect: "/help/connect-your-product#connect",
+  catalog: "/help/connect-your-product#learn",
+  events: "/help/connect-your-product#developer",
+  context: "/help/connect-your-product#test",
+  journey: "/help/onboarding-journeys#build",
+  promote: "/help/onboarding-journeys#live",
+  live: "/help/onboarding-journeys#live",
+  invite: "/help/invite-your-waitlist",
+};
+
 export function setupSteps(input: SetupInput): SetupStep[] {
   const custom = input.kind === "custom";
   const hasJourney = input.journeys.length > 0;

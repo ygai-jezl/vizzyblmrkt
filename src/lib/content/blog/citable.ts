@@ -272,7 +272,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       : thirdParty.length === 0
         ? "Cites no third-party page, so there is nothing to list."
         : "Cites third-party pages but has no Sources section.",
-    "End with a ## Sources section: a numbered list of every third-party source cited, as [Title](URL) — publisher, year.",
+    "End with a ## Sources section: a numbered list of every third-party source cited, as [Title](URL), publisher, year.",
   );
 
   // ── B — Block-structured for RAG ──

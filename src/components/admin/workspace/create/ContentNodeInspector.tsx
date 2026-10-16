@@ -268,6 +268,12 @@ export function ContentNodeInspector({
               ) : null}
             </select>
           </label>
+          {blogHub && node.templateId ? (
+            <p role="note" className="col-span-2 text-xs text-amber-700 dark:text-amber-400">
+              With a template, the article is filled into its layout and isn&apos;t written to the CITABLE structure (TL;DR, key facts, FAQ, sources). Choose
+              &ldquo;AI-composed (no template)&rdquo; for an article answer engines can quote.
+            </p>
+          ) : null}
         </div>
       ) : null}
 

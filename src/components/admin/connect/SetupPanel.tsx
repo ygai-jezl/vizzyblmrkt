@@ -2,12 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { BookOpen, Check } from "lucide-react";
+import { HowToLink } from "@/components/help/HowToLink";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { environmentOf, promotionTarget } from "@/lib/connect/environments";
-import { setupSteps, type SetupStep } from "@/lib/connect/setupChecklist";
+import { SETUP_HOW_TO, setupSteps, type SetupStep } from "@/lib/connect/setupChecklist";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { api, errorText, type PublicConnection } from "./api";
 import { Banner, Section } from "./ui";
+
+const GUIDE = isSetupGuideEnabled();
 
 type Tab = NonNullable<SetupStep["tab"]>;
 
@@ -105,6 +109,15 @@ export function SetupPanel({ connection, onOpenTab }: { connection: PublicConnec
                 <span className={`block text-sm ${step.done ? "text-neutral-500" : "font-medium"}`}>{label}</span>
                 <span className="block text-xs text-neutral-500">{step.detail}</span>
               </span>
+              {GUIDE && !step.done && SETUP_HOW_TO[step.id] ? (
+                <HowToLink
+                  path={SETUP_HOW_TO[step.id]!}
+                  className="inline-flex shrink-0 items-center gap-1 pt-0.5 text-xs text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  <BookOpen size={12} aria-hidden />
+                  How to
+                </HowToLink>
+              ) : null}
             </li>
           );
         })}

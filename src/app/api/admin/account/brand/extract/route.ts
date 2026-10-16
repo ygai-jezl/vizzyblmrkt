@@ -8,6 +8,7 @@ import { readBrandPdf } from "@/lib/tenant/brandAsset";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithFile, parseFirstJson } from "@/lib/agents/gemini";
 import { BrandKitSchema } from "@/lib/types/tenant";
+import { mergeExtractedFonts, mergeExtractedPalette } from "@/lib/content/brandKitMerge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +58,10 @@ export async function POST(req: Request) {
   // produced by the full-kit extract prompt — carry them forward so a PDF re-extract (which
   // replaces the whole brandKit map) never silently wipes the operator's kept palettes.
   if (existing?.brandKit?.palettes?.length) merged.palettes = existing.brandKit.palettes;
+  // The Colour palette and fonts the operator already has stay, names and all: the PDF only
+  // adds what's new (it used to replace them, wiping a curated "Primary" and "Accent").
+  merged.palette = mergeExtractedPalette(existing?.brandKit?.palette, kit.data.palette);
+  merged.fonts = mergeExtractedFonts(existing?.brandKit?.fonts, kit.data.fonts);
   await updateTenantConfig(ctx.tenantId, { brandKit: merged });
   return NextResponse.json({ brandKit: merged });
 }

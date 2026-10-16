@@ -276,7 +276,7 @@ export function DomainsSettings() {
     const privacy = privacyPolicyUrl.trim();
     if (!/^https?:\/\/[^\s"'<>\\]+$/i.test(privacy)) {
       setSenderStatus("error");
-      setError("Enter a valid Privacy Policy URL (https://…) — it's required for the email footer.");
+      setError("Enter a valid Privacy Policy URL (https://…). Every email footer needs it.");
       return;
     }
     setError(null);
@@ -809,7 +809,7 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
       </div>
       {records.some((r) => r.host.startsWith("_dmarc.")) ? (
         <p className="text-xs text-neutral-400">
-          DMARC isn&apos;t checked automatically — once the <code>_dmarc</code> record is
+          DMARC isn&apos;t checked automatically. Once the <code>_dmarc</code> record is
           published you&apos;re all set.
         </p>
       ) : null}

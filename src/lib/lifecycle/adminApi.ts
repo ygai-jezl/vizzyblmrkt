@@ -29,6 +29,7 @@ import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
 import { entityViewFor, kindLabel } from "./entities";
 import { lifecycleSender } from "./policy";
+import { isOrderGuardsEnabled } from "@/lib/guards/flags";
 import {
   isLifecycleAiDraftsEnabled,
   isLifecycleChatAuthoringEnabled,
@@ -303,8 +304,18 @@ export async function saveDraft(ctx: TenantContext, id: string, input: unknown, 
   return fromService(await saveLifecycleDraft(ctx, id, input, { db, authoredBy: "human", emailStyle: "from_input" }), (v) => v);
 }
 
-export async function publishJourney(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
-  return fromService(await publishLifecycleJourney(ctx, id, { db }), (v) => ({
+const PublishInput = z.object({ existingSignups: z.enum(["include", "skip"]).optional() }).optional();
+
+/**
+ * The editor's Publish. With the order guards on, a welcome email's first publish asks
+ * first (409 `confirm_existing_signups`) and the editor sends the admin's answer back.
+ */
+export async function publishJourney(ctx: TenantContext, id: string, input?: unknown, db?: FirestoreLike): Promise<ApiResult> {
+  const parsed = PublishInput.safeParse(input ?? undefined);
+  if (!parsed.success) return fail(400, "invalid_input", zodReason(parsed.error));
+  const answer = parsed.data?.existingSignups;
+  const existingSignups = answer ?? (isOrderGuardsEnabled() ? "ask" : undefined);
+  return fromService(await publishLifecycleJourney(ctx, id, { db, existingSignups }), (v) => ({
     journey: v.journey,
     version: { version: v.version.version, publishedAt: v.version.publishedAt },
   }));

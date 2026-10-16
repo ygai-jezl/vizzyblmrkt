@@ -15,8 +15,9 @@ export default function TroubleshootingHelp() {
 
       <H2 id="welcome-everyone">My welcome email went to everyone on my waitlist</H2>
       <P>
-        The first time you turn on a launch&apos;s welcome email, it goes to everyone already signed up. It can&apos;t be called
-        back. Next time, turn it on before you share your page.{" "}
+        When you first publish a launch&apos;s welcome email with people already on the list, YouGrow asks whether they should
+        get it too. <strong>Send to them too</strong> sends it to everyone already verified, and it can&apos;t be called back.
+        Choose <strong>Only people who join from now</strong> to leave them out.{" "}
         <Open href="/help/launch-and-waitlist#welcome">Turn on the welcome email</Open>.
       </P>
 
@@ -28,10 +29,18 @@ export default function TroubleshootingHelp() {
 
       <H2 id="post-failed">My post failed</H2>
       <P>
-        LinkedIn or X wasn&apos;t connected when it was due. <Open href="/admin/approvals">Review</Open> shows &quot;Connect
-        LinkedIn to publish this post&quot; or the same for X. Connect it in{" "}
-        <Open href="/admin/account/connections">Settings › Integrations</Open>, then press <strong>Reschedule</strong> on the
-        post in your programme&apos;s <strong>Calendar</strong> tab.
+        The post on your programme&apos;s <strong>Calendar</strong> tab says why. Usually the account was disconnected
+        before it was due, or its connection expired: <Open href="/admin/approvals">Review</Open> shows &quot;Connect LinkedIn
+        to publish this post&quot; or the same for X. Connect it in{" "}
+        <Open href="/admin/account/connections">Settings › Integrations</Open>, then press <strong>Reschedule</strong>. If it
+        says LinkedIn or X may have posted it, check there first so it doesn&apos;t go out twice.
+      </P>
+
+      <H2 id="newsletter-not-sent">My weekly newsletter didn&apos;t send</H2>
+      <P>
+        Nobody on that launch has reached the weekly newsletter step of its welcome journey yet, so there was nobody to send it
+        to. YouGrow says so when you press Send or Schedule.{" "}
+        <Open href="/help/write-and-schedule#newsletter">Send the weekly newsletter</Open>.
       </P>
 
       <H2 id="sandbox">My sandbox doesn&apos;t count as my product</H2>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdminContext } from "@/lib/auth/session";
+import { LaunchSenderWarning } from "@/components/admin/LaunchSenderWarning";
 import { computeCampaignAnalytics } from "@/lib/analytics/analytics";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { forTenant } from "@/lib/tenant";
@@ -30,9 +31,11 @@ export default async function LaunchOverviewPage({
   const a = await computeCampaignAnalytics(ctx, campaignId);
   const base = `/admin/launches/${campaignId}`;
   const checklist = isNavV2Phase4Enabled() ? await loadChecklist(ctx, campaignId, a.totalSignups) : null;
+  const campaign = await forTenant(ctx).campaigns.getById(campaignId).catch(() => null);
 
   return (
     <div className="space-y-6">
+      <LaunchSenderWarning ctx={ctx} campaign={campaign} />
       {checklist ? <LaunchChecklist steps={checklist} /> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Total signups" value={a.totalSignups} hint="verified + unverified" />

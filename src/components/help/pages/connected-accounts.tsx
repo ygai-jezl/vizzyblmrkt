@@ -30,7 +30,7 @@ export default function ConnectedAccountsHelp() {
       />
 
       <Warning>
-        Connect before you schedule. A post scheduled without LinkedIn or X connected fails when it&apos;s due.
+        Connect before you schedule. YouGrow won&apos;t schedule a LinkedIn or X post until its account is connected.
       </Warning>
 
       <H2 id="social">Connect LinkedIn or X</H2>
@@ -99,8 +99,8 @@ export default function ConnectedAccountsHelp() {
       <Messages
         rows={[
           [
-            "OAuth app not configured in this environment.",
-            "Whoever runs your YouGrow hasn't set up this service yet. Ask them to add its app keys.",
+            "Not set up on this YouGrow yet.",
+            "Whoever runs your YouGrow hasn't added this service's app keys yet. Ask them to.",
           ],
           [
             "Connect LinkedIn to publish this post",

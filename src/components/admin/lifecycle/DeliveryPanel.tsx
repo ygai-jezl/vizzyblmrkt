@@ -19,7 +19,7 @@ const MODES: Array<{ id: DeliveryMode; title: string; body: string }> = [
   {
     id: "shadow",
     title: "Shadow",
-    body: "Everyone is enrolled and moves through the journey, but every email goes to your shadow inbox instead — with a banner naming who it was for.",
+    body: "Everyone is enrolled and moves through the journey, but every email goes to your shadow inbox instead, with a banner naming who it was for.",
   },
   { id: "live", title: "Live", body: "Real emails to real users. Needs a verified sending domain." },
 ];
@@ -101,7 +101,7 @@ export function DeliveryPanel({
         </div>
         {capped ? (
           <Banner tone="info">
-            This environment only allows up to <b>{detail.modeCeiling}</b> — sends beyond that are held until it&rsquo;s raised.
+            This environment only allows up to <b>{detail.modeCeiling}</b>. Sends beyond that are held until it&rsquo;s raised.
           </Banner>
         ) : null}
         {mode === "live" && !detail.sender.verified ? (
@@ -118,8 +118,8 @@ export function DeliveryPanel({
             Add your postal address in{" "}
             <Link className="underline" href={place("sending").href}>
               {place("sending").label}
-            </Link>{" "}
-            — marketing emails are held without one.
+            </Link>
+            . Marketing emails are held without one.
           </Banner>
         ) : null}
       </Section>
@@ -150,7 +150,7 @@ export function DeliveryPanel({
         )}
       </Section>
 
-      <Section title="Shadow inbox" description="Your own address or one on a verified sending domain — shadow emails name the real recipient.">
+      <Section title="Shadow inbox" description="Your own address or one on a verified sending domain. Shadow emails name the real recipient.">
         <input className={inputClass} type="email" disabled={!canEdit} value={shadowInbox} onChange={(e) => setShadowInbox(e.target.value)} placeholder="you@yourcompany.com" />
       </Section>
 

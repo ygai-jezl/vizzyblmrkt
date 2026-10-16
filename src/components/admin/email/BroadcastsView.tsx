@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Broadcast } from "@/lib/types/broadcast";
+import { broadcastErrorText } from "@/lib/email/broadcastErrors";
 import { Modal } from "./Modal";
 import { EmailComposer, type EmailComposerValue } from "./EmailComposer";
 
@@ -25,7 +26,7 @@ const SCHEDULE_ERRORS: Record<string, string> = {
   must_be_future: "Pick a time in the future.",
   too_far_ahead: "Pick a time within the next year.",
   not_schedulable: "This broadcast is already sending and can't be scheduled.",
-  launch_archived: "This launch is closed — reopen it before scheduling.",
+  launch_archived: "This launch is closed. Reopen it before scheduling.",
 };
 
 /** Format a Date as a `datetime-local` input value in the browser's timezone. */
@@ -134,9 +135,7 @@ export function BroadcastsView({
     const data = await res.json().catch(() => ({}));
     setBusyId(null);
     if (!res.ok || data.status === "failed") {
-      window.alert(
-        `Send failed${data.lastError ? `: ${data.lastError}` : ""}. Check your MailChimp config.`,
-      );
+      window.alert(broadcastErrorText(data.error ?? data.lastError, b.audienceMode ?? "launch"));
     }
     router.refresh();
   }
@@ -179,8 +178,13 @@ export function BroadcastsView({
     setScheduleBusy(false);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}) as { error?: string });
+      const code = data.error ?? "";
+      const mode = initial.find((x) => x.id === scheduleId)?.audienceMode ?? "launch";
       setScheduleErr(
-        SCHEDULE_ERRORS[data.error ?? ""] ?? "Could not schedule. Please try again.",
+        SCHEDULE_ERRORS[code] ??
+          (code === "no_audience_segment_for_launch" || code.startsWith("mailchimp_config:")
+            ? broadcastErrorText(code, mode)
+            : "Could not schedule. Please try again."),
       );
       return;
     }
@@ -202,7 +206,7 @@ export function BroadcastsView({
     );
     setBusyId(null);
     if (!res.ok) {
-      window.alert("Could not cancel — it may already be sending.");
+      window.alert("Could not cancel. It may already be sending.");
     }
     router.refresh();
   }

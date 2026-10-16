@@ -1177,3 +1177,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # The order guards (fix/order-guards): where doing things in the wrong order used to
+  # fail quietly, the app stops and says so. A welcome email's first publish asks before it
+  # goes to people already on the list; a LinkedIn or X post can't be scheduled with no
+  # account connected; a broadcast or weekly newsletter can't be scheduled with nobody to
+  # send to; a launch says when its emails come from the shared default address.
+  - variable: ORDER_GUARDS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME

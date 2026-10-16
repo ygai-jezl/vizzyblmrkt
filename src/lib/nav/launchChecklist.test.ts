@@ -55,7 +55,7 @@ describe("with the setup guide", () => {
   });
 
   it("warns that turning it on sends to the list, only while people are waiting", () => {
-    expect(launchChecklist({ ...input, guide: true })[0]!.warning).toMatch(/everyone on the list/);
+    expect(launchChecklist({ ...input, guide: true })[0]!.warning).toMatch(/already on the list/);
     expect(launchChecklist({ ...input, signups: 0, guide: true })[0]!.warning).toBeUndefined();
     expect(launchChecklist(input).map((s) => s.key)[0]).toBe("publish");
   });

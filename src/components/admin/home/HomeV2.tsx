@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, BookOpen, Check, Lock, TriangleAlert } from "lucide-react";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
+import { HowToLink } from "@/components/help/HowToLink";
+import { isEmailStyleUiEnabled } from "@/lib/email/flags";
+import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
@@ -20,13 +24,23 @@ function GrowthTrack({ stages }: { stages: StageView[] }) {
     <ol
       aria-label="Your growth path"
       className={`grid gap-px overflow-hidden rounded-xl border border-shell-line bg-shell-line ${
-        stages.length === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2"
+        stages.length === 5
+          ? "sm:grid-cols-2 xl:grid-cols-5"
+          : stages.length === 4
+            ? "sm:grid-cols-2 lg:grid-cols-4"
+            : "sm:grid-cols-2"
       }`}
     >
       {stages.map((stage, i) => {
         const href = (nextStepOf(stage) ?? stage.steps[0]!).href;
         return (
-          <li key={stage.key} className={stage.status === "current" ? "bg-shell-accent-soft" : "bg-shell-card"}>
+          <li
+            key={stage.key}
+            className={`${stage.status === "current" ? "bg-shell-accent-soft" : "bg-shell-card"} ${
+              // An odd last stage fills its row rather than leaving a gap.
+              stages.length % 2 === 1 && i === stages.length - 1 ? "sm:col-span-2 xl:col-span-1" : ""
+            }`}
+          >
             <Link
               href={href}
               aria-current={stage.status === "current" ? "step" : undefined}
@@ -69,36 +83,83 @@ function NextSteps({ stage }: { stage: StageView }) {
         </span>
       </div>
       <ul className="space-y-1">
-        {stage.steps.map((step) => (
-          <li key={step.label} className="flex items-start gap-2.5 py-1">
-            <span
-              className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full ${
-                step.done ? "bg-shell-ink text-shell-side" : step === next ? "border-2 border-shell-accent" : "border border-shell-faint"
-              }`}
-            >
-              {step.done ? <Check size={10} strokeWidth={3.5} aria-label="Done" /> : null}
-            </span>
-            <span className="min-w-0 flex-1 text-sm">
-              {step.done ? (
-                <span className="text-shell-muted">{step.label}</span>
+        {stage.steps.map((step) => {
+          const locked = !step.done && !!step.needs;
+          return (
+            <li key={step.label} className="flex items-start gap-2.5 py-1">
+              {locked ? (
+                <Lock size={14} aria-label="Needs another step first" className="mt-0.5 h-4 w-4 shrink-0 text-shell-faint" />
               ) : (
-                <Link href={step.href} className="text-shell-ink hover:underline">
-                  {step.label}
-                </Link>
+                <span
+                  className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full ${
+                    step.done ? "bg-shell-ink text-shell-side" : step === next ? "border-2 border-shell-accent" : "border border-shell-faint"
+                  }`}
+                >
+                  {step.done ? <Check size={10} strokeWidth={3.5} aria-label="Done" /> : null}
+                </span>
               )}
-              {step.detail ? <span className="block text-xs text-shell-faint">{step.detail}</span> : null}
-            </span>
-          </li>
-        ))}
+              <span className="min-w-0 flex-1 text-sm">
+                {step.done || locked ? (
+                  <span className="text-shell-muted">{step.label}</span>
+                ) : (
+                  <Link href={step.href} className="text-shell-ink hover:underline">
+                    {step.label}
+                  </Link>
+                )}
+                {step.optional && !step.done ? <span className="ml-1.5 text-xs text-shell-faint">Optional</span> : null}
+                {locked ? (
+                  <span className="block text-xs text-shell-muted">
+                    Needs:{" "}
+                    {step.needs!.map((n, i) => (
+                      <span key={n.label}>
+                        {i > 0 ? ", " : null}
+                        <Link href={n.href} className="text-shell-accent hover:underline">
+                          {n.label}
+                        </Link>
+                      </span>
+                    ))}
+                  </span>
+                ) : step.detail && !step.done ? (
+                  <span className="block text-xs text-shell-faint">{step.detail}</span>
+                ) : null}
+                {step.warning && !step.done ? (
+                  <span className="mt-0.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                    <TriangleAlert size={12} aria-hidden className="mt-0.5 shrink-0" />
+                    {step.warning}
+                  </span>
+                ) : null}
+              </span>
+              {step.howTo && !step.done ? (
+                <HowToLink
+                  path={step.howTo}
+                  className="inline-flex shrink-0 items-center gap-1 text-xs text-shell-accent hover:underline"
+                >
+                  <BookOpen size={12} aria-hidden />
+                  How to
+                </HowToLink>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
       {next ? (
-        <Link
-          href={next.href}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-shell-ink px-3.5 py-2 text-sm font-medium text-shell-side hover:opacity-90"
-        >
-          {next.label}
-          <ArrowRight size={15} aria-hidden />
-        </Link>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Link
+            href={next.href}
+            className="inline-flex items-center gap-1.5 rounded-md bg-shell-ink px-3.5 py-2 text-sm font-medium text-shell-side hover:opacity-90"
+          >
+            {next.label}
+            <ArrowRight size={15} aria-hidden />
+          </Link>
+          {next.howTo ? (
+            <HowToLink
+              path={next.howTo}
+              className="inline-flex items-center rounded-md border border-shell-line px-3.5 py-2 text-sm text-shell-ink hover:bg-shell-hover"
+            >
+              Read the guide
+            </HowToLink>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
@@ -161,8 +222,10 @@ function NeedsYou({ items, total }: { items: ReviewItem[]; total: number }) {
 export async function HomeV2() {
   const ctx = await requireAdminContext();
   const lifecycle = isLifecycleEnabled();
+  const guide = isSetupGuideEnabled();
+  const setup = guide ? { emailStyle: isEmailStyleUiEnabled(), brandMap: isBrandMapUiEnabled() } : undefined;
   const [signals, week, tenant, review] = await Promise.all([
-    loadGrowthSignals(ctx, { lifecycle, invites: isInvitesUiEnabled() && isInvitesEnabled() }),
+    loadGrowthSignals(ctx, { lifecycle, invites: isInvitesUiEnabled() && isInvitesEnabled(), setup }),
     loadWeekCounts(ctx, { lifecycle }),
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),
@@ -202,8 +265,18 @@ export async function HomeV2() {
       {growth.allRunning ? null : <GrowthTrack stages={growth.stages} />}
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-        {growth.firstRun ? <FirstRun /> : current ? <NextSteps stage={current} /> : null}
-        <NeedsYou items={needs.slice(0, 3)} total={needs.length} />
+        {guide && current ? (
+          // The setup guide: the next steps even on the first visit, with Vizzy's offer beside them.
+          <>
+            <NextSteps stage={current} />
+            {growth.firstRun ? <FirstRun /> : <NeedsYou items={needs.slice(0, 3)} total={needs.length} />}
+          </>
+        ) : (
+          <>
+            {growth.firstRun ? <FirstRun /> : current ? <NextSteps stage={current} /> : null}
+            <NeedsYou items={needs.slice(0, 3)} total={needs.length} />
+          </>
+        )}
       </div>
 
       <section aria-labelledby="home-week">
@@ -211,7 +284,7 @@ export async function HomeV2() {
           This week
         </h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {homeTiles(growth.firstRun ? "launch" : growth.current, signals, week, new Date()).map((t) => (
+          {homeTiles(growth.firstRun && !guide ? "launch" : growth.current, signals, week, new Date()).map((t) => (
             <div key={t.label} className="rounded-xl border border-shell-line bg-shell-card px-4 py-3">
               <p className="text-xs text-shell-muted">{t.label}</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{t.value}</p>
@@ -221,7 +294,7 @@ export async function HomeV2() {
         </div>
       </section>
 
-      <AskChips prompts={homePrompts(growth.firstRun ? "first" : growth.current)} />
+      <AskChips prompts={homePrompts(growth.firstRun && !(guide && growth.current === "ready") ? "first" : growth.current)} />
       <DashboardChat intro="compact" />
     </div>
   );

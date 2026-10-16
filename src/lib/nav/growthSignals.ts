@@ -1,6 +1,10 @@
+import { readBrandMap } from "@/lib/brandMap/store";
 import { forTenant } from "@/lib/tenant";
+import { getTenantById } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import type { GrowthSignals } from "./growth";
+import { isMapSaved } from "@/lib/types/brandMap";
+import type { Tenant } from "@/lib/types/tenant";
+import type { GrowthSignals, SetupSignals } from "./growth";
 
 /**
  * Reads the facts behind the growth path and the Home metrics. Every query is
@@ -22,12 +26,19 @@ async function soft<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
 const byNewest = <T extends { createdAt?: string | null }>(a: T, b: T) =>
   (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
 
+/** Which optional areas exist in this environment, for the setup guide. */
+export interface SetupOptions {
+  emailStyle: boolean;
+  brandMap: boolean;
+}
+
 export async function loadGrowthSignals(
   ctx: TenantContext,
-  opts: { lifecycle: boolean; invites?: boolean },
+  opts: { lifecycle: boolean; invites?: boolean; setup?: SetupOptions },
   db?: FirestoreLike,
 ): Promise<GrowthSignals & { lastEventAt: string | null; catalogSteps: number }> {
   const repos = forTenant(ctx, db);
+  const setup = opts.setup ? loadSetupSignals(ctx, opts.setup, db) : Promise.resolve(undefined);
   const [campaigns, liveWelcome, liveMovedWelcome, verified, unverified, workspaces, posts, newsletters, connections, journeys, invited] =
     await Promise.all([
       soft("campaigns", repos.campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 100 }), []),
@@ -60,6 +71,7 @@ export async function loadGrowthSignals(
         : Promise.resolve(undefined),
     ]);
 
+  const setupSignals = await setup;
   const activeLaunches = campaigns.filter((c) => !c.archivedAt);
   const activeWorkspaces = workspaces.filter((w) => !w.archivedAt).sort(byNewest);
   // Sandboxes ship with a demo catalog and fake events, so only real products count.
@@ -89,8 +101,42 @@ export async function loadGrowthSignals(
     journeyPublished: liveJourneys.some((j) => j.publishedVersion != null),
     journeyLive: liveJourneys.some((j) => j.status === "active" && j.deliveryMode === "live" && j.publishedVersion != null),
     ...(invited !== undefined ? { invited } : {}),
+    ...(setupSignals ? { setup: setupSignals } : {}),
     lastEventAt,
     catalogSteps: products.reduce((n, c) => n + (c.catalog?.onboardingSteps?.length ?? 0), 0),
+  };
+}
+
+/** The From address is on a verified domain, and the footer's privacy link and postal address are set. */
+export function senderDetailsDone(tenant: Pick<Tenant, "emailSenderConfig"> | null): boolean {
+  const cfg = tenant?.emailSenderConfig;
+  if (!cfg?.fromLocalPart || !cfg.fromDomain || !cfg.privacyPolicyUrl || !cfg.postalAddress?.trim()) return false;
+  const from = cfg.fromDomain.toLowerCase();
+  return cfg.domains.some((d) => d.status === "verified" && d.domain.toLowerCase() === from);
+}
+
+const hasText = (v: string | null | undefined) => !!v?.trim();
+
+/** The setup guide's facts. Each read fails soft to "not done", never an error page. */
+async function loadSetupSignals(ctx: TenantContext, opts: SetupOptions, db?: FirestoreLike): Promise<SetupSignals> {
+  const repos = forTenant(ctx, db);
+  const [tenant, logos, sources, map] = await Promise.all([
+    soft("tenant", getTenantById(ctx.tenantId, db), null),
+    soft("logos", repos.logos.count(), 0),
+    soft("knowledge", repos.ingestionTickets.find({ where: [["ownerKind", "==", "workspace"]], limit: 100 }), []),
+    opts.brandMap ? soft("brand map", readBrandMap(ctx, db), { state: "none" as const }) : Promise.resolve(null),
+  ]);
+  const voice = tenant?.brandVoice;
+  return {
+    domainVerified: (tenant?.emailSenderConfig?.domains ?? []).some((d) => d.status === "verified"),
+    senderDetails: senderDetailsDone(tenant),
+    logo: logos > 0,
+    voice: !!voice && (hasText(voice.summary) || hasText(voice.guidelines) || (voice.dos?.length ?? 0) > 0),
+    emailStyle: opts.emailStyle ? !!tenant?.emailStyle : null,
+    knowledge: sources.some((t) => t.status === "done" || t.status === "partial"),
+    brandMapSaved: map === null ? null : map.state === "ok" && isMapSaved(map.map),
+    social: Object.values(tenant?.socialConnections ?? {}).length > 0,
+    git: Object.values(tenant?.gitConnections ?? {}).length > 0,
   };
 }
 

@@ -41,6 +41,7 @@ export function homeTiles(stage: StageKey | null, s: Signals, week: WeekCounts, 
   const thisWeek: Tile = { label: "New this week", value: num(week.signups), hint: "signups, last 7 days" };
   const emails: Tile = { label: "Emails sent", value: num(week.emailsSent), hint: "last 7 days" };
   switch (stage) {
+    case "ready":
     case "launch":
       return [signups, thisWeek, { label: "Launches", value: num(s.activeLaunches), hint: "collecting signups" }, emails];
     case "grow":

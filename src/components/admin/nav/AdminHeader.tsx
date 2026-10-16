@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { BookOpen, ChevronRight } from "lucide-react";
+import { openHowTo } from "@/components/help/openHowTo";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
+import { helpFor } from "@/lib/help/places";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
 import { ThemeSwitch } from "./ThemeSwitch";
@@ -34,6 +37,16 @@ export function AdminHeader({ names }: { names: CrumbNames }) {
           ))}
         </ol>
       </nav>
+      {isSetupGuideEnabled() ? (
+        <button
+          type="button"
+          onClick={() => openHowTo(helpFor(pathname)) || window.open(helpFor(pathname), "_blank", "noopener")}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm text-shell-muted hover:bg-shell-hover hover:text-shell-ink"
+        >
+          <BookOpen size={15} aria-hidden />
+          How to
+        </button>
+      ) : null}
       {isThemeSwitchEnabled() && <ThemeSwitch />}
     </header>
   );

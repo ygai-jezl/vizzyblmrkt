@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BookOpen,
   Archive,
   Box,
   ChartLine,
@@ -27,6 +28,8 @@ import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { STAGE_NAV_KEY, type StageKey, type StageStatus } from "@/lib/nav/growth";
+import { openHowTo } from "@/components/help/openHowTo";
+import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { activeNavKey, buildNav, resolvePins, type LaunchRef, type NavItem, type NavKey } from "@/lib/nav/model";
 import { usePinnedLaunchIds } from "./pins";
 import { ProfileMenu } from "./ProfileMenu";
@@ -48,6 +51,7 @@ const ICONS: Record<NavKey, LucideIcon> = {
 
 // NEXT_PUBLIC_* flags are inlined at build, so these evaluate once.
 const PHASE2 = isNavV2Phase2Enabled();
+const GUIDE = isSetupGuideEnabled();
 const SECTIONS = buildNav({
   lifecycle: isLifecycleUiEnabled(),
   brandKit: isBrandKitUiEnabled(),
@@ -89,7 +93,9 @@ function useGrowthDots(): GrowthDots | null {
         if (data.allRunning) return setDots(null);
         const current = data.stages.findIndex((s) => s.status === "current");
         setDots({
-          byNav: Object.fromEntries(data.stages.map((s) => [STAGE_NAV_KEY[s.key], s.status])),
+          byNav: Object.fromEntries(
+            data.stages.flatMap((s) => (STAGE_NAV_KEY[s.key] ? [[STAGE_NAV_KEY[s.key], s.status]] : [])),
+          ),
           position: current >= 0 ? `Stage ${current + 1} of ${data.stages.length}` : null,
         });
       } catch {
@@ -295,7 +301,25 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email }: Si
         )}
       </nav>
 
-      <div className="space-y-0.5 border-t border-shell-line px-2 py-2">{section("end").items.map(renderItem)}</div>
+      <div className="space-y-0.5 border-t border-shell-line px-2 py-2">
+        {GUIDE ? (
+          <a
+            href="/help"
+            target="_blank"
+            rel="noopener"
+            title={collapsed ? "Help" : undefined}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+              if (openHowTo("/help")) e.preventDefault();
+            }}
+            className={rowClass("idle")}
+          >
+            <BookOpen size={18} aria-hidden className="shrink-0" />
+            {!collapsed && <span className="flex-1 truncate">Help</span>}
+          </a>
+        ) : null}
+        {section("end").items.map(renderItem)}
+      </div>
 
       <div className="border-t border-shell-line px-2 py-2">
         <ProfileMenu email={email} role={ctx.role} tenantId={ctx.tenantId} region={ctx.region} collapsed={collapsed} />

@@ -147,26 +147,60 @@ export function formatUtc(iso: string): string {
 /** Map a schedule-route error code to an operator-facing message. */
 const SCHEDULE_ERROR_MESSAGES: Record<string, string> = {
   must_be_future: "Pick a time in the future.",
-  too_far_ahead: "That's more than a year away — pick a sooner time.",
-  node_not_ready: "That item isn't generated yet — finish it in Create first.",
+  too_far_ahead: "That's more than a year away. Pick a sooner time.",
+  node_not_ready: "That item isn't generated yet. Finish it in Create first.",
   node_empty: "That item has no content yet.",
   channel_not_publishable: "That item's channel can't be scheduled.",
   already_publishing: "That item is already publishing and can't be changed.",
-  invalid_spintax: "That spintax template isn't valid — check the { } | braces.",
+  invalid_spintax: "That spintax template isn't valid. Check the { } | braces.",
   carousel_disabled: "Carousels aren't enabled yet (needs provisioning).",
   disabled: "Carousels aren't enabled yet (needs provisioning).",
   no_slides: "There's no content to build slides from.",
-  generation_failed: "Couldn't generate the slides — please try again.",
+  generation_failed: "Couldn't generate the slides. Please try again.",
   store_failed: "Couldn't save the generated slides.",
   post_not_found: "That scheduled item no longer exists.",
   plan_not_found: "The content plan no longer exists.",
   node_not_found: "That item no longer exists.",
   not_found: "Workspace not found.",
-  invalid_input: "Something was off with that request — please try again.",
-  unauthorized: "Your session expired — sign in again.",
-  network_error: "Network error — check your connection and retry.",
+  invalid_input: "Something was off with that request. Please try again.",
+  unauthorized: "Your session expired. Sign in again.",
+  network_error: "Network error. Check your connection and retry.",
+  x_not_connected: "Connect X in Settings › Integrations first, then schedule this post.",
+  linkedin_not_connected: "Connect LinkedIn in Settings › Integrations first, then schedule this post.",
+  linkedin_page_not_connected:
+    "That LinkedIn Page isn't connected. Connect LinkedIn Pages in Settings › Integrations as an admin of the Page, or post as yourself.",
 };
 
 export function friendlyScheduleError(code: string): string {
   return SCHEDULE_ERROR_MESSAGES[code] ?? "Couldn't complete that action. Please try again.";
+}
+
+const PLATFORM: Record<string, string> = { x: "X", li: "LinkedIn" };
+
+/**
+ * Why a post failed, in plain words, from the code the worker stored on it
+ * (`x_not_connected`, `li_publish:li_api_403`, …). Unknown codes get a general
+ * line; the code itself stays available as a tooltip for support.
+ */
+export function postFailureText(code: string | null | undefined): string {
+  const c = code ?? "";
+  if (c === "x_not_connected") return "X wasn't connected when it was due. Connect it in Settings › Integrations, then reschedule.";
+  if (c === "linkedin_not_connected")
+    return "LinkedIn wasn't connected when it was due. Connect it in Settings › Integrations, then reschedule.";
+  if (c === "linkedin_page_not_connected")
+    return "The LinkedIn Page wasn't connected when it was due. Connect LinkedIn Pages in Settings › Integrations, then reschedule.";
+  if (c === "social_disabled") return "Posting to social accounts isn't switched on for this YouGrow, so nothing was posted.";
+  const m = /^(x|li)_publish:(.*)$/.exec(c);
+  if (m) {
+    const who = PLATFORM[m[1]!]!;
+    const reason = m[2]!;
+    if (/_partial|created_unconfirmed|timeout/.test(reason)) {
+      return `${who} may have posted it. Check ${who} before you reschedule, so it doesn't go out twice.`;
+    }
+    if (/_api_40[13]/.test(reason)) return `${who} refused the post: the connection may have expired. Reconnect it in Settings › Integrations, then reschedule.`;
+    if (/_api_429/.test(reason)) return `${who} asked us to slow down. Reschedule it for a little later.`;
+    if (/^empty/.test(reason)) return "The post had no text to publish. Edit it, then reschedule.";
+    return `${who} didn't accept the post. Check it, then reschedule.`;
+  }
+  return "It couldn't be posted. Reschedule to try again.";
 }

@@ -31,7 +31,8 @@ export default function WriteAndScheduleHelp() {
       />
 
       <Warning>
-        Connect LinkedIn or X before you schedule. A post scheduled without one is accepted, then fails when it&apos;s due.
+        Connect LinkedIn or X before you schedule. YouGrow won&apos;t schedule a post until the account it goes out from is
+        connected.
       </Warning>
 
       <H2 id="write">Write a draft</H2>
@@ -99,7 +100,7 @@ export default function WriteAndScheduleHelp() {
       <H2 id="newsletter">Send the weekly newsletter</H2>
       <P>
         It goes to people on a launch&apos;s waitlist who reached the weekly newsletter step of its welcome journey. If nobody
-        has yet, the send is refused.
+        has yet, YouGrow tells you and sends nothing.
       </P>
       <Steps>
         <li>
@@ -145,11 +146,16 @@ export default function WriteAndScheduleHelp() {
             "Try again in a minute, or let the article be written without it.",
           ],
           ["That item isn't generated yet", "Open it in Drafts and generate it first."],
+          ["Connect LinkedIn in Settings › Integrations first", "Connect it, then press Schedule again."],
+          ["Connect X in Settings › Integrations first", "Connect it, then press Schedule again."],
           [
-            "linkedin_not_connected",
-            "The post failed because LinkedIn isn't connected (linkedin_page_not_connected means the Page isn't). Connect it in Settings › Integrations, then Reschedule the post.",
+            "That LinkedIn Page isn't connected.",
+            "Connect LinkedIn Pages while signed in to LinkedIn as an admin of the Page, or choose to post as yourself.",
           ],
-          ["x_not_connected", "The post failed because X isn't connected. Connect it in Settings › Integrations, then Reschedule the post."],
+          [
+            "Nobody has joined this launch's weekly newsletter yet",
+            "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
+          ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
         ]}
       />

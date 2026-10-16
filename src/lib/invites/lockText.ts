@@ -14,7 +14,7 @@ export type InviteLockReason =
 export const INVITE_LOCK_TEXT: Record<InviteLockReason, string> = {
   launch_archived: "This launch is archived.",
   no_product: "Connect your product first.",
-  staging_only: "Connect your production app — invites go to production, not staging.",
+  staging_only: "Connect your production app. Invites go to production, not staging.",
   no_signup_url: "Add your app's sign-up link in Products › Settings.",
   links_unconfigured: "Invite links aren't set up yet.",
 };

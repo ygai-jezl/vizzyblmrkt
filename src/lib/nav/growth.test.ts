@@ -159,7 +159,7 @@ describe("the setup guide", () => {
 
   it("warns before the welcome email and before scheduling without an account", () => {
     const s = { ...LAUNCHED, welcomeEmailLive: false, setup: SETUP_READY };
-    expect(step(s, "launch", "Turn on the welcome email").warning).toMatch(/everyone already signed up/);
+    expect(step(s, "launch", "Turn on the welcome email").warning).toMatch(/before you share your page/);
     const post = step({ ...s, workspaces: 1, firstWorkspaceId: "w1" }, "grow", "Schedule your first post");
     expect(post.needs).toEqual([{ label: "Connect LinkedIn or X", href: "/admin/account/connections" }]);
   });

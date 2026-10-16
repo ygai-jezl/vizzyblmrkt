@@ -70,9 +70,9 @@ export function setupSteps(input: SetupInput): SetupStep[] {
     },
     {
       id: "context",
-      label: "Answer the context request — for emails about people's results",
+      label: "Answer the context request (for emails about people's results)",
       detail:
-        "Before each email we ask your product about that person (or the entity the email is about): insight sentences on their results — the only way an email says what their numbers mean — and whether to hold or stop it.",
+        "Before each email we ask your product about that person (or the entity the email is about): insight sentences on their results (the only way an email says what their numbers mean), and whether to hold or stop it.",
       done: input.guide.contextEndpoint === "done",
       optional: true,
       tab: "test",

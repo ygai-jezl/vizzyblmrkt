@@ -110,7 +110,7 @@ export function launchChecklist(input: LaunchChecklistInput): LaunchChecklistSte
       ...st,
       howTo: HOW_TO[st.key],
       ...(st.key === "welcome" && !input.welcomeLive && input.signups > 0
-        ? { warning: "Turning it on sends it to everyone on the list who has confirmed their email." }
+        ? { warning: "People are already on the list: when you turn it on, you'll choose whether they get it too." }
         : {}),
     }));
 }

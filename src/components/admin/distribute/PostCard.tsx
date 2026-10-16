@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import { channelLabel } from "@/lib/content/channels";
-import { formatUtc } from "@/lib/distribute/uiModel";
+import { formatUtc, postFailureText } from "@/lib/distribute/uiModel";
 import { scorePPS } from "@/lib/distribute/pps";
 import { PpsGauge } from "./PpsGauge";
 import { SchedulePicker } from "./SchedulePicker";
@@ -80,8 +80,12 @@ export function PostCard({
               [...post.renderedVariant].length > 40 ? "…" : ""
             }"`
           : ""}
-        {post.status === "failed" && post.lastError ? ` · ${post.lastError}` : ""}
       </div>
+      {post.status === "failed" ? (
+        <p className="mt-1 text-xs text-red-700 dark:text-red-400" title={post.lastError ?? undefined}>
+          {postFailureText(post.lastError)}
+        </p>
+      ) : null}
 
       {/* A successful publish can still drop its image (upload failed / asset gone) and
           degrade to text-only; lastError carries the `li_image:` note on a done post.

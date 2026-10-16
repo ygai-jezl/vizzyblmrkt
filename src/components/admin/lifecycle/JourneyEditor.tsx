@@ -67,6 +67,8 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
   const [focusPool, setFocusPool] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
+  // The order guard asked: how many verified people are already on the launch's list.
+  const [askExisting, setAskExisting] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -190,15 +192,35 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
     if (!current) return;
     const styleChanged = Boolean(ownStyle) && !sameJourneyStyle(current.draft.settings.emailStyle, current.emailStyle);
     if (!window.confirm(publishConfirmText(current, styleChanged))) return;
+    await sendPublish();
+  };
+
+  /** Publish, with the admin's answer about a launch's existing signups when the server asked. */
+  const sendPublish = async (existingSignups?: "include" | "skip") => {
+    if (!journey) return;
     setBusy("publish");
-    const r = await api<{ journey: LifecycleJourney; version: { version: number } }>(`/api/admin/lifecycle/journeys/${journey.id}/publish`, { method: "POST" });
+    setAskExisting(null);
+    const r = await api<{ journey: LifecycleJourney; version: { version: number } }>(`/api/admin/lifecycle/journeys/${journey.id}/publish`, {
+      method: "POST",
+      ...(existingSignups ? { body: JSON.stringify({ existingSignups }) } : {}),
+    });
     setBusy(null);
     if (!r.ok) {
       const d = r.data as unknown as { error?: string; detail?: unknown };
+      if (d.error === "confirm_existing_signups") {
+        const existing = (d.detail as { existing?: number } | undefined)?.existing ?? 0;
+        return setAskExisting(existing);
+      }
       if (d.error === "invalid_journey" && Array.isArray(d.detail)) setIssues(d.detail as GraphIssue[]);
       return setMsg({ tone: "err", text: errorText({ error: d.error }) });
     }
-    setMsg({ tone: "ok", text: `Published version ${r.data.version.version}.` });
+    setMsg({
+      tone: "ok",
+      text:
+        existingSignups === "skip"
+          ? `Published version ${r.data.version.version}. It goes to people who join from now.`
+          : `Published version ${r.data.version.version}.`,
+    });
     await load();
   };
 
@@ -346,6 +368,29 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
       </div>
 
       {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+      {askExisting !== null ? (
+        <div
+          role="alertdialog"
+          aria-label="Send to people already on the list?"
+          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <p className="font-medium">
+            {askExisting.toLocaleString("en-GB")} {askExisting === 1 ? "person is" : "people are"} already on this launch&apos;s list.
+          </p>
+          <p className="mt-0.5">Should they get this welcome email too? Everyone who joins from now gets it either way.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button tone="primary" disabled={busy === "publish"} onClick={() => void sendPublish("include")}>
+              Send to them too
+            </Button>
+            <Button disabled={busy === "publish"} onClick={() => void sendPublish("skip")}>
+              Only people who join from now
+            </Button>
+            <Button disabled={busy === "publish"} onClick={() => setAskExisting(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {waitlist && journey.status === "paused" && detail.held ? (
         <Banner tone="info">
           {detail.held} {detail.held === 1 ? "person is" : "people are"} waiting while this is paused. They carry on when you resume it.

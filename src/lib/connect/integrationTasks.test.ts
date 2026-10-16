@@ -152,7 +152,7 @@ describe("prompt for the customer's coding agent", () => {
     expect(phase1).not.toContain("[Personalisation]");
     const phase2 = p.slice(p.indexOf("## Phase 2"), p.indexOf("## Reference"));
     expect(phase2).toContain("[Personalisation] Report onboarding steps and facts");
-    expect(phase2).toContain("[Personalisation] Build the context endpoint — for emails that show people their results");
+    expect(phase2).toContain("[Personalisation] Build the context endpoint (for emails that show people their results)");
     expect(phase2).toContain("**Ask me** before deciding");
     expect(phase2).not.toMatch(/Skip it unless/);
     expect(p).toContain("Treat them as leads, not facts");

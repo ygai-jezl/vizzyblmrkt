@@ -107,15 +107,15 @@ export default function GetSetUpHelp() {
         can go live.
       </Warning>
       <Warning>
-        <strong>Welcome email before you share your page.</strong> The first time you turn it on, it goes to everyone already
-        signed up.
+        <strong>Welcome email before you share your page.</strong> Then everyone gets it from the start. Publish it later and
+        YouGrow asks whether the people already on the list should get it too.
       </Warning>
       <Warning>
         <strong>Journey before sign-ups flow.</strong> A journey only takes people who signed up in the last 3 days, unless you
         widen that in its Settings.
       </Warning>
       <Warning>
-        <strong>Accounts before posts.</strong> A post scheduled without LinkedIn or X connected fails when it&apos;s due.
+        <strong>Accounts before posts.</strong> YouGrow won&apos;t schedule a LinkedIn or X post until its account is connected.
       </Warning>
 
       <H2 id="help">Getting help</H2>

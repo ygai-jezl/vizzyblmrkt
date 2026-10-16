@@ -299,8 +299,9 @@ env:
   # infra/linkedin-cm/setup.sh secret vizzybl-marketing-prod, then grant the full secret
   # IAM triple. SOCIAL_TOKEN_ENC_KEY is the shared AES root for social tokens (provision
   # via infra/x-oauth/setup.sh if it doesn't already exist in prod). Personal-member
-  # (LINKEDIN_OAUTH_*) + X (X_OAUTH_*) blocks are intentionally omitted — the send path
-  # fail-softs to "not connected" for any channel whose credentials aren't configured.
+  # (LINKEDIN_OAUTH_*) and X (X_OAUTH_*) aren't repeated here: prod inherits them from
+  # apphosting.yaml, and their secrets exist in prod (checked 2026-10-16), so personal
+  # LinkedIn and X can connect. A channel without credentials shows "Not set up" instead.
   - variable: SOCIAL_TOKEN_ENC_KEY
     secret: social-token-enc-key
     availability:
@@ -316,8 +317,7 @@ env:
   # Real social publishing (X/LinkedIn). ENABLED 2026-07-20 for LinkedIn Company Page
   # go-live (ten_vzb / Vizzybl.ai Page connected via the CM API). When "false" the worker
   # only manual-stamps posts (no external call); "true" publishes for real to any tenant
-  # with a connected+valid social token. NOTE: X in prod stays effectively inert (no
-  # X_OAUTH_* creds wired here), so this primarily activates LinkedIn Page/personal posts.
+  # with a connected+valid social token: LinkedIn (personal and Pages) and X.
   - variable: DISTRIBUTE_SOCIAL_ENABLED
     value: "true"
     availability:
@@ -924,4 +924,11 @@ env:
     value: "true"
     availability:
       - BUILD
+      - RUNTIME
+  # The order guards (see apphosting.yaml): ON in prod from the start, at the owner's
+  # request ("fix all those things", 2026-10-16), so the help pages describe what prod does.
+  # Set to "false" to go back to the old behaviour.
+  - variable: ORDER_GUARDS_ENABLED
+    value: "true"
+    availability:
       - RUNTIME

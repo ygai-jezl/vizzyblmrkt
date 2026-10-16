@@ -200,7 +200,7 @@ function launchStage(s: GrowthSignals): Omit<StageView, "status"> {
         ...welcome,
         howTo: "/help/launch-and-waitlist#welcome",
         needs: needing(create),
-        warning: "Turn it on before you share your page: the first time, it goes to everyone already signed up.",
+        warning: "Turn it on before you share your page, so everyone gets it from the start.",
       },
       { ...traction, howTo: "/help/launch-and-waitlist#share", needs: needing(create) },
     ];
@@ -269,7 +269,7 @@ function growStage(s: GrowthSignals): Omit<StageView, "status"> {
         ...post,
         howTo: "/help/write-and-schedule#schedule",
         needs: needing(start, social),
-        warning: "Connect the account first: a post scheduled without one fails when it's due.",
+        warning: "Connect the account first: YouGrow can't post without it.",
       },
       { ...newsletter, howTo: "/help/write-and-schedule#newsletter", needs: needing(start, launch) },
     ];

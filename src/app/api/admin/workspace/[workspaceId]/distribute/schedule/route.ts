@@ -17,6 +17,10 @@ import {
 import { ScheduledPostChannel } from "@/lib/types/scheduledPost";
 import { validateSpintax, SPINTAX_MAX_SOURCE_CHARS } from "@/lib/distribute/spintax";
 import { scorePPS } from "@/lib/distribute/pps";
+import { connectionProblem } from "@/lib/distribute/connectionCheck";
+import { isSocialPublishEnabled } from "@/lib/distribute/publishX";
+import { isOrderGuardsEnabled } from "@/lib/guards/flags";
+import { getTenantById } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,6 +111,15 @@ export async function POST(req: Request, { params }: RouteParams) {
   const channel = ScheduledPostChannel.safeParse(node.channel);
   if (!channel.success) {
     return NextResponse.json({ error: "channel_not_publishable" }, { status: 409 });
+  }
+
+  // The order guard: a LinkedIn or X post with no account to publish from is refused now,
+  // rather than accepted and failed when it's due. Only while posting for real is on.
+  if (isOrderGuardsEnabled() && isSocialPublishEnabled()) {
+    const tenant = await getTenantById(ctx.tenantId).catch(() => null);
+    const author = channel.data === "linkedin" ? (parsed.data.linkedInAuthorUrn ?? null) : null;
+    const problem = tenant ? connectionProblem(tenant, channel.data, author) : null;
+    if (problem) return NextResponse.json({ error: problem }, { status: 409 });
   }
 
   // Optional recycling template — reject a malformed one up front (blank → none).

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import { enqueueBroadcast, cancelScheduledBroadcast } from "@/lib/email/delivery";
+import { broadcastAudienceProblem, enqueueBroadcast, cancelScheduledBroadcast } from "@/lib/email/delivery";
+import { isOrderGuardsEnabled } from "@/lib/guards/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,6 +87,12 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
   // Normalise to an ISO instant so display + the queued job agree exactly.
   const scheduledAt = new Date(whenMs).toISOString();
+
+  // The order guard: refuse now if nobody would get it, rather than fail silently at send time.
+  if (isOrderGuardsEnabled()) {
+    const problem = await broadcastAudienceProblem(ctx, broadcast, campaignId);
+    if (problem) return NextResponse.json({ error: problem }, { status: 409 });
+  }
 
   await forTenant(ctx).broadcasts.update(broadcastId, {
     status: "scheduled",

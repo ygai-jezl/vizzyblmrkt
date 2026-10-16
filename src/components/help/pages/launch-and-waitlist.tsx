@@ -27,8 +27,8 @@ export default function LaunchAndWaitlistHelp() {
       />
 
       <Warning>
-        Turn on the welcome email before you share your page. The first time you publish it, it also goes to every verified
-        signup already on the list.
+        Turn on the welcome email before you share your page, so everyone gets it from the start. If people are already on
+        the list when you first publish it, YouGrow asks whether they should get it too.
       </Warning>
 
       <H2 id="create">Create a launch</H2>
@@ -85,6 +85,10 @@ export default function LaunchAndWaitlistHelp() {
         </li>
         <li>
           Press <strong>Save draft</strong>, then <strong>Publish</strong>, and confirm.
+        </li>
+        <li>
+          If people are already on the list, YouGrow asks whether they should get it too. Choose{" "}
+          <strong>Send to them too</strong> or <strong>Only people who join from now</strong>.
         </li>
       </Steps>
       <P>
@@ -143,6 +147,13 @@ export default function LaunchAndWaitlistHelp() {
           [
             "use lowercase letters, numbers and hyphens",
             "The URL slug can only use lowercase letters, numbers and hyphens. Or leave it blank.",
+          ],
+          [
+            "This launch's emails come from a shared default address until you verify your sending domain.",
+            <>
+              Verify your domain in <Open href="/help/email-sending">Email sending</Open>. Until then, your welcome and invite
+              emails don&apos;t come from you.
+            </>,
           ],
           ["Add at least one email.", "The welcome journey has no email yet. Add one on the Canvas tab, or ask Vizzy to draft it."],
           ["Fix the issues listed before publishing.", "Open the list above the tabs, fix each item, then press Publish again."],

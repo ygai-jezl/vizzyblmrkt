@@ -23,6 +23,7 @@ import {
   type LifecycleSettings,
   type LifecycleVersion,
 } from "@/lib/types/lifecycle";
+import type { Campaign } from "@/lib/types/campaign";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
 import { isEmailJourneyStyleEnabled } from "@/lib/email/flags";
@@ -405,6 +406,13 @@ export async function publishLifecycleJourney(
      * finishes a big list). `false` (the engine switch) never backfills.
      */
     backfill?: boolean;
+    /**
+     * The order guard: a first publish that would send to the launch's existing
+     * verified signups stops with 409 `confirm_existing_signups` (detail: how many)
+     * until the admin says "include" (send to them too) or "skip" (only people who
+     * join from now). Absent = no question asked, as before.
+     */
+    existingSignups?: "ask" | "include" | "skip";
   } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; version: LifecycleVersion }>> {
   const repo = forTenant(ctx, deps.db);
@@ -431,6 +439,23 @@ export async function publishLifecycleJourney(
   if (!waitlist && journey.deliveryMode === "live") {
     const tenant = deps.tenant !== undefined ? deps.tenant : await getTenantById(ctx.tenantId, deps.db).catch(() => null);
     if (!lifecycleSender(tenant, draft.data.settings.sender).verified) return fail(409, "sender_unverified");
+  }
+
+  // A launch's welcome journey, published for the first time on a launch that never ran on the
+  // original engine, enrols everyone already verified on its list (unless the caller says not to).
+  let backfillCampaign: Campaign | null = null;
+  if (audience?.kind === "waitlist" && journey.publishedVersion === null && deps.backfill !== false && deps.existingSignups !== "skip") {
+    const campaign = await repo.campaigns.getById(audience.campaignId);
+    const original = await repo.journeys.getById(`journey_${audience.campaignId}`);
+    const neverRan = !original || original.status === "draft";
+    if (campaign?.waitlistEngine === "lifecycle" && neverRan) backfillCampaign = campaign;
+  }
+  if (backfillCampaign && deps.existingSignups === "ask") {
+    const existing = await repo.signups.count([
+      ["campaignId", "==", backfillCampaign.id],
+      ["status", "==", "verified_active"],
+    ]);
+    if (existing > 0) return fail(409, "confirm_existing_signups", { existing });
   }
 
   const nowMs = deps.nowMs ?? Date.now();
@@ -473,20 +498,15 @@ export async function publishLifecycleJourney(
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
   const published = { ...journey, ...patch };
-  if (audience?.kind === "waitlist" && journey.publishedVersion === null && deps.backfill !== false) {
-    const campaign = await repo.campaigns.getById(audience.campaignId);
-    const original = await repo.journeys.getById(`journey_${audience.campaignId}`);
-    const neverRan = !original || original.status === "draft";
-    if (campaign?.waitlistEngine === "lifecycle" && neverRan) {
-      const backfill = { status: "running" as const, cursor: null, enrolled: 0, updatedAt: now };
-      await repo.lifecycleJourneys.update(journey.id, { backfill });
-      // A first pass now; the tick carries on with a big list.
-      await backfillWaitlistJourney(
-        ctx,
-        { journey: { ...published, backfill }, version, campaign },
-        { db: deps.db, deadlineAt: Date.now() + 15_000 },
-      ).catch((err) => console.warn(`[lifecycle] backfill ${ctx.tenantId}/${journey.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`));
-    }
+  if (backfillCampaign) {
+    const backfill = { status: "running" as const, cursor: null, enrolled: 0, updatedAt: now };
+    await repo.lifecycleJourneys.update(journey.id, { backfill });
+    // A first pass now; the tick carries on with a big list.
+    await backfillWaitlistJourney(
+      ctx,
+      { journey: { ...published, backfill }, version, campaign: backfillCampaign },
+      { db: deps.db, deadlineAt: Date.now() + 15_000 },
+    ).catch((err) => console.warn(`[lifecycle] backfill ${ctx.tenantId}/${journey.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`));
   }
   return ok({ journey: published, version });
 }

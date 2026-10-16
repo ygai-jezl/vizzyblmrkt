@@ -44,27 +44,27 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
     title: "Send sign-ups",
     action:
       "Where a new account is created, PATCH the user with `signedUpAt` (when the account was created), `email`, `firstName`, `timezone` and `consent`.",
-    ifSkipped: "Nobody is ever enrolled — the journey sends no emails at all.",
+    ifSkipped: "Nobody is ever enrolled, so the journey sends no emails at all.",
   },
   entities: {
     severity: "personalisation",
     title: "Send what people have several of",
     action:
-      "One person can have several workspaces, brands or projects: send them all as `entities` in the same PATCH — your id → `kind`, `name`, `role` (`owner`, `member` or `invited`), and their own `steps` and `facts`; `null` removes one. Send every one — each journey chooses which of them its emails are about.",
+      "One person can have several workspaces, brands or projects: send them all as `entities` in the same PATCH: your id → `kind`, `name`, `role` (`owner`, `member` or `invited`), and their own `steps` and `facts`; `null` removes one. Send every one: each journey chooses which of them its emails are about.",
     ifSkipped: "Emails can't tell their workspaces or brands apart: someone with one finished and one half done is nudged as if they'd done nothing.",
   },
   steps: {
     severity: "personalisation",
     title: "Report onboarding steps and facts",
     action:
-      "Include `steps` (step id → when it was done) and `facts` (fact id → latest value) in the PATCH when they change — at the server moment, or from a small scheduled sync of stored state.",
+      "Include `steps` (step id → when it was done) and `facts` (fact id → latest value) in the PATCH when they change, at the server moment or from a small scheduled sync of stored state.",
     ifSkipped: "Everyone takes the reminder branch, and people get nudged to do steps they've already done.",
   },
   context: {
     severity: "personalisation",
-    title: "Build the context endpoint — for emails that show people their results",
+    title: "Build the context endpoint (for emails that show people their results)",
     action:
-      "Answer our signed request for one user — or, when the email is about one of their entities, that one — with insight sentences (true sentences about their own results: the only way an email says what their numbers mean), their live steps and facts, and hold or exit when needed.",
+      "Answer our signed request for one user (or, when the email is about one of their entities, that one) with insight sentences (true sentences about their own results: the only way an email says what their numbers mean), their live steps and facts, and hold or exit when needed.",
     ifSkipped:
       "Emails still send, but never tell anyone what their own results mean: no insight sentences, no personal line built on them, and no holding an email until there's something to say.",
   },
@@ -85,7 +85,7 @@ const META: Record<TaskId, { severity: TaskSeverity; title: string; action: stri
   timezone: {
     severity: "recommended",
     title: "Send each user's timezone",
-    action: "Include `timezone` (an IANA name, e.g. Europe/London) in the PATCH — from the browser at sign-up if you don't store one.",
+    action: "Include `timezone` (an IANA name, e.g. Europe/London) in the PATCH, from the browser at sign-up if you don't store one.",
     ifSkipped: "Emails arrive at the default timezone's morning, not each person's.",
   },
   exit: {

@@ -120,9 +120,9 @@ export function ConnectionsPanel() {
       <div>
         <h2 className="text-sm font-semibold">Connections</h2>
         <p className="text-sm text-neutral-500">
-          Connect GitHub or GitLab so we can read your private repositories — for your knowledge base, and to learn
-          how your product works. We only ever read your code; we never change it. Connect X or
-          LinkedIn so Distribute can publish scheduled posts on your behalf. Any tokens are stored
+          Connect GitHub or GitLab so we can read your private repositories, for your knowledge base and to learn
+          how your product works. We only ever read your code, never change it. Connect X or
+          LinkedIn so your scheduled posts publish themselves. Any tokens are stored
           encrypted, never in plaintext.
         </p>
       </div>
@@ -153,8 +153,8 @@ export function ConnectionsPanel() {
                   {!s ? (
                     <span className="text-xs text-neutral-400">Loading…</span>
                   ) : !s.configured ? (
-                    <span className="text-xs text-neutral-400">
-                      OAuth app not configured in this environment.
+                    <span className="text-xs text-neutral-500">
+                      Not set up on this YouGrow yet. Whoever runs it can add its app keys.
                     </span>
                   ) : s.connected ? (
                     <span className="text-xs text-green-600 dark:text-green-400">

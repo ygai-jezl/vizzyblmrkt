@@ -658,7 +658,7 @@ Check ONLY these kinds of statement:
 1. Anything said about [[brand_name]] or its product — features, how it works, plans and what each includes, prices, limits, integrations, customers, results.
 2. Anything said about another named company, product or person.
 3. Any number, date, price or percentage. These figures were already found to be missing from the material, so each sentence holding one must change: [[unsupported_figures]]
-4. Any quotation, and any claim of quality the material does not make ("accurate", "leading", "best", "fastest", "most", "#1").
+4. Any quotation, and any claim of quality the material does not make ("accurate", "leading", "best", "fastest", "most", "#1").[[experience_check]]
 
 Do NOT flag:
 - general explanation that names no company and states no figure (how search engines or AI models work, what a term means, sensible advice) — that is the writer's job and is allowed;

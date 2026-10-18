@@ -17,7 +17,7 @@ import {
   isCodeHostUrl,
   usableSources,
 } from "./brief";
-import { enforceLinks, splitAuthorBox } from "./draft";
+import { enforceLinks, seenMaterial, splitAuthorBox } from "./draft";
 import { unsupportedFigures } from "./figures";
 import { blogCheckerThinkingBudget } from "./flags";
 import { mapMaterial, type ArticleMap } from "./articleMap";
@@ -138,7 +138,7 @@ export function applyCorrections(
 }
 
 /** Everything the writer was given — the only places a claim may come from. */
-function materialOf(input: FactCheckInput): string {
+function materialOf(input: FactCheckInput, editorial = false): string {
   const { plan, brief } = input;
   return [
     input.knowledgeContext,
@@ -151,11 +151,16 @@ function materialOf(input: FactCheckInput): string {
       ? `Entities the article may name, and how each relates to the brand:\n${formatEntities(brief.entities)}`
       : "",
     mapMaterial(input.map ?? null),
+    // An editorial article's first-hand claims are checked against the brand's own notes.
+    editorial ? seenMaterial(brief) : "",
   ]
     .filter(Boolean)
     .join("\n\n")
     .replace(/<\/?\s*(material|article)\s*>/gi, " ");
 }
+
+const EXPERIENCE_CHECK =
+  '\n5. Any claim of the brand\'s own first-hand experience ("we have seen", "in our tests", "our clients", "a customer of ours"). Only the brand\'s own first-hand notes in the material support one, and only for what a note says.';
 
 export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps = {}): Promise<FactCheckResult> {
   const now = (deps.now ?? (() => new Date()))();
@@ -164,8 +169,9 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
   const current = BlogArticleMetaSchema.parse(node.blog ?? {});
   // An editorial article's author box is the author's own words about themselves, put there
   // by code: it is not checked, and goes back on after the check.
-  const { body: copy, box } = current.style === "editorial" ? splitAuthorBox(node.body) : { body: node.body, box: "" };
-  const material = materialOf(input);
+  const editorial = current.style === "editorial";
+  const { body: copy, box } = editorial ? splitAuthorBox(node.body) : { body: node.body, box: "" };
+  const material = materialOf(input, editorial);
   // The same reference the writer's figures were checked against.
   const reference = blogReference({
     plan,
@@ -173,7 +179,7 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
     brief,
     knowledgeContext: input.knowledgeContext,
     proofBlock: input.proofBlock,
-    extra: mapMaterial(input.map ?? null),
+    extra: [mapMaterial(input.map ?? null), editorial ? seenMaterial(brief) : ""].filter(Boolean).join("\n"),
   });
   const figuresBefore = unsupportedFigures(copy, reference, { ignoreYears: [year] });
 
@@ -182,6 +188,7 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
       brand_name: input.brandName.replace(/["\n]/g, " ").slice(0, 120),
       today: now.toISOString().slice(0, 10),
       unsupported_figures: figuresBefore.length ? figuresBefore.slice(0, 20).join(", ") : "(none)",
+      experience_check: editorial ? EXPERIENCE_CHECK : "",
       material,
       article: copy.replace(/<\/?\s*(material|article)\s*>/gi, " "),
     }),

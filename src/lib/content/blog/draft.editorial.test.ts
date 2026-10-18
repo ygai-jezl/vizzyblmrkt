@@ -125,3 +125,56 @@ describe("the author in the suggested markup", () => {
     expect(notes.some((n) => n.includes("Ana Ruiz's profile page"))).toBe(true);
   });
 });
+
+describe("the brand's notes in an editorial article", () => {
+  const withNotes = {
+    ...EDITORIAL_BRIEF,
+    seen: {
+      notes: [
+        { id: "bn_1", text: "Harbor's citations fell 40% in the fortnight after a rival's comparison page.", why: "", canName: true },
+        { id: "bn_2", text: "A customer only found out from a prospect.", why: "", canName: false },
+      ],
+      near: [],
+      removed: [],
+      own: "We stopped checking daily after a month.",
+      save: true,
+      asks: [],
+      matchedFor: "",
+      matchedAt: null,
+    },
+  };
+
+  it("are the only experience the writer may claim, each marked whether people in it may be named", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "true");
+    const generate = vi.fn(async () => answer.replace("Most teams should check weekly", "Most teams should check weekly; one brand's citations fell 40% in a fortnight"));
+    const draft = await draftBlogArticle(input({ brief: withNotes }), { generate, now: NOW });
+    const prompt = String((generate.mock.calls[0] as unknown[])[0]);
+    expect(prompt).toContain("WHAT WE'VE SEEN");
+    expect(prompt).toContain("[1] (the people in it may be named) Harbor's citations fell 40%");
+    expect(prompt).toContain("[2] (keep every person and company in it anonymous) A customer only found out");
+    expect(prompt).toContain("[3] (what the team wrote for this article; keep every person and company in it anonymous) We stopped checking daily");
+    expect(prompt).not.toContain("Claim no experience of its own");
+    // A figure from a note is traceable.
+    expect(draft!.meta.unsupportedFigures).not.toContain("40%");
+  });
+
+  it("back first-hand claims in the fact check, which is told to check them", async () => {
+    const generate = vi.fn(async () => "OK");
+    await checkBlogFacts(
+      {
+        plan: { ...plan, blog: withNotes } as unknown as ContentPlan,
+        node: { ...node, body: EDITORIAL_ARTICLE, blog: { style: "editorial" } } as unknown as ContentNode,
+        brief: withNotes,
+        brandName: "Acme",
+        knowledgeContext: "",
+        knowledgeUrls: [],
+        proofBlock: "",
+      },
+      { generate, now: NOW },
+    );
+    const prompt = String((generate.mock.calls[0] as unknown[])[0]);
+    expect(prompt).toContain("5. Any claim of the brand's own first-hand experience");
+    expect(prompt).toContain("- A customer only found out from a prospect.");
+  });
+});

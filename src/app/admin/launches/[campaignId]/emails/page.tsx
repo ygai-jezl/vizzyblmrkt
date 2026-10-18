@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Mail, Megaphone, Newspaper, Route, Send } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
+import { LaunchSenderWarning } from "@/components/admin/LaunchSenderWarning";
 import { forTenant } from "@/lib/tenant";
 import { loadWelcomeJourney } from "@/lib/journey/launchJourneyLoad";
 import { countFinishingOnOriginal } from "@/lib/lifecycle/waitlist/engineSwitch";
@@ -74,10 +75,9 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
   const { campaignId } = await params;
   const repos = forTenant(ctx);
   const showInvites = isInvitesUiEnabled() && isInvitesEnabled();
+  const campaign = await repos.campaigns.getById(campaignId).catch(() => null);
   const [welcome, broadcasts, workspaces, inviteSetup, funnel] = await Promise.all([
-    repos.campaigns
-      .getById(campaignId)
-      .then((c) => loadWelcomeJourney(ctx, c ?? { id: campaignId })),
+    loadWelcomeJourney(ctx, campaign ?? { id: campaignId }),
     repos.broadcasts.find({ where: [["campaignId", "==", campaignId]], orderBy: [["createdAt", "desc"]] }),
     repos.workspaces.find({ where: [], limit: 200 }).catch(() => []),
     showInvites ? loadInviteSetup(ctx, campaignId).catch(() => null) : null,
@@ -102,6 +102,7 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
           Everything this launch sends. Each one opens where it&rsquo;s edited.
         </p>
       </div>
+      <LaunchSenderWarning ctx={ctx} campaign={campaign} />
       <ul className="space-y-2">
         <Row
           icon={<Route size={17} aria-hidden />}

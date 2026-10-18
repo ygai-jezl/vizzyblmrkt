@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { ReadyHub } from "@/lib/distribute/weeklyHubs";
+import { broadcastErrorText } from "@/lib/email/broadcastErrors";
 
 /**
  * Weekly newsletter tab. Lists every ready hub newsletter across the workspace.
@@ -100,6 +101,7 @@ function SendPanel({
   const [scheduledLocal, setScheduledLocal] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
   // The broadcast is created ONCE and its id retained, so a retry (e.g. after an
   // ambiguous /send or /schedule response) reuses the same broadcast — those
   // routes are idempotent per-broadcast, preventing a duplicate campaign /
@@ -147,20 +149,26 @@ function SendPanel({
         headers: { "Content-Type": "application/json" },
         body: scheduling ? JSON.stringify({ scheduledAt: scheduledAtIso }) : "{}",
       });
-      if (!res.ok) throw new Error("failed");
+      // A refused send still answers 200, with status "failed" and why: say why, never "Sent".
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string; lastError?: string | null };
       setBusy(false);
+      if (!res.ok || data.status === "failed") {
+        setDone(false);
+        setMsg(broadcastErrorText(data.error ?? data.lastError, "weekly"));
+        return;
+      }
+      setDone(true);
       setMsg(
         scheduling
-          ? "Scheduled — it'll go to this launch's weekly subscribers at that time."
+          ? "Scheduled. It goes to this launch's weekly subscribers at that time."
           : "Sent to this launch's weekly subscribers.",
       );
     } catch {
       setBusy(false);
-      setMsg("Couldn't complete that — please try again.");
+      setDone(false);
+      setMsg("Couldn't complete that. Please try again.");
     }
   }
-
-  const done = !!msg && (msg.startsWith("Sent") || msg.startsWith("Scheduled"));
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
@@ -192,7 +200,7 @@ function SendPanel({
           Send to launch&apos;s weekly subscribers
           {campaigns.length === 0 ? (
             <p className="mt-1 text-xs font-normal text-neutral-500">
-              No launches yet — create a launch first so there&apos;s an audience.
+              No launches yet. Create a launch first so there&apos;s an audience.
             </p>
           ) : (
             <select

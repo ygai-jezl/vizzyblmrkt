@@ -29,8 +29,8 @@ export default function YourBrandHelp() {
       />
 
       <Warning>
-        Got a guidelines PDF? Add it before your colours. Reading a PDF replaces your Colour palette with the colours it
-        finds.
+        Reading a guidelines PDF adds the colours and fonts it finds to yours. It never removes or renames the ones you
+        already have.
       </Warning>
 
       <H2 id="logo">Add your logo</H2>

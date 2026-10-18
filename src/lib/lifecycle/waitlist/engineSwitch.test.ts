@@ -228,6 +228,45 @@ describe("switching a launch to the lifecycle engine", () => {
   });
 });
 
+describe("the order guard on a welcome email's first publish", () => {
+  const moved = async () => {
+    const w = world({ original: "draft" });
+    seedSignup(w.db, "ada");
+    seedSignup(w.db, "grace");
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    return { w, id: waitlistJourneyId(CAMPAIGN_ID) };
+  };
+
+  it("asks first when people are already on the list, and publishes nothing until answered", async () => {
+    const { w, id } = await moved();
+    const asked = await publishLifecycleJourney(ctx, id, { db: w.db, nowMs: T0 + H, existingSignups: "ask" });
+    expect(asked).toMatchObject({ ok: false, status: 409, error: "confirm_existing_signups", detail: { existing: 2 } });
+    expect((await forTenant(system, w.db).lifecycleJourneys.getById(id))!.publishedVersion).toBeNull();
+    expect(await forTenant(system, w.db).waitlistEnrolments.find({})).toEqual([]);
+  });
+
+  it("\"Only people who join from now\" publishes without sending to the list", async () => {
+    const { w, id } = await moved();
+    const published = await publishLifecycleJourney(ctx, id, { db: w.db, nowMs: T0 + H, existingSignups: "skip" });
+    expect(published.ok).toBe(true);
+    expect(await forTenant(system, w.db).waitlistEnrolments.find({})).toEqual([]);
+    expect((await forTenant(system, w.db).lifecycleJourneys.getById(id))!.backfill).toBeUndefined();
+    expect(await w.join("lin")).not.toBe("skipped");
+  });
+
+  it("\"Send to them too\" enrols everyone already verified", async () => {
+    const { w, id } = await moved();
+    expect((await publishLifecycleJourney(ctx, id, { db: w.db, nowMs: T0 + H, existingSignups: "include" })).ok).toBe(true);
+    expect((await forTenant(system, w.db).waitlistEnrolments.find({})).map((e) => e.signupId).sort()).toEqual(["ada", "grace"]);
+  });
+
+  it("doesn't ask when nobody is on the list yet", async () => {
+    const w = world({ original: "draft" });
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    expect((await publishLifecycleJourney(ctx, waitlistJourneyId(CAMPAIGN_ID), { db: w.db, nowMs: T0 + H, existingSignups: "ask" })).ok).toBe(true);
+  });
+});
+
 describe("countDoubleSends", () => {
   it("counts signups with a send from both engines' journeys", async () => {
     const db = new FakeFirestore();

@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -69,6 +70,16 @@ export default function WriteAndScheduleHelp() {
         saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
+      {isBrandNotesUiEnabled() ? (
+        <P>
+          Blog articles are written the way a practitioner writes: the answer first, the trade-offs and the common mistakes,
+          and your brand kept to the margins. In the hub&apos;s <strong>Brief</strong>, <strong>What we&apos;ve seen</strong>{" "}
+          shows the notes from <Open href="/help/your-brand#seen">your team&apos;s experience</Open> that fit the
+          article&apos;s question; remove any that don&apos;t belong. When nothing fits, answer one of the questions it
+          suggests and the article can speak from experience. Under <strong>Publisher</strong>, add the author&apos;s role and
+          a short bio for the byline and the author box at the end.
+        </P>
+      ) : null}
       <P>
         You can also ask Vizzy. Press <strong>Ask Vizzy</strong> in the sidebar and say what you want, such as &quot;Draft a
         LinkedIn series about our launch&quot;. Vizzy only drafts. You approve, schedule and publish.

@@ -1162,6 +1162,40 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Editorial blog articles (feat/blog-editorial-voice). CREATE_BLOG_EDITORIAL_ENABLED: a
+  # CITABLE blog hub is researched on its own question and written as an editorial article
+  # (an opening that answers, sections whose first sentence answers, trade-offs and
+  # mistakes, a closing that makes the point; no answer boxes, Key facts or TL;DR), checked
+  # against that shape, with a byline and an author box from the brief. Needs
+  # CREATE_BLOG_CITABLE_ENABLED. Off: research, the writer, the check and the markup are
+  # exactly as before. Runtime only: an article carries the shape it was written in.
+  - variable: CREATE_BLOG_EDITORIAL_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # What we've seen (Brand › What we've seen, `brand_notes`): the brand's own first-hand
+  # notes (customer stories, tests, mistakes, objections, its own numbers), added by hand or
+  # pulled out of a pasted call. A blog article gets the ones that match its question
+  # strongly (a meaning search in `brand_map_vectors` plus one model check), and asks for a
+  # note when none does. BRAND_NOTES_ENABLED: the page, its APIs and the article's matching
+  # (the writer uses notes only with CREATE_BLOG_EDITORIAL_ENABLED too). The NEXT_PUBLIC
+  # mirror shows the tile and the article's box (needed at BUILD). Index:
+  # brand_notes (tenantId, createdAt desc).
+  - variable: BRAND_NOTES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_NOTES_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy adds notes to What we've seen as suggestions (a person keeps them) and can
+  # interview a person for them. Needs BRAND_NOTES_ENABLED and a root agent redeploy.
+  - variable: BRAND_NOTES_CHAT_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # Help pages and the setup guide (feat/setup-guide-help). NEXT_PUBLIC_HELP_PAGES_ENABLED:
   # the public /help pages, their Markdown copies and /help/llms.txt. NEXT_PUBLIC_SETUP_GUIDE_ENABLED
   # (needs the help pages): Home's "Get ready" stage, what each step needs first, How to links,

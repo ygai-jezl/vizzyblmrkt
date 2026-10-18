@@ -46,6 +46,8 @@ import type { PersonPlan } from "@/lib/types/personPlan";
 import type { BrandMapRecord } from "@/lib/types/brandMap";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
+import type { BrandAuthor } from "@/lib/types/brandAuthor";
+import type { BrandNote } from "@/lib/types/brandNote";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -407,6 +409,10 @@ export interface TenantRepositories {
   brandMapSituations: TenantCollection<BrandMapStoredRecord>;
   brandMapRuns: TenantCollection<BrandMapStoredRecord>;
   brandMapImports: TenantCollection<BrandMapStoredRecord>;
+  /** The authors a brand's articles are written under (role, bio, profile page), one per name. */
+  brandAuthors: TenantCollection<BrandAuthor>;
+  /** What we've seen: the brand's own first-hand notes (src/lib/brandNotes/store.ts). */
+  brandNotes: TenantCollection<BrandNote>;
 }
 
 /**
@@ -523,5 +529,9 @@ export function forTenant(
     brandMapSituations: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_situations", t),
     brandMapRuns: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_runs", t),
     brandMapImports: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_imports", t),
+    // An article's author (a person's name, role and bio) sits with the articles → regional DB.
+    brandAuthors: new TenantCollection<BrandAuthor>(regionalDb, "brand_authors", t),
+    // The brand's first-hand notes may name its customers → regional DB, with the content they inform.
+    brandNotes: new TenantCollection<BrandNote>(regionalDb, "brand_notes", t),
   };
 }

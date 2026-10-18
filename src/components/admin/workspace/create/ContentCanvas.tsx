@@ -16,7 +16,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
-import type { BlogBrief, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
+import type { BlogBrief, BlogSeen, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
@@ -115,6 +115,8 @@ export function ContentCanvas({
   footerBrand = null,
   brandMap = null,
   pagesOn = false,
+  editorialOn = false,
+  seenOn = false,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -132,6 +134,10 @@ export function ContentCanvas({
   brandMap?: ArticleMap | null;
   /** The brand map's pages switch (BRAND_MAP_PAGES_ENABLED): the article's address can be set here. */
   pagesOn?: boolean;
+  /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
+  editorialOn?: boolean;
+  /** Articles draw on the brand's notes (BRAND_NOTES_ENABLED with the editorial writer). */
+  seenOn?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -182,7 +188,7 @@ export function ContentCanvas({
     blogBriefRef.current = next;
     setBlogBriefState(next);
   }, []);
-  const [blogBusy, setBlogBusy] = useState<null | "research" | "check">(null);
+  const [blogBusy, setBlogBusy] = useState<null | "research" | "check" | "seen">(null);
   // The article's address (the plan's hub URL). Saved on its own, never with the canvas.
   const [pageUrl, setPageUrl] = useState<string | null>(initial.strategy.hubUrl ?? null);
   const [blogNote, setBlogNoteState] = useState<{ text: string; about: "research" | "check" } | null>(null);
@@ -440,6 +446,33 @@ export function ContentCanvas({
   // Three requests, not one: each stays well inside the platform's response window, and
   // the operator sees which step is running.
 
+  /** Find the brand's notes that fit the article's question (What we've seen) and put what was
+   *  found into the brief here too, so the next save keeps it. The server reads the saved plan.
+   *  Returns a line saying what was found, or null when it didn't finish. Fail-soft. */
+  async function findSeen(): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/blog/seen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = (await res.json().catch(() => ({}))) as { seen?: BlogSeen };
+      if (!res.ok || !data.seen) return null;
+      setBlogBrief({ ...blogBriefRef.current, seen: data.seen });
+      const n = data.seen.notes.length;
+      return n
+        ? `${n === 1 ? "One of your team's notes fits" : `${n} of your team's notes fit`} this question.`
+        : "None of your team's notes fits this question closely: see What we've seen.";
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether the article's notes were matched to a different question (or never). */
+  function seenIsStale(b: BlogBrief): boolean {
+    const q = b.primaryQuestion.replace(/\s+/g, " ").trim();
+    return !b.seen?.matchedAt || (q !== "" && b.seen.matchedFor !== q);
+  }
+
   /** Research the brief (buyer questions, link targets, checked sources). The caller has
    *  saved the plan, so the server reads the operator's latest brief. Fail-soft. */
   async function researchBlog(): Promise<void> {
@@ -467,7 +500,7 @@ export function ContentCanvas({
       if (res.ok && data.brief) {
         setBlogBrief(data.brief);
         const f = data.found;
-        setBlogNote(
+        const summary =
           !f
             ? "Research done."
             : `Found ${f.questions} questions, ${f.links} pages to link to and ${f.sources} sources ` +
@@ -479,9 +512,13 @@ export function ContentCanvas({
                 (f.facts > 0 && f.sources === 0
                   ? " Search found facts but not the pages behind them this time — research again for sources."
                   : "") +
-                brandMapNote(data.map),
-          "research",
-        );
+                brandMapNote(data.map);
+        setBlogNote(summary, "research");
+        // Then the team's notes that fit the question research settled on.
+        if (seenOn) {
+          const said = await findSeen();
+          if (said) setBlogNote(`${summary} ${said}`, "research");
+        }
       } else {
         setBlogNote(
           res.status === 429
@@ -602,6 +639,10 @@ export function ContentCanvas({
   async function writeBlogHub(id: string): Promise<void> {
     patchNode(id, { busy: true });
     if (!blogBriefRef.current.researchedAt) await researchBlog();
+    else if (seenOn && seenIsStale(blogBriefRef.current)) {
+      setBlogNote("Looking for your team's notes on this question…", "research");
+      await findSeen();
+    }
     setBlogNote("Writing the article…", "research");
     await generateOne(id);
     const written = (nodesRef.current.find((n) => n.id === id)?.data as ContentNodeData | undefined)?.cn;
@@ -623,6 +664,14 @@ export function ContentCanvas({
       setBlogBusy(null);
       setBlogNote("Save failed — not researched.", "research");
     }
+  }
+
+  async function onBlogFindSeen(): Promise<void> {
+    if (blogBusy || busy) return;
+    setBlogBusy("seen");
+    if (await save()) setBlogNote((await findSeen()) ?? "Couldn't look for your notes just now. Try again.", "research");
+    else setBlogNote("Save failed. Your notes weren't looked for.", "research");
+    setBlogBusy(null);
   }
 
   async function onBlogCheckFacts(id: string): Promise<void> {
@@ -831,6 +880,8 @@ export function ContentCanvas({
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
+          ...(editorialOn ? { editorial: true } : {}),
+          ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
         }
       : undefined;
   const total = nodes.length;

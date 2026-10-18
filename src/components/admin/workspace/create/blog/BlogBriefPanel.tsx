@@ -2,6 +2,10 @@
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
+  BlogSeenSchema,
+  SEEN_ADDED_BY_YOU,
+  type BlogSeen,
+  type BlogSeenNote,
   BlogEntityRelation,
   BlogIntent,
   BlogLinkIntent,
@@ -17,6 +21,7 @@ import { mapQuestion, withSubject, type ArticleMap } from "@/lib/content/blog/ar
 import { notOnMap } from "@/lib/content/blog/names";
 import type { BlogHubControls } from "./types";
 import { MapSubjectSearch } from "@/components/admin/brand-kit/MapSubjectSearch";
+import { BRAND_KIT_NOTES_ROUTE } from "@/lib/content/brandKit";
 
 /**
  * The blog hub's brief, editable: the question the article answers, what buyers ask, and
@@ -665,6 +670,233 @@ function Publisher({
   );
 }
 
+/**
+ * The author's role, bio and profile link (CREATE_BLOG_EDITORIAL_ENABLED): the byline under
+ * the title, the author box at the end of the article (the bio word for word) and the
+ * markup's Person. Kept for the author's next article.
+ */
+function AuthorDetails({ brief, set }: { brief: BlogBrief; set: (patch: Partial<BlogBrief>) => void }) {
+  const id = useId();
+  // As with the site: what is typed is kept here; the brief only takes a whole https link, or none.
+  const [link, setLink] = useState(brief.authorUrl ?? "");
+  const [held, setHeld] = useState(brief.authorUrl ?? "");
+  if (held !== (brief.authorUrl ?? "")) {
+    setHeld(brief.authorUrl ?? "");
+    setLink(brief.authorUrl ?? "");
+  }
+  const typed = link.trim();
+  const invalid = typed !== "" && !isHttpsUrl(typed);
+  if (!brief.author.trim()) {
+    return <p className={HINT}>Name an author to add their role and a short bio: the byline and the author box at the end of the article.</p>;
+  }
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <label className={LABEL}>
+        Role
+        <input
+          value={brief.authorRole ?? ""}
+          onChange={(e) => set({ authorRole: e.target.value })}
+          maxLength={120}
+          placeholder="Head of Growth"
+          className={`mt-1 w-full ${INPUT}`}
+        />
+      </label>
+      <label className={LABEL}>
+        Their profile page
+        <input
+          type="url"
+          value={link}
+          onChange={(e) => {
+            setLink(e.target.value);
+            const next = e.target.value.trim();
+            if (next === "" || isHttpsUrl(next)) set({ authorUrl: next });
+          }}
+          maxLength={2000}
+          aria-invalid={invalid}
+          placeholder="https://example.com/team/ana"
+          className={`mt-1 w-full ${INPUT}`}
+        />
+      </label>
+      {invalid ? (
+        <p role="alert" className={`sm:col-span-2 ${ERROR}`}>
+          {NOT_HTTPS}, or leave it blank.
+        </p>
+      ) : null}
+      <div className="sm:col-span-2">
+        <label htmlFor={`${id}-bio`} className={LABEL}>
+          Bio
+        </label>
+        <textarea
+          id={`${id}-bio`}
+          aria-describedby={`${id}-bio-hint`}
+          value={brief.authorBio ?? ""}
+          onChange={(e) => set({ authorBio: e.target.value })}
+          rows={3}
+          maxLength={600}
+          placeholder="What they do, and what they have done that makes them worth reading on this."
+          className={`mt-1 w-full ${INPUT} leading-relaxed`}
+        />
+        <p id={`${id}-bio-hint`} className={`mt-1 ${HINT}`}>
+          Shown word for word in the author box at the end of the article. One line about your product can go here too. Kept
+          for this author: research fills it in on their next article.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What we've seen, for this article: the brand's notes that match its question strongly (put in
+ * by the match, removable), the weaker ones a person may add, and what a person writes for this
+ * article alone. With nothing matched, three questions the team could answer. The writer takes
+ * first-hand experience from here and nowhere else.
+ */
+function SeenBox({
+  brief,
+  set,
+  onFind,
+  busy,
+}: {
+  brief: BlogBrief;
+  set: (patch: Partial<BlogBrief>) => void;
+  onFind: () => void;
+  busy: boolean;
+}) {
+  const id = useId();
+  const [showNear, setShowNear] = useState(false);
+  const seen = brief.seen;
+  const notes = seen?.notes ?? [];
+  const near = seen?.near ?? [];
+  const asks = seen?.asks ?? [];
+  const own = seen?.own ?? "";
+  const looked = Boolean(seen?.matchedAt);
+  const patch = (p: Partial<BlogSeen>) => set({ seen: BlogSeenSchema.parse({ ...(seen ?? {}), ...p }) });
+  const remove = (noteId: string) =>
+    patch({ notes: notes.filter((n) => n.id !== noteId), removed: [...new Set([...(seen?.removed ?? []), noteId])].slice(-50) });
+  const use = (n: BlogSeenNote) =>
+    patch({
+      notes: [...notes, { ...n, why: SEEN_ADDED_BY_YOU }].slice(0, 6),
+      near: near.filter((x) => x.id !== n.id),
+      removed: (seen?.removed ?? []).filter((x) => x !== n.id),
+    });
+  const ask = (q: string) => {
+    if (!own.includes(q)) patch({ own: `${q}\n${own}`.slice(0, 3000) });
+    document.getElementById(`${id}-own`)?.focus();
+  };
+  const tone = notes.length
+    ? "border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/30"
+    : looked
+      ? "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/30"
+      : "border-neutral-200 dark:border-neutral-800";
+
+  return (
+    <section aria-label="What we've seen" className={`space-y-2.5 rounded-lg border p-3 ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-100">What we&rsquo;ve seen</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            notes.length
+              ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+              : looked
+                ? "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+                : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+          }`}
+        >
+          {notes.length ? `${notes.length} from your brand` : looked ? "Nothing matched" : "Not looked yet"}
+        </span>
+      </div>
+
+      {notes.map((n) => (
+        <div key={n.id} className="space-y-1.5 rounded-md border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-950">
+          <p className="text-xs leading-relaxed text-neutral-800 dark:text-neutral-200">{n.text}</p>
+          <div className="flex items-center justify-between gap-2">
+            <span className={HINT}>{n.why ? `From your notes · ${n.why}` : "From your notes"}</span>
+            <button type="button" onClick={() => remove(n.id)} className={SMALL_BUTTON}>
+              Remove
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {!looked ? (
+        <p className={HINT}>Research looks for the notes on Brand › What we&rsquo;ve seen that fit this question.</p>
+      ) : !notes.length ? (
+        <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
+          None of your brand&rsquo;s notes fits this question closely enough. Without one, the article is written as analysis and
+          claims no experience of its own.
+        </p>
+      ) : null}
+
+      {looked && !notes.length && asks.length ? (
+        <div className="space-y-1.5">
+          <div className={LABEL_TEXT}>Answer one of these and the article can speak from experience</div>
+          {asks.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => ask(q)}
+              className="block w-full rounded-md border border-neutral-200 bg-white px-2.5 py-2 text-left text-xs leading-snug hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+            >
+              <span aria-hidden className="mr-1.5 font-semibold text-blue-700 dark:text-blue-300">+</span>
+              {q}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div>
+        <label htmlFor={`${id}-own`} className={LABEL}>
+          {notes.length ? "Anything else for this article" : "Your answer"}
+        </label>
+        <textarea
+          id={`${id}-own`}
+          aria-describedby={`${id}-own-hint`}
+          value={own}
+          onChange={(e) => patch({ own: e.target.value })}
+          rows={notes.length ? 2 : 4}
+          maxLength={3000}
+          placeholder={notes.length ? "What else have you seen on this question?" : "In your own words. A few sentences is plenty."}
+          className={`mt-1 w-full ${INPUT} leading-relaxed`}
+        />
+        <p id={`${id}-own-hint`} className={`mt-1 ${HINT}`}>
+          Good answers are specific: what happened, to whom (no names needed), and what surprised you.
+        </p>
+      </div>
+      <label className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
+        <input type="checkbox" checked={seen?.save ?? true} onChange={(e) => patch({ save: e.target.checked })} />
+        Also save to your brand&rsquo;s notes
+      </label>
+
+      {near.length ? (
+        <div className="space-y-1.5">
+          <button type="button" onClick={() => setShowNear((v) => !v)} aria-expanded={showNear} className="text-xs text-blue-700 underline-offset-2 hover:underline dark:text-blue-300">
+            {showNear ? "Hide the weaker matches" : `${near.length} weaker match${near.length === 1 ? "" : "es"} left out · Show`}
+          </button>
+          {showNear
+            ? near.map((n) => (
+                <div key={n.id} className="flex items-start justify-between gap-2 rounded-md border border-dashed border-neutral-300 p-2 dark:border-neutral-700">
+                  <p className="min-w-0 text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">{n.text}</p>
+                  <button type="button" onClick={() => use(n)} className={SMALL_BUTTON}>
+                    Use it
+                  </button>
+                </div>
+              ))
+            : null}
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-2">
+        <a href={BRAND_KIT_NOTES_ROUTE} className="text-[11px] text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400">
+          Your notes: Brand › What we&rsquo;ve seen
+        </a>
+        <button type="button" onClick={onFind} disabled={busy} className={SMALL_BUTTON}>
+          {busy ? "Looking…" : looked ? "Look again" : "Look now"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 /** "None of these" in the subject list (a map id never looks like this). */
 const NO_SUBJECT = "none";
 
@@ -827,6 +1059,8 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
         </p>
       </div>
 
+      {controls.onFindSeen ? <SeenBox brief={brief} set={set} onFind={controls.onFindSeen} busy={busy === "seen"} /> : null}
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -890,6 +1124,7 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
           hint="Who publishes the article — used in the suggested schema markup."
         >
           <Publisher brief={brief} brandName={controls.brandName} set={set} />
+          {controls.editorial ? <AuthorDetails brief={brief} set={set} /> : null}
         </Section>
       </div>
     </fieldset>

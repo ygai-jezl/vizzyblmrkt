@@ -25,6 +25,17 @@ export function isBlogBrandMapEnabled(): boolean {
   return process.env.CREATE_BLOG_BRAND_MAP_ENABLED === "true" && process.env.BRAND_MAP_ENABLED === "true";
 }
 
+/**
+ * Server flag: a CITABLE blog hub is researched on its own question and written as an
+ * editorial article (no answer boxes, Key facts or TL;DR; trade-offs, mistakes and a
+ * closing that makes the point), checked against that shape, with a byline and an author
+ * box. The article records the shape it was written in (`meta.style`), so its checklist
+ * follows the article, not the switch. Off: everything is exactly as before (pins.test.ts).
+ */
+export function isBlogEditorialEnabled(): boolean {
+  return isBlogCitableEnabled() && process.env.CREATE_BLOG_EDITORIAL_ENABLED === "true";
+}
+
 function envInt(name: string, fallback: number): number {
   const n = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(n) ? n : fallback;

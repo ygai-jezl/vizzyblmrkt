@@ -53,7 +53,9 @@ export function CitableChecklist({
   return (
     <div className="rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
       <div className="flex items-baseline justify-between gap-2">
-        <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">CITABLE check</div>
+        <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+          {meta?.style === "editorial" ? "Article check" : "CITABLE check"}
+        </div>
         <div className={`text-xs ${MUTED}`}>
           <span className="text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
             {report.score}

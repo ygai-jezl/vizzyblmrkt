@@ -4,7 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { isBrandNotesEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesChatEnabled, isBrandNotesEnabled } from "@/lib/brandNotes/flags";
 import { listNotes } from "@/lib/brandNotes/store";
 import { subjectsForNotes } from "@/lib/brandNotes/subjects";
 import type { BrandNote } from "@/lib/types/brandNote";
@@ -43,7 +43,7 @@ export default async function BrandNotesRoute() {
           Blog articles draw on it when a note fits their question, so they read like they come from people who do the work.
         </p>
       </div>
-      <BrandNotesPage initialNotes={notes} subjects={subjects} canEdit={ctx.role === "admin"} />
+      <BrandNotesPage initialNotes={notes} subjects={subjects} canEdit={ctx.role === "admin"} chatOn={isBrandNotesChatEnabled()} />
     </div>
   );
 }

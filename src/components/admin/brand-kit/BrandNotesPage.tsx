@@ -2,7 +2,8 @@
 
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ClipboardPaste, RefreshCw, X } from "lucide-react";
+import { ClipboardPaste, MessageCircle, RefreshCw, X } from "lucide-react";
+import { useShell } from "@/components/admin/nav/ShellProvider";
 import {
   BRAND_NOTE_KINDS,
   BRAND_NOTE_KIND_LABEL,
@@ -66,16 +67,24 @@ function problem(status: number, data: Record<string, unknown>): string {
   return "That didn't save. Check your connection and try again.";
 }
 
+/** What the button asks Vizzy (BRAND_NOTES_CHAT_ENABLED). */
+const INTERVIEW =
+  "Interview me for What we've seen: ask me one question at a time about something our team has seen, starting with the kinds of note we have least of, and file each answer as a suggested note in my words once I agree.";
+
 export function BrandNotesPage({
   initialNotes,
   subjects,
   canEdit,
+  chatOn = false,
 }: {
   initialNotes: BrandNote[];
   /** The decided subjects on the brand's saved map; null = no saved map (no coverage shown). */
   subjects: NoteSubject[] | null;
   canEdit: boolean;
+  /** Vizzy can interview a person for notes (BRAND_NOTES_CHAT_ENABLED). */
+  chatOn?: boolean;
 }) {
+  const shell = useShell();
   const [notes, setNotes] = useState(initialNotes);
   const [filter, setFilter] = useState<Filter>("all");
   const [prefill, setPrefill] = useState<Prefill>({ nonce: 0 });
@@ -100,9 +109,14 @@ export function BrandNotesPage({
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-5">
-        {canEdit ? (
+        {canEdit || (chatOn && shell) ? (
           <div className="flex flex-wrap justify-end gap-2">
-            <PasteNotes subjects={subjects} onAdded={(added) => setNotes((list) => [...added, ...list])} />
+            {canEdit ? <PasteNotes subjects={subjects} onAdded={(added) => setNotes((list) => [...added, ...list])} /> : null}
+            {chatOn && shell ? (
+              <button type="button" onClick={() => shell.ask(INTERVIEW)} className={`${SECONDARY} inline-flex items-center gap-1.5 bg-white py-1.5 text-sm dark:bg-neutral-950`}>
+                <MessageCircle size={14} aria-hidden /> Let Vizzy interview me
+              </button>
+            ) : null}
           </div>
         ) : null}
         {canEdit ? (

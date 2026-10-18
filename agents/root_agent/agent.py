@@ -33,6 +33,7 @@ from .tools.insights_summary import get_insights_summary
 from .tools.email_style import get_email_style, suggest_email_style
 from .tools.journey_style import get_journey_email_style, set_journey_email_style
 from .tools.brand_map import get_brand_map, suggest_brand_map
+from .tools.brand_notes import get_brand_notes, suggest_brand_notes
 from .tools.setup_help import get_setup_status, read_help_page
 
 root_agent = LlmAgent(
@@ -51,7 +52,8 @@ root_agent = LlmAgent(
     # style and save a suggestion an admin applies; get/set_journey_email_style read
     # and set one journey's own look, in its draft (Lifecycle Ops has them too);
     # get_brand_map/suggest_brand_map read the brand map and file suggestions an admin
-    # accepts; get_setup_status/read_help_page answer "what should I set up first?"
+    # accepts; get_brand_notes/suggest_brand_notes read What we've seen and file suggested
+    # notes in the person's own words; get_setup_status/read_help_page answer "what should I set up first?"
     # and "how do I…?" from the brand's setup progress and the help pages. More
     # marketing FunctionTools land alongside them.
     tools=[
@@ -63,6 +65,8 @@ root_agent = LlmAgent(
         set_journey_email_style,
         get_brand_map,
         suggest_brand_map,
+        get_brand_notes,
+        suggest_brand_notes,
         get_setup_status,
         read_help_page,
     ],

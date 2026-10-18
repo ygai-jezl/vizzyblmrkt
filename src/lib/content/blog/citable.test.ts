@@ -13,7 +13,8 @@ describe("the CITABLE check", () => {
     const r = evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, pageUrl: "https://acme.example/blog/visibility" });
     expect(r.items.filter((it) => it.status !== "pass").map((it) => `${it.id}: ${it.detail}`)).toEqual([]);
     expect(r.score).toBe(100);
-    expect([...new Set(r.items.map((it) => it.letter))].sort()).toEqual(CITABLE_LETTERS.map((l) => l.letter).sort());
+    // Every CITABLE letter; Voice (V) is read only on an editorial article.
+    expect([...new Set(r.items.map((it) => it.letter))].sort()).toEqual(CITABLE_LETTERS.map((l) => l.letter).filter((l) => l !== "V").sort());
     expect(citableGaps(r)).toEqual([]);
   });
 

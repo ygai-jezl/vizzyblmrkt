@@ -25,7 +25,7 @@ import {
 } from "./brief";
 import { citableGaps, evaluateCitable, type CitableReport } from "./citable";
 import { unsupportedFigures } from "./figures";
-import { blogWriterThinkingBudget } from "./flags";
+import { blogWriterThinkingBudget, isBlogEditorialEnabled } from "./flags";
 import { slugify } from "./markdown";
 import { mapMaterial, writerMapBlock, type ArticleMap } from "./articleMap";
 
@@ -120,6 +120,64 @@ export function stampLastUpdated(markdown: string, date: string): string {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+/** The brief's author and role, as plain words for a line of Markdown ("" when not given). */
+function authorOf(brief: BlogBrief): { name: string; role: string } {
+  const clean = (v: string | undefined) => (v ?? "").replace(/[*_`#<>[\]|]/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  return { name: clean(brief.author), role: clean(brief.authorRole) };
+}
+
+/** The byline the brief gives ("By Ana Ruiz, Head of Growth"), or "" when the brand is the author. */
+export function bylineOf(brief: BlogBrief): string {
+  const { name, role } = authorOf(brief);
+  return name ? `By ${name}${role ? `, ${role}` : ""}` : "";
+}
+
+/** The editorial article's date line: today's date, then the byline when there is one. Replaces
+ *  whatever "Last updated" line the writer wrote, or adds it straight under the title. */
+export function stampDateLine(markdown: string, date: string, byline: string): string {
+  const stamped = stampLastUpdated(markdown, date);
+  if (!byline) return stamped;
+  return stamped.replace(`*Last updated: ${date}*`, `*Last updated: ${date} · ${byline}*`);
+}
+
+const AUTHOR_BOX = /^##\s+about\s+the\s+author\b/i;
+
+/** The author box that ends an editorial article, built by code so the bio is never reworded.
+ *  "" without a named author and a bio. */
+export function authorBox(brief: BlogBrief): string {
+  const { name, role } = authorOf(brief);
+  const bio = (brief.authorBio ?? "").replace(/\s+/g, " ").replace(/^[\s#>*+\-\d.]+/, "").trim();
+  if (!name || !bio) return "";
+  return `## About the author\n\n**${name}**${role ? `, ${role}` : ""}\n\n${bio}`;
+}
+
+/** An article without its "About the author" section, and that section ("" when there is none). */
+export function splitAuthorBox(markdown: string): { body: string; box: string } {
+  const lines = markdown.split("\n");
+  const at = lines.findIndex((l) => AUTHOR_BOX.test(l));
+  if (at === -1) return { body: markdown, box: "" };
+  const next = lines.findIndex((l, i) => i > at && /^#{1,2}\s+\S/.test(l));
+  const end = next === -1 ? lines.length : next;
+  return {
+    body: [...lines.slice(0, at), ...lines.slice(end)].join("\n").trimEnd(),
+    box: lines.slice(at, end).join("\n").trim(),
+  };
+}
+
+/** Take out an "About the author" section the writer added itself (code adds the real one). */
+const withoutAuthorBox = (markdown: string) => splitAuthorBox(markdown).body;
+
+/**
+ * What the editorial writer is told about first-hand experience. Experience may come only
+ * from the brand's own notes; with none, the article claims none.
+ */
+export function seenBlock(_brief: BlogBrief): string {
+  return (
+    "EXPERIENCE: the brand has given no first-hand notes for this article. Claim no experience of its own: never write " +
+    '"we have seen", "in our work", "our clients", "our customers tell us" or anything like it. Explain and advise from the material instead.'
+  );
+}
+
 const MD_LINK = /\[((?:[^\]\\]|\\.)+)\]\(\s*<?((?:[^()\s<>]|\([^()\s]*\))+)>?(?:\s+"[^"]*")?\s*\)/g;
 
 /**
@@ -173,8 +231,8 @@ export function enforceLinks(markdown: string, allowed: Set<string>): { body: st
 }
 
 /** Cut an over-long article at the end of a block, never mid-sentence. */
-function fitBody(markdown: string): { body: string; cut: boolean } {
-  const max = CONTENT_PLAN_LIMITS.MAX_BODY_CHARS;
+function fitBody(markdown: string, reserve = 0): { body: string; cut: boolean } {
+  const max = CONTENT_PLAN_LIMITS.MAX_BODY_CHARS - reserve;
   if (markdown.length <= max) return { body: markdown, cut: false };
   const head = markdown.slice(0, max);
   const at = head.lastIndexOf("\n\n");
@@ -201,12 +259,13 @@ function sourcesNote(sources: BlogSource[], own: Set<string>): string {
   );
 }
 
-function buildTask(input: BlogDraftInput, today: string): string {
+function buildTask(input: BlogDraftInput, today: string, editorial = false): string {
   const { plan, node, brief } = input;
   const primary = brief.primaryQuestion.trim() || plan.scope.spark.trim() || plan.name;
   const entities = formatEntities(brief.entities);
   const sources = usableSources(brief);
-  return renderPrompt("content.blog_draft", {
+  const byline = editorial ? bylineOf(brief) : "";
+  return renderPrompt(editorial ? "content.blog_draft_editorial" : "content.blog_draft", {
     brand_name: input.brandName.replace(/["\n]/g, " ").slice(0, 120),
     primary_question: primary,
     spark: plan.scope.spark || "(none)",
@@ -227,6 +286,12 @@ function buildTask(input: BlogDraftInput, today: string): string {
     sources_note: sourcesNote(sources, ownHosts(brief, [plan.strategy.hubUrl])),
     links: formatLinks(brief.links),
     brand_map: writerMapBlock(input.map ?? null, brief),
+    ...(editorial
+      ? {
+          byline: byline ? `\nPublished under: ${byline.slice(3)}, at ${input.brandName.replace(/["\n]/g, " ").slice(0, 120)}` : "",
+          seen: seenBlock(brief),
+        }
+      : {}),
   });
 }
 
@@ -238,7 +303,7 @@ interface Checked {
 }
 
 /** Everything code decides about a draft: the date, the links, the figures, the check. */
-function checkDraft(raw: string, input: BlogDraftInput, reference: string, today: string): Checked | null {
+function checkDraft(raw: string, input: BlogDraftInput, reference: string, today: string, editorial = false): Checked | null {
   const parsed = parseDraft(raw);
   if (parsed.body.length < 200) return null;
   // A draft that forgot its title still has the question it was asked to answer.
@@ -250,8 +315,12 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
     input.plan.strategy.hubUrl,
     ...input.knowledgeUrls.filter((u) => !isCodeHostUrl(u)),
   ]);
-  const linked = enforceLinks(stampLastUpdated(parsed.body, today), allowed);
-  const fitted = fitBody(linked.body);
+  const dated = editorial ? stampDateLine(withoutAuthorBox(parsed.body), today, bylineOf(input.brief)) : stampLastUpdated(parsed.body, today);
+  const linked = enforceLinks(dated, allowed);
+  // The author box goes on after the links are checked (it holds none) and after the fit, so it is never cut.
+  const box = editorial ? authorBox(input.brief) : "";
+  const fitted = fitBody(linked.body, box ? box.length + 2 : 0);
+  if (box) fitted.body = `${fitted.body}\n\n${box}`;
   const year = Number(today.slice(0, 4));
   const meta = BlogArticleMetaSchema.parse({
     metaTitle: parsed.metaTitle,
@@ -262,6 +331,7 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
       .slice(0, 20)
       .map((f) => f.slice(0, 60)),
     removedLinks: linked.removed,
+    ...(editorial ? { style: "editorial" } : {}),
   });
   const report = evaluateCitable(fitted.body, { brief: input.brief, meta, pageUrl: input.plan.strategy.hubUrl, map: input.map ?? null });
   return { body: fitted.body, meta, report, cut: fitted.cut };
@@ -279,7 +349,9 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
   const today = clock().toISOString().slice(0, 10);
   const { plan, brief } = input;
 
-  const task = buildTask(input, today);
+  // The shape is decided once per article: both passes, the check and the meta agree.
+  const editorial = isBlogEditorialEnabled();
+  const task = buildTask(input, today, editorial);
   const compose = (t: string) =>
     composePrompt({
       identity: brandVoiceSection(input.brandVoice),
@@ -299,7 +371,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
 
   const thinking = { thinkingBudget: blogWriterThinkingBudget() };
   const raw = await generate(compose(task), thinking);
-  let best = raw ? checkDraft(raw, input, reference, today) : null;
+  let best = raw ? checkDraft(raw, input, reference, today, editorial) : null;
   if (!best) return null;
 
   // A figure nobody can trace is the fact check's to fix, sentence by sentence — not a
@@ -315,7 +387,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
       draft: best.body.replace(/<\/?\s*draft\s*>/gi, " "),
     });
     const second = await generate(compose(repair), thinking).catch(() => null);
-    const revised = second ? checkDraft(second, input, reference, today) : null;
+    const revised = second ? checkDraft(second, input, reference, today, editorial) : null;
     if (revised && badness(revised) < badness(best)) {
       // The header lines are easy to drop on a revision — keep the first pass's if so.
       revised.meta = {

@@ -17,7 +17,7 @@ import {
   isCodeHostUrl,
   usableSources,
 } from "./brief";
-import { enforceLinks } from "./draft";
+import { enforceLinks, splitAuthorBox } from "./draft";
 import { unsupportedFigures } from "./figures";
 import { blogCheckerThinkingBudget } from "./flags";
 import { mapMaterial, type ArticleMap } from "./articleMap";
@@ -162,6 +162,9 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
   const year = now.getUTCFullYear();
   const { node, brief, plan } = input;
   const current = BlogArticleMetaSchema.parse(node.blog ?? {});
+  // An editorial article's author box is the author's own words about themselves, put there
+  // by code: it is not checked, and goes back on after the check.
+  const { body: copy, box } = current.style === "editorial" ? splitAuthorBox(node.body) : { body: node.body, box: "" };
   const material = materialOf(input);
   // The same reference the writer's figures were checked against.
   const reference = blogReference({
@@ -172,7 +175,7 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
     proofBlock: input.proofBlock,
     extra: mapMaterial(input.map ?? null),
   });
-  const figuresBefore = unsupportedFigures(node.body, reference, { ignoreYears: [year] });
+  const figuresBefore = unsupportedFigures(copy, reference, { ignoreYears: [year] });
 
   const raw = await (deps.generate ?? generateTextWithDeadline)(
     renderPrompt("content.blog_fact_check", {
@@ -180,13 +183,13 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
       today: now.toISOString().slice(0, 10),
       unsupported_figures: figuresBefore.length ? figuresBefore.slice(0, 20).join(", ") : "(none)",
       material,
-      article: node.body.replace(/<\/?\s*(material|article)\s*>/gi, " "),
+      article: copy.replace(/<\/?\s*(material|article)\s*>/gi, " "),
     }),
     { timeoutMs: input.timeoutMs ?? 75_000, temperature: 0, thinkingBudget: blogCheckerThinkingBudget() },
   ).catch(() => null);
   if (raw === null) return { body: node.body, meta: current, corrected: 0, checked: false };
 
-  const { body: corrected, applied } = applyCorrections(node.body, parseCorrections(raw));
+  const { body: corrected, applied } = applyCorrections(copy, parseCorrections(raw));
   // Code keeps the last word on links and figures, whatever the corrections said.
   const allowed = allowedUrls(brief, [plan.strategy.hubUrl, ...input.knowledgeUrls.filter((u) => !isCodeHostUrl(u))]);
   const linked = enforceLinks(corrected, allowed);
@@ -200,5 +203,5 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
     // The record of what changed builds up across checks (newest first), capped.
     corrections: [...applied, ...current.corrections].slice(0, MAX_CORRECTIONS),
   });
-  return { body: linked.body, meta, corrected: applied.length, checked: true };
+  return { body: box ? `${linked.body}\n\n${box}` : linked.body, meta, corrected: applied.length, checked: true };
 }

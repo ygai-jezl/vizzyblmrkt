@@ -74,6 +74,8 @@ const TLDR = /^(tl\s*;?\s*dr|key\s+takeaways?|takeaways|at\s+a\s+glance)\b/i;
 const ANSWER = /^((the\s+)?(direct|quick|short)\s+answer|answer|in\s+short|the\s+short\s+version)\b/i;
 const FAQ = /^(frequently\s+asked\s+questions|faqs?|common\s+questions|questions\s+(people|buyers)\s+ask)\b/i;
 const SOURCES = /^(sources|references|citations|sources\s+and\s+references)\s*$/i;
+/** The author box code adds to an editorial article: about the author, not a section of the article. */
+const ABOUT_AUTHOR = /^about\s+the\s+author\b/i;
 const NEXT_STEP =
   /^(next\s+steps?|what\s+to\s+do\s+next|get\s+started|your\s+next\s+step|(the\s+)?bottom\s+line|conclusion|final\s+thoughts|wrapping\s+up)\b/i;
 
@@ -193,7 +195,7 @@ export function outlineArticle(markdown: string): ArticleOutline {
     if (FAQ.test(c.heading)) faq = [...(faq ?? []), ...faqOf(c.blocks)];
     else if (SOURCES.test(c.heading)) sources = firstList(c.blocks) ?? c.blocks.map(blockPlain).filter(Boolean);
     else if (NEXT_STEP.test(c.heading)) nextStep ??= c.blocks;
-    else if (KEY_FACTS.test(c.heading) || TLDR.test(c.heading)) continue; // a box drawn as a section
+    else if (KEY_FACTS.test(c.heading) || TLDR.test(c.heading) || ABOUT_AUTHOR.test(c.heading)) continue; // a box drawn as a section
     else {
       sections.push({ heading: c.heading, blocks: c.blocks, words: wordsOf(c.blocks), lead: leadOf(c.blocks) });
       bodyLists += c.blocks.filter((b) => b.kind === "list").length;

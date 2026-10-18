@@ -325,6 +325,13 @@ export const BlogBriefSchema = z.object({
   /** The buying situation the article is written for (BRAND_MAP_SITUATIONS_ENABLED): absent =
    *  not looked at yet (research may pick one), null = a person said none, an id = chosen. */
   situationId: z.string().max(64).nullable().optional(),
+  /** The author's role, for the byline and the author box (CREATE_BLOG_EDITORIAL_ENABLED).
+   *  Optional with no default, so briefs saved before parse exactly as they did. */
+  authorRole: z.string().max(120).optional(),
+  /** A few sentences about the author, shown word for word in the author box at the end. */
+  authorBio: z.string().max(600).optional(),
+  /** The author's own profile page (the client's, never ours), for the markup's sameAs. */
+  authorUrl: z.union([HttpsUrl, z.literal("")]).optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 
@@ -371,6 +378,9 @@ export const BlogArticleMetaSchema = z.object({
   corrections: z.array(BlogCorrectionSchema).max(12).default([]),
   /** Live at its address. Optional with no default, so metas saved before parse exactly as they did. */
   live: BlogArticleLiveSchema.nullable().optional(),
+  /** The shape the article was written in: "editorial" (CREATE_BLOG_EDITORIAL_ENABLED), else
+   *  absent = the CITABLE structure. Its checklist follows this, not the switch. */
+  style: z.enum(["editorial"]).optional(),
 });
 export type BlogArticleMeta = z.infer<typeof BlogArticleMetaSchema>;
 

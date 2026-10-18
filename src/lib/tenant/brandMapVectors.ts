@@ -14,7 +14,8 @@ import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "./ty
  */
 export const BRAND_MAP_VECTORS = "brand_map_vectors" as const;
 
-export type BrandMapVectorKind = "subject" | "situation";
+/** `note`: one of the brand's first-hand notes (What we've seen, BRAND_NOTES_ENABLED). */
+export type BrandMapVectorKind = "subject" | "situation" | "note";
 
 /** At most this many neighbours per search (Firestore allows 1,000; nothing here needs more). */
 export const MAX_NEAREST = 50;

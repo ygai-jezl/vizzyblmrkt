@@ -178,3 +178,24 @@ describe("the brand's notes in an editorial article", () => {
     expect(prompt).toContain("- A customer only found out from a prospect.");
   });
 });
+
+describe("what the editorial writer is shown of the brand's knowledge", () => {
+  it("leaves out what was learned from a code repo; the CITABLE writer is shown it as before", async () => {
+    const { formatContext } = await import("@/lib/agents/knowledgeRetrieval");
+    const knowledgeContext = formatContext([
+      { title: "Product", sourceUri: "https://acme.example/product", content: "Acme Visibility runs the same questions on a schedule.", path: null, heading: null, topic: null, tags: [] },
+      { title: "README", sourceUri: "https://github.com/acme/app/blob/HEAD/README.md", content: "Prompts are deduplicated by a SHA-256 hash.", path: null, heading: null, topic: null, tags: [] },
+    ]);
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "true");
+    const editorial = vi.fn(async () => answer);
+    await draftBlogArticle(input({ knowledgeContext }), { generate: editorial, now: NOW });
+    const shown = String((editorial.mock.calls[0] as unknown[])[0]);
+    expect(shown).toContain("runs the same questions on a schedule");
+    expect(shown).not.toContain("SHA-256");
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "false");
+    const citable = vi.fn(async () => answer);
+    await draftBlogArticle(input({ knowledgeContext, brief: SAMPLE_BRIEF }), { generate: citable, now: NOW });
+    expect(String((citable.mock.calls[0] as unknown[])[0])).toContain("SHA-256");
+  });
+});

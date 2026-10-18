@@ -362,7 +362,8 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       "t_third_party",
       "T",
       "Backed by third parties",
-      thirdPartyHosts.size >= 2 ? "pass" : thirdPartyHosts.size === 1 ? "warn" : "fail",
+      // An editorial article cites only what backs its points: none is a warning, never a rewrite.
+      thirdPartyHosts.size >= 2 ? "pass" : thirdPartyHosts.size === 1 || editorial ? "warn" : "fail",
       `Cites ${plural(thirdPartyHosts.size, "third-party site")} (aim for 2 or more).`,
       "Cite at least two of the allowed third-party sources inline, where their fact supports the point.",
     );

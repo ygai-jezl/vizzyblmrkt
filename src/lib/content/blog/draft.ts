@@ -1,6 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection, fencedContext } from "@/lib/agents/prompts/compose";
 import { generateText } from "@/lib/agents/gemini";
+import { withoutSources } from "@/lib/agents/knowledgeRetrieval";
 import {
   BlogArticleMetaSchema,
   CONTENT_PLAN_LIMITS,
@@ -190,7 +191,7 @@ export function seenBlock(brief: BlogBrief): string {
     "<seen>",
     ...lines.map((l, i) => `[${i + 1}] ${l}`),
     "</seen>",
-    'Work each into the section where it bears most, in the first person plural ("we have seen", "in our tests"). Keep every specific it gives and add none: one case stays one case, never "many" or "often". Keep a person or company anonymous ("a software brand we work with") unless the note says they may be named. Claim no experience beyond these.',
+    'Work each into the section where it bears most, in the first person plural ("we have seen", "in our tests"). Keep every specific it gives and add none: no cause, outcome or detail the note does not state, and one case stays one case, never "many" or "often". Your own reasoning about what it shows goes in a separate sentence, said as reasoning. Keep a person or company anonymous ("a software brand we work with") unless the note says they may be named. Claim no experience beyond these.',
   ].join("\n");
 }
 
@@ -302,7 +303,9 @@ function buildTask(input: BlogDraftInput, today: string, editorial = false): str
     entities: entities
       ? `ENTITIES — the things this article is about and how each relates to the brand. Name them where they fit; state a relationship only where the material supports it:\n${entities}`
       : "",
-    knowledge_context: input.knowledgeContext,
+    // The editorial writer never sees what was learned from a code repo: an article must never
+    // describe how the product is built, and a prompt rule alone did not hold (live runs, 2026-10-18).
+    knowledge_context: editorial ? withoutSources(input.knowledgeContext, isCodeHostUrl) : input.knowledgeContext,
     proof_assets: input.proofBlock,
     sources: formatSources(sources),
     sources_note: sourcesNote(sources, ownHosts(brief, [plan.strategy.hubUrl])),

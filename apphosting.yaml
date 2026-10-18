@@ -1220,3 +1220,21 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # The public site (feat/seo-geo-site). SITE_SEO_ENABLED: robots.txt (everyone welcome on
+  # the canonical host, incl. AI crawlers; other hosts kept out), sitemap.xml with hreflang,
+  # schema.org JSON-LD on public pages, and the site part of /llms.txt. SITE_LOOP_ENABLED:
+  # the growth-loop homepage plus /loop/<stage> and /features/<feature>. SITE_LANGUAGES_ENABLED
+  # (needs the loop): the same pages in Spanish, French, German, Japanese and Arabic under /es,
+  # /fr, /de, /ja and /ar. All read on the server at request time.
+  - variable: SITE_SEO_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: SITE_LOOP_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: SITE_LANGUAGES_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME

@@ -25,10 +25,10 @@ describe("the switches for editorial articles and What we've seen", () => {
     expect([isBlogEditorialEnabled(), isBrandNotesEnabled(), isBrandNotesChatEnabled()]).toEqual([true, true, true]);
   });
 
-  it("are on in dev and set to off in prod on purpose", () => {
+  it("are on in dev, and on in prod since the owner turned them on, each set there on purpose", () => {
     for (const v of SWITCHES) {
       expect(valueIn("apphosting.yaml", v), v).toBe("true");
-      expect(valueIn("apphosting.prod.yaml", v), v).toBe("false");
+      expect(valueIn("apphosting.prod.yaml", v), v).toBe("true");
     }
   });
 });

@@ -18,12 +18,22 @@ export const CHEVRON = (
   </svg>
 );
 
-/** The ∞ mark, defined once per page and used by reference. */
+/**
+ * The YouGrow mark (the loop with the growth memory at its centre), defined once per
+ * page and used by reference: <svg><use href="#loopmark" /></svg>. Drawn in currentColor.
+ */
 export function LoopMarkSymbol() {
   return (
     <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+      <defs>
+        <mask id="loopmark-core" maskUnits="userSpaceOnUse" x="-10" y="-20" width="96" height="80">
+          <rect x="-10" y="-20" width="96" height="80" fill="#fff" />
+          <circle cx="38" cy="20" r="10" fill="#000" />
+        </mask>
+      </defs>
       <symbol id="loopmark" viewBox="0 0 76 40">
-        <path d="M38 20c-6-8-11-14-19-14a14 14 0 0 0 0 28c8 0 13-6 19-14s11-14 19-14a14 14 0 0 1 0 28c-8 0-13-6-19-14Z" fill="none" stroke="currentColor" strokeWidth="6" />
+        <path d="M38 20c-6-8-11-14-19-14a14 14 0 0 0 0 28c8 0 13-6 19-14s11-14 19-14a14 14 0 0 1 0 28c-8 0-13-6-19-14Z" fill="none" stroke="currentColor" strokeWidth="6.5" mask="url(#loopmark-core)" />
+        <circle cx="38" cy="20" r="6.8" fill="currentColor" />
       </symbol>
     </svg>
   );

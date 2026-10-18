@@ -14,6 +14,7 @@ import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blog/flags";
+import { isSeenOn } from "@/lib/content/blog/hubActions";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
 import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
@@ -101,6 +102,7 @@ export default async function ContentPlanPage({
         brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
         pagesOn={isBrandMapPagesEnabled()}
         editorialOn={isBlogEditorialEnabled()}
+        seenOn={isSeenOn()}
       />
     </div>
   );

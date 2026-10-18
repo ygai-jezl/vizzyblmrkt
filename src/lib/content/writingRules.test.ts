@@ -7,6 +7,7 @@ const WRITE_ON_THEIR_OWN = [
   "creative.draft_copy",
   "content.suggest_angle",
   "content.brand_notes_extract",
+  "content.blog_note_asks",
   "content.blog_draft",
   "content.blog_draft_editorial",
   "content.blog_fact_check",

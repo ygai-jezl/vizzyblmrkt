@@ -287,6 +287,9 @@ export const BlogCrawlerCheckSchema = z.object({
 });
 export type BlogCrawlerCheck = z.infer<typeof BlogCrawlerCheckSchema>;
 
+/** The `why` of a note a person added to an article by hand: a later match keeps it. */
+export const SEEN_ADDED_BY_YOU = "Added by you";
+
 /** One of the brand's own first-hand notes (BRAND_NOTES_ENABLED), as an article holds it. */
 export const BlogSeenNoteSchema = z.object({
   /** The note's id on Brand › What we've seen. */
@@ -313,10 +316,8 @@ export const BlogSeenSchema = z.object({
   removed: z.array(z.string().max(64)).max(50).default([]),
   /** What a person wrote for this article. */
   own: z.string().max(3000).default(""),
-  /** Also keep `own` as one of the brand's notes when the article is written. */
+  /** Also keep `own` as one of the brand's notes when the article is written (one per article, updated after). */
   save: z.boolean().default(true),
-  /** The brand note `own` was kept as, so a later save updates it rather than adding another. */
-  savedNoteId: z.string().max(64).nullable().default(null),
   /** Questions written for this article, shown when nothing matched. */
   asks: z.array(z.string().max(300)).max(3).default([]),
   /** The question the last match ran for; a different question now means match again. */

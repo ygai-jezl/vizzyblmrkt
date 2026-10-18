@@ -19,7 +19,7 @@ export interface BlogHubControls {
   /** Check the copy's claims against the brand's own material and the checked sources. */
   onCheckFacts: () => void;
   /** What is running now, if anything. */
-  busy: null | "research" | "check";
+  busy: null | "research" | "check" | "seen";
   /** One line on how the last research or check went ("Found 6 questions…"), or what went wrong. */
   note: string | null;
   /** Which action the note is about, so it is shown beside that action's button. */
@@ -41,6 +41,11 @@ export interface BlogHubControls {
   /** Set the article's address (the plan's hub URL; null clears it). Left out while the brand
    *  map's pages switch is off, and then the address cannot be changed here. */
   onSetAddress?: (url: string | null) => Promise<AddressSaved>;
+  /** Look again for the brand's notes that fit the article (What we've seen). Left out while
+   *  BRAND_NOTES_ENABLED or the editorial writer is off, and then the box isn't shown. */
+  onFindSeen?: () => void;
+  /** Articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED): the author's role and bio can be set. */
+  editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
   onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
 }

@@ -151,6 +151,16 @@ export function mentionsName(text: string, name: string): boolean {
   return new RegExp(`(^|[^${LETTER}])${pattern}(?=$|[^${LETTER}])`, oneWordCapital ? "u" : "iu").test(text);
 }
 
+/** How many times `name` is mentioned in `text` as a whole name (as mentionsName reads one). */
+export function countName(text: string, name: string): number {
+  const n = name.replace(/\s+/g, " ").trim();
+  if (!n || !text) return 0;
+  if (CJK.test(n)) return text.split(n).length - 1;
+  const oneWordCapital = !/\s/.test(n) && /^\p{Lu}/u.test(n);
+  const pattern = n.split(" ").map(escape).join("\\s+");
+  return [...text.matchAll(new RegExp(`(^|[^${LETTER}])${pattern}(?=$|[^${LETTER}])`, oneWordCapital ? "gu" : "giu"))].length;
+}
+
 /** The words of inline Markdown that the article says itself: no link labels, no code. */
 function ownWords(nodes: Inline[]): string {
   return nodes

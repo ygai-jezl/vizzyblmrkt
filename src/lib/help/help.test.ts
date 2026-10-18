@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HELP_BODIES } from "@/components/help/bodies";
 import { Messages } from "@/components/help/blocks";
 import { HELP_LOADERS } from "@/components/help/loaders";
@@ -13,11 +13,18 @@ import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 
+
 /**
  * Keeps the help pages true to the app: every link and section exists, every
  * route a page sends you to is real, every message a page quotes is still one
  * the app shows, and the copy keeps to house style (no dashes as punctuation).
  */
+
+// The pages are read with every switched section shown (Brand › What we've seen points at one), so
+// their links and copy are checked too.
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_BRAND_NOTES_ENABLED = "true";
+});
 
 const SRC = join(process.cwd(), "src");
 

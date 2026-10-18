@@ -28,6 +28,7 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/brand-kit\/map/, "/help/brand-map"],
   [/^\/admin\/brand-kit\/logos/, "/help/your-brand#logo"],
   [/^\/admin\/brand-kit\/voice/, "/help/your-brand#voice"],
+  [/^\/admin\/brand-kit\/notes/, "/help/your-brand#seen"],
   [/^\/admin\/brand-kit/, "/help/your-brand"],
   [/^\/admin\/account\/brand/, "/help/your-brand"],
   [/^\/admin\/account\/connections/, "/help/connected-accounts"],

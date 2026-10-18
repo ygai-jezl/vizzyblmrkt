@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 
 export default function YourBrandHelp() {
   return (
@@ -120,6 +121,38 @@ export default function YourBrandHelp() {
           Press <strong>Save brand voice</strong>.
         </li>
       </Steps>
+
+      {isBrandNotesUiEnabled() ? (
+        <>
+          <H2 id="seen">Add what your team has seen</H2>
+          <P>
+            What we&apos;ve seen holds your team&apos;s first-hand experience: customer stories, things you tested, mistakes you
+            see, objections you hear, your own numbers, and where you disagree with common advice. A blog article uses a note
+            when it fits the article&apos;s question, so it speaks from experience instead of only explaining.
+          </P>
+          <Steps>
+            <li>
+              Open <Open href="/admin/brand-kit/notes">Brand › What we&apos;ve seen</Open>.
+            </li>
+            <li>
+              Answer the question under <strong>Add a note</strong>, in your own words. Press <strong>Another question</strong>{" "}
+              for a different one.
+            </li>
+            <li>
+              Check the <strong>Kind</strong> and the <strong>Subjects</strong> it suggests, then press <strong>Save note</strong>.
+            </li>
+            <li>
+              Have a call transcript or a case study? Press <strong>Paste a call or document</strong>, tick the notes it finds
+              and press <strong>Add ticked</strong>. The pasted text isn&apos;t kept.
+            </li>
+          </Steps>
+          <P>
+            Write one story, test or result per note. Name a customer only if they agreed, and tick the box that says so;
+            otherwise articles keep them anonymous. The panels beside your notes show which kinds you have least of, and which
+            subjects on your brand map have no note yet.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="check">Check it worked</H2>
       <Checks>

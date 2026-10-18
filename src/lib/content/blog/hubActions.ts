@@ -16,6 +16,11 @@ import { askOfPlan, fileArticleSuggestions, loadArticleMap, type MapDeps } from 
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { mapQuestionsByWords } from "@/lib/brandMap/articleScale";
 import { syncPlanPageSoftly } from "./pageActions";
+import { rememberAuthor, withRememberedAuthor } from "./authors";
+import { keepArticleSeen, matchSeen, type SeenDeps } from "./seen";
+import { isBlogEditorialEnabled } from "./flags";
+import { isBrandNotesEnabled } from "@/lib/brandNotes/flags";
+import type { BlogSeen } from "@/lib/types/contentPlan";
 
 /**
  * The two things a blog hub does besides being written — research before, and the fact
@@ -75,6 +80,9 @@ export async function researchPlanBlog(
     { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map },
     { ...deps, ...(mapWords ? { mapWords } : {}) },
   );
+  // An author named before has their role, bio and page filled in; what is typed now is kept for next time.
+  result.brief = await withRememberedAuthor(ctx, result.brief, deps.db);
+  await rememberAuthor(ctx, result.brief, deps.db);
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
   // Its questions, subject and names are the page's facts on the brand map.
   await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
@@ -167,7 +175,46 @@ export async function checkPlanBlogFacts(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  // The article is written: its author's details are kept for their next one, the notes it
+  // was written with say so, and what a person wrote for it joins the brand's notes.
+  await rememberAuthor(ctx, brief, deps.db);
+  if (isBrandNotesEnabled()) {
+    await keepArticleSeen(ctx, { article: `${workspace.id}/${plan.id}`, brief, used: result.meta.style === "editorial" }, { db: deps.db }).catch((err) =>
+      console.error("[blog] keeping the article's notes failed", err),
+    );
+  }
   // The checked copy's names and links are the page's facts on the brand map.
   await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
   return { ok: true, node: updated, corrected: result.corrected, checked: true };
+}
+
+export type BlogSeenOutcome = { ok: true; seen: BlogSeen } | BlogActionError;
+
+/** Whether an article's notes can be matched: the brand's notes and the editorial writer that uses them. */
+export function isSeenOn(): boolean {
+  return isBrandNotesEnabled() && isBlogEditorialEnabled();
+}
+
+/**
+ * Match a blog plan's article to the brand's notes (What we've seen) and save what was found on
+ * its brief. Reads the persisted plan (the canvas saves first), so a note a person took out, one
+ * they added and what they wrote are all kept.
+ */
+export async function matchPlanSeen(
+  ctx: TenantContext,
+  args: { workspace: WorkspaceBits; plan: ContentPlan },
+  deps: SeenDeps = {},
+): Promise<BlogSeenOutcome> {
+  const { workspace, plan } = args;
+  if (!isSeenOn()) return { ok: false, status: 503, error: "unavailable" };
+  if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
+  const brief = briefOf(plan);
+  const brand = await tenantBrand(ctx);
+  const seen = await matchSeen(
+    ctx,
+    { plan, brief, brandName: brief.publisherName.trim() || brand.name || workspace.name, audience: workspace.audience },
+    deps,
+  );
+  await updateContentPlan(ctx, workspace.id, plan.id, { blog: { ...brief, seen } }, deps.db);
+  return { ok: true, seen };
 }

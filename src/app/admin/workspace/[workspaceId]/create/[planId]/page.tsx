@@ -13,7 +13,8 @@ import { isEmailStyleEnabled } from "@/lib/email/flags";
 import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
-import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
+import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blog/flags";
+import { isSeenOn } from "@/lib/content/blog/hubActions";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
 import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
@@ -100,6 +101,8 @@ export default async function ContentPlanPage({
         footerBrand={emailPreview?.footerBrand ?? null}
         brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
         pagesOn={isBrandMapPagesEnabled()}
+        editorialOn={isBlogEditorialEnabled()}
+        seenOn={isSeenOn()}
       />
     </div>
   );

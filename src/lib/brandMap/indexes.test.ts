@@ -47,8 +47,13 @@ const SHAPES: Shape[] = [
   { collection: "brand_map_pages", contains: "refs" },
   { collection: "brand_map_pages", contains: "textKeys" },
   { collection: "brand_map_pages", contains: "words" },
-  // The subjects and buying situations nearest an article, a situation or a PDF's question.
+  // The subjects and buying situations nearest an article, a situation or a PDF's question;
+  // and the brand's notes nearest an article (kind "note", BRAND_NOTES_ENABLED).
   { collection: "brand_map_vectors", eq: ["kind"], vector: "embedding" },
+  // What we've seen: a brand's notes, newest first.
+  { collection: "brand_notes", order: "createdAt", desc: true },
+  // The notes linked to an article's subject.
+  { collection: "brand_notes", contains: "subjectIds" },
 ];
 
 type IndexField = { fieldPath: string; order?: string; arrayConfig?: string; vectorConfig?: unknown };

@@ -287,6 +287,45 @@ export const BlogCrawlerCheckSchema = z.object({
 });
 export type BlogCrawlerCheck = z.infer<typeof BlogCrawlerCheckSchema>;
 
+/** The `why` of a note a person added to an article by hand: a later match keeps it. */
+export const SEEN_ADDED_BY_YOU = "Added by you";
+
+/** One of the brand's own first-hand notes (BRAND_NOTES_ENABLED), as an article holds it. */
+export const BlogSeenNoteSchema = z.object({
+  /** The note's id on Brand › What we've seen. */
+  id: z.string().min(1).max(64),
+  text: z.string().min(1).max(1200),
+  /** Why it was matched to this article, in a few words ("Linked to the subject Pricing"). */
+  why: z.string().max(160).default(""),
+  /** The note names a customer or person who agreed to be named. */
+  canName: z.boolean().default(false),
+});
+export type BlogSeenNote = z.infer<typeof BlogSeenNoteSchema>;
+
+/**
+ * What the brand has seen, for one article (BRAND_NOTES_ENABLED): the notes that match its
+ * question strongly (put in by the match, removable), the weaker ones a person may add, what a
+ * person wrote for this article alone, and the questions that would help when nothing matched.
+ * The editorial writer takes first-hand experience from here and nowhere else.
+ */
+export const BlogSeenSchema = z.object({
+  notes: z.array(BlogSeenNoteSchema).max(6).default([]),
+  /** Weaker matches: shown on request, never used unless a person adds one. */
+  near: z.array(BlogSeenNoteSchema).max(5).default([]),
+  /** Notes a person took out of this article: never put back by a later match. */
+  removed: z.array(z.string().max(64)).max(50).default([]),
+  /** What a person wrote for this article. */
+  own: z.string().max(3000).default(""),
+  /** Also keep `own` as one of the brand's notes when the article is written (one per article, updated after). */
+  save: z.boolean().default(true),
+  /** Questions written for this article, shown when nothing matched. */
+  asks: z.array(z.string().max(300)).max(3).default([]),
+  /** The question the last match ran for; a different question now means match again. */
+  matchedFor: z.string().max(300).default(""),
+  matchedAt: z.string().nullable().default(null),
+});
+export type BlogSeen = z.infer<typeof BlogSeenSchema>;
+
 const MAX_BLOG_QUESTIONS = 10;
 const MAX_BLOG_LINKS = 12;
 const MAX_BLOG_SOURCES = 12;
@@ -325,6 +364,15 @@ export const BlogBriefSchema = z.object({
   /** The buying situation the article is written for (BRAND_MAP_SITUATIONS_ENABLED): absent =
    *  not looked at yet (research may pick one), null = a person said none, an id = chosen. */
   situationId: z.string().max(64).nullable().optional(),
+  /** The author's role, for the byline and the author box (CREATE_BLOG_EDITORIAL_ENABLED).
+   *  Optional with no default, so briefs saved before parse exactly as they did. */
+  authorRole: z.string().max(120).optional(),
+  /** A few sentences about the author, shown word for word in the author box at the end. */
+  authorBio: z.string().max(600).optional(),
+  /** The author's own profile page (the client's, never ours), for the markup's sameAs. */
+  authorUrl: z.union([HttpsUrl, z.literal("")]).optional(),
+  /** What the brand has seen, for this article (BRAND_NOTES_ENABLED). Absent = never matched. */
+  seen: BlogSeenSchema.optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 
@@ -371,6 +419,9 @@ export const BlogArticleMetaSchema = z.object({
   corrections: z.array(BlogCorrectionSchema).max(12).default([]),
   /** Live at its address. Optional with no default, so metas saved before parse exactly as they did. */
   live: BlogArticleLiveSchema.nullable().optional(),
+  /** The shape the article was written in: "editorial" (CREATE_BLOG_EDITORIAL_ENABLED), else
+   *  absent = the CITABLE structure. Its checklist follows this, not the switch. */
+  style: z.enum(["editorial"]).optional(),
 });
 export type BlogArticleMeta = z.infer<typeof BlogArticleMetaSchema>;
 

@@ -1,10 +1,11 @@
 import type { BlogArticleMeta, BlogBrief } from "@/lib/types/contentPlan";
 import { articleFigures } from "./figures";
-import { countWords, plainInline, inlineLinks } from "./markdown";
+import { blockPlain, countWords, inlineLinks, parseArticle, plainInline } from "./markdown";
 import { outlineArticle, type ArticleOutline } from "./outline";
 import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts, usableSources } from "./brief";
 import type { ArticleMap } from "./articleMap";
-import { avoidedUses, mentionsName } from "./names";
+import { avoidedUses, countName, mentionsName } from "./names";
+import { aiTellsIn } from "@/lib/content/writingRules";
 import { fold } from "@/lib/brandMap/changes";
 
 /**
@@ -23,7 +24,7 @@ import { fold } from "@/lib/brandMap/changes";
  * Pure + client-safe.
  */
 
-export type CitableLetter = "C" | "I" | "T" | "A" | "B" | "L" | "E";
+export type CitableLetter = "C" | "I" | "T" | "A" | "B" | "L" | "E" | "V";
 export type CitableStatus = "pass" | "warn" | "fail";
 
 export interface CitableItem {
@@ -55,6 +56,8 @@ export const CITABLE_LETTERS: { letter: CitableLetter; name: string }[] = [
   { letter: "B", name: "Block-structured for RAG" },
   { letter: "L", name: "Latest & consistent" },
   { letter: "E", name: "Entity graph & schema" },
+  // Editorial articles only (meta.style "editorial"): how it reads.
+  { letter: "V", name: "Voice" },
 ];
 
 const QUESTION_START =
@@ -85,10 +88,123 @@ export interface CitableContext {
  */
 const said = (s: string) => s.replace(/\s+/g, " ").replace(/[<>"“”]/g, "").trim().slice(0, 120);
 
+// ── Voice: how an editorial article reads ──
+
+/** A claim of the brand's own first-hand experience. */
+const EXPERIENCE =
+  /\b(we(?:['’]ve| have)? (?:seen|watched|found|tested|noticed|learned|learnt)|we (?:work|worked) with|in our (?:work|tests?|experience|data|own)|our (?:clients|customers)|a (?:client|customer) of ours|brands? we (?:track|work with))\b/i;
+/** A section about where it goes wrong. */
+const WRONG =
+  /\b(mistakes?|pitfalls?|go(?:es)? wrong|trade-?offs?|when not to|downsides?|limits?|limitations?|what to avoid|risks?|myths?)\b/i;
+/** A title that is about choosing a product, and a heading that is. */
+const CHOOSING = /\b(best|top|alternatives?|vs\.?|versus|compare|comparison|choose|choosing|which (?:tool|platform|software|app|vendor)s?)\b/i;
+const CHOOSING_HEADING = /\b(alternatives?|competitors?|vs\.?|versus|top \d+|best (?:\w+ )?(?:tools?|platforms?|software|apps?))\b/i;
+/** A box the editorial shape leaves out. */
+const BOX_LABEL = /^(key\s+(facts|numbers|stats)|tl\s*;?\s*dr|(the\s+)?(direct|quick|short)\s+answer|answer|in\s+short)\b/i;
+
+function firstSentence(text: string): string {
+  return /^(.+?[.!?])(?:\s|$)/.exec(text.trim())?.[1] ?? text.trim();
+}
+
+/** The experience an article may claim: its matched notes and what a person wrote for it. */
+export function seenNotes(brief: BlogBrief): string[] {
+  const seen = brief.seen;
+  if (!seen) return [];
+  return [...seen.notes.map((n) => n.text), ...(seen.own.trim() ? [seen.own.trim()] : [])];
+}
+
+function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: ArticleMap | null): CitableItem[] {
+  const out: CitableItem[] = [];
+  const add = (id: string, label: string, status: CitableStatus, detail: string, fix = "") =>
+    out.push({ id, letter: "V", label, status, detail, fix: status === "pass" ? "" : fix });
+
+  const notes = seenNotes(brief);
+  const claims = [...new Set([...o.plain.matchAll(new RegExp(EXPERIENCE.source, "gi"))].map((m) => m[0].toLowerCase()))];
+  if (notes.length) {
+    add(
+      "v_experience",
+      "Speaks from experience",
+      claims.length ? "pass" : "warn",
+      claims.length ? `Uses what your team has seen (${plural(notes.length, "note")}).` : `${plural(notes.length, "note")} from your team, not used yet.`,
+      "Work the brand's notes into the sections where they bear most, in the first person plural, keeping every specific and adding none.",
+    );
+  } else {
+    add(
+      "v_experience",
+      "Speaks from experience",
+      claims.length ? "fail" : "warn",
+      claims.length
+        ? `Claims experience no note backs: ${claims.slice(0, 4).map((c) => `“${c}”`).join(", ")}.`
+        : "Written as analysis. Add what your team has seen to speak from experience.",
+      claims.length ? "Take out every claim of first-hand experience (“we have seen”, “our clients”): the brand gave no notes for this article." : "",
+    );
+  }
+
+  const brand = (map?.identity.name || brief.publisherName).replace(/\s+/g, " ").trim();
+  if (brand) {
+    const inOpening = countName(o.bluf, brand) > 0;
+    const body = [
+      ...o.sections.flatMap((sec) => sec.blocks.map(blockPlain)),
+      ...(o.nextStep ?? []).map(blockPlain),
+      ...o.faq.map((f) => f.answer),
+    ].join("\n");
+    const n = countName(body, brand);
+    add(
+      "v_brand",
+      "Brand kept to the margins",
+      inOpening || n > 4 ? "fail" : n > 2 ? "warn" : "pass",
+      `${said(brand)} is named ${plural(n, "time")} in the body${inOpening ? ", and in the opening" : ""} (aim for 2 at most, none in the opening).`,
+      `Leave ${said(brand)} out of the opening paragraphs, and name it at most twice in the body, each time as the tool that measures or does what is discussed.`,
+    );
+  }
+
+  const tells = aiTellsIn(o.plain);
+  add(
+    "v_tells",
+    "No AI phrases",
+    tells.length ? "fail" : "pass",
+    tells.length ? `Uses ${tells.slice(0, 8).map((t) => `“${t}”`).join(", ")}.` : "None of the phrases readers take as AI writing.",
+    `Rewrite these in plain words: ${tells.slice(0, 12).map((t) => `“${t}”`).join(", ")}.`,
+  );
+
+  const boxes = parseArticle(markdown).filter((b) => b.kind === "callout" && BOX_LABEL.test(b.label)).length;
+  add(
+    "v_boxes",
+    "No boxes nobody asked for",
+    boxes ? "warn" : "pass",
+    boxes
+      ? `${plural(boxes, "box", "boxes")} (Key facts, TL;DR or Answer) the editorial shape leaves out. Fine if the brief asked for them.`
+      : "Says it in the prose.",
+  );
+
+  const wrong = o.sections.some((sec) => WRONG.test(sec.heading) || LIMITS_QUESTION.test(sec.heading));
+  add(
+    "v_wrong",
+    "Says where it goes wrong",
+    wrong ? "pass" : "warn",
+    wrong ? "Has a section on mistakes, trade-offs or when not to." : "No section on where it goes wrong.",
+    "Give one section to where it goes wrong: the common mistakes, the trade-offs, or when not to do it.",
+  );
+
+  const offTopic = o.title && !CHOOSING.test(o.title) ? o.sections.find((sec) => CHOOSING_HEADING.test(sec.heading)) : undefined;
+  add(
+    "v_focus",
+    "Stays on its question",
+    offTopic ? "warn" : "pass",
+    offTopic ? `“${said(offTopic.heading)}” is about choosing a product, which the title doesn't ask.` : "No section strays into choosing a product.",
+    offTopic ? `Take out the section “${said(offTopic.heading)}”: the article's question is not about choosing a product.` : "",
+  );
+  return out;
+}
+
 export function evaluateCitable(markdown: string, context: CitableContext = {}): CitableReport {
   const brief = context.brief ?? EMPTY_BLOG_BRIEF;
   const o = outlineArticle(markdown);
   const items: CitableItem[] = [];
+  // An editorial article (CREATE_BLOG_EDITORIAL_ENABLED) is read against its own shape: no
+  // Key facts or TL;DR box, no table required, sections that open by answering, and how it
+  // reads (the Voice items). The article says which shape it was written in.
+  const editorial = context.meta?.style === "editorial";
   const add = (
     id: string,
     letter: CitableLetter,
@@ -109,7 +225,20 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
 
   // ── C — Clear entity & structure ──
   const blufWords = countWords(o.bluf);
-  add(
+  if (editorial) {
+    add(
+      "c_bluf",
+      "C",
+      "Opens with the answer",
+      !o.title || blufWords === 0 || blufWords > 220 ? "fail" : blufWords <= 140 ? "pass" : "warn",
+      !o.title
+        ? "No H1 title."
+        : blufWords === 0
+          ? "No opening under the title."
+          : `${plural(blufWords, "word")} before the first section (aim for two short paragraphs, 140 words or fewer).`,
+      "Open with two short paragraphs straight under the H1: the first answers the title in its first sentence and says what the answer depends on, the second gives the reasoning or the exception that matters most.",
+    );
+  } else add(
     "c_bluf",
     "C",
     "Opens with the answer",
@@ -124,7 +253,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   const facts = o.keyFacts ?? [];
   const factsWithNumber = facts.filter((f) => /\d/.test(plainInline(f))).length;
   const factsWithLink = facts.filter((f) => inlineLinks(f).length > 0).length;
-  add(
+  if (!editorial) add(
     "c_key_facts",
     "C",
     "Key facts box",
@@ -157,7 +286,16 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
     "Word the H1 as the question the buyer asks.",
   );
   const n = o.sections.length;
-  add(
+  if (editorial) {
+    add(
+      "i_intents",
+      "I",
+      "Covers what a reader asks next",
+      n >= 4 && n <= 6 ? "pass" : n >= 3 && n <= 8 ? "warn" : "fail",
+      `${plural(n, "section")} (aim for 4-6, each on a question a reader asks next).`,
+      "Give the article 4 to 6 ## sections, each on a question a reader of the title asks next.",
+    );
+  } else add(
     "i_intents",
     "I",
     "Covers the questions asked next",
@@ -175,14 +313,17 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       "The brief lists no pages to link to — add your pricing, demo or sign-up page and regenerate.",
     );
   } else {
+    const enough = editorial ? internal.length >= 1 : internal.length >= 2;
     add(
       "i_links",
       "I",
       "Links to your own pages",
-      internal.length >= 2 && (convert.size === 0 || convertUsed > 0) ? "pass" : internal.length >= 1 ? "warn" : "fail",
+      enough && (convert.size === 0 || convertUsed > 0) ? "pass" : internal.length >= 1 ? "warn" : editorial ? "warn" : "fail",
       `${plural(internal.length, "internal link")}` +
         (convert.size ? `, ${convertUsed} to a conversion page.` : " (the brief has no conversion page).") ,
-      "Link 2-4 of the allowed pages where they help the reader go deeper, and end the Next step section with the conversion page.",
+      editorial
+        ? "Link 1 to 3 of the allowed pages where they help the reader go deeper, and end the bottom line with the conversion page."
+        : "Link 2-4 of the allowed pages where they help the reader go deeper, and end the Next step section with the conversion page.",
     );
   }
 
@@ -221,7 +362,8 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       "t_third_party",
       "T",
       "Backed by third parties",
-      thirdPartyHosts.size >= 2 ? "pass" : thirdPartyHosts.size === 1 ? "warn" : "fail",
+      // An editorial article cites only what backs its points: none is a warning, never a rewrite.
+      thirdPartyHosts.size >= 2 ? "pass" : thirdPartyHosts.size === 1 || editorial ? "warn" : "fail",
       `Cites ${plural(thirdPartyHosts.size, "third-party site")} (aim for 2 or more).`,
       "Cite at least two of the allowed third-party sources inline, where their fact supports the point.",
     );
@@ -232,7 +374,23 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
     const w = countWords(s.lead);
     return w >= 25 && w <= 80;
   }).length;
-  add(
+  if (editorial) {
+    // An editorial section opens with prose whose first sentence answers the heading.
+    const opens = o.sections.filter((s) => {
+      const first = s.blocks.find((b) => b.kind !== "rule");
+      if (first?.kind !== "paragraph") return false;
+      const sentence = firstSentence(blockPlain(first));
+      return countWords(sentence) >= 6 && countWords(sentence) <= 45;
+    }).length;
+    add(
+      "a_direct",
+      "A",
+      "Each section answers first",
+      n === 0 ? "fail" : opens === n ? "pass" : opens >= Math.ceil(n * 0.6) ? "warn" : "fail",
+      n === 0 ? "No sections." : `${opens} of ${n} sections open with a sentence that answers their heading.`,
+      "Open every ## section with one or two plain sentences that answer its heading outright, before any list or table.",
+    );
+  } else add(
     "a_direct",
     "A",
     "Each section answers first",
@@ -244,8 +402,8 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
     "a_citations",
     "A",
     "Claims carry their source",
-    hrefs.length >= 3 ? "pass" : hrefs.length >= 1 ? "warn" : "fail",
-    `${plural(hrefs.length, "distinct link")} to sources and pages (aim for 3 or more).`,
+    hrefs.length >= (editorial ? 2 : 3) ? "pass" : hrefs.length >= 1 || editorial ? "warn" : "fail",
+    `${plural(hrefs.length, "distinct link")} to sources and pages (aim for ${editorial ? 2 : 3} or more).`,
     "Put the source link next to each fact you state from the material given.",
   );
   // The server found these when it last wrote or checked the copy; one the operator has
@@ -277,7 +435,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
 
   // ── B — Block-structured for RAG ──
   const tldr = o.tldr ?? [];
-  add(
+  if (!editorial) add(
     "b_tldr",
     "B",
     "TL;DR box",
@@ -285,7 +443,7 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
     !o.tldr ? "No TL;DR box." : `${plural(tldr.length, "takeaway")} (aim for 3-5).`,
     "Add a TL;DR box after the Key facts: > **TL;DR** then 3-5 one-line takeaways.",
   );
-  const sized = o.sections.filter((s) => s.words >= 150 && s.words <= 420).length;
+  const sized = o.sections.filter((s) => s.words >= (editorial ? 120 : 150) && s.words <= 420).length;
   add(
     "b_blocks",
     "B",
@@ -293,13 +451,15 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
     n === 0 ? "fail" : sized === n ? "pass" : sized >= Math.ceil(n * 0.6) ? "warn" : "fail",
     n === 0
       ? "No sections."
-      : `${sized} of ${n} sections are 200-400 words` +
-        (sized === n ? "." : ` (others: ${o.sections.filter((s) => s.words < 150 || s.words > 420).map((s) => s.words).join(", ")} words).`),
-    "Keep every ## section between 200 and 350 words, readable without the rest of the article.",
+      : `${sized} of ${n} sections are ${editorial ? "150-350" : "200-400"} words` +
+        (sized === n ? "." : ` (others: ${o.sections.filter((s) => s.words < (editorial ? 120 : 150) || s.words > 420).map((s) => s.words).join(", ")} words).`),
+    editorial
+      ? "Keep every ## section between 150 and 350 words, readable without the rest of the article."
+      : "Keep every ## section between 200 and 350 words, readable without the rest of the article.",
   );
   const tables = o.tableRows.length;
   const longTable = o.tableRows.some((r) => r > 10);
-  add(
+  if (!editorial) add(
     "b_table_list",
     "B",
     "A table and a list",
@@ -309,31 +469,41 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   );
   const faqSized = o.faq.filter((f) => {
     const w = countWords(f.answer);
-    return w >= 25 && w <= 110;
+    return w >= 25 && w <= (editorial ? 130 : 110);
   }).length;
   add(
     "b_faq",
     "B",
     "FAQ",
-    o.faq.length >= 3 && o.faq.length <= 5 && faqSized === o.faq.length
+    o.faq.length >= 3 && o.faq.length <= (editorial ? 6 : 5) && faqSized === o.faq.length
       ? "pass"
       : o.faq.length >= 1
         ? "warn"
         : "fail",
     o.faq.length === 0
       ? "No FAQ section."
-      : `${plural(o.faq.length, "question")}, ${faqSized} with a self-contained 40-70 word answer (aim for 3-5).`,
-    "Add ## Frequently asked questions with 3-5 ### questions, each answered in 40-70 words that make sense alone.",
+      : editorial
+        ? `${plural(o.faq.length, "question")}, ${faqSized} with a self-contained 40-90 word answer (aim for 3-6).`
+        : `${plural(o.faq.length, "question")}, ${faqSized} with a self-contained 40-70 word answer (aim for 3-5).`,
+    editorial
+      ? "Add ## Frequently asked questions with 3 to 6 ### questions a reader would still have, each answered in 40 to 90 words that make sense alone."
+      : "Add ## Frequently asked questions with 3-5 ### questions, each answered in 40-70 words that make sense alone.",
   );
   add(
     "b_length",
     "B",
     "Right length",
-    o.words >= 1000 && o.words <= 2500 ? "pass" : o.words >= 600 && o.words <= 3000 ? "warn" : "fail",
-    `${plural(o.words, "word")} (1,500-2,500 suits a full topic; 1,000 a narrow one).`,
-    o.words < 1000
-      ? "Expand the sections with evidence from the material given, to 1,300-1,900 words in total."
-      : "Tighten the article to 1,300-1,900 words in total.",
+    editorial
+      ? o.words >= 1100 && o.words <= 2300 ? "pass" : o.words >= 700 && o.words <= 3000 ? "warn" : "fail"
+      : o.words >= 1000 && o.words <= 2500 ? "pass" : o.words >= 600 && o.words <= 3000 ? "warn" : "fail",
+    editorial ? `${plural(o.words, "word")} (aim for 1,200-2,000).` : `${plural(o.words, "word")} (1,500-2,500 suits a full topic; 1,000 a narrow one).`,
+    editorial
+      ? o.words < 1100
+        ? "Expand the sections with examples and evidence from the material given, to 1,200-2,000 words in total."
+        : "Tighten the article to 1,200-2,000 words in total."
+      : o.words < 1000
+        ? "Expand the sections with evidence from the material given, to 1,300-1,900 words in total."
+        : "Tighten the article to 1,300-1,900 words in total.",
   );
 
   // ── L — Latest & consistent ──
@@ -406,6 +576,8 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
       ? `BlogPosting + FAQPage (${plural(o.faq.length, "question")}) can mirror what is on the page.`
       : "Markup needs a title, a Last updated date and an FAQ to mirror.",
   );
+
+  if (editorial) items.push(...voiceItems(markdown, o, brief, map));
 
   const points = items.reduce((sum, it) => sum + (it.status === "pass" ? 1 : it.status === "warn" ? 0.5 : 0), 0);
   return { score: Math.round((points / items.length) * 100), items, outline: o, figuresToCheck: unsupported };

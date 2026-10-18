@@ -64,6 +64,15 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
   const publisherUrl = isHttps(brief.publisherUrl) ? brief.publisherUrl : null;
   const logoUrl = isHttps(input.logoUrl) ? input.logoUrl : null;
   const author = brief.author.trim();
+  // The author as a Person: their role and their own profile page (the client's link, never ours) when given.
+  const authorRole = (brief.authorRole ?? "").trim();
+  const authorUrl = isHttps(brief.authorUrl) ? brief.authorUrl : null;
+  const person = {
+    "@type": "Person",
+    name: author,
+    ...(authorRole ? { jobTitle: authorRole } : {}),
+    ...(authorUrl ? { url: authorUrl } : {}),
+  };
   const description = (input.meta?.metaDescription ?? "").trim() || clip(o.bluf, 160);
   const lower = o.plain.toLowerCase();
 
@@ -129,7 +138,7 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     headline: clip(o.title, HEADLINE_MAX),
     ...(description ? { description } : {}),
     ...(o.lastUpdated ? { datePublished: o.lastUpdated, dateModified: o.lastUpdated } : {}),
-    ...(author ? { author: { "@type": "Person", name: author } } : publisherRef ? { author: publisherRef } : {}),
+    ...(author ? { author: person } : publisherRef ? { author: publisherRef } : {}),
     ...(publisherRef ? { publisher: publisherRef } : {}),
     wordCount: o.words,
     ...(about.length ? { about } : {}),
@@ -165,6 +174,9 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     "It mirrors what is on the page. If you change the title, the date or an FAQ answer after pasting, copy the markup again — never mark up what a reader cannot see.",
   ];
   if (missing.length) notes.push(`Still to fill in before it is complete: ${missing.join(", ")}.`);
+  if (author && !authorUrl && brief.authorRole !== undefined) {
+    notes.push(`Add ${author}'s profile page under Publisher, so search engines can tell who wrote it.`);
+  }
   notes.push(
     "datePublished is set to the Last updated date. Once the page is live, keep datePublished at the day it first went up and change only dateModified.",
   );

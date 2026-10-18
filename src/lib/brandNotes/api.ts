@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import type { AdminGate } from "@/lib/connect/admin";
@@ -42,10 +43,14 @@ export async function listFromRequest(ctx: TenantContext, deps: NotesDeps = {}):
   return NextResponse.json({ notes, summary: summariseNotes(notes) }, { headers: { "cache-control": "no-store" } });
 }
 
+/** Where a note added on the page came from: typed there, or ticked after pasting a call or document. */
+const PageSource = z.enum(["typed", "paste"]).catch("typed");
+
 export async function createFromRequest(ctx: TenantContext, body: unknown, deps: NotesDeps = {}): Promise<Response> {
   const parsed = BrandNoteInputSchema.safeParse(body);
   if (!parsed.success) return invalid(parsed.error.issues);
-  return respond(await createNote(ctx, parsed.data, { source: "typed" }, deps), (note) => ({ note }), 201);
+  const source = PageSource.parse((body as { source?: unknown } | null)?.source ?? "typed");
+  return respond(await createNote(ctx, parsed.data, { source }, deps), (note) => ({ note }), 201);
 }
 
 export async function updateFromRequest(ctx: TenantContext, id: string, body: unknown, deps: NotesDeps = {}): Promise<Response> {

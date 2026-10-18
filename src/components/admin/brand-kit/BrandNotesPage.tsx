@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { RefreshCw, X } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { ClipboardPaste, RefreshCw, X } from "lucide-react";
 import {
   BRAND_NOTE_KINDS,
   BRAND_NOTE_KIND_LABEL,
@@ -13,6 +14,7 @@ import {
 import { summariseNotes } from "@/lib/brandNotes/summary";
 import { KIND_QUESTIONS, noteQuestion, suggestKind, suggestSubjects } from "@/lib/brandNotes/prompts";
 import type { NoteSubject } from "@/lib/brandNotes/subjects";
+import type { FoundNote } from "@/lib/brandNotes/extract";
 
 /**
  * Brand › What we've seen: add a note (prompted by a question aimed at what the brand has least
@@ -98,6 +100,11 @@ export function BrandNotesPage({
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-5">
+        {canEdit ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            <PasteNotes subjects={subjects} onAdded={(added) => setNotes((list) => [...added, ...list])} />
+          </div>
+        ) : null}
         {canEdit ? (
           <section ref={addRef} aria-label="Add a note" className={CARD}>
             <AddNote
@@ -620,5 +627,184 @@ function CoveragePanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+type Candidate = FoundNote & { tick: boolean; canName: boolean; subjectIds: string[] };
+
+/** Paste a call, a thread or a case study; tick the notes found in it to keep them. */
+function PasteNotes({ subjects, onAdded }: { subjects: NoteSubject[] | null; onAdded: (notes: BrandNote[]) => void }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [found, setFound] = useState<Candidate[] | null>(null);
+  const [busy, setBusy] = useState<null | "find" | "add">(null);
+  const [error, setError] = useState<string | null>(null);
+  const ticked = found?.filter((f) => f.tick) ?? [];
+
+  const reset = () => {
+    setText("");
+    setFound(null);
+    setError(null);
+  };
+
+  async function find() {
+    setBusy("find");
+    setError(null);
+    const r = await send("/api/admin/brand-kit/notes/extract", "POST", { text });
+    setBusy(null);
+    if (!r.ok) {
+      setError(
+        r.status === 429
+          ? "Too many runs just now. Try again in a few minutes."
+          : r.status === 400
+            ? "Paste a few sentences at least, and no more than 30,000 characters."
+            : "Vizzy couldn't read it this time. Try again.",
+      );
+      return;
+    }
+    const list = ((r.data.found as FoundNote[] | undefined) ?? []).map((f) => ({
+      ...f,
+      tick: true,
+      canName: false,
+      subjectIds: suggestSubjects(f.text, subjects ?? [], 2).map((s) => s.id),
+    }));
+    setFound(list);
+  }
+
+  async function add() {
+    setBusy("add");
+    setError(null);
+    const added: BrandNote[] = [];
+    for (const f of ticked) {
+      const r = await send("/api/admin/brand-kit/notes", "POST", { text: f.text, kind: f.kind, subjectIds: f.subjectIds, canName: f.canName, source: "paste" });
+      if (!r.ok || !r.data.note) {
+        setError(`${added.length ? `Added ${added.length}. ` : ""}${problem(r.status, r.data)}`);
+        break;
+      }
+      added.push(r.data.note as BrandNote);
+    }
+    setBusy(null);
+    if (added.length) onAdded(added);
+    if (added.length === ticked.length) {
+      setOpen(false);
+      reset();
+    } else setFound((list) => list?.filter((f) => !added.some((a) => a.text === f.text)) ?? null);
+  }
+
+  const update = (i: number, patch: Partial<Candidate>) => setFound((list) => list?.map((f, j) => (j === i ? { ...f, ...patch } : f)) ?? null);
+
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+      }}
+    >
+      <Dialog.Trigger className={`${SECONDARY} inline-flex items-center gap-1.5 bg-white py-1.5 text-sm dark:bg-neutral-950`}>
+        <ClipboardPaste size={14} aria-hidden /> Paste a call or document
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
+        <Dialog.Content className="fixed inset-x-4 top-[6vh] z-50 mx-auto flex max-h-[88vh] max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-neutral-950">
+          <div className="flex items-start justify-between gap-3 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+            <div>
+              <Dialog.Title className="text-base font-semibold">Paste a call or document</Dialog.Title>
+              <Dialog.Description className={`mt-1 ${HINT}`}>
+                A sales call, a support thread, a case study. Vizzy pulls out what your team saw. You choose what to keep.
+              </Dialog.Description>
+            </div>
+            <Dialog.Close aria-label="Close" className="rounded p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900">
+              <X size={18} aria-hidden />
+            </Dialog.Close>
+          </div>
+          <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div className="space-y-2 border-neutral-200 p-5 md:border-r dark:border-neutral-800">
+              <label htmlFor={`${id}-paste`} className={LABEL}>
+                What you pasted
+              </label>
+              <textarea
+                id={`${id}-paste`}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={14}
+                maxLength={30_000}
+                className={`${FIELD} leading-relaxed`}
+                placeholder="Paste a transcript, a thread or a document here."
+              />
+              <p className={HINT}>The pasted text isn&rsquo;t kept. Only the notes you add are saved.</p>
+            </div>
+            <div className="space-y-3 p-5">
+              {found === null ? (
+                <p className={HINT}>Vizzy finds the first-hand experience in it: stories, tests, results, mistakes, objections. Generic claims are left out.</p>
+              ) : found.length === 0 ? (
+                <p className={HINT}>No first-hand experience found in that. Try a call transcript or a case study.</p>
+              ) : (
+                <>
+                  <h3 className="text-sm font-semibold">Vizzy found {found.length === 1 ? "1 note" : `${found.length} notes`}</h3>
+                  <ul className="space-y-2">
+                    {found.map((f, i) => (
+                      <li key={i} className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+                        <div className="flex items-start gap-3">
+                          <input type="checkbox" checked={f.tick} onChange={(e) => update(i, { tick: e.target.checked })} aria-label={`Keep: ${f.text}`} className="mt-1" />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <select
+                              value={f.kind}
+                              onChange={(e) => update(i, { kind: e.target.value as BrandNoteKind })}
+                              aria-label="Kind"
+                              className={`${FIELD} w-auto py-1 text-xs`}
+                            >
+                              {BRAND_NOTE_KINDS.map((k) => (
+                                <option key={k} value={k}>
+                                  {BRAND_NOTE_KIND_LABEL[k].one}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-sm leading-relaxed">{f.text}</p>
+                            {f.subjectIds.length ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {f.subjectIds.map((sid) => (
+                                  <span key={sid} className={SUBJECT_CHIP}>
+                                    {subjects?.find((s) => s.id === sid)?.name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {f.namesSomeone ? (
+                              <label className="flex items-start gap-2 rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                                <input type="checkbox" checked={f.canName} onChange={(e) => update(i, { canName: e.target.checked })} className="mt-0.5" />
+                                It names someone. Tick only if they agreed to be named; otherwise articles keep them anonymous.
+                              </label>
+                            ) : null}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {error ? (
+                <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-neutral-200 px-5 py-3 dark:border-neutral-800">
+            <Dialog.Close className={SECONDARY}>Cancel</Dialog.Close>
+            {found && found.length ? (
+              <button type="button" onClick={() => void add()} disabled={busy !== null || !ticked.length} className={PRIMARY}>
+                {busy === "add" ? "Adding…" : `Add ticked (${ticked.length})`}
+              </button>
+            ) : (
+              <button type="button" onClick={() => void find()} disabled={busy !== null || text.trim().length < 40} className={PRIMARY}>
+                {busy === "find" ? "Reading…" : "Find notes"}
+              </button>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

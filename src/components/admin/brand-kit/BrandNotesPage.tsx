@@ -1,0 +1,624 @@
+"use client";
+
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { RefreshCw, X } from "lucide-react";
+import {
+  BRAND_NOTE_KINDS,
+  BRAND_NOTE_KIND_LABEL,
+  BRAND_NOTE_LIMITS,
+  type BrandNote,
+  type BrandNoteKind,
+  type BrandNoteSource,
+} from "@/lib/types/brandNote";
+import { summariseNotes } from "@/lib/brandNotes/summary";
+import { KIND_QUESTIONS, noteQuestion, suggestKind, suggestSubjects } from "@/lib/brandNotes/prompts";
+import type { NoteSubject } from "@/lib/brandNotes/subjects";
+
+/**
+ * Brand › What we've seen: add a note (prompted by a question aimed at what the brand has least
+ * of), the notes themselves, and two panels that push for a rich and varied set: the mix of
+ * kinds, and which brand map subjects nothing covers yet. Members see it all; admins change it.
+ */
+
+const CARD = "rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950";
+const LABEL = "block text-xs font-medium text-neutral-600 dark:text-neutral-300";
+const HINT = "text-xs text-neutral-500 dark:text-neutral-400";
+const FIELD =
+  "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900";
+const PRIMARY =
+  "rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900";
+const SECONDARY =
+  "rounded-md border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
+const CHIP = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs";
+const SUBJECT_CHIP = `${CHIP} border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200`;
+
+const SOURCE_LABEL: Record<BrandNoteSource, string> = {
+  typed: "Typed here",
+  paste: "From a pasted call or document",
+  article: "Written for an article",
+  chat: "Suggested by Vizzy",
+};
+
+type Filter = "all" | "suggested" | "unused" | BrandNoteKind;
+type Prefill = { nonce: number; kind?: BrandNoteKind; subjectId?: string };
+
+async function send(url: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { ok: res.ok, status: res.status, data: ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown> };
+  } catch {
+    return { ok: false, status: 0, data: {} };
+  }
+}
+
+function problem(status: number, data: Record<string, unknown>): string {
+  if (status === 409 && data.error === "too_many_notes") {
+    return `You have as many notes as a brand can hold (${BRAND_NOTE_LIMITS.MAX_NOTES.toLocaleString()}). Remove some first.`;
+  }
+  if (status === 403) return "Only an admin can change notes.";
+  if (status === 400) return `The note couldn't be saved: write at least ${BRAND_NOTE_LIMITS.MIN_TEXT} characters and choose a kind.`;
+  return "That didn't save. Check your connection and try again.";
+}
+
+export function BrandNotesPage({
+  initialNotes,
+  subjects,
+  canEdit,
+}: {
+  initialNotes: BrandNote[];
+  /** The decided subjects on the brand's saved map; null = no saved map (no coverage shown). */
+  subjects: NoteSubject[] | null;
+  canEdit: boolean;
+}) {
+  const [notes, setNotes] = useState(initialNotes);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [prefill, setPrefill] = useState<Prefill>({ nonce: 0 });
+  const addRef = useRef<HTMLElement>(null);
+  const summary = useMemo(() => summariseNotes(notes), [notes]);
+  const names = useMemo(() => new Map((subjects ?? []).map((s) => [s.id, s.name])), [subjects]);
+  const uncovered = useMemo(() => {
+    const covered = new Set(summary.subjectIds);
+    return (subjects ?? []).filter((s) => !covered.has(s.id));
+  }, [subjects, summary.subjectIds]);
+
+  const ask = (next: Omit<Prefill, "nonce">) => {
+    setPrefill((p) => ({ nonce: p.nonce + 1, ...next }));
+    addRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const replace = (note: BrandNote) => setNotes((list) => list.map((n) => (n.id === note.id ? note : n)));
+
+  const shown = notes.filter((n) =>
+    filter === "all" ? true : filter === "suggested" ? n.status === "suggested" : filter === "unused" ? !n.usedBy?.length : n.kind === filter,
+  );
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="min-w-0 space-y-5">
+        {canEdit ? (
+          <section ref={addRef} aria-label="Add a note" className={CARD}>
+            <AddNote
+              key={prefill.nonce}
+              prefill={prefill}
+              kinds={summary.kinds}
+              uncovered={uncovered}
+              subjects={subjects}
+              onSaved={(note) => setNotes((list) => [note, ...list])}
+            />
+          </section>
+        ) : (
+          <p className={`${CARD} text-sm text-neutral-600 dark:text-neutral-300`}>Only an admin of this brand can add or change notes.</p>
+        )}
+
+        <section aria-label="Your notes" className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">
+              Your notes <span className="font-normal text-neutral-500 dark:text-neutral-400">{summary.total}</span>
+            </h2>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Show">
+              <FilterChip on={filter === "all"} onClick={() => setFilter("all")}>
+                All
+              </FilterChip>
+              {summary.suggested ? (
+                <FilterChip on={filter === "suggested"} onClick={() => setFilter("suggested")}>
+                  Suggested · {summary.suggested}
+                </FilterChip>
+              ) : null}
+              <FilterChip on={filter === "unused"} onClick={() => setFilter("unused")}>
+                Not used yet
+              </FilterChip>
+              {BRAND_NOTE_KINDS.filter((k) => summary.kinds[k] > 0).map((k) => (
+                <FilterChip key={k} on={filter === k} onClick={() => setFilter(k)}>
+                  {BRAND_NOTE_KIND_LABEL[k].many} · {summary.kinds[k]}
+                </FilterChip>
+              ))}
+            </div>
+          </div>
+          {shown.length === 0 ? (
+            <p className={`${CARD} ${HINT}`}>
+              {notes.length === 0
+                ? "No notes yet. Start with the question above: one story, test or mistake per note, in your own words."
+                : "No notes match this filter."}
+            </p>
+          ) : (
+            shown.map((n) => <NoteCard key={n.id} note={n} names={names} subjects={subjects} canEdit={canEdit} onChange={replace} onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))} />)
+          )}
+        </section>
+      </div>
+
+      <aside className="space-y-5">
+        <MixPanel kinds={summary.kinds} canEdit={canEdit} onAsk={(kind) => ask({ kind })} />
+        {subjects ? <CoveragePanel subjects={subjects} uncovered={uncovered} canEdit={canEdit} onAsk={(subjectId) => ask({ subjectId })} /> : null}
+        <section aria-label="What makes a good note" className="rounded-lg bg-neutral-100 p-4 text-sm leading-relaxed dark:bg-neutral-900">
+          <h2 className="text-sm font-semibold">What makes a good note</h2>
+          <ul className="mt-2 space-y-1.5 text-neutral-700 dark:text-neutral-300">
+            <li>Something you saw or did, not a general truth.</li>
+            <li>One story, test or result per note.</li>
+            <li>What surprised you, and what you did next.</li>
+            <li>No names unless they agreed: articles keep people anonymous otherwise.</li>
+          </ul>
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`${CHIP} ${on ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Choose the brand map subjects a note is about: the ones its words suggest, or any found by name. */
+function SubjectPicker({
+  text,
+  chosen,
+  onChange,
+  subjects,
+}: {
+  text: string;
+  chosen: string[];
+  onChange: (ids: string[]) => void;
+  subjects: NoteSubject[];
+}) {
+  const id = useId();
+  const [find, setFind] = useState("");
+  const name = (sid: string) => subjects.find((s) => s.id === sid)?.name ?? "No longer on your brand map";
+  const suggested = suggestSubjects(text, subjects).filter((s) => !chosen.includes(s.id));
+  const q = find.trim().toLowerCase();
+  const found = q ? subjects.filter((s) => !chosen.includes(s.id) && s.name.toLowerCase().includes(q)).slice(0, 6) : [];
+  const full = chosen.length >= BRAND_NOTE_LIMITS.MAX_SUBJECTS;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chosen.map((sid) => (
+          <span key={sid} className={SUBJECT_CHIP}>
+            {name(sid)}
+            <button type="button" aria-label={`Take off ${name(sid)}`} onClick={() => onChange(chosen.filter((x) => x !== sid))} className="rounded-full p-0.5 hover:bg-blue-100 dark:hover:bg-blue-900">
+              <X size={12} aria-hidden />
+            </button>
+          </span>
+        ))}
+        {!full
+          ? suggested.map((s) => (
+              <button key={s.id} type="button" onClick={() => onChange([...chosen, s.id])} className={`${CHIP} border-dashed border-neutral-400 text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800`}>
+                + {s.name}
+              </button>
+            ))
+          : null}
+      </div>
+      {!full ? (
+        <div className="relative max-w-xs">
+          <label htmlFor={`${id}-find`} className="sr-only">
+            Find a subject
+          </label>
+          <input id={`${id}-find`} value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find a subject on your brand map" className={`${FIELD} text-xs`} />
+          {found.length ? (
+            <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-950">
+              {found.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange([...chosen, s.id]);
+                      setFind("");
+                    }}
+                    className="block w-full px-2.5 py-1.5 text-left text-xs hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                  >
+                    {s.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AddNote({
+  prefill,
+  kinds,
+  uncovered,
+  subjects,
+  onSaved,
+}: {
+  prefill: Prefill;
+  kinds: Record<BrandNoteKind, number>;
+  uncovered: NoteSubject[];
+  subjects: NoteSubject[] | null;
+  onSaved: (note: BrandNote) => void;
+}) {
+  const id = useId();
+  const [turn, setTurn] = useState(0);
+  const [text, setText] = useState("");
+  const [kind, setKind] = useState<BrandNoteKind | null>(prefill.kind ?? null);
+  const [chosen, setChosen] = useState<string[]>(prefill.subjectId ? [prefill.subjectId] : []);
+  const [canName, setCanName] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const prefilledSubject = prefill.subjectId ? subjects?.find((s) => s.id === prefill.subjectId)?.name : undefined;
+  const question =
+    turn === 0 && prefill.kind
+      ? KIND_QUESTIONS[prefill.kind][0]!
+      : turn === 0 && prefilledSubject
+        ? `What have you seen first-hand about ${prefilledSubject}?`
+        : noteQuestion(kinds, uncovered.map((s) => s.name), turn).question;
+  const suggestedKind = suggestKind(text);
+  const shownKind = kind ?? suggestedKind;
+  const long = text.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT;
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const r = await send("/api/admin/brand-kit/notes", "POST", { text: text.trim(), kind: shownKind, subjectIds: chosen, canName });
+    setBusy(false);
+    if (!r.ok || !r.data.note) {
+      setError(problem(r.status, r.data));
+      return;
+    }
+    onSaved(r.data.note as BrandNote);
+    setText("");
+    setKind(null);
+    setChosen([]);
+    setCanName(false);
+    setSaved(true);
+    setTurn((t) => t + 1);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Add a note</h2>
+        <button type="button" onClick={() => setTurn((t) => t + 1)} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950">
+          <RefreshCw size={13} aria-hidden /> Another question
+        </button>
+      </div>
+      <p className="rounded-md bg-neutral-100 px-3 py-2.5 text-sm text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100" aria-live="polite">
+        {question}
+      </p>
+      <div>
+        <label htmlFor={`${id}-text`} className={LABEL}>
+          Your note
+        </label>
+        <textarea
+          id={`${id}-text`}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSaved(false);
+          }}
+          rows={3}
+          maxLength={BRAND_NOTE_LIMITS.MAX_TEXT}
+          placeholder="What happened, to whom (no names needed), and what surprised you."
+          className={`mt-1 ${FIELD} leading-relaxed`}
+        />
+      </div>
+      <div className="flex flex-wrap items-start gap-4">
+        <label className={LABEL}>
+          Kind {kind ? null : <span className="font-normal text-neutral-500 dark:text-neutral-400">(suggested)</span>}
+          <select value={shownKind} onChange={(e) => setKind(e.target.value as BrandNoteKind)} className={`mt-1 block ${FIELD} w-auto text-xs`}>
+            {BRAND_NOTE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {BRAND_NOTE_KIND_LABEL[k].one}
+              </option>
+            ))}
+          </select>
+        </label>
+        {subjects ? (
+          <div className="min-w-0 flex-1">
+            <div className={LABEL}>Subjects on your brand map</div>
+            <div className="mt-1">
+              <SubjectPicker text={text} chosen={chosen} onChange={setChosen} subjects={subjects} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={canName} onChange={(e) => setCanName(e.target.checked)} className="mt-1" />
+        <span>
+          It names a customer or person who agreed to be named
+          <span className={`block ${HINT}`}>Left unticked, articles keep people and companies anonymous.</span>
+        </span>
+      </label>
+      <div className="flex items-center justify-end gap-3">
+        <span role="status" className={error ? "text-xs text-red-600 dark:text-red-400" : HINT}>
+          {error ?? (saved ? "Saved. Here's another question." : "")}
+        </span>
+        <button type="button" onClick={() => void save()} disabled={busy || !long} className={PRIMARY}>
+          {busy ? "Saving…" : "Save note"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NoteCard({
+  note,
+  names,
+  subjects,
+  canEdit,
+  onChange,
+  onRemoved,
+}: {
+  note: BrandNote;
+  names: Map<string, string>;
+  subjects: NoteSubject[] | null;
+  canEdit: boolean;
+  onChange: (note: BrandNote) => void;
+  onRemoved: (id: string) => void;
+}) {
+  const id = useId();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(note.text);
+  const [kind, setKind] = useState(note.kind);
+  const [chosen, setChosen] = useState(note.subjectIds ?? []);
+  const [canName, setCanName] = useState(note.canName);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const used = note.usedBy?.length ?? 0;
+
+  async function patch(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    const r = await send(`/api/admin/brand-kit/notes/${note.id}`, "PATCH", body);
+    setBusy(false);
+    if (!r.ok || !r.data.note) return setError(problem(r.status, r.data));
+    onChange(r.data.note as BrandNote);
+    setEditing(false);
+  }
+
+  async function remove() {
+    setBusy(true);
+    const r = await send(`/api/admin/brand-kit/notes/${note.id}`, "DELETE");
+    setBusy(false);
+    if (!r.ok) return setError(problem(r.status, r.data));
+    onRemoved(note.id);
+  }
+
+  return (
+    <article className={`${CARD} space-y-2.5 ${note.status === "suggested" ? "border-dashed" : ""}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300">
+          {BRAND_NOTE_KIND_LABEL[note.kind].one}
+          {note.status === "suggested" ? <span className="ml-2 font-medium normal-case tracking-normal text-amber-700 dark:text-amber-400">Suggested, not kept yet</span> : null}
+        </span>
+        <span className={HINT}>
+          {SOURCE_LABEL[note.source]} · {used ? `used in ${used} article${used === 1 ? "" : "s"}` : "not used yet"}
+        </span>
+      </div>
+      {editing ? (
+        <div className="space-y-2.5">
+          <label htmlFor={`${id}-text`} className="sr-only">
+            The note
+          </label>
+          <textarea id={`${id}-text`} value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={BRAND_NOTE_LIMITS.MAX_TEXT} className={`${FIELD} leading-relaxed`} />
+          <div className="flex flex-wrap items-start gap-4">
+            <label className={LABEL}>
+              Kind
+              <select value={kind} onChange={(e) => setKind(e.target.value as BrandNoteKind)} className={`mt-1 block ${FIELD} w-auto text-xs`}>
+                {BRAND_NOTE_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {BRAND_NOTE_KIND_LABEL[k].one}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {subjects ? (
+              <div className="min-w-0 flex-1">
+                <div className={LABEL}>Subjects</div>
+                <div className="mt-1">
+                  <SubjectPicker text={text} chosen={chosen} onChange={setChosen} subjects={subjects} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={canName} onChange={(e) => setCanName(e.target.checked)} />
+            It names someone who agreed to be named
+          </label>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setEditing(false)} className={SECONDARY}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy || text.trim().length < BRAND_NOTE_LIMITS.MIN_TEXT}
+              onClick={() => void patch({ text: text.trim(), kind, subjectIds: chosen, canName })}
+              className={PRIMARY}
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="whitespace-pre-line text-sm leading-relaxed">{note.text}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(note.subjectIds ?? []).map((sid) => (
+              <span key={sid} className={SUBJECT_CHIP}>
+                {names.get(sid) ?? "No longer on your brand map"}
+              </span>
+            ))}
+            {note.canName ? <span className={`${CHIP} border-neutral-300 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300`}>Can be named</span> : null}
+          </div>
+          {canEdit ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {note.status === "suggested" ? (
+                <button type="button" disabled={busy} onClick={() => void patch({ status: "kept" })} className={PRIMARY}>
+                  Keep it
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setEditing(true)} className={SECONDARY}>
+                Edit
+              </button>
+              {confirm ? (
+                <>
+                  <span className={HINT}>Articles already written keep what they said.</span>
+                  <button type="button" disabled={busy} onClick={() => void remove()} className={`${SECONDARY} border-red-300 text-red-700 dark:border-red-900 dark:text-red-400`}>
+                    Remove for good
+                  </button>
+                  <button type="button" onClick={() => setConfirm(false)} className={SECONDARY}>
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setConfirm(true)} className={SECONDARY}>
+                  {note.status === "suggested" ? "Dismiss" : "Remove"}
+                </button>
+              )}
+            </div>
+          ) : null}
+        </>
+      )}
+      {error ? (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function MixPanel({ kinds, canEdit, onAsk }: { kinds: Record<BrandNoteKind, number>; canEdit: boolean; onAsk: (kind: BrandNoteKind) => void }) {
+  const order = [...BRAND_NOTE_KINDS].sort((a, b) => kinds[b] - kinds[a]);
+  return (
+    <section aria-label="Mix of experience" className={`${CARD} space-y-3`}>
+      <div>
+        <h2 className="text-sm font-semibold">Mix of experience</h2>
+        <p className={`mt-0.5 ${HINT}`}>Articles read best when they can draw on different kinds.</p>
+      </div>
+      <ul className="space-y-2.5">
+        {order.map((k) => (
+          <li key={k} className="space-y-1.5">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="w-36 shrink-0">{BRAND_NOTE_KIND_LABEL[k].many}</span>
+              <span className="flex min-w-0 flex-1 gap-0.5" aria-hidden>
+                {Array.from({ length: Math.min(kinds[k], 10) }, (_, i) => (
+                  <span key={i} className="h-2.5 w-3 rounded-sm bg-blue-600 dark:bg-blue-400" />
+                ))}
+                {kinds[k] === 0 ? <span className="h-2.5 w-3 rounded-sm border border-dashed border-amber-600" /> : null}
+              </span>
+              <span className="w-8 text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400">{kinds[k]}</span>
+            </div>
+            {kinds[k] === 0 ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                None yet. {KIND_QUESTIONS[k][0]}{" "}
+                {canEdit ? (
+                  <button type="button" onClick={() => onAsk(k)} className="font-medium underline underline-offset-2">
+                    Add one
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** How many squares to draw before a bar says it instead. */
+const MAX_SQUARES = 120;
+
+function CoveragePanel({
+  subjects,
+  uncovered,
+  canEdit,
+  onAsk,
+}: {
+  subjects: NoteSubject[];
+  uncovered: NoteSubject[];
+  canEdit: boolean;
+  onAsk: (subjectId: string) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const covered = subjects.length - uncovered.length;
+  const missing = new Set(uncovered.map((s) => s.id));
+  const list = all ? uncovered : uncovered.slice(0, 5);
+  return (
+    <section aria-label="What your notes cover" className={`${CARD} space-y-3`}>
+      <div>
+        <h2 className="text-sm font-semibold">What your notes cover</h2>
+        <p className={`mt-0.5 ${HINT}`}>
+          {subjects.length
+            ? `Notes touch ${covered} of ${subjects.length} subject${subjects.length === 1 ? "" : "s"} on your brand map.`
+            : "Your brand map has no subjects yet."}
+        </p>
+      </div>
+      {subjects.length ? (
+        subjects.length <= MAX_SQUARES ? (
+          <div className="flex flex-wrap gap-1" role="img" aria-label={`${covered} of ${subjects.length} subjects have a note`}>
+            {subjects.map((s) =>
+              missing.has(s.id) ? (
+                <span key={s.id} title={s.name} className="h-5 w-5 rounded border-[1.5px] border-neutral-400 dark:border-neutral-600" />
+              ) : (
+                <span key={s.id} title={s.name} className="h-5 w-5 rounded bg-blue-600 dark:bg-blue-400" />
+              ),
+            )}
+          </div>
+        ) : (
+          <div className="h-2.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800" role="img" aria-label={`${covered} of ${subjects.length} subjects have a note`}>
+            <div className="h-full bg-blue-600 dark:bg-blue-400" style={{ width: `${Math.round((covered / subjects.length) * 100)}%` }} />
+          </div>
+        )
+      ) : null}
+      {uncovered.length ? (
+        <div>
+          <h3 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">Nothing yet on</h3>
+          <ul className={`mt-1 ${all ? "max-h-72 overflow-y-auto" : ""}`}>
+            {list.map((s) => (
+              <li key={s.id} className="flex items-center justify-between gap-2 border-t border-neutral-100 py-1.5 text-sm first:border-t-0 dark:border-neutral-900">
+                <span className="min-w-0 truncate">{s.name}</span>
+                {canEdit ? (
+                  <button type="button" onClick={() => onAsk(s.id)} className="shrink-0 text-xs text-blue-700 underline-offset-2 hover:underline dark:text-blue-300">
+                    Add a note
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {uncovered.length > 5 ? (
+            <button type="button" onClick={() => setAll((v) => !v)} className="mt-1 text-xs text-blue-700 underline-offset-2 hover:underline dark:text-blue-300">
+              {all ? "Show fewer" : `Show all ${uncovered.length}`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}

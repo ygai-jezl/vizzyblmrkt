@@ -41,6 +41,8 @@ export interface BlogHubControls {
   /** Set the article's address (the plan's hub URL; null clears it). Left out while the brand
    *  map's pages switch is off, and then the address cannot be changed here. */
   onSetAddress?: (url: string | null) => Promise<AddressSaved>;
+  /** Articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED): the author's role and bio can be set. */
+  editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
   onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
 }

@@ -665,6 +665,81 @@ function Publisher({
   );
 }
 
+/**
+ * The author's role, bio and profile link (CREATE_BLOG_EDITORIAL_ENABLED): the byline under
+ * the title, the author box at the end of the article (the bio word for word) and the
+ * markup's Person. Kept for the author's next article.
+ */
+function AuthorDetails({ brief, set }: { brief: BlogBrief; set: (patch: Partial<BlogBrief>) => void }) {
+  const id = useId();
+  // As with the site: what is typed is kept here; the brief only takes a whole https link, or none.
+  const [link, setLink] = useState(brief.authorUrl ?? "");
+  const [held, setHeld] = useState(brief.authorUrl ?? "");
+  if (held !== (brief.authorUrl ?? "")) {
+    setHeld(brief.authorUrl ?? "");
+    setLink(brief.authorUrl ?? "");
+  }
+  const typed = link.trim();
+  const invalid = typed !== "" && !isHttpsUrl(typed);
+  if (!brief.author.trim()) {
+    return <p className={HINT}>Name an author to add their role and a short bio: the byline and the author box at the end of the article.</p>;
+  }
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <label className={LABEL}>
+        Role
+        <input
+          value={brief.authorRole ?? ""}
+          onChange={(e) => set({ authorRole: e.target.value })}
+          maxLength={120}
+          placeholder="Head of Growth"
+          className={`mt-1 w-full ${INPUT}`}
+        />
+      </label>
+      <label className={LABEL}>
+        Their profile page
+        <input
+          type="url"
+          value={link}
+          onChange={(e) => {
+            setLink(e.target.value);
+            const next = e.target.value.trim();
+            if (next === "" || isHttpsUrl(next)) set({ authorUrl: next });
+          }}
+          maxLength={2000}
+          aria-invalid={invalid}
+          placeholder="https://example.com/team/ana"
+          className={`mt-1 w-full ${INPUT}`}
+        />
+      </label>
+      {invalid ? (
+        <p role="alert" className={`sm:col-span-2 ${ERROR}`}>
+          {NOT_HTTPS}, or leave it blank.
+        </p>
+      ) : null}
+      <div className="sm:col-span-2">
+        <label htmlFor={`${id}-bio`} className={LABEL}>
+          Bio
+        </label>
+        <textarea
+          id={`${id}-bio`}
+          aria-describedby={`${id}-bio-hint`}
+          value={brief.authorBio ?? ""}
+          onChange={(e) => set({ authorBio: e.target.value })}
+          rows={3}
+          maxLength={600}
+          placeholder="What they do, and what they have done that makes them worth reading on this."
+          className={`mt-1 w-full ${INPUT} leading-relaxed`}
+        />
+        <p id={`${id}-bio-hint`} className={`mt-1 ${HINT}`}>
+          Shown word for word in the author box at the end of the article. One line about your product can go here too. Kept
+          for this author: research fills it in on their next article.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** "None of these" in the subject list (a map id never looks like this). */
 const NO_SUBJECT = "none";
 
@@ -890,6 +965,7 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
           hint="Who publishes the article — used in the suggested schema markup."
         >
           <Publisher brief={brief} brandName={controls.brandName} set={set} />
+          {controls.editorial ? <AuthorDetails brief={brief} set={set} /> : null}
         </Section>
       </div>
     </fieldset>

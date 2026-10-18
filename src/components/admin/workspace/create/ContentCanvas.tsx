@@ -115,6 +115,7 @@ export function ContentCanvas({
   footerBrand = null,
   brandMap = null,
   pagesOn = false,
+  editorialOn = false,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -132,6 +133,8 @@ export function ContentCanvas({
   brandMap?: ArticleMap | null;
   /** The brand map's pages switch (BRAND_MAP_PAGES_ENABLED): the article's address can be set here. */
   pagesOn?: boolean;
+  /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
+  editorialOn?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -831,6 +834,7 @@ export function ContentCanvas({
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
+          ...(editorialOn ? { editorial: true } : {}),
         }
       : undefined;
   const total = nodes.length;

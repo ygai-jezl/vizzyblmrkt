@@ -114,3 +114,14 @@ describe("the fact check on an editorial article", () => {
 function draftBody(): string {
   return EDITORIAL_ARTICLE;
 }
+
+describe("the author in the suggested markup", () => {
+  it("is a Person with their role and their own profile page", async () => {
+    const { suggestBlogSchema } = await import("./schema");
+    const { jsonLd } = suggestBlogSchema({ markdown: EDITORIAL_ARTICLE, brief: EDITORIAL_BRIEF, pageUrl: "https://acme.example/blog/how-often" });
+    const posting = (jsonLd!["@graph"] as Record<string, unknown>[]).find((n) => n["@type"] === "BlogPosting")!;
+    expect(posting.author).toEqual({ "@type": "Person", name: "Ana Ruiz", jobTitle: "Head of Growth", url: "https://acme.example/team/ana" });
+    const { notes } = suggestBlogSchema({ markdown: EDITORIAL_ARTICLE, brief: { ...EDITORIAL_BRIEF, authorUrl: "" } });
+    expect(notes.some((n) => n.includes("Ana Ruiz's profile page"))).toBe(true);
+  });
+});

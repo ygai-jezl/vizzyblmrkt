@@ -33,7 +33,7 @@ import { canonicaliseEntities, indexNames } from "./names";
 import { fold } from "@/lib/brandMap/changes";
 import { blockedCrawlers } from "./crawlers";
 import { factFiguresOnPage, factWordedAs, figureSet, wordingShared, wordsOf } from "./figures";
-import { blogResearchThinkingBudget } from "./flags";
+import { blogResearchThinkingBudget, isBlogEditorialEnabled } from "./flags";
 import { chooseLinkTargets, isLinkablePage, linkLabel, pagesFromRepoPaths, type KnownPage } from "./links";
 
 /**
@@ -777,7 +777,8 @@ export async function researchBlogBrief(
   const today = now.toISOString().slice(0, 10);
   const audience = workspace.audience?.trim().slice(0, 500) || "(not given)";
   const search = deps.grounded ?? generateGroundedText;
-  const questionsPrompt = renderPrompt("content.blog_research", {
+  // Editorial articles stay on their own question (no spread of intents, alternatives only when choosing).
+  const questionsPrompt = renderPrompt(isBlogEditorialEnabled() ? "content.blog_research_editorial" : "content.blog_research", {
     brand_name: brandName.slice(0, 120),
     today,
     spark: plan.scope.spark || plan.name,

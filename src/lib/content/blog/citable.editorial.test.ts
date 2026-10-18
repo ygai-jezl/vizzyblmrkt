@@ -62,9 +62,32 @@ describe("the checklist for an editorial article", () => {
 
   it("notices a section on alternatives when the question isn't about choosing, and boxes nobody asked for", () => {
     const off = EDITORIAL_ARTICLE.replace("## Common mistakes", "## What are the top alternatives to Rivalco?");
-    expect(item(off, "v_focus")!.status).toBe("warn");
+    expect(item(off, "v_focus")!.status).toBe("fail");
     expect(item(off, "v_wrong")!.status).toBe("warn");
     const boxed = EDITORIAL_ARTICLE.replace("**Key takeaways**", "> **Key facts**\n> - One.\n\n**Key takeaways**");
     expect(item(boxed, "v_boxes")!.status).toBe("warn");
+  });
+});
+
+describe("filler and copied slogans", () => {
+  it("fails a list that says the same thing about several items", () => {
+    const md = EDITORIAL_ARTICLE.replace(
+      "## Common mistakes",
+      "## Common mistakes\n\n- **Rivalco:** An alternative in the AI visibility category.\n- **Othero:** An alternative in the AI visibility category.\n- **Thirdco:** An alternative in the AI visibility category.\n",
+    );
+    const r = item(md, "v_repeat")!;
+    expect(r.status).toBe("fail");
+    expect(r.fix).toContain("an alternative in the ai visibility category");
+    expect(item(EDITORIAL_ARTICLE, "v_repeat")!.status).toBe("pass");
+  });
+
+  it("fails link text copied from a page's slogan", () => {
+    const brief = BlogBriefSchema.parse({
+      ...EDITORIAL_BRIEF,
+      links: [...EDITORIAL_BRIEF.links, { url: "https://acme.example/waitlist", label: "Speak Fluent AI. No Code Required.", intent: "convert", by: "research" }],
+    });
+    const md = EDITORIAL_ARTICLE.replace("[See what a weekly check costs](https://acme.example/pricing)", "[Speak Fluent AI. No Code Required.](https://acme.example/waitlist)");
+    expect(item(md, "v_anchor", brief)!.status).toBe("fail");
+    expect(item(EDITORIAL_ARTICLE, "v_anchor", brief)!.status).toBe("pass");
   });
 });

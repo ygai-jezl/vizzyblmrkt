@@ -966,7 +966,9 @@ export async function researchBlogBrief(
     now.toISOString(),
   );
   // The subject and question research filled in are kept in step, as a person's are.
-  const brief = map ? reconcileMapRefs(merged, map) : merged;
+  const reconciled = map ? reconcileMapRefs(merged, map) : merged;
+  // Research for the editorial writer says so, so an article researched before is researched again.
+  const brief = isBlogEditorialEnabled() ? { ...reconciled, researchStyle: "editorial" as const } : reconciled;
   return {
     brief,
     searched: Boolean(asked?.text),

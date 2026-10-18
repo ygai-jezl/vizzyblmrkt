@@ -29,6 +29,7 @@ import { unsupportedFigures } from "./figures";
 import { blogWriterThinkingBudget, isBlogEditorialEnabled } from "./flags";
 import { slugify } from "./markdown";
 import { mapMaterial, writerMapBlock, type ArticleMap } from "./articleMap";
+import { focusedBrief, writerLinks } from "./focus";
 
 /**
  * The blog hub's writer. One call writes the article to the CITABLE structure from its
@@ -283,8 +284,11 @@ function sourcesNote(sources: BlogSource[], own: Set<string>): string {
 }
 
 function buildTask(input: BlogDraftInput, today: string, editorial = false): string {
-  const { plan, node, brief } = input;
-  const primary = brief.primaryQuestion.trim() || plan.scope.spark.trim() || plan.name;
+  const { plan, node } = input;
+  const primary = input.brief.primaryQuestion.trim() || plan.scope.spark.trim() || plan.name;
+  // The editorial writer is never handed alternatives or a definition its question doesn't ask for,
+  // even from a brief researched before it (live, 2026-10-18).
+  const brief = editorial ? focusedBrief(input.brief, primary) : input.brief;
   const entities = formatEntities(brief.entities);
   const sources = usableSources(brief);
   const byline = editorial ? bylineOf(brief) : "";
@@ -309,7 +313,7 @@ function buildTask(input: BlogDraftInput, today: string, editorial = false): str
     proof_assets: input.proofBlock,
     sources: formatSources(sources),
     sources_note: sourcesNote(sources, ownHosts(brief, [plan.strategy.hubUrl])),
-    links: formatLinks(brief.links),
+    links: formatLinks(editorial ? writerLinks(brief.links) : brief.links),
     brand_map: writerMapBlock(input.map ?? null, brief),
     ...(editorial
       ? {

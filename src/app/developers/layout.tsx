@@ -3,16 +3,21 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DOC_PAGES } from "@/lib/developers/docs";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
+import { BaseJsonLd } from "@/components/site/JsonLd";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Developers — YouGrow" };
+export const metadata = {
+  title: "Developers — YouGrow",
+  description: "Connect your product to YouGrow: send each user's state to API v2, answer context requests and receive signed webhooks. Docs for people and for coding agents.",
+};
 
 /** Public developer docs for connecting a product to YouGrow lifecycle journeys. */
 export default function DevelopersLayout({ children }: { children: ReactNode }) {
   if (!isDevelopersDocsEnabled()) notFound();
   return (
     <div className="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <BaseJsonLd />
       <header className="border-b border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <Link href="/developers" className="text-sm font-semibold">

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { EMPTY_DRAFT, chartFromDraft, draftFromChart, numberOf } from "./chartDraft";
 import { ChartEditor } from "./ChartEditor";
+import { FormatFields, formatReady } from "./FormatFields";
 
 describe("the Numbers editor's draft", () => {
   it("reads numbers as people write them", () => {
@@ -28,5 +29,19 @@ describe("the Numbers editor's draft", () => {
     expect(html.match(/aria-label="Label /g)).toHaveLength(2);
     expect(html).toContain("+ Add a number");
     expect(html).toContain("Before and after");
+  });
+});
+
+
+describe("format fields", () => {
+  it("show only the chosen format's fields, and say what's needed", () => {
+    const portrait = renderToStaticMarkup(createElement(FormatFields, { format: "portrait", inputs: {}, onChange: () => {} }));
+    expect(portrait).toContain('aria-label="Quote"');
+    expect(portrait).toContain("never a person");
+    expect(portrait).not.toContain("Partner&#x27;s name");
+    const partner = renderToStaticMarkup(createElement(FormatFields, { format: "partner", inputs: {}, onChange: () => {} }));
+    expect(partner).toContain("Their logo is never drawn.");
+    expect(renderToStaticMarkup(createElement(FormatFields, { format: "standard", inputs: {}, onChange: () => {} }))).toBe("");
+    expect([formatReady("portrait", {}), formatReady("portrait", { quote: "q" }), formatReady("partner", {}), formatReady("report_cover", {})]).toEqual([false, true, false, true]);
   });
 });

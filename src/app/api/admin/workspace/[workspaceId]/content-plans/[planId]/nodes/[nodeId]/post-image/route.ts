@@ -8,6 +8,8 @@ import { generateSocialPostImage } from "@/lib/agents/creative";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import {
   DEFAULT_SOCIAL_IMAGE_STYLE,
+  SOCIAL_ASPECT_TO_GEMINI,
+  socialImageStyle,
   isSocialImageEnabled,
   isSocialImageChannel,
   SOCIAL_IMAGE_STYLE_IDS,
@@ -20,10 +22,12 @@ import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/i
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { htmlToText } from "@/lib/email/emailRender";
-import { renderStyleImage, templateFor, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
+import { formatTemplate, renderStyleImage, templateFor, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
+import { paintFormatScene } from "@/lib/content/imageStyle/formatScene";
+import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
 import { chartFromCopy, figureFromCopy } from "@/lib/content/imageStyle/chartFromCopy";
 import { seedFor } from "@/lib/content/imageStyle/render/templates/lineArt";
-import { ChartSchema, FigureSchema, type Chart, type Figure } from "@/lib/types/imageStyle";
+import { ChartSchema, FigureSchema, FormatInputsSchema, ImageFormatIdSchema, type Chart, type Figure } from "@/lib/types/imageStyle";
 import { headlineFrom, SOCIAL_RENDER_SIZE } from "@/lib/content/imageStyle/render/socialText";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
 import { recordImageAsset } from "@/lib/admin/brandKit";
@@ -51,6 +55,9 @@ const BodySchema = z.object({
   figure: FigureSchema.optional(),
   /** How many times this image has been made: Line art draws anew each time. */
   attempt: z.number().int().min(0).max(1000).optional(),
+  /** A format (IMAGE_FORMATS_ENABLED): portrait card, partner lockup, report cover, or standard. */
+  format: ImageFormatIdSchema.optional(),
+  formatInputs: FormatInputsSchema.optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
@@ -133,6 +140,8 @@ export async function POST(req: Request, { params }: RouteParams) {
   // too few and the person is asked), Type poster's big number, Line art's pattern.
   const resolved = choice.resolved;
   const drawnId = choice.enabled && resolved.engine === "template" ? resolved.id : null;
+  // The style a format is skinned by (before the brand picks one, the Headline card).
+  const skinId = resolved.engine === "legacy" ? "headline_card" : resolved.id;
   const postText = htmlToText(node.body || "");
   let chart: Chart | null = null;
   if (drawnId === "data_story") {
@@ -151,8 +160,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     drawnId === "type_poster" ? (parsed.data.figure ?? figureFromCopy({ text: `${words}\n${postText}` })) : null;
   const seed = drawnId === "line_art" ? seedFor(words, parsed.data.attempt ?? 0) : undefined;
 
-  /** Store a drawn image as this post's, with what it drew. */
-  const saveDrawn = async (drawn: StyleImageResult) => {
+  /** Store a drawn image as this post's, with what it drew (and, for a format, which). */
+  const saveDrawn = async (drawn: StyleImageResult, asFormat?: { format: string; inputs: Record<string, unknown> }) => {
     const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
     if (!stored.ok) return null;
     const label = resolved.engine === "legacy" ? "" : resolved.label;
@@ -166,7 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         prompt: `${label}: ${words}`.slice(0, 1000),
         brief: (brief || words).slice(0, 1000),
         aspect: parsed.data.aspect,
-        style: drawnId ?? "",
+        style: asFormat ? `${asFormat.format}:${skinId}` : (drawnId ?? ""),
         channel: node.channel,
         source: { planId, nodeId },
         parentAssetId: null,
@@ -181,6 +190,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       imageHeadline: ownWords,
       ...(chart ? { imageChart: chart } : {}),
       ...(figure && parsed.data.figure ? { imageFormatInputs: { ...(node.imageFormatInputs ?? {}), figure } } : {}),
+      ...(asFormat ? { imageFormat: asFormat.format as never, imageFormatInputs: asFormat.inputs } : {}),
     });
     if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
     return NextResponse.json({
@@ -188,6 +198,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       imagePrompt: null,
       imageStyleId: choice.ownPick,
       styleId: drawnId,
+      ...(asFormat ? { imageFormat: asFormat.format } : {}),
       ...(chart ? { chart } : {}),
       ...(figure ? { figure } : {}),
       ...(drawn.note ? { note: drawn.note } : {}),
@@ -206,6 +217,50 @@ export async function POST(req: Request, { params }: RouteParams) {
       ...(seed !== undefined ? { seed } : {}),
       ...(art ? { art } : {}),
     });
+
+  // A format (portrait card, partner lockup, report cover): drawn in the style's skin, around a
+  // scene painted in the style (portrait and partner always; a report cover in a painted
+  // style). Never a person, never the partner's logo: they're named in type.
+  const format = choice.enabled && isImageFormatsEnabled() ? formatTemplate(parsed.data.format) : null;
+  if (format) {
+    const inputs = parsed.data.formatInputs ?? {};
+    if (format === "portrait" && !inputs.quote?.trim()) {
+      return NextResponse.json({ error: "invalid_input", message: "Add the quote for the portrait card." }, { status: 400 });
+    }
+    if (format === "partner" && !inputs.partner?.trim()) {
+      return NextResponse.json({ error: "invalid_input", message: "Add the partner's name." }, { status: 400 });
+    }
+    const painted = resolved.engine === "model" || resolved.engine === "legacy";
+    const direction = choice.model.direction ?? {
+      label: socialImageStyle(choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE).label,
+      keywords: socialImageStyle(choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE).keywords,
+    };
+    const scene =
+      format !== "report_cover" || painted
+        ? await paintFormatScene({
+            format,
+            inputs,
+            headline: words,
+            direction,
+            aspectRatio: SOCIAL_ASPECT_TO_GEMINI[parsed.data.aspect],
+            timeoutMs: 60_000,
+          })
+        : null;
+    const drawn = await renderStyleImage({
+      ctx,
+      tenant,
+      template: format,
+      size: SOCIAL_RENDER_SIZE[parsed.data.aspect],
+      headline: words,
+      showLogo: tenant?.imageStyle?.logoOnSocial !== false,
+      formatInputs: inputs,
+      skin: skinId,
+      ...(scene ? { art: scene.bytes } : {}),
+    });
+    const saved = drawn ? await saveDrawn(drawn, { format, inputs }) : null;
+    if (saved) return saved;
+    return NextResponse.json({ error: "render_failed", message: "Couldn't make the card. Try again." }, { status: 502 });
+  }
 
   // A template style is drawn, not painted: exact words, the brand's fonts, logo and screens.
   // If the render fails, the style's painted twin below still makes an image. Split card is

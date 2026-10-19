@@ -55,7 +55,7 @@ const TEMPLATES: Record<TemplateId, (i: TemplateInput) => ReactElement> = {
 };
 
 /** The template that draws a format, or null for the standard image. */
-export function formatTemplate(format: ImageFormatId | null | undefined): TemplateId | null {
+export function formatTemplate(format: ImageFormatId | null | undefined): "portrait" | "partner" | "report_cover" | null {
   return format === "portrait" || format === "partner" || format === "report_cover" ? format : null;
 }
 

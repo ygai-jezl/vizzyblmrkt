@@ -23,12 +23,15 @@ vi.mock("@/lib/admin/brandAssets", () => brandAssets);
 const render = vi.hoisted(() => ({
   renderStyleImage: vi.fn(async (_r: Record<string, unknown>) => ({ png: Buffer.from("png"), width: 1080, height: 1080 }) as { png: Buffer; width: number; height: number } | null),
   templateFor: (id: string) => (["product_noir", "headline_card", "data_story", "type_poster", "split_card", "line_art"].includes(id) ? id : null),
+  formatTemplate: (f?: string) => (f === "portrait" || f === "partner" || f === "report_cover" ? f : null),
 }));
 const numbers = vi.hoisted(() => ({
   chartFromCopy: vi.fn(async (_c: { text: string }) => null as unknown),
   figureFromCopy: vi.fn((_c: { text: string }) => null as unknown),
 }));
 vi.mock("@/lib/content/imageStyle/chartFromCopy", () => numbers);
+const scene = vi.hoisted(() => ({ paintFormatScene: vi.fn(async (_r: Record<string, unknown>) => ({ bytes: Buffer.from("scene"), mimeType: "image/png" }) as unknown) }));
+vi.mock("@/lib/content/imageStyle/formatScene", () => scene);
 vi.mock("@/lib/content/imageStyle/render/styleImage", () => render);
 const store = vi.hoisted(() => ({ storeWorkspaceImage: vi.fn(async () => ({ ok: true, filename: "drawn.png" })) }));
 vi.mock("@/lib/workspace/assetStore", () => store);
@@ -265,6 +268,45 @@ describe("POST post-image", () => {
       await POST(req({ aspect: "1:1", styleId: "type_poster" }), params);
       expect(lastRender()).toMatchObject({ template: "headline_card" });
       expect(numbers.figureFromCopy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("formats (IMAGE_FORMATS_ENABLED)", () => {
+    beforeEach(() => {
+      vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+      vi.stubEnv("IMAGE_FORMATS_ENABLED", "true");
+    });
+    const lastRender = () => render.renderStyleImage.mock.calls.at(-1)![0];
+
+    it("a portrait card paints a scene for the quote and draws the card in the post's style", async () => {
+      const inputs = { quote: "Ship small, ship often.", name: "Sam", role: "Founder" };
+      const res = await POST(req({ aspect: "1:1", styleId: "soft_3d", format: "portrait", formatInputs: inputs }), params);
+      expect(res.status).toBe(200);
+      expect(scene.paintFormatScene.mock.calls[0]![0]).toMatchObject({ format: "portrait", inputs, direction: { label: "Soft 3D" }, aspectRatio: "1:1" });
+      expect(lastRender()).toMatchObject({ template: "portrait", skin: "soft_3d", formatInputs: inputs, art: Buffer.from("scene") });
+      expect(lastPatch()).toMatchObject({ imageFormat: "portrait", imageFormatInputs: inputs, imageStyleId: "soft_3d" });
+      expect(creative.generateSocialPostImage).not.toHaveBeenCalled();
+    });
+
+    it("needs a quote or a partner's name; a report cover in a drawn style paints nothing", async () => {
+      expect((await POST(req({ aspect: "1:1", format: "portrait", formatInputs: {} }), params)).status).toBe(400);
+      expect((await POST(req({ aspect: "1:1", format: "partner", formatInputs: { line: "x" } }), params)).status).toBe(400);
+      await POST(req({ aspect: "4:5", styleId: "headline_card", format: "report_cover", formatInputs: { title: "T" } }), params);
+      expect(scene.paintFormatScene).not.toHaveBeenCalled();
+      expect(lastRender()).toMatchObject({ template: "report_cover", skin: "headline_card", size: "portrait" });
+      expect(lastRender()).not.toHaveProperty("art");
+    });
+
+    it("a failed paint still draws the card; with the switch off, the format is ignored", async () => {
+      scene.paintFormatScene.mockResolvedValueOnce(null);
+      await POST(req({ aspect: "1:1", format: "partner", formatInputs: { partner: "Example" } }), params);
+      expect(lastRender()).toMatchObject({ template: "partner", formatInputs: { partner: "Example" } });
+      expect(lastRender()).not.toHaveProperty("art");
+      vi.stubEnv("IMAGE_FORMATS_ENABLED", "false");
+      render.renderStyleImage.mockClear();
+      await POST(req({ brief: "A desk", aspect: "1:1", styleId: "soft_3d", format: "partner", formatInputs: { partner: "Example" } }), params);
+      expect(render.renderStyleImage).not.toHaveBeenCalledWith(expect.objectContaining({ template: "partner" }));
+      expect(creative.generateSocialPostImage).toHaveBeenCalled();
     });
   });
 });

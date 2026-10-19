@@ -23,12 +23,13 @@ import {
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
-import { isBrandImageStyleUiEnabled, isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
+import { FormatFields, FORMAT_OPTIONS, formatReady } from "@/components/admin/imageStyle/FormatFields";
 import { resolveImageStyle } from "@/lib/content/imageStyle/resolve";
 import { useBrandImageStyle } from "@/components/admin/imageStyle/useBrandImageStyle";
 import { ChartEditor } from "@/components/admin/imageStyle/ChartEditor";
 import { EMPTY_DRAFT, chartFromDraft, draftFromChart, type ChartDraft } from "@/components/admin/imageStyle/chartDraft";
-import type { Chart, Figure } from "@/lib/types/imageStyle";
+import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
 import type { BlogHubControls } from "./blog/types";
 import type { TemplateOption } from "./types";
@@ -551,6 +552,11 @@ function SocialImageControls({
   const [needsNumbers, setNeedsNumbers] = useState<string | null>(null);
   const [figure, setFigure] = useState<Figure>(node.imageFormatInputs?.figure ?? { value: "", unit: "" });
   const [attempt, setAttempt] = useState(node.imageAssetRef ? 1 : 0);
+  // Formats (IMAGE_FORMATS_ENABLED): the card's own words; its scene is painted from them.
+  const formatsUi = styleUi && isImageFormatsUiEnabled();
+  const [format, setFormat] = useState<ImageFormatId>(node.imageFormat ?? "standard");
+  const [formatInputs, setFormatInputs] = useState<FormatInputs>(node.imageFormatInputs ?? {});
+  const asFormat = formatsUi && format !== "standard";
   const editChart = (next: ChartDraft) => {
     setChartDraft(next);
     setChartEdited(true);
@@ -573,7 +579,8 @@ function SocialImageControls({
     : null;
 
   async function generate(opts: { withoutScreenshot?: boolean; styleId?: string } = {}) {
-    if ((!brief.trim() && !drawn) || busy) return;
+    if ((!brief.trim() && !drawn && !asFormat) || busy) return;
+    if (asFormat && !formatReady(format, formatInputs)) return;
     setBusy("generate");
     onBusyChange?.(true);
     setErr(null);
@@ -600,6 +607,7 @@ function SocialImageControls({
             ...(ownChart ? { chart: ownChart } : {}),
             ...(forStyle === "type_poster" && figure.value.trim() ? { figure: { value: figure.value.trim(), unit: figure.unit.trim() } } : {}),
             ...(forStyle === "line_art" ? { attempt } : {}),
+            ...(asFormat ? { format, formatInputs } : formatsUi ? { format: "standard" } : {}),
             useBrandStyle,
             model: imageModelOverride(model, "social"),
           }),
@@ -632,6 +640,7 @@ function SocialImageControls({
           imagePrompt: data.imagePrompt ?? null,
           ...(styleUi ? { imageStyleId: pick, imageHeadline: showWords && headline.trim() ? headline.trim() : null } : {}),
           ...(data.chart ? { imageChart: data.chart } : {}),
+          ...(formatsUi ? { imageFormat: format, ...(asFormat ? { imageFormatInputs: formatInputs } : {}) } : {}),
         });
       } else {
         setErr(data.message ?? "Couldn't generate — try again.");
@@ -747,7 +756,27 @@ function SocialImageControls({
           />
         </div>
       ) : null}
-      {drawn && drawnId !== "split_card" ? null : (
+      {formatsUi ? (
+        <div className="mb-2">
+          <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
+            Format
+            <select
+              value={format}
+              disabled={busy !== null}
+              onChange={(e) => setFormat(e.target.value as ImageFormatId)}
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+            >
+              {FORMAT_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {asFormat ? <FormatFields format={format} inputs={formatInputs} onChange={setFormatInputs} disabled={busy !== null} /> : null}
+        </div>
+      ) : null}
+      {asFormat || (drawn && drawnId !== "split_card") ? null : (
         <textarea
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
@@ -761,7 +790,7 @@ function SocialImageControls({
           className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
         />
       )}
-      {showWords ? (
+      {showWords && !asFormat ? (
         <div className={drawn ? "" : "mt-2"}>
           <input
             value={headline}
@@ -953,7 +982,7 @@ function SocialImageControls({
         <button
           type="button"
           onClick={() => generate()}
-          disabled={busy !== null || (!brief.trim() && !drawn)}
+          disabled={busy !== null || (!brief.trim() && !drawn && !asFormat) || (asFormat && !formatReady(format, formatInputs))}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
           {busy === "generate" ? "Generating…" : hasImage ? "Regenerate" : "✨ Generate image"}

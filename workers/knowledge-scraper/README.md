@@ -59,11 +59,14 @@ npm run build
 ## Provisioning + deploy
 
 ```bash
-PROJECT=vizzybl-marketing-dev bash deploy.sh
+PROJECT=your-project-id bash deploy.sh
 ```
 
 This creates the Artifact Registry repo (if missing), builds+pushes the image, and
 creates/updates the `knowledge-scraper` Cloud Run Job (timeout 900s, 1 vCPU, 2Gi).
+
+The crawler identifies itself as `YouGrowBot/1.0`. To name your deployment instead, set
+`SCRAPER_USER_AGENT` on the job, for example `YouGrowBot/1.0 (+https://example.com/bot)`.
 
 IAM (grant separately):
 - **Job runtime SA** (`JOB_SA`, else default compute SA): `roles/datastore.user`,

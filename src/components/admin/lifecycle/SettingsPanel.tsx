@@ -285,7 +285,7 @@ export function SettingsPanel({
             <input className={inputClass} disabled={readOnly} value={settings.sender.fromName ?? ""} placeholder="Jez at Vizzybl" onChange={(e) => onChange({ ...settings, sender: { ...settings.sender, fromName: e.target.value || null } })} />
           </Field>
           <Field label="From address">
-            <input className={inputClass} type="email" disabled={readOnly} value={settings.sender.fromEmail ?? ""} placeholder="jez@vizzybl.ai" onChange={(e) => onChange({ ...settings, sender: { ...settings.sender, fromEmail: e.target.value.trim() || null } })} />
+            <input className={inputClass} type="email" disabled={readOnly} value={settings.sender.fromEmail ?? ""} placeholder="you@example.com" onChange={(e) => onChange({ ...settings, sender: { ...settings.sender, fromEmail: e.target.value.trim() || null } })} />
           </Field>
           <Field label="Reply-to">
             <input className={inputClass} type="email" disabled={readOnly} value={settings.sender.replyTo ?? ""} onChange={(e) => onChange({ ...settings, sender: { ...settings.sender, replyTo: e.target.value.trim() || null } })} />

@@ -17,6 +17,8 @@ export LOCAL_APP_PORT="$PORT"
 export ADMIN_ALLOWED_EMAILS=admin@example.com
 export ADMIN_ALLOWED_DOMAINS=""
 export ADMIN_BOOTSTRAP_TENANT_ID=ten_demo
+# The demo brand has no Privacy Policy URL of its own; emails need one in the footer.
+export EMAIL_DEFAULT_PRIVACY_URL=https://acme.test/privacy
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=local-demo-password
 # Force the log email provider so the smoke never fires real emails and sends are

@@ -17,6 +17,7 @@
     "seed": "tsx scripts/seed.ts",
     "doctor": "node scripts/doctor.mjs",
     "local": "node scripts/local.mjs",
+    "check:instance": "node scripts/check-instance-values.mjs",
     "smoke": "(test -f .next/BUILD_ID || next build) && firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-yougrow"
   },

@@ -32,6 +32,9 @@ jobs:
       - name: Lint (includes tenant-isolation guardrails)
         run: npm run lint
 
+      - name: No hosted-instance values in the code
+        run: npm run check:instance
+
       - name: Unit tests (includes cross-tenant isolation tests)
         run: npm test
 

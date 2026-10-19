@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { signInWithPopup } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
-import { accessDeniedMessage } from "@/lib/auth/accessDenied";
+import { accessDeniedMessage, WORKSPACE_NOT_SET_UP_MESSAGE } from "@/lib/auth/accessDenied";
 import {
   installSessionFetchInterceptor,
   mintSession,
@@ -69,7 +69,9 @@ export function SessionKeeper() {
       setError(
         result === "forbidden"
           ? accessDeniedMessage()
-          : "Sign-in failed. Please try again.",
+          : result === "not_set_up"
+            ? WORKSPACE_NOT_SET_UP_MESSAGE
+            : "Sign-in failed. Please try again.",
       );
     } catch {
       setError("Sign-in failed. Please try again.");

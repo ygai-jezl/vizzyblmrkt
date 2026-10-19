@@ -1,5 +1,6 @@
 import { chromium, type Browser } from "playwright";
 import { isHostPublic } from "./ssrf";
+import { scraperUserAgent } from "./config";
 
 /**
  * Headless rendering for JavaScript-rendered (SPA) sites — the static fetch path in
@@ -15,7 +16,6 @@ import { isHostPublic } from "./ssrf";
  * which the request screen compensates for.
  */
 
-const UA = "VizzyblKnowledgeBot/1.0 (+https://yougrow.ai)";
 // Asset types that never contribute text — block them (SSRF surface + load speed).
 const BLOCKED_TYPES = new Set(["image", "media", "font", "stylesheet"]);
 const NAV_TIMEOUT_MS = 20_000;
@@ -51,7 +51,7 @@ export async function renderPage(url: string): Promise<string | null> {
   let context;
   try {
     const browser = await getBrowser();
-    context = await browser.newContext({ userAgent: UA, javaScriptEnabled: true });
+    context = await browser.newContext({ userAgent: scraperUserAgent(), javaScriptEnabled: true });
   } catch {
     return null; // browser failed to launch (e.g. missing chromium) — degrade to static
   }

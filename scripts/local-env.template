@@ -40,6 +40,8 @@ CANVAS_CONTEXT_SIGNING_KEY={{SECRET}}
 GEMINI_API_KEY=
 
 # No email provider is set, so emails are written to the log instead of sent.
+# The footer's Privacy Policy link for brands without their own (the demo brand has none).
+EMAIL_DEFAULT_PRIVACY_URL=https://acme.test/privacy
 
 # Other switches that are on in the hosted dev environment
 LIFECYCLE_MODE_CEILING=live

@@ -7,19 +7,27 @@ afterEach(() => {
 });
 
 describe("isAllowedAdmin", () => {
-  it("allows the default Workspace domain (yougrow.ai)", () => {
-    expect(isAllowedAdmin("founder@yougrow.ai")).toBe(true);
-    expect(isAllowedAdmin("Founder@YouGrow.ai", "yougrow.ai")).toBe(true);
+  it("allows nobody when neither list is set (no built-in domain)", () => {
+    expect(isAllowedAdmin("founder@example.com")).toBe(false);
+    expect(isAllowedAdmin("founder@example.com", "example.com")).toBe(false);
+  });
+
+  it("allows a configured Workspace domain, case-insensitively", () => {
+    process.env.ADMIN_ALLOWED_DOMAINS = "example.com";
+    expect(isAllowedAdmin("founder@example.com")).toBe(true);
+    expect(isAllowedAdmin("Founder@Example.com", "example.com")).toBe(true);
   });
 
   it("rejects other domains", () => {
+    process.env.ADMIN_ALLOWED_DOMAINS = "example.com";
     expect(isAllowedAdmin("someone@gmail.com")).toBe(false);
     expect(isAllowedAdmin("x@evil.com", "evil.com")).toBe(false);
   });
 
   it("treats the verified hosted-domain (hd) as authoritative over the email", () => {
+    process.env.ADMIN_ALLOWED_DOMAINS = "example.com";
     // hd claims a disallowed domain → rejected even if the email looks allowed.
-    expect(isAllowedAdmin("x@yougrow.ai", "evil.com")).toBe(false);
+    expect(isAllowedAdmin("x@example.com", "evil.com")).toBe(false);
   });
 
   it("honors an explicit email allowlist for external accounts", () => {
@@ -29,9 +37,9 @@ describe("isAllowedAdmin", () => {
   });
 
   it("respects a custom allowed-domains list", () => {
-    process.env.ADMIN_ALLOWED_DOMAINS = "acme.com, vizzybl.ai";
-    expect(isAllowedAdmin("a@vizzybl.ai")).toBe(true);
-    expect(isAllowedAdmin("a@yougrow.ai")).toBe(false);
+    process.env.ADMIN_ALLOWED_DOMAINS = "acme.com, example.org";
+    expect(isAllowedAdmin("a@example.org")).toBe(true);
+    expect(isAllowedAdmin("a@example.com")).toBe(false);
   });
 
   it("rejects a missing email", () => {

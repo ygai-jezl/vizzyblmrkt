@@ -1,12 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { User } from "firebase/auth";
 import {
+  mintSession,
   msSinceSessionMint,
   safeNextPath,
   shouldInterceptApi,
   stampSessionMinted,
 } from "./clientSession";
 
-const ORIGIN = "https://yougrow.ai";
+const ORIGIN = "https://app.example.com";
 
 describe("shouldInterceptApi", () => {
   it("intercepts same-origin admin API calls (relative and absolute)", () => {
@@ -52,5 +54,27 @@ describe("mint stamp without a browser environment", () => {
   it("degrades to unknown age instead of throwing (node has no window)", () => {
     expect(() => stampSessionMinted()).not.toThrow();
     expect(msSinceSessionMint()).toBeNull();
+  });
+});
+
+describe("mintSession", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const user = { getIdToken: async () => "id-token" } as unknown as User;
+  const respond = (status: number, body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status })));
+
+  it("tells a refused account apart from a workspace that isn't set up yet", async () => {
+    respond(403, { error: "access_denied" });
+    await expect(mintSession(user)).resolves.toBe("forbidden");
+    respond(403, { error: "workspace_not_set_up", message: "..." });
+    await expect(mintSession(user)).resolves.toBe("not_set_up");
+  });
+
+  it("reports anything else as an error, and ok on success", async () => {
+    respond(401, { error: "invalid_id_token" });
+    await expect(mintSession(user)).resolves.toBe("error");
+    respond(200, { ok: true });
+    await expect(mintSession(user)).resolves.toBe("ok");
   });
 });

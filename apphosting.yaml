@@ -54,10 +54,10 @@ env:
       - RUNTIME
 
   # Admin access allowlist (AUTHORIZATION; not secret). Server-side only.
-  # Same value as the code default in src/lib/auth/allowlist.ts — made explicit
-  # here so the gate never depends on a silent fallback. AUTHENTICATION (verified
-  # Google sign-in) is enforced separately in code (ensureAdminAccess). Add
-  # ADMIN_ALLOWED_EMAILS here for individual external accounts if needed.
+  # The code has no default (src/lib/auth/allowlist.ts): with this unset nobody is
+  # an admin. AUTHENTICATION (verified Google sign-in) is enforced separately in
+  # code (ensureAdminAccess). Add ADMIN_ALLOWED_EMAILS here for individual
+  # external accounts if needed.
   - variable: ADMIN_ALLOWED_DOMAINS
     value: yougrow.ai
     availability:
@@ -69,6 +69,11 @@ env:
     value: yougrow.ai
     availability:
       - BUILD
+      - RUNTIME
+  # The tenant a first-time admin joins (the code's old built-in default; it now has none).
+  - variable: ADMIN_BOOTSTRAP_TENANT_ID
+    value: ten_vzb
+    availability:
       - RUNTIME
 
   # Firestore→BigQuery analytics pipeline (Phase 2, docs/SETUP.md §11). Dataset
@@ -160,6 +165,11 @@ env:
   # yougrow.ai is NOT verified — don't send from it until its DKIM is published.
   - variable: EMAIL_FROM
     value: Vizzybl (dev) <noreply@vizzybl.ai>
+    availability:
+      - RUNTIME
+  # Footer Privacy Policy link for tenants that haven't set one (the code's old built-in default).
+  - variable: EMAIL_DEFAULT_PRIVACY_URL
+    value: https://yougrow.ai/privacy
     availability:
       - RUNTIME
   # - variable: RESEND_API_KEY
@@ -1297,4 +1307,20 @@ env:
     value: "true"
     availability:
       - BUILD
+      - RUNTIME
+  # `/` is the YouGrow marketing homepage; off (the self-host default), a plain front page with a sign-in button.
+  - variable: SITE_HOME_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  # Canonical links, robots.txt and the homepage widget use the live site, on dev too (the code's old built-in fallback).
+  - variable: NEXT_PUBLIC_SITE_ORIGIN
+    value: https://yougrow.ai
+    availability:
+      - BUILD
+      - RUNTIME
+  # The waitlist campaign the homepage embeds (was hardcoded in the page).
+  - variable: SITE_WAITLIST_CAMPAIGN
+    value: agentic-growth-loop
+    availability:
       - RUNTIME

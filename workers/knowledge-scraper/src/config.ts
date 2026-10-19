@@ -109,3 +109,14 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): JobEnv {
     maxPages: Number.isFinite(maxPages) && maxPages > 0 ? Math.min(maxPages, 100) : 20,
   };
 }
+
+/** The User-Agent the crawler sends when SCRAPER_USER_AGENT is unset. Names the product, not a deployment. */
+export const DEFAULT_USER_AGENT = "YouGrowBot/1.0";
+
+/**
+ * The User-Agent on every page the web crawler fetches or renders. A deployment sets
+ * SCRAPER_USER_AGENT to name itself, e.g. "YouGrowBot/1.0 (+https://example.com/bot)".
+ */
+export function scraperUserAgent(env: NodeJS.ProcessEnv = process.env): string {
+  return env.SCRAPER_USER_AGENT?.trim() || DEFAULT_USER_AGENT;
+}

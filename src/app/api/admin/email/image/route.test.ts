@@ -9,7 +9,9 @@ const tenantMod = vi.hoisted(() => ({
   getTenantById: vi.fn(),
 }));
 vi.mock("@/lib/tenant", () => tenantMod);
-const agents = vi.hoisted(() => ({ generateHeroImage: vi.fn(async () => ({ imageUrl: "https://x/i.png", source: "agent3" })) }));
+const agents = vi.hoisted(() => ({
+  generateHeroImage: vi.fn(async (_input: Record<string, unknown>) => ({ imageUrl: "https://x/i.png", source: "agent3" })),
+}));
 vi.mock("@/lib/agents", () => agents);
 vi.mock("@/lib/content/create/activeBrandVoice", () => ({ activeBrandVoiceText: vi.fn(async () => null) }));
 
@@ -20,7 +22,7 @@ const req = (body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-const last = () => agents.generateHeroImage.mock.calls.at(-1)![0] as Record<string, unknown>;
+const last = () => agents.generateHeroImage.mock.calls.at(-1)![0];
 
 beforeEach(() => {
   vi.clearAllMocks();

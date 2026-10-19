@@ -9,7 +9,9 @@ import {
   listBrandExemplars,
   listBrandNegatives,
 } from "@/lib/admin/brandKit";
-import { setTenantLearnedImageStyle } from "@/lib/tenant/control";
+import { setTenantLearnedImageStyle, setTenantStyleLearned } from "@/lib/tenant/control";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import type { ImageStyleId } from "@/lib/types/imageStyle";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import { isBrandStyleLoopEnabled } from "./brandStyleLoop";
@@ -105,43 +107,82 @@ export async function refreshLearnedImageStyle(ctx: TenantContext): Promise<void
       listBrandExemplars(ctx, { limit: MAX_EXEMPLARS_FOR_SYNTHESIS }),
       listBrandNegatives(ctx, { limit: MAX_NEGATIVES_FOR_SYNTHESIS }),
     ]);
-    const rated = exemplars
-      .map((a) => ({ line: profileLine(a), rating: a.brandRating ?? 5 }))
-      .filter((x): x is { line: string; rating: number } => Boolean(x.line));
-
-    if (rated.length === 0) {
-      // Clear the directive ONLY when there are genuinely no positive exemplars left (the
-      // last 👍 was removed). If exemplars exist but none are profiled yet (extraction
-      // pending/failed, or the profiled ones fell outside the top-N window), keep the
-      // current directive rather than wiping a good one.
-      if (exemplars.length === 0) await persistLearnedStyle(ctx, null, 0);
-      return;
-    }
-
-    const exemplarBlock = rated
-      .sort((a, b) => b.rating - a.rating)
-      .map((x) => `[${x.rating}/10] ${x.line}`)
-      .join("\n");
-    const negativeBlock =
-      negatives
-        .map((a) => profileLine(a))
-        .filter(Boolean)
-        .join("\n") || "(none)";
-
-    const directive = await generateText(
-      renderPrompt("content.style_profile_synthesize", {
-        exemplars: exemplarBlock,
-        negatives: negativeBlock,
-      }),
-    );
-    // Deterministic fallback: if the model is unavailable, use the top-rated exemplar's
-    // line + a merged palette so the loop still improves generation.
-    const fallback = deterministicDirective(rated, exemplars);
-    const finalDirective = (directive?.trim() || fallback).slice(0, 2000);
-    await persistLearnedStyle(ctx, finalDirective, rated.length);
+    const next = await synthesizeDirective(exemplars, negatives);
+    if (next === "keep") return;
+    await persistLearnedStyle(ctx, next.directive, next.sampleCount);
   } catch (err) {
     console.warn("[brandStyleLoop] refreshLearnedImageStyle failed:", err);
   }
+}
+
+/** How far down the newest votes a per-style refresh reads before filtering to one style. */
+const MAX_POOL_FOR_STYLE = 100;
+const MAX_NEGATIVE_POOL_FOR_STYLE = 50;
+
+/**
+ * Learning per style (BRAND_IMAGE_STYLE_ENABLED): re-learn one style's directive from the
+ * thumbs on images made in that style only (old presets count towards the style they map
+ * to), and store it under that style. Reads a wider pool and filters in memory, so no new
+ * index. Fail-soft; no-op when the loop is off.
+ */
+export async function refreshLearnedStyleBucket(ctx: TenantContext, styleId: ImageStyleId): Promise<void> {
+  if (!isBrandStyleLoopEnabled()) return;
+  try {
+    const [pool, negativePool] = await Promise.all([
+      listBrandExemplars(ctx, { limit: MAX_POOL_FOR_STYLE }),
+      listBrandNegatives(ctx, { limit: MAX_NEGATIVE_POOL_FOR_STYLE }),
+    ]);
+    const inStyle = (a: ImageAsset) => canonicalStyleId(a.style) === styleId;
+    const exemplars = pool.filter(inStyle).slice(0, MAX_EXEMPLARS_FOR_SYNTHESIS);
+    const negatives = negativePool.filter(inStyle).slice(0, MAX_NEGATIVES_FOR_SYNTHESIS);
+    const next = await synthesizeDirective(exemplars, negatives);
+    if (next === "keep") return;
+    await setTenantStyleLearned(ctx.tenantId, styleId, next);
+  } catch (err) {
+    console.warn("[brandStyleLoop] refreshLearnedStyleBucket failed:", err);
+  }
+}
+
+/**
+ * One art-director directive from rated exemplars (weighted by rating) and negatives.
+ * "keep" = exemplars exist but none is profiled yet: leave the current directive alone.
+ */
+async function synthesizeDirective(
+  exemplars: ImageAsset[],
+  negatives: ImageAsset[],
+): Promise<{ directive: string | null; sampleCount: number } | "keep"> {
+  const rated = exemplars
+    .map((a) => ({ line: profileLine(a), rating: a.brandRating ?? 5 }))
+    .filter((x): x is { line: string; rating: number } => Boolean(x.line));
+
+  if (rated.length === 0) {
+    // Clear the directive ONLY when there are genuinely no positive exemplars left (the
+    // last 👍 was removed). If exemplars exist but none are profiled yet (extraction
+    // pending/failed, or the profiled ones fell outside the top-N window), keep the
+    // current directive rather than wiping a good one.
+    return exemplars.length === 0 ? { directive: null, sampleCount: 0 } : "keep";
+  }
+
+  const exemplarBlock = rated
+    .sort((a, b) => b.rating - a.rating)
+    .map((x) => `[${x.rating}/10] ${x.line}`)
+    .join("\n");
+  const negativeBlock =
+    negatives
+      .map((a) => profileLine(a))
+      .filter(Boolean)
+      .join("\n") || "(none)";
+
+  const directive = await generateText(
+    renderPrompt("content.style_profile_synthesize", {
+      exemplars: exemplarBlock,
+      negatives: negativeBlock,
+    }),
+  );
+  // Deterministic fallback: if the model is unavailable, use the top-rated exemplar's
+  // line + a merged palette so the loop still improves generation.
+  const fallback = deterministicDirective(rated, exemplars);
+  return { directive: (directive?.trim() || fallback).slice(0, 2000), sampleCount: rated.length };
 }
 
 function deterministicDirective(

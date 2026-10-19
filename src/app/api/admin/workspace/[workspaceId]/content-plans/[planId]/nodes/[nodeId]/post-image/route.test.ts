@@ -15,7 +15,7 @@ const content = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/tenant/workspaceContent", () => content);
 const creative = vi.hoisted(() => ({
-  generateSocialPostImage: vi.fn(async () => ({ imageAssetRef: "img.png", imagePrompt: "p", source: "agent3" })),
+  generateSocialPostImage: vi.fn(async (_input: Record<string, unknown>) => ({ imageAssetRef: "img.png", imagePrompt: "p", source: "agent3" })),
 }));
 vi.mock("@/lib/agents/creative", () => creative);
 
@@ -30,7 +30,7 @@ const req = (body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-const lastCall = () => creative.generateSocialPostImage.mock.calls.at(-1)![0] as Record<string, unknown>;
+const lastCall = () => creative.generateSocialPostImage.mock.calls.at(-1)![0];
 const lastPatch = () => content.updateContentPlanNode.mock.calls.at(-1)![4] as Record<string, unknown>;
 
 beforeEach(() => {
@@ -81,6 +81,26 @@ describe("POST post-image", () => {
     tenantMod.getTenantById.mockResolvedValue({});
     await POST(req({ brief: "A desk", aspect: "1:1", styleId: "brand" }), params);
     expect(lastCall()).toMatchObject({ style: "cinematic", direction: null });
+  });
+
+  it("learning per style: the style's own learned look, and references from that style only", async () => {
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    tenantMod.getTenantById.mockResolvedValue({
+      brandKit: { learnedImageStyle: "Global look." },
+      imageStyle: {
+        defaultStyleId: "soft_3d",
+        learned: { soft_3d: { directive: "Pastel ground, one object.", sampleCount: 3, updatedAt: "t" } },
+      },
+    });
+    await POST(req({ brief: "A desk", aspect: "1:1", styleId: "brand" }), params);
+    expect(lastCall()).toMatchObject({ style: "soft_3d", learningStyleId: "soft_3d" });
+    expect(lastCall().brandContext).toContain("Pastel ground, one object.");
+    expect(lastCall().brandContext).not.toContain("Global look.");
+    // Off: the brand's one learned look, and no style filter on references.
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "");
+    await POST(req({ brief: "A desk", aspect: "1:1", style: "retro" }), params);
+    expect(lastCall()).not.toHaveProperty("learningStyleId");
+    expect(lastCall().brandContext).toContain("Global look.");
   });
 
   it("refuses a style id that's too long", async () => {

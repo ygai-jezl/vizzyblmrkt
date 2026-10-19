@@ -13,6 +13,8 @@ import {
   SOCIAL_IMAGE_STYLE_IDS,
 } from "@/lib/content/create/socialImage";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
@@ -85,6 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     tenant,
     override: isBrandImageStyleOn() ? (parsed.data.styleId ?? parsed.data.style ?? null) : (parsed.data.style ?? null),
   });
+  const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
   const result = await generateSocialPostImage({
     tenantId: ctx.tenantId,
     workspaceId,
@@ -93,6 +96,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     aspect: parsed.data.aspect,
     style: choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE,
     direction: choice.model.direction,
+    ...(choice.enabled ? { learningStyleId: learnBucket } : {}),
     copyExcerpt: htmlToText(node.body || ""),
     // Register the generated image in the Brand Kit library (best-effort).
     region: ctx.region,
@@ -110,7 +114,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       typography: tenant?.brandTypography ?? null,
       // Suppress the learned text directive too when the override is off (explicit null);
       // otherwise fall back to the kit's learned style (automatic apply).
-      learnedImageStyle: useBrandStyle ? undefined : null,
+      // Learning per style (image style on): what was learned for this image's style.
+      learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
     }),
   });
 

@@ -9,6 +9,8 @@ import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/creat
 import { applyGeneratedImage, draftHasImageRef } from "@/lib/content/create/ebookOps";
 import { DEFAULT_EBOOK_IMAGE_STYLE, EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
@@ -111,6 +113,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     tenant,
     override: isBrandImageStyleEnabled() ? (parsed.data.styleId ?? style ?? null) : (style ?? null),
   });
+  const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
   const result = await generateEbookSlotImage({
     tenantId: ctx.tenantId,
     workspaceId,
@@ -118,6 +121,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     aspect: effectiveAspect,
     style: choice.model.styleId ?? DEFAULT_EBOOK_IMAGE_STYLE,
     direction: choice.model.direction,
+    ...(choice.enabled ? { learningStyleId: learnBucket } : {}),
     copyExcerpt,
     priorImageRef: mode === "edit" ? priorImageRef : null,
     // Register the generated image in the Brand Kit library (best-effort).
@@ -136,7 +140,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
       typography: tenant?.brandTypography ?? null,
-      learnedImageStyle: useBrandStyle ? undefined : null,
+      // Learning per style (image style on): what was learned for this image's style.
+      learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
     }),
   });
 

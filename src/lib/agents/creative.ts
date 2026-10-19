@@ -222,6 +222,8 @@ export interface GenerateSocialImageInput {
   style: string;
   /** A style's art direction (BRAND_IMAGE_STYLE_ENABLED); absent = the preset named by `style`. */
   direction?: ArtDirection | null;
+  /** Learning per style: reference images only from this style (null = any; absent = as before). */
+  learningStyleId?: string | null;
   /** Pre-assembled on-brand context (see brandContext.ts). */
   brandContext: string;
   knowledgeContext?: string;
@@ -291,6 +293,7 @@ export async function generateSocialPostImage(
           ctx: tenantCtx(input.tenantId, input.region),
           kind: "social",
           channel: input.channel,
+          ...(input.learningStyleId !== undefined ? { styleId: input.learningStyleId } : {}),
         })
       : [];
   // Brand-asset refs (Brand Kit → Icons/Graphics): the brand's OWN visual assets, attached
@@ -362,6 +365,8 @@ export interface GenerateEbookImageInput {
   style: string;
   /** A style's art direction (BRAND_IMAGE_STYLE_ENABLED); absent = the preset named by `style`. */
   direction?: ArtDirection | null;
+  /** Learning per style: reference images only from this style (null = any; absent = as before). */
+  learningStyleId?: string | null;
   /** Pre-assembled on-brand context (see brandContext.ts). */
   brandContext: string;
   knowledgeContext?: string;
@@ -461,6 +466,7 @@ export async function generateEbookSlotImage(
       ? await retrieveExemplarImages({
           ctx: tenantCtx(input.tenantId, input.region),
           kind: "ebook",
+          ...(input.learningStyleId !== undefined ? { styleId: input.learningStyleId } : {}),
         })
       : [];
   // Brand-asset refs (Brand Kit → Icons/Graphics), on CREATE only — never on an edit (the prior

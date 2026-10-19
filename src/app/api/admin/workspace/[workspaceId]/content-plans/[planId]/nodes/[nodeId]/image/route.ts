@@ -13,6 +13,8 @@ import { findCopyBlockIndex } from "@/lib/types/emailLayout";
 import { platformOrigin } from "@/lib/platform/origin";
 import { originFromHeaders } from "@/lib/http/origin";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +80,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       brandKit: tenant?.brandKit ?? null,
       typography: tenant?.brandTypography ?? null,
       layout: node.layout ?? null,
+      // Learning per style (image style on): what was learned for this image's style.
+      learnedImageStyle: choice.enabled
+        ? learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(choice.model.styleId))
+        : undefined,
     }),
     baseUrl: platformOrigin() || originFromHeaders(req.headers),
   });

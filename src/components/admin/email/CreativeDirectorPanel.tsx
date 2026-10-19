@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 
 /**
  * Agent 3 — Creative Director side-panel docked beside the email preview. Lets
@@ -25,12 +27,18 @@ export function CreativeDirectorPanel({
   performanceHint,
   onApplyVariant,
   onApplyImage,
+  heroStyleId = null,
 }: {
   campaignId: string;
   performanceHint?: string;
   onApplyVariant: (v: CopyVariant) => void;
-  onApplyImage: (url: string) => void;
+  /** With the image style on, the style the hero was made in comes along (null = the brand's). */
+  onApplyImage: (url: string, styleId?: string | null) => void;
+  /** The hero's own style, saved with the email (BRAND_IMAGE_STYLE_ENABLED); null = the brand's. */
+  heroStyleId?: string | null;
 }) {
+  const styleUi = isBrandImageStyleUiEnabled();
+  const [styleId, setStyleId] = useState<string | null>(heroStyleId);
   const [brief, setBrief] = useState("");
   const [variants, setVariants] = useState<CopyVariant[]>([]);
   const [source, setSource] = useState<"agent3" | "fallback" | null>(null);
@@ -77,11 +85,12 @@ export function CreativeDirectorPanel({
       const res = await fetch("/api/admin/email/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, brief }),
+        body: JSON.stringify({ campaignId, brief, ...(styleUi ? { styleId: styleId ?? "brand" } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.imageUrl) {
-        onApplyImage(data.imageUrl as string);
+        if (styleUi) onApplyImage(data.imageUrl as string, styleId);
+        else onApplyImage(data.imageUrl as string);
         setNote("Hero image added.");
       } else {
         setNote(IMAGE_ERRORS[data.reason as string] ?? IMAGE_ERROR_DEFAULT);
@@ -109,6 +118,20 @@ export function CreativeDirectorPanel({
           className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         />
       </label>
+
+      {styleUi ? (
+        <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Hero image style
+          <ImageStylePicker
+            surface="launchEmail"
+            value={styleId}
+            onChange={setStyleId}
+            disabled={loadingImage}
+            className="mt-1"
+            selectClassName="w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm font-normal dark:border-neutral-700 dark:bg-neutral-900"
+          />
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <button

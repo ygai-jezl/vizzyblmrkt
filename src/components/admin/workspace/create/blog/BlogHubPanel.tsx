@@ -4,6 +4,7 @@ import { BlogArticleMetaSchema, type BlogArticleMeta, type ContentNode } from "@
 import { BlogAddress } from "./BlogAddress";
 import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
+import { BlogHeroCard } from "./BlogHeroCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
 
@@ -92,6 +93,8 @@ export function BlogHubReview({
 
       <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
 
+      {controls.hero ? <BlogHeroCard node={node} controls={controls.hero} disabled={disabled} /> : null}
+
       {/* A rewrite or a fact check hands back new meta, so the fields wait while one runs
           rather than take an edit that would be overwritten. */}
       <fieldset disabled={disabled || controls.busy === "check"} aria-label="Export" className="min-w-0">
@@ -104,6 +107,7 @@ export function BlogHubReview({
           brandName={controls.brandName}
           logoUrl={controls.logoUrl}
           map={controls.map ?? null}
+          hero={controls.hero ? { assetUrl: controls.hero.assetUrl } : null}
         />
       </fieldset>
     </div>

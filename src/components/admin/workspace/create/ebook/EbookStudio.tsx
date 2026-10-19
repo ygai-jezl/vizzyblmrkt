@@ -327,6 +327,16 @@ export function EbookStudio({
         ),
       })),
   };
+  // The image's own style, saved with it (BRAND_IMAGE_STYLE_ENABLED), so the composer opens on it.
+  const composerStyleId = (() => {
+    const t = composer?.target;
+    if (!t || !ebook) return null;
+    if (t.kind === "cover") return ebook.coverImage?.imageStyleId ?? null;
+    if (t.kind === "slot") {
+      return ebook.chapters.find((c) => c.id === t.chapterId)?.images.find((s) => s.id === t.slotId)?.imageStyleId ?? null;
+    }
+    return null;
+  })();
   const composerHasImage = (() => {
     const t = composer?.target;
     if (!t || !ebook) return false;
@@ -418,6 +428,7 @@ export function EbookStudio({
             seedMode={composer.mode}
             seedAspect={composer.aspect}
             hasImage={composerHasImage}
+            seedStyleId={composerStyleId}
             chapters={(ebook?.chapters ?? []).map((c) => ({ id: c.id, title: c.title }))}
             onEbook={applyServerEbook}
             onClose={() => setComposer(null)}

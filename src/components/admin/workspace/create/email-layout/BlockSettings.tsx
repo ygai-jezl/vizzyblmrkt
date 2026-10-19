@@ -7,6 +7,8 @@ import { DEFAULT_IMAGE_MODEL_SLUG, type ImageModelSlug } from "@/lib/content/cre
 import { layoutButtonLook } from "@/lib/email/emailRender";
 import { accentFor, type ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 import {
   buttonColourSource,
   buttonPickerPatch,
@@ -127,13 +129,18 @@ function ColourSourcePicker({
 function ImageGenControls({
   onGenerate,
   onApply,
+  initialStyleId = null,
 }: {
-  onGenerate: (brief: string, model: ImageModelSlug) => Promise<string | null>;
-  onApply: (url: string) => void;
+  onGenerate: (brief: string, model: ImageModelSlug, styleId?: string | null) => Promise<string | null>;
+  onApply: (url: string, styleId: string | null) => void;
+  /** The block's own style, saved with it (BRAND_IMAGE_STYLE_ENABLED); null = the brand's. */
+  initialStyleId?: string | null;
 }) {
   const [brief, setBrief] = useState("");
   // Per-generation image model (defaults to this surface's current model — lite).
   const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.email);
+  const styleUi = isBrandImageStyleUiEnabled();
+  const [styleId, setStyleId] = useState<string | null>(initialStyleId);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   return (
@@ -146,6 +153,19 @@ function ImageGenControls({
         placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
         className={`${FIELD} text-xs`}
       />
+      {styleUi ? (
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          Style
+          <ImageStylePicker
+            surface="email"
+            value={styleId}
+            onChange={setStyleId}
+            disabled={busy}
+            className="mt-1"
+            selectClassName={`${FIELD} text-xs`}
+          />
+        </div>
+      ) : null}
       <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
         Model
         <ImageModelSelect value={model} onChange={setModel} className={`${FIELD} text-xs`} />
@@ -157,8 +177,8 @@ function ImageGenControls({
           setBusy(true);
           setErr(null);
           try {
-            const url = await onGenerate(brief.trim(), model);
-            if (url) onApply(url);
+            const url = await onGenerate(brief.trim(), model, styleUi ? styleId : undefined);
+            if (url) onApply(url, styleId);
             else setErr("Couldn't generate — try again.");
           } finally {
             setBusy(false);
@@ -183,7 +203,7 @@ export function BlockSettings({
   /** The tenant's resolved Email style; with its `layouts` bit, buttons get the Colour switch. */
   emailStyle?: ResolvedEmailStyle | null;
   onChange: (patch: Partial<EmailBlock>) => void;
-  onGenerateImage?: (brief: string, model: ImageModelSlug) => Promise<string | null>;
+  onGenerateImage?: (brief: string, model: ImageModelSlug, styleId?: string | null) => Promise<string | null>;
 }) {
   if (!block) {
     return <p className="p-3 text-xs text-neutral-500">Select a block to edit its settings.</p>;
@@ -245,7 +265,14 @@ export function BlockSettings({
       {block.kind === "image" ? (
         <>
           {onGenerateImage ? (
-            <ImageGenControls key={block.id} onGenerate={onGenerateImage} onApply={(url) => onChange({ src: url })} />
+            <ImageGenControls
+              key={block.id}
+              onGenerate={onGenerateImage}
+              initialStyleId={block.imageStyleId ?? null}
+              onApply={(url, styleId) =>
+                onChange(isBrandImageStyleUiEnabled() ? { src: url, imageStyleId: styleId } : { src: url })
+              }
+            />
           ) : null}
           <label className={LABEL}>
             Image URL

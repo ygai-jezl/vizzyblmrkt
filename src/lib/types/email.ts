@@ -25,6 +25,8 @@ export const EmailContentSchema = z.object({
   subject: z.string(),
   body: z.string(),
   heroImageUrl: z.string().nullable().optional(),
+  /** The hero's own style, picked when it was made (BRAND_IMAGE_STYLE_ENABLED); absent = the brand's. */
+  heroImageStyleId: z.string().max(40).nullable().optional(),
   agentMeta: AgentMetaSchema.optional(),
 });
 export type EmailContent = z.infer<typeof EmailContentSchema>;

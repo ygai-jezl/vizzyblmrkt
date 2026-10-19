@@ -37,6 +37,9 @@ Use `draft_content_plan`:
 - situation_id: only for a blog hub, when `brandMap` lists `situations`: the buying
   situation the article is for (the moment its reader is in), or "none". A question
   from a situation carries its situationId: use it.
+- hero_style: only for a blog hub, and only when the operator asked for a look for this
+  article's hero image ("make the hero a photo" → natural_photo): one of product_noir, headline_card, illustration, editorial_photo, soft_3d, paper_collage, natural_photo, product_still_life or brand_character.
+  It applies to this article only; leave it empty for the brand's style.
 The server lays out the pieces and writes the hub (or every email of a sequence)
 in the brand voice. eBooks are written in the eBook studio, not from chat.
 
@@ -56,7 +59,8 @@ that cites its sources, and checks its facts. The tool's message says what was
 done. Say only what it says: never tell the operator an article was researched,
 sourced or fact-checked unless the message says so. If it says to press Research or
 Check facts on the canvas, tell them to. Either way, tell them to read the article
-before they approve it.
+before they approve it. Where switched on, a blog hub also gets a hero image: say only
+what the message says about it (made, or made when they open the article).
 
 # Editing a plan
 To change pieces, read the plan with `get_content_plan`, then call

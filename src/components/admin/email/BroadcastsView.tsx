@@ -88,6 +88,7 @@ export function BroadcastsView({
       subject: b.subject,
       body: b.body,
       heroImageUrl: b.heroImageUrl ?? null,
+      heroImageStyleId: b.heroImageStyleId ?? null,
       agentMeta: b.agentMeta,
     });
     setError(null);
@@ -106,6 +107,7 @@ export function BroadcastsView({
       subject: value.subject,
       body: value.body,
       heroImageUrl: value.heroImageUrl ?? null,
+      ...(value.heroImageStyleId !== undefined ? { heroImageStyleId: value.heroImageStyleId } : {}),
       agentMeta: value.agentMeta,
     };
     const url = editingId

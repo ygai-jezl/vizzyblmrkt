@@ -104,14 +104,19 @@ export function EmailLayoutEditor({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function generateImageUrl(brief: string, model: ImageModelSlug): Promise<string | null> {
+  async function generateImageUrl(brief: string, model: ImageModelSlug, styleId?: string | null): Promise<string | null> {
     const res = await fetch(
       `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/image`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Send `model` only when changed from this surface's default (see imageModelOverride).
-        body: JSON.stringify({ brief, model: imageModelOverride(model, "email") }),
+        // `styleId` only with the image style on (the block's own pick, or "brand").
+        body: JSON.stringify({
+          brief,
+          model: imageModelOverride(model, "email"),
+          ...(styleId !== undefined ? { styleId: styleId ?? "brand" } : {}),
+        }),
       },
     );
     const data = (await res.json().catch(() => ({}))) as { imageUrl?: string };

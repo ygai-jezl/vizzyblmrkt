@@ -93,6 +93,34 @@ export async function storeBrandFont(tenantId: string, bytes: Buffer): Promise<S
   }
 }
 
+/**
+ * Store the TTF copy of a WOFF2 upload, beside it as `<same uuid>.ttf`, for the image renderer.
+ * Only ever called with bytes we unpacked ourselves.
+ */
+export async function storeDerivedBrandFont(
+  tenantId: string,
+  sourceFilename: string,
+  ttf: Buffer,
+): Promise<string | null> {
+  if (!FONT_FILENAME.test(sourceFilename) || ttf.length > 4 * MAX_FONT_BYTES) return null;
+  const mime = sniffFontMime(ttf);
+  if (mime !== "font/ttf" && mime !== "font/otf") return null;
+  const bucketName = process.env.EMAIL_ASSET_BUCKET;
+  if (!bucketName) return null;
+  const filename = `${sourceFilename.replace(/\.[^.]+$/, "")}.${EXT_BY_MIME[mime]}`;
+  try {
+    await getStorage(adminApp()).bucket(bucketName).file(keyFor(tenantId, filename)).save(ttf, {
+      contentType: mime,
+      resumable: false,
+      metadata: { cacheControl: "public, max-age=31536000, immutable" },
+    });
+    return filename;
+  } catch (err) {
+    console.warn("[brandFont] derived copy failed:", err);
+    return null;
+  }
+}
+
 export interface BrandFontBytes {
   bytes: Buffer;
   contentType: string;
@@ -124,5 +152,38 @@ export async function deleteBrandFontBytes(tenantId: string, filename: string): 
     await getStorage(adminApp()).bucket(bucketName).file(keyFor(tenantId, filename)).delete();
   } catch {
     /* best-effort */
+  }
+}
+
+/**
+ * Free fonts fetched for the image renderer (Google Fonts TTFs) are cached in the bucket under
+ * `font-cache/google/`, shared by every tenant (they're public, open-licence files). Served by
+ * nothing; the key is built from a slug we make, never from input.
+ */
+export const FONT_CACHE_KEY = /^[a-z0-9-]{1,80}-[1-9]00\.ttf$/;
+
+export async function readCachedFont(key: string): Promise<Buffer | null> {
+  if (!FONT_CACHE_KEY.test(key)) return null;
+  const bucketName = process.env.EMAIL_ASSET_BUCKET;
+  if (!bucketName) return null;
+  try {
+    const [bytes] = await getStorage(adminApp()).bucket(bucketName).file(`font-cache/google/${key}`).download();
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeCachedFont(key: string, bytes: Buffer): Promise<void> {
+  if (!FONT_CACHE_KEY.test(key)) return;
+  const bucketName = process.env.EMAIL_ASSET_BUCKET;
+  if (!bucketName) return;
+  try {
+    await getStorage(adminApp()).bucket(bucketName).file(`font-cache/google/${key}`).save(bytes, {
+      contentType: "font/ttf",
+      resumable: false,
+    });
+  } catch (err) {
+    console.warn("[brandFont] cache write failed:", err);
   }
 }

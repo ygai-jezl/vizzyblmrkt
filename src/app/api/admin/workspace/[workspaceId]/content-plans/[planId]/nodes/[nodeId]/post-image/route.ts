@@ -7,13 +7,23 @@ import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceCon
 import { generateSocialPostImage } from "@/lib/agents/creative";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import {
+  DEFAULT_SOCIAL_IMAGE_STYLE,
   isSocialImageEnabled,
   isSocialImageChannel,
   SOCIAL_IMAGE_STYLE_IDS,
 } from "@/lib/content/create/socialImage";
+import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { countBrandAssetsUpTo } from "@/lib/admin/brandAssets";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
+import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { htmlToText } from "@/lib/email/emailRender";
+import { renderStyleImage } from "@/lib/content/imageStyle/render/styleImage";
+import { headlineFrom, SOCIAL_RENDER_SIZE } from "@/lib/content/imageStyle/render/socialText";
+import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
+import { recordImageAsset } from "@/lib/admin/brandKit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,9 +31,17 @@ export const dynamic = "force-dynamic";
 type RouteParams = { params: Promise<{ workspaceId: string; planId: string; nodeId: string }> };
 
 const BodySchema = z.object({
-  brief: z.string().min(1).max(1000),
+  /** What to picture. Required, except for a template style, which draws words, not a scene. */
+  brief: z.string().max(1000).optional(),
   aspect: z.enum(["1:1", "4:5", "1.91:1"]),
-  style: z.enum(SOCIAL_IMAGE_STYLE_IDS),
+  /** An old preset (the pre-image-style menu). */
+  style: z.enum(SOCIAL_IMAGE_STYLE_IDS).optional(),
+  /** This image's own style (BRAND_IMAGE_STYLE_ENABLED): a style id, an old preset id, or "brand". */
+  styleId: z.string().min(1).max(40).optional(),
+  /** The words on the image (template styles, or type over art). Empty = the post's first line. */
+  headline: z.string().max(160).optional(),
+  /** Make a screenshot style without one (the person chose "Make it without a screenshot"). */
+  withoutScreenshot: z.boolean().optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
@@ -71,13 +89,106 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const tenant = await getTenantById(ctx.tenantId);
   const useBrandStyle = parsed.data.useBrandStyle !== false;
+  // The image's own pick, else the brand's style for this channel, else its default. With the
+  // image style off, only the old preset counts: exactly as before.
+  const choice = styleForImage({
+    surface: "social",
+    channel: node.channel,
+    tenant,
+    override: isBrandImageStyleOn() ? (parsed.data.styleId ?? parsed.data.style ?? null) : (parsed.data.style ?? null),
+  });
+  // A style built from product screens asks for them the first time, at the moment it's used,
+  // unless the person chose to make it without one. They're kept in Brand › Screenshots.
+  if (
+    choice.resolved.engine === "template" &&
+    choice.resolved.requires.includes("screenshots") &&
+    parsed.data.withoutScreenshot !== true
+  ) {
+    const count = await countBrandAssetsUpTo(ctx, "screenshot", 1).catch(() => null);
+    if (count === 0) {
+      return NextResponse.json(
+        {
+          error: "needs_screenshots",
+          message: `${choice.resolved.label} is built from screens of your product. Add one or two screenshots, or make it without one.`,
+        },
+        { status: 409 },
+      );
+    }
+  }
+  const brief = parsed.data.brief?.trim() ?? "";
+  // The words a template draws, or that go over the art: the person's, else the post's first line.
+  const words = (parsed.data.headline?.trim() || headlineFrom(htmlToText(node.body || "")) || brief).slice(0, 160);
+  const ownWords = parsed.data.headline?.trim() ? parsed.data.headline.trim() : null;
+
+  // A template style is drawn, not painted: exact words, the brand's fonts, logo and screens.
+  // If the render fails, the style's painted twin below still makes an image.
+  if (choice.enabled && choice.resolved.engine === "template" && words) {
+    const template = choice.resolved.id === "product_noir" ? "product_noir" : "headline_card";
+    const drawn = await renderStyleImage({
+      ctx,
+      tenant,
+      template,
+      size: SOCIAL_RENDER_SIZE[parsed.data.aspect],
+      headline: words,
+      showLogo: tenant?.imageStyle?.logoOnSocial !== false,
+    });
+    if (drawn) {
+      const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
+      if (stored.ok) {
+        await recordImageAsset(
+          { tenantId: ctx.tenantId, region: ctx.region },
+          {
+            workspaceId,
+            filename: stored.filename,
+            mimeType: "image/png",
+            kind: "social",
+            prompt: `${choice.resolved.label}: ${words}`.slice(0, 1000),
+            brief: (brief || words).slice(0, 1000),
+            aspect: parsed.data.aspect,
+            style: choice.resolved.id,
+            channel: node.channel,
+            source: { planId, nodeId },
+            parentAssetId: null,
+            byteSize: drawn.png.length,
+          },
+        ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+        const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+          imageAssetRef: stored.filename,
+          imageAspect: parsed.data.aspect,
+          imagePrompt: null,
+          imageStyleId: choice.ownPick,
+          imageHeadline: ownWords,
+        });
+        if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
+        return NextResponse.json({
+          imageAssetRef: updated.imageAssetRef,
+          imagePrompt: null,
+          imageStyleId: choice.ownPick,
+          styleId: choice.resolved.id,
+          ...(drawn.note ? { note: drawn.note } : {}),
+        });
+      }
+    }
+  }
+  if (!brief) return NextResponse.json({ error: "invalid_input", message: "Describe the image first." }, { status: 400 });
+
+  // A painted style: the brand's headline and logo go over the art when it asked for them.
+  const saved = choice.enabled && choice.resolved.engine === "model" ? tenant?.imageStyle : undefined;
+  const overlay =
+    saved && (saved.headlineOnSocial !== false || saved.logoOnSocial !== false)
+      ? { showHeadline: saved.headlineOnSocial !== false && !!words, showLogo: saved.logoOnSocial !== false }
+      : null;
+
+  const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
   const result = await generateSocialPostImage({
     tenantId: ctx.tenantId,
     workspaceId,
     channel: node.channel,
-    brief: parsed.data.brief,
+    brief,
     aspect: parsed.data.aspect,
-    style: parsed.data.style,
+    style: choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE,
+    direction: choice.model.direction,
+    ...(choice.enabled ? { learningStyleId: learnBucket } : {}),
     copyExcerpt: htmlToText(node.body || ""),
     // Register the generated image in the Brand Kit library (best-effort).
     region: ctx.region,
@@ -85,6 +196,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     nodeId,
     useBrandStyle,
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
+    ...(overlay
+      ? {
+          finish: async (art) => {
+            const drawn = await renderStyleImage({
+              ctx,
+              tenant,
+              template: "art_overlay",
+              size: SOCIAL_RENDER_SIZE[parsed.data.aspect],
+              headline: words,
+              art: art.bytes,
+              showHeadline: overlay.showHeadline,
+              showLogo: overlay.showLogo,
+            });
+            return drawn ? { bytes: drawn.png, mimeType: "image/png" } : art;
+          },
+        }
+      : {}),
     brandContext: assembleBrandContext({
       brandVoice: resolveBrandVoiceText({
         tenantBrandVoice: tenant?.brandVoice,
@@ -95,7 +223,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       typography: tenant?.brandTypography ?? null,
       // Suppress the learned text directive too when the override is off (explicit null);
       // otherwise fall back to the kit's learned style (automatic apply).
-      learnedImageStyle: useBrandStyle ? undefined : null,
+      // Learning per style (image style on): what was learned for this image's style.
+      learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
     }),
   });
 
@@ -113,9 +242,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     imageAssetRef: result.imageAssetRef,
     imageAspect: parsed.data.aspect,
     imagePrompt: result.imagePrompt ?? null,
+    // Saved with the post, so a regenerate keeps this image's own style (and words).
+    ...(choice.enabled ? { imageStyleId: choice.ownPick, imageHeadline: ownWords } : {}),
   });
   if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
-  return NextResponse.json({ imageAssetRef: updated.imageAssetRef, imagePrompt: updated.imagePrompt ?? null });
+  return NextResponse.json({
+    imageAssetRef: updated.imageAssetRef,
+    imagePrompt: updated.imagePrompt ?? null,
+    ...(choice.enabled ? { imageStyleId: choice.ownPick, styleId: choice.model.styleId } : {}),
+  });
 }
 
 /**

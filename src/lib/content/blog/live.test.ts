@@ -113,4 +113,19 @@ describe("is the article live?", () => {
     const letter = samplePlan({ topology: { hubChannel: "newsletter", spokeChannels: [] } });
     expect(await setArticleLive(ctx, { workspaceId: "ws1", plan: letter, nodeId: "hub", action: "mark" }, { db })).toMatchObject({ status: 409, error: "not_a_blog_plan" });
   });
+
+  it("with the blog hero on, the check also says whether the page has a share image", async () => {
+    const withImage = async () => ({ title: `${TITLE} | Acme`, ogImage: "https://acme.example/og.png" });
+    const without = async () => ({ title: `${TITLE} | Acme` });
+    expect(await checkLive("https://acme.example/blog/visibility", [TITLE], withImage)).not.toHaveProperty("shareImage");
+    expect(await checkLive("https://acme.example/blog/visibility", [TITLE], withImage, { shareImage: true })).toMatchObject({ shareImage: true });
+
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    vi.stubEnv("BLOG_HERO_ENABLED", "true");
+    const db = new FakeFirestore();
+    const plan = seed(db, samplePlan({}, sampleHub({ status: "approved" })));
+    const r = await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check" }, { db, now, fetchPage: without });
+    expect(r.ok && r.node.blog?.live).toMatchObject({ by: "check", shareImage: false });
+  });
 });

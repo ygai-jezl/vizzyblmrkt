@@ -35,6 +35,8 @@ export const BroadcastSchema = z.object({
   subject: z.string(),
   body: z.string(),
   heroImageUrl: z.string().nullable().optional(),
+  /** The hero's own style, picked when it was made (BRAND_IMAGE_STYLE_ENABLED); absent = the brand's. */
+  heroImageStyleId: z.string().max(40).nullable().optional(),
   status: BroadcastStatus,
   /** Set once the MailChimp campaign is created, for report lookups. */
   mailchimpCampaignId: z.string().nullable().optional(),

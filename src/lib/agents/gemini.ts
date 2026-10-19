@@ -477,6 +477,59 @@ export async function generateBlockImage(
 }
 
 /**
+ * One image within a deadline (the blog hero): Nano Banana at `aspectRatio` and, when given,
+ * `imageSize` ("2K"). Aborted when the deadline passes. A model that refuses the size is asked
+ * once more without it, inside the same deadline. Null on timeout, missing config, error or no
+ * image part.
+ */
+export async function generateImageWithDeadline(opts: {
+  prompt: string;
+  aspectRatio: string;
+  imageSize?: "1K" | "2K";
+  model: string;
+  timeoutMs: number;
+}): Promise<GeneratedImage | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  const signal = AbortSignal.timeout(opts.timeoutMs);
+  const once = async (withSize: boolean): Promise<GeneratedImage | null> => {
+    const res = await Promise.race([
+      ai.models.generateContent({
+        model: opts.model,
+        contents: opts.prompt,
+        config: {
+          abortSignal: signal,
+          responseModalities: [Modality.TEXT, Modality.IMAGE],
+          imageConfig: { aspectRatio: opts.aspectRatio, ...(withSize && opts.imageSize ? { imageSize: opts.imageSize } : {}) },
+        },
+      }),
+      new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+      }),
+    ]);
+    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
+      const data = part.inlineData?.data;
+      if (data) return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
+    }
+    return null;
+  };
+  try {
+    return await once(true);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (opts.imageSize && !signal.aborted && /image_?size|invalid/i.test(message)) {
+      try {
+        return await once(false);
+      } catch {
+        /* fall through */
+      }
+    }
+    console.warn(`[gemini] generateImageWithDeadline failed: ${message.slice(0, 200)}`);
+    return null;
+  }
+}
+
+/**
  * Generate OR iteratively edit an eBook image via the edit-capable EBOOK_IMAGE_MODEL
  * (gemini-3.1-flash-image; env GEMINI_EBOOK_IMAGE_MODEL). With no `inputImages` it renders a
  * fresh image from the prompt; with `inputImages` (the prior/uploaded image as inline base64)

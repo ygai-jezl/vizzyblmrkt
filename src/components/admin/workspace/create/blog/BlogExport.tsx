@@ -7,6 +7,8 @@ import { crawlerLabel } from "@/lib/content/blog/crawlers";
 import { renderArticleHtml } from "@/lib/content/blog/markdown";
 import { schemaScriptTag, suggestBlogSchema } from "@/lib/content/blog/schema";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
+import { isHttpsAddress, shareTags, withHeroHtml, withHeroMarkdown } from "@/lib/content/blog/shareTags";
+import { outlineArticle } from "@/lib/content/blog/outline";
 
 /**
  * The hand-over for a blog hub. We don't host the article, so the operator carries it to
@@ -29,7 +31,7 @@ const INPUT =
 const BUTTON =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
 
-type CopyKind = "markdown" | "html" | "schema";
+type CopyKind = "markdown" | "html" | "schema" | "tags";
 
 /** "7 Oct 2026" */
 function day(iso: string): string {
@@ -88,6 +90,7 @@ export function BlogExport({
   brandName,
   logoUrl,
   map = null,
+  hero = null,
 }: {
   markdown: string;
   meta: BlogArticleMeta | null | undefined;
@@ -100,6 +103,8 @@ export function BlogExport({
   logoUrl: string | null;
   /** The brand map the article is written from: its identifiers become sameAs. */
   map?: ArticleMap | null;
+  /** The hero image (BLOG_HERO_ENABLED): where its files are, to download them. */
+  hero?: { assetUrl: (ref: string) => string } | null;
 }) {
   const id = useId();
   const schema = useMemo(
@@ -120,6 +125,23 @@ export function BlogExport({
   const metaTitle = meta?.metaTitle ?? "";
   const metaDescription = meta?.metaDescription ?? "";
   const jsonLd = schema.jsonLd;
+  // The hero goes into what's copied only at its address on the client's own site.
+  const made = hero && meta?.hero?.heroRef && meta.hero.shareRef ? meta.hero : null;
+  const imageUrl = made ? (meta?.imageUrl ?? "") : "";
+  const shareUrl = made ? (meta?.shareImageUrl ?? "") : "";
+  const placed = Boolean(made && isHttpsAddress(imageUrl));
+  const image = { url: imageUrl, alt: made?.alt ?? "" };
+  const tags = made
+    ? shareTags({
+        imageUrl,
+        shareImageUrl: shareUrl,
+        alt: made.alt,
+        title: metaTitle || (outlineArticle(markdown).title ?? ""),
+        description: metaDescription,
+        pageUrl,
+      })
+    : null;
+  const fileBase = (meta?.slug || "article").replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "article";
 
   async function copy(kind: CopyKind, make: () => string) {
     let ok = true;
@@ -187,13 +209,63 @@ export function BlogExport({
             className={`${INPUT} font-mono`}
           />
         </div>
+        {made && hero ? (
+          <div className="space-y-2 border-t border-neutral-200 pt-2 dark:border-neutral-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={LABEL}>Hero image</span>
+              <a href={hero.assetUrl(made.heroRef!)} download={`${fileBase}-hero.png`} className={BUTTON}>
+                Download hero
+              </a>
+              <a href={hero.assetUrl(made.shareRef!)} download={`${fileBase}-share.png`} className={BUTTON}>
+                Download share card
+              </a>
+            </div>
+            <div>
+              <label htmlFor={`${id}-image`} className={LABEL}>
+                Image address on your site
+              </label>
+              <input
+                id={`${id}-image`}
+                value={imageUrl}
+                onChange={(e) => onMetaChange({ imageUrl: e.target.value.trim().slice(0, 2000) })}
+                placeholder="https://"
+                inputMode="url"
+                className={`${INPUT} font-mono`}
+              />
+            </div>
+            <div>
+              <label htmlFor={`${id}-share`} className={LABEL}>
+                Share card address <span className="font-normal text-neutral-400">(optional)</span>
+              </label>
+              <input
+                id={`${id}-share`}
+                value={shareUrl}
+                onChange={(e) => onMetaChange({ shareImageUrl: e.target.value.trim().slice(0, 2000) })}
+                placeholder="https://"
+                inputMode="url"
+                className={`${INPUT} font-mono`}
+              />
+            </div>
+            <p className="text-neutral-500 dark:text-neutral-400">
+              {placed
+                ? "The image is in the Markdown, HTML, schema and share tags."
+                : (imageUrl && !isHttpsAddress(imageUrl)) || (shareUrl && !isHttpsAddress(shareUrl))
+                  ? "Use the full https address of the image on your site."
+                  : "Put the image on your site and paste its address here. It goes into the Markdown, HTML, schema and share tags then. We never put our own links in your page."}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" onClick={() => void copy("markdown", () => markdown)} className={BUTTON}>
+        <button type="button" onClick={() => void copy("markdown", () => (placed ? withHeroMarkdown(markdown, image) : markdown))} className={BUTTON}>
           {copyLabel("markdown", "Copy Markdown")}
         </button>
-        <button type="button" onClick={() => void copy("html", () => renderArticleHtml(markdown))} className={BUTTON}>
+        <button
+          type="button"
+          onClick={() => void copy("html", () => (placed ? withHeroHtml(renderArticleHtml(markdown), image) : renderArticleHtml(markdown)))}
+          className={BUTTON}
+        >
           {copyLabel("html", "Copy HTML")}
         </button>
         <button
@@ -206,6 +278,18 @@ export function BlogExport({
         >
           {copyLabel("schema", "Copy schema")}
         </button>
+        {made ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (tags) void copy("tags", () => tags);
+            }}
+            disabled={!tags}
+            className={BUTTON}
+          >
+            {copyLabel("tags", "Copy share tags")}
+          </button>
+        ) : null}
         {/* A button changing its own words is not announced; this is. */}
         <span role="status" className="sr-only">
           {copied ? (copied.ok ? "Copied" : "Couldn't copy") : ""}

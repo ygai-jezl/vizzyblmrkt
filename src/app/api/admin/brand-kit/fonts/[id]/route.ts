@@ -54,5 +54,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
   await deleteBrandFont(ctx, id);
   await deleteBrandFontBytes(ctx.tenantId, font.filename);
+  // The TTF copy made for the image renderer goes with it.
+  if (font.derivedFilename) await deleteBrandFontBytes(ctx.tenantId, font.derivedFilename);
   return NextResponse.json({ ok: true });
 }

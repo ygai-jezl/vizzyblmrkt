@@ -7,7 +7,11 @@ import { mutateContentPlanEbookDraft } from "@/lib/tenant/workspaceContent";
 import { generateEbookSlotImage } from "@/lib/agents/creative";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { applyGeneratedImage, draftHasImageRef } from "@/lib/content/create/ebookOps";
-import { EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
+import { DEFAULT_EBOOK_IMAGE_STYLE, EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
+import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
@@ -30,7 +34,10 @@ const BodySchema = z.object({
   target: TargetSchema,
   brief: z.string().max(1000).default(""),
   aspect: EbookAspect,
-  style: z.enum(EBOOK_IMAGE_STYLE_IDS),
+  /** An old preset (the pre-image-style menu). */
+  style: z.enum(EBOOK_IMAGE_STYLE_IDS).optional(),
+  /** This image's own style (BRAND_IMAGE_STYLE_ENABLED): a style id, an old preset id, or "brand". */
+  styleId: z.string().min(1).max(40).optional(),
   mode: z.enum(["create", "edit"]).default("create"),
   instruction: z.string().max(1000).optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
@@ -99,12 +106,22 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const tenant = await getTenantById(ctx.tenantId);
   const useBrandStyle = parsed.data.useBrandStyle !== false;
+  // This image's own pick, else the brand's eBook style, else its default (a template style
+  // becomes its model twin here). Off: only the old preset counts, exactly as before.
+  const choice = styleForImage({
+    surface: "ebook",
+    tenant,
+    override: isBrandImageStyleEnabled() ? (parsed.data.styleId ?? style ?? null) : (style ?? null),
+  });
+  const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
   const result = await generateEbookSlotImage({
     tenantId: ctx.tenantId,
     workspaceId,
     brief: mode === "edit" ? instruction!.trim() : brief,
     aspect: effectiveAspect,
-    style,
+    style: choice.model.styleId ?? DEFAULT_EBOOK_IMAGE_STYLE,
+    direction: choice.model.direction,
+    ...(choice.enabled ? { learningStyleId: learnBucket } : {}),
     copyExcerpt,
     priorImageRef: mode === "edit" ? priorImageRef : null,
     // Register the generated image in the Brand Kit library (best-effort).
@@ -123,7 +140,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       audience: ws.audience ?? null,
       brandKit: tenant?.brandKit ?? null,
       typography: tenant?.brandTypography ?? null,
-      learnedImageStyle: useBrandStyle ? undefined : null,
+      // Learning per style (image style on): what was learned for this image's style.
+      learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
     }),
   });
 
@@ -140,7 +158,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     applyGeneratedImage(
       draft,
       target,
-      { imageAssetRef: ref, imagePrompt: result.imagePrompt, aspect: effectiveAspect, contextPrompt: mode === "edit" ? undefined : brief },
+      {
+        imageAssetRef: ref,
+        imagePrompt: result.imagePrompt,
+        aspect: effectiveAspect,
+        contextPrompt: mode === "edit" ? undefined : brief,
+        // Saved with the slot, so a regenerate keeps this image's own style (an edit keeps it as it is).
+        ...(choice.enabled && mode !== "edit" ? { imageStyleId: choice.ownPick } : {}),
+      },
       () => `img_${randomUUID()}`,
     ),
   );

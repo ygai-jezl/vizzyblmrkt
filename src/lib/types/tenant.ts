@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 
 /**
  * Core tenant (brand / workspace). Lives in the root-level `tenants` collection.
@@ -714,6 +715,10 @@ export const TenantSchema = z.object({
   emailStyle: StoredEmailStyleSchema.optional().catch(undefined),
   /** A pending Email style suggestion from Vizzy, for an admin to apply. Damaged reads as none. */
   emailStyleSuggestion: EmailStyleSuggestionSchema.optional().catch(undefined),
+  /** Image style (Brand › Image style): the look every new image starts from. Damaged reads as none. */
+  imageStyle: StoredImageStyleSchema.optional().catch(undefined),
+  /** A pending Image style suggestion from Vizzy, for an admin to save. Damaged reads as none. */
+  imageStyleSuggestion: ImageStyleSuggestionSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -16,11 +16,12 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
-import type { BlogBrief, BlogSeen, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
+import type { BlogBrief, BlogHero, BlogSeen, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { CITE_TAG, isCiteSourcesUiEnabled } from "@/lib/knowledge/cite";
+import { isBlogHeroUiEnabled } from "@/lib/content/imageStyle/flags";
 import { EMPTY_BLOG_BRIEF } from "@/lib/content/blog/brief";
 import {
   HubNode,
@@ -189,6 +190,10 @@ export function ContentCanvas({
     setBlogBriefState(next);
   }, []);
   const [blogBusy, setBlogBusy] = useState<null | "research" | "check" | "seen">(null);
+  // The blog hero (BLOG_HERO_ENABLED): which article's hero is being made now.
+  const heroOn = citableBlog && isBlogHeroUiEnabled();
+  const [heroBusy, setHeroBusy] = useState<string | null>(null);
+  const heroAsked = useRef(new Set<string>());
   // The article's address (the plan's hub URL). Saved on its own, never with the canvas.
   const [pageUrl, setPageUrl] = useState<string | null>(initial.strategy.hubUrl ?? null);
   const [blogNote, setBlogNoteState] = useState<{ text: string; about: "research" | "check" } | null>(null);
@@ -553,6 +558,84 @@ export function ContentCanvas({
     }
   }
 
+  /** Put a hero the server sent back into the canvas: only the hero, so an unsaved edit stays. */
+  function mergeHero(id: string, hero: BlogHero) {
+    applyNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        const cur = (n.data as ContentNodeData).cn;
+        return { ...n, data: { ...n.data, cn: { ...cur, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), hero } } } };
+      }),
+    );
+  }
+
+  const heroUrl = (id: string) => `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/hero`;
+  const HERO_ERRORS: Record<string, string> = {
+    hero_running: "The hero image is already being made.",
+    rate_limited: "Too many images just now. Try again in a minute.",
+    bad_type: "Upload a PNG or JPG image.",
+    too_large: "Image is too large (max 8 MB).",
+  };
+
+  /** Make (or make again) an article's hero image; the server saves it on the hub's meta. */
+  async function makeHero(id: string, styleId?: string): Promise<string | null> {
+    setHeroBusy(id);
+    try {
+      const res = await fetch(heroUrl(id), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(styleId ? { styleId } : {}),
+      });
+      const data = (await res.json().catch(() => ({}))) as { hero?: BlogHero; error?: string };
+      if (res.ok && data.hero) {
+        mergeHero(id, data.hero);
+        return null;
+      }
+      return HERO_ERRORS[data.error ?? ""] ?? "The hero image wasn't made. Try again.";
+    } catch {
+      return "The hero image wasn't made. Check your connection and try again.";
+    } finally {
+      setHeroBusy(null);
+    }
+  }
+
+  async function uploadHero(id: string, file: File): Promise<string | null> {
+    setHeroBusy(id);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${heroUrl(id)}/upload`, { method: "POST", body: fd });
+      const data = (await res.json().catch(() => ({}))) as { hero?: BlogHero; error?: string; message?: string };
+      if (res.ok && data.hero) {
+        mergeHero(id, data.hero);
+        return null;
+      }
+      return data.message ?? HERO_ERRORS[data.error ?? ""] ?? "Couldn't use that image. Try again.";
+    } catch {
+      return "Couldn't use that image. Try again.";
+    } finally {
+      setHeroBusy(null);
+    }
+  }
+
+  async function setHeroAlt(id: string, alt: string): Promise<string | null> {
+    try {
+      const res = await fetch(heroUrl(id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alt }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { hero?: BlogHero | null };
+      if (res.ok && data.hero) {
+        mergeHero(id, data.hero);
+        return null;
+      }
+      return "The alt text wasn't saved. Try again.";
+    } catch {
+      return "The alt text wasn't saved. Try again.";
+    }
+  }
+
   /** Check, mark or clear that the article is live; the server saves it on the hub's meta. */
   async function setLive(id: string, action: LiveAction): Promise<LiveResult> {
     try {
@@ -652,6 +735,9 @@ export function ContentCanvas({
       patchNode(id, { busy: true });
       await factCheckBlog(id);
       patchNode(id, { busy: false });
+      // The hero is made after the check, in the background: the article can be exported
+      // meanwhile, and the rest of the plan doesn't wait for it.
+      if (heroOn) void makeHero(id);
     } else {
       setBlogNote("The article couldn't be written — try again.", "research");
     }
@@ -884,8 +970,33 @@ export function ContentCanvas({
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
+          ...(heroOn
+            ? {
+                hero: {
+                  make: makeHero,
+                  upload: uploadHero,
+                  setAlt: setHeroAlt,
+                  busyId: heroBusy,
+                  assetUrl: (ref: string) => `/api/admin/workspace/${workspaceId}/asset/${ref}`,
+                },
+              }
+            : {}),
         }
       : undefined;
+  // An article opened with a hero asked for but not made (Vizzy ran out of time, or a run
+  // died): make it now, once per visit.
+  const askedHero = heroOn && selectedCn?.type === "hub" && selectedCn.channel === "blog" && selectedCn.body.trim()
+    ? selectedCn.blog?.hero
+    : undefined;
+  useEffect(() => {
+    if (!selectedCn || !askedHero || askedHero.status !== "pending" || heroBusy) return;
+    const stale = !askedHero.startedAt || Date.now() - Date.parse(askedHero.startedAt) > 150_000;
+    if (!stale || heroAsked.current.has(selectedCn.id)) return;
+    heroAsked.current.add(selectedCn.id);
+    void makeHero(selectedCn.id);
+    // makeHero is recreated each render; the guard set keeps this to one try per article.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCn?.id, askedHero?.status, askedHero?.startedAt, heroBusy]);
   const total = nodes.length;
   const generated = nodes.filter((n) => {
     const s = cnOf(n).status;

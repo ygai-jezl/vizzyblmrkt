@@ -15,6 +15,8 @@ import {
   Mail,
   Map as MapIcon,
   NotebookPen,
+  Paintbrush,
+  MonitorSmartphone,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -28,6 +30,8 @@ import {
   BRAND_KIT_ICONS_ROUTE,
   BRAND_KIT_GRAPHICS_ROUTE,
   BRAND_KIT_EMAIL_STYLE_ROUTE,
+  BRAND_KIT_IMAGE_STYLE_ROUTE,
+  BRAND_KIT_SCREENSHOTS_ROUTE,
   BRAND_KIT_MAP_ROUTE,
   BRAND_KIT_NOTES_ROUTE,
   isBrandVoiceUiEnabled,
@@ -40,6 +44,7 @@ import {
 import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 
 interface Category {
   key: string;
@@ -83,6 +88,13 @@ const CATEGORIES: Category[] = [
   // Hidden (not "Soon") while the Email style flag is off.
   ...(isEmailStyleUiEnabled()
     ? [{ key: "email-style", label: "Email style", icon: Mail, href: BRAND_KIT_EMAIL_STYLE_ROUTE }]
+    : []),
+  // Hidden (not "Soon") while the Image style switch is off.
+  ...(isBrandImageStyleUiEnabled()
+    ? [
+        { key: "image-style", label: "Image style", icon: Paintbrush, href: BRAND_KIT_IMAGE_STYLE_ROUTE },
+        { key: "screenshots", label: "Screenshots", icon: MonitorSmartphone, href: BRAND_KIT_SCREENSHOTS_ROUTE },
+      ]
     : []),
   // Hidden (not "Soon") while the Brand map flag is off.
   ...(isBrandMapUiEnabled() ? [{ key: "brand-map", label: "Brand map", icon: MapIcon, href: BRAND_KIT_MAP_ROUTE }] : []),

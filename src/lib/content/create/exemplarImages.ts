@@ -1,5 +1,6 @@
 import { readWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { listBrandExemplars } from "@/lib/admin/brandKit";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { EBOOK_IMAGE_INLINE_MAX_BYTES } from "@/lib/content/create/ebook";
 import type { TenantContext } from "@/lib/tenant/types";
 import { isBrandStyleRefsEnabled, MAX_STYLE_REFS, MIN_REF_RATING } from "./brandStyleLoop";
@@ -22,13 +23,21 @@ export async function retrieveExemplarImages(req: {
   kind?: string;
   /** Prefer exemplars for this channel (social) when enough exist. */
   channel?: string;
+  /**
+   * Learning per style (BRAND_IMAGE_STYLE_ENABLED): only exemplars made in this style (old
+   * presets count towards the style they map to). None in this style = no references, so one
+   * style's look never leaks into another. Absent = any style, as before.
+   */
+  styleId?: string | null;
   limit?: number;
 }): Promise<RetrievedRefImage[]> {
   if (!isBrandStyleRefsEnabled()) return [];
   const limit = Math.min(req.limit ?? MAX_STYLE_REFS, MAX_STYLE_REFS);
   try {
     // Pull a slightly wider pool (already rating-desc), then prefer same kind/channel.
-    const pool = await listBrandExemplars(req.ctx, { minRating: MIN_REF_RATING, limit: 12 });
+    const byStyle = req.styleId !== undefined && req.styleId !== null;
+    const wide = await listBrandExemplars(req.ctx, { minRating: MIN_REF_RATING, limit: byStyle ? 40 : 12 });
+    const pool = byStyle ? wide.filter((a) => canonicalStyleId(a.style) === req.styleId) : wide;
     if (pool.length === 0) return [];
 
     const sameChannel = req.channel ? pool.filter((a) => a.channel === req.channel) : [];

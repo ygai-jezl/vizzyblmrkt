@@ -79,6 +79,7 @@ export function NodeInspector({
               subject: String(data.subject ?? ""),
               body: String(data.body ?? ""),
               heroImageUrl: (data.heroImageUrl as string | null) ?? null,
+              heroImageStyleId: (data.heroImageStyleId as string | null | undefined) ?? null,
               agentMeta: data.agentMeta as EmailComposerValue["agentMeta"],
             }}
             onChange={(v) =>
@@ -86,6 +87,7 @@ export function NodeInspector({
                 subject: v.subject,
                 body: v.body,
                 heroImageUrl: v.heroImageUrl ?? null,
+                ...(v.heroImageStyleId !== undefined ? { heroImageStyleId: v.heroImageStyleId } : {}),
                 agentMeta: v.agentMeta,
               })
             }
@@ -444,12 +446,14 @@ function AbTestEditor({
                   subject: v.subject,
                   body: v.body,
                   heroImageUrl: v.heroImageUrl ?? null,
+                  heroImageStyleId: v.heroImageStyleId ?? null,
                 }}
                 onChange={(val) =>
                   updateVariant(i, {
                     subject: val.subject,
                     body: val.body,
                     heroImageUrl: val.heroImageUrl ?? null,
+                    ...(val.heroImageStyleId !== undefined ? { heroImageStyleId: val.heroImageStyleId } : {}),
                   })
                 }
               />

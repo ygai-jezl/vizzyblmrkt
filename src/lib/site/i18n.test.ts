@@ -3,6 +3,7 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { FEATURES, FEATURE_TAGS, STAGES } from "./content";
 import { CHAPTERS, FAQ, HERO_LABEL } from "./home";
+import { STACK, STACK_WORDS } from "./stack";
 import { DICTS, translator } from "./i18n";
 import { OTHER_LANGS } from "./langs";
 
@@ -22,6 +23,10 @@ function siteStrings(): Set<string> {
     if (ch.kind === "stage") for (const x of [ch.label, ch.body, ch.agent, ch.adds, ch.status.text, ...(ch.status.note ? [ch.status.note] : [])]) out.add(x);
     if (ch.kind === "cross") for (const x of [ch.name, ch.label, ch.title, ch.body, ...(ch.now ?? []), ...(ch.next ?? [])]) out.add(x);
   }
+  for (const x of STACK_WORDS) out.add(x);
+  for (const c of [...STACK.learnsFrom, ...STACK.connectsThrough, ...STACK.memory, ...STACK.inCharge, ...STACK.connectsTo]) out.add(c.label);
+  for (const x of [STACK.team, STACK.gate, STACK.audience]) { out.add(x.title); out.add(x.sub); }
+  for (const s of [...STACK.make, ...STACK.grow]) out.add(s.sub);
   for (const e of FAQ) { out.add(e.q); out.add(e.a); if (e.link && !e.link.href.startsWith("http")) out.add(e.link.label); }
   for (const dir of ["src/components/site", "src/lib/site"]) {
     for (const name of readdirSync(dir)) {

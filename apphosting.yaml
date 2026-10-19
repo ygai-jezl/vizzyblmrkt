@@ -1252,3 +1252,40 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Brand image style (feat/image-style-v1). BRAND_IMAGE_STYLE_ENABLED: Brand › Image style
+  # (a default style, a style per channel, accent and switches), the style picker on every
+  # image (social posts, eBook, email blocks, launch heroes: "this image only"), the template
+  # renderer (Product noir, Headline card), Brand kit › Screenshots and learning per style.
+  # Off = every image is made exactly as before. BLOG_HERO_ENABLED (needs the image style and
+  # CREATE_BLOG_CITABLE_ENABLED): every blog article gets a hero after its fact check, a hero
+  # card, a checklist item and hero downloads in Export. BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED:
+  # images use the fonts found on the brand's website (Google fonts fetched as TTF, a free match
+  # for paid fonts) when none is uploaded; off = uploaded fonts, then the bundled ones. The
+  # client mirrors are read at BUILD time. ENABLED on dev; prod sets all six to "false".
+  - variable: BRAND_IMAGE_STYLE_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BLOG_HERO_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_HERO_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

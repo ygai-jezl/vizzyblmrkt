@@ -11,6 +11,7 @@ import { sitePath, type SiteLang } from "@/lib/site/langs";
 import { ARROW, ARROW_BACK } from "./icons";
 import { HeroLoop, LoopStory, StageLoop } from "./Loops";
 import { SiteShell, loopLabels } from "./SiteShell";
+import { StackSection } from "./StackSection";
 import { Walkthrough } from "./Walkthrough";
 
 const cssVars = (vars: Record<string, string>) => vars as CSSProperties;
@@ -137,6 +138,8 @@ export function HomeView({ lang }: { lang: SiteLang }) {
           </LoopStory>
         </section>
 
+        <StackSection t={t} />
+
         <section className="sec faq" id="questions">
           <div className="sec-head"><h2 className="md">{t("Questions")}</h2><span className="aside">{t("The short answers")}</span></div>
           <dl className="qa">
@@ -246,7 +249,7 @@ export function FeatureView({ lang, slug }: { lang: SiteLang; slug: FeatureSlug 
           obj={f.obj}
           pipe={f.pipe}
           stepText={f.steps.map((_, k) => fmt("Step {n} of {m}", { n: k + 1, m: f.steps.length }))}
-          labels={{ pause: t("Pause"), play: t("Play"), next: t("Next step") }}
+          labels={{ pause: t("Pause"), play: t("Play"), next: t("Next step"), workspace: t("Your workspace") }}
         />
       </section>
       <nav className="fnext" aria-label={t("Features")}>

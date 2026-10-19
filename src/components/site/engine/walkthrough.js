@@ -8,6 +8,7 @@
  *   data-type="s,d" data-text   type the text over d seconds from s
  *   data-count="from,to,s0,s1[,decimals]" (+ data-suffix)  count up between s0 and s1
  *   data-tally="selector"       show how many matching elements in the scene are done
+ * The frame's step dots (.frame-dots i) follow the current step.
  * Works on markup the server already rendered (step 1 showing), so the copy is in
  * the page for readers and crawlers before any script runs.
  *
@@ -29,7 +30,7 @@ export function createWalkthrough(root, cfg) {
   const q = (s) => root.querySelector(s);
   const qa = (s, from = root) => [...from.querySelectorAll(s)];
   const steps = cfg.steps, n = steps.length;
-  const tabs = qa(".tab"), copies = qa(".p-copy"), scenes = qa(".scene");
+  const tabs = qa(".tab"), copies = qa(".p-copy"), scenes = qa(".scene"), dots = qa(".frame-dots i");
   const panel = q(".panel"), stepEl = q(".p-step"), playBtn = q(".pp");
   const pill = q(".pill"), idea = q(".idea-t"), pipe = q(".pipe"), pipeLis = qa(".pipe li");
   const parts = scenes.map((sc) => ({
@@ -76,6 +77,7 @@ export function createWalkthrough(root, cfg) {
     P.cur = k; P.t = reduce ? steps[k].dur : 0;
     scenes.forEach((sc, i) => sc.classList.toggle("active", i === k));
     copies.forEach((c, i) => { c.hidden = i !== k; });
+    dots.forEach((d, i) => d.classList.toggle("on", i === k));
     tabs.forEach((b, i) => { b.setAttribute("aria-selected", String(i === k)); b.tabIndex = i === k ? 0 : -1; });
     stepEl.textContent = cfg.stepText[k];
     panel.setAttribute("aria-labelledby", tabs[k].id);

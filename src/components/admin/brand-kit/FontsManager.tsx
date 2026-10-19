@@ -23,6 +23,8 @@ import {
   seededTextStyles,
 } from "@/lib/content/fonts";
 import { brandFontPublicUrl } from "@/lib/content/brandKit";
+import { fontWeightLabel, renderableFilename } from "@/lib/content/imageStyle/fontRows";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 
 const SIZE_OPTIONS = [10, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 84, 96];
 const SELECT =
@@ -76,8 +78,11 @@ export function FontsManager({
 
   // Families offered in the picker: uploaded custom fonts first, then the curated list.
   const families = useMemo(() => {
-    const custom = fonts.map((f) => f.family);
-    const seen = new Set(custom.map((c) => c.toLowerCase()));
+    // One entry per family: a family's regular and bold files share a name once they've been read.
+    const seen = new Set<string>();
+    const custom = fonts
+      .map((f) => f.family)
+      .filter((f) => !seen.has(f.toLowerCase()) && seen.add(f.toLowerCase()));
     const curated = CURATED_FONTS.map((f) => f.family).filter((f) => !seen.has(f.toLowerCase()));
     return { custom, curated };
   }, [fonts]);
@@ -94,6 +99,7 @@ export function FontsManager({
           return (
             `@font-face{font-family:'${family}';` +
             `src:url('${brandFontPublicUrl(tenantId, f.filename)}') format('${fontFormat(f.mimeType)}');` +
+            (f.weight !== undefined ? `font-weight:${f.weight};font-style:${f.italic ? "italic" : "normal"};` : "") +
             `font-display:swap;}`
           );
         })
@@ -382,12 +388,25 @@ export function FontsManager({
           <ul className="space-y-1.5">
             {fonts.map((f) => (
               <li key={f.id} className="flex items-center justify-between gap-2">
-                <span
-                  className="truncate text-base"
-                  style={{ fontFamily: fontStackFor(f.family) }}
-                  title={f.title}
-                >
-                  {f.family}
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span
+                    className="truncate text-base"
+                    style={{
+                      fontFamily: fontStackFor(f.family),
+                      ...(f.weight !== undefined ? { fontWeight: f.weight, fontStyle: f.italic ? "italic" : "normal" } : {}),
+                    }}
+                    title={f.title}
+                  >
+                    {f.family}
+                  </span>
+                  {fontWeightLabel(f) ? (
+                    <span className="shrink-0 text-xs text-neutral-500">{fontWeightLabel(f)}</span>
+                  ) : null}
+                  {isBrandImageStyleUiEnabled() && f.inspectedAt && !renderableFilename(f) ? (
+                    <span className="shrink-0 text-xs text-amber-700 dark:text-amber-400">
+                      Can&apos;t be used in images. Upload it as TTF, OTF or WOFF.
+                    </span>
+                  ) : null}
                 </span>
                 <button
                   type="button"

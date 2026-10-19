@@ -6,7 +6,9 @@ const nextConfig: NextConfig = {
   // the browser. @google-cloud/bigquery is loaded lazily by the analytics layer
   // (only when ANALYTICS_BQ_ENABLED), but mark it external so the build never
   // tries to bundle its native/transitive deps.
-  serverExternalPackages: ["firebase-admin", "@google-cloud/bigquery"],
+  // wawoff2 unpacks WOFF2 brand fonts for the image renderer; its Emscripten build expects to be
+  // loaded by Node as is.
+  serverExternalPackages: ["firebase-admin", "@google-cloud/bigquery", "wawoff2"],
   // Put every page's <title>, description, canonical and hreflang tags in <head> for
   // every visitor. By default Next streams them into <body> on dynamic pages unless the
   // user agent is on its short bot list, which misses AI crawlers (GPTBot, ClaudeBot,

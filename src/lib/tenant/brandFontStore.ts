@@ -93,6 +93,34 @@ export async function storeBrandFont(tenantId: string, bytes: Buffer): Promise<S
   }
 }
 
+/**
+ * Store the TTF copy of a WOFF2 upload, beside it as `<same uuid>.ttf`, for the image renderer.
+ * Only ever called with bytes we unpacked ourselves.
+ */
+export async function storeDerivedBrandFont(
+  tenantId: string,
+  sourceFilename: string,
+  ttf: Buffer,
+): Promise<string | null> {
+  if (!FONT_FILENAME.test(sourceFilename) || ttf.length > 4 * MAX_FONT_BYTES) return null;
+  const mime = sniffFontMime(ttf);
+  if (mime !== "font/ttf" && mime !== "font/otf") return null;
+  const bucketName = process.env.EMAIL_ASSET_BUCKET;
+  if (!bucketName) return null;
+  const filename = `${sourceFilename.replace(/\.[^.]+$/, "")}.${EXT_BY_MIME[mime]}`;
+  try {
+    await getStorage(adminApp()).bucket(bucketName).file(keyFor(tenantId, filename)).save(ttf, {
+      contentType: mime,
+      resumable: false,
+      metadata: { cacheControl: "public, max-age=31536000, immutable" },
+    });
+    return filename;
+  } catch (err) {
+    console.warn("[brandFont] derived copy failed:", err);
+    return null;
+  }
+}
+
 export interface BrandFontBytes {
   bytes: Buffer;
   contentType: string;

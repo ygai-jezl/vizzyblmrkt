@@ -20,6 +20,15 @@ export const BrandFontSchema = z.object({
   /** User-facing display name (defaults to the uploaded filename). */
   title: z.string().max(200),
   byteSize: z.number().int().nonnegative(),
+  /**
+   * Read from the file for the image renderer (Brand image style). `derivedFilename` is the TTF
+   * copy of a WOFF2 upload, since the renderer can't read WOFF2; it's deleted with the font.
+   * `inspectedAt` marks that the file was read, so older uploads are only back-filled once.
+   */
+  weight: z.number().int().min(1).max(1000).optional(),
+  italic: z.boolean().optional(),
+  derivedFilename: z.string().max(300).optional(),
+  inspectedAt: z.string().optional(),
   createdAt: z.string(),
 });
 export type BrandFont = z.infer<typeof BrandFontSchema>;

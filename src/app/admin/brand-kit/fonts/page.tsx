@@ -7,6 +7,8 @@ import { isBrandFontsEnabled, BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { listBrandFonts } from "@/lib/admin/brandFonts";
 import type { BrandFont } from "@/lib/types/brandFont";
 import { FontsManager } from "@/components/admin/brand-kit/FontsManager";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { ensureFontInspected } from "@/lib/content/imageStyle/render/fonts";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,16 @@ export default async function BrandKitFontsPage() {
     fonts = await listBrandFonts(ctx);
   } catch (err) {
     console.error("[brand-kit] fonts failed to load (index building?)", err);
+  }
+  // Fonts uploaded before the image style existed are read once, a few per visit, so the list
+  // can say which ones images can use.
+  if (isBrandImageStyleEnabled()) {
+    const unread = fonts.filter((f) => !f.inspectedAt).slice(0, 5);
+    if (unread.length) {
+      const read = await Promise.all(unread.map((f) => ensureFontInspected(ctx, f).catch(() => f)));
+      const byId = new Map(read.map((f) => [f.id, f]));
+      fonts = fonts.map((f) => byId.get(f.id) ?? f);
+    }
   }
 
   return (

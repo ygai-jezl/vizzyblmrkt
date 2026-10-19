@@ -98,7 +98,7 @@ export async function SiteShell({ lang, page, children, around, withFaq }: {
           <a href={LINKEDIN_URL} target="_blank" rel="noopener" aria-label="YouGrow on LinkedIn" title="LinkedIn">{LINKEDIN_ICON}</a>
         </span>
       </footer>
-      {seo ? (
+      {seo && siteOrigin() ? (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(siteGraph(siteOrigin(), lang, page, { withFaq })) }} />
       ) : null}
       <SiteBehaviour lang={lang} dir={info.dir} prevHref={around?.prev} nextHref={around?.next} />

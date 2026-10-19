@@ -143,7 +143,7 @@ export type AiConversation = z.infer<typeof AiConversationSchema>;
 
 /**
  * Offboarding lifecycle email — sent automatically when an admin offboards a
- * signup (PRD "Agentic Email Hub" §4.4). Default OFF so no surprise sends.
+ * signup. Default OFF so no surprise sends.
  * `subject`/`body` support merge tokens ({{first_name}}, {{waitlist_name}}, …);
  * blank falls back to default copy (see src/lib/email/templates.ts). OPTIONAL on
  * the stored shape so legacy campaigns read cleanly.

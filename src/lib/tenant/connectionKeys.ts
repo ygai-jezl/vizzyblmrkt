@@ -11,7 +11,7 @@ import type { Region } from "@/lib/types/tenant";
  * request is only trusted once its signature verifies against the connection's
  * secret, which lives in the tenant's regional database.
  *
- * Write order (from vizzybl.ai's apiKeyService): create the regional connection
+ * Write order (the usual API key pattern): create the regional connection
  * first, then this lookup; on revoke, delete this lookup FIRST so the key stops
  * routing immediately (bounded by the resolver's short cache).
  */

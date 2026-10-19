@@ -1,10 +1,9 @@
 /**
- * Flags for the brand map. Each ships "true" in dev (apphosting.yaml) and an explicit
- * "false" in prod (apphosting.prod.yaml) until it has been checked on dev, promoted, and
- * turned on by the owner (the first seven are on in prod since 2026-10-15). Every one needs
- * the record itself (BRAND_MAP_ENABLED). Server flags are read at runtime; pages pass what
- * is on to their client components. The one NEXT_PUBLIC mirror only shows the Brand map
- * tile. Off: nothing reads or writes a brand map, and articles are written exactly as before.
+ * Flags for the brand map. Each is off unless "true": listed "false" in apphosting.yaml
+ * and turned on per deployment. Every one needs the record itself (BRAND_MAP_ENABLED).
+ * Server flags are read at runtime; pages pass what is on to their client components. The
+ * NEXT_PUBLIC mirrors only show the Brand map tile and a step on its help page. Off: nothing
+ * reads or writes a brand map, and articles are written exactly as before.
  */
 
 /** The record, the Brand map page and saving it. */

@@ -1,7 +1,7 @@
 /**
  * Waitlist journeys on the lifecycle engine (engine move D2). Pure; server-only
- * flags. Both ship ON in dev (apphosting.yaml) and OFF in prod
- * (apphosting.prod.yaml) until verified on dev and promoted.
+ * flags. Both are off unless "true": listed "false" in apphosting.yaml and turned
+ * on per deployment.
  */
 
 /**

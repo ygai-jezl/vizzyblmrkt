@@ -10,7 +10,7 @@ import type { AdminSignupRow } from "@/components/admin/SignupsTable";
  * render the identical table. Admins own their tenant's data, so PII is
  * returned UNMASKED (the public leaderboard masks; this admin view does not).
  *
- * `status` splits the Active list from the Offboarded directory (PRD §4.2):
+ * `status` splits the Active list from the Offboarded directory:
  *   - "active" (default): everything except offboarded + deleted;
  *   - "offboarded": only offboarded (still retained in the CRM, just off the list).
  * Filtering is in-memory over the latest `limit` (cursor pagination is a separate,

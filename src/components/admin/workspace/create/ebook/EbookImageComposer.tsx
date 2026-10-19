@@ -16,7 +16,9 @@ import {
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
-import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleUiEnabled, isImageFormatsUiEnabled } from "@/lib/content/imageStyle/flags";
+import { FormatFields } from "@/components/admin/imageStyle/FormatFields";
+import type { FormatInputs } from "@/lib/types/imageStyle";
 
 const PRIMARY =
   "rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900";
@@ -78,6 +80,11 @@ export function EbookImageComposer({
   // Effective target: the fixed one, or the picker's choice for a free "+" create.
   const effectiveTarget: EbookImageTarget | null =
     target ?? (pickKind === "cover" ? { kind: "cover" } : pickChapter ? { kind: "new", chapterId: pickChapter } : null);
+  // The cover as a report cover (IMAGE_FORMATS_ENABLED): drawn at 4:5 from the eBook's title.
+  const reportUi = isImageFormatsUiEnabled() && effectiveTarget?.kind === "cover" && mode === "create";
+  const [coverAs, setCoverAs] = useState<"image" | "report_cover">("image");
+  const [coverInputs, setCoverInputs] = useState<FormatInputs>({});
+  const asReport = reportUi && coverAs === "report_cover";
 
   async function run(payload: Record<string, unknown>) {
     if (!effectiveTarget) return;
@@ -118,7 +125,10 @@ export function EbookImageComposer({
     }
   }
 
-  const generate = () => run({ brief: brief.trim(), mode: "create" });
+  const generate = () =>
+    asReport
+      ? run({ brief: "", mode: "create", aspect: "4:5", format: "report_cover", formatInputs: coverInputs })
+      : run({ brief: brief.trim(), mode: "create" });
   const refine = () => brief.trim() && run({ instruction: brief.trim(), mode: "edit" });
 
   async function upload(file: File) {
@@ -169,13 +179,31 @@ export function EbookImageComposer({
         </div>
       ) : null}
 
-      <textarea
-        value={brief}
-        onChange={(e) => setBrief(e.target.value)}
-        rows={3}
-        placeholder={refining ? "Describe a change (e.g. make the background navy)…" : "Describe the image you want…"}
-        className={INPUT}
-      />
+      {reportUi ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-neutral-500">Cover as:</span>
+          <select value={coverAs} onChange={(e) => setCoverAs(e.target.value as "image" | "report_cover")} className="rounded-md border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+            <option value="image">A painted image</option>
+            <option value="report_cover">Report cover (title in type, 4:5)</option>
+          </select>
+        </div>
+      ) : null}
+      {asReport ? (
+        <div>
+          <p className="text-xs text-neutral-500">Drawn in your brand style from the eBook&apos;s title and subtitle. Change them here for the cover only.</p>
+          <FormatFields format="report_cover" inputs={coverInputs} onChange={setCoverInputs} disabled={busy} />
+        </div>
+      ) : null}
+
+      {asReport ? null : (
+        <textarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={3}
+          placeholder={refining ? "Describe a change (e.g. make the background navy)…" : "Describe the image you want…"}
+          className={INPUT}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1.5 text-sm">
@@ -226,7 +254,7 @@ export function EbookImageComposer({
             {busy ? "Editing…" : "Apply edit"}
           </button>
         ) : (
-          <button type="button" onClick={generate} disabled={busy || !brief.trim() || !effectiveTarget} className={PRIMARY}>
+          <button type="button" onClick={generate} disabled={busy || (!brief.trim() && !asReport) || !effectiveTarget} className={PRIMARY}>
             {busy ? "Generating…" : "Generate"}
           </button>
         )}

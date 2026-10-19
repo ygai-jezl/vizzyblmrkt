@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { FEATURES, FEATURE_TAGS, STAGES } from "./content";
-import { isSiteLanguagesEnabled, siteOrigin } from "./flags";
+import { isSiteLanguagesEnabled, siteMetadataBase } from "./flags";
 import { translator } from "./i18n";
 import { LANG_INFO, SITE_LANGS, languageAlternates, sitePath, type SiteLang, type SitePage } from "./langs";
 
@@ -34,7 +34,7 @@ export function siteMetadata(lang: SiteLang, page: SitePage): Metadata {
   const path = sitePath(lang, page);
   const langs = isSiteLanguagesEnabled();
   return {
-    metadataBase: new URL(siteOrigin()),
+    metadataBase: siteMetadataBase(),
     title: { absolute: title },
     description,
     alternates: { canonical: path, ...(langs ? { languages: languageAlternates(page) } : {}) },

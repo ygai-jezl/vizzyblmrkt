@@ -92,11 +92,13 @@ export default async function UnsubscribePage({
           />
         )}
       </div>
-      <p className="mt-6 border-t border-neutral-100 pt-4 text-xs text-neutral-400 dark:border-neutral-800">
-        <a href={privacyUrl} className="underline hover:text-neutral-600 dark:hover:text-neutral-200">
-          Privacy Policy
-        </a>
-      </p>
+      {privacyUrl ? (
+        <p className="mt-6 border-t border-neutral-100 pt-4 text-xs text-neutral-400 dark:border-neutral-800">
+          <a href={privacyUrl} className="underline hover:text-neutral-600 dark:hover:text-neutral-200">
+            Privacy Policy
+          </a>
+        </p>
+      ) : null}
     </Shell>
   );
 }

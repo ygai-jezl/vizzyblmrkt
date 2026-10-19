@@ -2,7 +2,7 @@ import Link from "next/link";
 
 /**
  * Active | Offboarded switcher for the signups views. Offboarded users are
- * retained (still in the CRM) — this just keeps the active list clean (PRD §4.2).
+ * retained (still in the CRM); this just keeps the active list clean.
  */
 export function SignupsTabs({
   base,

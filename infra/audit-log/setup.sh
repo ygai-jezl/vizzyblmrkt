@@ -13,9 +13,9 @@
 # Usage:
 #   ./setup.sh provision <project>   # create bucket + retention + IAM (REVERSIBLE)
 #   ./setup.sh verify    <project>   # show config + list objects + WORM check
-#   ./setup.sh lock      <project>   # LOCK retention — IRREVERSIBLE; run only after verify
+#   ./setup.sh lock      <project>   # LOCK retention (IRREVERSIBLE); run only after verify
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+#   <project> is your Google Cloud project id.
 #
 # Order of operations: provision -> deploy app with AUDIT_LOG_BUCKET set ->
 # delete a throwaway launch -> verify the object landed -> lock.
@@ -23,7 +23,16 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  provision|verify|lock)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 BUCKET="${PROJECT}-audit-log"
 LOCATION="US"                 # US multi-region (allowed by the gcp.resourceLocations org policy)
@@ -36,7 +45,7 @@ provision() {
   echo "==> Provisioning ${gsuri} in ${PROJECT}"
 
   if gcloud storage buckets describe "${gsuri}" --project="${PROJECT}" >/dev/null 2>&1; then
-    echo "    bucket already exists — skipping create"
+    echo "    bucket already exists, skipping create"
   else
     echo "    creating bucket (uniform access, public-access prevention enforced)"
     gcloud storage buckets create "${gsuri}" \
@@ -46,11 +55,11 @@ provision() {
       --public-access-prevention
   fi
 
-  echo "    setting ${RETENTION} retention (NOT yet locked — reversible)"
+  echo "    setting ${RETENTION} retention (NOT yet locked, so reversible)"
   gcloud storage buckets update "${gsuri}" --project="${PROJECT}" --retention-period="${RETENTION}"
 
   echo "    granting ${RUNTIME_SA} create-only (roles/storage.objectCreator)"
-  # objectCreator = storage.objects.create only — NOT get/list/delete/overwrite.
+  # objectCreator = storage.objects.create only, NOT get/list/delete/overwrite.
   # The runtime SA is a same-org SA, so org-domain-restricted-sharing does not
   # block this grant (unlike grants to external / Google-managed SAs).
   gcloud storage buckets add-iam-policy-binding "${gsuri}" \

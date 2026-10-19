@@ -10,9 +10,9 @@ import {
 
 /**
  * Browser-side Firebase Auth. The web config values are public (not secrets) and
- * are wired in at BUILD time via apphosting.yaml (NEXT_PUBLIC_*). A missing
- * apiKey fails LOUD (initializeApp throws) rather than silently shipping a
- * placeholder — except against the Auth emulator, where any value works.
+ * are wired in at BUILD time via the deployment's apphosting.<env>.yaml
+ * (NEXT_PUBLIC_*). A missing apiKey fails LOUD (initializeApp throws) rather than
+ * silently shipping a placeholder, except against the Auth emulator, where any value works.
  */
 const useEmulator = !!process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST;
 

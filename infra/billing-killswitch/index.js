@@ -5,7 +5,7 @@
  * Pub/Sub topic. When actual cost exceeds the budget's hard cap, this function
  * DISABLES billing on its own project (unlinks the billing account), stopping
  * all billable services. This is a last-resort spend cap — budget *alerts*
- * never stop spending. See docs/SETUP.md §6 and
+ * never stop spending. See docs/self-host.md ("What it costs") and
  * https://cloud.google.com/billing/docs/how-to/disable-billing-with-notifications
  *
  * IAM: the runtime SA needs roles/billing.projectManager on THIS project only

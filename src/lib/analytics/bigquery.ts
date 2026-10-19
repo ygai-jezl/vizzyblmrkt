@@ -4,7 +4,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { CountRow } from "./analytics";
 
 /**
- * BigQuery-backed analytics breakdowns (Phase 2 "hybrid" path, docs/SETUP.md §11).
+ * BigQuery-backed analytics breakdowns (Phase 2 "hybrid" path, docs/self-host.md, addon:bigquery).
  *
  * The dashboard keeps its real-time lifecycle KPIs on Firestore (exact + instant);
  * THIS module serves the heavy/historical breakdowns and the widget-impression
@@ -22,7 +22,7 @@ import type { CountRow } from "./analytics";
  * parameterized with @tenant_id bound from the SERVER-derived TenantContext, and
  * the dataset/project identifiers (which can't be query params) come only from a
  * fixed server-side env allowlist, never from user input. See
- * docs/VALIDATION-FINDINGS.md and docs/ARCHITECTURE-AND-DELIVERY.md §4.
+ * docs/ARCHITECTURE-AND-DELIVERY.md §4.
  */
 
 const TOP_N = 20;

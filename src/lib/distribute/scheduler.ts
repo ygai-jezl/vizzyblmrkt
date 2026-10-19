@@ -1019,7 +1019,7 @@ export async function schedulePost(
     // that races a concurrent publish (getById reads "pending" just before the
     // worker publishes) can still re-arm a now-published post; the publishedRef
     // guard in publishPost prevents an actual re-post, but a fully-correct fix needs
-    // a Firestore transaction here (see D2/D6 in the Distribute Roadmap).
+    // a Firestore transaction here.
     const existing = await repo.getById(dedupeKey);
     if (
       existing &&

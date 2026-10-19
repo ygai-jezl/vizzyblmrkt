@@ -2,8 +2,8 @@ import { z } from "zod";
 import { ConsentBasis } from "./productConnection";
 
 /**
- * Product user — one end user of a tenant's connected product (e.g. a vizzybl.ai
- * customer), built from the events the product pushes. Lives in the
+ * Product user: one end user of a tenant's connected product (e.g. a customer
+ * of their SaaS app), built from the events the product pushes. Lives in the
  * tenant-scoped `product_users` collection (regional DB — end-user PII).
  *
  * The id is `pu_<sha256(connectionId:externalUserId)>` so it is deterministic per

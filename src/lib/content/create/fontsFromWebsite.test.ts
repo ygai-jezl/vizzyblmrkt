@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { detectSiteFonts, familyStacks, googleFamiliesIn, stylesheetLinks, type SiteFontDeps } from "./fontsFromWebsite";
+import {
+  brandFontsUserAgent,
+  DEFAULT_BRAND_FONTS_USER_AGENT,
+  detectSiteFonts,
+  familyStacks,
+  googleFamiliesIn,
+  stylesheetLinks,
+  type SiteFontDeps,
+} from "./fontsFromWebsite";
 
 const NOW = new Date("2026-10-19T12:00:00Z");
 
@@ -18,7 +26,7 @@ function site(html: string, sheets: Record<string, string> = {}, google: string[
 }
 
 describe("detectSiteFonts", () => {
-  it("a system font stack (like vizzybl.ai's) resolves to Roboto, the Google family it names", async () => {
+  it("a system font stack (as many sites use) resolves to Roboto, the Google family it names", async () => {
     const { deps } = site(
       `<html lang="en"><head><link rel="stylesheet" href="/_next/static/css/a.css"/></head><body></body></html>`,
       {
@@ -28,10 +36,10 @@ describe("detectSiteFonts", () => {
           `body,html{max-width:100vw;font-family:var(--font-sans)}h1{font-family:inherit}`,
       },
     );
-    expect(await detectSiteFonts("vizzybl.ai", deps, NOW)).toEqual({
+    expect(await detectSiteFonts("acme.test", deps, NOW)).toEqual({
       heading: { family: "Roboto", detected: null, source: "match" },
       body: { family: "Roboto", detected: null, source: "match" },
-      domain: "vizzybl.ai",
+      domain: "acme.test",
       detectedAt: "2026-10-19T12:00:00.000Z",
       systemOnly: true,
     });
@@ -111,5 +119,15 @@ describe("the CSS readers", () => {
   it("reads Google Fonts addresses, old and new", () => {
     expect([...googleFamiliesIn("https://fonts.googleapis.com/css?family=Open+Sans|Roboto+Slab:400,700").values()]).toEqual(["Open Sans", "Roboto Slab"]);
     expect(stylesheetLinks(`<link rel=stylesheet href="/a.css">`, "https://example.com/")).toEqual(["https://example.com/a.css"]);
+  });
+});
+
+describe("brandFontsUserAgent", () => {
+  it("is BRAND_FONTS_USER_AGENT when set, else a neutral default that names no deployment", () => {
+    expect(brandFontsUserAgent({})).toBe(DEFAULT_BRAND_FONTS_USER_AGENT);
+    expect(brandFontsUserAgent({ BRAND_FONTS_USER_AGENT: "  " })).toBe(DEFAULT_BRAND_FONTS_USER_AGENT);
+    expect(brandFontsUserAgent({ BRAND_FONTS_USER_AGENT: " AcmeFonts/2.0 " })).toBe("AcmeFonts/2.0");
+    expect(brandFontsUserAgent({ BRAND_FONTS_USER_AGENT: "Acme/1.0\nX-Evil: 1" })).toBe(DEFAULT_BRAND_FONTS_USER_AGENT);
+    expect(DEFAULT_BRAND_FONTS_USER_AGENT).toBe("YouGrow-BrandFonts/1.0");
   });
 });

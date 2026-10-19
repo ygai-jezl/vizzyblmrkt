@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readEnv, embeddingLocation, databaseIdForRegion } from "./config";
+import { readEnv, embeddingLocation, databaseIdForRegion, scraperUserAgent, DEFAULT_USER_AGENT } from "./config";
 
 const base: Record<string, string> = {
   TICKET_ID: "t",
@@ -73,5 +73,14 @@ describe("readEnv", () => {
     expect(readEnv({ ...base, KNOWLEDGE_MAX_PAGES: "500" }).maxPages).toBe(100);
     expect(readEnv({ ...base, KNOWLEDGE_MAX_PAGES: "5" }).maxPages).toBe(5);
     expect(readEnv({ ...base, KNOWLEDGE_MAX_PAGES: "oops" }).maxPages).toBe(20);
+  });
+});
+
+describe("scraperUserAgent", () => {
+  it("is SCRAPER_USER_AGENT when set, else a neutral default that names no deployment", () => {
+    expect(scraperUserAgent({})).toBe(DEFAULT_USER_AGENT);
+    expect(scraperUserAgent({ SCRAPER_USER_AGENT: "  " })).toBe(DEFAULT_USER_AGENT);
+    expect(DEFAULT_USER_AGENT).not.toMatch(/https?:|\.\w{2,}\b/);
+    expect(scraperUserAgent({ SCRAPER_USER_AGENT: "AcmeBot/2.0 (+https://example.com/bot)" })).toBe("AcmeBot/2.0 (+https://example.com/bot)");
   });
 });

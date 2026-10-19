@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Provision the Knowledge Ingestion & Vector Retrieval (RAG) GCP side. See
-# memory feature-knowledge-rag-ingestion, workers/knowledge-scraper/README.md,
-# and src/lib/agents/knowledgeRetrieval.ts. The app ships OFF by default
-# (KNOWLEDGE_RAG_ENABLED="false"); this provisions the infra, then you flip the
-# flag. Least-privilege: the worker runs as a DEDICATED service account (NOT the
-# default compute SA), and the App Hosting SA can only trigger the one job.
+# workers/knowledge-scraper/README.md and src/lib/agents/knowledgeRetrieval.ts.
+# The app ships OFF by default (KNOWLEDGE_RAG_ENABLED="false"); this provisions
+# the infra, then you flip the flag. Least-privilege: the worker runs as a
+# DEDICATED service account (NOT the default compute SA), and the App Hosting SA
+# can only trigger the one job.
 #
 # Identities:
 #   knowledge-scraper@<project>          -> the Cloud Run Job RUNTIME SA (container)
@@ -24,7 +24,7 @@
 #   ./setup.sh verify  <project>   # show SA roles / job SA / job IAM / vector-index state
 #   ./setup.sh all     <project>   # sa -> roles -> iam -> job -> secrets -> index -> verify
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+#   <project> is your Google Cloud project id.
 #
 # Stays MANUAL (config lives in git, not gcloud): set KNOWLEDGE_JOB_NAME in
 # apphosting.<env>.yaml; create the git-token-* secret VALUES; and after content
@@ -36,7 +36,16 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  sa|roles|iam|job|secrets|index|verify|all)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
@@ -61,7 +70,7 @@ esac
 sa() {
   echo "==> Dedicated runtime SA ${JOB_SA}"
   if gcloud iam service-accounts describe "${JOB_SA}" --project="${PROJECT}" >/dev/null 2>&1; then
-    echo "    exists — skipping"
+    echo "    exists, skipping"
   else
     gcloud iam service-accounts create "${JOB_NAME}" --project="${PROJECT}" \
       --display-name="Knowledge scraper job runtime" >/dev/null
@@ -73,7 +82,7 @@ ensure_role() { # <id> <title> <permissions>
   if gcloud iam roles describe "$1" --project="${PROJECT}" >/dev/null 2>&1; then
     # Keep permissions in sync; tolerate "no changes".
     gcloud iam roles update "$1" --project="${PROJECT}" --permissions="$3" >/dev/null 2>&1 || true
-    echo "    role $1 exists — permissions synced"
+    echo "    role $1 exists, permissions synced"
   else
     gcloud iam roles create "$1" --project="${PROJECT}" --title="$2" \
       --permissions="$3" --stage=GA >/dev/null
@@ -84,7 +93,7 @@ ensure_role() { # <id> <title> <permissions>
 roles() {
   echo "==> Custom roles in ${PROJECT}"
   # NOTE: the RunJob RPC checks the BASE run.jobs.run permission too (not only
-  # runWithOverrides) — a runWithOverrides-only role yields PERMISSION_DENIED on
+  # runWithOverrides): a runWithOverrides-only role yields PERMISSION_DENIED on
   # 'run.jobs.run'. Include all three.
   ensure_role "${INVOKER_ROLE}" "Knowledge Job Invoker" "run.jobs.run,run.jobs.runWithOverrides,run.jobs.get"
   ensure_role "${PREDICT_ROLE}" "Knowledge Scraper Predict" "aiplatform.endpoints.predict"
@@ -103,7 +112,7 @@ iam() {
       --member="${DEPLOYER_MEMBER}" --role="roles/iam.serviceAccountUser" >/dev/null
     echo "    + serviceAccountUser for ${DEPLOYER}"
   else
-    echo "    ⚠️  no active gcloud account — skipped actAs grant (grant serviceAccountUser on ${JOB_SA} manually)"
+    echo "    ⚠️  no active gcloud account, so skipped actAs grant (grant serviceAccountUser on ${JOB_SA} manually)"
   fi
 }
 
@@ -131,7 +140,7 @@ secrets() {
         --role="roles/secretmanager.secretAccessor" >/dev/null
       echo "    + secretAccessor on ${s}"
     else
-      echo "    ${s} not present — skipping (create it only if ingesting private repos)"
+      echo "    ${s} not present, skipping (create it only if ingesting private repos)"
     fi
   done
 }

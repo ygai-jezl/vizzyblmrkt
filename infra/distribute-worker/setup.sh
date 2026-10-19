@@ -4,7 +4,7 @@
 #
 # The Distribute pillar writes due posts into the Firestore
 # `campaign_scheduled_posts` queue (see src/lib/distribute/scheduler.ts). Something
-# must drain that queue on a cadence — App Hosting has no built-in cron. This wires
+# must drain that queue on a cadence: App Hosting has no built-in cron. This wires
 # a Cloud Scheduler job that POSTs the worker endpoint, authenticated by a shared
 # secret:
 #
@@ -18,44 +18,55 @@
 #
 # Cadence is 1 minute (Cloud Scheduler's minimum): the LinkedIn "no native
 # schedule param" and the Auto-Engage sniper both need minute-level granularity.
-# Overlapping invocations are expected at this cadence — the worker claims posts
+# Overlapping invocations are expected at this cadence: the worker claims posts
 # under a lease and guards publish with `publishedRef`, so a double-run is safe.
 #
 # Usage:
 #   ./setup.sh secret    <project>   # create distribute-worker-secret + grant the runtime SA (REVERSIBLE)
-#   ./setup.sh scheduler <project>   # create/refresh the Cloud Scheduler job (REVERSIBLE)
+#   ./setup.sh scheduler <project>   # create/refresh the Cloud Scheduler job (REVERSIBLE; needs APP_URL)
 #   ./setup.sh verify    <project>   # show the secret binding + scheduler job + last run
 #   ./setup.sh run       <project>   # trigger the job once now (smoke test)
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+#   APP_URL is your app's https origin, e.g. https://app.example.com. scheduler
+#   needs it: the job calls APP_URL/api/admin/distribute/posts/process.
 #
 # Order of operations:
 #   1) ./setup.sh secret  <project>     (create the secret)
 #   2) uncomment DISTRIBUTE_WORKER_SECRET in apphosting.<env>.yaml + DEPLOY the app
 #      (the secret must exist before the rollout references it)
-#   3) ./setup.sh scheduler <project>   (start the cron)
+#   3) APP_URL=https://app.example.com ./setup.sh scheduler <project>   (start the cron)
 #   4) ./setup.sh verify <project>      (confirm it runs and posts drain)
 
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  secret|scheduler|verify|run)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 SECRET_NAME="distribute-worker-secret"
 JOB_NAME="distribute-scheduled-worker"
-LOCATION="us-central1"          # Scheduler region. Triggers an HTTP call only — carries no
+LOCATION="us-central1"          # Scheduler region. Triggers an HTTP call only; carries no
                                # PII, so it is NOT a data-residency boundary. Adjust if the
                                # gcp.resourceLocations org policy disallows this region.
 SCHEDULE="* * * * *"            # every minute (Cloud Scheduler minimum; due posts only)
 RUNTIME_SA="firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com"
 
-# Target host: the canonical platform origin. The endpoint is host-agnostic for
-# the secret (machine) caller — it fans out to every tenant regardless of host.
-if [[ "${PROJECT}" == "vizzybl-marketing-prod" ]]; then
-  TARGET_HOST="https://yougrow.ai"
-else
-  # Dev App Hosting backend default domain (<backend>--<project>.<region>.hosted.app).
-  TARGET_HOST="https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app"
+# Target host: your app's canonical origin, from APP_URL. The
+# endpoint is host-agnostic for the secret (machine) caller: it fans out to every
+# tenant regardless of which host it is reached on.
+TARGET_HOST="${APP_URL:-}"
+TARGET_HOST="${TARGET_HOST%/}"
+if [ -n "${TARGET_HOST}" ] && ! [[ "${TARGET_HOST}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+  echo "APP_URL must be an https origin with no path, e.g. https://app.example.com (got '${TARGET_HOST}')." >&2
+  exit 2
 fi
 URI="${TARGET_HOST}/api/admin/distribute/posts/process"
 
@@ -63,7 +74,7 @@ secret() {
   echo "==> Provisioning Secret Manager secret '${SECRET_NAME}' in ${PROJECT}"
 
   if gcloud secrets describe "${SECRET_NAME}" --project="${PROJECT}" >/dev/null 2>&1; then
-    echo "    secret already exists — adding a new version"
+    echo "    secret already exists, adding a new version"
   else
     echo "    creating secret (automatic replication)"
     gcloud secrets create "${SECRET_NAME}" --project="${PROJECT}" --replication-policy="automatic"
@@ -87,6 +98,10 @@ secret() {
 }
 
 scheduler() {
+  if [ -z "${TARGET_HOST}" ]; then
+    echo "Set APP_URL to your app's https origin, e.g.: APP_URL=https://app.example.com $0 scheduler ${PROJECT}" >&2
+    exit 2
+  fi
   echo "==> Creating/refreshing Cloud Scheduler job '${JOB_NAME}' in ${PROJECT} (${LOCATION})"
   echo "    schedule='${SCHEDULE}'  ->  POST ${URI}"
 
@@ -98,7 +113,7 @@ scheduler() {
   local action="create"
   if gcloud scheduler jobs describe "${JOB_NAME}" --project="${PROJECT}" --location="${LOCATION}" >/dev/null 2>&1; then
     action="update"
-    echo "    job exists — updating"
+    echo "    job exists, updating"
   fi
 
   gcloud scheduler jobs "${action}" http "${JOB_NAME}" \
@@ -118,12 +133,12 @@ scheduler() {
 verify() {
   echo "==> Secret IAM binding for '${SECRET_NAME}'"
   gcloud secrets get-iam-policy "${SECRET_NAME}" --project="${PROJECT}" \
-    --format="yaml(bindings)" 2>/dev/null || echo "    (secret not found — run: ./setup.sh secret ${PROJECT})"
+    --format="yaml(bindings)" 2>/dev/null || echo "    (secret not found. Run: ./setup.sh secret ${PROJECT})"
 
   echo "==> Scheduler job"
   gcloud scheduler jobs describe "${JOB_NAME}" --project="${PROJECT}" --location="${LOCATION}" \
     --format="yaml(name,schedule,state,httpTarget.uri,httpTarget.httpMethod,lastAttemptTime,status)" \
-    2>/dev/null || echo "    (job not found — run: ./setup.sh scheduler ${PROJECT})"
+    2>/dev/null || echo "    (job not found. Run: ./setup.sh scheduler ${PROJECT})"
 
   echo "==> Tip: confirm posts are draining"
   echo "    In Firestore (each region DB) the campaign_scheduled_posts collection"

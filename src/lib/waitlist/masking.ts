@@ -3,7 +3,7 @@ import type { Signup } from "@/lib/types/signup";
 /**
  * PII masking for the PUBLIC, unauthenticated leaderboard. Masking happens
  * server-side BEFORE serialization — raw PII never reaches the client or the
- * CDN cache. Rules per the Leaderboard PRD:
+ * CDN cache. Masking rules:
  *
  *   amount_referred  exposed as-is
  *   first_name       exposed fully

@@ -5,7 +5,7 @@ import { isSuggestAngleEnabled } from "./flags";
 
 afterEach(() => vi.unstubAllEnvs());
 
-/** The value a variable is given in an apphosting file, or null when it isn't there. */
+/** The value apphosting.yaml (the public base) gives a variable, or null when it isn't there. */
 function valueIn(file: string, variable: string): string | null {
   const text = readFileSync(join(process.cwd(), file), "utf8");
   const m = new RegExp(`- variable: ${variable}\\n\\s+value: "([^"]*)"`).exec(text);
@@ -21,8 +21,7 @@ describe("the Suggest an angle switch", () => {
     expect(isSuggestAngleEnabled()).toBe(true);
   });
 
-  it("is on in dev and set off in prod on purpose (a variable left out of the prod file is on there)", () => {
-    expect(valueIn("apphosting.yaml", "CREATE_SUGGEST_ANGLE_ENABLED")).toBe("true");
-    expect(valueIn("apphosting.prod.yaml", "CREATE_SUGGEST_ANGLE_ENABLED")).toBe("false");
+  it("is listed off in the public apphosting.yaml, like every switch", () => {
+    expect(valueIn("apphosting.yaml", "CREATE_SUGGEST_ANGLE_ENABLED")).toBe("false");
   });
 });

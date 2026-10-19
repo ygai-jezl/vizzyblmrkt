@@ -1,87 +1,702 @@
-# Firebase App Hosting — BASE config (dev defaults; overridden per environment
-# by apphosting.<env>.yaml, e.g. apphosting.prod.yaml).
-# Docs: https://firebase.google.com/docs/app-hosting/configure
+# Firebase App Hosting: the shared base settings for every deployment of this app.
+#
+# This file names no deployment. It lists every feature switch the code reads, each one
+# "false", and the few settings that are the same everywhere. A switch is on only when it
+# is the exact string "true", so a fresh fork builds and runs with every feature off.
+#
+# Your own values go in apphosting.<environment>.yaml in your fork, for example
+# apphosting.prod.yaml. Give the App Hosting backend that environment name (in the Firebase
+# console: App Hosting, your backend, Settings, Environment) and App Hosting merges that
+# file over this one at build time: an env entry there replaces the entry here with the
+# same variable, and runConfig fields there replace the ones here. To turn a feature on,
+# set its switch to "true" in your environment file.
+#
+# Secrets live in Secret Manager and are referenced by name from your environment file
+# only, never from this one, so a first build never waits on a secret you haven't made.
+# docs/self-host.md walks through a deployment step by step.
+# https://firebase.google.com/docs/app-hosting/multiple-environments
 
 runConfig:
-  # Dev scales to zero for $0 idle cost. Prod overrides minInstances to 1.
+  # Small and cheap to start with: scales to zero when idle and to two instances under
+  # load. Raise maxInstances (and minInstances, to skip cold starts) in your environment
+  # file when traffic grows.
   minInstances: 0
-  maxInstances: 10
+  maxInstances: 2
   concurrency: 80
   cpu: 1
   memoryMiB: 512
 
 env:
-  - variable: GOOGLE_CLOUD_PROJECT
-    value: vizzybl-marketing-dev
+  # ===== The same for every deployment =====
+
+  # Gemini and embeddings run on Vertex AI as the runtime service account, so no API key
+  # is needed. The service account needs roles/aiplatform.user.
+  - variable: GOOGLE_GENAI_USE_VERTEXAI
+    value: "true"
+    availability:
+      - RUNTIME
+  # Gemini text models are served on the global Vertex AI endpoint.
+  - variable: GOOGLE_CLOUD_LOCATION
+    value: global
     availability:
       - RUNTIME
 
-  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
-    value: vizzybl-marketing-dev
-    availability:
-      - BUILD
-      - RUNTIME
+  # ===== What your environment file sets =====
+  # Nothing below is set here, because each value names one deployment. Put the ones you
+  # need in apphosting.<environment>.yaml, shaped like this:
+  #
+  #   - variable: GOOGLE_CLOUD_PROJECT
+  #     value: my-project
+  #     availability:
+  #       - RUNTIME
+  #   - variable: MANDRILL_API_KEY
+  #     secret: mandrill-api-key
+  #     availability:
+  #       - RUNTIME
+  #
+  # NEXT_PUBLIC_* variables are built into the page, so give them BUILD and RUNTIME.
+  # .env.example says what every variable does; docs/self-host.md says which you need.
+  #
+  #   Project and sign-in
+  #     GOOGLE_CLOUD_PROJECT, NEXT_PUBLIC_FIREBASE_PROJECT_ID      my-project
+  #     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN                            my-project.firebaseapp.com
+  #     NEXT_PUBLIC_FIREBASE_API_KEY                                secret (public web key)
+  #     ADMIN_ALLOWED_DOMAINS or ADMIN_ALLOWED_EMAILS               example.com
+  #     ADMIN_BOOTSTRAP_TENANT_ID, ADMIN_BOOTSTRAP_REGION           ten_example, us
+  #     NEXT_PUBLIC_ADMIN_HD, NEXT_PUBLIC_ADMIN_SIGNIN_DOMAIN       example.com
+  #     RECAPTCHA_PROJECT_ID, NEXT_PUBLIC_RECAPTCHA_SITE_KEY        with RECAPTCHA_ENABLED
+  #   Addresses
+  #     NEXT_PUBLIC_PLATFORM_ORIGIN, NEXT_PUBLIC_SITE_ORIGIN        https://app.example.com
+  #     EMAIL_LINK_ORIGIN, CONNECT_ISSUER, GIT_OAUTH_ORIGIN         https://app.example.com
+  #     SITE_WAITLIST_CAMPAIGN                                      a campaign slug
+  #   Email
+  #     EMAIL_FROM                                                  Example <noreply@example.com>
+  #     EMAIL_DEFAULT_PRIVACY_URL                                   https://example.com/privacy
+  #     MANDRILL_API_KEY, MANDRILL_WEBHOOK_KEY                      secrets
+  #     MANDRILL_WEBHOOK_URL                                        https://app.example.com/api/webhooks/mandrill
+  #   Storage, keys and workers
+  #     EMAIL_ASSET_BUCKET, AUDIT_LOG_BUCKET                        my-project-email-assets
+  #     CONNECT_SIGNING_KMS_KEY                                     projects/.../cryptoKeys/...
+  #     CONNECT_SECRET_ENC_KEY, UNSUBSCRIBE_SIGNING_KEY             secrets
+  #     INVITE_LINK_SIGNING_KEY, CANVAS_CONTEXT_SIGNING_KEY         secrets
+  #     LIFECYCLE_WORKER_SECRET, EMAIL_WORKER_SECRET                secrets
+  #     DISTRIBUTE_WORKER_SECRET                                    secret
+  #     LIFECYCLE_MODE_CEILING                                      test, shadow or live (unset: test)
+  #     KNOWLEDGE_JOB_NAME, KNOWLEDGE_JOB_LOCATION                  knowledge-scraper, us-central1
+  #     ROOT_AGENT_RESOURCE_ID, ROOT_AGENT_LOCATION                 your agent engine, us-central1
+  #   Connections
+  #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
+  #     GITHUB_APP_CLIENT_SECRET, GITHUB_APP_PRIVATE_KEY            secrets
+  #     GIT_TOKEN_ENC_KEY, SOCIAL_TOKEN_ENC_KEY                     secrets
+  #     X_OAUTH_*, LINKEDIN_OAUTH_*, LINKEDIN_CM_*                  secrets
+  #     MAILCHIMP_*                                                 secrets and settings
+  #   Analytics and the voice chat
+  #     NEXT_PUBLIC_GA_MEASUREMENT_ID                               with NEXT_PUBLIC_GA_ENABLED
+  #     GEMINI_LIVE_API_KEY                                         secret, for the voice chat
 
-  # Public Firebase web config (ships in the client bundle). The API key lives in
-  # Secret Manager only to keep it out of this public repo — it is not a secret.
-  # Required at BUILD time (NEXT_PUBLIC_* is inlined) for admin Google sign-in.
-  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    secret: firebase-web-api-key
-    availability:
-      - BUILD
-      - RUNTIME
+  # ===== Feature switches =====
+  # Every switch the code reads, all off. A test (scripts/config/feature-switches.test.ts)
+  # checks that each new switch is added here as "false". Some switches need others on
+  # too; the note says so. NEXT_PUBLIC_* switches are read in the browser, so they are
+  # needed at BUILD as well.
 
-  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-    value: vizzybl-marketing-dev.firebaseapp.com
-    availability:
-      - BUILD
-      - RUNTIME
-
-  # reCAPTCHA Enterprise (score-based). Site key is public; the server-side
-  # assessment runs via ADC. Flip RECAPTCHA_ENABLED to enforce.
+  # == Sign-in, the public site and help ==
+  # reCAPTCHA Enterprise on waitlist sign-ups (needs RECAPTCHA_PROJECT_ID and the site
+  # key).
   - variable: RECAPTCHA_ENABLED
-    value: "true"
+    value: "false"
     availability:
       - RUNTIME
-  - variable: RECAPTCHA_PROJECT_ID
-    value: vizzybl-marketing-dev
+  # Off, / is a plain front page with a sign-in button; on, the marketing homepage.
+  - variable: SITE_HOME_ENABLED
+    value: "false"
     availability:
       - RUNTIME
-  - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
-    value: 6Ld8SyEtAAAAAB1EXYkY2MKXK-BYHiL_s738O-vH
+  # robots.txt, sitemap.xml and schema.org markup; the growth loop pages; other
+  # languages (needs the loop).
+  - variable: SITE_SEO_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: SITE_LOOP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: SITE_LANGUAGES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Analytics on the public site (needs NEXT_PUBLIC_GA_MEASUREMENT_ID); debug
+  # mode sends hits to DebugView.
+  - variable: NEXT_PUBLIC_GA_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_GA_DEBUG_MODE
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The public developer docs (/developers).
+  - variable: DEVELOPERS_DOCS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The public /help pages, and the setup guide that links to them (needs the help
+  # pages).
+  - variable: NEXT_PUBLIC_HELP_PAGES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SETUP_GUIDE_ENABLED
+    value: "false"
     availability:
       - BUILD
       - RUNTIME
 
-  # Admin access allowlist (AUTHORIZATION; not secret). Server-side only.
-  # Same value as the code default in src/lib/auth/allowlist.ts — made explicit
-  # here so the gate never depends on a silent fallback. AUTHENTICATION (verified
-  # Google sign-in) is enforced separately in code (ensureAdminAccess). Add
-  # ADMIN_ALLOWED_EMAILS here for individual external accounts if needed.
-  - variable: ADMIN_ALLOWED_DOMAINS
-    value: yougrow.ai
+  # == Admin navigation ==
+  # The Growth Path navigation and its theme switch, then phases 2 to 4 (each needs the
+  # one before) and the Insights hub (needs phase 4).
+  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Setup steps that must happen in order stop and say so.
+  - variable: ORDER_GUARDS_ENABLED
+    value: "false"
     availability:
       - RUNTIME
 
-  # Firestore→BigQuery analytics pipeline (Phase 2, docs/SETUP.md §11). Dataset
-  # ids are NOT secrets. One same-region dataset per residency region; the
-  # firestore-bigquery-export extension mirrors `signups` + `email_events` into
-  # them, and the app writes widget impressions to a `widget_views` table there.
-  # When ANALYTICS_BQ_ENABLED != "true" (or a region dataset is unset) the
-  # BQ-backed breakdowns degrade gracefully to the Firestore path — so this is
-  # OFF by default and only flipped on once the datasets + backfill are verified.
+  # == Waitlists and invites ==
+  # Invite your waitlist.
+  - variable: INVITES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_INVITES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Pausing a waitlist journey holds people instead of ending their sequence.
+  - variable: WAITLIST_JOURNEY_HOLD_ON_PAUSE
+    value: "false"
+    availability:
+      - RUNTIME
+  # Waitlist journeys on the lifecycle engine, and their screens.
+  - variable: WAITLIST_ENGINE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Which brands may move their launches to the engine: "*" for all, or tenant ids,
+  # comma separated.
+  - variable: WAITLIST_ENGINE_PILOT_TENANTS
+    value: "*"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # == Lifecycle journeys and connected products ==
+  # Connected products and their journeys, and API v2 (/api/v2/users).
+  - variable: LIFECYCLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: API_V2_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # AI lines in emails, Vizzy drafting journeys, and journeys that continue from
+  # another.
+  - variable: LIFECYCLE_AI_DRAFTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Consent at send time, the go live sweep, opt ins after the sign-up window, opens and
+  # clicks.
+  - variable: LIFECYCLE_CONSENT_AT_SEND
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_GO_LIVE_SWEEP
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_OPT_IN_AFTER_SIGNUP
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_SEND_TRACKING
+    value: "false"
+    availability:
+      - RUNTIME
+  # Date facts, and journeys that start when a date passes (needs date facts).
+  - variable: CONNECT_DATE_FACTS
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_DATE_START
+    value: "false"
+    availability:
+      - RUNTIME
+  # Entities, quiet unchanged writes, the email.suppressed webhook and catalog history.
+  - variable: CONNECT_ENTITIES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: CONNECT_QUIET_UNCHANGED_WRITES
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: CONNECT_SUPPRESSION_WEBHOOK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: CATALOG_HISTORY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The person view, Vizzy reading one person (needs the view), and a plan per person
+  # (needs the brief).
+  - variable: AUDIENCE_PERSON_VIEW
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_PERSON_BRIEF
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: LIFECYCLE_PERSON_PLANS
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Email style ==
+  # A logo, name and colours on branded emails, then header options, themes, web fonts
+  # (needs themes), layout buttons, styled transactional emails and journey styles. All
+  # but the first need EMAIL_STYLE_ENABLED.
+  - variable: EMAIL_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EMAIL_STYLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: EMAIL_HEADER_OPTIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EMAIL_HEADER_OPTIONS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: EMAIL_THEMES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_WEB_FONTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_LAYOUT_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_STYLE_TRANSACTIONAL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_JOURNEY_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Mailchimp ==
+  # A brand's own Mailchimp key is stored sealed under MAILCHIMP_KEY_ENC_KEY (a secret
+  # your environment file references); off, it is stored as saved. Reads understand
+  # both. scripts/seal-mailchimp-keys.ts seals keys saved before.
+  - variable: MAILCHIMP_KEY_SEALED_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Brand kit ==
+  # The brand kit, its logos, colours, fonts, icons and graphics, and using them as
+  # image references.
+  - variable: BRAND_KIT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_KIT_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_KIT_LOGOS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_KIT_LOGOS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_COLORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_COLORS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_FONTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_FONTS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_ASSETS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_ASSETS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_ASSET_REFS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Brand voice.
+  - variable: BRAND_VOICE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_VOICE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Learning a brand's image style from ratings, and using approved images as style
+  # references.
+  - variable: BRAND_STYLE_LOOP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_STYLE_REFS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Generate several images and keep the most on brand (costly). BRAND_BEST_OF_N_COUNT
+  # (2 to 4, default 2) sets how many.
+  - variable: BRAND_BEST_OF_N
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_BEST_OF_N_COUNT
+    value: "2"
+    availability:
+      - RUNTIME
+  # Steering per channel, with a revert.
+  - variable: CONTENT_STEERING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_CONTENT_STEERING_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The brand's image style (Brand, Image style; the style picker on every image,
+  # templates, screenshots and learning per style), then fonts found on the brand's
+  # website for images (needs the image style; requests go to the site and to Google
+  # Fonts).
+  - variable: BRAND_IMAGE_STYLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Image styles v2 (both need the image style): the last four drawn styles (Data story,
+  # Type poster, Split card, Line art; off, they show "Coming" and fall back as before),
+  # then formats (portrait card, partner lockup, report cover) on social posts, the blog
+  # hero and the eBook cover. Portrait and partner cards paint a scene with the image model.
+  - variable: BRAND_IMAGE_STYLE_MORE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_MORE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: IMAGE_FORMATS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_IMAGE_FORMATS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # == Brand map and What we've seen ==
+  # The brand map, then its research, Wikidata lookups, pages, Vizzy's suggestions, any
+  # size, buying situations (needs any size) and PDF research import (needs any size).
+  # All need BRAND_MAP_ENABLED.
+  - variable: BRAND_MAP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_MAP_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_MAP_RESEARCH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_MAP_WIKIDATA_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_MAP_PAGES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_MAP_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_MAP_SCALE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_MAP_SITUATIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: BRAND_MAP_IMPORT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Find what people in one buying situation ask, from its panel (needs situations and research); the NEXT_PUBLIC twin shows its help step.
+  - variable: BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # A brand's first hand notes, and Vizzy adding to them (needs the notes).
+  - variable: BRAND_NOTES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_NOTES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BRAND_NOTES_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Create ==
+  # Researched blog hubs, cite sources, articles written from the brand map, the
+  # editorial writer (each needs the first), and Suggest an angle.
+  - variable: CREATE_BLOG_CITABLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_CITABLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CREATE_BLOG_CITE_SOURCES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_CITE_SOURCES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CREATE_BLOG_BRAND_MAP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: CREATE_BLOG_EDITORIAL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: CREATE_SUGGEST_ANGLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # A hero image and share card for every blog article (needs the image style and
+  # CREATE_BLOG_CITABLE_ENABLED).
+  - variable: BLOG_HERO_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BLOG_HERO_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The eBook studio and on brand social post images.
+  - variable: CREATE_EBOOK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EBOOK_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CREATE_SOCIAL_IMAGE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_SOCIAL_IMAGE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy drafts content plans from the chat.
+  - variable: CONTENT_CHAT_AUTHORING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Grounding AI writing in the brand's knowledge (needs the vector index and the
+  # knowledge worker), and choosing which connected repos it reads.
+  - variable: KNOWLEDGE_RAG_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: GIT_REPO_SELECTION_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Social distribution and what it learns ==
+  # Real posting to X and LinkedIn, and the carousel builder.
+  - variable: DISTRIBUTE_SOCIAL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: DISTRIBUTE_CAROUSEL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Learning from post results: past winners as examples, the hashtag leaderboard, post
+  # patterns learned and then used, and trending topics.
+  - variable: DISTRIBUTE_CLOSED_LOOP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: HASHTAG_LEADERBOARD_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: POST_PATTERNS_LEARN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: POST_PATTERNS_INJECT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: TRENDING_TOPICS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Analytics from BigQuery ==
+  # Breakdowns and widget views from BigQuery. Needs a dataset per region and the export
+  # extensions in extensions/ (docs/self-host.md).
   - variable: ANALYTICS_BQ_ENABLED
-    value: "true"
+    value: "false"
     availability:
       - BUILD
       - RUNTIME
-  # Public mirror of the flag so the embed widget can tree-shake the view beacon
-  # to a no-op when the pipeline is off (NEXT_PUBLIC_* is inlined at BUILD).
   - variable: NEXT_PUBLIC_ANALYTICS_BQ_ENABLED
-    value: "true"
+    value: "false"
     availability:
       - BUILD
       - RUNTIME
+  # The dataset in each region, as named in extensions/.
   - variable: BQ_DATASET_US
     value: waitlist_us
     availability:
@@ -93,1214 +708,4 @@ env:
   - variable: BQ_DATASET_ASIA
     value: waitlist_asia
     availability:
-      - RUNTIME
-
-  # ── Knowledge ingestion & RAG (docs/site/repo → vectors → grounded copy) ──────
-  # Master switch for retrieval injection (Agent 3 + the ADK agents). OFF by
-  # default; flip to "true" per-env once the knowledge_bases vector index is built
-  # AND the scraper Cloud Run Job is deployed. When off, agents run ungrounded —
-  # exactly as before this feature. Embeddings use a REGIONAL Vertex endpoint
-  # (text-embedding-005 has no `global` endpoint); the model is PINNED in
-  # src/lib/types/knowledgeBase.ts (NOT env-overridable — coupled to the vector
-  # index dim), and the region is defaulted per residency
-  # in src/lib/agents/embeddings.ts (us→us-central1, eu→europe-west4,
-  # asia→asia-southeast1). The runtime SA needs roles/aiplatform.user. Ingestion
-  # ALSO reuses CANVAS_CONTEXT_SIGNING_KEY (above) for the ADK retrieval route
-  # /api/agent/knowledge — no new signing secret.
-  - variable: KNOWLEDGE_RAG_ENABLED
-    value: "false"
-    availability:
-      - RUNTIME
-  # The scraper Cloud Run Job that /api/admin/knowledge/ingest dispatches to
-  # (deployed via workers/knowledge-scraper/deploy.sh). Triggering needs the App
-  # Hosting runtime SA to hold run.jobs.run + run.jobs.runWithOverrides on this Job. While unset,
-  # the dispatch route records the ticket but does not trigger a worker.
-  - variable: KNOWLEDGE_JOB_NAME
-    value: knowledge-scraper
-    availability:
-      - RUNTIME
-  - variable: KNOWLEDGE_JOB_LOCATION
-    value: us-central1
-    availability:
-      - RUNTIME
-  # Server-trusted origin for the git OAuth redirect_uri. MUST equal the origin
-  # registered as the callback host on the GitHub/GitLab OAuth apps. Pinned here
-  # (not derived from the request Host header) so a spoofed host can't redirect the
-  # auth code and so custom tenant domains / apex-vs-www never mismatch the single
-  # registered callback URL. prod overrides this in apphosting.prod.yaml.
-  - variable: GIT_OAUTH_ORIGIN
-    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
-    availability:
-      - RUNTIME
-
-  # Secrets live in Secret Manager, never in this file. Wire them like so once
-  # created (`firebase apphosting:secrets:set <name>`):
-  #
-  # Transactional email. Provider precedence: Mandrill → Resend → log. REQUIRED
-  # before any campaign sets usesSignupVerification=true (else verification-
-  # required signups get a 503). EMAIL_FROM must be a verified sending domain.
-  # Dev sends for real (lifecycle test mode only reaches allow-listed addresses:
-  # the operator's own sign-in address or a verified sending domain). Create the
-  # secret first — a missing secret fails the build:
-  #   firebase apphosting:secrets:set mandrill-api-key --project dev
-  # prod overrides both of these in apphosting.prod.yaml with its own values.
-  - variable: MANDRILL_API_KEY
-    secret: mandrill-api-key
-    availability:
-      - RUNTIME
-  # Sender must be a Mandrill-verified domain (vizzybl.ai: DKIM+SPF valid).
-  # yougrow.ai is NOT verified — don't send from it until its DKIM is published.
-  - variable: EMAIL_FROM
-    value: Vizzybl (dev) <noreply@vizzybl.ai>
-    availability:
-      - RUNTIME
-  # - variable: RESEND_API_KEY
-  #   secret: resend-api-key
-  #   availability:
-  #     - RUNTIME
-  # - variable: EMAIL_FROM
-  #   value: Vizzybl <noreply@vizzybl.ai>
-  #   availability:
-  #     - RUNTIME
-  #
-  # MailChimp Marketing — shared audience sync + broadcasts/journeys.
-  # - variable: MAILCHIMP_API_KEY
-  #   secret: mailchimp-api-key
-  #   availability:
-  #     - RUNTIME
-  # - variable: MAILCHIMP_AUDIENCE_ID
-  #   secret: mailchimp-audience-id
-  #   availability:
-  #     - RUNTIME
-  # - variable: MAILCHIMP_SERVER_PREFIX   # optional — else derived from the key
-  #   value: us21
-  #   availability:
-  #     - RUNTIME
-  #
-  # Email delivery worker secret (Cloud Scheduler → /api/admin/email/jobs/process).
-  # - variable: EMAIL_WORKER_SECRET
-  #   secret: email-worker-secret
-  #   availability:
-  #     - RUNTIME
-  #
-  # Distribute worker secret (Cloud Scheduler → /api/admin/distribute/posts/process).
-  - variable: DISTRIBUTE_WORKER_SECRET
-    secret: distribute-worker-secret
-    availability:
-      - RUNTIME
-  #
-  # Distribute carousel builder (Gemini slide images → private asset bucket). Flag
-  # OFF by default; flip to "true" only AFTER provisioning the carousel image model
-  # (GEMINI_CAROUSEL_IMAGE_MODEL / GOOGLE_CLOUD_LOCATION=global) + EMAIL_ASSET_BUCKET.
-  # - variable: DISTRIBUTE_CAROUSEL_ENABLED
-  #   value: "true"
-  #   availability:
-  #     - RUNTIME
-  #
-  # Create-side on-brand SOCIAL POST image generation (linkedin/x/instagram node
-  # inspector → Gemini image → private workspace asset). Reuses the SAME model / bucket /
-  # Vertex path as email images. Server flag gates the generate route; the NEXT_PUBLIC
-  # mirror shows the inspector control (must be available at BUILD so Next inlines it).
-  # ENABLED on dev for live smoke; keep OFF in prod until validated (override in prod yaml).
-  - variable: CREATE_SOCIAL_IMAGE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_SOCIAL_IMAGE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Brand Kit asset library (Content OS sidebar item → Images gallery + Customise). Server
-  # flag gates the list/customize routes + the pages; the NEXT_PUBLIC mirror shows the
-  # sidebar item (must be available at BUILD so Next inlines it). Customise reuses the
-  # edit-capable gemini-3.1-flash-image (GEMINI_EBOOK_IMAGE_MODEL) + EMAIL_ASSET_BUCKET.
-  # ENABLED on dev; keep OFF in prod until the image_assets index is live (override in prod).
-  - variable: BRAND_KIT_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_KIT_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Brand Kit → Logos — the tenant's uploaded corporate-logo library + the primary-logo email
-  # wiring. Server flag gates the /admin/brand-kit/logos page + routes; the NEXT_PUBLIC mirror
-  # (BUILD-inlined) lights up the "Logos" tile. ENABLED on dev and in prod. Prod inherits this
-  # file, so a flag missing from apphosting.prod.yaml takes the value here, not OFF.
-  - variable: BRAND_KIT_LOGOS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_KIT_LOGOS_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Brand Kit → Colours — the Colours card source extractors (PDF palette / website colours / AI
-  # colour theme / logo colours) + the review tray + named palette groups in Account → Brand.
-  # Server flag gates the extract/generate routes; the NEXT_PUBLIC mirror (BUILD-inlined) reveals
-  # the source actions + tray + groups. No new infra (reuses Gemini + existing brand PDF/logo
-  # storage). ENABLED on dev for smoke; keep OFF in prod until reviewed (override in prod yaml).
-  - variable: BRAND_COLORS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_COLORS_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Brand Kit → Fonts — tenant-global typography (text styles + guidelines, tenant.brandTypography)
-  # + the uploaded custom font-file library (brand_fonts). Server flag gates the fonts page + its
-  # routes; the NEXT_PUBLIC mirror (BUILD-inlined) lights up the "Fonts" tile. ENABLED on dev for
-  # smoke; keep OFF in prod until the brand_fonts index is live (override in prod yaml).
-  - variable: BRAND_FONTS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_FONTS_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Brand Kit → Icons + Graphics — tenant-global uploaded ICON + GRAPHIC libraries (one brand_assets
-  # collection, raster). Server flag gates both pages + their routes; the NEXT_PUBLIC mirror
-  # (BUILD-inlined) lights up BOTH tiles. ENABLED on dev for smoke; keep OFF in prod until the
-  # brand_assets index is live (override in prod yaml).
-  - variable: BRAND_ASSETS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_ASSETS_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Deep reference integration — feed the tenant's uploaded icons/graphics into image generation as
-  # visual references (mirrors BRAND_STYLE_REFS_ENABLED). Server-only. ENABLED on dev for smoke;
-  # keep OFF in prod until the libraries are provisioned (override in prod yaml).
-  - variable: BRAND_ASSET_REFS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  #
-  # Brand voice — authored tenant-global voice (Summary/Do/Don't/guidelines) that grounds all
-  # AI copy (Content OS + launch broadcasts + Live voice). Server flag gates the voice page +
-  # route; the NEXT_PUBLIC mirror (BUILD-inlined) lights up the "Brand voice" tile in the Brand
-  # Kit grid. ENABLED on dev for smoke; keep OFF in prod until reviewed (override in prod yaml).
-  - variable: BRAND_VOICE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_VOICE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  #
-  # Brand-style feedback loop (RL-lite): operators 👍/👎 + 1–10 rate generated images (and
-  # can seed with uploads); the style engine learns from what they approve. LOOP gates the
-  # L1 vision-extraction + learned-style synthesis writes (needs the (tenantId, brandVote,
-  # brandRating, createdAt) image_assets index). REFS attaches on-brand exemplars as STYLE
-  # reference images to generation (social hybrid-switches lite→FULL when refs exist). The
-  # capture UI itself rides on BRAND_KIT_ENABLED. BEST_OF_N generates N candidates and
-  # auto-picks the most on-brand (expensive — OFF by default). ENABLED on dev for smoke;
-  # keep OFF in prod until the new index is live (override in prod yaml).
-  - variable: BRAND_STYLE_LOOP_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: BRAND_STYLE_REFS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: BRAND_BEST_OF_N
-    value: "false"
-    availability:
-      - RUNTIME
-  - variable: BRAND_BEST_OF_N_COUNT
-    value: "2"
-    availability:
-      - RUNTIME
-  #
-  # Create eBook studio (eBook hub content type: split-view ToC → chapter streaming →
-  # on-brand image gen/edit → canvas hub). Server flag gates every studio route; the
-  # NEXT_PUBLIC mirror shows the Scope toggle + studio (must be available at BUILD).
-  # Image gen/edit uses gemini-3.1-flash-image (GEMINI_EBOOK_IMAGE_MODEL) on the same
-  # Vertex path / EMAIL_ASSET_BUCKET as social images. ENABLED on dev for live smoke;
-  # keep OFF in prod until the model + streaming are validated (override in prod yaml).
-  - variable: CREATE_EBOOK_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_EBOOK_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # - variable: GEMINI_EBOOK_IMAGE_MODEL   # optional — defaults to gemini-3.1-flash-image
-  #   value: "gemini-3.1-flash-image"
-  #   availability:
-  #     - RUNTIME
-  #
-  # X (Twitter) OAuth 2.0 for the Distribute "Connect X" flow + publishing.
-  # Provision with: infra/x-oauth/setup.sh secret <project>
-  - variable: X_OAUTH_CLIENT_ID
-    secret: x-oauth-client-id
-    availability:
-      - RUNTIME
-  - variable: X_OAUTH_CLIENT_SECRET
-    secret: x-oauth-client-secret
-    availability:
-      - RUNTIME
-  - variable: SOCIAL_TOKEN_ENC_KEY
-    secret: social-token-enc-key
-    availability:
-      - RUNTIME
-  # LinkedIn OAuth 2.0 for the Distribute "Connect LinkedIn" flow + organic posting.
-  # Provision with: infra/linkedin-oauth/setup.sh secret <project>
-  - variable: LINKEDIN_OAUTH_CLIENT_ID
-    secret: linkedin-oauth-client-id
-    availability:
-      - RUNTIME
-  - variable: LINKEDIN_OAUTH_CLIENT_SECRET
-    secret: linkedin-oauth-client-secret
-    availability:
-      - RUNTIME
-  # LinkedIn Community Management app (App 2) — Company Page posting. SEPARATE app
-  # (CM must be the only product on its app). Provision: infra/linkedin-cm/setup.sh.
-  - variable: LINKEDIN_CM_CLIENT_ID
-    secret: linkedin-cm-client-id
-    availability:
-      - RUNTIME
-  - variable: LINKEDIN_CM_CLIENT_SECRET
-    secret: linkedin-cm-client-secret
-    availability:
-      - RUNTIME
-  # Enables REAL X publishing in the Distribute worker (else channel:'x' posts get a
-  # manual stamp). Safe on dev where the cron is PARKED (single manual drain). Do NOT
-  # enable in prod under a running cron until the claim is transactional (Phase-4 4d).
-  - variable: DISTRIBUTE_SOCIAL_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  #
-  # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). The KEY
-  # is the per-webhook signing key from the Mandrill dashboard; the URL must be
-  # the exact registered public URL (it is part of the HMAC signature). The
-  # secret needs the full grant-access triple (viewer + service-agent
-  # versionManager + secretAccessor), not just secretAccessor.
-  # - variable: MANDRILL_WEBHOOK_KEY
-  #   secret: mandrill-webhook-key
-  #   availability:
-  #     - RUNTIME
-  # - variable: MANDRILL_WEBHOOK_URL
-  #   value: https://yougrow.ai/api/webhooks/mandrill
-  #   availability:
-  #     - RUNTIME
-  #
-  # Signs the short-lived capability token the admin-chat proxy mints so Vizzy's
-  # specialists (Campaign Ops, Lifecycle Ops) can call back (POST
-  # /api/agent/canvas, GET /api/agent/lifecycle/*) to read context and save
-  # DRAFTS. Created in dev with a random value (prod has its own, set in
-  # apphosting.prod.yaml). The dev root agent is deployed with CANVAS_CALLBACK_URL
-  # = the dev App Hosting origin (the default in agents/root_agent/deploy.sh).
-  - variable: CANVAS_CONTEXT_SIGNING_KEY
-    secret: canvas-context-signing-key
-    availability:
-      - RUNTIME
-  #
-  # Git OAuth (private-repo ingestion). Per-tenant GitHub/GitLab connections: a
-  # "Connect" flow stores an OAuth token ENCRYPTED on the tenant doc (AES-256-GCM,
-  # keyed by GIT_TOKEN_ENC_KEY); the knowledge-scraper Job decrypts it at clone
-  # time (GIT_TOKEN_ENC_KEY is ALSO wired onto the Job — see deploy.sh / setup.sh).
-  # Provision all five secrets, then uncomment. The OAuth apps' callback URLs must
-  # be <origin>/api/admin/integrations/{github,gitlab}/callback. Each secret needs
-  # the full grant-access triple (viewer + service-agent versionManager +
-  # secretAccessor). While unset, the "Connect" buttons stay hidden and only
-  # PUBLIC repos ingest.
-  #   firebase apphosting:secrets:set git-token-enc-key --project <project>
-  #   firebase apphosting:secrets:set github-oauth-client-id --project <project>
-  #   firebase apphosting:secrets:set github-oauth-client-secret --project <project>
-  #   firebase apphosting:secrets:set gitlab-oauth-client-id --project <project>
-  #   firebase apphosting:secrets:set gitlab-oauth-client-secret --project <project>
-  - variable: GIT_TOKEN_ENC_KEY
-    secret: git-token-enc-key
-    availability:
-      - RUNTIME
-  - variable: GITHUB_OAUTH_CLIENT_ID
-    secret: github-oauth-client-id
-    availability:
-      - RUNTIME
-  - variable: GITHUB_OAUTH_CLIENT_SECRET
-    secret: github-oauth-client-secret
-    availability:
-      - RUNTIME
-  - variable: GITLAB_OAUTH_CLIENT_ID
-    secret: gitlab-oauth-client-id
-    availability:
-      - RUNTIME
-  - variable: GITLAB_OAUTH_CLIENT_SECRET
-    secret: gitlab-oauth-client-secret
-    availability:
-      - RUNTIME
-  # Git repo selection — after connecting GitHub/GitLab the admin picks WHICH repos
-  # (personal + every org/group they belong to) the connection may be used for;
-  # the knowledge-scraper Job only attaches the token for selected repos. Also adds
-  # GitLab's read_api scope (needed to list projects). Needs the Job redeployed
-  # (workers/knowledge-scraper/deploy.sh) with the matching gitToken.ts. ON in dev for smoke.
-  - variable: GIT_REPO_SELECTION_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-
-  # Agent 3 (Creative Director) — Gemini on Vertex AI. By default (no key) it uses
-  # the runtime service account via ADC (needs the Vertex AI API enabled + the SA
-  # granted roles/aiplatform.user). Alternatively provide a Vertex AI Express /
-  # Agent Platform key as the GEMINI_API_KEY secret below and the SDK switches to
-  # { vertexai:true, apiKey } — the SAME key works across local/dev/prod.
-  - variable: GOOGLE_GENAI_USE_VERTEXAI
-    value: "true"
-    availability:
-      - RUNTIME
-  # MUST be "global": this project serves Gemini text models ONLY on the global
-  # Vertex endpoint (us-central1 → 404); Imagen serves on both. The SDK routes
-  # location:"global" to aiplatform.googleapis.com. See src/lib/agents/gemini.ts.
-  - variable: GOOGLE_CLOUD_LOCATION
-    value: global
-    availability:
-      - RUNTIME
-  # - variable: GEMINI_API_KEY
-  #   secret: gemini-api-key
-  #   availability:
-  #     - RUNTIME
-  #
-  # Gemini Live API — post-signup voice conversation. DEVELOPER-API key ("AIza*"),
-  # NOT the Vertex path above: ephemeral tokens + Live are Developer-API only.
-  # Enabled for DEV here; PROD overrides this to an empty value (feature off) in
-  # apphosting.prod.yaml until a prod key is provisioned, so a prod rollout never
-  # depends on a secret that only exists in the dev project.
-  - variable: GEMINI_LIVE_API_KEY
-    secret: gemini-live-api-key
-    availability:
-      - RUNTIME
-  # Optional generative-model overrides. Defaults live in code
-  # (src/lib/agents/modelConfig.ts); uncomment to pin a model in this env with no
-  # code change. The embedding model is NOT here — it is pinned in
-  # src/lib/types/knowledgeBase.ts (coupled to the vector-index dimension).
-  # - variable: GEMINI_TEXT_MODEL          # optional — defaults to gemini-3.6-flash
-  #   value: gemini-3.6-flash
-  #   availability:
-  #     - RUNTIME
-  # - variable: GEMINI_IMAGE_MODEL         # optional — defaults to imagen-4.0-generate-001
-  #   value: imagen-4.0-generate-001
-  #   availability:
-  #     - RUNTIME
-  # - variable: GEMINI_LIVE_MODEL          # optional — defaults to gemini-3.1-flash-live-preview
-  #   value: gemini-3.1-flash-live-preview
-  #   availability:
-  #     - RUNTIME
-  # PRIVATE GCS bucket for Agent 3's generated hero images. The org enforces
-  # uniform bucket-level access + domain-restricted sharing, so objects can NOT
-  # be made public — images are served via /api/email-asset/<path> by the runtime
-  # compute SA, which holds objectCreator+objectViewer on this bucket.
-  - variable: EMAIL_ASSET_BUCKET
-    value: vizzybl-marketing-dev-email-assets
-    availability:
-      - RUNTIME
-
-  # WORM audit trail: a GCS bucket with a LOCKED retention policy where launch
-  # deletions are recorded immutably. The runtime SA holds objectCreator only
-  # (append, never read/overwrite/delete). Provision via infra/audit-log/setup.sh
-  # BEFORE deletions run in this env; when unset the audit sink is a no-op.
-  - variable: AUDIT_LOG_BUCKET
-    value: vizzybl-marketing-dev-audit-log
-    availability:
-      - RUNTIME
-
-  # Dashboard root agent (ADK 2.0 on Agent Runtime). The proxy
-  # (/api/admin/agent/chat) calls the reasoningEngine via :streamQuery using the
-  # runtime SA's ADC token — grant that SA roles/aiplatform.user. ROOT_AGENT_LOCATION
-  # is the engine's DEPLOY region. Uncomment + fill ROOT_AGENT_RESOURCE_ID after
-  # `agents/root_agent/deploy.sh` prints the reasoningEngines/<ID> tail; until
-  # then the chat streams a "not deployed yet" message.
-  - variable: ROOT_AGENT_LOCATION
-    value: us-central1
-    availability:
-      - RUNTIME
-  - variable: ROOT_AGENT_RESOURCE_ID
-    value: "2597757299074269184"
-    availability:
-      - RUNTIME
-  # Mandrill engagement webhook (opens/clicks → /api/webhooks/mandrill). KEY is the
-  # per-webhook signing key from the Mandrill dashboard; URL must match the
-  # registered public URL byte-for-byte (it is part of the HMAC signature). NOTE:
-  # dev now sends via Mandrill (MANDRILL_API_KEY above), but engagement events
-  # only arrive once a dev webhook — pointing at this URL, signed by this secret
-  # — is registered in the Mandrill dashboard.
-  - variable: MANDRILL_WEBHOOK_KEY
-    secret: mandrill-webhook-key
-    availability:
-      - RUNTIME
-  - variable: MANDRILL_WEBHOOK_URL
-    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app/api/webhooks/mandrill
-    availability:
-      - RUNTIME
-  # Lifecycle journeys — connected products (Products page, sandbox, admin APIs)
-  # and the public ingest API (/api/v1/events). ENABLED on dev; OFF in prod until
-  # verified here and promoted (overridden in apphosting.prod.yaml).
-  - variable: LIFECYCLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_LIFECYCLE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # API v2 (/api/v2/users…): the state-based product API. It replaced v1's
-  # /api/v1/events, removed on 2026-09-25 with its LIFECYCLE_INGEST_ENABLED flag.
-  # On in prod too since 2026-09-25 (apphosting.prod.yaml).
-  - variable: API_V2_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Root key that seals connection secrets (AES-GCM). Created in dev with
-  #   infra/lifecycle/setup.sh secret vizzybl-marketing-dev
-  - variable: CONNECT_SECRET_ENC_KEY
-    secret: connect-secret-enc-key
-    availability:
-      - RUNTIME
-  # Root key that seals each brand's own Mailchimp API key (AES-GCM; see
-  # src/lib/mailchimp/keyBox.ts). Prod inherits it, so it must exist in BOTH
-  # projects before a rollout. Create with
-  #   infra/mailchimp/setup.sh secret <project>
-  - variable: MAILCHIMP_KEY_ENC_KEY
-    secret: mailchimp-key-enc-key
-    availability:
-      - RUNTIME
-  # Store a brand's own Mailchimp key sealed (above), never as plain text. Reads
-  # understand both forms either way. On in prod too since 2026-10-19
-  # (apphosting.prod.yaml).
-  - variable: MAILCHIMP_KEY_SEALED_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Requests the platform sends TO products (context pulls, webhooks) carry an
-  # ES256 JWT signed with this Cloud KMS key (HSM, never exported) — not the
-  # connection secret. Public keys: <CONNECT_ISSUER>/.well-known/jwks.json.
-  # A resource name, not a secret. Created per project with
-  #   infra/lifecycle/setup.sh signing-key vizzybl-marketing-dev
-  # prod overrides both in apphosting.prod.yaml.
-  # Public developer docs (/developers): how to send events, build the context
-  # endpoint, receive webhooks and verify our requests. Open in prod too since
-  # 2026-09-25 (apphosting.prod.yaml).
-  - variable: DEVELOPERS_DOCS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: CONNECT_SIGNING_KMS_KEY
-    value: projects/vizzybl-marketing-dev/locations/us-central1/keyRings/yougrow-connect/cryptoKeys/outbound-signing
-    availability:
-      - RUNTIME
-  - variable: CONNECT_ISSUER
-    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
-    availability:
-      - RUNTIME
-  # Lifecycle runner: the highest delivery mode dev may use (prod: live), and the
-  # Cloud Scheduler tick's shared secret. Created in dev with
-  #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-dev
-  - variable: LIFECYCLE_MODE_CEILING
-    value: live
-    availability:
-      - RUNTIME
-  # Per-person AI lines for lifecycle emails (prepared ~12 h ahead, reviewed in
-  # the Approval Queue, standard version on fallback). OFF in prod until M3 is
-  # verified here.
-  - variable: LIFECYCLE_AI_DRAFTS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Vizzy can draft and edit lifecycle journeys from the chat (drafts only).
-  - variable: LIFECYCLE_CHAT_AUTHORING_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Consent decides which marketing someone gets: a marketing email due without
-  # consent is skipped (not held), journeys can admit only people with marketing
-  # consent, and a "Marketing consent granted" trigger. On in prod too since
-  # 2026-09-26 (apphosting.prod.yaml).
-  - variable: LIFECYCLE_CONSENT_AT_SEND
-    value: "true"
-    availability:
-      - RUNTIME
-  # Going live reaches recent sign-ups, never late: enrolment uses the effective
-  # mode (capped by the ceiling), a sign-up journey that can first email everyone
-  # enrols the people inside its window, and a mode hold that never started exits
-  # once its window passes. On in prod too since 2026-09-26 (apphosting.prod.yaml);
-  # scripts/count-mode-holds.ts counts what the last part will touch.
-  - variable: LIFECYCLE_GO_LIVE_SWEEP
-    value: "true"
-    availability:
-      - RUNTIME
-  # Tell the product (an `email.suppressed` webhook) when a journey email to one of
-  # its users hard-bounces or is reported as spam. On in prod too since
-  # 2026-09-26 (apphosting.prod.yaml).
-  - variable: CONNECT_SUPPRESSION_WEBHOOK_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # "Marketing consent granted" fires only for opt-ins after the sign-up window
-  # (the longest sign-up journey's, 72 hours without one): consent given during
-  # sign-up, even minutes after a first write without it, is for the sign-up
-  # journeys. On in prod too since 2026-09-27 (apphosting.prod.yaml).
-  - variable: LIFECYCLE_OPT_IN_AFTER_SIGNUP
-    value: "true"
-    availability:
-      - RUNTIME
-  # Journey links: a journey can continue from another journey. Its "Starts when"
-  # names the journey before it (set at either end: the later journey's start, or
-  # the earlier one's End), and the runner enrols people the moment they reach the
-  # end of that journey, so the new journey's waits count from there. The
-  # new-journey form and Vizzy ask whether a journey starts after another, read
-  # that journey's timeline, and build the follow-on sequence. On in prod too
-  # since 2026-10-07 (apphosting.prod.yaml).
-  - variable: LIFECYCLE_JOURNEY_LINKS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # A write that leaves a user's state as it was (a daily re-sync resending the
-  # same values) leaves no row in the Events tab, which counts them instead.
-  # On in prod too since 2026-09-27 (apphosting.prod.yaml).
-  - variable: CONNECT_QUIET_UNCHANGED_WRITES
-    value: "true"
-    availability:
-      - RUNTIME
-  # `entities`: the things a person has several of (workspaces, brands, projects),
-  # sent with their state, and journeys that say which of them each email is about
-  # (one, all, or each separately). Off: `entities` is left out of writes (listed in
-  # ignoredFields) and journeys are about the person. On in prod too since
-  # 2026-09-28 (apphosting.prod.yaml).
-  - variable: CONNECT_ENTITIES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Catalog history: the Catalog tab lists the last 20 saved versions of a product's
-  # catalog (what changed, who, when) with Restore. Versions are recorded whatever
-  # this says; off hides the list and refuses a restore. Off in prod until verified
-  # on dev (apphosting.prod.yaml).
-  - variable: CATALOG_HISTORY_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Date facts: a fact can be a date (when someone was last active, when a trial
-  # ends). The catalog marks it `date`, the product sends it as text (ISO 8601 with
-  # a zone, or a plain day), and journeys read it as whole days from now — "Days
-  # since" and "Days until", worked out when they check, so a value never goes
-  # stale between writes. A value that isn't a date is left as it was and listed in
-  # ignoredFields. Off: the catalog refuses the type. On in prod too since
-  # 2026-10-09 (apphosting.prod.yaml).
-  - variable: CONNECT_DATE_FACTS
-    value: "true"
-    availability:
-      - RUNTIME
-  # A journey can start when a date passes: "Starts when" names one of the
-  # catalog's date facts and a number of days ("Last active was more than 14 days
-  # ago"), and a daily check (from 07:00 UTC, inside the lifecycle tick) reads the
-  # product's people and enrols whoever has crossed the line — and isn't more than
-  # the journey's window past it, so going live doesn't take everyone who ever went
-  # quiet. Needs CONNECT_DATE_FACTS. Off: the check doesn't run, a draft that starts
-  # this way can't be published, and the editor and Vizzy don't offer it. On in
-  # prod too since 2026-10-09 (apphosting.prod.yaml).
-  - variable: LIFECYCLE_DATE_START
-    value: "true"
-    availability:
-      - RUNTIME
-  # Opens and clicks for product journeys. A new product journey starts with both
-  # tracked (one that continues from another keeps that journey's setting, and a
-  # copy keeps its own). Publishing copies a journey's tracking setting onto the
-  # journey itself, so switching it on or off reaches people already part-way
-  # through, whatever version they started on. Each send keeps the subject and
-  # the AI line that went out, and names its enrolment, so a second spell in a
-  # journey people can enter again has its own opens and clicks. The email's
-  # metadata then carries the tenant, the enrolment and the step alone (Mandrill
-  # drops metadata over 250 bytes, and with it every open, click and bounce); the
-  # webhook reads the journey and the person from the enrolment. Journeys made
-  # before this stay as they were published until they're published again;
-  # scripts/backfill-journey-tracking.ts switches a brand's existing journeys on.
-  # Off: every enrolment tracks as its version says, as before. On in prod too
-  # since 2026-10-09 (apphosting.prod.yaml).
-  - variable: LIFECYCLE_SEND_TRACKING
-    value: "true"
-    availability:
-      - RUNTIME
-  # The person view. Audience › Product users becomes a list worth scanning: the
-  # stage each person is at (new, onboarding, stuck, activated, quiet), the
-  # journey they're in, emails sent, opened and clicked, search and filters. Every
-  # row opens the person's page (/admin/crm/people/{id}): each journey with what
-  # was sent, where they are and what the sender does next (the runner's own
-  # walk, on stored state), every email with what they did with it, their product
-  # progress, one timeline, consent, a data export and erase. Reads only what is
-  # already held; opening a page asks the product nothing. Needs
-  # LIFECYCLE_ENABLED. Off: the older list, and the page and its APIs 404. On in
-  # prod too since 2026-10-09 (apphosting.prod.yaml).
-  - variable: AUDIENCE_PERSON_VIEW
-    value: "true"
-    availability:
-      - RUNTIME
-  # Vizzy can read ONE person's situation: the person whose page the operator is
-  # on. The chat names that person by our id for them (a one-way hash), and
-  # Vizzy's get_person_brief reads /api/agent/lifecycle/people/{id}: their stage,
-  # onboarding, facts, journeys and emails. Never their name, their email address
-  # or the product's ids: every string goes through
-  # src/lib/audience/identityScrubber.ts before it leaves. It is pseudonymised
-  # personal data all the same (behaviour tied to one person under our id), read
-  # for the operator who is looking at that person, and it stays in that chat's
-  # session with the agent runtime. Until now Vizzy only ever got totals, so this
-  # is a new use of personal data, and the owner's decision to switch on. Needs
-  # AUDIENCE_PERSON_VIEW and LIFECYCLE_CHAT_AUTHORING_ENABLED, and a root agent
-  # deployed with the tool. Off: the person's id never leaves the app and the
-  # route answers 503. OFF in prod (apphosting.prod.yaml).
-  - variable: LIFECYCLE_PERSON_BRIEF
-    value: "true"
-    availability:
-      - RUNTIME
-  # A plan per person. Vizzy's save_person_plan (or staff, on the person's page)
-  # saves a DRAFT: a goal, how to put it to them, the next steps, a day to look
-  # again. Only staff approve it. An approved plan is added to the prompt that
-  # writes that person's AI line (lifecycle/prepare.ts), which is still checked
-  # and still goes through Approvals, where the line says it was shaped by their
-  # plan. A plan sends nothing and changes no journey. One that holds an email
-  # address or the person's full name is refused; a first name is taken out
-  # before Vizzy or the AI line reads it, and their page says so. Vizzy drafts
-  # none for someone who can't be emailed at all, only an admin can ask it to,
-  # and plans are erased and exported with the person. Needs
-  # LIFECYCLE_PERSON_BRIEF. Off: no plan is read, shown or used. OFF in prod
-  # (apphosting.prod.yaml).
-  - variable: LIFECYCLE_PERSON_PLANS
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: LIFECYCLE_WORKER_SECRET
-    secret: lifecycle-worker-secret
-    availability:
-      - RUNTIME
-  # READ-ONLY GitHub access: the "YouGrow (dev)" GitHub App (github.com/apps/yougrow-dev)
-  # — Contents: read + Metadata: read only, no webhook (verified with GitHub's /app
-  # API). "Connect GitHub" installs the app on the repos the customer chooses; every
-  # clone mints a one-hour, down-scoped installation token. The classic OAuth app
-  # (which can also write) is no longer offered once this is set. ID, slug and
-  # Client ID are public; the client secret and private key are in dev Secret
-  # Manager with the App Hosting grants (the key also for the knowledge-scraper Job).
-  # prod overrides all five with its own app ("YouGrowApp") in apphosting.prod.yaml.
-  # Register another environment's app with: node infra/github-app/create-app.mjs --env <env>
-  - variable: GITHUB_APP_ID
-    value: "5051547"
-    availability:
-      - RUNTIME
-  - variable: GITHUB_APP_SLUG
-    value: yougrow-dev
-    availability:
-      - RUNTIME
-  - variable: GITHUB_APP_CLIENT_ID
-    value: Iv23lise0Uy9XrPjrb7Z
-    availability:
-      - RUNTIME
-  - variable: GITHUB_APP_CLIENT_SECRET
-    secret: github-app-client-secret
-    availability:
-      - RUNTIME
-  - variable: GITHUB_APP_PRIVATE_KEY
-    secret: github-app-private-key
-    availability:
-      - RUNTIME
-  # Signs the per-recipient unsubscribe tokens in email footers (and the RFC 8058
-  # one-click header). Without it, emails carry no unsubscribe link and lifecycle
-  # marketing sends are held. Created in dev with a random value (separate from prod's).
-  - variable: UNSUBSCRIBE_SIGNING_KEY
-    secret: unsubscribe-signing-key
-    availability:
-      - RUNTIME
-  # Origin for unsubscribe / preference links in emails. dev has no
-  # NEXT_PUBLIC_PLATFORM_ORIGIN (widgets fall back to the request origin), so
-  # without this, dev emails would carry no unsubscribe link. prod uses the
-  # platform origin (https://yougrow.ai) and leaves this unset.
-  - variable: EMAIL_LINK_ORIGIN
-    value: https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app
-    availability:
-      - RUNTIME
-  # Google Analytics 4 (gtag.js) on the public site: /, /login and /developers
-  # (src/lib/analytics/googleAnalytics.ts). The measurement ID is public (it's in
-  # every tagged page), not a secret. ENABLED on dev with debug_mode, so dev hits
-  # show in GA DebugView and the "Developer traffic" data filter keeps them out of
-  # reports; OFF in prod until verified here and promoted (apphosting.prod.yaml).
-  # NEXT_PUBLIC_*: build + runtime.
-  - variable: NEXT_PUBLIC_GA_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: NEXT_PUBLIC_GA_MEASUREMENT_ID
-    value: G-EX03YZN6BY
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: NEXT_PUBLIC_GA_DEBUG_MODE
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # "Growth Path" admin navigation (nav v2): the new sidebar, the header with
-  # breadcrumbs, the Launches list, and redirects from the old unlinked pages.
-  # The theme switch (System / Light / Dark) lives in that header, so it needs
-  # nav v2 too. ENABLED on dev; OFF in prod until verified here and promoted
-  # (overridden in apphosting.prod.yaml). NEXT_PUBLIC_*: build + runtime.
-  - variable: NEXT_PUBLIC_NAV_V2_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: NEXT_PUBLIC_THEME_SWITCH_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Nav v2 phase 2, "always a next step": the Home growth path and real metrics,
-  # the sidebar progress dots, one Review queue for every decision, the Ask Vizzy
-  # panel (⌘J), ⌘K search and the shell palette. Needs nav v2. ENABLED on dev;
-  # OFF in prod until verified here and promoted (apphosting.prod.yaml).
-  - variable: NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Nav v2 phase 3, "one home per noun": Brand (guidelines included), Settings
-  # (General · Sending · Integrations), Audience across sources, one Journeys list
-  # for both engines, a launch Emails tab, Products setup + environments, and
-  # Content's Overview with Programme naming. Needs phase 2. ENABLED on dev; OFF in
-  # prod until verified here and promoted (apphosting.prod.yaml).
-  - variable: NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Nav v2 phase 4, "close the loop": the launch Overview checklist, the new
-  # breadcrumbs and ⌘K items, and the programme in view sent to Vizzy. Needs phase
-  # 3. The parts below have their own flags too. ENABLED on dev; OFF in prod until
-  # verified here and promoted (apphosting.prod.yaml).
-  - variable: NEXT_PUBLIC_NAV_V2_PHASE4_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # The Insights hub (Overview · Launches · Email · Content · Journeys). Needs phase 4.
-  - variable: NEXT_PUBLIC_INSIGHTS_HUB_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Vizzy drafts content plans from chat (the content_plan canvas kind and
-  # /api/agent/content/*). Off = the agent's content tools say they're unavailable.
-  - variable: CONTENT_CHAT_AUTHORING_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # "Invite your waitlist": the invite APIs, sending (invite jobs are held while
-  # off), attribution on ingest and Vizzy-drafted waves (server), plus the invite
-  # UI (client; needs phase 4). Invite links (/invite/…) keep working either way.
-  - variable: INVITES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_INVITES_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Signs invite links (HMAC-SHA256 with a purpose prefix; its own key, separate from
-  # the unsubscribe and canvas keys). Create it per project with
-  # `bash infra/invites/setup.sh secret <project>` BEFORE this file reaches that
-  # project: prod inherits this entry, and a missing secret fails the build.
-  - variable: INVITE_LINK_SIGNING_KEY
-    secret: invite-link-signing-key
-    availability:
-      - RUNTIME
-  # Engine move D1: a paused waitlist journey (or an archived launch) HOLDS each
-  # person's next email instead of ending their sequence; new signups join a paused
-  # journey and wait; turning it back on releases them. Off = the original
-  # behaviour (the step is marked done and the person gets nothing more).
-  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
-  - variable: WAITLIST_JOURNEY_HOLD_ON_PAUSE
-    value: "true"
-    availability:
-      - RUNTIME
-  # Engine move D2: waitlist journeys on the lifecycle engine. WAITLIST_ENGINE_ENABLED
-  # is its kill switch (off: everyone in a moved journey is held where they are,
-  # never dropped; new signups still join and wait). WAITLIST_ENGINE_PILOT_TENANTS
-  # lists the tenants whose launches may move (comma-separated ids, or "*").
-  # Needs the waitlist_enrolments indexes (firestore.indexes.json) deployed first.
-  # ENABLED on dev; OFF in prod until verified here (apphosting.prod.yaml).
-  - variable: WAITLIST_ENGINE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: WAITLIST_ENGINE_PILOT_TENANTS
-    value: "*"
-    availability:
-      - RUNTIME
-  # Engine move D4: the screens for launches on the lifecycle engine — the
-  # lifecycle editor's welcome-journey mode and (D5) the launch's "Email engine"
-  # panel. Read at BUILD time by client components.
-  - variable: NEXT_PUBLIC_WAITLIST_ENGINE_UI_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Email style: a logo, company name and colours on branded emails (Brand › Email
-  # style), and Vizzy's suggestions for it. The server flag gates the style in
-  # sends and previews, the page, its APIs and Vizzy's tools. Off: emails exactly
-  # as today, page 404, APIs 503, and saved styles are kept. The client mirror
-  # shows the Brand tile and is read at BUILD time. The logo also needs
-  # BRAND_KIT_LOGOS_ENABLED and the https EMAIL_LINK_ORIGIN above.
-  # ENABLED on dev and in prod (apphosting.prod.yaml sets both explicitly).
-  - variable: EMAIL_STYLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_EMAIL_STYLE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Email header options, on top of Email style (needs EMAIL_STYLE_ENABLED): a
-  # gradient header, a chosen header text colour (Auto / White / Black), the logo
-  # clean-up on the Email style page, and Vizzy suggesting the first two; plus a custom
-  # header image (uploaded on the Email style page and served publicly from
-  # /api/brand-asset/header/…), and Vizzy switching to one. The server flag gates them
-  # in sends and previews, the Save API, the header image upload/delete routes and
-  # Vizzy's tools. Off: emails exactly as today, no new page controls, and saved options
-  # are kept (a Save keeps them). The client mirror shows the page controls (with the
-  # server flag) and is read at BUILD time. The logo clean-up also needs
-  # BRAND_KIT_LOGOS_ENABLED.
-  # ENABLED on dev and in prod (apphosting.prod.yaml sets both explicitly).
-  - variable: EMAIL_HEADER_OPTIONS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_EMAIL_HEADER_OPTIONS_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Email style, next: five follow-ups on top of Email style, each on its own server
-  # flag. All are RUNTIME only, with no client mirror (the pages that show them are
-  # server components that pass props), and none is read by the renderers. Off, each
-  # gives exactly today's emails and keeps what's saved, so each is a kill switch.
-  # ENABLED on dev and in prod (apphosting.prod.yaml sets each explicitly).
-  #
-  # Themes (needs EMAIL_STYLE_ENABLED): one of four looks (Classic, Modern, Editorial,
-  # Friendly) with a heading and a body font, in sends and previews, the Theme section
-  # on the Email style page, its Save API, and Vizzy's Email style suggestions. Off: the
-  # theme is ignored, a Save keeps a stored one, and Vizzy says themes aren't on yet.
-  - variable: EMAIL_THEMES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Web fonts (needs EMAIL_THEMES_ENABLED and the https EMAIL_LINK_ORIGIN above): a
-  # theme's web font (Inter, Lora, …) loads from /email-fonts/ in the inboxes that load
-  # them (Apple Mail, Outlook for Mac, a few others) through a <head> block, Mandrill
-  # sends those emails with inline_css off, and the page previews both views. Off:
-  # each theme's safe fonts only, with no head block.
-  - variable: EMAIL_WEB_FONTS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Layout buttons (needs EMAIL_STYLE_ENABLED): a Create email layout's buttons take
-  # the Email style's button colour (with a readable label) and the theme's button
-  # shape, unless a button is set to Own colour. Off: every button draws as built, and
-  # no Own colour marker is written.
-  - variable: EMAIL_LAYOUT_STYLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Sign-up confirmation and offboarding emails (needs EMAIL_STYLE_ENABLED): both wear
-  # the colour header (never the banner), the button colour and the card, with the same
-  # subject, copy, text part and sender; an offboarding email skips a suppressed
-  # address; the Email style page's preview can switch to either. Off: today's plain
-  # emails, sent exactly as today.
-  - variable: EMAIL_STYLE_TRANSACTIONAL_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Journey styles (needs EMAIL_STYLE_ENABLED; a journey's gradient and header text also
-  # need EMAIL_HEADER_OPTIONS_ENABLED): a lifecycle journey's own header and button
-  # colours, set in the journey's Settings or by Vizzy in its draft, and live on Publish.
-  # Off: every journey wears the brand's Email style, stored journey styles are kept,
-  # and Vizzy says journey styles aren't on yet and offers the brand suggestion.
-  - variable: EMAIL_JOURNEY_STYLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Blog hubs written to the CITABLE structure (Create): a blog hub is researched first
-  # (the questions buyers ask, the brand's own pages to link to, third-party sources
-  # checked on the page — Gemini with Google Search, plus one fetch of each cited page),
-  # written answer-first with its sources, fact-checked against the brand's material, and
-  # handed over with a checklist, Markdown/HTML export and suggested schema markup. The
-  # server flag gates research, the writer and the fact check (and Vizzy's blog drafts);
-  # the NEXT_PUBLIC mirror shows the brief, checklist and export (needed at BUILD). Off:
-  # a blog hub is written exactly as before. On in prod too since 2026-10-07
-  # (apphosting.prod.yaml).
-  - variable: CREATE_BLOG_CITABLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BLOG_CITABLE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Cite sources (Knowledge + Create): a web source in a programme's knowledge can be
-  # marked as one an article may cite (a study, a report, a page of data) and read as one
-  # page instead of crawled. Blog research then reads those sources BESIDE its web search
-  # (never instead of it): it picks facts out of the stored text, keeps one only if its
-  # figures are in that text, and hands the writer one list drawn from both. A cite source
-  # on someone else's site is evidence only — every other reader of the knowledge base
-  # (posts, emails, Vizzy, the fact check) is no longer handed it as the brand's own
-  # material. Research also reads the publisher's robots.txt and notes which AI crawlers
-  # it keeps out of the article. No new index, secret or worker: the tag and its vector
-  # index already exist, and the worker already reads its page cap per run. The server
-  # flag gates all of that; the NEXT_PUBLIC mirror shows the controls (needed at BUILD).
-  # Off: a `cite` tag is a tag like any other and research is as before. On in prod too
-  # since 2026-10-09 (apphosting.prod.yaml).
-  - variable: CREATE_BLOG_CITE_SOURCES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BLOG_CITE_SOURCES_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # The brand map (Brand › Brand map): ONE record per brand that every blog article is
-  # written from — what the brand is, the names it uses and avoids, the subjects it wants
-  # to be known for (with the questions people ask), its profile links and identifiers,
-  # and the page on its own site that is the home of each subject and name. Research and
-  # articles and Vizzy only ever file SUGGESTIONS; a person accepts them and saves. New
-  # regional collections `brand_maps` and `brand_map_pages`, read by id or by brand only:
-  # no new index, rule or secret. Each part has its own switch, and every one needs
-  # BRAND_MAP_ENABLED. Off: nothing reads or writes a brand map and articles are written
-  # exactly as before. All "false" in prod (apphosting.prod.yaml) until checked on dev.
-  # BRAND_MAP_ENABLED: the record, the page and saving it. The NEXT_PUBLIC mirror shows
-  # the Brand map tile (needed at BUILD).
-  - variable: BRAND_MAP_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_MAP_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Research that drafts the map: one Google-Search-grounded Gemini call per run, plus a
-  # fetch of the brand's home page (for its own profile links). Rate-limited per brand.
-  - variable: BRAND_MAP_RESEARCH_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Identifier lookups for `sameAs`: sends the name being looked up to www.wikidata.org's
-  # public API, and nothing else. Off: identifiers can only be pasted.
-  - variable: BRAND_MAP_WIKIDATA_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Articles written from the map: research, the writer and the fact check read it, the
-  # checklist gains "Keeps to your names" (and "Says where it doesn't fit" when the map
-  # lists what the brand is not), and the suggested markup gains `sameAs`. Needs
-  # CREATE_BLOG_CITABLE_ENABLED too. Off (or no saved map): blog prompts, checklist and
-  # markup are byte-for-byte as before (src/lib/content/blog/pins.test.ts).
-  - variable: CREATE_BLOG_BRAND_MAP_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # "Suggest an angle": a new workflow's Spark (its angle / thesis) is suggested from what
-  # the brand has already said — the brand map's question, subject and buying situation,
-  # what the brand is, and its knowledge. One quick Gemini call, no web search; a person
-  # edits it. Filled by itself when a workflow starts from "Write this next". Off: the
-  # Spark field is exactly as before.
-  - variable: CREATE_SUGGEST_ANGLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # The pages side: an article's address can be set after creation and checked live, each
-  # article and crawled page gets a small row, the map shows what is answered, drafted or
-  # open per subject, "Write this next", and the content map tab.
-  - variable: BRAND_MAP_PAGES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Vizzy reads the brand map and files suggestions for it (never changes what is
-  # decided). Needs a root agent redeploy for its tools.
-  - variable: BRAND_MAP_CHAT_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # The map at any size: a brand's subjects and their questions move out of its one
-  # record into their own (`brand_map_groups`, `brand_map_subjects`, `brand_map_questions`,
-  # `brand_map_vectors`, `brand_map_runs`), once, on the first write with this on. The old
-  # list stays as it was, so turning this off shows the map as it was at the move. No fixed
-  # count of subjects or questions (safety limits only), groups, the Subjects tab, the
-  # content map by levels, coverage per subject, and articles reading only what is close to
-  # them. Needs its Firestore indexes deployed first (firestore.indexes.json).
-  - variable: BRAND_MAP_SCALE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Buying situations (`brand_map_situations`): research that finds the situations people
-  # are in and what they ask then (Google-Search-grounded Gemini calls, a run at a time),
-  # their tab, the map arranged by situation, and an article written for one. Needs
-  # BRAND_MAP_SCALE_ENABLED.
-  - variable: BRAND_MAP_SITUATIONS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # The brand's own research from a PDF: the uploaded file is sent to Gemini to read, never
-  # stored; what it found is kept (`brand_map_imports`). Needs BRAND_MAP_SCALE_ENABLED.
-  - variable: BRAND_MAP_IMPORT_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # "Find what they ask" on one buying situation (a person's own, or one Vizzy proposed and
-  # a person added): research's second step for that situation, a run at a time, and its
-  # questions added or dismissed right there. Uses the routes situations already has; needs
-  # BRAND_MAP_SITUATIONS_ENABLED and BRAND_MAP_RESEARCH_ENABLED. The NEXT_PUBLIC twin only
-  # adds the step to the Brand map help page.
-  - variable: BRAND_MAP_SITUATION_ASK_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Editorial blog articles (feat/blog-editorial-voice). CREATE_BLOG_EDITORIAL_ENABLED: a
-  # CITABLE blog hub is researched on its own question and written as an editorial article
-  # (an opening that answers, sections whose first sentence answers, trade-offs and
-  # mistakes, a closing that makes the point; no answer boxes, Key facts or TL;DR), checked
-  # against that shape, with a byline and an author box from the brief. Needs
-  # CREATE_BLOG_CITABLE_ENABLED. Off: research, the writer, the check and the markup are
-  # exactly as before. Runtime only: an article carries the shape it was written in.
-  - variable: CREATE_BLOG_EDITORIAL_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # What we've seen (Brand › What we've seen, `brand_notes`): the brand's own first-hand
-  # notes (customer stories, tests, mistakes, objections, its own numbers), added by hand or
-  # pulled out of a pasted call. A blog article gets the ones that match its question
-  # strongly (a meaning search in `brand_map_vectors` plus one model check), and asks for a
-  # note when none does. BRAND_NOTES_ENABLED: the page, its APIs and the article's matching
-  # (the writer uses notes only with CREATE_BLOG_EDITORIAL_ENABLED too). The NEXT_PUBLIC
-  # mirror shows the tile and the article's box (needed at BUILD). Index:
-  # brand_notes (tenantId, createdAt desc).
-  - variable: BRAND_NOTES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_NOTES_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # Vizzy adds notes to What we've seen as suggestions (a person keeps them) and can
-  # interview a person for them. Needs BRAND_NOTES_ENABLED and a root agent redeploy.
-  - variable: BRAND_NOTES_CHAT_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Help pages and the setup guide (feat/setup-guide-help). NEXT_PUBLIC_HELP_PAGES_ENABLED:
-  # the public /help pages, their Markdown copies and /help/llms.txt. NEXT_PUBLIC_SETUP_GUIDE_ENABLED
-  # (needs the help pages): Home's "Get ready" stage, what each step needs first, How to links,
-  # the How to drawer, Help in the sidebar and ⌘K, and Vizzy's setup tools (/api/agent/setup,
-  # /api/agent/help). Both are read in the browser, so they're needed at BUILD.
-  - variable: NEXT_PUBLIC_HELP_PAGES_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: NEXT_PUBLIC_SETUP_GUIDE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  # The order guards (fix/order-guards): where doing things in the wrong order used to
-  # fail quietly, the app stops and says so. A welcome email's first publish asks before it
-  # goes to people already on the list; a LinkedIn or X post can't be scheduled with no
-  # account connected; a broadcast or weekly newsletter can't be scheduled with nobody to
-  # send to; a launch says when its emails come from the shared default address.
-  - variable: ORDER_GUARDS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # The public site (feat/seo-geo-site). SITE_SEO_ENABLED: robots.txt (everyone welcome on
-  # the canonical host, incl. AI crawlers; other hosts kept out), sitemap.xml with hreflang,
-  # schema.org JSON-LD on public pages, and the site part of /llms.txt. SITE_LOOP_ENABLED:
-  # the growth-loop homepage plus /loop/<stage> and /features/<feature>. SITE_LANGUAGES_ENABLED
-  # (needs the loop): the same pages in Spanish, French, German, Japanese and Arabic under /es,
-  # /fr, /de, /ja and /ar. All read on the server at request time.
-  - variable: SITE_SEO_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: SITE_LOOP_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: SITE_LANGUAGES_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  # Brand image style (feat/image-style-v1). BRAND_IMAGE_STYLE_ENABLED: Brand › Image style
-  # (a default style, a style per channel, accent and switches), the style picker on every
-  # image (social posts, eBook, email blocks, launch heroes: "this image only"), the template
-  # renderer (Product noir, Headline card), Brand kit › Screenshots and learning per style.
-  # Off = every image is made exactly as before. BLOG_HERO_ENABLED (needs the image style and
-  # CREATE_BLOG_CITABLE_ENABLED): every blog article gets a hero after its fact check, a hero
-  # card, a checklist item and hero downloads in Export. BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED:
-  # images use the fonts found on the brand's website (Google fonts fetched as TTF, a free match
-  # for paid fonts) when none is uploaded; off = uploaded fonts, then the bundled ones. The
-  # client mirrors are read at BUILD time. ENABLED on dev; prod sets all six to "false".
-  - variable: BRAND_IMAGE_STYLE_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: BLOG_HERO_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BLOG_HERO_ENABLED
-    value: "true"
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
-    value: "true"
-    availability:
-      - RUNTIME
-  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
-    value: "true"
-    availability:
-      - BUILD
       - RUNTIME

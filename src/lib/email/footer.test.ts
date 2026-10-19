@@ -1,15 +1,23 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import type { Tenant } from "@/lib/types/tenant";
 import {
   resolvePrivacyUrl,
   unsubscribeLinks,
   journeyFooterValues,
   broadcastFooterValues,
-  DEFAULT_PRIVACY_URL,
   emailLinkOrigin,
   lifecycleUnsubscribeLinks,
 } from "./footer";
 import { verifyUnsubscribeTokenAny } from "./unsubscribeToken";
+
+const DEFAULT_PRIVACY_URL = "https://example.com/privacy";
+
+beforeEach(() => {
+  vi.stubEnv("EMAIL_DEFAULT_PRIVACY_URL", DEFAULT_PRIVACY_URL);
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function tenant(over: Partial<Tenant> = {}): Tenant {
   return {
@@ -26,9 +34,13 @@ describe("resolvePrivacyUrl", () => {
     } as Partial<Tenant>);
     expect(resolvePrivacyUrl(t)).toBe("https://acme.test/p");
   });
-  it("falls back to the default when unset", () => {
+  it("falls back to EMAIL_DEFAULT_PRIVACY_URL when unset", () => {
     expect(resolvePrivacyUrl(tenant())).toBe(DEFAULT_PRIVACY_URL);
     expect(resolvePrivacyUrl(null)).toBe(DEFAULT_PRIVACY_URL);
+  });
+  it("has no built-in fallback: empty when the deployment sets none", () => {
+    vi.stubEnv("EMAIL_DEFAULT_PRIVACY_URL", "");
+    expect(resolvePrivacyUrl(tenant())).toBe("");
   });
 });
 

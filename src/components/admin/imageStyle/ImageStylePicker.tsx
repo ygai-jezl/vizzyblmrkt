@@ -1,6 +1,7 @@
 "use client";
 
-import { IMAGE_STYLES, builtImageStyles } from "@/lib/content/imageStyle/catalogue";
+import { IMAGE_STYLES, availableImageStyles, isStyleAvailable } from "@/lib/content/imageStyle/catalogue";
+import { isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
 import { resolveImageStyle, usableStyle, type ImageSurface } from "@/lib/content/imageStyle/resolve";
 import { useBrandImageStyle } from "./useBrandImageStyle";
 
@@ -34,10 +35,11 @@ export function ImageStylePicker({
   selectClassName?: string;
 }) {
   const { style: brand } = useBrandImageStyle();
-  const brandStyle = resolveImageStyle({ enabled: true, surface, channel, brand, override: null });
+  const more = isMoreStylesUiEnabled();
+  const brandStyle = resolveImageStyle({ enabled: true, surface, channel, brand, override: null, more });
   const brandLabel = brandStyle.engine === "legacy" ? "today's look" : brandStyle.label;
-  const choices = builtImageStyles().filter((s) => usableStyle(s.id, surface)?.id === s.id);
-  const coming = IMAGE_STYLES.filter((s) => !s.built);
+  const choices = availableImageStyles(more).filter((s) => usableStyle(s.id, surface, more)?.id === s.id);
+  const coming = IMAGE_STYLES.filter((s) => !isStyleAvailable(s, more));
   const own = value && value !== "brand" ? value : null;
 
   return (

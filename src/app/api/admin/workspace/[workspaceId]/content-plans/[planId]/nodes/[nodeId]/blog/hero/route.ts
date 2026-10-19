@@ -7,6 +7,8 @@ import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
 import { makeBlogHero, setHeroAlt } from "@/lib/content/blog/hero";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
+import { FormatInputsSchema, ImageFormatIdSchema } from "@/lib/types/imageStyle";
+import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +23,9 @@ const BUDGET_MS = 140_000;
 const MakeSchema = z.strictObject({
   /** This article's own style; "brand" = back to the brand's; absent = keep the article's pick. */
   styleId: z.string().min(1).max(40).optional(),
+  /** A format for the hero and what it draws (IMAGE_FORMATS_ENABLED); absent = keep the article's. */
+  format: ImageFormatIdSchema.optional(),
+  formatInputs: FormatInputsSchema.optional(),
 });
 const AltSchema = z.strictObject({ alt: z.string().max(250) });
 
@@ -36,7 +41,7 @@ async function scope(req: Request, params: RouteParams["params"]) {
   if (!ws) return fail(NextResponse.json({ error: "not_found" }, { status: 404 }));
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return fail(NextResponse.json({ error: "not_found" }, { status: 404 }));
-  return { ok: true as const, ctx, ws, workspaceId, planId, nodeId };
+  return { ok: true as const, ctx, ws, plan, workspaceId, planId, nodeId };
 }
 
 /**
@@ -52,6 +57,11 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (await isRateLimited(`tenant:${s.ctx.tenantId}`, HERO_LIMIT)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
+  const { format, formatInputs } = parsed.data;
+  const formats = isImageFormatsEnabled();
+  if (formats && format === "portrait" && !formatInputs?.quote?.trim()) {
+    return NextResponse.json({ error: "invalid_input", message: "Add the quote for the portrait card." }, { status: 400 });
+  }
   const tenant = await getTenantById(s.ctx.tenantId);
   const styleId = parsed.data.styleId;
   const r = await makeBlogHero({
@@ -63,6 +73,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(styleId !== undefined ? { styleOverride: styleId === "brand" ? null : styleId } : {}),
     budgetMs: BUDGET_MS,
     retry: true,
+    ...(formats && format !== undefined ? { format, ...(formatInputs ? { formatInputs } : {}) } : {}),
+    brief: s.plan.blog ?? null,
     brandContextFor: (learned) =>
       assembleBrandContext({
         brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice, workspaceBrandVoice: s.ws.brandVoice }),

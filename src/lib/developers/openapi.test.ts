@@ -229,13 +229,14 @@ describe("/developers/openapi.json", () => {
 
   it("serves the spec as JSON while the docs are on, and 404s while they're off", async () => {
     process.env.DEVELOPERS_DOCS_ENABLED = "true";
-    const res = openApiJson();
+    const req = () => new Request("http://localhost:3002/developers/openapi.json");
+    const res = openApiJson(req());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
     const served = (await res.json()) as S;
     expect(served.openapi).toBe(spec.openapi);
     expect(Object.keys(served.paths as S)).toEqual(Object.keys(spec.paths));
     process.env.DEVELOPERS_DOCS_ENABLED = "false";
-    expect(openApiJson().status).toBe(404);
+    expect(openApiJson(req()).status).toBe(404);
   });
 });

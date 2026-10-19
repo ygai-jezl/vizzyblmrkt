@@ -10,7 +10,13 @@ import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
-import { renderStyleImage, type StyleImageRequest, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
+import { formatTemplate, renderStyleImage, templateFor, type StyleImageRequest, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
+import { chartFromCopy, figureFromCopy, type CopyText } from "@/lib/content/imageStyle/chartFromCopy";
+import { paintFormatScene, type SceneRequest } from "@/lib/content/imageStyle/formatScene";
+import { seedFor } from "@/lib/content/imageStyle/render/templates/lineArt";
+import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
+import type { BlogBrief } from "@/lib/types/contentPlan";
+import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 import { heroTitle } from "./heroTitle";
 
 export { heroTitle };
@@ -51,6 +57,10 @@ export interface HeroDeps {
   store: typeof storeWorkspaceImage;
   record: typeof recordImageAsset;
   update: typeof updateBlogHero;
+  /** Data story's numbers from the article (checked in code). */
+  chart: (copy: CopyText) => Promise<Chart | null>;
+  /** A format's painted scene. */
+  scene: (req: SceneRequest) => Promise<GeneratedImage | null>;
 }
 
 const defaultDeps: HeroDeps = {
@@ -67,6 +77,8 @@ const defaultDeps: HeroDeps = {
   store: storeWorkspaceImage,
   record: recordImageAsset,
   update: updateBlogHero,
+  chart: (copy) => chartFromCopy(copy),
+  scene: (req) => paintFormatScene(req),
 };
 
 export interface MakeHeroInput {
@@ -84,6 +96,12 @@ export interface MakeHeroInput {
   /** The brand context for the picture brief, given what was learned for the hero's style
    *  (undefined until any style has learned: then the brand's older learned look). */
   brandContextFor?: (learned: string | null | undefined) => string;
+  /** A format for the hero (IMAGE_FORMATS_ENABLED); absent = keep the article's. */
+  format?: ImageFormatId;
+  /** What the format draws; absent = keep the article's. */
+  formatInputs?: FormatInputs;
+  /** The plan's brief: the author and integrations pre-fill formats; checked facts feed charts. */
+  brief?: BlogBrief | null;
 }
 
 export type MakeHeroResult =
@@ -134,6 +152,8 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
       ...(stored ?? {}),
       status: "pending",
       styleOverride: input.styleOverride === undefined ? (stored?.styleOverride ?? null) : input.styleOverride,
+      ...(input.format !== undefined ? { format: input.format } : {}),
+      ...(input.formatInputs !== undefined ? { formatInputs: input.formatInputs } : {}),
       attempts: 0,
       error: null,
       startedAt: runId,
@@ -152,22 +172,19 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
   const choice = styleForImage({ surface: "blogHero", tenant, override: claim.hero?.styleOverride ?? null });
   const resolved = choice.resolved;
 
-  let made: { hero: Buffer; share: Buffer; styleId: string; status: "ready" | "fallback"; alt: string; prompt?: string; note?: BlogHero["note"]; art?: GeneratedImage } | null = null;
+  let made: { hero: Buffer; share: Buffer; styleId: string; status: "ready" | "fallback"; alt: string; prompt?: string; note?: BlogHero["note"]; art?: GeneratedImage; chart?: Chart } | null = null;
   let attempts = 0;
   let prompt: string | undefined;
+  let note: BlogHero["note"] = undefined;
+  const brandContext = () => input.brandContextFor?.(learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(resolved.engine === "legacy" ? null : resolved.id))) ?? "";
 
-  // 3a. A template style is drawn.
-  if (resolved.engine === "template") {
-    const template = resolved.id === "product_noir" ? "product_noir" : "headline_card";
-    const base = { ctx, tenant, template, headline: title, footer, showLogo: true } as const;
-    const hero = await deps.render({ ...base, size: "hero" });
-    const share = hero ? await deps.render({ ...base, size: "share" }) : null;
-    if (hero && share) made = { hero: hero.png, share: share.png, styleId: resolved.id, status: "ready", alt: title, ...(hero.note ? { note: hero.note } : {}) };
-  }
+  // What a chart or a big number may be drawn from: the article and the brief's checked facts,
+  // never a figure the fact check flagged.
+  const facts = (input.brief?.sources ?? []).filter((x) => x.status === "verified" || x.status === "operator").map((x) => x.fact).filter(Boolean);
+  const copy: CopyText = { text: [node.body, ...facts].join("\n"), excluded: node.blog?.unsupportedFigures ?? [] };
 
-  // 3b. A painted style: a picture brief, then the image model, with one retry if time allows.
-  if (!made && resolved.engine === "model") {
-    const direction = choice.model.direction ?? { label: resolved.label, keywords: resolved.keywords };
+  /** A picture brief, then the image model, with one retry if time allows. */
+  const paintArt = async (direction: { label: string; keywords: string }): Promise<GeneratedImage | null> => {
     prompt =
       (await deps.brief(
         renderPrompt("content.blog_hero_brief", {
@@ -176,7 +193,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
           excerpt: opening(node.body) || "(none)",
           style_label: direction.label,
           style_keywords: direction.keywords,
-          brand_context: input.brandContextFor?.(learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(resolved.id))) ?? "",
+          brand_context: brandContext(),
         }),
         // Leave enough for one painting try: in a short Vizzy turn the brief gives way first.
         Math.min(BRIEF_MS, Math.max(3_000, left() - RESERVE_MS - 20_000)),
@@ -188,6 +205,80 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
       attempts++;
       art = await deps.paint(prompt, timeout);
     }
+    return art;
+  };
+  const draw = async (req: Omit<StyleImageRequest, "ctx" | "tenant" | "size" | "headline"> & { headline?: string }) => {
+    const base = { ctx, tenant, headline: title, footer, showLogo: true, ...req } as StyleImageRequest;
+    const hero = await deps.render({ ...base, size: "hero" });
+    const share = hero ? await deps.render({ ...base, size: "share" }) : null;
+    return hero && share ? { hero: hero.png, share: share.png, note: hero.note } : null;
+  };
+
+  // 3f. A format (IMAGE_FORMATS_ENABLED): pre-filled from the brief, drawn in the style's skin
+  // around a painted scene (portrait and partner always; a report cover in a painted style).
+  const format = isImageFormatsEnabled() && resolved.engine !== "legacy" ? formatTemplate(claim.hero?.format) : null;
+  if (format && resolved.engine !== "legacy") {
+    const fi = claim.hero?.formatInputs ?? {};
+    const partner = fi.partner || input.brief?.entities?.find((e) => e.relation === "integration")?.name || "";
+    const inputs: FormatInputs =
+      format === "portrait"
+        ? { ...fi, ...(fi.name || input.brief?.author ? { name: fi.name || input.brief?.author } : {}), ...(fi.role || input.brief?.authorRole ? { role: fi.role || input.brief?.authorRole } : {}) }
+        : format === "partner"
+          ? { ...fi, partner, line: fi.line || title }
+          : { ...fi, title: fi.title || title, subtitle: fi.subtitle || node.blog?.metaDescription || "", ...(fi.figure || figureFromCopy(copy) ? { figure: fi.figure ?? figureFromCopy(copy)! } : {}) };
+    const usable = format === "portrait" ? Boolean(inputs.quote?.trim()) : format === "partner" ? Boolean(inputs.partner?.trim()) : true;
+    if (usable) {
+      const direction = choice.model.direction ?? { label: resolved.label, keywords: "" };
+      const scene =
+        format !== "report_cover" || resolved.engine === "model"
+          ? await deps.scene({ format, inputs, headline: title, direction, brandContext: brandContext(), aspectRatio: "16:9", timeoutMs: Math.min(60_000, left() - RESERVE_MS) }).catch(() => null)
+          : null;
+      const drawn = await draw({ template: format, formatInputs: inputs, skin: resolved.id, ...(scene ? { art: scene.bytes } : {}) });
+      const altText =
+        format === "portrait"
+          ? `${inputs.name ? `${inputs.name}: ` : ""}${inputs.quote?.replace(/\*/g, "")}`
+          : format === "partner"
+            ? `${tenant?.tenantName ?? "Our brand"} and ${inputs.partner}: ${(inputs.line ?? "").replace(/\*/g, "")}`
+            : [inputs.title, inputs.subtitle].filter(Boolean).join(". ");
+      if (drawn) made = { hero: drawn.hero, share: drawn.share, styleId: resolved.id, status: "ready", alt: cleanAlt(altText, title) };
+    }
+  }
+
+  // 3a. A drawn style. Data story steps down to Type poster, then the Headline card, when the
+  // article doesn't hold enough checked numbers; Split card paints its photo first.
+  if (!made && resolved.engine === "template") {
+    let tpl: string = resolved.id;
+    let chart: Chart | null = null;
+    let figure: Figure | null = null;
+    if (tpl === "data_story") {
+      chart = claim.hero?.chart ?? (await deps.chart(copy).catch(() => null));
+      if (!chart) {
+        note = "no_numbers";
+        tpl = "type_poster";
+      }
+    }
+    if (tpl === "type_poster") {
+      figure = claim.hero?.formatInputs?.figure ?? figureFromCopy(copy);
+      if (!figure && note === "no_numbers") tpl = "headline_card";
+    }
+    const art = tpl === "split_card" ? await paintArt(choice.model.direction ?? { label: resolved.label, keywords: "" }) : null;
+    const drawn = await draw({
+      template: templateFor(tpl)!,
+      chart,
+      figure,
+      ...(tpl === "line_art" ? { seed: seedFor(title, started) } : {}),
+      ...(art ? { art: art.bytes } : {}),
+    });
+    if (drawn) {
+      made = { hero: drawn.hero, share: drawn.share, styleId: tpl, status: "ready", alt: title, ...(prompt ? { prompt } : {}), ...(chart ? { chart } : {}) };
+      const n = note ?? drawn.note;
+      if (n) made.note = n;
+    }
+  }
+
+  // 3b. A painted style: the art cropped to the hero, the title over the share card.
+  if (!made && resolved.engine === "model") {
+    const art = await paintArt(choice.model.direction ?? { label: resolved.label, keywords: resolved.keywords });
     if (art) {
       const hero = await deps.render({ ctx, tenant, template: "art_overlay", size: "hero", headline: "", art: art.bytes, showHeadline: false, showLogo: false });
       const share = await deps.render({ ctx, tenant, template: "art_overlay", size: "share", headline: title, art: art.bytes, showLogo: true });
@@ -263,6 +354,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
       error: null,
       forTitle: title,
       note: made.note ?? null,
+      ...(made.chart ? { chart: made.chart } : {}),
       assetId,
       updatedAt: now,
     });

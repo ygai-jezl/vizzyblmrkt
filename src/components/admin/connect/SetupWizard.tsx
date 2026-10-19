@@ -93,7 +93,7 @@ export function SetupWizard({
                 className={inputClass}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. vizzybl.ai"
+                placeholder="e.g. example.com"
                 maxLength={120}
                 autoFocus
               />

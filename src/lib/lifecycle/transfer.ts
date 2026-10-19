@@ -121,7 +121,7 @@ const DuplicateInput = z.object({
 
 /**
  * Copy a journey onto another product in the same account — e.g. from
- * "vizzybl.ai (staging)", where it was tested, to "vizzybl.ai (production)".
+ * "Acme (staging)", where it was tested, to "Acme (production)".
  */
 export async function duplicateJourney(
   ctx: TenantContext,

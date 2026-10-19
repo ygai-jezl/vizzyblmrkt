@@ -9,7 +9,7 @@
  * the Headline card.
  */
 import type { ImageStyleChannel, ImageStyleId, StoredImageStyle } from "@/lib/types/imageStyle";
-import { imageStyleById, type ImageStyleDefinition, type ImageStyleRequirement } from "./catalogue";
+import { imageStyleById, isStyleAvailable, type ImageStyleDefinition, type ImageStyleRequirement } from "./catalogue";
 import { DEFAULT_SOCIAL_IMAGE_STYLE, SOCIAL_IMAGE_STYLE_IDS } from "@/lib/content/create/socialImage";
 import { DEFAULT_EBOOK_IMAGE_STYLE, EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
 
@@ -52,6 +52,8 @@ export interface ResolveImageStyleInput {
   brand?: StoredImageStyle | null;
   /** The image's own pick: a style id, an old preset id, "brand" or null (= the brand's). */
   override?: string | null;
+  /** The v2 styles are available (isMoreStylesEnabled() / isMoreStylesUiEnabled()). */
+  more?: boolean;
 }
 
 /** Surfaces a template can be rendered for (a template needs a fixed, known frame). */
@@ -85,11 +87,11 @@ export function channelKeyFor(surface: ImageSurface, channel?: string | null): I
   }
 }
 
-/** A chosen style as it can actually be made here: built, and a template only where one fits. */
-export function usableStyle(id: string, surface: ImageSurface): ImageStyleDefinition | null {
+/** A chosen style as it can actually be made here: available, and a template only where one fits. */
+export function usableStyle(id: string, surface: ImageSurface, more = false): ImageStyleDefinition | null {
   let def = imageStyleById(id);
   for (let hops = 0; def && hops < 4; hops++) {
-    if (!def.built) {
+    if (!isStyleAvailable(def, more)) {
       def = imageStyleById(def.builtFallback);
       continue;
     }
@@ -120,7 +122,7 @@ export function resolveImageStyle(input: ResolveImageStyleInput): ResolvedImageS
 
   // 1. The image's own pick.
   if (override) {
-    const def = usableStyle(override, surface);
+    const def = usableStyle(override, surface, input.more);
     if (def) return fromDefinition(def, "override");
     if (presets.includes(override)) return { engine: "legacy", presetId: override, source: "override" };
   }
@@ -130,11 +132,11 @@ export function resolveImageStyle(input: ResolveImageStyleInput): ResolvedImageS
   const key = channelKeyFor(surface, input.channel);
   const channelPick = key ? brand?.channels?.[key] : undefined;
   if (channelPick) {
-    const def = usableStyle(channelPick, surface);
+    const def = usableStyle(channelPick, surface, input.more);
     if (def) return fromDefinition(def, "channel");
   }
   if (brand?.defaultStyleId) {
-    const def = usableStyle(brand.defaultStyleId, surface);
+    const def = usableStyle(brand.defaultStyleId, surface, input.more);
     if (def) return fromDefinition(def, "default");
   }
 

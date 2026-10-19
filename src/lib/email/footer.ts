@@ -26,11 +26,14 @@ export function emailLinkOrigin(): string {
  */
 
 /** Footer fallback when a tenant hasn't set a Privacy Policy URL yet (the admin
- *  form now requires one, so this only covers legacy tenants). */
-export const DEFAULT_PRIVACY_URL = "https://yougrow.ai/privacy";
+ *  form now requires one, so this only covers legacy tenants): the deployment's
+ *  EMAIL_DEFAULT_PRIVACY_URL, or empty when it has none. */
+export function defaultPrivacyUrl(): string {
+  return (process.env.EMAIL_DEFAULT_PRIVACY_URL ?? "").trim();
+}
 
 export function resolvePrivacyUrl(tenant: Tenant | null | undefined): string {
-  return tenant?.emailSenderConfig?.privacyPolicyUrl?.trim() || DEFAULT_PRIVACY_URL;
+  return tenant?.emailSenderConfig?.privacyPolicyUrl?.trim() || defaultPrivacyUrl();
 }
 
 /**

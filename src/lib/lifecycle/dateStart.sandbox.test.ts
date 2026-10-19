@@ -25,11 +25,13 @@ beforeAll(() => {
 beforeEach(() => {
   __resetConnectionCaches();
   process.env.EMAIL_LINK_ORIGIN = "https://mk.test";
+  // No tenant record here, so the footer's privacy link is the deployment's default.
+  process.env.EMAIL_DEFAULT_PRIVACY_URL = "https://mk.test/privacy";
   process.env.CONNECT_DATE_FACTS = "true";
   process.env.LIFECYCLE_DATE_START = "true";
 });
 afterEach(() => {
-  for (const k of ["EMAIL_LINK_ORIGIN", "CONNECT_DATE_FACTS", "LIFECYCLE_DATE_START"]) delete process.env[k];
+  for (const k of ["EMAIL_LINK_ORIGIN", "EMAIL_DEFAULT_PRIVACY_URL", "CONNECT_DATE_FACTS", "LIFECYCLE_DATE_START"]) delete process.env[k];
 });
 
 async function sandbox(db: FakeFirestore) {

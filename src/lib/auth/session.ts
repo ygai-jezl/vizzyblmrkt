@@ -41,7 +41,7 @@ function adminApp(): App {
     process.env.FIREBASE_AUTH_EMULATOR_HOST
   ) {
     return initializeApp({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-vizzybl",
+      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-yougrow",
     });
   }
   return initializeApp({
@@ -50,7 +50,7 @@ function adminApp(): App {
   });
 }
 
-export type AdminAccess = "ready" | "needs_refresh" | "forbidden";
+export type AdminAccess = "ready" | "needs_refresh" | "forbidden" | "not_set_up";
 
 /** The admin login accepts ONLY genuine Google sign-ins (ADR-0003, Google-only). */
 const REQUIRED_SIGN_IN_PROVIDER = "google.com";
@@ -58,12 +58,12 @@ const REQUIRED_SIGN_IN_PROVIDER = "google.com";
 /**
  * AUTHENTICATION invariant for every session mint: a real, VERIFIED Google
  * identity — the token was minted by Google sign-in AND Google verified the
- * email. This holds identically for today's @yougrow.ai operators and any
+ * email. This holds identically for today's allowlisted operators and any
  * future self-service tenant owner (both sign in with Google), and it is what
  * makes the email-domain match in isAllowedAdmin trustworthy: the domain is
  * Google-verified, never self-asserted. Without it, a project that has
  * email/password (or anonymous) sign-in enabled would let an attacker mint a
- * token for an unowned address (e.g. anyone@yougrow.ai) and pass the allowlist.
+ * token for an unowned address (e.g. anyone@<an allowed domain>) and pass the allowlist.
  *
  * Kept separate from AUTHORIZATION (which tenant/role — isAllowedAdmin + the
  * claims bootstrap below) so the future onboarding path can reuse this exact
@@ -83,6 +83,9 @@ export function isVerifiedGoogleIdentity(decoded: DecodedIdToken): boolean {
  *  - "needs_refresh" → just minted claims; the client must refresh its ID token
  *                      and call again so the new token carries the claims
  *  - "ready"         → the token already has tenant_id+region; create the session
+ *  - "not_set_up"    → an allowed account with no tenant yet, and no
+ *                      ADMIN_BOOTSTRAP_TENANT_ID to put it in (the deployment
+ *                      hasn't named its first workspace)
  */
 export async function ensureAdminAccess(idToken: string): Promise<AdminAccess> {
   const auth = getAuth(adminApp());
@@ -102,12 +105,15 @@ export async function ensureAdminAccess(idToken: string): Promise<AdminAccess> {
     // internal operator allowlist should be routed to a tenant-creation
     // onboarding flow (provisioning their OWN tenant) rather than forbidden.
     // Until that lands we fail closed, so widening the allowlist can never
-    // silently drop a stranger into the bootstrap tenant (ten_vzb) as admin.
+    // silently drop a stranger into the bootstrap tenant as admin.
     return "forbidden";
   }
   if (!decoded.tenant_id || !decoded.region) {
+    // The tenant a first-time admin joins. No default: a deployment names its own.
+    const tenantId = process.env.ADMIN_BOOTSTRAP_TENANT_ID?.trim();
+    if (!tenantId) return "not_set_up";
     await auth.setCustomUserClaims(decoded.uid, {
-      tenant_id: process.env.ADMIN_BOOTSTRAP_TENANT_ID ?? "ten_vzb",
+      tenant_id: tenantId,
       region: process.env.ADMIN_BOOTSTRAP_REGION ?? "us",
       role: "admin",
     });

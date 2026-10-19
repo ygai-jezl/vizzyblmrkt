@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EmailLayoutSchema, MAX_EMAIL_BLOCKS } from "@/lib/types/emailLayout";
+import { ChartSchema, FormatInputsSchema, ImageFormatIdSchema } from "@/lib/types/imageStyle";
 
 /**
  * A ContentPlan — the "Create" pillar's saved, recallable workflow. An operator
@@ -105,7 +106,8 @@ const MAX_IMAGES_PER_CHAPTER = 8;
 const MAX_CHAPTER_CHARS = 16000;
 
 /** Operator-facing eBook image aspect ratios (see src/lib/content/create/ebook.ts). */
-export const EbookAspect = z.enum(["1:1", "1:4"]);
+/** "4:5" is the report cover only (IMAGE_FORMATS_ENABLED); the aspect menu offers the other two. */
+export const EbookAspect = z.enum(["1:1", "1:4", "4:5"]);
 export type EbookAspect = z.infer<typeof EbookAspect>;
 
 /**
@@ -131,6 +133,9 @@ export const EbookImageSlotSchema = z.object({
   imagePrompt: z.string().max(1000).nullable().optional(),
   /** This image's own style, picked when it was made (a style or old preset id); absent = the brand's. */
   imageStyleId: z.string().max(40).nullable().optional(),
+  /** v2: the cover as a report cover (IMAGE_FORMATS_ENABLED) and what it draws. */
+  format: ImageFormatIdSchema.optional().catch(undefined),
+  formatInputs: FormatInputsSchema.optional().catch(undefined),
 });
 export type EbookImageSlot = z.infer<typeof EbookImageSlotSchema>;
 
@@ -431,7 +436,11 @@ export const BlogHeroSchema = z.object({
   error: z.string().max(200).nullable().optional(),
   /** The headline it was made for, to say "the title changed since". */
   forTitle: z.string().max(200).default(""),
-  note: z.enum(["no_screenshot", "bundled_font"]).nullable().optional(),
+  note: z.enum(["no_screenshot", "bundled_font", "no_numbers"]).nullable().optional(),
+  /** v2: a format for the hero (IMAGE_FORMATS_ENABLED), what it draws, and Data story's numbers. */
+  format: ImageFormatIdSchema.optional().catch(undefined),
+  formatInputs: FormatInputsSchema.optional().catch(undefined),
+  chart: ChartSchema.optional().catch(undefined),
   /** The Brand Kit image record of the hero, for its thumbs (learning per style). */
   assetId: z.string().max(128).nullable().optional(),
   startedAt: z.string().max(40).nullable().default(null),
@@ -542,6 +551,10 @@ export const ContentNodeSchema = z.object({
   imageStyleId: z.string().max(40).nullable().optional(),
   /** Brand image style: the words drawn on this post's image (`*stars*` mark the highlight). */
   imageHeadline: z.string().max(160).nullable().optional(),
+  /** v2: this post's image format, what it draws, and Data story's numbers. Saved with the post. */
+  imageFormat: ImageFormatIdSchema.optional().catch(undefined),
+  imageFormatInputs: FormatInputsSchema.optional().catch(undefined),
+  imageChart: ChartSchema.optional().catch(undefined),
   // ── eBook hub (only on the `hub` node of an "ebook" plan; null elsewhere). The
   //    authored book is copied here from `ContentPlan.ebookDraft` at finalize so the
   //    canvas hub node IS the eBook. Additive + nullable so old/other plans parse. ──

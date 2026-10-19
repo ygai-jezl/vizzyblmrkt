@@ -7,15 +7,20 @@
  * - `template`: code lays out the brand's fonts, logo, real numbers and screenshots
  *   (src/lib/content/imageStyle/render), so words are always exact.
  *
- * v1 builds 9 styles. An unbuilt style keeps a saved choice and resolves to `builtFallback`.
+ * v1 built 9 styles; v2 adds the last 4 drawn ones (Data story, Type poster, Split card, Line
+ * art), available only with BRAND_IMAGE_STYLE_MORE_ENABLED (`isStyleAvailable`). A style that
+ * isn't available keeps a saved choice and resolves to `builtFallback`.
  * A template style on a surface that can't take one (eBook, email) resolves to `modelTwin`.
  */
 import type { ImageStyleId } from "@/lib/types/imageStyle";
 
 export type ImageStyleEngine = "model" | "template";
 
-/** What a style needs from the brand to look its best. Reported, never enforced. */
-export type ImageStyleRequirement = "screenshots";
+/**
+ * What a style needs to be made: product screenshots (asked for once), numbers from the copy
+ * (a chart), or painted art for part of the frame. The routes act on these.
+ */
+export type ImageStyleRequirement = "screenshots" | "numbers" | "art";
 
 export interface ImageStyleDefinition {
   id: ImageStyleId;
@@ -25,8 +30,10 @@ export interface ImageStyleDefinition {
   /** One short line for the pickers. */
   hint: string;
   engine: ImageStyleEngine;
-  /** Built in this release. */
+  /** Drawn or painted by code that exists. */
   built: boolean;
+  /** Shipped in v2: available only while BRAND_IMAGE_STYLE_MORE_ENABLED is on. */
+  since?: "v2";
   /** Model styles: the art direction that leads the image prompt. */
   keywords: string;
   requires: ImageStyleRequirement[];
@@ -67,9 +74,10 @@ export const IMAGE_STYLES: readonly ImageStyleDefinition[] = [
     label: "Data story",
     hint: "One chart or one big number, annotated, with its source.",
     engine: "template",
-    built: false,
+    built: true,
+    since: "v2",
     keywords: "",
-    requires: [],
+    requires: ["numbers"],
     modelTwin: "illustration",
     builtFallback: "headline_card",
   },
@@ -79,7 +87,8 @@ export const IMAGE_STYLES: readonly ImageStyleDefinition[] = [
     label: "Type poster",
     hint: "One colour block and giant type.",
     engine: "template",
-    built: false,
+    built: true,
+    since: "v2",
     keywords: "",
     requires: [],
     modelTwin: "illustration",
@@ -182,9 +191,10 @@ export const IMAGE_STYLES: readonly ImageStyleDefinition[] = [
     label: "Split card",
     hint: "A photo beside a brand-colour panel with the headline.",
     engine: "template",
-    built: false,
+    built: true,
+    since: "v2",
     keywords: "",
-    requires: [],
+    requires: ["art"],
     modelTwin: "natural_photo",
     builtFallback: "natural_photo",
   },
@@ -194,7 +204,8 @@ export const IMAGE_STYLES: readonly ImageStyleDefinition[] = [
     label: "Line art",
     hint: "Fine lines in one or two colours on a plain ground.",
     engine: "template",
-    built: false,
+    built: true,
+    since: "v2",
     keywords: "",
     requires: [],
     modelTwin: "illustration",
@@ -209,9 +220,17 @@ export function imageStyleById(id: string | null | undefined): ImageStyleDefinit
   return id ? (BY_ID.get(id) ?? null) : null;
 }
 
-/** Built styles only, in catalogue order (the pickers' choosable list). */
-export function builtImageStyles(): ImageStyleDefinition[] {
-  return IMAGE_STYLES.filter((s) => s.built);
+/**
+ * Whether a style can be made here: built, and for a v2 style, its switch on (`more`: the
+ * server's isMoreStylesEnabled(), or isMoreStylesUiEnabled() in the browser).
+ */
+export function isStyleAvailable(def: ImageStyleDefinition | null | undefined, more: boolean): boolean {
+  return Boolean(def?.built && (def.since !== "v2" || more));
+}
+
+/** The styles that can be picked, in catalogue order (the pickers' choosable list). */
+export function availableImageStyles(more: boolean): ImageStyleDefinition[] {
+  return IMAGE_STYLES.filter((s) => isStyleAvailable(s, more));
 }
 
 /**

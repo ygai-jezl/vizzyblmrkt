@@ -1,44 +1,67 @@
-# vizzybl-marketing
+# YouGrow
 
-Multi-tenant sales & marketing SaaS. **MVP = a gamified public Waitlist.** This
-repo is at **Phase 0 (foundations)**.
+Open-source growth platform: waitlists, lifecycle journeys, content and social
+posts, all run with an AI agent. Self-host it on your own Google Cloud.
 
-## Stack
-Next.js 15 · React 18 · TypeScript · Tailwind · Zod · Vitest · Firebase
-(Firestore + App Hosting). Aligned with the sibling app `vizzybl-portal`.
+## Quick start with an AI coding agent
 
-## What's here (Phase 0)
-- **Tenant-isolation layer** — `src/lib/tenant`. The #1 security control: every
-  Firestore access is forced through `forTenant(ctx)` so it's partitioned by
-  `tenantId`. Raw Firestore access is banned everywhere else by an ESLint rule.
-- **Regional data residency (region-ready)** — per-tenant residency via named
-  Firestore databases (US/EU/Asia). `region` is immutable on each tenant;
-  `forTenant(ctx)` routes `campaigns`/`signups` to the tenant's regional DB while
-  the `tenants`/`tenant_users` registry stays on the control-plane DB. Only US is
-  provisioned today; EU/Asia light up with no schema migration. See
-  [docs/REGIONAL-DATA-RESIDENCY.md](./docs/REGIONAL-DATA-RESIDENCY.md).
-- **Schema-aligned types** — `src/lib/types` (Zod): `tenants`, `tenant_users`,
-  `campaigns`, `signups`.
-- **Scoring** — `src/lib/waitlist/scoring.ts` (integer-safe; uses the
-  per-campaign `spotsToMoveUponReferral`).
-- **Guardrails** — deny-all `firestore.rules` backstop, composite
-  `firestore.indexes.json`, ESLint isolation rules, CI.
-- **Hosting config** — `apphosting.yaml` (dev) + `apphosting.prod.yaml`.
-- **Docs** — [`docs/`](./docs): architecture assessment, validation findings,
-  ADRs, and the cloud [setup checklist](./docs/SETUP.md).
+New to this? [Start with Claude or Cursor](docs/start-with-claude-or-cursor.md) walks you
+through it step by step: what to install, what the agent will do and ask, what to ask next,
+and how to host your own copy.
 
-## Develop
+**Claude Code:**
+
 ```bash
-npm install
-npm run emulators     # Firestore + Auth emulators (separate shell)
-npm run dev           # http://localhost:3002
-
-npm run typecheck
-npm run lint
-npm test              # includes the cross-tenant isolation tests
+git clone https://github.com/ygai-jezl/vizzyblmrkt yougrow
+cd yougrow
+claude "Get YouGrow running on my laptop. Follow AGENTS.md."
 ```
 
-## The one rule that matters
+**Cursor:** clone the repo, open the folder in Cursor, then paste the same
+prompt into the chat:
+
+```
+Get YouGrow running on my laptop. Follow AGENTS.md.
+```
+
+[Open the setup prompt in Cursor](https://cursor.com/link/prompt?text=Get%20YouGrow%20running%20on%20my%20laptop.%20Follow%20AGENTS.md.)
+
+The repo ships an agent kit for Claude Code and Cursor: [AGENTS.md](AGENTS.md), step by step
+skills in `.claude/skills/`, and safe defaults that ask before any deploy or cloud change.
+
+Prefer a container or a cloud agent? See [docs/agents/cloud.md](docs/agents/cloud.md).
+
+## Without an agent
+
+You need Node 24 and Java 21 (the Firebase emulators run on Java).
+
+```bash
+npm install
+npm run doctor    # checks your machine and says what to fix
+npm run local     # runs the app on the local Firebase emulators
+```
+
+Open http://localhost:3002 and sign in on the emulator's test page.
+
+## Host it on your own Google Cloud
+
+[docs/self-host.md](docs/self-host.md) takes you from an empty Google Cloud
+project to your own running copy. See the plan first (it only reads):
+
+```bash
+npm run selfhost -- --project <your-project-id>
+```
+
+Or ask your coding agent: `Host YouGrow on my Google Cloud project <id>. Follow docs/self-host.md.`
+
+## How it's built
+
+Next.js 15, React 18, TypeScript, Tailwind and Zod on Firebase App Hosting, with
+Firestore, Firebase Auth, Gemini on Vertex AI, a Python ADK agent (Vizzy) on
+Agent Runtime, and Vitest for tests.
+
+### The one rule that matters
+
 Never call Firestore directly. Get a tenant context (`resolveTenantFromOrigin`
 for public requests, `tenantContextFromClaims` for the admin portal), then:
 
@@ -49,9 +72,27 @@ const repo = forTenant(ctx);
 const signups = await repo.signups.find({ orderBy: [["createdAt", "desc"]], limit: 50 });
 ```
 
-`ctx.tenantId` is always derived server-side — never from a request body. See
-[docs/ARCHITECTURE-AND-DELIVERY.md](./docs/ARCHITECTURE-AND-DELIVERY.md) §4 and
-[docs/DECISIONS.md](./docs/DECISIONS.md).
+`ctx.tenantId` is always derived on the server, never from a request body.
+`forTenant(ctx)` also routes each tenant's data to its region's database (US, EU
+or Asia). An ESLint rule bans raw Firestore access everywhere else, and the test
+suite includes cross-tenant isolation tests.
 
-## Cloud setup
-First-time GCP/Firebase provisioning: [docs/SETUP.md](./docs/SETUP.md).
+More detail:
+- [Architecture and delivery](docs/ARCHITECTURE-AND-DELIVERY.md) (see §4 for tenant isolation)
+- [Decisions](docs/DECISIONS.md)
+- [Regional data residency](docs/REGIONAL-DATA-RESIDENCY.md)
+
+## Contributing
+
+Pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+[AGENTS.md](AGENTS.md) is the full guide for people and coding agents.
+
+## Security
+
+Please report vulnerabilities privately, not in public issues. See
+[SECURITY.md](SECURITY.md).
+
+## Licence
+
+The app is licensed under [AGPL-3.0](LICENSE). The Node SDK in
+[sdk/node](sdk/node) is licensed under [MIT](sdk/node/LICENSE).

@@ -7,7 +7,7 @@ import { computeBqBreakdowns } from "./bigquery";
  * Real-time campaign analytics computed from Firestore (tenant-scoped via
  * forTenant). For MVP scale this reads the campaign's signups and aggregates
  * in-app — exact and real-time. At large scale, repoint the heavier breakdowns
- * to the Firestore->BigQuery data lake (see docs/SETUP.md §11); the KPI shape
+ * to the Firestore->BigQuery data lake (see docs/self-host.md, addon:bigquery); the KPI shape
  * here is the contract either source must satisfy.
  */
 export interface CountRow {
@@ -161,7 +161,7 @@ function hostOf(url: string | null | undefined): string | null {
  * Firestore (real-time, exact); the heavy breakdowns come from BigQuery when the
  * pipeline is configured, and two impression-only metrics (`viewsByDay`,
  * `viewReferrerSources`) are present only when widget view-tracking has data.
- * `source` lets the UI label provenance and show the PRD's warning tooltips.
+ * `source` lets the UI label provenance and show its warning tooltips.
  */
 export interface HybridCampaignAnalytics extends CampaignAnalytics {
   /** Widget impressions over time — present only when view-tracking has data. */

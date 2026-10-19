@@ -1,8 +1,8 @@
 /**
  * Flags for the "Growth Path" admin navigation (nav v2). Pure + client-safe (no
  * server imports), so the sidebar (client) and pages/layouts (server) share them.
- * Each ships ON in dev (apphosting.yaml) and OFF in prod (apphosting.prod.yaml)
- * until verified on dev and promoted. Off = the admin behaves exactly as before.
+ * Each is off unless "true": listed "false" in apphosting.yaml and turned on per
+ * deployment. Off = the admin behaves exactly as before.
  */
 
 /** The new sidebar, header with breadcrumbs, Launches list, and old-route redirects. */

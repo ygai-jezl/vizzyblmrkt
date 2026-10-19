@@ -1,53 +1,65 @@
-# Vizzybl Marketing — Root Orchestrator Agent (ADK 2.0)
+# Vizzy: the root agent (ADK 2.x)
 
-The backend for the dashboard chat. A Python [ADK 2.0](https://adk.dev/2.0/)
-`LlmAgent` deployed to the **Gemini Enterprise Agent Platform / Agent Runtime**
-as a `reasoningEngine`, with managed **Sessions**, **Memory Bank**, and **Agent
-Identity**. The Next.js app talks to it through a same-origin streaming proxy
+The backend for the dashboard chat. A Python [ADK 2.x](https://adk.dev/2.0/)
+`LlmAgent` deployed to the **Gemini Enterprise Agent Platform (Agent Runtime)**
+as a `reasoningEngine`, with managed **Sessions** and **Memory Bank**. The
+Next.js app talks to it through a same-origin streaming proxy
 (`src/app/api/admin/agent/chat`), never directly from the browser.
 
 ## How context flows
 Vertex `:streamQuery` rejects unknown root-level request fields, so the proxy
-smuggles tenant/user context and the reasoning mode as **message prefixes**:
+passes tenant/user context and the reasoning mode as **message prefixes**:
 
 ```
-[ctx:{"tenantId":"...","userId":"...","region":"...","traceId":"..."}] [mode:thinking] <user text>
+[ctx:{"tenantId":"...","userId":"...","region":"...","traceId":"...","ctxToken":"..."}] [mode:thinking] <user text>
 ```
 
 `before_model_callback` runs two callbacks in order, both stripping their prefix
 before Gemini sees the text:
-1. `callbacks/context_envelope.py` → writes `tenantId/userId/region/traceId` into session `state`.
-2. `callbacks/chat_mode.py` → sets `thinking_config` (fast = budget 0, thinking = dynamic).
+1. `callbacks/context_envelope.py` writes the envelope keys into session `state`.
+2. `callbacks/chat_mode.py` sets `thinking_config` (fast = budget 0, thinking = dynamic).
 
-Memory Bank is scoped per-tenant-per-user by the composite `user_id`
-(`{tenantId}_{userId}`) the proxy sends — see `context/memory_config.py`.
+Memory Bank is scoped per tenant per user by the composite `user_id`
+(`{tenantId}_{userId}`) the proxy sends (see `context/memory_config.py`).
+
+## Tools and sub-agents
+The agent never reads Firestore itself. Every tool calls back to the app over
+HTTPS (`$CANVAS_CALLBACK_URL/api/agent/*`) with `ctxToken`, a short-lived token
+the proxy signs with `CANVAS_CONTEXT_SIGNING_KEY`. The app verifies it and takes
+the tenant from the token, never from the request body. Anything the agent
+writes is a draft or a suggestion that a person accepts in the app.
+
+- **Root tools:** knowledge search, Insights summary, Email style, journey
+  style, brand map, brand notes ("What we've seen"), setup status and help pages.
+- **Sub-agents:** `campaign_ops` (launch journeys and invite waves),
+  `lifecycle_ops` (product lifecycle journeys, learning a product from its repo,
+  one person's plan) and `content_ops` (content plans).
+
+Each tool keeps its request logic in a pure `*_client.py` module with a thin ADK
+wrapper beside it. If the app has the matching feature switched off, the tool
+answers with a plain "not switched on" message.
 
 ## Layout
 ```
-agent.py                     root LlmAgent (instruction + 2 callbacks; no tools yet)
-__init__.py                  exposes root_agent for `adk deploy`
-callbacks/context_envelope.py  [ctx:] envelope → session state (ported verbatim)
-callbacks/chat_mode.py         [mode:] directive → thinking_config (ported)
-context/brand_context.py       build_dynamic_instruction (state-based; Firestore reads = Phase 3)
-context/memory_config.py       composite_user_id + optional VertexAiMemoryBankService
-prompts/                       base system instruction
-agent_logging/logger.py        structured logging
-tools/                         root FunctionTools (knowledge, insights, Email style, journey style): pure *_client.py + thin ADK wrappers
-tests/                         unit tests (pure clients; the tool-declaration tests need ADK)
-.agent_engine_config.json      identity_type=AGENT_IDENTITY + runtime env_vars
-deploy.sh                      wraps `adk deploy agent_engine`
+agent.py              root LlmAgent: instruction, 2 callbacks, tools, sub-agents
+__init__.py           exposes root_agent for `adk deploy`
+_project_fix.py       swaps the runtime's project number for AGENT_PROJECT_ID (ADK bug workaround)
+model_config.py       DEFAULT_MODEL (overridden by ROOT_AGENT_MODEL)
+callbacks/            [ctx:] envelope and [mode:] directive
+context/              dynamic instruction, language, Memory Bank scoping
+prompts/              base system instruction
+tools/                root FunctionTools (pure *_client.py + ADK wrappers)
+sub_agents/           campaign_ops, lifecycle_ops, content_ops (each with prompts/ and tools/)
+agent_logging/        structured logging
+tests/                unit tests (pure clients; the tool declaration tests need ADK)
+deploy.sh             renders .agent_engine_config.json (not committed), then runs `adk deploy agent_engine`
 ```
 
-Phase 3 adds `tools/` (marketing FunctionTools + A2A) and `subagents/`; Phase 4
-adds MCP toolsets and memory search.
-
 ## Local test
-The tools keep their request logic in pure `*_client.py` modules and the callbacks
-keep ADK imports under `TYPE_CHECKING`, so the logic is tested without calling ADK.
-Tests that do need ADK (the tool declarations) start with
-`pytest.importorskip("google.adk")`. The package's `__init__.py` imports `agent.py`,
-though, so run the suite from a Python 3.10+ venv with ADK installed — the deploy
-venv (see Deploy) plus pytest works, and CI doesn't run it:
+The callbacks keep ADK imports under `TYPE_CHECKING`, so most logic is tested
+without ADK. Tests that need ADK start with `pytest.importorskip("google.adk")`.
+The package's `__init__.py` imports `agent.py`, so run the suite from a Python
+3.10+ venv with ADK installed (the deploy venv plus pytest). CI doesn't run it.
 
 ```bash
 agents/.venv/bin/pip install pytest     # once
@@ -55,49 +67,63 @@ cd agents/root_agent
 ../.venv/bin/python -m pytest tests/ -q
 ```
 
-The agent itself (`agent.py`) imports `google.adk` and only runs under ADK 2.x +
-Python 3.10+ — exercise it via `adk web` or after deploy.
-
 > The package directory name becomes the ADK **app name**, which must be a valid
-> Python identifier (letters/digits/underscores) — hence `root_agent`, not
-> `root-agent-py`. A hyphenated dir deploys fine but fails at query time with
-> "Invalid agent name".
+> Python identifier. That is why it is `root_agent`, not `root-agent`: a
+> hyphenated name deploys but fails at query time with "Invalid agent name".
 
 ## Deploy
-Build the deploy venv **outside** this package (at `agents/.venv`): `adk deploy`
-uploads the whole package dir, and an in-package `.venv` blows the 8 MB payload
-limit.
+Build the deploy venv **outside** this package (at `agents/.venv`). `adk deploy`
+uploads the whole package directory, and an in-package `.venv` breaks the 8 MB
+upload limit.
 
 ```bash
-# one-time
-python3.13 -m venv agents/.venv
-agents/.venv/bin/pip install "google-adk[a2a]==2.2.0"   # match requirements.txt
-gcloud auth application-default login                    # ADC — the deploy uses it
+# one time
+python3.12 -m venv agents/.venv
+agents/.venv/bin/pip install -r agents/requirements-deploy.txt
+gcloud auth application-default login
+bash infra/agent/setup.sh all <your-project>     # the agent's service account and roles
 
-# deploy (no staging bucket — --staging_bucket is deprecated in adk 2.2)
-cd agents/root_agent
-../.venv/bin/python ../.venv/bin/adk deploy agent_engine \
-  --project=vizzybl-marketing-dev --region=us-central1 \
-  --display_name=vizzybl-marketing-root .
+# see exactly what would be deployed (nothing is written or deployed)
+PROJECT=<your-project> CANVAS_CALLBACK_URL=https://<your-app-origin> \
+  bash agents/root_agent/deploy.sh --dry-run
+
+# first deploy creates a new engine and prints its id
+PROJECT=<your-project> CANVAS_CALLBACK_URL=https://<your-app-origin> \
+  bash agents/root_agent/deploy.sh
+
+# later deploys update that engine in place
+PROJECT=<your-project> CANVAS_CALLBACK_URL=https://<your-app-origin> AGENT_ENGINE_ID=<engine-id> \
+  bash agents/root_agent/deploy.sh
 ```
-Identity (`AGENT_IDENTITY`) + runtime env come from `.agent_engine_config.json`.
-Copy the returned `reasoningEngines/<ID>` tail into `ROOT_AGENT_RESOURCE_ID`
-(apphosting.yaml, RUNTIME) and redeploy the Next.js app. The query endpoint needs
-~1–2 min to warm up after "Deployed" (transient 404 until then).
 
-**requirements.txt gotchas** (each cost a failed deploy):
-- Pin `google-adk` EXACTLY to the local `adk --version` — the container launcher
-  invokes `adk api_server` with version-specific flags (`--gemini_enterprise_app_name`).
-- Use the **`[a2a]`** extra — Agent Runtime's launcher imports the `a2a` SDK at startup.
-- Do NOT pin `google-genai`/`aiplatform` — adk owns those ranges (a stale
-  `google-genai<2` pin conflicts with adk 2.2 → ResolutionImpossible build failure).
+Keep your values in a file (for example `agent.env` with `PROJECT=`, `CANVAS_CALLBACK_URL=`
+and `AGENT_ENGINE_ID=`) and run `set -a; . ./agent.env; set +a` first. `REGION`,
+`DISPLAY_NAME`, `AGENT_SERVICE_ACCOUNT` and `ROOT_AGENT_MODEL` are optional; the top of
+`deploy.sh` lists them with their defaults. `npm run selfhost -- --project <id> --apply addon:vizzy`
+does all of this for you.
 
-## IAM (least-privilege — see PRD §4)
-- **App Hosting runtime SA** (`firebase-app-hosting-compute@<project>…`) — the
-  *caller* — has the custom role **`reasoningEngineInvoker`** (only
-  `aiplatform.reasoningEngines.query` + `.get`), NOT the broad `roles/aiplatform.user`.
-- The agent runs under its own **Agent Identity** (keyless SPIFFE principal
-  `…system.id.goog/resources/aiplatform/…/reasoningEngines/<ID>`) — the
-  PRD-preferred per-agent identity. It gets Firestore-read / downstream-invoke
-  grants in Phase 3 when tools land. The yougrow.ai org blocks external/Google-SA
-  grants; use the temporary project-policy override if a grant is refused.
+`deploy.sh` writes `.agent_engine_config.json` for the project (it is generated, so it is
+not committed): the agent runs as the service account
+`root-agent@<project>.iam.gserviceaccount.com` (`identity_type: SERVICE_ACCOUNT`), with
+`ROOT_AGENT_MODEL`, `CANVAS_CALLBACK_URL` and `AGENT_PROJECT_ID` as runtime env.
+Copy the engine id the first deploy prints into `ROOT_AGENT_RESOURCE_ID` in your
+`apphosting.<env>.yaml`, then roll out the app. The query endpoint needs about 1 to 2
+minutes to warm up after "Deployed" (a 404 until then).
+
+**requirements.txt gotchas:**
+- Pin `google-adk` to exactly the local `adk --version`. The container launcher
+  calls `adk api_server` with version-specific flags.
+- Keep the **`[a2a]`** extra. Agent Runtime's launcher imports the `a2a` SDK at
+  startup.
+- Do not pin `google-genai` or `aiplatform`. ADK owns those ranges, and a stale
+  pin makes the build fail with ResolutionImpossible.
+
+## IAM (least privilege)
+- **The caller** (the App Hosting runtime service account) needs only
+  `aiplatform.reasoningEngines.query` and `.get`, through the `reasoningEngineInvoker`
+  custom role that `infra/agent/setup.sh` creates and grants, rather than the broad
+  `roles/aiplatform.user`.
+- **The agent** runs as its own `root-agent@<project>` service account. It needs
+  Vertex AI access for Gemini (`roles/aiplatform.user`) and log writing, and nothing
+  for app data, because it reaches app data only through the signed callback routes
+  above. `infra/agent/setup.sh` creates it and grants these.

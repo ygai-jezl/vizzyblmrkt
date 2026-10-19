@@ -2,6 +2,14 @@ import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import type { AddressSaved } from "@/lib/content/blog/address";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
+import type { FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
+
+/** What a Make again asks for: this article's own style ("brand" = the brand's), a format and its words. */
+export interface HeroMakeOptions {
+  styleId?: string;
+  format?: ImageFormatId;
+  formatInputs?: FormatInputs;
+}
 
 /** How a live check, or a person's word on it, went. */
 export type LiveResult = { ok: true; check: LiveCheck | null } | { ok: false; error: string };
@@ -54,8 +62,8 @@ export interface BlogHubControls {
 
 /** The hero card's actions. Each resolves to a line saying what went wrong, or null. */
 export interface BlogHeroControls {
-  /** Make (or make again) the hero; `styleId` = this article's own style, "brand" = the brand's. */
-  make: (nodeId: string, styleId?: string) => Promise<string | null>;
+  /** Make (or make again) the hero, in this article's own style or format when asked. */
+  make: (nodeId: string, opts?: HeroMakeOptions) => Promise<string | null>;
   upload: (nodeId: string, file: File) => Promise<string | null>;
   setAlt: (nodeId: string, alt: string) => Promise<string | null>;
   /** The article whose hero is being made now, if any. */

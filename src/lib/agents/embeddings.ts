@@ -1,3 +1,4 @@
+import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
 import type { Region } from "@/lib/types/tenant";
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from "@/lib/types/knowledgeBase";
@@ -22,6 +23,16 @@ import { EMBEDDING_DIM, EMBEDDING_MODEL } from "@/lib/types/knowledgeBase";
  * worker package (workers/knowledge-scraper/src/embed.ts), which throws on failure
  * so the ingestion ticket is marked failed. buildPredictBody/parsePredictResponse
  * are shared shapes the worker mirrors.
+ *
+ * Two backends (see embeddingBackend):
+ *  - Vertex AI (every deployed environment): ADC + GOOGLE_CLOUD_PROJECT, as above.
+ *  - Gemini Developer API (a laptop): no real project (unset, or an emulator-only
+ *    `demo-*` one) but a classic AI Studio GEMINI_API_KEY. text-embedding-005 is
+ *    a Vertex-only model, so this path uses gemini-embedding-001 at the same 768
+ *    dimensions (normalised, cosine), which fits the same Firestore vector
+ *    indexes. Its vectors are NOT comparable with text-embedding-005 ones, which
+ *    is fine on a laptop where every stored vector comes from this path; never
+ *    copy laptop vectors into a deployed project.
  */
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
@@ -50,9 +61,32 @@ export function embeddingLocation(region: Region): string {
   }
 }
 
-/** True once the embedding service can authenticate (deployed: runtime SA + project). */
+/**
+ * The embedding model on the Gemini Developer API path. text-embedding-005 is not
+ * served there; this one takes the same task types and a 768-dim output.
+ */
+export const LOCAL_EMBEDDING_MODEL = "gemini-embedding-001" as const;
+
+export type EmbeddingBackend = "vertex" | "gemini-api";
+
+/**
+ * Which backend embeds, or null when none can:
+ *  - "vertex" whenever GOOGLE_CLOUD_PROJECT names a real project (unchanged
+ *    deployed behaviour: runtime service account + project);
+ *  - "gemini-api" when there is no real project (unset, or a `demo-*` emulator
+ *    project, which Vertex can't serve) but a classic GEMINI_API_KEY is set and
+ *    GOOGLE_GENAI_USE_VERTEXAI isn't "true" (an express key is a Vertex key).
+ */
+export function embeddingBackend(): EmbeddingBackend | null {
+  const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+  if (project && !project.startsWith("demo-")) return "vertex";
+  if (process.env.GEMINI_API_KEY?.trim() && process.env.GOOGLE_GENAI_USE_VERTEXAI !== "true") return "gemini-api";
+  return null;
+}
+
+/** True once the embedding service can authenticate (deployed: runtime SA + project; laptop: a Gemini key). */
 export function isEmbeddingsConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_CLOUD_PROJECT);
+  return embeddingBackend() !== null;
 }
 
 /** The regional text-embedding-005 :predict endpoint for a region. */
@@ -111,12 +145,15 @@ export function parsePredictResponse(payload: unknown): number[][] {
 
 /** Max instances per :predict call — the API caps batch size; chunk above this. */
 const MAX_BATCH = 200;
+/** Max texts per Gemini Developer API batchEmbedContents call. */
+const MAX_GEMINI_API_BATCH = 100;
 
 async function predict(
   region: Region,
   instances: EmbeddingInstanceInput[],
   taskType: EmbeddingTaskType,
 ): Promise<number[][]> {
+  if (embeddingBackend() === "gemini-api") return embedWithGeminiApi(instances, taskType);
   const url = embeddingPredictUrl(region);
   const token = await authClient().getAccessToken();
   if (!token) throw new Error("embeddings_no_access_token");
@@ -137,6 +174,58 @@ async function predict(
       throw new Error(`embeddings_${res.status}: ${detail.slice(0, 200)}`.trim());
     }
     out.push(...parsePredictResponse(await res.json()));
+  }
+  return out;
+}
+
+let _geminiApi: { key: string; client: GoogleGenAI } | null = null;
+function geminiApiClient(): GoogleGenAI {
+  const key = process.env.GEMINI_API_KEY?.trim() ?? "";
+  if (!_geminiApi || _geminiApi.key !== key) _geminiApi = { key, client: new GoogleGenAI({ apiKey: key }) };
+  return _geminiApi.client;
+}
+
+/** Scale to unit length: gemini-embedding-001 only normalises its full 3072-dim output. */
+export function normalizeVector(values: number[]): number[] {
+  const norm = Math.sqrt(values.reduce((sum, v) => sum + v * v, 0));
+  return norm > 0 ? values.map((v) => v / norm) : values;
+}
+
+/**
+ * The Gemini Developer API path (a laptop with a classic AI Studio key). The
+ * request's `title` covers every text in it, so texts are sent in runs that
+ * share a title (callers batch with one title anyway).
+ */
+async function embedWithGeminiApi(
+  instances: EmbeddingInstanceInput[],
+  taskType: EmbeddingTaskType,
+): Promise<number[][]> {
+  const titleOf = (i: EmbeddingInstanceInput) => (taskType === "RETRIEVAL_DOCUMENT" ? i.title || undefined : undefined);
+  const runs: Array<{ title: string | undefined; contents: string[] }> = [];
+  for (const instance of instances) {
+    const title = titleOf(instance);
+    const last = runs[runs.length - 1];
+    if (last && last.title === title && last.contents.length < MAX_GEMINI_API_BATCH) last.contents.push(instance.content);
+    else runs.push({ title, contents: [instance.content] });
+  }
+  const out: number[][] = [];
+  for (const run of runs) {
+    const res = await geminiApiClient().models.embedContent({
+      model: LOCAL_EMBEDDING_MODEL,
+      contents: run.contents,
+      config: { taskType, outputDimensionality: EMBEDDING_DIM, ...(run.title ? { title: run.title } : {}) },
+    });
+    const embeddings = res.embeddings ?? [];
+    if (embeddings.length !== run.contents.length) {
+      throw new Error(`embeddings_bad_response: expected ${run.contents.length} embeddings, got ${embeddings.length}`);
+    }
+    for (const e of embeddings) {
+      const values = e.values;
+      if (!Array.isArray(values) || values.length !== EMBEDDING_DIM) {
+        throw new Error(`embeddings_bad_response: expected ${EMBEDDING_DIM} values`);
+      }
+      out.push(normalizeVector(values));
+    }
   }
   return out;
 }

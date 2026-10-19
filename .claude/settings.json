@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run doctor *)",
+      "Bash(node scripts/doctor.mjs *)",
+      "Bash(npm run local *)",
+      "Bash(npm run emulators *)",
+      "Bash(npm run seed *)",
+      "Bash(npm test *)",
+      "Bash(npm run test *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run typecheck *)",
+      "Bash(npm run build *)",
+      "Bash(npm run smoke *)",
+      "Bash(npm run check:instance *)",
+      "Bash(npm run check:private-paths *)",
+      "Bash(npx vitest *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "mcp__firebase__developerknowledge_search_documents",
+      "mcp__firebase__developerknowledge_get_documents",
+      "mcp__firebase__developerknowledge_answer_query"
+    ],
+    "ask": [
+      "Bash(firebase deploy *)",
+      "Bash(firebase apphosting*)",
+      "Bash(firebase firestore*)",
+      "Bash(firebase ext*)",
+      "Bash(firebase projects:create *)",
+      "Bash(firebase apps:create *)",
+      "Bash(firebase use *)",
+      "Bash(npx *firebase-tools* deploy*)",
+      "Bash(npx *firebase-tools* apphosting*)",
+      "Bash(gcloud * deploy*)",
+      "Bash(gcloud * create*)",
+      "Bash(gcloud * update*)",
+      "Bash(gcloud * delete*)",
+      "Bash(gcloud * enable *)",
+      "Bash(gcloud * add-iam-policy-binding *)",
+      "Bash(gcloud * remove-iam-policy-binding *)",
+      "Bash(gcloud * set-iam-policy *)",
+      "Bash(gcloud secrets *)",
+      "Bash(gcloud config set *)",
+      "Bash(gcloud scheduler jobs run *)",
+      "Bash(gcloud run jobs execute *)",
+      "Bash(gcloud builds submit *)",
+      "Bash(gcloud storage cp *)",
+      "Bash(gcloud storage rm *)",
+      "Bash(gcloud auth print-access-token *)",
+      "Bash(gsutil *)",
+      "Bash(bq mk *)",
+      "Bash(bq rm *)",
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy *)",
+      "Bash(bash infra/*)",
+      "Bash(sh infra/*)",
+      "Bash(infra/*)",
+      "Bash(./infra/*)",
+      "Bash(node infra/*)",
+      "Bash(*setup.sh *)",
+      "Bash(*deploy.sh*)",
+      "Bash(*adk deploy*)",
+      "Bash(npm run selfhost *)",
+      "Bash(node scripts/selfhost.mjs *)",
+      "Bash(npx tsx scripts/*)",
+      "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(npm add *)",
+      "Bash(npm uninstall *)",
+      "Bash(npm publish *)",
+      "Bash(pip install *)",
+      "Bash(git rm *)",
+      "Bash(git clean *)",
+      "Bash(git reset --hard*)",
+      "Bash(git push *)",
+      "mcp__firebase__firebase_deploy",
+      "mcp__firebase__firebase_create_project",
+      "mcp__firebase__firebase_create_app",
+      "mcp__firebase__firebase_create_android_sha",
+      "mcp__firebase__firebase_init",
+      "mcp__firebase__firebase_update_environment",
+      "mcp__firebase__firebase_logout"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(./.env.test)",
+      "Read(./.local/run.json)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/credentials*.json)",
+      "Read(**/firebase-adminsdk*.json)",
+      "Read(**/*-service-account*.json)",
+      "Read(**/serviceAccount*.json)",
+      "Bash(gcloud secrets versions access *)",
+      "Bash(firebase apphosting:secrets:access *)",
+      "Bash(git push *--force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/scripts/doctor.mjs\" --brief || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-deploy.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

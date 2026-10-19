@@ -20,7 +20,10 @@ prompt into the chat:
 Get YouGrow running on my laptop. Follow AGENTS.md.
 ```
 
-[Open the setup prompt in Cursor](CURSOR_PROMPT_LINK)
+[Open the setup prompt in Cursor](https://cursor.com/link/prompt?text=Get%20YouGrow%20running%20on%20my%20laptop.%20Follow%20AGENTS.md.)
+
+The repo ships an agent kit for Claude Code and Cursor: [AGENTS.md](AGENTS.md), step by step
+skills in `.claude/skills/`, and safe defaults that ask before any deploy or cloud change.
 
 ## Without an agent
 

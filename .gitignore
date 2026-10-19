@@ -23,7 +23,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# env files (never commit secrets — this repo is PUBLIC). Every .env variant is
+# env files (never commit secrets: this repo is PUBLIC). Every .env variant is
 # ignored; only the value-free template is tracked.
 .env*
 !.env.example
@@ -54,8 +54,10 @@ serviceAccount*.json
 .vscode/*
 !.vscode/extensions.json
 
-# claude code local (personal) settings
+# Coding agents: personal, uncommitted settings and notes
 .claude/settings.local.json
+CLAUDE.local.md
+.cursor/*.local*
 
 # Python virtualenvs (e.g. agents/*/.venv) + bytecode caches
 .venv/

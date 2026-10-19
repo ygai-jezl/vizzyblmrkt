@@ -15,6 +15,10 @@ npm run lint
 npm test
 ```
 
+The full list, with the public repo checks, is in
+[.claude/skills/check-my-change/SKILL.md](.claude/skills/check-my-change/SKILL.md), which
+coding agents follow too.
+
 ## New features sit behind a switch
 
 New features ship turned off. Read the switch like this, so anything other than

@@ -30,6 +30,7 @@ import { blogWriterThinkingBudget, isBlogEditorialEnabled } from "./flags";
 import { slugify } from "./markdown";
 import { mapMaterial, writerMapBlock, type ArticleMap } from "./articleMap";
 import { focusedBrief, writerLinks } from "./focus";
+import { asciiTablesToMarkdown } from "./asciiTables";
 
 /**
  * The blog hub's writer. One call writes the article to the CITABLE structure from its
@@ -344,7 +345,10 @@ function checkDraft(raw: string, input: BlogDraftInput, reference: string, today
     input.plan.strategy.hubUrl,
     ...input.knowledgeUrls.filter((u) => !isCodeHostUrl(u)),
   ]);
-  const dated = editorial ? stampDateLine(withoutAuthorBox(parsed.body), today, bylineOf(input.brief)) : stampLastUpdated(parsed.body, today);
+  // An editorial article's tables are Markdown: one drawn out of characters is turned into a table or a list.
+  const dated = editorial
+    ? asciiTablesToMarkdown(stampDateLine(withoutAuthorBox(parsed.body), today, bylineOf(input.brief))).body
+    : stampLastUpdated(parsed.body, today);
   const linked = enforceLinks(dated, allowed);
   // The author box goes on after the links are checked (it holds none) and after the fit, so it is never cut.
   const box = editorial ? authorBox(input.brief) : "";

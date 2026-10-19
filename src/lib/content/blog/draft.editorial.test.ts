@@ -225,3 +225,17 @@ describe("an editorial article from a brief researched before the editorial writ
     expect(prompt).toContain("Waitlist page");
   });
 });
+
+describe("tables in an editorial article", () => {
+  it("are asked for as Markdown, and one drawn out of characters is turned into Markdown", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "true");
+    const box = "```\n+------+-------+\n| Run  | Cost  |\n+------+-------+\n| Daily | High |\n| Weekly | Low |\n+------+-------+\n```";
+    const generate = vi.fn(async () => answer.replace("## Common mistakes", `${box}\n\n## Common mistakes`));
+    const draft = await draftBlogArticle(input(), { generate, now: NOW });
+    expect(String((generate.mock.calls[0] as unknown[])[0])).toContain("Tables are Markdown pipe tables");
+    expect(draft!.body).toContain("| Run | Cost |\n| --- | --- |\n| Daily | High |\n| Weekly | Low |");
+    expect(draft!.body).not.toContain("+------+");
+    expect(draft!.report.items.find((i) => i.id === "v_tables")?.status).toBe("pass");
+  });
+});

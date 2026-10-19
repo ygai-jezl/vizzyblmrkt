@@ -12,6 +12,7 @@ import {
 } from "@/lib/types/imageStyle";
 import { IMAGE_STYLES, imageStyleById, isStyleAvailable } from "@/lib/content/imageStyle/catalogue";
 import { isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isPreviewable } from "@/lib/content/imageStyle/preview";
 import { ImageStyleSwatch } from "./ImageStyleSwatch";
 
 /** Vizzy's pending suggestion as the page shows it (who asked stays on the server). */
@@ -252,7 +253,7 @@ export function ImageStyleCard({
             );
           })}
         </div>
-        {canEdit && draft.defaultStyleId && imageStyleById(draft.defaultStyleId)?.engine === "template" && isStyleAvailable(imageStyleById(draft.defaultStyleId), isMoreStylesUiEnabled()) ? (
+        {canEdit && draft.defaultStyleId && isPreviewable(draft.defaultStyleId) && isStyleAvailable(imageStyleById(draft.defaultStyleId), isMoreStylesUiEnabled()) ? (
           <figure className="space-y-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

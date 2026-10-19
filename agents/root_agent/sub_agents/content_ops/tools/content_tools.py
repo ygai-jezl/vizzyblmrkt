@@ -83,7 +83,7 @@ def draft_content_plan(
             there), or "none". Leave empty and research picks one.
         hero_style: Blog hub only, and only when the operator asked for a particular
             look for this article's hero image ("make the hero a photo"): one of
-            product_noir, headline_card, illustration, editorial_photo, soft_3d, paper_collage, natural_photo, product_still_life or brand_character. It applies to this article only. Leave empty for the brand's
+            product_noir, headline_card, data_story, type_poster, illustration, editorial_photo, soft_3d, paper_collage, natural_photo, product_still_life, brand_character, split_card or line_art. It applies to this article only. Leave empty for the brand's
             style.
 
     Returns:

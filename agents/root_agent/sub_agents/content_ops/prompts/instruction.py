@@ -38,7 +38,7 @@ Use `draft_content_plan`:
   situation the article is for (the moment its reader is in), or "none". A question
   from a situation carries its situationId: use it.
 - hero_style: only for a blog hub, and only when the operator asked for a look for this
-  article's hero image ("make the hero a photo" → natural_photo): one of product_noir, headline_card, illustration, editorial_photo, soft_3d, paper_collage, natural_photo, product_still_life or brand_character.
+  article's hero image ("make the hero a photo" → natural_photo): one of product_noir, headline_card, data_story, type_poster, illustration, editorial_photo, soft_3d, paper_collage, natural_photo, product_still_life, brand_character, split_card or line_art.
   It applies to this article only; leave it empty for the brand's style.
 The server lays out the pieces and writes the hub (or every email of a sequence)
 in the brand voice. eBooks are written in the eBook studio, not from chat.

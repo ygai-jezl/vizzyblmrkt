@@ -14,15 +14,9 @@ src/lib/site/content.json                 # marketing site content: the public s
 sdk/node/**                               # the published Node SDK: its default origin is the hosted service, overridable
 
 # Docs about how we host it
-docs/SETUP.md                             # docs about our own hosting (projects, sign-in domain, first tenant)
 docs/DECISIONS.md                         # decision records about our own hosting
 
-# Our deployment config and operations, until it moves out of this repo
-infra/**                                  # our infrastructure setup scripts (moves out in a later step)
-agents/root_agent/deploy.sh               # our agent deploy script (moves out in a later step)
-agents/root_agent/_project_fix.py         # our project number map for the agent deploy (moves out in a later step)
-agents/root_agent/.agent_engine_config.json  # our agent deploy config (moves out in a later step)
-workers/knowledge-scraper/deploy.sh       # our worker deploy examples (moves out in a later step)
+# One-off operations scripts run against our projects, until they move out of this repo
 scripts/backfill-audience.ts              # one-off operations script run against our projects (moves out in a later step)
 scripts/diagnose-journey.ts               # one-off operations script run against our projects (moves out in a later step)
 scripts/fix-journey-graph.ts              # one-off operations script run against our projects (moves out in a later step)

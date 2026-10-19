@@ -4,7 +4,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { CountRow } from "./analytics";
 
 /**
- * BigQuery-backed analytics breakdowns (Phase 2 "hybrid" path, docs/SETUP.md §11).
+ * BigQuery-backed analytics breakdowns (Phase 2 "hybrid" path, docs/self-host.md, addon:bigquery).
  *
  * The dashboard keeps its real-time lifecycle KPIs on Firestore (exact + instant);
  * THIS module serves the heavy/historical breakdowns and the widget-impression

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Provision the Firestore -> BigQuery hybrid-analytics pipeline (Phase 2).
-# See docs/SETUP.md §11 and src/lib/analytics/bigquery.ts. The app code ships
+# See docs/self-host.md (addon:bigquery) and src/lib/analytics/bigquery.ts. The app code ships
 # OFF by default (ANALYTICS_BQ_ENABLED="false"); this provisions the GCP side,
 # then you flip the flag. Until the flag flips, the dashboard stays on the
 # Firestore path.
@@ -23,7 +23,7 @@
 #   ./setup.sh validate   <project>   # print BQ row counts to compare against Firestore
 #   ./setup.sh verify     <project>   # show datasets / tables / views / IAM
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+#   <project> is your Google Cloud project id.
 #
 # End-to-end order: datasets -> extensions -> (firebase deploy --only extensions)
 #   -> schema -> serviceaccounts -> iam -> backfill -> validate -> flip ANALYTICS_BQ_ENABLED +
@@ -36,7 +36,16 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  buildperms|datasets|extensions|schema|serviceaccounts|iam|backfill|validate|verify)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
@@ -50,7 +59,7 @@ EXT_VERSION="0.3.2"
 COLLECTIONS=("signups" "email_events")
 
 # region | firestore database id | BQ dataset | BQ dataset location | functions/trigger location | firestore instance location
-# (bash 3.2 on macOS has no associative arrays — use space-delimited specs.)
+# (bash 3.2 on macOS has no associative arrays, so use space-delimited specs.)
 REGION_SPECS=(
   "us (default) waitlist_us us us-central1 nam5"
   "eu signups-eu waitlist_eu eu europe-west4 eur3"
@@ -84,7 +93,7 @@ datasets() {
   for spec in "${REGION_SPECS[@]}"; do
     read -r region db dataset loc fnloc fsloc <<<"$spec"
     if bq --project_id="${PROJECT}" show --dataset "${dataset}" >/dev/null 2>&1; then
-      echo "    ${dataset} (${loc}) already exists — skipping"
+      echo "    ${dataset} (${loc}) already exists, skipping"
     else
       bq --project_id="${PROJECT}" mk --dataset \
         --location="${loc}" \
@@ -107,7 +116,7 @@ extensions() {
     for col in "${COLLECTIONS[@]}"; do
       local inst; inst="$(instance_id "${col}" "${region}")"
       cat >"${ROOT}/extensions/${inst}.env" <<EOF
-# ${EXT_REF}@${EXT_VERSION} — ${col} in ${region} (DB ${db} @ ${fsloc}) -> ${dataset}.${col}_raw_*
+# ${EXT_REF}@${EXT_VERSION}: ${col} in ${region} (DB ${db} @ ${fsloc}) -> ${dataset}.${col}_raw_*
 # Trigger region derives from DATABASE_REGION (0.3.x: triggerRegion=\${DATABASE_REGION}).
 COLLECTION_PATH=${col}
 DATABASE=${db}
@@ -116,7 +125,11 @@ DATASET_ID=${dataset}
 DATASET_LOCATION=${loc}
 TABLE_ID=${col}
 WILDCARD_IDS=false
-BIGQUERY_PROJECT_ID=${PROJECT}
+# The project that holds the dataset. \${PROJECT_ID} (the extension's own default) is the
+# project you deploy to. To use another, put BIGQUERY_PROJECT_ID=<project> in
+# extensions/<this file>.<project id you deploy to>; the Firebase CLI reads that file
+# after this one and its values win.
+BIGQUERY_PROJECT_ID=\${PROJECT_ID}
 EOF
       entries="${entries}{\"${inst}\":\"${EXT_REF}@${EXT_VERSION}\"}+"
       echo "    wrote extensions/${inst}.env"
@@ -131,7 +144,7 @@ EOF
 
   cat <<EOF
 
-Next — DEPLOY the extensions (provisions Cloud Functions; can take minutes and may
+Next: DEPLOY the extensions (provisions Cloud Functions; can take minutes and may
 prompt to enable APIs / accept the extension's IAM):
 
   firebase deploy --only extensions --project=${PROJECT}
@@ -144,7 +157,8 @@ NOTES:
     so PII stays in-region and there is no separate LOCATION param.
   - If a future version rejects a key, check params:
     \`firebase ext:info ${EXT_REF}@${EXT_VERSION}\`, then fix extensions/*.env.
-  - extensions/*.env + firebase.json carry no secrets — commit them.
+  - extensions/*.env + firebase.json carry no secrets and name no project: commit them.
+    A per project value goes in extensions/<instance>.env.<project id>.
 EOF
 }
 
@@ -158,10 +172,10 @@ schema() {
     read -r region db dataset loc fnloc fsloc <<<"$spec"
     local fq="${PROJECT}.${dataset}"
 
-    # widget_views: app-owned impression table (PII-free) — independent of the
+    # widget_views: app-owned impression table (PII-free), independent of the
     # extension, so always create it.
     if bq --project_id="${PROJECT}" show "${dataset}.widget_views" >/dev/null 2>&1; then
-      echo "    ${dataset}.widget_views already exists — skipping"
+      echo "    ${dataset}.widget_views already exists, skipping"
     else
       bq --project_id="${PROJECT}" mk --table \
         --time_partitioning_field=ingest_day --time_partitioning_type=DAY \
@@ -193,7 +207,7 @@ schema() {
         WHERE operation != 'DELETE' AND JSON_VALUE(data, '\$.status') != 'deleted'
       " >/dev/null && echo "    ${dataset}.signups_latest"
     else
-      echo "    ⚠️  ${dataset}.signups_raw_latest missing — deploy extensions first (skipping signups_latest)"
+      echo "    ⚠️  ${dataset}.signups_raw_latest missing, deploy extensions first (skipping signups_latest)"
     fi
 
     if raw_latest_exists "${dataset}" "email_events"; then
@@ -213,12 +227,12 @@ schema() {
         WHERE operation != 'DELETE'
       " >/dev/null && echo "    ${dataset}.email_events_latest"
     else
-      echo "    ⚠️  ${dataset}.email_events_raw_latest missing — deploy extensions first (skipping email_events_latest)"
+      echo "    ⚠️  ${dataset}.email_events_raw_latest missing, deploy extensions first (skipping email_events_latest)"
     fi
   done
 }
 
-grant_dataset_viewer() { # <dataset> — dataset IAM via the access-entry method
+grant_dataset_viewer() { # <dataset>: dataset IAM via the access-entry method
   local dataset="$1" tmp
   tmp="$(mktemp)"
   bq --project_id="${PROJECT}" show --format=prettyjson "${PROJECT}:${dataset}" >"${tmp}"
@@ -244,12 +258,12 @@ iam() {
         --role="roles/bigquery.dataEditor" "${PROJECT}:${dataset}.widget_views" >/dev/null
       echo "    + dataEditor on ${dataset}.widget_views (table)"
     else
-      echo "    ⚠️  ${dataset}.widget_views missing — run ./setup.sh schema first (skipping dataEditor)"
+      echo "    ⚠️  ${dataset}.widget_views missing, run ./setup.sh schema first (skipping dataEditor)"
     fi
   done
   cat <<EOF
     NOTE: also enable BigQuery Data Access audit logs (DATA_READ/DATA_WRITE) for
-    ${PROJECT} — console: IAM & Admin > Audit Logs > BigQuery. (Left manual:
+    ${PROJECT} in the console: IAM & Admin > Audit Logs > BigQuery. (Left manual:
     editing auditConfigs via set-iam-policy is easy to get wrong.)
 EOF
 }
@@ -260,14 +274,14 @@ serviceaccounts() {
   # dataset-scoped BigQuery roles). The ONLY gap is the invoker: the trigger's Pub-Sub PUSH
   # authenticates as the broad default compute SA, which also lacked run.invoker on the function's
   # Cloud Run service -> every push 403'd and nothing reached BigQuery. Fix: reuse each function's
-  # OWN dedicated SA as the push identity — grant it run.invoker on its own service, let Pub-Sub
+  # OWN dedicated SA as the push identity: grant it run.invoker on its own service, let Pub-Sub
   # mint OIDC tokens as it, and override the push subscription's auth SA off the compute SA.
   #
   # The trigger destination is a gen2 Cloud Function, so `gcloud eventarc triggers update
   # --service-account` is REJECTED ("destination is neither cloud_function nor cloud_run_service").
   # We therefore set the identity on the trigger's Pub-Sub PUSH SUBSCRIPTION directly, and do NOT
   # touch the function runtime SA (Firebase manages it).
-  # IDEMPOTENT — RE-RUN after any `firebase deploy --only extensions` (it recreates the trigger +
+  # IDEMPOTENT: RE-RUN after any `firebase deploy --only extensions` (it recreates the trigger +
   # subscription, resetting the push auth SA back to the compute SA).
   local pn pubsub_agent
   pn="$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)')"
@@ -283,16 +297,16 @@ serviceaccounts() {
         --filter="metadata.name=${svc}" \
         --format="value(metadata.labels['cloud.googleapis.com/location'])" | head -1)"
       if [ -z "${svcloc}" ]; then
-        echo "    ⚠️  ${svc} not found — deploy extensions first (skipping ${inst})"
+        echo "    ⚠️  ${svc} not found, deploy extensions first (skipping ${inst})"
         continue
       fi
 
       # Reuse the function's OWN dedicated runtime SA as the invoker. Refuse if it is the shared
-      # compute SA (we must NOT make that the invoker — investigate the install first).
+      # compute SA (we must NOT make that the invoker; investigate the install first).
       sa="$(gcloud run services describe "${svc}" --project="${PROJECT}" --region="${svcloc}" \
         --format='value(spec.template.spec.serviceAccountName)')"
       if [ -z "${sa}" ] || [[ "${sa}" == *-compute@developer.gserviceaccount.com ]]; then
-        echo "    ⚠️  ${svc} runtime SA is '${sa:-unset}', not a dedicated ext-* SA — skipping."
+        echo "    ⚠️  ${svc} runtime SA is '${sa:-unset}', not a dedicated ext-* SA, skipping."
         echo "        (Won't repoint the invoker onto the shared compute SA; investigate the install.)"
         continue
       fi
@@ -358,7 +372,7 @@ backfill() {
             --query-collection-group=false 2>&1)"; then
         echo "${out}" | grep -E "Finished importing" || echo "    (done: ${col}/${region})"
       elif echo "${out}" | grep -qiE "does not exist or is empty"; then
-        echo "    (skipped ${col}/${region} — empty/absent collection; OK if no data yet)"
+        echo "    (skipped ${col}/${region}, empty/absent collection; OK if no data yet)"
       else
         echo "    ⚠️  ${col}/${region} import FAILED (NOT an empty collection):"
         echo "${out}" | grep -iE "invalid_grant|reauth|denied|unauthenticated|error" | tail -2 | sed 's/^/         /'
@@ -381,7 +395,7 @@ validate() {
         SELECT 'email_events_latest', COUNT(*) FROM \`${PROJECT}.${dataset}.email_events_latest\`
       "
     else
-      echo "    (views not created yet — deploy extensions + run ./setup.sh schema ${PROJECT})"
+      echo "    (views not created yet, deploy extensions + run ./setup.sh schema ${PROJECT})"
     fi
   done
   cat <<EOF
@@ -398,7 +412,7 @@ verify() {
   for spec in "${REGION_SPECS[@]}"; do
     read -r region db dataset loc fnloc fsloc <<<"$spec"
     echo "  -- ${dataset} (${region}, ${loc}) --"
-    bq --project_id="${PROJECT}" ls "${dataset}" 2>/dev/null || echo "    (dataset missing — run ./setup.sh datasets ${PROJECT})"
+    bq --project_id="${PROJECT}" ls "${dataset}" 2>/dev/null || echo "    (dataset missing, run ./setup.sh datasets ${PROJECT})"
   done
   echo "==> runtime SA project roles"
   gcloud projects get-iam-policy "${PROJECT}" \

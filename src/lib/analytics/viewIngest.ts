@@ -17,7 +17,7 @@ import type { WidgetViewRow } from "./bigquery";
  *  - RESOURCE CONSUMPTION (API4): a cheap UA bot filter, a per-IP+campaign rate
  *    limiter, and a bounded campaign-existence cache cap the work a flood can
  *    cause. All state is in-process (per instance) — documented; the real spend
- *    backstop is maxInstances + the budget kill-switch (docs/SETUP.md §6).
+ *    backstop is maxInstances + the budget kill-switch (docs/self-host.md, "What it costs").
  */
 
 const Str = (n: number) => z.string().trim().max(n).optional();

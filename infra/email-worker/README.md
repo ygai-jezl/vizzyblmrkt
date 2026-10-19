@@ -3,7 +3,7 @@
 The journey/broadcast engine writes due sends into the tenant-scoped Firestore
 `email_jobs` queue ([src/lib/email/delivery.ts](../../src/lib/email/delivery.ts)).
 Firebase App Hosting has **no built-in cron**, so without an external trigger the
-queue is never drained — journey steps enqueue and sit forever. (The double-opt-in
+queue is never drained: journey steps enqueue and sit forever. (The double-opt-in
 verification email is unaffected: it is sent inline at signup, not via the queue.)
 
 This wires a **Cloud Scheduler** job that drains the queue on a cadence:
@@ -20,7 +20,7 @@ The worker endpoint authenticates the machine caller by a shared secret:
 - read by the app as `EMAIL_WORKER_SECRET` (wired in `apphosting.<env>.yaml`);
 - set as the scheduler request header `X-Worker-Secret`.
 
-Both sides must be non-empty and equal — an unset secret can never authenticate
+Both sides must be non-empty and equal: an unset secret can never authenticate
 an empty header (it falls through to the admin-session path instead). A logged-in
 admin can still POST the same endpoint to drain **their own** tenant on demand.
 
@@ -28,28 +28,28 @@ admin can still POST the same endpoint to drain **their own** tenant on demand.
 
 ```bash
 # 1) create the secret + grant the runtime SA (reversible)
-infra/email-worker/setup.sh secret vizzybl-marketing-prod
+infra/email-worker/setup.sh secret <project>
 
-# 2) the secret is already referenced in apphosting.prod.yaml (private deployment repo).
+# 2) reference it as EMAIL_WORKER_SECRET in apphosting.<env>.yaml.
 #    DEPLOY the app so EMAIL_WORKER_SECRET resolves (deploy must come AFTER step 1,
 #    or the rollout fails resolving the secret).
 
 # 3) start the cron (reads the live secret value for the header)
-infra/email-worker/setup.sh scheduler vizzybl-marketing-prod
+APP_URL=https://app.example.com infra/email-worker/setup.sh scheduler <project>
 
 # 4) confirm
-infra/email-worker/setup.sh verify vizzybl-marketing-prod
-infra/email-worker/setup.sh run    vizzybl-marketing-prod   # one-off smoke test
+infra/email-worker/setup.sh verify <project>
+infra/email-worker/setup.sh run    <project>   # one-off smoke test
 ```
 
-## Defaults (edit in `setup.sh`)
+## Defaults (edit in `setup.sh`; the target comes from `APP_URL`)
 
 | Setting    | Value                                            |
 | ---------- | ------------------------------------------------ |
 | Job        | `email-delivery-worker`                          |
-| Location   | `us-central1` (HTTP trigger only — not a data-residency boundary; adjust for the `gcp.resourceLocations` org policy if needed) |
+| Location   | `us-central1` (HTTP trigger only, not a data-residency boundary; adjust for the `gcp.resourceLocations` org policy if needed) |
 | Schedule   | `*/2 * * * *` (every 2 min, due jobs only)        |
-| Target     | prod → `https://yougrow.ai/api/admin/email/jobs/process` |
+| Target     | `$APP_URL/api/admin/email/jobs/process` (APP_URL: your app's origin) |
 
 The endpoint is host-agnostic for the secret caller (it fans out to all tenants
 regardless of which host it is reached on), so the canonical platform origin is
@@ -57,12 +57,12 @@ used as the target.
 
 ## Troubleshooting
 
-- **Steps not sending, queue growing**: `setup.sh verify` — no job, or `state`
+- **Steps not sending, queue growing**: `setup.sh verify`: no job, or `state`
   not `ENABLED`, means nothing is draining. Check App Hosting logs for the
   `[delivery]` per-tenant lines.
 - **401 from the endpoint**: the header value ≠ the deployed `EMAIL_WORKER_SECRET`
   (re-run `scheduler` after rotating the secret), or the app wasn't redeployed
   after the secret was created.
 - **One region stuck**: `processEmailJobsForAllTenants` isolates per-tenant
-  failures — a tenant in an unprovisioned region is logged (`[delivery] tenant …
+  failures, a tenant in an unprovisioned region is logged (`[delivery] tenant …
   drain failed`) and skipped; the others still drain.

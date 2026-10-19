@@ -17,6 +17,7 @@
     "seed": "tsx scripts/seed.ts",
     "doctor": "node scripts/doctor.mjs",
     "local": "node scripts/local.mjs",
+    "selfhost": "node scripts/selfhost.mjs",
     "check:instance": "node scripts/check-instance-values.mjs",
     "check:private-paths": "node scripts/check-private-paths.mjs",
     "smoke": "(test -f .next/BUILD_ID || next build) && firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",

@@ -9,6 +9,7 @@ import {
   TenantIsolationError,
 } from "@/lib/tenant";
 import { Region } from "@/lib/types/tenant";
+import { normalizeDomain, slugifyTenantId } from "@/lib/tenant/tenantId";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,27 +19,6 @@ const NewBrandSchema = z.object({
   rootDomain: z.string().trim().min(1, "domain is required").max(253),
   region: Region,
 });
-
-/** Strip scheme/path so the stored domain is a bare host (for favicon + origin). */
-function normalizeDomain(input: string): string {
-  return input
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/.*$/, "")
-    .toLowerCase();
-}
-
-/** Derive a global tenant id from the brand name; "" when nothing usable. */
-function slugifyTenantId(name: string): string {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/g, "");
-  return base ? `ten_${base}` : "";
-}
 
 /**
  * Create a new brand (tenant). Same auth model as the campaigns route: the

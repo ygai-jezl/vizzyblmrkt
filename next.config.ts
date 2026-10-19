@@ -110,7 +110,7 @@ const nextConfig: NextConfig = {
         // per-tenant embed allowlist. NOT tenant.allowedOrigins (those are the
         // tenant's own Host-routing domains) — needs a dedicated field + Node
         // middleware (this headers() block is static). See DECISIONS.md "Open
-        // items carried forward" and SETUP §12.
+        // items carried forward" and docs/self-host.md ("Embed the waitlist on another site").
         source: "/embed/:path*",
         headers: [
           ...baseline,

@@ -37,7 +37,13 @@ Open http://localhost:3002 and sign in on the emulator's test page.
 ## Host it on your own Google Cloud
 
 [docs/self-host.md](docs/self-host.md) takes you from an empty Google Cloud
-project to your own running copy.
+project to your own running copy. See the plan first (it only reads):
+
+```bash
+npm run selfhost -- --project <your-project-id>
+```
+
+Or ask your coding agent: `Host YouGrow on my Google Cloud project <id>. Follow docs/self-host.md.`
 
 ## How it's built
 

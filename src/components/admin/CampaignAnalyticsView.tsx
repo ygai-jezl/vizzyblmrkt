@@ -32,7 +32,7 @@ export function CampaignAnalyticsView({
       {a.truncated ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
           Headline totals are based on the first 10,000 signups. Enable the
-          BigQuery pipeline for exact full-scale totals (docs/SETUP.md §11).
+          BigQuery pipeline for exact full-scale totals (docs/self-host.md, addon:bigquery).
         </p>
       ) : null}
 
@@ -65,7 +65,7 @@ export function CampaignAnalyticsView({
           <Empty>
             View tracking isn’t active for this launch yet. Embed the widget (it
             beacons impressions automatically) and enable the BigQuery pipeline
-            (docs/SETUP.md §11) to populate this.
+            (docs/self-host.md, addon:bigquery) to populate this.
           </Empty>
         )}
       </Section>

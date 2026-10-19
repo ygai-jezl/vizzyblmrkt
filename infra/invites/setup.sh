@@ -10,14 +10,14 @@
 #   [backend] is the App Hosting backend id; it defaults to <project>.
 #
 # The key signs invite links (/invite/<payload>.<signature>, HMAC-SHA256 with a
-# purpose prefix — see src/lib/invites/token.ts), following Google's signed-URL
+# purpose prefix, see src/lib/invites/token.ts), following Google's signed-URL
 # pattern: an expiry and a key name inside the signed part, the key kept in
 # Secret Manager, and one secret per purpose and per environment (never shared
 # with the unsubscribe or canvas keys, never shared between environments).
 #
 # ORDER: apphosting.<env>.yaml references this secret by name, so it must exist (with
 # App Hosting access) in a project BEFORE code that references it is deployed
-# there — otherwise the build fails. Without it, invites stay locked ("Invite
+# there, otherwise the build fails. Without it, invites stay locked ("Invite
 # links aren't set up yet") and nothing else changes.
 #
 # ROTATION (rare; e.g. on suspicion of exposure). Links carry a fingerprint of the
@@ -80,7 +80,7 @@ case "$CMD" in
   verify)
     echo "==> Secret $SECRET_NAME in $PROJECT"
     gcloud secrets describe "$SECRET_NAME" --project="$PROJECT" --format="value(name,createTime)" 2>/dev/null \
-      || { echo "    (missing — run: $0 secret $PROJECT)"; exit 1; }
+      || { echo "    (missing. Run: $0 secret $PROJECT)"; exit 1; }
     echo "==> Versions"
     gcloud secrets versions list "$SECRET_NAME" --project="$PROJECT" --format="table(name,state,createTime)"
     echo "==> Bindings"

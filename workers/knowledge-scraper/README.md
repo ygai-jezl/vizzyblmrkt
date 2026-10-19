@@ -1,7 +1,7 @@
 # knowledge-scraper (Cloud Run Job)
 
 The off-request worker for the Knowledge Ingestion & Vector Retrieval (RAG)
-feature. It is an **isolated Node package** (its own `package.json` / build) —
+feature. It is an **isolated Node package** (its own `package.json` / build):
 it does **not** import the main app's `@/lib/*`, because it ships as a container.
 
 ## What it does
@@ -52,7 +52,7 @@ If you change one, change the other.
 ```bash
 npm install
 npm run typecheck
-npm test          # vitest — chunker unit tests
+npm test          # vitest, chunker unit tests
 npm run build
 ```
 
@@ -66,7 +66,9 @@ This creates the Artifact Registry repo (if missing), builds+pushes the image, a
 creates/updates the `knowledge-scraper` Cloud Run Job (timeout 900s, 1 vCPU, 2Gi).
 
 The crawler identifies itself as `YouGrowBot/1.0`. To name your deployment instead, set
-`SCRAPER_USER_AGENT` on the job, for example `YouGrowBot/1.0 (+https://example.com/bot)`.
+`SCRAPER_USER_AGENT` when you run `deploy.sh` (it sets it on the job), for example
+`SCRAPER_USER_AGENT="YouGrowBot/1.0 (+https://example.com/bot)" PROJECT=my-project bash deploy.sh`.
+Set it on every deploy: each deploy replaces the job's environment.
 
 IAM (grant separately):
 - **Job runtime SA** (`JOB_SA`, else default compute SA): `roles/datastore.user`,

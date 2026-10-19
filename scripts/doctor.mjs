@@ -5,12 +5,15 @@
 //   npm run doctor               one line per check, with a fix for each problem
 //   npm run doctor -- --brief    one summary line plus failures (for agent start hooks)
 //   npm run doctor -- --json     [{ id, ok, level, message, fix }] for tools
-//   npm run doctor -- --cloud    also run the Google Cloud checks (see CLOUD_CHECKS)
+//   npm run doctor -- --cloud --project <id> [--env live] [--backend <id>]
+//                                also check your Google Cloud project, read-only (see CLOUD_CHECKS)
 //
 // Exit code 1 when any check fails.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { billingState, describeProject, enabledApis, gcloudAccount, hasGcloud, listBackends, secretNames } from "./selfhost/cloud.mjs";
+import { BACKEND_ID_RE, CORE_SECRETS, DEFAULT_ENV, ENV_NAME_RE, PROJECT_ID_RE, REQUIRED_APIS, WEB_API_KEY_SECRET } from "./selfhost/spec.mjs";
 import {
   ENV_LOCAL,
   LOCAL_PROJECT_ID,
@@ -26,10 +29,21 @@ import {
   readLocalSettings,
 } from "./lib/local-env.mjs";
 
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
 const asJson = args.has("--json");
 const brief = args.has("--brief");
 const withCloud = args.has("--cloud");
+/** The value after `--name` (or `--name=value`), else "". */
+function option(name) {
+  const i = argv.indexOf(`--${name}`);
+  if (i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--")) return argv[i + 1];
+  const inline = argv.find((a) => a.startsWith(`--${name}=`));
+  return inline ? inline.slice(name.length + 3) : "";
+}
+const cloudProject = option("project");
+const cloudEnv = option("env") || DEFAULT_ENV;
+const cloudBackend = option("backend") || cloudProject;
 
 const RECOMMENDED_NODE = 24;
 const MIN_NODE = 20;
@@ -134,16 +148,62 @@ function checkGemini() {
 }
 
 /**
- * Google Cloud checks for `--cloud` (gcloud login, project, APIs, billing...).
- * Extension point: each entry is `async () => result | result[]` built with
- * pass()/problem(). Empty until the self-host checks land.
+ * Google Cloud checks for `--cloud --project <id>`: read-only, each with a fix. They stop at
+ * the first check the rest depend on (gcloud, sign-in, the project).
  */
-const CLOUD_CHECKS = [];
+const selfhost = (step) => `npm run selfhost -- --project ${cloudProject}${cloudEnv !== DEFAULT_ENV ? ` --env ${cloudEnv}` : ""}${cloudBackend !== cloudProject ? ` --backend ${cloudBackend}` : ""} --apply ${step}`;
 
+const CLOUD_CHECKS = [
+  async () => {
+    if (!cloudProject) return [problem("cloud-project", "fail", "No project to check.", "npm run doctor -- --cloud --project <your Google Cloud project id>")];
+    if (!PROJECT_ID_RE.test(cloudProject)) return [problem("cloud-project", "fail", `"${cloudProject}" is not a Google Cloud project id.`, "pass the id shown in the Google Cloud console")];
+    if (!ENV_NAME_RE.test(cloudEnv) || !BACKEND_ID_RE.test(cloudBackend)) return [problem("cloud-project", "fail", "--env or --backend is not a valid name.", "use lowercase letters, digits and hyphens")];
+    if (!hasGcloud()) return [problem("gcloud", "fail", "The Google Cloud CLI (gcloud) is not installed.", "install it: https://cloud.google.com/sdk/docs/install")];
+    const account = gcloudAccount();
+    if (!account) return [problem("gcloud", "fail", "gcloud is not signed in.", "gcloud auth login")];
+    const out = [pass("gcloud", `gcloud signed in as ${account}`)];
+    const p = describeProject(cloudProject);
+    if (p.state !== "ok") {
+      out.push(problem("cloud-project", "fail", `Project ${cloudProject} wasn't found, or ${account} can't open it.`, `check the id, or create it: gcloud projects create ${cloudProject}`));
+      return out;
+    }
+    out.push(pass("cloud-project", `Project ${cloudProject} (number ${p.projectNumber})`));
+
+    const billing = billingState(cloudProject);
+    if (billing.state === "on") out.push(pass("billing", "Billing is on"));
+    else out.push(problem("billing", billing.state === "off" ? "fail" : "warn", billing.state === "off" ? "Billing is off. App Hosting needs a billing account." : `Can't read billing: ${billing.why}`, `https://console.cloud.google.com/billing/linkedaccount?project=${cloudProject}`));
+
+    const apis = enabledApis(cloudProject);
+    if (!apis.apis) out.push(problem("apis", "warn", `Can't list the enabled APIs: ${apis.why}`, selfhost("apis")));
+    else {
+      const missing = REQUIRED_APIS.filter((a) => !apis.apis.has(a.id)).map((a) => a.id);
+      out.push(missing.length ? problem("apis", "fail", `${missing.length} required APIs are off: ${missing.join(", ")}`, selfhost("apis")) : pass("apis", `All ${REQUIRED_APIS.length} required APIs are on`));
+    }
+
+    const names = secretNames(cloudProject);
+    if (!names.names) out.push(problem("secrets", "warn", `Can't list secrets: ${names.why}`, selfhost("secrets")));
+    else {
+      const missing = [...CORE_SECRETS.map((s) => s.name), WEB_API_KEY_SECRET.name].filter((n) => !names.names.has(n));
+      out.push(missing.length ? problem("secrets", "fail", `${missing.length} core secrets are missing: ${missing.join(", ")}`, selfhost("secrets")) : pass("secrets", `All ${CORE_SECRETS.length + 1} core secrets exist`));
+    }
+
+    const b = listBackends(cloudProject);
+    if (!b.ok) out.push(problem("backend", "warn", `Can't list App Hosting backends: ${b.why}`, "firebase login"));
+    else {
+      const found = b.backends.find((x) => x.id === cloudBackend);
+      if (!found) out.push(problem("backend", "fail", `No App Hosting backend "${cloudBackend}".`, selfhost("backend")));
+      else if (found.environment !== cloudEnv) out.push(problem("backend", "fail", `Backend ${cloudBackend} has environment name "${found.environment || "(none)"}", so it won't read apphosting.${cloudEnv}.yaml.`, selfhost("backend")));
+      else out.push(pass("backend", `App Hosting backend ${cloudBackend} (${found.uri}), environment "${cloudEnv}"`));
+    }
+
+    const envFile = join(REPO_ROOT, `apphosting.${cloudEnv}.yaml`);
+    out.push(existsSync(envFile) ? pass("env-file", `apphosting.${cloudEnv}.yaml is here`) : problem("env-file", "fail", `No apphosting.${cloudEnv}.yaml in this folder.`, selfhost("envfile")));
+    return out;
+  },
+];
 async function runChecks() {
   const results = [checkNode(), checkDependencies(), checkJava(), checkFirebaseCli(), ...(await checkPorts()), checkSettings(), checkGemini()];
   if (withCloud) {
-    if (!CLOUD_CHECKS.length) results.push(problem("cloud", "info", "Cloud checks are not available yet. This run checked the local setup only.", ""));
     for (const check of CLOUD_CHECKS) results.push(...[].concat(await check()));
   }
   return results;
@@ -173,7 +233,8 @@ if (asJson) {
 } else {
   console.log("YouGrow doctor");
   for (const r of results) printLine(r);
-  console.log(failed ? `Summary: ${text}. Fix the failed checks, then run npm run doctor again.` : `Summary: ${text}. Next: npm run local`);
+  const again = withCloud ? `npm run doctor -- --cloud --project ${cloudProject || "<id>"}` : "npm run doctor";
+  console.log(failed ? `Summary: ${text}. Fix the failed checks, then run ${again} again.` : `Summary: ${text}. Next: ${withCloud ? "npm run selfhost -- --project " + cloudProject : "npm run local"}`);
 }
 
 process.exit(failed ? 1 : 0);

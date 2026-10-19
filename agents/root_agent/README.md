@@ -43,7 +43,7 @@ answers with a plain "not switched on" message.
 ```
 agent.py              root LlmAgent: instruction, 2 callbacks, tools, sub-agents
 __init__.py           exposes root_agent for `adk deploy`
-_project_fix.py       maps the runtime's project number to a project id (ADK bug workaround)
+_project_fix.py       swaps the runtime's project number for AGENT_PROJECT_ID (ADK bug workaround)
 model_config.py       DEFAULT_MODEL (overridden by ROOT_AGENT_MODEL)
 callbacks/            [ctx:] envelope and [mode:] directive
 context/              dynamic instruction, language, Memory Bank scoping
@@ -52,7 +52,7 @@ tools/                root FunctionTools (pure *_client.py + ADK wrappers)
 sub_agents/           campaign_ops, lifecycle_ops, content_ops (each with prompts/ and tools/)
 agent_logging/        structured logging
 tests/                unit tests (pure clients; the tool declaration tests need ADK)
-deploy.sh             renders .agent_engine_config.json, then runs `adk deploy agent_engine`
+deploy.sh             renders .agent_engine_config.json (not committed), then runs `adk deploy agent_engine`
 ```
 
 ## Local test
@@ -81,26 +81,34 @@ upload limit.
 python3.12 -m venv agents/.venv
 agents/.venv/bin/pip install -r agents/requirements-deploy.txt
 gcloud auth application-default login
+bash infra/agent/setup.sh all <your-project>     # the agent's service account and roles
 
-# first deploy creates a new engine
-ROOT_AGENT_PROJECT=<your-project> \
-CANVAS_CALLBACK_URL=https://<your-app-origin> \
+# see exactly what would be deployed (nothing is written or deployed)
+PROJECT=<your-project> CANVAS_CALLBACK_URL=https://<your-app-origin> \
+  bash agents/root_agent/deploy.sh --dry-run
+
+# first deploy creates a new engine and prints its id
+PROJECT=<your-project> CANVAS_CALLBACK_URL=https://<your-app-origin> \
   bash agents/root_agent/deploy.sh
 
 # later deploys update that engine in place
-ROOT_AGENT_PROJECT=<your-project> ROOT_AGENT_RESOURCE_ID=<engine-id> \
-CANVAS_CALLBACK_URL=https://<your-app-origin> \
+PROJECT=<your-project> CANVAS_CALLBACK_URL=https://<your-app-origin> AGENT_ENGINE_ID=<engine-id> \
   bash agents/root_agent/deploy.sh
 ```
 
-`deploy.sh` writes `.agent_engine_config.json` for the project: the agent runs as
-the service account `root-agent@<project>.iam.gserviceaccount.com`
-(`identity_type: SERVICE_ACCOUNT`), with `ROOT_AGENT_MODEL` and
-`CANVAS_CALLBACK_URL` as runtime env. Create that service account first and let
-it call Gemini on Vertex AI. Copy the `reasoningEngines/<ID>` tail the deploy
-prints into `ROOT_AGENT_RESOURCE_ID` in your App Hosting config, then redeploy the
-app. The query endpoint needs about 1 to 2 minutes to warm up after "Deployed"
-(a 404 until then).
+Keep your values in a file (for example `agent.env` with `PROJECT=`, `CANVAS_CALLBACK_URL=`
+and `AGENT_ENGINE_ID=`) and run `set -a; . ./agent.env; set +a` first. `REGION`,
+`DISPLAY_NAME`, `AGENT_SERVICE_ACCOUNT` and `ROOT_AGENT_MODEL` are optional; the top of
+`deploy.sh` lists them with their defaults. `npm run selfhost -- --project <id> --apply addon:vizzy`
+does all of this for you.
+
+`deploy.sh` writes `.agent_engine_config.json` for the project (it is generated, so it is
+not committed): the agent runs as the service account
+`root-agent@<project>.iam.gserviceaccount.com` (`identity_type: SERVICE_ACCOUNT`), with
+`ROOT_AGENT_MODEL`, `CANVAS_CALLBACK_URL` and `AGENT_PROJECT_ID` as runtime env.
+Copy the engine id the first deploy prints into `ROOT_AGENT_RESOURCE_ID` in your
+`apphosting.<env>.yaml`, then roll out the app. The query endpoint needs about 1 to 2
+minutes to warm up after "Deployed" (a 404 until then).
 
 **requirements.txt gotchas:**
 - Pin `google-adk` to exactly the local `adk --version`. The container launcher
@@ -112,8 +120,10 @@ app. The query endpoint needs about 1 to 2 minutes to warm up after "Deployed"
 
 ## IAM (least privilege)
 - **The caller** (the App Hosting runtime service account) needs only
-  `aiplatform.reasoningEngines.query` and `.get`, for example through a custom
-  role, rather than the broad `roles/aiplatform.user`.
+  `aiplatform.reasoningEngines.query` and `.get`, through the `reasoningEngineInvoker`
+  custom role that `infra/agent/setup.sh` creates and grants, rather than the broad
+  `roles/aiplatform.user`.
 - **The agent** runs as its own `root-agent@<project>` service account. It needs
-  Vertex AI access for Gemini and nothing for app data, because it reaches app
-  data only through the signed callback routes above.
+  Vertex AI access for Gemini (`roles/aiplatform.user`) and log writing, and nothing
+  for app data, because it reaches app data only through the signed callback routes
+  above. `infra/agent/setup.sh` creates it and grants these.

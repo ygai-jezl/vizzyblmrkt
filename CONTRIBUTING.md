@@ -46,7 +46,8 @@ pull request template (`.github/pull_request_template.md`) reminds you.
   `apphosting.yaml` refers to none.
 - Don't commit a deployment's values (project ids, domains, buckets, keys) or its
   `apphosting.<environment>.yaml` and `.firebaserc`. `npm run check:instance`
-  and `npm run check:private-paths` catch ours.
+  and `npm run check:private-paths` catch ours. Your fork keeps its own settings
+  file ([docs/self-host.md](docs/self-host.md)); leave it out of pull requests.
 - Use made-up people in tests and fixtures, with `example.com` or `.test`
   addresses. Never real names, emails or phone numbers.
 

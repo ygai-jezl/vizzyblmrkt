@@ -40,7 +40,7 @@ import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
-import type { BlogHubControls, LiveResult } from "./blog/types";
+import type { BlogHubControls, HeroMakeOptions, LiveResult } from "./blog/types";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { isAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
@@ -578,13 +578,17 @@ export function ContentCanvas({
   };
 
   /** Make (or make again) an article's hero image; the server saves it on the hub's meta. */
-  async function makeHero(id: string, styleId?: string): Promise<string | null> {
+  async function makeHero(id: string, opts: HeroMakeOptions = {}): Promise<string | null> {
     setHeroBusy(id);
     try {
       const res = await fetch(heroUrl(id), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(styleId ? { styleId } : {}),
+        body: JSON.stringify({
+          ...(opts.styleId ? { styleId: opts.styleId } : {}),
+          ...(opts.format ? { format: opts.format } : {}),
+          ...(opts.formatInputs ? { formatInputs: opts.formatInputs } : {}),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as { hero?: BlogHero; error?: string };
       if (res.ok && data.hero) {

@@ -541,12 +541,19 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # CONNECT_SECRET_ENC_KEY and LIFECYCLE_WORKER_SECRET are set in apphosting.yaml
-  # and INHERITED here, resolved against THIS project's Secret Manager — so both
-  # secrets must exist in prod (with App Hosting access) before any prod rollout,
-  # or the build fails. Create them with:
+  # Brands' own Mailchimp keys stay as saved (plain text) until this is on. Turn
+  # it on after a prod check, then run scripts/seal-mailchimp-keys.ts --apply.
+  - variable: MAILCHIMP_KEY_SEALED_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # CONNECT_SECRET_ENC_KEY, LIFECYCLE_WORKER_SECRET and MAILCHIMP_KEY_ENC_KEY are set
+  # in apphosting.yaml and INHERITED here, resolved against THIS project's Secret
+  # Manager — so the secrets must exist in prod (with App Hosting access) before
+  # any prod rollout, or the build fails. Create them with:
   #   infra/lifecycle/setup.sh secret vizzybl-marketing-prod
   #   infra/lifecycle/setup.sh worker-secret vizzybl-marketing-prod
+  #   infra/mailchimp/setup.sh secret vizzybl-marketing-prod
   #
   # Email unsubscribe / preference links must point at PROD. (apphosting.yaml
   # sets this to the dev backend's URL for dev; without this override prod

@@ -541,10 +541,11 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Brands' own Mailchimp keys stay as saved (plain text) until this is on. Turn
-  # it on after a prod check, then run scripts/seal-mailchimp-keys.ts --apply.
+  # A brand's own Mailchimp key is saved sealed, never as plain text. On in prod
+  # since 2026-10-19; no prod brand had a plain key then, so nothing needed sealing
+  # (scripts/seal-mailchimp-keys.ts). Set "false" here to go back to plain saves.
   - variable: MAILCHIMP_KEY_SEALED_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   # CONNECT_SECRET_ENC_KEY, LIFECYCLE_WORKER_SECRET and MAILCHIMP_KEY_ENC_KEY are set
@@ -974,33 +975,33 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Brand image style, blog hero and website fonts (see apphosting.yaml): OFF in prod until
-  # checked on dev. All six must be set here: this file only overrides apphosting.yaml, so a
-  # switch left out would be ON in prod.
+  # Brand image style, blog hero and website fonts (see apphosting.yaml): ON in prod since the
+  # owner's go-ahead on 2026-10-19. All six stay set here on purpose: this file only overrides
+  # apphosting.yaml, and turning one off is a one-line change.
   - variable: BRAND_IMAGE_STYLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: BLOG_HERO_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BLOG_HERO_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

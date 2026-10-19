@@ -7,6 +7,7 @@ import type { ArticleMap } from "./articleMap";
 import { avoidedUses, countName, mentionsName } from "./names";
 import { aiTellsIn } from "@/lib/content/writingRules";
 import { focusedBrief, isChoosingQuestion, isSloganLabel } from "./focus";
+import { hasAsciiTable } from "./asciiTables";
 import { fold } from "@/lib/brandMap/changes";
 
 /**
@@ -213,6 +214,16 @@ function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: 
     filler ? "fail" : "pass",
     filler ? `A list says the same thing about several items: “${said(filler).slice(0, 80)}”.` : "No list repeats itself.",
     filler ? `Take out the list where every item says “${said(filler).slice(0, 80)}”, or say something different and true about each item.` : "",
+  );
+
+  // A table drawn out of characters (+----+) instead of a Markdown table.
+  const drawn = hasAsciiTable(markdown);
+  add(
+    "v_tables",
+    "Tables are real tables",
+    drawn ? "fail" : "pass",
+    drawn ? "Has a table drawn out of characters." : "No tables drawn out of characters.",
+    "Turn every table drawn out of characters (+, -, |) into a Markdown pipe table, or into plain prose.",
   );
 
   // A page's slogan copied in as link text ("Speak Fluent ChatGPT. No Code Required.").

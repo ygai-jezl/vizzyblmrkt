@@ -37,13 +37,19 @@ export function gaConfig(): GaConfig | null {
  * /embed runs inside customers' sites, /waitlist pages belong to tenants,
  * /unsubscribe links carry tokens, and /admin is the signed-in product.
  */
+/** The public site's other pages: stages, features, and the site in another language (/es, /fr/loop/plan). */
+function isSitePath(pathname: string): boolean {
+  return /^(?:\/(?:es|fr|de|ja|ar))?(?:\/(?:loop|features)\/[a-z-]+)?\/?$/.test(pathname) && pathname !== "";
+}
+
 export function isGaTrackedPath(pathname: string | null): boolean {
   if (!pathname) return false;
   return (
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/developers" ||
-    pathname.startsWith("/developers/")
+    pathname.startsWith("/developers/") ||
+    isSitePath(pathname)
   );
 }
 

@@ -1,0 +1,1819 @@
+{
+ "order": [
+  "knowledge",
+  "brand",
+  "vizzy",
+  "canvas",
+  "ebook",
+  "waitlists",
+  "invites",
+  "distribute",
+  "journeys",
+  "voice",
+  "insights"
+ ],
+ "tags": {
+  "knowledge": "Grounded in your docs, site and code",
+  "brand": "Your voice, palette and style, learned",
+  "vizzy": "One chat that plans your go-to-market",
+  "canvas": "One idea, a whole campaign",
+  "ebook": "Chapters drafted, images included",
+  "waitlists": "Referral leaderboards that recruit for you",
+  "invites": "Let people in, top of the list first",
+  "distribute": "Schedule posts to your LinkedIn page",
+  "journeys": "Branch on what each person did",
+  "voice": "Talk to every signup, in 23 languages",
+  "insights": "What’s working, and where it came from"
+ },
+ "stages": {
+  "understand": {
+   "no": "01",
+   "half": "Make",
+   "name": "Understand",
+   "color": "#c9b8ff",
+   "u": 0.125,
+   "promise": "It learns your world before it writes a word.",
+   "body": "The knowledge agent reads your docs, your website and your code. The brand kit takes your palette, type and voice from your guidelines. Everything later in the loop is grounded in what they find.",
+   "reads": [
+    "The docs, website and repos you point it at",
+    "Your brand guidelines, or your website"
+   ],
+   "writes": [
+    "Searchable passages, kept in your own data region",
+    "Your brand kit: palette, fonts and voice",
+    "An image style learned from your ratings"
+   ],
+   "who": "The knowledge agent and the brand kit",
+   "decide": "Which sources to add, and what to keep from the extracted brand kit.",
+   "features": [
+    "knowledge",
+    "brand"
+   ],
+   "live": [
+    "Docs, websites and private repos, read-only",
+    "A brand kit from your PDF or your site",
+    "Image style that learns from your ratings"
+   ],
+   "next": [
+    "Automatic refresh when your sources change"
+   ]
+  },
+  "plan": {
+   "no": "02",
+   "half": "Make",
+   "name": "Plan",
+   "color": "#a78bfa",
+   "u": 0.25,
+   "promise": "Say what you want. Get a plan you can edit.",
+   "body": "Tell Vizzy your goal in plain words, on any page. It knows where you are and who your brand is, and hands the work to the right specialist. Everything comes back as a draft.",
+   "reads": [
+    "The page you’re on, your launch and your brand",
+    "Results from Insights, when you ask"
+   ],
+   "writes": [
+    "Draft content plans, journeys and invite waves, waiting in Review"
+   ],
+   "who": "Vizzy, with content, campaign and lifecycle agents",
+   "decide": "Every draft. Vizzy never sends anything or switches it on.",
+   "features": [
+    "vizzy"
+   ],
+   "live": [
+    "Ask from any page with ⌘J",
+    "Drafts for content plans, journeys and invite waves",
+    "Answers from your Insights numbers"
+   ],
+   "next": [
+    "Agents read your results before they plan",
+    "A weekly review that proposes your next lap"
+   ]
+  },
+  "create": {
+   "no": "03",
+   "half": "Make",
+   "name": "Create",
+   "color": "#5b8def",
+   "u": 0.375,
+   "promise": "One idea becomes a whole campaign.",
+   "body": "The canvas architect maps a hub and its spokes, then writes every piece in your voice, grounded in your knowledge. The eBook studio does the same for a whole book, and images follow the style you’ve taught it.",
+   "reads": [
+    "Your knowledge and brand voice",
+    "Your learned image style",
+    "How your last broadcasts performed"
+   ],
+   "writes": [
+    "Drafts for every channel",
+    "Your rating of each image"
+   ],
+   "who": "The canvas architect, the eBook studio and email assist",
+   "decide": "You approve the hub before the spokes are written, and every piece before it’s scheduled.",
+   "features": [
+    "canvas",
+    "ebook"
+   ],
+   "live": [
+    "Campaigns mapped as a hub and its spokes",
+    "Illustrated eBooks, chapter by chapter",
+    "Images in your learned style"
+   ],
+   "next": [
+    "Post results steer the next draft",
+    "Learning from the edits you make"
+   ]
+  },
+  "launch": {
+   "no": "04",
+   "half": "Grow",
+   "name": "Launch",
+   "color": "#22d3ee",
+   "u": 0.625,
+   "promise": "Ship what you approved. Let signups recruit.",
+   "body": "Approved posts go out to your LinkedIn page on schedule. Your waitlist turns every signup into a recruiter, and invite waves let the top of the list into your product first.",
+   "reads": [
+    "Approved pieces, ready to schedule",
+    "Waitlist rank and verified referrals"
+   ],
+   "writes": [
+    "Signups, referrals and where they came from",
+    "Which invite led to which product signup"
+   ],
+   "who": "Distribute, the waitlist and invite waves",
+   "decide": "When each post goes out, and when a wave is sent. Only a person can send.",
+   "features": [
+    "waitlists",
+    "invites",
+    "distribute"
+   ],
+   "live": [
+    "Waitlists with referrals and a leaderboard",
+    "Scheduled posts to your LinkedIn page",
+    "Invite waves with signed links"
+   ],
+   "next": [
+    "Publishing to X and Instagram"
+   ]
+  },
+  "engage": {
+   "no": "05",
+   "half": "Grow",
+   "name": "Engage",
+   "color": "#14b8a6",
+   "u": 0.75,
+   "promise": "Meet every person where they are.",
+   "body": "Each signup gets a journey that branches on what they did. Right after joining, a voice agent can ask them a few questions in their own language.",
+   "reads": [
+    "What each person did: referrals, rank, source",
+    "Whether they talked to the voice agent"
+   ],
+   "writes": [
+    "Opens and clicks for every email",
+    "Voice-chat transcripts, saved with the signup"
+   ],
+   "who": "Email journeys and the voice agent",
+   "decide": "You publish each journey, and promote the winning version yourself.",
+   "features": [
+    "journeys",
+    "voice"
+   ],
+   "live": [
+    "Welcome journeys that branch and A/B test",
+    "Voice chat in 23 languages"
+   ],
+   "next": [
+    "Per-person emails for your product’s users",
+    "Putting what people say in voice chats to work"
+   ]
+  },
+  "learn": {
+   "no": "06",
+   "half": "Grow",
+   "name": "Learn",
+   "color": "#34d399",
+   "u": 0.875,
+   "promise": "See what worked, and where it came from.",
+   "body": "Insights gathers signups, sources, email results and the path from waitlist to product in one place. Ask Vizzy and it answers from the same numbers.",
+   "reads": [
+    "Signups and their sources",
+    "Email opens and clicks",
+    "Invites, product signups and activation"
+   ],
+   "writes": [
+    "What’s working, ready for Vizzy to answer from"
+   ],
+   "who": "Insights, read by Vizzy",
+   "decide": "What to do next. Today Insights reports; it doesn’t act on its own.",
+   "features": [
+    "insights"
+   ],
+   "live": [
+    "One overview for launches, email and content",
+    "Where signups come from",
+    "The waitlist-to-product funnel"
+   ],
+   "next": [
+    "Results steer the next draft automatically",
+    "Links tagged for you, so every signup is traced"
+   ]
+  }
+ },
+ "features": {
+  "knowledge": {
+   "name": "Knowledge",
+   "color": "#c9b8ff",
+   "aside": "Five steps, one source of truth",
+   "h1": [
+    "Grounded in",
+    "what’s true."
+   ],
+   "sub": "Point YouGrow at your docs, your website and your code. Your agents read from them before they write, so nothing is a generic guess.",
+   "obj": {
+    "id": "SRC-04",
+    "via": "via Knowledge",
+    "named": "github.com/yourbrand/app",
+    "placeholder": "New source"
+   },
+   "pipe": [
+    "Added",
+    "Read",
+    "Indexed",
+    "Tested",
+    "Grounding"
+   ],
+   "close": [
+    "Teach it",
+    "your world"
+   ],
+   "steps": [
+    {
+     "tab": "Add a source",
+     "title": "Add a source",
+     "dur": 6600,
+     "desc": "Paste a link to a docs page, your website, or a GitHub or GitLab repo. Private repos connect through read-only access, and nothing is ever written back.",
+     "head": [
+      [
+       0,
+       "Draft",
+       "grey",
+       0,
+       false
+      ],
+      [
+       3.4,
+       "Pending",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wider\">\n<div class=\"card pad\">\n<div class=\"t-h\">Ingest grounding source</div>\n<div class=\"seg mt\"><span>Docs / page</span><span>Website (crawl)</span><span class=\"fx-seg\" data-at=\"0.6\">GitHub repo</span><span>GitLab repo</span></div>\n<div class=\"field\"><label>Repository URL</label><div class=\"inp\"><span data-type=\"0.9,1.4\" data-text=\"github.com/yourbrand/app\"></span></div></div>\n<div class=\"field\"><label>Topic</label><div class=\"inp\">Mobile app</div></div>\n<div class=\"btn-sm dark mt\" data-press=\"3.0\" style=\"display:inline-block\">Ingest</div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Sources</div>\n<ul class=\"list\">\n<li class=\"li\"><span class=\"grow\">yourbrand.com</span><span class=\"tag-ui ok\">DONE</span></li>\n<li class=\"li\"><span class=\"grow\">docs.yourbrand.com/pricing</span><span class=\"tag-ui ok\">DONE</span></li>\n<li class=\"li fx\" data-at=\"3.3\"><span class=\"grow\">github.com/yourbrand/app</span><span class=\"tag-ui blue\">PENDING</span></li>\n</ul>\n<div class=\"chips fx\" data-at=\"3.6\"><span class=\"chip soft\">Read-only</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "It reads everything",
+     "title": "It reads everything",
+     "dur": 6800,
+     "desc": "Websites are crawled page by page, JavaScript-heavy ones included. Repos are read file by file, skipping lockfiles, binaries and dependencies.",
+     "head": [
+      [
+       0,
+       "Running",
+       "blue",
+       1,
+       true
+      ],
+      [
+       4.8,
+       "Read",
+       "blue",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Reading github.com/yourbrand/app<span class=\"mono\"><b data-count=\"0,1284,0.4,4.4\">0</b> files</span></div>\n<div class=\"prog\"><i data-at=\"0.4\" style=\"--w:100%;transition-duration:4s\"></i></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"0.8\"><span class=\"spin\" data-in=\"0.8\" data-done=\"1.4\"></span><span class=\"grow mono sm\">README.md</span></li>\n<li class=\"li fx\" data-at=\"1.4\"><span class=\"spin\" data-in=\"1.4\" data-done=\"2.0\"></span><span class=\"grow mono sm\">docs/getting-started.md</span></li>\n<li class=\"li fx\" data-at=\"2.0\"><span class=\"spin\" data-in=\"2.0\" data-done=\"2.6\"></span><span class=\"grow mono sm\">src/onboarding/steps.ts</span></li>\n<li class=\"li fx\" data-at=\"2.6\"><span class=\"spin\" data-in=\"2.6\" data-done=\"3.2\"></span><span class=\"grow mono sm\">src/billing/plans.ts</span></li>\n<li class=\"li fx\" data-at=\"3.2\"><span class=\"grow mono sm muted\">package-lock.json</span><span class=\"tag-ui\">SKIPPED</span></li>\n<li class=\"li fx\" data-at=\"3.6\"><span class=\"grow mono sm muted\">assets/logo.png</span><span class=\"tag-ui\">SKIPPED</span></li>\n</ul>\n</div>"
+    },
+    {
+     "tab": "Indexed for search",
+     "title": "Indexed, privately",
+     "dur": 6200,
+     "desc": "Everything is split into passages and indexed for search in your own data region, US, EU or Asia, where only your workspace can reach it.",
+     "head": [
+      [
+       0,
+       "Embedding",
+       "blue",
+       2,
+       true
+      ],
+      [
+       3.6,
+       "Done",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Status</div>\n<ul class=\"list\">\n<li class=\"li done\"><i class=\"box\"></i><span class=\"grow\">Pending</span></li>\n<li class=\"li done\"><i class=\"box\"></i><span class=\"grow\">Running</span></li>\n<li class=\"li\" data-done=\"3.0\"><i class=\"box\"></i><span class=\"grow\">Embedding</span><span class=\"spin\" data-in=\"0.2\" data-done=\"3.0\"></span></li>\n<li class=\"li\" data-done=\"3.6\"><i class=\"box\"></i><span class=\"grow\">Done</span></li>\n</ul>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Index</div>\n<div class=\"rank mt\"><span data-count=\"0,3412,0.3,3.0\">0</span></div>\n<div class=\"muted sm\">passages</div>\n<div class=\"chips mt\"><span class=\"chip fx\" data-at=\"1.2\" style=\"--c:#6f6cf4\"><i></i>EU region</span><span class=\"chip fx\" data-at=\"1.6\" style=\"--c:#10b981\"><i></i>Private to your workspace</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Check what it knows",
+     "title": "Check what it knows",
+     "dur": 6800,
+     "desc": "Ask a test question and see exactly which passages come back, with the page or file they came from, before anything gets written.",
+     "head": [
+      [
+       0,
+       "Done",
+       "green",
+       3,
+       true
+      ],
+      [
+       2.6,
+       "Tested",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Test retrieval</div>\n<div class=\"field\"><div class=\"inp\"><span data-type=\"0.3,1.2\" data-text=\"How does onboarding work?\"></span></div></div>\n<div class=\"list\" style=\"gap:8px\">\n<div class=\"snip fx\" data-at=\"2.0\"><b>Getting started</b>Create a project, invite your team, then connect your first data source…<div class=\"u\">docs.yourbrand.com/getting-started</div></div>\n<div class=\"snip fx\" data-at=\"2.4\"><b>src/onboarding/steps.ts</b>STEPS = [“create_project”, “invite_team”, “connect_source”]…<div class=\"u\">github.com/yourbrand/app</div></div>\n<div class=\"snip fx\" data-at=\"2.8\"><b>Pricing</b>Every plan starts with a 14-day trial of the full onboarding…<div class=\"u\">docs.yourbrand.com/pricing</div></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Every draft is grounded",
+     "title": "Every draft is grounded",
+     "dur": 7000,
+     "desc": "Content, eBooks and emails draw on the most relevant passages. Retrieved text is treated as reference data, never as instructions, so a page can’t hijack your agents.",
+     "head": [
+      [
+       0,
+       "Done",
+       "green",
+       4,
+       true
+      ],
+      [
+       1,
+       "Grounding",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"t-h\">Drafting · LinkedIn post<span class=\"spin\" data-in=\"0.4\" data-done=\"4.2\"></span></div>\n<div class=\"muted sm mt\">Using 6 passages from</div>\n<div class=\"chips\">\n<span class=\"chip fx\" data-at=\"0.8\" style=\"--c:#a78bfa\"><i></i>getting-started</span>\n<span class=\"chip fx\" data-at=\"1.1\" style=\"--c:#3b82f6\"><i></i>steps.ts</span>\n<span class=\"chip fx\" data-at=\"1.4\" style=\"--c:#22d3ee\"><i></i>pricing</span>\n</div>\n<div class=\"prose mt fx\" data-at=\"2.4\">Three steps and you’re live: create a project, invite your team, connect a source.</div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Reference, not instructions</div>\n<div class=\"snip mt\"><span class=\"muted\">“Ignore previous instructions and…”</span></div>\n<div class=\"li mt fx\" data-at=\"2.2\"><span class=\"tag-ui ok\">TREATED AS DATA</span><span class=\"muted sm\">found on a crawled page</span></div>\n</div>\n</div>"
+    }
+   ]
+  },
+  "brand": {
+   "name": "Brand kit",
+   "color": "#b49cff",
+   "aside": "Five steps, one brand",
+   "h1": [
+    "Upload it once.",
+    "On-brand for good."
+   ],
+   "sub": "Drop in your brand guidelines and YouGrow learns your palette, type and voice, keeps every word and image on-brand, and gets sharper with your feedback.",
+   "obj": {
+    "id": "KIT-01",
+    "via": "via Brand kit",
+    "named": "Your brand kit",
+    "placeholder": "No brand kit yet"
+   },
+   "pipe": [
+    "Uploaded",
+    "Extracted",
+    "Saved",
+    "In use",
+    "Learning"
+   ],
+   "close": [
+    "Make it look",
+    "like you"
+   ],
+   "steps": [
+    {
+     "tab": "Upload your guidelines",
+     "title": "Upload your guidelines",
+     "dur": 6000,
+     "desc": "Drop in your brand guidelines PDF. No guidelines? Pull colours from your website, generate a theme, or start from your logo.",
+     "head": [
+      [
+       0,
+       "Empty",
+       "grey",
+       0,
+       false
+      ],
+      [
+       2.8,
+       "Uploaded",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wide\">\n<div class=\"card pad\">\n<div class=\"drop\" data-at=\"1.2\">\n<div class=\"pdf fx\" data-at=\"0.6\"><span>PDF</span></div>\n<div class=\"sm mt\">brand-guidelines.pdf · 6.2 MB</div>\n<div class=\"prog\"><i data-at=\"1.4\" style=\"--w:100%\"></i></div>\n</div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Or build a palette</div>\n<div class=\"list\">\n<span class=\"chip soft\">Extract from PDF</span><span class=\"chip soft\">Pull from website</span>\n<span class=\"chip soft\">Generate AI theme</span><span class=\"chip soft\">From logo</span>\n</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "It extracts your brand",
+     "title": "It extracts your brand",
+     "dur": 7200,
+     "desc": "AI reads the document and pulls out your palette, fonts, tone, voice, imagery style and the do’s and don’ts.",
+     "head": [
+      [
+       0,
+       "Extracting",
+       "blue",
+       1,
+       true
+      ],
+      [
+       5,
+       "Extracted",
+       "violet",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"tool\"><span class=\"spin\" data-in=\"0.1\" data-done=\"4.8\"></span>Extracting brand kit with AI…</div>\n<div class=\"row2 mt\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Palette</div>\n<div class=\"sw\">\n<i class=\"fx\" data-at=\"0.6\" style=\"--c:#151517\"></i><i class=\"fx\" data-at=\"0.8\" style=\"--c:#6d5cf6\"></i><i class=\"fx\" data-at=\"1.0\" style=\"--c:#2563eb\"></i><i class=\"fx\" data-at=\"1.2\" style=\"--c:#22d3ee\"></i><i class=\"fx\" data-at=\"1.4\" style=\"--c:#f4f2ee\"></i>\n</div>\n<div class=\"ui-k mt\">Fonts</div>\n<div class=\"aa fx\" data-at=\"1.8\"><b style=\"font-family:var(--display)\">Aa</b><span>Unbounded · headings</span></div>\n<div class=\"aa fx\" data-at=\"2.1\"><b style=\"font-family:var(--text);font-weight:500\">Aa</b><span>Geist · body</span></div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Voice</div>\n<div class=\"prose mt\" data-type=\"2.4,1.6\" data-text=\"Warm, direct, a little playful. Short sentences. Talk to one person.\"></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"3.8\"><span class=\"tag-ui ok\">DO</span><span class=\"grow sm\">Lead with what the reader gets</span></li>\n<li class=\"li fx\" data-at=\"4.2\"><span class=\"tag-ui bad\">DON’T</span><span class=\"grow sm\">Use jargon or exclamation marks</span></li>\n</ul>\n</div>\n</div>"
+    },
+    {
+     "tab": "Review and save",
+     "title": "Review and save",
+     "dur": 5800,
+     "desc": "Everything lands for review first. Keep what’s right, change what isn’t, then save the kit for the whole workspace.",
+     "head": [
+      [
+       0,
+       "In review",
+       "blue",
+       2,
+       true
+      ],
+      [
+       3.2,
+       "Saved",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"snip\" style=\"background:#eef3ff;border-color:#bfd0ff\">Brand kit extracted. Review and save.</div>\n<ul class=\"list\">\n<li class=\"li\" data-done=\"0.6\"><i class=\"box\"></i><span class=\"grow\">Palette · 8 colours</span></li>\n<li class=\"li\" data-done=\"0.9\"><i class=\"box\"></i><span class=\"grow\">Fonts · 2</span></li>\n<li class=\"li\" data-done=\"1.2\"><i class=\"box\"></i><span class=\"grow\">Tone and voice</span></li>\n<li class=\"li\" data-done=\"1.5\"><i class=\"box\"></i><span class=\"grow\">Imagery style</span></li>\n<li class=\"li\" data-done=\"1.8\"><i class=\"box\"></i><span class=\"grow\">Do’s and don’ts</span></li>\n</ul>\n<div class=\"btn-sm dark mt\" data-press=\"2.8\" style=\"display:inline-block\">Save brand kit</div>\n</div>"
+    },
+    {
+     "tab": "Everything stays on-brand",
+     "title": "Everything stays on-brand",
+     "dur": 6400,
+     "desc": "Your kit shapes copy, email layouts, social and eBook images, even how the voice agent talks, so everything sounds and looks like you.",
+     "head": [
+      [
+       0,
+       "Saved",
+       "green",
+       3,
+       true
+      ],
+      [
+       1.4,
+       "In use",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card fx\" data-at=\"0.4\" style=\"overflow:hidden\">\n<div style=\"height:44px;background:linear-gradient(95deg,#6d5cf6,#2563eb);display:flex;align-items:center;padding:0 12px;color:#fff;font:700 13px var(--display)\">YOUR BRAND</div>\n<div class=\"pad\"><div style=\"font:600 14px var(--text)\">We built the app you asked for</div><div class=\"prose muted sm mt\">Three steps and you’re live. Here’s what’s inside.</div><div class=\"big-btn\" style=\"width:130px;background:#2563eb\">See what’s new</div></div>\n</div>\n<div class=\"card pad fx\" data-at=\"1.0\">\n<div class=\"tile-i\" style=\"--g:linear-gradient(135deg,#6d5cf6,#2563eb 55%,#22d3ee);aspect-ratio:1.4;display:flex;align-items:flex-end;padding:10px;color:#fff;font:700 14px/1.1 var(--display)\">Your home screen, finally yours.</div>\n<div class=\"chips\"><span class=\"chip fx\" data-at=\"1.8\" style=\"--c:#6d5cf6\"><i></i>Palette</span><span class=\"chip fx\" data-at=\"2.1\" style=\"--c:#22d3ee\"><i></i>Brand voice</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "It learns your style",
+     "title": "It learns your style",
+     "dur": 7200,
+     "desc": "Mark images On-brand or Off-brand and rate how well they fit. The kit learns from your best examples and your misses, and new images follow the learned style.",
+     "head": [
+      [
+       0,
+       "In use",
+       "green",
+       4,
+       true
+      ],
+      [
+       4.2,
+       "Learning",
+       "violet",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Brand images<span>Rate to teach it</span></div>\n<div class=\"tiles4\">\n<div class=\"tile-i\" style=\"--g:linear-gradient(135deg,#c4b5fd,#6d5cf6)\"><span class=\"rate fx\" data-at=\"0.6\">👍</span></div>\n<div class=\"tile-i\" style=\"--g:linear-gradient(135deg,#fca5a5,#f59e0b)\"><span class=\"rate fx\" data-at=\"1.0\">👎</span></div>\n<div class=\"tile-i\" style=\"--g:linear-gradient(135deg,#93c5fd,#22d3ee)\"><span class=\"rate fx\" data-at=\"1.4\">👍</span></div>\n<div class=\"tile-i\" style=\"--g:linear-gradient(135deg,#a5b4fc,#2563eb)\"><span class=\"rate fx\" data-at=\"1.8\">👍</span></div>\n</div>\n<div class=\"li mt fx\" data-at=\"2.2\"><span class=\"tag-ui ok\">BRAND FIT 9/10</span><span class=\"muted sm\">On-brand</span></div>\n<div class=\"snip mt fx\" data-at=\"2.8\"><b>Learned brand style</b><span data-type=\"3.0,2.2\" data-text=\"Soft violet-to-cyan gradients, generous space, warm light, no stock-photo people.\"></span></div>\n<div class=\"li mt\"><span class=\"tog\" data-at=\"5.4\"></span><span class=\"sm\">Use learned brand style</span></div>\n</div>"
+    }
+   ]
+  },
+  "vizzy": {
+   "name": "Vizzy",
+   "color": "#a78bfa",
+   "aside": "Five steps, one conversation",
+   "h1": [
+    "Ask for it.",
+    "Get a draft."
+   ],
+   "sub": "Vizzy is the chat that runs your go-to-market. Ask in plain words on any page; it hands the work to the right specialist and brings back a draft for you to approve.",
+   "obj": {
+    "id": "ASK-31",
+    "via": "via ⌘J",
+    "named": "Invite my top 100 next week",
+    "placeholder": "New request"
+   },
+   "pipe": [
+    "Asked",
+    "Understood",
+    "Routed",
+    "Drafted",
+    "In Review"
+   ],
+   "close": [
+    "Just ask",
+    "Vizzy"
+   ],
+   "steps": [
+    {
+     "tab": "Ask from anywhere",
+     "title": "Ask from anywhere",
+     "dur": 6200,
+     "desc": "Press ⌘J on any page, or use Ask Vizzy on Home. The suggested prompts change with where you are.",
+     "head": [
+      [
+       0,
+       "New",
+       "grey",
+       0,
+       false
+      ],
+      [
+       3.4,
+       "Asked",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\" style=\"max-width:560px\">\n<div class=\"t-h\">Ask Vizzy<span><span class=\"kbd\">⌘</span> <span class=\"kbd\">J</span></span></div>\n<div class=\"chips mt\">\n<span class=\"chip soft fx\" data-at=\"0.3\">Draft an invite wave for my top 100</span>\n<span class=\"chip soft fx\" data-at=\"0.5\">Which content brings signups?</span>\n<span class=\"chip soft fx\" data-at=\"0.7\">Plan next week’s posts</span>\n</div>\n<div class=\"field mt\"><div class=\"inp\" style=\"height:auto;min-height:40px;white-space:normal\"><span data-type=\"1.0,2.0\" data-text=\"Invite my top 100 next week. Keep it friendly.\"></span></div></div>\n<div class=\"compose-foot\"><span class=\"seg\"><span class=\"in\">Thinking</span><span>Fast</span></span><span class=\"send\" data-press=\"3.2\"><svg viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 13V3M4 7l4-4 4 4\"/></svg></span></div>\n</div>"
+    },
+    {
+     "tab": "It knows where you are",
+     "title": "It knows where you are",
+     "dur": 6400,
+     "desc": "Every message carries the page you’re on, the launch in view, your brand and your language, so you never have to explain the context.",
+     "head": [
+      [
+       0,
+       "Asked",
+       "blue",
+       1,
+       true
+      ],
+      [
+       3,
+       "Understood",
+       "blue",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Context Vizzy receives</div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"0.3\"><span class=\"muted sm\" style=\"width:64px\">Page</span><span class=\"grow\">Launches › Mobile app beta › Signups</span></li>\n<li class=\"li fx\" data-at=\"0.7\"><span class=\"muted sm\" style=\"width:64px\">Launch</span><span class=\"grow\">Mobile app beta</span></li>\n<li class=\"li fx\" data-at=\"1.1\"><span class=\"muted sm\" style=\"width:64px\">Brand</span><span class=\"grow\">Your brand · yourbrand.com</span></li>\n<li class=\"li fx\" data-at=\"1.5\"><span class=\"muted sm\" style=\"width:64px\">Language</span><span class=\"grow\">English (UK)</span></li>\n</ul>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Thinking</div>\n<div class=\"prose mt muted\" data-type=\"1.4,2.6\" data-text=\"They want an invite wave. Top 100 by rank, verified only. Friendly tone. This is the campaign agent’s job.\"></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Hands it to a specialist",
+     "title": "Hands it to a specialist",
+     "dur": 6600,
+     "desc": "Vizzy routes the work: the campaign agent for journeys and invite waves, the content agent for content plans, the lifecycle agent for product journeys.",
+     "head": [
+      [
+       0,
+       "Routing",
+       "blue",
+       2,
+       true
+      ],
+      [
+       2.4,
+       "Routed",
+       "violet",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"cols3 agents\" data-at=\"1.6\">\n<div class=\"agent pick\"><b>campaign_ops</b><span>Launch journeys and invite waves</span></div>\n<div class=\"agent\"><b>content_ops</b><span>Content plans and sequences</span></div>\n<div class=\"agent\"><b>lifecycle_ops</b><span>Journeys for your product’s users</span></div>\n</div>\n<div class=\"card pad mt\">\n<div class=\"tool fx\" data-at=\"2.4\"><span class=\"spin\" data-in=\"2.4\" data-done=\"4.6\"></span>draft_invite_wave · top 100 · verified only</div>\n<div class=\"tool fx mt\" data-at=\"4.8\"><span class=\"spin done\"></span>Draft saved · nothing sent</div>\n</div>"
+    },
+    {
+     "tab": "Brings back a draft",
+     "title": "Brings back a draft",
+     "dur": 6600,
+     "desc": "You get a card with the numbers and an Open link. Nothing is sent or switched on. Every Vizzy draft is exactly that: a draft.",
+     "head": [
+      [
+       0,
+       "Drafting",
+       "blue",
+       3,
+       true
+      ],
+      [
+       2.6,
+       "Drafted",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad chat\">\n<div class=\"bub me\">Invite my top 100 next week. Keep it friendly.</div>\n<div class=\"bub ai\" data-type=\"0.4,2.2\" data-text=\"Done. I’ve drafted wave 2: your top 100 verified signups, with invite links that work for 30 days. Nothing has been sent.\"></div>\n<div class=\"card pad fx\" data-at=\"2.8\" style=\"box-shadow:none\">\n<div class=\"t-h\">Invite wave · 100 people<span class=\"tag-ui blue\">DRAFTED BY VIZZY</span></div>\n<div class=\"li mt\"><span class=\"muted sm grow\">Waitlist invite drafted by Vizzy · not sent</span><span class=\"btn-sm dark\">Open</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "You decide in Review",
+     "title": "You decide in Review",
+     "dur": 6400,
+     "desc": "Drafts from Vizzy wait in Review with everything else that needs you. Open one, tweak it, then send it or switch it on yourself.",
+     "head": [
+      [
+       0,
+       "Drafted",
+       "green",
+       4,
+       true
+      ],
+      [
+       2,
+       "In Review",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Review<span>Drafts from Vizzy</span></div>\n<ul class=\"list\">\n<li class=\"li hl fx\" data-at=\"0.4\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"dot-c\" style=\"--c:#22d3ee\"></span><span class=\"grow\">Waitlist invite drafted by Vizzy · not sent</span><span class=\"btn-sm\" data-press=\"3.4\">Open</span></li>\n<li class=\"li\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"dot-c\" style=\"--c:#5b8def\"></span><span class=\"grow\">Content plan drafted by Vizzy</span><span class=\"btn-sm\">Open</span></li>\n<li class=\"li\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"dot-c\" style=\"--c:#14b8a6\"></span><span class=\"grow\">Drafted by Vizzy · not turned on</span><span class=\"btn-sm\">Open</span></li>\n</ul>\n<div class=\"muted sm mt\">It drafts. You publish.</div>\n</div>"
+    }
+   ]
+  },
+  "canvas": {
+   "name": "Content canvas",
+   "color": "#5b8def",
+   "aside": "Five steps, one idea",
+   "h1": [
+    "One idea.",
+    "A whole campaign."
+   ],
+   "sub": "Describe it once. The canvas plans, writes and schedules every piece, in your voice and grounded in what’s true about you.",
+   "obj": {
+    "id": "IDEA-07",
+    "via": "via Vizzy",
+    "named": "Announce our new mobile app",
+    "placeholder": "New idea"
+   },
+   "pipe": [
+    "Idea",
+    "Mapped",
+    "Written",
+    "Approved",
+    "Live"
+   ],
+   "close": [
+    "Start with",
+    "one idea"
+   ],
+   "steps": [
+    {
+     "tab": "Describe the idea",
+     "title": "Describe the idea",
+     "dur": 6800,
+     "desc": "Tell Vizzy what you want, the way you’d brief a teammate. It reads your docs, website and brand kit first, so it starts from what’s true about you.",
+     "head": [
+      [
+       0,
+       "Draft",
+       "grey",
+       0,
+       false
+      ],
+      [
+       3.5,
+       "Brief",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card compose\">\n<div class=\"ui-k\">Ask Vizzy</div>\n<p class=\"typed\" data-type=\"0.4,2.6\" data-text=\"Announce our new mobile app to the waitlist, on LinkedIn and on the blog. Friendly, not salesy.\"></p>\n<div class=\"compose-foot\"><span class=\"chip soft\">Content plan</span><span class=\"send\" data-press=\"3.2\"><svg viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 13V3M4 7l4-4 4 4\"/></svg></span></div>\n</div>\n<div class=\"ui-k mt fx\" data-at=\"3.5\">Grounded in</div>\n<div class=\"chips\">\n<span class=\"chip fx\" data-at=\"3.7\" style=\"--c:#a78bfa\"><i></i>docs / launch-notes.md</span>\n<span class=\"chip fx\" data-at=\"4.0\" style=\"--c:#3b82f6\"><i></i>website / app</span>\n<span class=\"chip fx\" data-at=\"4.3\" style=\"--c:#22d3ee\"><i></i>brand kit · voice</span>\n<span class=\"chip fx\" data-at=\"4.6\" style=\"--c:#34d399\"><i></i>repo · mobile-app · read-only</span>\n</div>"
+    },
+    {
+     "tab": "The architect maps it",
+     "title": "The architect maps it",
+     "dur": 6200,
+     "desc": "One idea becomes a hub with channel-native spokes: a newsletter, a blog post, LinkedIn, an X thread, Instagram, even an eBook.",
+     "head": [
+      [
+       0,
+       "Brief",
+       "blue",
+       1,
+       true
+      ],
+      [
+       3.4,
+       "Mapped",
+       "violet",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"map\">\n<svg class=\"lines\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\">\n<line x1=\"50\" y1=\"50\" x2=\"18\" y2=\"12\" data-at=\"0.7\"/>\n<line x1=\"50\" y1=\"50\" x2=\"82\" y2=\"12\" data-at=\"1.15\"/>\n<line x1=\"50\" y1=\"50\" x2=\"13\" y2=\"50\" data-at=\"1.6\"/>\n<line x1=\"50\" y1=\"50\" x2=\"87\" y2=\"50\" data-at=\"2.05\"/>\n<line x1=\"50\" y1=\"50\" x2=\"18\" y2=\"88\" data-at=\"2.5\"/>\n<line x1=\"50\" y1=\"50\" x2=\"82\" y2=\"88\" data-at=\"2.95\"/>\n</svg>\n<div class=\"hub\" data-at=\"0.2\"><span>HUB</span>Mobile app launch</div>\n<div class=\"card spoke\" data-at=\"0.8\" style=\"left:18%;top:12%;--c:#a78bfa\"><i></i>Newsletter</div>\n<div class=\"card spoke\" data-at=\"1.25\" style=\"left:82%;top:12%;--c:#6f6cf4\"><i></i>Blog</div>\n<div class=\"card spoke\" data-at=\"1.7\" style=\"left:13%;top:50%;--c:#3b82f6\"><i></i>LinkedIn</div>\n<div class=\"card spoke\" data-at=\"2.15\" style=\"left:87%;top:50%;--c:#22d3ee\"><i></i>X thread</div>\n<div class=\"card spoke\" data-at=\"2.6\" style=\"left:18%;top:88%;--c:#14b8a6\"><i></i>Instagram</div>\n<div class=\"card spoke\" data-at=\"3.05\" style=\"left:82%;top:88%;--c:#34d399\"><i></i>eBook</div>\n</div>"
+    },
+    {
+     "tab": "Every piece gets written",
+     "title": "Every piece gets written",
+     "dur": 7400,
+     "desc": "Each spoke is drafted in your brand voice and grounded in what your knowledge says about you. Images follow the style you’ve taught it.",
+     "head": [
+      [
+       0,
+       "Writing",
+       "blue",
+       2,
+       true
+      ],
+      [
+       5.8,
+       "Written",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"write\">\n<div class=\"card post\">\n<div class=\"post-h\"><span class=\"av\">Y</span><div><b>Your brand</b><span>LinkedIn · company page</span></div></div>\n<p class=\"typed\" data-type=\"0.5,4.4\" data-text=\"We built the app you asked for.\n\nEverything from the waitlist, now in your pocket: offline mode, dark mode and a home screen that’s actually yours.\n\nWhat should we build next?\"></p>\n<div class=\"chips sm\"><span class=\"chip fx\" data-at=\"2.4\" style=\"--c:#a78bfa\"><i></i>Grounded in your knowledge</span><span class=\"chip fx\" data-at=\"3.4\" style=\"--c:#22d3ee\"><i></i>Brand voice ✓</span></div>\n</div>\n<div class=\"card spokes\">\n<div class=\"ui-k\">Spokes · <b class=\"cntw\" data-tally=\".row.done\">2</b>/6 written</div>\n<ul>\n<li class=\"row done\">Newsletter<span class=\"rs\"></span></li>\n<li class=\"row done\">Blog<span class=\"rs\"></span></li>\n<li class=\"row\" data-in=\"0.3\" data-done=\"5.0\">LinkedIn<span class=\"rs\"></span></li>\n<li class=\"row\" data-in=\"1.4\" data-done=\"3.6\">X thread<span class=\"rs\"></span></li>\n<li class=\"row\" data-in=\"2.2\" data-done=\"4.6\">Instagram<span class=\"rs\"></span></li>\n<li class=\"row\" data-in=\"3.0\" data-done=\"5.6\">eBook<span class=\"rs\"></span></li>\n</ul>\n<div class=\"imgtile\" data-done=\"4.6\"><span>Image · your learned style</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "You review and approve",
+     "title": "You review and approve",
+     "dur": 6600,
+     "desc": "Edit a line, regenerate a piece, or approve it as it is. Nothing is published until you say so.",
+     "head": [
+      [
+       0,
+       "In review",
+       "blue",
+       3,
+       true
+      ],
+      [
+       4.5,
+       "Approved",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card review\">\n<div class=\"rev-h\"><b>Review · 6 pieces</b><span class=\"note\">Nothing publishes without you</span></div>\n<ul class=\"rev\">\n<li data-done=\"3.5\"><i class=\"box\"></i><b>Newsletter</b><span>Our app is here. Here’s what’s inside, and why you asked for it.</span></li>\n<li data-done=\"3.65\"><i class=\"box\"></i><b>Blog</b><span>Why we built a mobile app with our waitlist, not for it</span></li>\n<li class=\"edit\" data-done=\"3.8\"><i class=\"box\"></i><b>LinkedIn</b><span>We built the app <del data-at=\"1.0\">you asked for</del> <ins data-type=\"1.6,1.1\" data-text=\"our waitlist asked for\"></ins>.</span></li>\n<li data-done=\"3.95\"><i class=\"box\"></i><b>X thread</b><span>1/ The app is live. Here’s everything our waitlist asked for.</span></li>\n<li data-done=\"4.1\"><i class=\"box\"></i><b>Instagram</b><span>Your home screen, finally yours.</span></li>\n<li data-done=\"4.25\"><i class=\"box\"></i><b>eBook</b><span>The mobile playbook: 6 chapters</span></li>\n</ul>\n<div class=\"rev-f\"><span class=\"count\"><b class=\"cnta\" data-tally=\".rev li.done\">0</b>/6 approved</span><span class=\"btn-ui\" data-press=\"3.1\">Approve all</span></div>\n</div>"
+    },
+    {
+     "tab": "It goes live",
+     "title": "Schedule it, and it goes live",
+     "dur": 7200,
+     "desc": "Approved pieces land on your calendar. Posts publish to your LinkedIn page, the newsletter goes to your subscribers, and results show up in Insights.",
+     "head": [
+      [
+       0,
+       "Scheduled",
+       "blue",
+       4,
+       true
+      ],
+      [
+       2.8,
+       "Live",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"ship\">\n<div class=\"card cal\">\n<div class=\"cal-h\">This week<span>Week of 5 Oct</span></div>\n<div class=\"cal-g\" style=\"grid-template-columns:repeat(4,minmax(0,1fr))\">\n<div class=\"day\"><span>Mon</span><div class=\"evt fx\" data-at=\"0.4\" style=\"--c:#3b82f6\">LinkedIn<small>9:00</small></div></div>\n<div class=\"day\"><span>Tue</span><div class=\"evt fx\" data-at=\"0.8\" style=\"--c:#a78bfa\">Newsletter<small>Weekly</small></div></div>\n<div class=\"day\"><span>Wed</span></div>\n<div class=\"day\"><span>Thu</span><div class=\"evt fx\" data-at=\"1.2\" style=\"--c:#14b8a6\">Blog<small>Export</small></div></div>\n</div>\n<div class=\"live fx\" data-at=\"2.8\"><span class=\"dotlive\"></span><span>Live on your LinkedIn page · <b data-count=\"0,128,3.0,5.8\">0</b> reactions</span></div>\n</div>\n<div class=\"card check\">\n<div class=\"ui-k\">Ship checklist</div>\n<ul>\n<li data-done=\"1.6\"><i class=\"box\"></i>Scheduled</li>\n<li data-done=\"2.8\"><i class=\"box\"></i>Posted to LinkedIn page</li>\n<li data-done=\"3.8\"><i class=\"box\"></i>Newsletter sent to subscribers</li>\n</ul>\n<div class=\"ui-k mt\">Ships to</div>\n<ul class=\"to\"><li>LinkedIn page</li><li>Weekly newsletter</li><li>Blog export</li></ul>\n<div class=\"insl fx\" data-at=\"4.6\">Results show up in Insights →</div>\n</div>\n</div>"
+    }
+   ]
+  },
+  "ebook": {
+   "name": "eBook studio",
+   "color": "#6f6cf4",
+   "aside": "Five steps, one book",
+   "h1": [
+    "Write the book.",
+    "Then the buzz."
+   ],
+   "sub": "Go from a topic to a finished, illustrated eBook, chapter by chapter, grounded in your knowledge. Then let it launch a whole campaign of teasers and promos.",
+   "obj": {
+    "id": "BOOK-03",
+    "via": "via eBook studio",
+    "named": "The mobile playbook",
+    "placeholder": "New eBook"
+   },
+   "pipe": [
+    "Outlined",
+    "Written",
+    "Illustrated",
+    "Edited",
+    "Campaign"
+   ],
+   "close": [
+    "Write your",
+    "first book"
+   ],
+   "steps": [
+    {
+     "tab": "Outline it",
+     "title": "Outline it",
+     "dur": 7000,
+     "desc": "Choose eBook as your hub and the studio drafts a table of contents from your topic and knowledge. Rename, reorder or add chapters, up to 16.",
+     "head": [
+      [
+       0,
+       "Outlining",
+       "blue",
+       0,
+       false
+      ],
+      [
+       1,
+       "Outlining",
+       "blue",
+       0,
+       true
+      ],
+      [
+       4.8,
+       "Outlined",
+       "violet",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\" style=\"grid-template-columns:150px minmax(0,1fr)\">\n<div class=\"cover fx\" data-at=\"0.8\"><span>EBOOK</span><div><b>The mobile playbook</b><div style=\"font:400 10px var(--text);margin-top:6px;opacity:.9\">Ship the app your users asked for</div></div><span>Your brand</span></div>\n<div class=\"card pad\">\n<div class=\"t-h\">Table of contents<span>6 chapters</span></div>\n<ol class=\"list\" style=\"list-style:decimal;padding-left:18px\">\n<li class=\"fx\" data-at=\"1.2\">Why mobile, why now</li>\n<li class=\"fx\" data-at=\"1.5\">Start with the waitlist</li>\n<li class=\"fx\" data-at=\"1.8\">What your users actually asked for</li>\n<li class=\"fx\" data-at=\"2.1\">Designing the first five minutes</li>\n<li class=\"fx\" data-at=\"2.4\">Launch week, day by day</li>\n<li class=\"fx\" data-at=\"2.7\">After launch: listen, then ship</li>\n</ol>\n<div class=\"btn-sm dark mt\" data-press=\"4.4\" style=\"display:inline-block\">Confirm table of contents →</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Write chapter by chapter",
+     "title": "Write chapter by chapter",
+     "dur": 7200,
+     "desc": "Each chapter streams in live, grounded in your knowledge. Edit the text directly, then confirm and move on to the next.",
+     "head": [
+      [
+       0,
+       "Writing",
+       "blue",
+       1,
+       true
+      ],
+      [
+       5.6,
+       "Chapter 2 done",
+       "green",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\" style=\"grid-template-columns:170px minmax(0,1fr)\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Chapters</div>\n<ul class=\"list\">\n<li class=\"li done\"><i class=\"box\"></i><span class=\"grow sm\">1 · Why mobile</span></li>\n<li class=\"li\" data-done=\"5.4\"><i class=\"box\"></i><span class=\"grow sm\">2 · The waitlist</span><span class=\"spin\" data-in=\"0.2\" data-done=\"5.4\"></span></li>\n<li class=\"li\"><i class=\"box\"></i><span class=\"grow sm muted\">3 · What they asked</span></li>\n<li class=\"li\"><i class=\"box\"></i><span class=\"grow sm muted\">4 · First five minutes</span></li>\n</ul>\n</div>\n<div class=\"card pad\">\n<div class=\"prose\"><h6>Chapter 2 · Start with the waitlist</h6><span data-type=\"0.4,4.6\" data-text=\"Before you write a line of code, open a waitlist. It tells you who cares, how much, and why. Every signup is a vote, and every referral is a stronger one.\n\nThe people at the top of your list are your first testers, your first reviewers and, if you listen, your roadmap.\"></span></div>\n<div class=\"btn-sm dark mt\" data-press=\"5.2\" style=\"display:inline-block\">Confirm &amp; continue</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Illustrate it",
+     "title": "Illustrate it",
+     "dur": 6800,
+     "desc": "Drop images where they help. Generate one in five styles, refine it with an edit, or upload your own. Add a cover, too.",
+     "head": [
+      [
+       0,
+       "Illustrating",
+       "blue",
+       2,
+       true
+      ],
+      [
+       4.2,
+       "Illustrated",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wide\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Image · from waitlist to launch</div>\n<div class=\"imgph\" data-done=\"3.6\" style=\"height:150px;--g1:#c4b5fd;--g2:#6f6cf4;--g3:#22d3ee\"></div>\n<div class=\"li mt\"><span class=\"btn-sm dark\" data-press=\"1.6\">Create image</span><span class=\"btn-sm\">Apply edit</span><span class=\"btn-sm\">Upload</span></div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Style</div>\n<div class=\"list\">\n<div class=\"li hl\" data-at=\"0.6\" style=\"padding:6px 8px;border:1px solid #ece8e1;border-radius:7px\"><span class=\"grow sm\">Editorial illustration</span></div>\n<div class=\"li\" style=\"padding:6px 8px\"><span class=\"grow sm muted\">Photographic</span></div>\n<div class=\"li\" style=\"padding:6px 8px\"><span class=\"grow sm muted\">Minimal line</span></div>\n<div class=\"li\" style=\"padding:6px 8px\"><span class=\"grow sm muted\">Diagrammatic</span></div>\n<div class=\"li\" style=\"padding:6px 8px\"><span class=\"grow sm muted\">Watercolor</span></div>\n</div>\n<div class=\"seg mt\"><span class=\"in\">Square (1:1)</span><span>Tall page (1:4)</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Edit by asking",
+     "title": "Edit by asking",
+     "dur": 6800,
+     "desc": "Ask to edit the book in plain words: tighten a chapter, retitle it, reorder the outline, or add a slot for an image.",
+     "head": [
+      [
+       0,
+       "Editing",
+       "blue",
+       3,
+       true
+      ],
+      [
+       4.4,
+       "Edited",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad chat\">\n<div class=\"ui-k\">Ask to edit the book…</div>\n<div class=\"bub me\" data-type=\"0.3,1.8\" data-text=\"Move chapter 4 before chapter 3 and make it shorter.\"></div>\n<div class=\"bub ai fx\" data-at=\"3.2\">Done: chapter 4 now comes third, and it’s about a third shorter.</div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Outline</div>\n<ul class=\"lb\" style=\"height:160px\">\n<li style=\"--r:0\"><b>1</b><span>Why mobile, why now</span></li>\n<li style=\"--r:1\"><b>2</b><span>Start with the waitlist</span></li>\n<li class=\"dn\" data-at=\"2.6\" style=\"--r:2;--to:3\"><b><span class=\"swa\">3</span><span class=\"swb\">4</span></b><span>What your users asked for</span></li>\n<li class=\"you\" data-at=\"2.6\" style=\"--r:3;--to:2\"><b><span class=\"swa\">4</span><span class=\"swb\">3</span></b><span>Designing the first five minutes</span></li>\n</ul>\n</div>\n</div>"
+    },
+    {
+     "tab": "Turn it into a campaign",
+     "title": "Turn it into a campaign",
+     "dur": 7000,
+     "desc": "Finish the book and it becomes the hub of a new canvas, with a teaser before launch, a promo after it, and posts for up to eight channels.",
+     "head": [
+      [
+       0,
+       "Finishing",
+       "blue",
+       4,
+       true
+      ],
+      [
+       1,
+       "Campaign",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"map\" style=\"height:280px\">\n<svg class=\"lines\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\">\n<line x1=\"50\" y1=\"50\" x2=\"18\" y2=\"14\" data-at=\"1.2\"/>\n<line x1=\"50\" y1=\"50\" x2=\"82\" y2=\"14\" data-at=\"1.6\"/>\n<line x1=\"50\" y1=\"50\" x2=\"13\" y2=\"50\" data-at=\"2.0\"/>\n<line x1=\"50\" y1=\"50\" x2=\"87\" y2=\"50\" data-at=\"2.4\"/>\n<line x1=\"50\" y1=\"50\" x2=\"18\" y2=\"86\" data-at=\"2.8\"/>\n<line x1=\"50\" y1=\"50\" x2=\"82\" y2=\"86\" data-at=\"3.2\"/>\n</svg>\n<div class=\"hub\" data-at=\"0.8\"><span>EBOOK HUB</span>The mobile playbook</div>\n<div class=\"card spoke\" data-at=\"1.3\" style=\"left:18%;top:14%;--c:#a78bfa\"><i></i>Pre-eBook teaser</div>\n<div class=\"card spoke\" data-at=\"1.7\" style=\"left:82%;top:14%;--c:#6f6cf4\"><i></i>Post-eBook promo</div>\n<div class=\"card spoke\" data-at=\"2.1\" style=\"left:13%;top:50%;--c:#3b82f6\"><i></i>LinkedIn</div>\n<div class=\"card spoke\" data-at=\"2.5\" style=\"left:87%;top:50%;--c:#22d3ee\"><i></i>X thread</div>\n<div class=\"card spoke\" data-at=\"2.9\" style=\"left:18%;top:86%;--c:#14b8a6\"><i></i>Newsletter</div>\n<div class=\"card spoke\" data-at=\"3.3\" style=\"left:82%;top:86%;--c:#34d399\"><i></i>Instagram</div>\n</div>"
+    }
+   ]
+  },
+  "waitlists": {
+   "name": "Waitlists",
+   "color": "#22d3ee",
+   "aside": "Five steps, one launch",
+   "h1": [
+    "A waitlist that",
+    "recruits for you."
+   ],
+   "sub": "Launch a gamified waitlist in minutes. Every signup gets a place in line and a referral link, so your earliest fans bring in the next ones.",
+   "obj": {
+    "id": "LAUNCH-01",
+    "via": "via Waitlists",
+    "named": "Mobile app beta",
+    "placeholder": "New launch"
+   },
+   "pipe": [
+    "Live",
+    "Joined",
+    "Verified",
+    "Sharing",
+    "Climbing"
+   ],
+   "close": [
+    "Launch your",
+    "waitlist"
+   ],
+   "steps": [
+    {
+     "tab": "Launch it",
+     "title": "Launch it",
+     "dur": 6600,
+     "desc": "Name your launch, choose what people must give you, and publish a hosted page or drop the widget into your own site with one line.",
+     "head": [
+      [
+       0,
+       "Draft",
+       "grey",
+       0,
+       false
+      ],
+      [
+       1.6,
+       "Draft",
+       "grey",
+       0,
+       true
+      ],
+      [
+       3.8,
+       "Live",
+       "green",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"field\"><label>Launch name</label><div class=\"inp\"><span data-type=\"0.3,1.2\" data-text=\"Mobile app beta\"></span></div></div>\n<div class=\"field\"><label>URL slug</label><div class=\"inp mono sm\">mobile-app-beta</div></div>\n<div class=\"field\"><label>Required contact detail</label><div class=\"seg\"><span class=\"in\">Email</span><span>Phone</span><span>Both</span><span>Either</span></div></div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Widget</div>\n<div class=\"seg mt\"><span class=\"in\">Full</span><span>Mini</span><span>Docked</span></div>\n<div class=\"code mt fx\" data-at=\"2.2\">&lt;script src=\"…/embed.js\"&gt;&lt;/script&gt;</div>\n<div class=\"link-ui mt fx\" data-at=\"3.0\">yougrow.ai/waitlist/mobile-app-beta</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "People join",
+     "title": "People join",
+     "dur": 6200,
+     "desc": "The widget asks for what you chose, plus any questions you add, in your visitor’s language. Bots are filtered out before they reach your list.",
+     "head": [
+      [
+       0,
+       "Live",
+       "green",
+       1,
+       true
+      ],
+      [
+       3.4,
+       "Joined",
+       "blue",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\" style=\"max-width:360px;margin-inline:auto\">\n<div style=\"font:700 15px var(--display);letter-spacing:-.01em\">Get early access</div>\n<div class=\"field\"><label>First name</label><div class=\"inp\"><span data-type=\"0.3,0.5\" data-text=\"Sam\"></span></div></div>\n<div class=\"field\"><label>Email</label><div class=\"inp\"><span data-type=\"0.9,1.0\" data-text=\"sam@•••••.com\"></span></div></div>\n<div class=\"field\"><label>What will you use it for?</label><div class=\"inp\">Side projects</div></div>\n<div class=\"big-btn\" data-press=\"2.8\">Join the waitlist</div>\n<div class=\"li mt fx\" data-at=\"3.0\"><span class=\"tag-ui ok\">NOT A BOT ✓</span><span class=\"muted sm\">reCAPTCHA</span></div>\n</div>"
+    },
+    {
+     "tab": "Verify and take a place",
+     "title": "Verify, then take a place",
+     "dur": 6800,
+     "desc": "A quick confirmation email keeps your list clean. Once verified, each person sees their place in line and gets their own referral link to share.",
+     "head": [
+      [
+       0,
+       "Unverified",
+       "amber",
+       2,
+       true
+      ],
+      [
+       1.8,
+       "Verified",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Email</div>\n<div style=\"font:600 14px var(--text);margin-top:6px\">Confirm your spot</div>\n<div class=\"prose muted sm mt\">One click and you’re in line.</div>\n<div class=\"big-btn\" data-press=\"1.4\" style=\"width:120px\">Confirm</div>\n</div>\n<div class=\"card pad fx\" data-at=\"2.0\">\n<div class=\"muted sm\">You’re in line</div>\n<div class=\"rank\">#<span data-count=\"0,412,2.2,3.4\">0</span></div>\n<div class=\"link-ui mt\">…/mobile-app-beta?ref=sam7</div>\n<div class=\"chips fx\" data-at=\"3.6\"><span class=\"chip\">X</span><span class=\"chip\">WhatsApp</span><span class=\"chip\">LinkedIn</span><span class=\"chip\">Email</span><span class=\"chip\">Reddit</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Share to move up",
+     "title": "Share to move up",
+     "dur": 7000,
+     "desc": "Every friend who joins and verifies through their link moves them up the queue. Referrals only count once the friend confirms, so the list stays honest.",
+     "head": [
+      [
+       0,
+       "Verified",
+       "green",
+       3,
+       true
+      ],
+      [
+       0.8,
+       "Sharing",
+       "blue",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"t-h\">Referrals<span class=\"mono\"><b data-count=\"0,3,1.0,4.6\">0</b> verified</span></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"1.0\"><span class=\"tag-ui ok\">+1</span><span class=\"grow sm\">jamie@••• confirmed</span></li>\n<li class=\"li fx\" data-at=\"2.8\"><span class=\"tag-ui ok\">+1</span><span class=\"grow sm\">priya@••• confirmed</span></li>\n<li class=\"li fx\" data-at=\"4.6\"><span class=\"tag-ui ok\">+1</span><span class=\"grow sm\">leo@••• confirmed</span></li>\n</ul>\n</div>\n<div class=\"card pad\">\n<div class=\"muted sm\">Sam’s place in line</div>\n<div class=\"rank\">#<span data-count=\"412,97,1.0,5.2\">412</span></div>\n<div class=\"muted sm mt\">Moving up with every verified referral</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "The leaderboard climbs",
+     "title": "The leaderboard climbs",
+     "dur": 6600,
+     "desc": "A public leaderboard shows your top referrers, with personal details masked. You get a ranked list of exactly who to let in first.",
+     "head": [
+      [
+       0,
+       "Sharing",
+       "blue",
+       4,
+       true
+      ],
+      [
+       2.6,
+       "Climbing",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Referral leaderboard<span>Top referrers</span></div>\n<ul class=\"lb\">\n<li style=\"--r:0\"><b>#1</b><span>al•••</span><span class=\"tag-ui\">42</span></li>\n<li class=\"dn\" data-at=\"2.0\" style=\"--r:1;--to:2\"><b><span class=\"swa\">#2</span><span class=\"swb\">#3</span></b><span>jo•••</span><span class=\"tag-ui\">37</span></li>\n<li class=\"dn\" data-at=\"2.0\" style=\"--r:2;--to:3\"><b><span class=\"swa\">#3</span><span class=\"swb\">#4</span></b><span>mr•••</span><span class=\"tag-ui\">31</span></li>\n<li class=\"you\" data-at=\"2.0\" style=\"--r:3;--to:1\"><b><span class=\"swa\">#4</span><span class=\"swb\">#2</span></b><span>sa••• <span class=\"muted sm\">(Sam)</span></span><span class=\"tag-ui\"><span class=\"swa\">26</span><span class=\"swb\">39</span></span></li>\n<li style=\"--r:4\"><b>#5</b><span>pr•••</span><span class=\"tag-ui\">24</span></li>\n</ul>\n</div>"
+    }
+   ]
+  },
+  "invites": {
+   "name": "Invite waves",
+   "color": "#22d3ee",
+   "aside": "Five steps, one wave",
+   "h1": [
+    "Let them in,",
+    "best first."
+   ],
+   "sub": "Connect your product, then turn your waitlist into your first users: the top of the list first, one signed link each, and every signup traced back to its wave.",
+   "obj": {
+    "id": "WAVE-02",
+    "via": "via Vizzy",
+    "named": "Invite the top 250",
+    "placeholder": "New invite wave"
+   },
+   "pipe": [
+    "Drafted",
+    "Tested",
+    "Sent",
+    "Signed up",
+    "Activated"
+   ],
+   "close": [
+    "Open the",
+    "doors"
+   ],
+   "steps": [
+    {
+     "tab": "Draft a wave",
+     "title": "Draft a wave",
+     "dur": 6800,
+     "desc": "Ask Vizzy or start one yourself. A wave takes the top of your verified waitlist by rank, up to 1,000 people at a time, and can skip anyone who already uses your product.",
+     "head": [
+      [
+       0,
+       "Draft",
+       "grey",
+       0,
+       false
+      ],
+      [
+       3.4,
+       "Draft saved",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\">\n<div class=\"card pad\">\n<div class=\"t-h\">New invite wave<span>Mobile app beta</span></div>\n<div class=\"field\"><label>How many people</label><div class=\"inp\"><span data-type=\"0.4,0.7\" data-text=\"250\"></span></div></div>\n<div class=\"field\"><label>Invite links work for (days)</label><div class=\"inp\">30</div></div>\n<div class=\"li mt done\"><i class=\"box\"></i><span class=\"sm\">Skip people who already use the product</span></div>\n<div class=\"btn-sm dark mt\" data-press=\"3.0\" style=\"display:inline-block\">Save draft</div>\n</div>\n<div class=\"card pad\">\n<div class=\"t-h\">Top of the list<span class=\"mono\"><b data-count=\"0,250,1.2,3.0\">0</b> / 250</span></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"1.3\"><span class=\"mono sm muted\">#1</span><span class=\"grow\">alex@•••</span><span class=\"tag-ui ok\">VERIFIED</span></li>\n<li class=\"li fx\" data-at=\"1.5\"><span class=\"mono sm muted\">#2</span><span class=\"grow\">jo.chen@•••</span><span class=\"tag-ui ok\">VERIFIED</span></li>\n<li class=\"li fx\" data-at=\"1.7\"><span class=\"mono sm muted\">#3</span><span class=\"grow\">m.rossi@•••</span><span class=\"tag-ui ok\">VERIFIED</span></li>\n<li class=\"li fx\" data-at=\"1.9\"><span class=\"mono sm muted\">#4</span><span class=\"grow\">sam.p@•••</span><span class=\"tag-ui ok\">VERIFIED</span></li>\n<li class=\"li fx\" data-at=\"2.1\"><span class=\"more\">+ 246 more, in rank order</span></li>\n</ul>\n<div class=\"muted sm mt fx\" data-at=\"3.4\">Nothing has been sent.</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Preview and test",
+     "title": "Preview and test",
+     "dur": 6400,
+     "desc": "See the invite email as it will land, with each person’s own link dropped in, and send a test to yourself before anyone else gets it.",
+     "head": [
+      [
+       0,
+       "Draft saved",
+       "blue",
+       1,
+       true
+      ],
+      [
+       3.6,
+       "Tested",
+       "violet",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wide\">\n<div class=\"card pad\">\n<div class=\"ui-k\">Invite email preview</div>\n<div style=\"font:600 14px var(--text);margin-top:6px\">You’re in: the mobile app beta</div>\n<div class=\"prose mt\">Hi Alex,\n\nYou’re one of the first people we’re letting in. Your invite works for 30 days.</div>\n<div class=\"big-btn\" style=\"width:170px\">Accept your invite</div>\n<div class=\"muted sm mt mono\">{{invite_link}} · unique to each person</div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Languages</div>\n<div class=\"chips\">\n<span class=\"chip fx\" data-at=\"0.4\">EN</span><span class=\"chip fx\" data-at=\"0.6\">FR</span><span class=\"chip fx\" data-at=\"0.8\">ES</span>\n<span class=\"chip fx\" data-at=\"1.0\">DE</span><span class=\"chip fx\" data-at=\"1.2\">JA</span><span class=\"chip fx\" data-at=\"1.4\">AR</span>\n</div>\n<div class=\"btn-sm dark mt\" data-press=\"2.6\" style=\"display:inline-block\">Send a test to me</div>\n<div class=\"li mt fx\" data-at=\"3.2\"><span class=\"tag-ui ok\">TEST SENT</span><span class=\"muted sm\">to you@yourbrand.com</span></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Send it",
+     "title": "Send it, deliberately",
+     "dur": 7000,
+     "desc": "Only a person can send a wave, and you confirm it first: everyone invited leaves the waitlist. Each invite carries its own signed link that expires on schedule.",
+     "head": [
+      [
+       0,
+       "Draft saved",
+       "blue",
+       2,
+       true
+      ],
+      [
+       1.4,
+       "Sending",
+       "blue",
+       2,
+       true
+      ],
+      [
+       4.6,
+       "Sent",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Wave 2 · 250 people<span class=\"btn-sm dark\" data-press=\"0.6\">Send invites</span></div>\n<div class=\"snip mt fx\" data-at=\"0.8\">Each one leaves the waitlist. This can’t be undone. <span class=\"btn-sm dark\" data-press=\"1.2\" style=\"margin-left:8px\">Send 250 invites</span></div>\n<div class=\"prog\"><i data-at=\"1.4\" style=\"--w:100%\"></i></div>\n<div class=\"muted sm mt\"><b data-count=\"0,250,1.4,4.4\">0</b> of 250 invited</div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"1.8\"><span class=\"spin\" data-in=\"1.8\" data-done=\"2.4\"></span><span class=\"grow mono sm\">yougrow.ai/invite/9fK2…</span><span class=\"muted sm\">alex@•••</span></li>\n<li class=\"li fx\" data-at=\"2.3\"><span class=\"spin\" data-in=\"2.3\" data-done=\"2.9\"></span><span class=\"grow mono sm\">yougrow.ai/invite/Qm7a…</span><span class=\"muted sm\">jo.chen@•••</span></li>\n<li class=\"li fx\" data-at=\"2.8\"><span class=\"spin\" data-in=\"2.8\" data-done=\"3.4\"></span><span class=\"grow mono sm\">yougrow.ai/invite/x1Vd…</span><span class=\"muted sm\">m.rossi@•••</span></li>\n</ul>\n</div>"
+    },
+    {
+     "tab": "They sign up",
+     "title": "They sign up in your product",
+     "dur": 6600,
+     "desc": "Each link opens your product’s sign-up page with an invite code attached. When your product reports the new user, we match them to their wave.",
+     "head": [
+      [
+       0,
+       "Sent",
+       "green",
+       3,
+       true
+      ],
+      [
+       2.2,
+       "Signing up",
+       "blue",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wide\">\n<div class=\"card pad\">\n<div class=\"t-h\">Events from your product<span class=\"mono\"><b data-count=\"0,112,1.0,5.0\">0</b> signed up</span></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"0.8\"><span class=\"tag-ui blue\">user.signed_up</span><span class=\"grow\">alex@•••</span><span class=\"tag-ui ok\">WAVE 2</span></li>\n<li class=\"li fx\" data-at=\"1.6\"><span class=\"tag-ui blue\">user.signed_up</span><span class=\"grow\">m.rossi@•••</span><span class=\"tag-ui ok\">WAVE 2</span></li>\n<li class=\"li fx\" data-at=\"2.4\"><span class=\"tag-ui blue\">user.signed_up</span><span class=\"grow\">jo.chen@•••</span><span class=\"tag-ui ok\">WAVE 2</span></li>\n<li class=\"li fx\" data-at=\"3.2\"><span class=\"tag-ui blue\">user.signed_up</span><span class=\"grow\">sam.p@•••</span><span class=\"tag-ui ok\">WAVE 2</span></li>\n</ul>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">The link</div>\n<div class=\"link-ui mt\">app.yourbrand.com/signup?yg_invite=…</div>\n<div class=\"muted sm mt\">Opens your own sign-up page. After 30 days it shows “This invite has expired”.</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "See who activates",
+     "title": "See who becomes active",
+     "dur": 6400,
+     "desc": "Activated means they finished your product’s onboarding steps. The funnel follows the whole path, so you know when to open the next wave.",
+     "head": [
+      [
+       0,
+       "Signing up",
+       "blue",
+       4,
+       true
+      ],
+      [
+       2.4,
+       "Activated",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">From waitlist to product<span>Wave 2</span></div>\n<div class=\"funnel\">\n<div class=\"fstep\"><span>Invited</span><div class=\"tr\"><i data-at=\"0.3\" style=\"--w:100%;--c:#22d3ee\">250</i></div></div>\n<div class=\"fstep\"><span>Signed up</span><div class=\"tr\"><i data-at=\"0.8\" style=\"--w:45%;--c:#14b8a6\">112</i></div></div>\n<div class=\"fstep\"><span>Activated</span><div class=\"tr\"><i data-at=\"1.3\" style=\"--w:24%;--c:#10b981\">61</i></div></div>\n</div>\n<div class=\"li mt fx\" data-at=\"2.2\"><span class=\"tag-ui ok\">54% OF SIGNUPS ACTIVATED</span><span class=\"muted sm\">Time to open wave 3</span></div>\n</div>"
+    }
+   ]
+  },
+  "distribute": {
+   "name": "Distribute",
+   "color": "#3b82f6",
+   "aside": "Five steps, one post",
+   "h1": [
+    "Schedule it.",
+    "See it first."
+   ],
+   "sub": "Everything you approve lands on one calendar. Preview it as it will appear, score it before it goes, and publish to your LinkedIn page on time.",
+   "obj": {
+    "id": "POST-88",
+    "via": "via Content canvas",
+    "named": "We built the app you asked for",
+    "placeholder": "We built the app you asked for"
+   },
+   "pipe": [
+    "Ready",
+    "Scheduled",
+    "Previewed",
+    "Scored",
+    "Published"
+   ],
+   "close": [
+    "Put it on",
+    "the calendar"
+   ],
+   "steps": [
+    {
+     "tab": "Ready to schedule",
+     "title": "Ready to schedule",
+     "dur": 5800,
+     "desc": "Every approved piece from your canvases waits in one place, across LinkedIn, X, Instagram, blog and newsletter, ready for a slot.",
+     "head": [
+      [
+       0,
+       "Ready",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Ready to schedule<span>4 pieces</span></div>\n<ul class=\"list\">\n<li class=\"li hl\" data-at=\"1.4\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"ico\" style=\"--c:#3b82f6\">in</span><span class=\"grow\">We built the app you asked for</span><span class=\"btn-sm dark\" data-press=\"3.6\">Schedule</span></li>\n<li class=\"li fx\" data-at=\"0.3\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"ico\" style=\"--c:#151517\">X</span><span class=\"grow\">1/ The app is live. Here’s everything our waitlist asked for.</span></li>\n<li class=\"li fx\" data-at=\"0.5\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"ico\" style=\"--c:#a78bfa\">✉</span><span class=\"grow\">Our app is here</span></li>\n<li class=\"li fx\" data-at=\"0.7\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"ico\" style=\"--c:#14b8a6\">ig</span><span class=\"grow\">Your home screen, finally yours.</span></li>\n</ul>\n</div>"
+    },
+    {
+     "tab": "Pick a time",
+     "title": "Pick a time",
+     "dur": 6400,
+     "desc": "Choose when it goes and, for LinkedIn, post as your company page. Add variations so repeat posts never read exactly the same.",
+     "head": [
+      [
+       0,
+       "Ready",
+       "blue",
+       1,
+       true
+      ],
+      [
+       3.8,
+       "Scheduled",
+       "violet",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\" style=\"grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)\">\n<div class=\"card pad\">\n<div class=\"field\"><label>When</label><div class=\"inp\"><span data-type=\"0.3,1.2\" data-text=\"Tue 6 Oct · 09:00\"></span></div></div>\n<div class=\"field\"><label>Post as</label><div class=\"inp\">Your brand · Company page</div></div>\n<div class=\"field\"><label>Variations</label><div class=\"inp mono sm\">{Big news|It’s here}: we built the app…</div></div>\n<div class=\"btn-sm dark mt\" data-press=\"3.4\" style=\"display:inline-block\">Schedule</div>\n</div>\n<div class=\"card pad\">\n<div class=\"t-h\">Calendar<span>Week of 5 Oct</span></div>\n<div class=\"cal-g\" style=\"grid-template-columns:repeat(3,minmax(0,1fr))\">\n<div class=\"day\"><span>Mon</span></div>\n<div class=\"day\"><span>Tue</span><div class=\"evt fx\" data-at=\"3.6\" style=\"--c:#3b82f6\">LinkedIn<small>09:00</small></div></div>\n<div class=\"day\"><span>Wed</span><div class=\"evt\" style=\"--c:#a78bfa\">Newsletter<small>Weekly</small></div></div>\n</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "See it as they will",
+     "title": "See it as they will",
+     "dur": 7200,
+     "desc": "Preview the post as LinkedIn, X or Instagram will show it, and copy it out in one click if you want it anywhere else.",
+     "head": [
+      [
+       0,
+       "Scheduled",
+       "violet",
+       2,
+       true
+      ],
+      [
+       1,
+       "Previewed",
+       "blue",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"ptabs\"><span data-at=\"0.2\" data-done=\"2.6\">LinkedIn</span><span data-at=\"2.6\" data-done=\"4.8\">X</span><span data-at=\"4.8\">Instagram</span></div>\n<div class=\"pvs\">\n<div class=\"pv\" data-at=\"0.2\" data-done=\"2.6\"><div class=\"post-h\"><span class=\"av\">Y</span><div><b>Your brand</b><span>Company page · 1d</span></div></div><div class=\"prose mt\">We built the app you asked for.\n\nEverything from the waitlist, now in your pocket… <span class=\"muted\">see more</span></div><div class=\"imgph done\" style=\"height:84px\"></div></div>\n<div class=\"pv\" data-at=\"2.6\" data-done=\"4.8\"><div class=\"post-h\"><span class=\"av\" style=\"border-radius:50%\">Y</span><div><b>Your brand</b><span>@yourbrand</span></div></div><div class=\"prose mt\">1/ The app is live. Here’s everything our waitlist asked for, and what we built.</div><div class=\"muted sm mt\">87 / 280</div></div>\n<div class=\"pv\" data-at=\"4.8\"><div class=\"row2\" style=\"grid-template-columns:120px minmax(0,1fr)\"><div class=\"tile-i\" style=\"--g:linear-gradient(135deg,#6d5cf6,#2563eb 55%,#22d3ee)\"></div><div class=\"prose\"><b>yourbrand</b> Your home screen, finally yours. Link in bio.</div></div></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Score it before it goes",
+     "title": "Score it before it goes",
+     "dur": 6400,
+     "desc": "Every post gets a pre-publish score out of 100, weighing its hook, length, formatting and keywords for that channel. It advises; it never blocks.",
+     "head": [
+      [
+       0,
+       "Previewed",
+       "blue",
+       3,
+       true
+      ],
+      [
+       3,
+       "PPS 84",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"row2\" style=\"grid-template-columns:110px minmax(0,1fr);align-items:center\">\n<div class=\"gauge\" data-at=\"0.3\" style=\"--to:84\"><b><span data-count=\"0,84,0.3,1.8\">0</span></b></div>\n<div class=\"bars\" style=\"margin-top:0\">\n<div class=\"bar\"><span>Hook</span><div class=\"tr\"><i data-at=\"0.6\" style=\"--w:87%;--c:#10b981\"></i></div><b>26/30</b></div>\n<div class=\"bar\"><span>Brevity</span><div class=\"tr\"><i data-at=\"0.9\" style=\"--w:88%;--c:#10b981\"></i></div><b>22/25</b></div>\n<div class=\"bar\"><span>Formatting</span><div class=\"tr\"><i data-at=\"1.2\" style=\"--w:84%;--c:#10b981\"></i></div><b>21/25</b></div>\n<div class=\"bar\"><span>Keywords</span><div class=\"tr\"><i data-at=\"1.5\" style=\"--w:75%;--c:#f59e0b\"></i></div><b>15/20</b></div>\n</div>\n</div>\n<div class=\"muted sm mt fx\" data-at=\"2.6\">Predictive Performance Score · pre-publish</div>\n</div>"
+    },
+    {
+     "tab": "Published on time",
+     "title": "Published on time",
+     "dur": 6800,
+     "desc": "The queue publishes to your LinkedIn page at the time you chose, with an image in one of ten styles. Anything that fails lands in Review for you.",
+     "head": [
+      [
+       0,
+       "Scheduled",
+       "violet",
+       4,
+       true
+      ],
+      [
+       2.2,
+       "Published",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wide\">\n<div class=\"card pad\">\n<div class=\"post-h\"><span class=\"av\">Y</span><div><b>Your brand</b><span>Company page · just now</span></div><span class=\"tag-ui ok fx\" data-at=\"2.2\" style=\"margin-left:auto\">PUBLISHED 09:00</span></div>\n<div class=\"prose mt\">We built the app you asked for.</div>\n<div class=\"imgph\" data-done=\"1.2\" style=\"height:110px\"></div>\n</div>\n<div class=\"card pad\">\n<div class=\"ui-k\">Image style</div>\n<ul class=\"list\">\n<li class=\"li hl\" data-at=\"0.4\" style=\"padding:5px 8px;border:1px solid #ece8e1;border-radius:7px\"><span class=\"grow sm\">Minimalist &amp; Clean</span></li>\n<li class=\"li\" style=\"padding:5px 8px\"><span class=\"grow sm muted\">Vibrant &amp; Playful</span></li>\n<li class=\"li\" style=\"padding:5px 8px\"><span class=\"grow sm muted\">Luxury &amp; Editorial</span></li>\n<li class=\"li\" style=\"padding:5px 8px\"><span class=\"grow sm muted\">Corporate Cinematic</span></li>\n<li class=\"li\" style=\"padding:5px 8px\"><span class=\"more\">+ 6 more styles</span></li>\n</ul>\n</div>\n</div>"
+    }
+   ]
+  },
+  "journeys": {
+   "name": "Email journeys",
+   "color": "#14b8a6",
+   "aside": "Five steps, one journey",
+   "h1": [
+    "The right email,",
+    "for every person."
+   ],
+   "sub": "Build a welcome journey from one sentence. It branches on what each person did, tests its own words, and starts sending the moment you publish.",
+   "obj": {
+    "id": "JRNY-04",
+    "via": "via Vizzy",
+    "named": "Welcome to the beta",
+    "placeholder": "New journey"
+   },
+   "pipe": [
+    "Drafted",
+    "Branched",
+    "Tested",
+    "Published",
+    "Winner"
+   ],
+   "close": [
+    "Welcome every",
+    "signup"
+   ],
+   "steps": [
+    {
+     "tab": "Describe it, or build it",
+     "title": "Describe it, or build it",
+     "dur": 6600,
+     "desc": "Ask Vizzy for a welcome journey and it drafts the whole thing, copy included. Or start a blank one for people who join a waitlist.",
+     "head": [
+      [
+       0,
+       "New",
+       "grey",
+       0,
+       false
+      ],
+      [
+       3.8,
+       "Drafted",
+       "blue",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad chat\">\n<div class=\"bub me\" data-type=\"0.2,1.8\" data-text=\"A welcome journey for the beta: thank them, nudge them to share, and invite them to a voice chat.\"></div>\n<div class=\"tool fx\" data-at=\"2.2\"><span class=\"spin\" data-in=\"2.2\" data-done=\"3.6\"></span>build_email_journey · writing copy for each email</div>\n<div class=\"card pad fx\" data-at=\"3.8\" style=\"box-shadow:none\">\n<div class=\"t-h\">Journey · 6 steps<span class=\"tag-ui blue\">DRAFTED BY VIZZY</span></div>\n<div class=\"muted sm mt\">Drafted by Vizzy · not turned on</div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Branch on what they did",
+     "title": "Branch on what they did",
+     "dur": 7000,
+     "desc": "Split people by what they actually did: referred friends, talked to the voice agent, where they came from, how high they rank, how they answered your questions.",
+     "head": [
+      [
+       0,
+       "Drafted",
+       "blue",
+       1,
+       true
+      ],
+      [
+       3.6,
+       "Branched",
+       "violet",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"jg\">\n<div class=\"jn fx\" data-at=\"0.2\">⚡ Joins the waitlist</div><div class=\"vline fx\" data-at=\"0.4\"></div>\n<div class=\"jn fx\" data-at=\"0.5\">✉ Welcome</div><div class=\"vline fx\" data-at=\"0.7\"></div>\n<div class=\"jn fx\" data-at=\"0.8\">⏱ Wait 2 days</div><div class=\"vline fx\" data-at=\"1.0\"></div>\n<div class=\"jn cond fx\" data-at=\"1.3\">◇ Made a referral?</div>\n<div class=\"jbr\">\n<div><span class=\"jl fx\" data-at=\"1.8\">YES</span><div class=\"jn fx\" data-at=\"2.0\">✉ Thanks for sharing</div></div>\n<div><span class=\"jl fx\" data-at=\"1.8\">DEFAULT</span><div class=\"jn fx\" data-at=\"2.3\">✉ Share to move up</div></div>\n</div>\n<div class=\"jn fx\" data-at=\"2.9\" style=\"background:#f5f0ff;border-color:#d9c8ff\">↪ Exit to weekly newsletter</div>\n</div>"
+    },
+    {
+     "tab": "Test the words",
+     "title": "Test the words",
+     "dur": 6600,
+     "desc": "Put up to two challengers against any email, each with its own subject and body, and choose how to split the audience.",
+     "head": [
+      [
+       0,
+       "Branched",
+       "violet",
+       2,
+       true
+      ],
+      [
+       3.2,
+       "A/B testing",
+       "blue",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Welcome · A/B test<span>Split</span></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"0.3\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"tag-ui\">A</span><span class=\"grow\">You’re on the list 🎉</span><span class=\"mono sm\">50%</span></li>\n<li class=\"li fx\" data-at=\"1.0\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"tag-ui blue\">B</span><span class=\"grow\">Your spot is saved</span><span class=\"mono sm\">25%</span></li>\n<li class=\"li fx\" data-at=\"1.7\" style=\"padding:8px;border:1px solid #ece8e1;border-radius:8px\"><span class=\"tag-ui blue\">C</span><span class=\"grow\">Skip the line: share your link</span><span class=\"mono sm\">25%</span></li>\n</ul>\n<div class=\"prog\" style=\"height:10px\"><i data-at=\"2.4\" style=\"--w:100%;background:linear-gradient(90deg,#9a958c 0 50%,#3b82f6 50% 75%,#22d3ee 75%)\"></i></div>\n</div>"
+    },
+    {
+     "tab": "Publish, and it sends",
+     "title": "Publish, and it sends",
+     "dur": 6400,
+     "desc": "Publish and every new signup starts the journey. Emails go out on schedule through a dedicated sending service, and you can pause at any time.",
+     "head": [
+      [
+       0,
+       "Ready",
+       "blue",
+       3,
+       true
+      ],
+      [
+       1.4,
+       "Active",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Welcome to the beta<span class=\"li\"><span class=\"tog\" data-at=\"1.2\"></span><span class=\"sm\">Active</span></span></div>\n<div class=\"btn-sm dark mt\" data-press=\"1.0\" style=\"display:inline-block\">Publish</div>\n<div class=\"muted sm mt\"><b data-count=\"0,1284,1.6,5.6\">0</b> emails sent</div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"2.0\"><span class=\"spin\" data-in=\"2.0\" data-done=\"2.6\"></span><span class=\"grow sm\">Welcome → sam@•••</span></li>\n<li class=\"li fx\" data-at=\"2.6\"><span class=\"spin\" data-in=\"2.6\" data-done=\"3.2\"></span><span class=\"grow sm\">Welcome → priya@•••</span></li>\n<li class=\"li fx\" data-at=\"3.2\"><span class=\"spin\" data-in=\"3.2\" data-done=\"3.8\"></span><span class=\"grow sm\">Share to move up → leo@•••</span></li>\n</ul>\n</div>"
+    },
+    {
+     "tab": "Promote the winner",
+     "title": "Promote the winner",
+     "dur": 6800,
+     "desc": "Watch opens and clicks for each version. When one pulls ahead, promote it in one click and it becomes the email everyone gets.",
+     "head": [
+      [
+       0,
+       "Active",
+       "green",
+       4,
+       true
+      ],
+      [
+       4,
+       "Winner promoted",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Welcome · results<span>Click rate</span></div>\n<div class=\"bars\">\n<div class=\"bar\"><span>A · On the list</span><div class=\"tr\"><i data-at=\"0.4\" style=\"--w:41%;--c:#9a958c\"></i></div><b>6.1%</b></div>\n<div class=\"bar\"><span>B · Spot saved</span><div class=\"tr\"><i data-at=\"0.7\" style=\"--w:33%;--c:#3b82f6\"></i></div><b>4.9%</b></div>\n<div class=\"bar\"><span>C · Skip the line</span><div class=\"tr\"><i data-at=\"1.0\" style=\"--w:78%;--c:#10b981\"></i></div><b>11.6%</b></div>\n</div>\n<div class=\"li mt\"><span class=\"btn-sm dark\" data-press=\"3.6\">Promote C</span><span class=\"tag-ui ok fx\" data-at=\"4.0\">A/B TEST PROMOTED</span></div>\n</div>"
+    }
+   ]
+  },
+  "voice": {
+   "name": "Voice chat",
+   "color": "#2dd4bf",
+   "aside": "Five steps, one conversation",
+   "h1": [
+    "Talk to every",
+    "signup."
+   ],
+   "sub": "Right after someone joins, a Gemini Live voice agent can ask them a few questions in their own language, and moves them up the queue for their time.",
+   "obj": {
+    "id": "CALL-77",
+    "via": "via Gemini Live",
+    "named": "Sam · just joined",
+    "placeholder": "Waiting for a signup"
+   },
+   "pipe": [
+    "Set up",
+    "Invited",
+    "Talking",
+    "Saved",
+    "Followed up"
+   ],
+   "close": [
+    "Start the",
+    "conversation"
+   ],
+   "steps": [
+    {
+     "tab": "Decide what to ask",
+     "title": "Decide what to ask",
+     "dur": 6800,
+     "desc": "Switch on the voice conversation for your launch, set its goal and list up to ten topics to explore. Your brand voice shapes how it speaks.",
+     "head": [
+      [
+       0,
+       "Off",
+       "grey",
+       0,
+       false
+      ],
+      [
+       1,
+       "Set up",
+       "blue",
+       1,
+       false
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"li\"><span class=\"tog\" data-at=\"0.8\"></span><span class=\"sm\">Enable post-signup AI voice conversation</span></div>\n<div class=\"field\"><label>Conversation goal</label><div class=\"inp\"><span data-type=\"1.2,1.6\" data-text=\"Learn what people want from the app\"></span></div></div>\n<div class=\"field\"><label>Topics to probe (one per line)</label>\n<div class=\"snip\"><div class=\"fx\" data-at=\"3.0\">What made you sign up</div><div class=\"fx\" data-at=\"3.4\">Tools you use today</div><div class=\"fx\" data-at=\"3.8\">The one feature you can’t live without</div></div>\n</div>\n<div class=\"field\"><label>Leaderboard boost on completion</label><div class=\"inp\">50</div></div>\n</div>"
+    },
+    {
+     "tab": "Invite them in",
+     "title": "Invite them in",
+     "dur": 6000,
+     "desc": "New signups see the invitation on their success screen, or get it by email. One tap and they’re talking.",
+     "head": [
+      [
+       0,
+       "Set up",
+       "blue",
+       1,
+       false
+      ],
+      [
+       3.2,
+       "Invited",
+       "blue",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\" style=\"max-width:380px;margin-inline:auto;text-align:center\">\n<div class=\"muted sm\">You’re in line</div>\n<div class=\"rank\">#412</div>\n<div class=\"snip mt fx\" data-at=\"0.8\" style=\"text-align:left\"><b>Talk to us for a moment</b>Tell us what you’re hoping for, and we’ll move you up the queue.</div>\n<div class=\"big-btn\" data-press=\"2.8\">Start talking</div>\n<div class=\"muted sm mt fx\" data-at=\"3.2\">Allow microphone access</div>\n</div>"
+    },
+    {
+     "tab": "A real conversation",
+     "title": "A real conversation",
+     "dur": 7600,
+     "desc": "The agent listens and answers in real time, in any of 23 languages, with a live transcript on screen.",
+     "head": [
+      [
+       0,
+       "Connecting",
+       "blue",
+       2,
+       true
+      ],
+      [
+       0.8,
+       "Talking",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2\" style=\"grid-template-columns:150px minmax(0,1fr)\">\n<div class=\"card pad\" style=\"text-align:center\">\n<div class=\"orb\" data-in=\"0.8\" data-done=\"7.0\"></div>\n<div class=\"wave\" data-in=\"0.8\" data-done=\"7.0\"><i style=\"--h:18px\"></i><i style=\"--h:34px;animation-delay:.1s\"></i><i style=\"--h:26px;animation-delay:.2s\"></i><i style=\"--h:40px;animation-delay:.05s\"></i><i style=\"--h:22px;animation-delay:.25s\"></i><i style=\"--h:30px;animation-delay:.15s\"></i><i style=\"--h:16px;animation-delay:.3s\"></i></div>\n<div class=\"muted sm\"><span class=\"fx\" data-at=\"0.8\">Listening…</span></div>\n</div>\n<div class=\"card pad chat\">\n<div class=\"bub ai\" data-type=\"0.9,1.2\" data-text=\"Hi Sam! What made you join the beta?\"></div>\n<div class=\"bub me\" data-type=\"2.6,1.8\" data-text=\"I run a small studio. Our current app is too slow on the go.\"></div>\n<div class=\"bub ai\" data-type=\"5.0,1.4\" data-text=\"What would make you switch for good?\"></div>\n</div>\n</div>"
+    },
+    {
+     "tab": "Saved to their signup",
+     "title": "Saved to their signup",
+     "dur": 6200,
+     "desc": "When they finish, the transcript is saved with their signup, and they get their boost up the queue once they’ve verified.",
+     "head": [
+      [
+       0,
+       "Talking",
+       "green",
+       3,
+       true
+      ],
+      [
+       1.4,
+       "Saved",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\" style=\"max-width:420px;margin-inline:auto;text-align:center\">\n<div class=\"btn-sm dark\" data-press=\"0.8\" style=\"display:inline-block\">End &amp; save</div>\n<div class=\"snip mt fx\" data-at=\"1.4\"><b>Spot boosted! 🚀</b>We bumped you up the queue to #<span data-count=\"412,362,1.6,3.0\">412</span>.</div>\n<div class=\"li mt fx\" data-at=\"3.2\" style=\"justify-content:center\"><span class=\"tag-ui ok\">TRANSCRIPT SAVED</span><span class=\"muted sm\">14 turns, on Sam’s signup</span></div>\n</div>"
+    },
+    {
+     "tab": "Follow up differently",
+     "title": "Follow up differently",
+     "dur": 6600,
+     "desc": "Email journeys can branch on whether someone talked to the voice agent, so the people who gave you their time get a different follow-up.",
+     "head": [
+      [
+       0,
+       "Saved",
+       "green",
+       4,
+       true
+      ],
+      [
+       2.8,
+       "Followed up",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"jg\">\n<div class=\"jn\">✉ Welcome</div><div class=\"vline\"></div>\n<div class=\"jn cond\">◇ Used voice chat?</div>\n<div class=\"jbr\">\n<div><span class=\"jl\">YES</span><div class=\"jn hl\" data-at=\"1.4\" data-done=\"2.8\">✉ Thanks for the chat, here’s what’s next</div></div>\n<div><span class=\"jl\">DEFAULT</span><div class=\"jn\">✉ Got two minutes? Tell us what you need</div></div>\n</div>\n<div class=\"li fx\" data-at=\"2.8\"><span class=\"tag-ui ok\">SENT TO SAM</span></div>\n</div>"
+    }
+   ]
+  },
+  "insights": {
+   "name": "Insights",
+   "color": "#34d399",
+   "aside": "Five steps, one picture",
+   "h1": [
+    "See what’s",
+    "working."
+   ],
+   "sub": "Every signup, send and invite in one place, with where it came from. Ask Vizzy and it answers from the same numbers.",
+   "obj": {
+    "id": "WEEK-39",
+    "via": "via Insights",
+    "named": "This week at a glance",
+    "placeholder": "Gathering signals…"
+   },
+   "pipe": [
+    "Overview",
+    "Sources",
+    "Email",
+    "Funnel",
+    "Answer"
+   ],
+   "close": [
+    "Know what",
+    "to do next"
+   ],
+   "steps": [
+    {
+     "tab": "Everything in one place",
+     "title": "Everything in one place",
+     "dur": 6200,
+     "desc": "Launches, emails, content and journeys in one overview: signups this week against last, email opens, what content brought in, and how many verified.",
+     "head": [
+      [
+       0,
+       "Loading",
+       "grey",
+       0,
+       false
+      ],
+      [
+       1.2,
+       "Live",
+       "green",
+       1,
+       true
+      ]
+     ],
+     "scene": "<div class=\"kpis\">\n<div class=\"card kpi fx\" data-at=\"0.3\"><span>Signups this week</span><b data-count=\"0,1284,0.4,2.4\">0</b><em class=\"fx\" data-at=\"2.5\">▲ 18% on last week</em></div>\n<div class=\"card kpi fx\" data-at=\"0.5\"><span>Email opens · 7 days</span><b data-count=\"0,52,0.6,2.6\" data-suffix=\"%\">0</b><em class=\"fx\" data-at=\"2.7\">▲ 6 pts</em></div>\n<div class=\"card kpi fx\" data-at=\"0.7\"><span>Signups from content</span><b data-count=\"0,38,0.8,2.8\" data-suffix=\"%\">0</b><em class=\"fx\" data-at=\"2.9\" style=\"color:#6c6c72\">estimated from links</em></div>\n<div class=\"card kpi fx\" data-at=\"0.9\"><span>Verified</span><b data-count=\"0,76,1.0,3.0\" data-suffix=\"%\">0</b><em class=\"fx\" data-at=\"3.1\">▲ 4 pts</em></div>\n</div>\n<div class=\"card pad mt fx\" data-at=\"1.4\">\n<div class=\"t-h\">Signups per week<span>All launches</span></div>\n<div class=\"bars\" style=\"grid-template-columns:repeat(7,1fr);display:grid;align-items:end;height:92px;gap:8px\">\n<i class=\"fx\" data-at=\"1.6\" style=\"height:38%;background:#a7e3c9;border-radius:4px\"></i>\n<i class=\"fx\" data-at=\"1.7\" style=\"height:52%;background:#a7e3c9;border-radius:4px\"></i>\n<i class=\"fx\" data-at=\"1.8\" style=\"height:44%;background:#a7e3c9;border-radius:4px\"></i>\n<i class=\"fx\" data-at=\"1.9\" style=\"height:71%;background:#6ee7b7;border-radius:4px\"></i>\n<i class=\"fx\" data-at=\"2.0\" style=\"height:96%;background:#10b981;border-radius:4px\"></i>\n<i class=\"fx\" data-at=\"2.1\" style=\"height:63%;background:#6ee7b7;border-radius:4px\"></i>\n<i class=\"fx\" data-at=\"2.2\" style=\"height:58%;background:#6ee7b7;border-radius:4px\"></i>\n</div>\n</div>"
+    },
+    {
+     "tab": "Where signups came from",
+     "title": "Where signups came from",
+     "dur": 6600,
+     "desc": "See where signups come from: friend referrals, LinkedIn, X, your newsletter, search. Tag your links and the content that earned each one shows up too.",
+     "head": [
+      [
+       0,
+       "Live",
+       "green",
+       1,
+       true
+      ],
+      [
+       2.6,
+       "Attributed",
+       "green",
+       2,
+       true
+      ]
+     ],
+     "scene": "<div class=\"row2 wide\">\n<div class=\"card pad\">\n<div class=\"t-h\">Where signups come from<span>Last 30 days</span></div>\n<div class=\"bars\">\n<div class=\"bar\"><span>LinkedIn</span><div class=\"tr\"><i data-at=\"0.4\" style=\"--w:92%;--c:#3b82f6\"></i></div><b>488</b></div>\n<div class=\"bar\"><span>Friend referrals</span><div class=\"tr\"><i data-at=\"0.6\" style=\"--w:68%;--c:#6f6cf4\"></i></div><b>347</b></div>\n<div class=\"bar\"><span>Newsletter</span><div class=\"tr\"><i data-at=\"0.8\" style=\"--w:45%;--c:#a78bfa\"></i></div><b>231</b></div>\n<div class=\"bar\"><span>Search</span><div class=\"tr\"><i data-at=\"1.0\" style=\"--w:28%;--c:#14b8a6\"></i></div><b>141</b></div>\n<div class=\"bar\"><span>Direct or unknown</span><div class=\"tr\"><i data-at=\"1.2\" style=\"--w:15%;--c:#9a958c\"></i></div><b>77</b></div>\n</div>\n</div>\n<div class=\"card pad fx\" data-at=\"2.2\">\n<div class=\"ui-k\">What’s working</div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"2.5\"><span class=\"muted sm\">Content that brings signups</span></li>\n<li class=\"li fx\" data-at=\"2.8\"><span class=\"dot-c\" style=\"--c:#10b981\"></span><span class=\"grow mono sm\">app-launch</span><b class=\"sm\">212</b></li>\n<li class=\"li fx\" data-at=\"3.0\"><span class=\"dot-c\" style=\"--c:#6ee7b7\"></span><span class=\"grow mono sm\">beta-teaser</span><b class=\"sm\">97</b></li>\n<li class=\"li fx\" data-at=\"3.2\"><span class=\"dot-c\" style=\"--c:#a7e3c9\"></span><span class=\"grow mono sm\">founder-story</span><b class=\"sm\">41</b></li>\n</ul>\n</div>\n</div>"
+    },
+    {
+     "tab": "How each email performs",
+     "title": "How each email performs",
+     "dur": 6400,
+     "desc": "Sends, opens and clicks for every automated email and broadcast, side by side, with your best email by clicks called out.",
+     "head": [
+      [
+       0,
+       "Attributed",
+       "green",
+       2,
+       true
+      ],
+      [
+       2.4,
+       "Compared",
+       "green",
+       3,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">Emails<span>Sent · Opens · Clicks</span></div>\n<ul class=\"list\">\n<li class=\"li fx\" data-at=\"0.3\" style=\"display:grid;grid-template-columns:minmax(0,1fr) 54px 54px 54px;gap:8px\"><span class=\"grow\">Welcome to the beta</span><span class=\"mono sm\">1,284</span><span class=\"mono sm\">61%</span><span class=\"mono sm\">8.1%</span></li>\n<li class=\"li fx\" data-at=\"0.6\" style=\"display:grid;grid-template-columns:minmax(0,1fr) 54px 54px 54px;gap:8px\"><span class=\"grow\">Your spot in line</span><span class=\"mono sm\">1,190</span><span class=\"mono sm\">48%</span><span class=\"mono sm\">6.3%</span></li>\n<li class=\"li fx\" data-at=\"0.9\" style=\"display:grid;grid-template-columns:minmax(0,1fr) 54px 54px 54px;gap:8px;background:#ecfdf5;border:1px solid #a7e3c9;border-radius:7px;padding:5px 6px\"><span class=\"grow\"><b>You’re in</b> <span class=\"tag-ui ok fx\" data-at=\"2.2\">BEST EMAIL BY CLICKS</span></span><span class=\"mono sm\">250</span><span class=\"mono sm\">74%</span><span class=\"mono sm\">31%</span></li>\n<li class=\"li fx\" data-at=\"1.2\" style=\"display:grid;grid-template-columns:minmax(0,1fr) 54px 54px 54px;gap:8px\"><span class=\"grow\">Weekly newsletter #6</span><span class=\"mono sm\">902</span><span class=\"mono sm\">44%</span><span class=\"mono sm\">5.0%</span></li>\n</ul>\n</div>"
+    },
+    {
+     "tab": "From invite to active",
+     "title": "From invite to active",
+     "dur": 6400,
+     "desc": "Follow people from your waitlist into your product: verified, invited, signed up and activated, one bar each.",
+     "head": [
+      [
+       0,
+       "Compared",
+       "green",
+       3,
+       true
+      ],
+      [
+       2.6,
+       "Traced",
+       "green",
+       4,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad\">\n<div class=\"t-h\">From waitlist to product<span>All time</span></div>\n<div class=\"funnel\">\n<div class=\"fstep\"><span>Waitlisted</span><div class=\"tr\"><i data-at=\"0.3\" style=\"--w:100%;--c:#6f6cf4\">2,140</i></div></div>\n<div class=\"fstep\"><span>Verified</span><div class=\"tr\"><i data-at=\"0.6\" style=\"--w:76%;--c:#3b82f6\">1,630</i></div></div>\n<div class=\"fstep\"><span>Invited</span><div class=\"tr\"><i data-at=\"0.9\" style=\"--w:30%;--c:#22d3ee\">650</i></div></div>\n<div class=\"fstep\"><span>Signed up</span><div class=\"tr\"><i data-at=\"1.2\" style=\"--w:17%;--c:#14b8a6\">361</i></div></div>\n<div class=\"fstep\"><span>Activated</span><div class=\"tr\"><i data-at=\"1.5\" style=\"--w:10%;--c:#10b981\">198</i></div></div>\n</div>\n<div class=\"li mt fx\" data-at=\"2.3\"><span class=\"tag-ui ok\">ACTIVATION RATE 55%</span><span class=\"muted sm\">of people who signed up</span></div>\n</div>"
+    },
+    {
+     "tab": "Ask Vizzy",
+     "title": "Ask Vizzy what’s working",
+     "dur": 7400,
+     "desc": "Ask in plain words. Vizzy reads the same numbers, answers only from them, and tells you when a figure is an estimate.",
+     "head": [
+      [
+       0,
+       "Traced",
+       "green",
+       4,
+       true
+      ],
+      [
+       4.6,
+       "Answered",
+       "green",
+       5,
+       true
+      ]
+     ],
+     "scene": "<div class=\"card pad chat\">\n<div class=\"bub me fx\" data-at=\"0.3\">Which content brings signups?</div>\n<div class=\"tool fx\" data-at=\"1.0\"><span class=\"spin\" data-in=\"1.0\" data-done=\"2.2\"></span>get_insights_summary</div>\n<div class=\"bub ai\" data-type=\"2.4,2.8\" data-text=\"Over the last 30 days, links tagged app-launch brought 212 signups, more than any other content, and LinkedIn was your biggest source. Your best email by clicks was “You’re in”, at 31%. (Content signups are estimated from tagged links.)\"></div>\n</div>"
+    }
+   ]
+  }
+ }
+}

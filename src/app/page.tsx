@@ -33,6 +33,10 @@ import {
 } from "@/components/marketing/visuals";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
+import { BaseJsonLd } from "@/components/site/JsonLd";
+import { HomeView } from "@/components/site/views";
+import { isSiteLoopEnabled, siteOrigin } from "@/lib/site/flags";
+import { siteMetadata } from "@/lib/site/metadata";
 
 // Self-hosted display face (no external runtime request) for headings; body keeps
 // the system stack. Scoped to this page via the CSS variable on the root wrapper.
@@ -43,10 +47,13 @@ const display = Sora({
   display: "swap",
 });
 
-const SITE_URL =
-  "https://vizzybl-marketing-prod--vizzybl-marketing-prod.us-central1.hosted.app";
+// Runtime: SITE_LOOP_ENABLED picks the homepage.
+export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+// The canonical address is the platform origin (yougrow.ai), never the raw *.hosted.app deploy.
+const SITE_URL = siteOrigin();
+
+const LEGACY_METADATA: Metadata = {
   title: "YouGrow.ai — The agentic growth loop",
   description:
     "YouGrow.ai is an agentic Content OS: an AI canvas that turns one idea into a whole campaign, a conversational command center, gamified waitlists with voice AI, and a visual email builder — all grounded in your own knowledge. Join the waitlist.",
@@ -82,7 +89,16 @@ const METRICS = [
   { value: "7", label: "email frameworks" },
 ];
 
+export async function generateMetadata(): Promise<Metadata> {
+  return isSiteLoopEnabled() ? siteMetadata("en", { kind: "home" }) : LEGACY_METADATA;
+}
+
+/** The homepage: the growth loop with SITE_LOOP_ENABLED, otherwise the current page. */
 export default function Home() {
+  return isSiteLoopEnabled() ? <HomeView lang="en" /> : <LegacyHome />;
+}
+
+function LegacyHome() {
   return (
     <div
       className={`${display.variable} min-h-screen bg-brand-bg text-white antialiased`}
@@ -327,6 +343,7 @@ export default function Home() {
         data-vizzybl-campaign div above is already in the DOM when scan() runs.
       */}
       <Script src="https://yougrow.ai/embed.js" strategy="afterInteractive" />
+      <BaseJsonLd />
     </div>
   );
 }

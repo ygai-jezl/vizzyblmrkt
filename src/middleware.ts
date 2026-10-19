@@ -23,8 +23,18 @@ export function middleware(request: NextRequest) {
     url.pathname = pathname.replace(/^\/+/, "/");
     return NextResponse.redirect(url, 308);
   }
+  // The public site in another language (/es, /fr/loop/plan, ...): say so in a
+  // header, since the shared root layout's <html lang> is English.
+  const lang = SITE_LANG_PREFIX.exec(pathname)?.[1];
+  if (lang) {
+    const res = NextResponse.next();
+    res.headers.set("Content-Language", lang);
+    return res;
+  }
   return NextResponse.next();
 }
+
+const SITE_LANG_PREFIX = /^\/(es|fr|de|ja|ar)(?:\/|$)/;
 
 export const config = {
   // Run on every request path (including a stray `//` on api/admin/waitlist/

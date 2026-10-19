@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { HELP_GROUPS, HELP_PAGES } from "@/lib/help/pages";
 import { isHelpPagesEnabled } from "@/lib/help/flags";
 import { HelpNav } from "@/components/help/HelpNav";
+import { BaseJsonLd } from "@/components/site/JsonLd";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export default function HelpLayout({ children }: { children: ReactNode }) {
   const groups = HELP_GROUPS.map((g) => ({ ...g, pages: HELP_PAGES.filter((p) => p.group === g.key) }));
   return (
     <div className="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <BaseJsonLd />
       <header className="border-b border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <Link href="/help" className="text-sm font-semibold">

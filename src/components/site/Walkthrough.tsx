@@ -19,7 +19,7 @@ export interface WalkthroughProps {
   obj: { id: string; via: string; named: string; placeholder: string };
   pipe: string[];
   stepText: string[];
-  labels: { pause: string; play: string; next: string };
+  labels: { pause: string; play: string; next: string; workspace: string };
 }
 
 /**
@@ -62,6 +62,8 @@ export function Walkthrough(p: WalkthroughProps) {
           ))}
           <button className="pp" type="button">{p.labels.pause}</button>
         </div>
+        <div className="frame">
+        <span className="frame-tag" aria-hidden="true"><svg><use href="#loopmark" /></svg>{p.labels.workspace}</span>
         <div className="board" lang="en" aria-hidden="true">
           <div className="b-head">
             <div className="card idea">
@@ -79,6 +81,8 @@ export function Walkthrough(p: WalkthroughProps) {
               <div key={k} className={k === 0 ? "scene active" : "scene"} data-scene={k} dangerouslySetInnerHTML={{ __html: s.scene }} />
             ))}
           </div>
+        </div>
+        <div className="frame-dots" aria-hidden="true">{p.steps.map((_, k) => <i key={k} className={k === 0 ? "on" : undefined} />)}</div>
         </div>
       </div>
     </div>

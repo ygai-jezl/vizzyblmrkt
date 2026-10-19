@@ -113,8 +113,8 @@ export function readLocalSettings() {
 }
 
 /**
- * Feature switches for a local run: every active `*_ENABLED` variable in
- * apphosting.yaml (the hosted dev environment), on, except the ones below.
+ * Feature switches for a local run: every `*_ENABLED` switch apphosting.yaml lists
+ * (it lists every switch the code reads, off), turned on, except the ones below.
  */
 export const SWITCHES_KEPT_OFF = {
   RECAPTCHA_ENABLED: "needs a real reCAPTCHA Enterprise key and project; with it on, every waitlist sign-up is refused",

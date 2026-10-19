@@ -156,10 +156,10 @@ emulator — no console setup needed):
 1. **Enable Identity Platform** (console → Identity Platform → Get started) and
    turn on the **Google** provider. Add your App Hosting domains to the
    authorized domains. (You can leave Email/Password disabled.)
-2. **Web config is already wired** into `apphosting.yaml` / `apphosting.prod.yaml`
-   (`NEXT_PUBLIC_FIREBASE_API_KEY` + `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` — public,
+2. **Web config is set per environment** in `apphosting.<env>.yaml`, ours in the
+   private deployment repo (`NEXT_PUBLIC_FIREBASE_API_KEY` + `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, public,
    not secrets). Verify they match each project's Web app.
-3. **Access control** is env-driven (already set in the yaml defaults):
+3. **Access control** is env-driven (set in each `apphosting.<env>.yaml`):
    `ADMIN_ALLOWED_DOMAINS=yougrow.ai` (+ optional `ADMIN_ALLOWED_EMAILS`),
    `NEXT_PUBLIC_ADMIN_HD=yougrow.ai`, and the bootstrap target
    `ADMIN_BOOTSTRAP_TENANT_ID=ten_vzb` / `ADMIN_BOOTSTRAP_REGION=us`. Any
@@ -177,13 +177,14 @@ emulator — no console setup needed):
 ```bash
 firebase apphosting:backends:create --project="$PROJECT" --location=us-central1
 # Connect your GitHub repo; set the live branch (main → prod, a dev branch → dev).
-# Bind the prod backend to the `prod` environment so apphosting.prod.yaml applies.
+# Set each backend's environment name (Settings > Environment: dev, prod) so its
+# apphosting.<env>.yaml applies over apphosting.yaml.
 ```
 
 ## 10. Secrets
 ```bash
 firebase apphosting:secrets:set recaptcha-api-key --project="$PROJECT"
-# then uncomment the matching block in apphosting.yaml
+# then reference it by name in apphosting.<env>.yaml
 ```
 
 ## 11. Firestore → BigQuery analytics pipeline (data lake, for scale)
@@ -252,8 +253,8 @@ docs/ARCHITECTURE-AND-DELIVERY.md §5.
 Grant the App Hosting compute SA (ADC, no keys): `roles/bigquery.jobUser`
 (project) + `roles/bigquery.dataViewer` **dataset-scoped** on each `waitlist_*` +
 `roles/bigquery.dataEditor` on the `widget_views` table (ingest writes). Enable
-BigQuery Data Access audit logs. Then set the env (already in `apphosting*.yaml`,
-flag off): `ANALYTICS_BQ_ENABLED`, `NEXT_PUBLIC_ANALYTICS_BQ_ENABLED`,
+BigQuery Data Access audit logs. Then set the env in `apphosting.<env>.yaml` (the switches are listed off
+in `apphosting.yaml`): `ANALYTICS_BQ_ENABLED`, `NEXT_PUBLIC_ANALYTICS_BQ_ENABLED`,
 `BQ_DATASET_US/EU/ASIA`. Validate backfill counts against
 `forTenant(ctx).signups.count(...)` / `.emailEvents.count(...)` before flipping
 the flag. See docs/ARCHITECTURE-AND-DELIVERY.md §7.

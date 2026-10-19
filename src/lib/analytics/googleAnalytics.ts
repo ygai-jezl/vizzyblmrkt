@@ -2,9 +2,9 @@
  * Google Analytics 4 (gtag.js) for the public YouGrow site. Pure + client-safe,
  * so the <GoogleAnalytics> client component and the tests share it.
  *
- * Ships ON in dev (apphosting.yaml, with debug_mode so dev hits land in
- * DebugView and GA's "Developer traffic" filter keeps them out of reports) and
- * OFF in prod (apphosting.prod.yaml) until verified on dev and promoted.
+ * Off unless NEXT_PUBLIC_GA_ENABLED is "true" (listed "false" in apphosting.yaml)
+ * and NEXT_PUBLIC_GA_MEASUREMENT_ID is set. NEXT_PUBLIC_GA_DEBUG_MODE sends hits to
+ * DebugView, so a test deployment's hits stay out of reports.
  *
  * Consent Mode v2: storage is denied by default in the EEA, UK and Switzerland
  * (Google then sends cookieless pings only) and analytics-only storage is granted

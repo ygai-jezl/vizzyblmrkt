@@ -81,6 +81,6 @@ firebase apphosting:secrets:set git-token-github --project <project>
 firebase apphosting:secrets:set git-token-gitlab --project <project>
 ```
 
-After deploy, set in `apphosting.yaml` / `apphosting.prod.yaml`:
+After deploy, set in each `apphosting.<env>.yaml`:
 `KNOWLEDGE_JOB_NAME=knowledge-scraper`, `KNOWLEDGE_JOB_LOCATION=<region>`, and flip
 `KNOWLEDGE_RAG_ENABLED="true"` **after** the `knowledge_bases` vector index has built.

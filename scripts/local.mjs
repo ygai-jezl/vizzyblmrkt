@@ -294,7 +294,7 @@ function renderTemplate(ports) {
 function featureSwitchBlock() {
   const names = featureSwitchNames().sort();
   const keptOff = Object.entries(SWITCHES_KEPT_OFF);
-  const lines = ["# Feature switches: every *_ENABLED variable in apphosting.yaml, on like the hosted dev environment."];
+  const lines = ["# Feature switches: every *_ENABLED switch apphosting.yaml lists, turned on for a local run."];
   if (keptOff.length) {
     lines.push("# Kept off on a laptop:");
     for (const [name, reason] of keptOff) lines.push(`#   ${name}: ${reason}.`);

@@ -3,7 +3,7 @@
 Provisions the GCP side of the Phase-2 hybrid analytics pipeline. The app code
 (`src/lib/analytics/bigquery.ts`, the `/api/track/view` beacon, the hybrid seams
 in `analytics.ts`/`email.ts`) is already deployed but **inert** —
-`ANALYTICS_BQ_ENABLED="false"` in `apphosting.yaml` / `apphosting.prod.yaml`.
+`ANALYTICS_BQ_ENABLED` is `"false"` in `apphosting.yaml` and unset in `apphosting.<env>.yaml`.
 Until you provision this and flip the flag, the dashboard stays on Firestore.
 
 See `docs/SETUP.md §11` for the design and `setup.sh` (top comment) for details.
@@ -55,7 +55,7 @@ cd infra/bigquery-analytics
 Then **flip the flag** for the env and deploy:
 
 ```yaml
-# apphosting.yaml (dev) / apphosting.prod.yaml (prod)
+# apphosting.<env>.yaml (apphosting.dev.yaml, apphosting.prod.yaml)
 - variable: ANALYTICS_BQ_ENABLED            { value: "true" }
 - variable: NEXT_PUBLIC_ANALYTICS_BQ_ENABLED { value: "true" }
 ```

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffResolved, formatDiff, formatResolved, mergeApphosting, toJson } from "./apphosting-merge.mjs";
+import { classifyChanges, diffResolved, formatDiff, formatResolved, mergeApphosting, toJson } from "./apphosting-merge.mjs";
 
 const base = {
   runConfig: { minInstances: 0, maxInstances: 10, cpu: 1 },
@@ -134,6 +134,44 @@ describe("diffResolved", () => {
         before: 'FEATURE_ENABLED value="false" availability=BUILD,RUNTIME',
         after: 'FEATURE_ENABLED secret="feature-flag" availability=BUILD,RUNTIME',
       },
+    ]);
+  });
+});
+
+describe("classifyChanges", () => {
+  const before = mergeApphosting(
+    { runConfig: { maxInstances: 10 }, env: [{ variable: "KEPT", value: "x" }, { variable: "ON_ENABLED", value: "true" }] },
+    null,
+  );
+
+  it('sets apart switches that are now "false" where they were unset, and nothing else', () => {
+    const after = mergeApphosting(
+      {
+        runConfig: { maxInstances: 10 },
+        env: [
+          { variable: "KEPT", value: "x" },
+          { variable: "ON_ENABLED", value: "true" },
+          { variable: "NEW_ENABLED", value: "false", availability: ["RUNTIME"] },
+          { variable: "NEW_SETTING", value: "false" },
+          { variable: "SECRET_ENABLED", secret: "s" },
+        ],
+      },
+      null,
+    );
+    const { real, switchOff } = classifyChanges(diffResolved(before, after), after, ["NEW_ENABLED", "SECRET_ENABLED", "ON_ENABLED"]);
+    expect(switchOff.map((c) => c.key)).toEqual(["NEW_ENABLED"]);
+    // Not a switch the code reads, and a secret: both real.
+    expect(real.map((c) => c.key)).toEqual(["NEW_SETTING", "SECRET_ENABLED"]);
+  });
+
+  it("counts a switch turned off, a removed entry and a runConfig change as real", () => {
+    const after = mergeApphosting({ runConfig: { maxInstances: 2 }, env: [{ variable: "ON_ENABLED", value: "false" }] }, null);
+    const { real, switchOff } = classifyChanges(diffResolved(before, after), after, ["ON_ENABLED"]);
+    expect(switchOff).toEqual([]);
+    expect(real.map((c) => [c.kind, c.key])).toEqual([
+      ["changed", "runConfig.maxInstances"],
+      ["removed", "KEPT"],
+      ["changed", "ON_ENABLED"],
     ]);
   });
 });

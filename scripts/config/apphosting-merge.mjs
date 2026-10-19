@@ -2,7 +2,8 @@
 // apphosting.<env>.yaml. Pure functions over parsed YAML (no file or git access),
 // so the merge rules can be tested on their own.
 //
-// The rules (https://firebase.google.com/docs/app-hosting/configure):
+// The rules (https://firebase.google.com/docs/app-hosting/multiple-environments and
+// https://firebase.google.com/docs/app-hosting/configure):
 //   - apphosting.yaml is the base. apphosting.<env>.yaml, when it exists, is merged over it.
 //   - env entries merge by `variable`: an overlay entry replaces the base entry of the same
 //     name as a whole (value or secret, and availability). Base only entries are inherited.
@@ -62,8 +63,8 @@ export function normaliseEntry(raw) {
 
 /**
  * The settings one backend gets. `overlay` is null when apphosting.<env>.yaml doesn't exist
- * (our dev backend today). Returns { runConfig, env, warnings } with env as a Map sorted by
- * name, each entry tagged with the file it came from.
+ * (a backend with no environment name, or no file for it). Returns { runConfig, env,
+ * warnings } with env as a Map sorted by name, each entry tagged with the file it came from.
  * @param {ApphostingDoc | null | undefined} base
  * @param {ApphostingDoc | null} [overlay]
  * @returns {Resolved}
@@ -183,6 +184,35 @@ export function diffResolved(before, after) {
     else if (lineA !== lineB) changes.push({ kind: "changed", key: name, before: lineA, after: lineB });
   }
   return changes;
+}
+
+/**
+ * Splits changes into real ones and switches that are now "false" where they were unset.
+ * The code reads every switch as `=== "true"`, so a switch added as "false" behaves
+ * exactly like no entry at all. Only an added env entry counts, only with value "false"
+ * and no secret, and only for a name in `switches` (the switches the code reads).
+ * Everything else (a changed value, a removed entry, any runConfig change) is real.
+ * @param {Change[]} changes
+ * @param {Resolved} after
+ * @param {Iterable<string>} switches
+ * @returns {{ real: Change[], switchOff: Change[] }}
+ */
+export function classifyChanges(changes, after, switches) {
+  const known = new Set(switches);
+  /** @type {Change[]} */
+  const real = [];
+  /** @type {Change[]} */
+  const switchOff = [];
+  for (const c of changes) {
+    const entry = c.kind === "added" && !c.key.startsWith("runConfig.") ? after.env.get(c.key) : undefined;
+    const isOff =
+      entry !== undefined &&
+      known.has(c.key) &&
+      entry.value === "false" &&
+      !Object.prototype.hasOwnProperty.call(entry, "secret");
+    (isOff ? switchOff : real).push(c);
+  }
+  return { real, switchOff };
 }
 
 /**

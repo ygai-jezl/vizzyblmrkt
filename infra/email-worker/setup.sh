@@ -12,7 +12,7 @@
 #                                                     (drains EVERY tenant, all regions)
 #
 # The same secret is stored in Secret Manager (the app reads it as
-# EMAIL_WORKER_SECRET via apphosting.prod.yaml) and set as the scheduler's
+# EMAIL_WORKER_SECRET via apphosting.<env>.yaml) and set as the scheduler's
 # request header, so only the scheduler can trigger the machine fan-out.
 #
 # Usage:

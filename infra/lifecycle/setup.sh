@@ -17,7 +17,7 @@
 #
 # Order of operations (per environment):
 #   1) ./setup.sh secret <project> && ./setup.sh worker-secret <project> && ./setup.sh signing-key <project>
-#      (apphosting.yaml references both secrets and prod inherits them: a secret
+#      (apphosting.dev.yaml and apphosting.prod.yaml reference both secrets: a secret
 #      must exist, with App Hosting access, before any rollout — or the build
 #      fails. Without the signing key, context pulls and webhooks fail closed.)
 #   2) deploy
@@ -98,7 +98,7 @@ case "$CMD" in
         | gcloud secrets versions add "$SECRET_NAME" --project="$PROJECT" --data-file=-
     fi
     grant_backend "$SECRET_NAME"
-    echo "Done. CONNECT_SECRET_ENC_KEY is referenced from apphosting.yaml (prod inherits it)."
+    echo "Done. CONNECT_SECRET_ENC_KEY is referenced from apphosting.<env>.yaml."
     ;;
   worker-secret)
     if gcloud secrets describe "$WORKER_SECRET_NAME" --project="$PROJECT" >/dev/null 2>&1; then
@@ -110,7 +110,7 @@ case "$CMD" in
         | gcloud secrets versions add "$WORKER_SECRET_NAME" --project="$PROJECT" --data-file=-
     fi
     grant_backend "$WORKER_SECRET_NAME"
-    echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.yaml (prod inherits it)."
+    echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.<env>.yaml."
     ;;
   signing-key)
     gcloud services enable cloudkms.googleapis.com --project="$PROJECT"

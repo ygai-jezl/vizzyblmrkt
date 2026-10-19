@@ -18,10 +18,6 @@ docs/SETUP.md                             # docs about our own hosting (projects
 docs/DECISIONS.md                         # decision records about our own hosting
 
 # Our deployment config and operations, until it moves out of this repo
-apphosting.yaml                           # our dev backend's settings (moves out of the public repo in a later step)
-apphosting.prod.yaml                      # our prod backend's settings (moves out of the public repo in a later step)
-.firebaserc                               # our Firebase project aliases (moves out in a later step)
-extensions/**                             # our BigQuery export extension settings (moves out in a later step)
 infra/**                                  # our infrastructure setup scripts (moves out in a later step)
 agents/root_agent/deploy.sh               # our agent deploy script (moves out in a later step)
 agents/root_agent/_project_fix.py         # our project number map for the agent deploy (moves out in a later step)

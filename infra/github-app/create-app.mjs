@@ -17,7 +17,7 @@
  *     grants the App Hosting backend and the knowledge-scraper Job access.
  *
  * Nothing secret is printed, logged or written to disk. Only the public values
- * (App ID, slug, Client ID) are printed — those go into apphosting*.yaml.
+ * (App ID, slug, Client ID) are printed: those go into apphosting.<env>.yaml.
  *
  * Needs: gcloud and firebase CLIs signed in (gcloud auth login; firebase login --reauth).
  */

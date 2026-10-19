@@ -35,6 +35,11 @@ jobs:
       - name: No hosted-instance values in the code
         run: npm run check:instance
 
+      # Our public repository only: a fork may keep its own .firebaserc or environment files.
+      - name: No files that belong only in our private deployment repo
+        if: github.repository == 'ygai-jezl/vizzyblmrkt'
+        run: npm run check:private-paths
+
       - name: Unit tests (includes cross-tenant isolation tests)
         run: npm test
 

@@ -1,7 +1,7 @@
 /**
  * Flags for the person view (Audience → Product users). Server-only: pages pass
- * what's on to their client components. Each ships ON in dev (apphosting.yaml)
- * and OFF in prod (apphosting.prod.yaml) until checked on dev and promoted.
+ * what's on to their client components. Each is off unless "true": listed
+ * "false" in apphosting.yaml and turned on per deployment.
  */
 
 /**

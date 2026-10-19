@@ -15,7 +15,7 @@
 # Secret Manager, and one secret per purpose and per environment (never shared
 # with the unsubscribe or canvas keys, never shared between environments).
 #
-# ORDER: apphosting.yaml references this secret by name, so it must exist (with
+# ORDER: apphosting.<env>.yaml references this secret by name, so it must exist (with
 # App Hosting access) in a project BEFORE code that references it is deployed
 # there — otherwise the build fails. Without it, invites stay locked ("Invite
 # links aren't set up yet") and nothing else changes.
@@ -26,7 +26,7 @@
 #      gcloud secrets versions access latest --secret invite-link-signing-key --project <p> \
 #        | gcloud secrets versions add invite-link-signing-key-previous --project <p> --data-file=-
 #      firebase apphosting:secrets:grantaccess invite-link-signing-key-previous --backend <b> --project <p>
-#   2) reference it as INVITE_LINK_SIGNING_KEY_PREVIOUS in apphosting.yaml (secret, RUNTIME)
+#   2) reference it as INVITE_LINK_SIGNING_KEY_PREVIOUS in apphosting.<env>.yaml (secret, RUNTIME)
 #   3) openssl rand -base64 32 | tr -d '\n' | gcloud secrets versions add invite-link-signing-key --project <p> --data-file=-
 #   4) deploy; after 90 days (the longest link lifetime) remove the PREVIOUS reference.
 # Nothing here ever prints a key.
@@ -75,7 +75,7 @@ case "$CMD" in
     # App Hosting needs its own grant (a plain secretAccessor binding fails the build).
     echo "==> Granting App Hosting backend '$BACKEND' access to $SECRET_NAME"
     firebase apphosting:secrets:grantaccess "$SECRET_NAME" --backend "$BACKEND" --project "$PROJECT" --non-interactive
-    echo "Done. INVITE_LINK_SIGNING_KEY is referenced from apphosting.yaml."
+    echo "Done. INVITE_LINK_SIGNING_KEY is referenced from apphosting.<env>.yaml."
     ;;
   verify)
     echo "==> Secret $SECRET_NAME in $PROJECT"

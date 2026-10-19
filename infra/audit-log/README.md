@@ -57,7 +57,7 @@ residency policy tightens.)
 # 1. Create bucket + retention + IAM (reversible). Dev first.
 ./setup.sh provision vizzybl-marketing-dev
 
-# 2. Ensure AUDIT_LOG_BUCKET is set in apphosting.yaml and roll out (push to dev).
+# 2. Ensure AUDIT_LOG_BUCKET is set in apphosting.dev.yaml and roll out (push to dev).
 
 # 3. Delete a throwaway launch in the dev admin, then verify the object landed
 #    and that the runtime SA cannot delete it.
@@ -66,7 +66,7 @@ residency policy tightens.)
 # 4. Lock retention — IRREVERSIBLE. Only after verification.
 ./setup.sh lock vizzybl-marketing-dev
 
-# 5. Repeat 1–4 for prod (merge dev -> main rolls out apphosting.prod.yaml).
+# 5. Repeat 1 to 4 for prod (merging dev into main rolls out apphosting.prod.yaml).
 ./setup.sh provision vizzybl-marketing-prod
 # ... verify ... lock
 ```

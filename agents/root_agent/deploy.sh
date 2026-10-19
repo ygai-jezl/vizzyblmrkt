@@ -55,7 +55,7 @@ else
 fi
 
 # Resolve which engine to UPDATE (--agent_engine_id). Source of truth is
-# ROOT_AGENT_RESOURCE_ID in apphosting{,.prod}.yaml — pass it in, or fall back to
+# ROOT_AGENT_RESOURCE_ID in apphosting.<env>.yaml: pass it in, or fall back to
 # the per-project pinned id below. FORCE_CREATE=1 skips the pin and mints a new
 # engine (then copy its id back into apphosting + this case block).
 if [ "${FORCE_CREATE:-0}" = "1" ]; then
@@ -64,7 +64,7 @@ elif [ -n "${ROOT_AGENT_RESOURCE_ID:-}" ]; then
   RESOURCE_ID="$ROOT_AGENT_RESOURCE_ID"
 else
   case "$PROJECT" in
-    # MUST match ROOT_AGENT_RESOURCE_ID in apphosting{,.prod}.yaml (the engine the
+    # MUST match ROOT_AGENT_RESOURCE_ID in apphosting.<env>.yaml (the engine the
     # app actually calls). prod's old 5390059436788154368 engine is ORPHANED.
     vizzybl-marketing-prod) RESOURCE_ID="4483147061826420736" ;;
     vizzybl-marketing-dev)  RESOURCE_ID="2597757299074269184" ;;
@@ -142,7 +142,7 @@ if ! grep -q "Deployed to Agent Platform" "$DEPLOY_LOG"; then
 fi
 if [ -z "$RESOURCE_ID" ]; then
   echo "NEW engine created. Copy the reasoningEngines/<ID> tail above into"
-  echo "ROOT_AGENT_RESOURCE_ID (apphosting{,.prod}.yaml) AND this script's per-project"
+  echo "ROOT_AGENT_RESOURCE_ID (apphosting.<env>.yaml) AND this script's per-project"
   echo "case block so future redeploys update it in place."
 fi
 echo "Ensure the App Hosting runtime SA has the reasoningEngineInvoker custom role"

@@ -1,8 +1,8 @@
 /**
  * Flags for connected-product lifecycle journeys. Pure + client-safe (no server
  * imports), so the sidebar (client) and the routes/pages (server) can share them.
- * Each ships ON in dev (apphosting.yaml) and OFF in prod (apphosting.prod.yaml)
- * until the milestone is verified on dev and promoted.
+ * Each is off unless "true": listed "false" in apphosting.yaml and turned on per
+ * deployment.
  */
 
 /** Server flag — the Products/Lifecycle admin APIs 503 and pages notFound() when off. */

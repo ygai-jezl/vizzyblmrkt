@@ -26,7 +26,11 @@ if (process.env.MY_FEATURE_ENABLED === "true") {
 }
 ```
 
-Add the switch to `.env.example`, left empty, so people can find it.
+Add the switch to `apphosting.yaml` with the value `"false"`, in the group it belongs
+to (`NEXT_PUBLIC_*` switches need `BUILD` as well as `RUNTIME`), and to `.env.example`,
+left empty, so people can find it. `npm test` fails if a switch the code reads is
+missing from `apphosting.yaml` or isn't `"false"` there. Each deployment turns
+switches on in its own settings, so your pull request only adds the switch, off.
 
 ## Changed a screen? Update its help page
 
@@ -38,7 +42,11 @@ pull request template (`.github/pull_request_template.md`) reminds you.
 ## Keep secrets and personal data out
 
 - Never commit secrets. Keep them in Secret Manager and refer to them by name
-  only, as `apphosting.yaml` does.
+  only, from a deployment's own `apphosting.<environment>.yaml`. The shared
+  `apphosting.yaml` refers to none.
+- Don't commit a deployment's values (project ids, domains, buckets, keys) or its
+  `apphosting.<environment>.yaml` and `.firebaserc`. `npm run check:instance`
+  and `npm run check:private-paths` catch ours.
 - Use made-up people in tests and fixtures, with `example.com` or `.test`
   addresses. Never real names, emails or phone numbers.
 

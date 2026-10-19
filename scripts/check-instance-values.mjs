@@ -103,7 +103,8 @@ function main() {
   process.stderr.write(`check:instance: ${problems.length} instance value(s) in code that should come from config:\n`);
   for (const p of problems) process.stderr.write(`  ${p}\n`);
   process.stderr.write(
-    `\nRead the value from an environment variable instead (add it to .env.example, and our value to apphosting.yaml).\n` +
+    `\nRead the value from an environment variable instead: add it to .env.example, and set it in the\n` +
+      `deployment's own apphosting.<environment>.yaml (ours live in our private deployment repo).\n` +
       `If the file really is about our own hosting, add its path to ${ALLOW_FILE} with the reason.\n`,
   );
   process.exit(1);

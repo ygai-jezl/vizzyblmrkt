@@ -30,7 +30,7 @@ admin can still POST the same endpoint to drain **their own** tenant on demand.
 # 1) create the secret + grant the runtime SA (reversible)
 infra/email-worker/setup.sh secret vizzybl-marketing-prod
 
-# 2) the secret reference is already uncommented in apphosting.prod.yaml.
+# 2) the secret is already referenced in apphosting.prod.yaml (private deployment repo).
 #    DEPLOY the app so EMAIL_WORKER_SECRET resolves (deploy must come AFTER step 1,
 #    or the rollout fails resolving the secret).
 

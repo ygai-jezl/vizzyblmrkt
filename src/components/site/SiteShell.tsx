@@ -76,6 +76,9 @@ export async function SiteShell({ lang, page, children, around, withFaq }: {
         featuredHref={sitePath(lang, { kind: "feature", slug: "canvas" })}
         languages={languages}
       />
+      <div className="site-tools">
+        <ThemeSwitch initial={theme} labels={{ theme: t("Theme"), light: t("Light"), system: t("System"), dark: t("Dark") }} />
+      </div>
       {children}
       <footer>
         <div className="l">
@@ -90,13 +93,10 @@ export async function SiteShell({ lang, page, children, around, withFaq }: {
             <a href="/llms.txt">llms.txt</a>
           </span>
         ) : null}
-        <div className="end">
-          <ThemeSwitch initial={theme} labels={{ theme: t("Theme"), light: t("Light"), system: t("System"), dark: t("Dark") }} />
-          <span className="social">
-            <a href={GITHUB_URL} target="_blank" rel="noopener" aria-label="YouGrow on GitHub" title="GitHub">{GITHUB_ICON}</a>
-            <a href={LINKEDIN_URL} target="_blank" rel="noopener" aria-label="YouGrow on LinkedIn" title="LinkedIn">{LINKEDIN_ICON}</a>
-          </span>
-        </div>
+        <span className="social">
+          <a href={GITHUB_URL} target="_blank" rel="noopener" aria-label="YouGrow on GitHub" title="GitHub">{GITHUB_ICON}</a>
+          <a href={LINKEDIN_URL} target="_blank" rel="noopener" aria-label="YouGrow on LinkedIn" title="LinkedIn">{LINKEDIN_ICON}</a>
+        </span>
       </footer>
       {seo ? (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(siteGraph(siteOrigin(), lang, page, { withFaq })) }} />

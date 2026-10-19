@@ -24,6 +24,7 @@ import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 // their links and copy are checked too.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_BRAND_NOTES_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

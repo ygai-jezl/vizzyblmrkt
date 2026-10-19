@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Provision the LinkedIn Community-Management (App 2) OAuth secrets — Company Page
+# Provision the LinkedIn Community-Management (App 2) OAuth secrets for Company Page
 # posting via the CM API. This is a SEPARATE LinkedIn app from the personal one
 # (CM must be the only product on its app), so it has its own credentials:
-#   linkedin-cm-client-id      — App 2 OAuth 2.0 Client ID
-#   linkedin-cm-client-secret  — App 2 OAuth 2.0 Client Secret
-# (social-token-enc-key is SHARED — already provisioned by infra/x-oauth/setup.sh.)
+#   linkedin-cm-client-id      App 2 OAuth 2.0 Client ID
+#   linkedin-cm-client-secret  App 2 OAuth 2.0 Client Secret
+# (social-token-enc-key is SHARED, already provisioned by infra/x-oauth/setup.sh.)
 #
-# Prereq — create a NEW LinkedIn app whose ONLY product is Community Management API
+# Prereq: create a NEW LinkedIn app whose ONLY product is Community Management API
 # (developer.linkedin.com/apps), associate it with a Company Page, and add the
 # redirect URL EXACTLY:
 #   https://<host>/api/admin/integrations/linkedin_org/callback
@@ -25,13 +25,22 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  secret|verify)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 RUNTIME_SA="firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com"
 
 create_secret() {
   local name="$1" value="$2"
   if gcloud secrets describe "${name}" --project="${PROJECT}" >/dev/null 2>&1; then
-    echo "    ${name} exists — adding a new version"
+    echo "    ${name} exists, adding a new version"
   else
     echo "    creating ${name}"
     gcloud secrets create "${name}" --project="${PROJECT}" --replication-policy="automatic"
@@ -57,7 +66,7 @@ verify() {
   for s in linkedin-cm-client-id linkedin-cm-client-secret; do
     echo "==> ${s}"
     gcloud secrets get-iam-policy "${s}" --project="${PROJECT}" --format="yaml(bindings)" 2>/dev/null \
-      || echo "    (not found — run: ./setup.sh secret ${PROJECT})"
+      || echo "    (not found. Run: ./setup.sh secret ${PROJECT})"
   done
 }
 

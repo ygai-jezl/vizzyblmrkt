@@ -12,6 +12,7 @@ import {
   isBrandMapPagesEnabled,
   isBrandMapResearchEnabled,
   isBrandMapScaleEnabled,
+  isBrandMapSituationAskEnabled,
   isBrandMapSituationsEnabled,
   isBrandMapWikidataEnabled,
 } from "@/lib/brandMap/flags";
@@ -48,6 +49,8 @@ export default async function BrandMapPage() {
   const scale = isBrandMapScaleEnabled();
   // Buying situations (implies the map at any size): a tab of their own.
   const situations = isBrandMapSituationsEnabled();
+  // "Find what they ask" on one situation (implies situations and research).
+  const askOn = isBrandMapSituationAskEnabled();
   // "Write this next" needs articles written from the map, and somewhere to write them.
   const writeNextOn = pagesOn && isBlogBrandMapEnabled();
   const [read, tenant, pages, workspaces] = await Promise.all([
@@ -102,6 +105,8 @@ export default async function BrandMapPage() {
                         <BrandMapSituations
                           canEdit={ctx.role === "admin"}
                           canFind={isBrandMapResearchEnabled() && isGeminiConfigured()}
+                          askOn={askOn}
+                          canAsk={askOn && isGeminiConfigured()}
                           brandName={map?.identity.name || tenant?.tenantName?.trim() || ""}
                           programmes={programmes}
                         />

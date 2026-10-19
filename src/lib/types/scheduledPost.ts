@@ -14,9 +14,9 @@ import { z } from "zod";
  * successful-but-unacked publish never re-posts.
  *
  * The later `jobKind`s + optional fields (spintax/thread/carousel/pps/autoPlug)
- * are declared now so the schema is stable across phases (see the Distribute
- * Roadmap): the worker only runs `publish` in Phase 1, the rest arrive with their
- * phase and don't require a migration.
+ * are declared now so the schema is stable across phases: the worker only runs
+ * `publish` in Phase 1, the rest arrive with their phase and don't require a
+ * migration.
  */
 
 /** Destination channels (subset of src/lib/content/channels.ts that Distribute publishes). */

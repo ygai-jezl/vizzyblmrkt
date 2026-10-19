@@ -1,51 +1,68 @@
 #!/usr/bin/env bash
 #
-# Provision the connected-product lifecycle feature (Products → connections,
-# ingest API, sandbox). Per GCP project; run against dev first, then prod.
+# Provision the connected-product lifecycle feature (Products, connections,
+# ingest API, sandbox) in one Google Cloud project.
 #
-#   ./setup.sh secret        <project>  # create connect-secret-enc-key + grant the runtime SA (REVERSIBLE)
-#   ./setup.sh worker-secret <project>  # create lifecycle-worker-secret + grant the runtime SA (REVERSIBLE)
+#   ./setup.sh secret        <project>  # create connect-secret-enc-key + grant the backend (REVERSIBLE)
+#   ./setup.sh worker-secret <project>  # create lifecycle-worker-secret + grant the backend (REVERSIBLE)
 #   ./setup.sh signing-key   <project>  # create the KMS key that signs requests TO products + grant sign/view only
 #   ./setup.sh rotate-signing-key <project>  # add a key version (published now, signs after 24 h)
 #   ./setup.sh retire-signing-key <project> <version>  # disable an old version once the new one signs (REVERSIBLE: enable)
 #   ./setup.sh ttl           <project>  # Firestore TTL policies on every database (REVERSIBLE)
-#   ./setup.sh scheduler     <project>  # create/refresh the 2-minute lifecycle tick (REVERSIBLE)
+#   ./setup.sh scheduler     <project>  # create/refresh the 2-minute lifecycle tick (REVERSIBLE; needs APP_URL)
 #   ./setup.sh run           <project>  # trigger the tick once now (smoke test)
 #   ./setup.sh verify        <project>  # show the secret bindings, TTL state and scheduler job
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+# Settings (environment variables):
+#   APP_URL              your app's https origin, e.g. https://app.example.com. Needed by
+#                        scheduler (the tick calls APP_URL/api/admin/lifecycle/tick); verify
+#                        also checks APP_URL/.well-known/jwks.json when it is set.
+#   BACKEND              the App Hosting backend id (default: the project id).
+#   FIRESTORE_DATABASES  the databases ttl and verify cover, space separated
+#                        (default: "(default) signups-eu signups-asia").
 #
 # Order of operations (per environment):
 #   1) ./setup.sh secret <project> && ./setup.sh worker-secret <project> && ./setup.sh signing-key <project>
-#      (apphosting.yaml references both secrets and prod inherits them: a secret
-#      must exist, with App Hosting access, before any rollout — or the build
-#      fails. Without the signing key, context pulls and webhooks fail closed.)
+#      (apphosting.<env>.yaml references both secrets: a secret must exist, with App
+#      Hosting access, before any rollout, or the build fails. Without the signing
+#      key, context pulls and webhooks fail closed.)
 #   2) deploy
-#   3) firebase deploy --only firestore:indexes --project <dev|prod>   (wait for READY)
+#   3) firebase deploy --only firestore:indexes --project <project>   (wait for READY)
 #   4) ./setup.sh ttl <project>
-#   5) ./setup.sh scheduler <project>   (the tick no-ops while LIFECYCLE_ENABLED is off)
+#   5) APP_URL=https://app.example.com ./setup.sh scheduler <project>   (the tick no-ops while LIFECYCLE_ENABLED is off)
 #   6) ./setup.sh verify <project>
 #
 # What the TTLs delete (see src/lib/connect/*, src/lib/lifecycle/*):
-#   product_events.ttlAt     — ingested events, 90 days after receipt
-#   product_users.ttlAt      — deleted-user tombstones, 30 days after erasure
-#   lifecycle_counters.ttlAt — daily send/enrolment counters, 40 days
-#   lifecycle_drafts.ttlAt   — AI-line drafts, 90 days after their send
-#   rate_limits.ttl          — ingest rate-limit counters, 2 hours (control plane only)
+#   product_events.ttlAt      ingested events, 90 days after receipt
+#   product_users.ttlAt       deleted-user tombstones, 30 days after erasure
+#   lifecycle_counters.ttlAt  daily send/enrolment counters, 40 days
+#   lifecycle_drafts.ttlAt    AI-line drafts, 90 days after their send
+#   rate_limits.ttl           ingest rate-limit counters, 2 hours (control plane only)
 
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+usage() { sed -n '2,42p' "$0"; }
+
+case "$CMD" in
+  secret|worker-secret|signing-key|rotate-signing-key|retire-signing-key|ttl|scheduler|run|verify) ;;
+  *) usage; exit 0 ;;
+esac
+if [ -z "$PROJECT" ]; then
+  echo "Usage: $0 $CMD <project>" >&2
+  exit 2
+fi
 
 SECRET_NAME="connect-secret-enc-key"
 WORKER_SECRET_NAME="lifecycle-worker-secret"
-# The App Hosting backend id matches the project id in both environments.
-BACKEND="$PROJECT"
+# The App Hosting backend id. Defaults to the project id; set BACKEND for another.
+BACKEND="${BACKEND:-$PROJECT}"
 # Every database in firebase.json (control plane + regional data planes).
-DATABASES=("(default)" "signups-eu" "signups-asia")
+read -r -a DATABASES <<<"${FIRESTORE_DATABASES:-(default) signups-eu signups-asia}"
 
-# Signs platform → product requests (context pulls, webhooks) as ES256 JWTs; the
+# Signs platform-to-product requests (context pulls, webhooks) as ES256 JWTs; the
 # public keys are served at /.well-known/jwks.json. HSM-backed, non-exportable.
 # Cloud KMS never rotates asymmetric keys itself: rotate by hand, yearly or on
 # suspicion (rotate-signing-key, then retire-signing-key a few days later).
@@ -58,11 +75,19 @@ JOB_NAME="lifecycle-tick"
 LOCATION="us-central1"   # Scheduler region: an HTTP trigger only, carries no PII.
 SCHEDULE="*/2 * * * *"
 
-case "$PROJECT" in
-  vizzybl-marketing-dev) TARGET_HOST="https://vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app" ;;
-  vizzybl-marketing-prod) TARGET_HOST="https://yougrow.ai" ;;
-  *) echo "Refusing: unexpected project '$PROJECT'" >&2; exit 2 ;;
-esac
+# The app's origin, from APP_URL (no trailing slash). Required by scheduler.
+TARGET_HOST="${APP_URL:-}"
+TARGET_HOST="${TARGET_HOST%/}"
+if [ -n "$TARGET_HOST" ] && ! [[ "$TARGET_HOST" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+  echo "APP_URL must be an https origin with no path, e.g. https://app.example.com (got '$TARGET_HOST')." >&2
+  exit 2
+fi
+require_app_url() {
+  if [ -z "$TARGET_HOST" ]; then
+    echo "Set APP_URL to your app's https origin, e.g.: APP_URL=https://app.example.com $0 $CMD $PROJECT" >&2
+    exit 2
+  fi
+}
 URI="${TARGET_HOST}/api/admin/lifecycle/tick"
 
 # App Hosting needs MORE than secretAccessor: it resolves `versions/latest`
@@ -98,7 +123,7 @@ case "$CMD" in
         | gcloud secrets versions add "$SECRET_NAME" --project="$PROJECT" --data-file=-
     fi
     grant_backend "$SECRET_NAME"
-    echo "Done. CONNECT_SECRET_ENC_KEY is referenced from apphosting.yaml (prod inherits it)."
+    echo "Done. CONNECT_SECRET_ENC_KEY is referenced from apphosting.<env>.yaml."
     ;;
   worker-secret)
     if gcloud secrets describe "$WORKER_SECRET_NAME" --project="$PROJECT" >/dev/null 2>&1; then
@@ -110,7 +135,7 @@ case "$CMD" in
         | gcloud secrets versions add "$WORKER_SECRET_NAME" --project="$PROJECT" --data-file=-
     fi
     grant_backend "$WORKER_SECRET_NAME"
-    echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.yaml (prod inherits it)."
+    echo "Done. LIFECYCLE_WORKER_SECRET is referenced from apphosting.<env>.yaml."
     ;;
   signing-key)
     gcloud services enable cloudkms.googleapis.com --project="$PROJECT"
@@ -146,6 +171,7 @@ case "$CMD" in
     gcloud kms keys versions disable "$version" --key="$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" --project="$PROJECT"
     ;;
   scheduler)
+    require_app_url
     # The header must match what the app validates; the value is read from Secret
     # Manager and never appears in this script or shell history.
     value="$(gcloud secrets versions access latest --secret="$WORKER_SECRET_NAME" --project="$PROJECT")"
@@ -177,16 +203,20 @@ case "$CMD" in
       ttl_on "$db" lifecycle_drafts ttlAt
     done
     ttl_on "(default)" rate_limits ttl
-    echo "Requested. TTL policies take a few minutes to become ACTIVE — check with: ./setup.sh verify $PROJECT"
+    echo "Requested. TTL policies take a few minutes to become ACTIVE. Check with: ./setup.sh verify $PROJECT"
     ;;
   verify)
     echo "==> Signing key versions ($SIGNING_KEY)"
     gcloud kms keys versions list --key="$SIGNING_KEY" --keyring="$KEYRING" --location="$KMS_LOCATION" \
       --project="$PROJECT" --format="table(name.basename(),state,algorithm,protectionLevel,createTime)" 2>/dev/null \
-      || echo "    (not created — run: ./setup.sh signing-key $PROJECT)"
-    echo "==> Published keys: ${TARGET_HOST}/.well-known/jwks.json"
-    curl -fsS "${TARGET_HOST}/.well-known/jwks.json" 2>/dev/null | head -c 600 || echo "    (not reachable)"
-    echo
+      || echo "    (not created. Run: ./setup.sh signing-key $PROJECT)"
+    if [ -n "$TARGET_HOST" ]; then
+      echo "==> Published keys: ${TARGET_HOST}/.well-known/jwks.json"
+      curl -fsS "${TARGET_HOST}/.well-known/jwks.json" 2>/dev/null | head -c 600 || echo "    (not reachable)"
+      echo
+    else
+      echo "==> Published keys: set APP_URL to check /.well-known/jwks.json"
+    fi
     for name in "$SECRET_NAME" "$WORKER_SECRET_NAME"; do
       echo "==> Secret binding: $name"
       gcloud secrets get-iam-policy "$name" --project="$PROJECT" --format="table(bindings.role,bindings.members)" || true
@@ -194,13 +224,10 @@ case "$CMD" in
     echo "==> Scheduler job"
     gcloud scheduler jobs describe "$JOB_NAME" --project="$PROJECT" --location="$LOCATION" \
       --format="yaml(name,schedule,state,httpTarget.uri,lastAttemptTime,status)" 2>/dev/null \
-      || echo "    (not created — run: ./setup.sh scheduler $PROJECT)" 
+      || echo "    (not created. Run: APP_URL=<your app origin> ./setup.sh scheduler $PROJECT)"
     for db in "${DATABASES[@]}"; do
       echo "==> TTL fields on ${db}"
       gcloud firestore fields ttls list --database="$db" --project="$PROJECT" || true
     done
-    ;;
-  *)
-    sed -n '2,35p' "$0"
     ;;
 esac

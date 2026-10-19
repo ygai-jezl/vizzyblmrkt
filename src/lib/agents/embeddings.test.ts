@@ -1,9 +1,12 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import {
   buildPredictBody,
+  embeddingBackend,
   embeddingLocation,
   embeddingPredictUrl,
   isEmbeddingsConfigured,
+  LOCAL_EMBEDDING_MODEL,
+  normalizeVector,
   parsePredictResponse,
   embedQuery,
   embedDocuments,
@@ -18,10 +21,31 @@ vi.mock("google-auth-library", () => ({
   },
 }));
 
+// The Gemini Developer API client (laptop path). Never reaches the network.
+const { embedContentMock, clientOptions } = vi.hoisted(() => ({
+  embedContentMock: vi.fn(),
+  clientOptions: [] as unknown[],
+}));
+vi.mock("@google/genai", () => ({
+  GoogleGenAI: class {
+    models = { embedContent: embedContentMock };
+    constructor(opts: unknown) {
+      clientOptions.push(opts);
+    }
+  },
+}));
+
+beforeEach(() => {
+  // A key in the developer's shell must not change which backend these tests hit.
+  vi.stubEnv("GEMINI_API_KEY", "");
+  vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "");
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  embedContentMock.mockReset();
 });
 
 describe("embeddingLocation", () => {
@@ -76,11 +100,109 @@ describe("parsePredictResponse", () => {
 });
 
 describe("isEmbeddingsConfigured", () => {
-  it("requires GOOGLE_CLOUD_PROJECT", () => {
+  it("requires GOOGLE_CLOUD_PROJECT (or a Gemini key, below)", () => {
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "");
     expect(isEmbeddingsConfigured()).toBe(false);
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
     expect(isEmbeddingsConfigured()).toBe(true);
+  });
+
+  it("is off on an emulator-only demo project without a Gemini key", () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "demo-yougrow");
+    expect(isEmbeddingsConfigured()).toBe(false);
+  });
+});
+
+describe("embeddingBackend", () => {
+  it("uses Vertex whenever a real project is set, key or not (deployed environments)", () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "my-project");
+    expect(embeddingBackend()).toBe("vertex");
+    vi.stubEnv("GEMINI_API_KEY", "AIza-test");
+    expect(embeddingBackend()).toBe("vertex");
+  });
+
+  it("uses the Gemini Developer API with a classic key and no real project", () => {
+    vi.stubEnv("GEMINI_API_KEY", "AIza-test");
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "demo-yougrow");
+    expect(embeddingBackend()).toBe("gemini-api");
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "");
+    expect(embeddingBackend()).toBe("gemini-api");
+  });
+
+  it("treats a key with GOOGLE_GENAI_USE_VERTEXAI=true as a Vertex express key, not a laptop key", () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "demo-yougrow");
+    vi.stubEnv("GEMINI_API_KEY", "AQ.test");
+    vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "true");
+    expect(embeddingBackend()).toBeNull();
+  });
+});
+
+describe("normalizeVector", () => {
+  it("scales to unit length and leaves a zero vector alone", () => {
+    expect(normalizeVector([3, 4])).toEqual([0.6, 0.8]);
+    expect(normalizeVector([0, 0])).toEqual([0, 0]);
+  });
+});
+
+describe("Gemini Developer API path (laptop)", () => {
+  const vec = (fill: number) => Array.from({ length: 768 }, () => fill);
+  const laptop = () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "demo-yougrow");
+    vi.stubEnv("GEMINI_API_KEY", "AIza-test");
+  };
+
+  it("embeds a query with the same task type and 768 dimensions, normalised, without calling Vertex", async () => {
+    laptop();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    embedContentMock.mockResolvedValue({ embeddings: [{ values: vec(2) }] });
+    const out = await embedQuery("what is the pricing", "us");
+    expect(out).toHaveLength(768);
+    expect(out![0]).toBeCloseTo(1 / Math.sqrt(768));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(clientOptions.at(-1)).toEqual({ apiKey: "AIza-test" });
+    expect(embedContentMock).toHaveBeenCalledWith({
+      model: LOCAL_EMBEDDING_MODEL,
+      contents: ["what is the pricing"],
+      config: { taskType: "RETRIEVAL_QUERY", outputDimensionality: 768 },
+    });
+  });
+
+  it("uses CODE_RETRIEVAL_QUERY when code:true", async () => {
+    laptop();
+    embedContentMock.mockResolvedValue({ embeddings: [{ values: vec(1) }] });
+    await embedQuery("sort an array", "us", { code: true });
+    expect(embedContentMock.mock.calls[0]![0].config.taskType).toBe("CODE_RETRIEVAL_QUERY");
+  });
+
+  it("embeds documents in runs that share a title, keeping input order and null for empty input", async () => {
+    laptop();
+    embedContentMock
+      .mockResolvedValueOnce({ embeddings: [{ values: vec(1) }, { values: vec(2) }] })
+      .mockResolvedValueOnce({ embeddings: [{ values: vec(3) }] });
+    const out = await embedDocuments(
+      [{ content: "Share of voice", title: "Subject" }, { content: " " }, { content: "Citations", title: "Subject" }, { content: "Pricing", title: "Question" }],
+      "us",
+    );
+    expect(out[1]).toBeNull();
+    expect(out.filter(Boolean)).toHaveLength(3);
+    expect(embedContentMock).toHaveBeenCalledTimes(2);
+    expect(embedContentMock.mock.calls[0]![0]).toEqual({
+      model: LOCAL_EMBEDDING_MODEL,
+      contents: ["Share of voice", "Citations"],
+      config: { taskType: "RETRIEVAL_DOCUMENT", outputDimensionality: 768, title: "Subject" },
+    });
+    expect(embedContentMock.mock.calls[1]![0].config.title).toBe("Question");
+  });
+
+  it("degrades to null on an API error or a wrong-sized vector (never throws)", async () => {
+    laptop();
+    embedContentMock.mockRejectedValueOnce(new Error("quota"));
+    expect(await embedQuery("q", "us")).toBeNull();
+    embedContentMock.mockResolvedValueOnce({ embeddings: [{ values: [1, 2, 3] }] });
+    expect(await embedQuery("q", "us")).toBeNull();
+    embedContentMock.mockResolvedValueOnce({ embeddings: [] });
+    expect(await embedDocuments([{ content: "a" }], "us")).toEqual([null]);
   });
 });
 

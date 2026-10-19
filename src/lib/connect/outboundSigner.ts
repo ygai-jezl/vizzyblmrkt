@@ -208,9 +208,13 @@ export function signingKeySource(): SigningKeySource {
   return ephemeral;
 }
 
+/** Where `npm run dev` serves the app, the local issuer when nothing else is set. */
+const LOCAL_DEV_PORT = "3002";
+
 /**
  * The `iss` on every token, and where its JWKS lives (`${issuer}/.well-known/jwks.json`).
- * Production must set it explicitly (https); elsewhere it defaults to local dev.
+ * Production must set it explicitly (https); elsewhere it defaults to local dev
+ * (http://localhost on PORT when that is set, else 3002, the `npm run dev` port).
  */
 export function outboundIssuer(): string {
   const v = process.env[ISSUER_ENV]?.trim().replace(/\/+$/, "");
@@ -219,7 +223,8 @@ export function outboundIssuer(): string {
     return v;
   }
   if (!allowEphemeralKeys()) throw new OutboundSigningUnavailable("issuer_unconfigured");
-  return "http://localhost:3000";
+  const port = process.env.PORT?.trim();
+  return `http://localhost:${port && /^\d{1,5}$/.test(port) ? port : LOCAL_DEV_PORT}`;
 }
 
 /** The public keys to publish (and that the in-process sandbox verifies against). */

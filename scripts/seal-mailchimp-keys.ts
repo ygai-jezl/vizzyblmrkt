@@ -46,7 +46,7 @@ function checkedSeal(tenantId: string) {
 async function main() {
   const project = process.env.GOOGLE_CLOUD_PROJECT;
   if (!project) {
-    console.error("Set GOOGLE_CLOUD_PROJECT (e.g. vizzybl-marketing-dev).");
+    console.error("Set GOOGLE_CLOUD_PROJECT to your project id (e.g. my-project).");
     process.exit(1);
   }
   if (APPLY && !isMailchimpKeyBoxConfigured()) {

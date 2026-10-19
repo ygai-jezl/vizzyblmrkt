@@ -17,7 +17,7 @@ describe("maskLastName", () => {
 });
 
 describe("maskEmail", () => {
-  it("masks local part and domain (PRD example)", () => {
+  it("masks local part and domain (documented example)", () => {
     expect(maskEmail("bani@getwaitlist.com")).toBe("b***@g**************");
   });
   it("never exposes more than the first char of local + domain", () => {
@@ -27,7 +27,7 @@ describe("maskEmail", () => {
 });
 
 describe("maskPhone", () => {
-  it("shows first 3 digits only (PRD example)", () => {
+  it("shows first 3 digits only (documented example)", () => {
     expect(maskPhone("1234567891")).toBe("123 *** ****");
   });
   it("strips formatting before masking", () => {

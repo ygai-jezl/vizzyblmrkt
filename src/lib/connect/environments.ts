@@ -6,7 +6,7 @@
  *
  * A connection's environment is its saved `environment` field, or — for
  * connections made before the field existed — inferred from a name like
- * "vizzybl.ai (staging)". Pure, so it's unit-tested and shared by server and UI.
+ * "Acme (staging)". Pure, so it's unit-tested and shared by server and UI.
  */
 
 export type ProductEnvironment = "staging" | "production";

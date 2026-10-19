@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithPopup } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
+import { accessDeniedMessage, WORKSPACE_NOT_SET_UP_MESSAGE, signInNote } from "@/lib/auth/accessDenied";
 import { mintSession, safeNextPath } from "@/lib/auth/clientSession";
 import { isNavV2Enabled } from "@/lib/nav/flags";
 
@@ -18,8 +19,8 @@ export default function LoginPage() {
     try {
       const cred = await signInWithPopup(getClientAuth(), googleProvider());
       const result = await mintSession(cred.user);
-      if (result === "forbidden") {
-        setError("Access denied. Sign in with your @yougrow.ai account.");
+      if (result === "forbidden" || result === "not_set_up") {
+        setError(result === "forbidden" ? accessDeniedMessage() : WORKSPACE_NOT_SET_UP_MESSAGE);
         setBusy(false);
         return;
       }
@@ -41,7 +42,7 @@ export default function LoginPage() {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-6">
       <div className="space-y-1 text-center">
         <p className="text-sm font-medium uppercase tracking-widest text-neutral-500">
-          vizzybl-marketing
+          YouGrow
         </p>
         <h1 className="text-2xl font-semibold">Admin sign in</h1>
       </div>
@@ -60,7 +61,7 @@ export default function LoginPage() {
       </button>
       {error ? <p className="text-center text-sm text-red-600">{error}</p> : null}
       <p className="text-center text-xs text-neutral-400">
-        Restricted to your Google Workspace accounts.
+        {signInNote()}
       </p>
     </main>
   );

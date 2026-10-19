@@ -525,6 +525,9 @@ export async function updateContentPlanNode(
       | "imagePrompt"
       | "imageStyleId"
       | "imageHeadline"
+      | "imageFormat"
+      | "imageFormatInputs"
+      | "imageChart"
       | "blog"
     >
   >,

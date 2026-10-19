@@ -17,7 +17,17 @@ import type { SiteFont, SiteFonts } from "@/lib/types/imageStyle";
 const FETCH_TIMEOUT_MS = 5000;
 const MAX_STYLESHEETS = 6;
 const MAX_STYLESHEET_BYTES = 512 * 1024;
-const USER_AGENT = "Vizzybl-BrandFonts/1.0";
+/** The User-Agent sent to brand websites when BRAND_FONTS_USER_AGENT is unset. Names the product, not a deployment. */
+export const DEFAULT_BRAND_FONTS_USER_AGENT = "YouGrow-BrandFonts/1.0";
+
+/**
+ * The User-Agent on every homepage and stylesheet this reads. A deployment sets
+ * BRAND_FONTS_USER_AGENT to name itself; a value with a line break is ignored.
+ */
+export function brandFontsUserAgent(env: Record<string, string | undefined> = process.env): string {
+  const value = env.BRAND_FONTS_USER_AGENT?.trim();
+  return value && !/[\r\n]/.test(value) ? value : DEFAULT_BRAND_FONTS_USER_AGENT;
+}
 
 export interface SiteFontDeps {
   homepage: (domain: string) => Promise<{ html: string; baseUrl: string } | null>;
@@ -336,12 +346,12 @@ async function chooseFamily(
 }
 
 const defaultDeps: SiteFontDeps = {
-  homepage: (domain) => fetchHomepage(domain, { userAgent: USER_AGENT, timeoutMs: 8000 }),
+  homepage: (domain) => fetchHomepage(domain, { userAgent: brandFontsUserAgent(), timeoutMs: 8000 }),
   async stylesheet(url) {
     try {
       const res = await safeFetch(
         url,
-        { headers: { "User-Agent": USER_AGENT, Accept: "text/css" } },
+        { headers: { "User-Agent": brandFontsUserAgent(), Accept: "text/css" } },
         { timeoutMs: FETCH_TIMEOUT_MS, maxRedirects: 3 },
       );
       const ct = (res.headers.get("content-type") ?? "").toLowerCase();

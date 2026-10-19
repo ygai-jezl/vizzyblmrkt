@@ -27,6 +27,8 @@ function setup(over: Partial<HeroDeps> = {}, plan: ContentPlan = samplePlan()) {
     store: vi.fn(async () => ({ ok: true as const, filename: `f${++stored}.png` })),
     record: vi.fn(async () => ({ id: "asset_1" }) as never),
     update: (c, w, p, n, next) => updateBlogHero(c, w, p, n, next, db),
+    chart: vi.fn(async () => null),
+    scene: vi.fn(async () => ({ bytes: Buffer.from("scene"), mimeType: "image/png" })),
     ...over,
   };
   const tick = (ms: number) => (clock += ms);
@@ -203,5 +205,62 @@ describe("helpers", () => {
     expect(cleanAlt('"A desk — with a laptop"\nmore', "x")).toBe("A desk, with a laptop");
     expect(cleanAlt(null, "The title")).toBe("The title");
     expect(cleanAlt("a".repeat(400), "x")).toHaveLength(250);
+  });
+});
+
+describe("v2: the four drawn styles and formats on the hero", () => {
+  beforeEach(() => {
+    vi.stubEnv("BRAND_IMAGE_STYLE_MORE_ENABLED", "true");
+    vi.stubEnv("IMAGE_FORMATS_ENABLED", "true");
+  });
+  const calls = (deps: HeroDeps) => (deps.render as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+  const CHART = { kind: "line" as const, unit: "%", points: [{ label: "a", value: 1 }, { label: "b", value: 2 }] };
+
+  it("Data story charts the article's checked numbers, from the article and its checked facts only", async () => {
+    const { deps, hero } = setup({ chart: vi.fn(async () => CHART) });
+    await makeBlogHero(input(tenant({ defaultStyleId: "data_story" })), deps);
+    expect(calls(deps)[0]).toMatchObject({ template: "data_story", chart: CHART, size: "hero" });
+    expect(hero()).toMatchObject({ status: "ready", styleId: "data_story", chart: CHART });
+    const copy = (deps.chart as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(copy.text).toContain(sampleHub().body.slice(0, 40));
+  });
+
+  it("without enough numbers it steps down to Type poster, then the Headline card, and says so", async () => {
+    const a = setup();
+    await makeBlogHero(input(tenant({ defaultStyleId: "data_story" })), a.deps);
+    const used = calls(a.deps)[0];
+    expect(["type_poster", "headline_card"]).toContain(used.template);
+    expect(a.hero()).toMatchObject({ note: "no_numbers" });
+  });
+
+  it("Split card paints its photo first; Line art is drawn with no model", async () => {
+    const a = setup();
+    await makeBlogHero(input(tenant({ defaultStyleId: "split_card" })), a.deps);
+    expect(a.deps.paint).toHaveBeenCalled();
+    expect(calls(a.deps)[0]).toMatchObject({ template: "split_card", art: Buffer.from("art") });
+    const b = setup();
+    await makeBlogHero(input(tenant({ defaultStyleId: "line_art" })), b.deps);
+    expect(b.deps.paint).not.toHaveBeenCalled();
+    expect(calls(b.deps)[0]).toMatchObject({ template: "line_art", seed: expect.any(Number) });
+  });
+
+  it("a portrait hero: the person's quote, the brief's author, a painted scene, the style's skin", async () => {
+    const { deps, hero } = setup();
+    const brief = { author: "Sam Rivera", authorRole: "Founder", sources: [], entities: [] } as never;
+    await makeBlogHero(input(tenant({ defaultStyleId: "soft_3d" }), { format: "portrait", formatInputs: { quote: "Ship small." }, brief }), deps);
+    expect((deps.scene as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({ format: "portrait", aspectRatio: "16:9" });
+    expect(calls(deps)[0]).toMatchObject({ template: "portrait", skin: "soft_3d", formatInputs: { quote: "Ship small.", name: "Sam Rivera", role: "Founder" }, art: Buffer.from("scene") });
+    expect(hero()).toMatchObject({ format: "portrait", alt: "Sam Rivera: Ship small." });
+    expect(deps.paint).not.toHaveBeenCalled();
+  });
+
+  it("a report cover in a drawn style paints nothing; a portrait without a quote is made in the style instead", async () => {
+    const a = setup();
+    await makeBlogHero(input(tenant({ defaultStyleId: "headline_card" }), { format: "report_cover" }), a.deps);
+    expect(a.deps.scene).not.toHaveBeenCalled();
+    expect(calls(a.deps)[0]).toMatchObject({ template: "report_cover", formatInputs: { title: heroTitle(sampleHub()) } });
+    const b = setup();
+    await makeBlogHero(input(tenant({ defaultStyleId: "headline_card" }), { format: "portrait", formatInputs: {} }), b.deps);
+    expect(calls(b.deps)[0]).toMatchObject({ template: "headline_card" });
   });
 });

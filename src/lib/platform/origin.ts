@@ -3,10 +3,10 @@
  * brand's widget is served from by default (the getwaitlist.com model). Set via
  * NEXT_PUBLIC_PLATFORM_ORIGIN so it's available on both server and client.
  *
- * Today this is `https://yougrow.ai` (which also doubles as the dogfood tenant's
- * brand domain — intentional). It MUST be the host registered on the reCAPTCHA
- * Enterprise key, so every default-path widget passes captcha with zero
- * per-tenant key writes. When unset, callers fall back to the incoming request
+ * On our hosted service this is the product's own domain (which also doubles as
+ * the dogfood tenant's brand domain, intentionally). It MUST be the host
+ * registered on the reCAPTCHA Enterprise key, so every default-path widget
+ * passes captcha with zero per-tenant key writes. When unset, callers fall back to the incoming request
  * origin (preserving the pre-platform-host behaviour), so deploys are unaffected
  * until the env var is set.
  */

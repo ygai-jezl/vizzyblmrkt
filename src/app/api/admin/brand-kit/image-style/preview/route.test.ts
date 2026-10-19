@@ -47,4 +47,14 @@ describe("GET image style preview", () => {
     vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "false");
     expect((await get("styleId=headline_card")).status).toBe(503);
   });
+
+  it("previews the v2 drawn styles with sample numbers only while they can be picked; never Split card", async () => {
+    expect((await get("styleId=data_story")).status).toBe(400);
+    vi.stubEnv("BRAND_IMAGE_STYLE_MORE_ENABLED", "true");
+    await get("styleId=data_story");
+    expect(render.renderStyleImage.mock.calls[0]![0]).toMatchObject({ template: "data_story", chart: { source: "Sample numbers" } });
+    await get("styleId=type_poster");
+    expect(render.renderStyleImage.mock.calls[1]![0]).toMatchObject({ template: "type_poster", figure: { value: "19", unit: "days" } });
+    expect((await get("styleId=split_card")).status).toBe(400);
+  });
 });

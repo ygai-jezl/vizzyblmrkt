@@ -4,8 +4,7 @@ import type { FirestoreLike } from "./types";
 
 /**
  * Durable, cross-instance rate limiter for machine-facing endpoints (the product
- * ingest API keyed by connection key id; public routes keyed by client IP).
- * Ported from vizzybl.ai's src/lib/rateLimit/firestoreRateLimit.ts:
+ * ingest API keyed by connection key id; public routes keyed by client IP):
  *
  * - An in-memory fast path per instance (cheap, rejects obvious floods), then a
  *   Firestore TRANSACTION as the authoritative count shared by every instance.

@@ -2,6 +2,7 @@ import { parse, type HTMLElement } from "node-html-parser";
 import TurndownService from "turndown";
 import { safeFetch, assertPublicUrl } from "../ssrf";
 import { renderPage, closeBrowser } from "../render";
+import { scraperUserAgent } from "../config";
 
 /**
  * Same-origin shallow web crawler. Fetches HTML (SSRF-safe, manual redirects),
@@ -11,7 +12,6 @@ import { renderPage, closeBrowser } from "../render";
  * browser (render.ts) that executes JS, then re-extracts — so SPA sites index too.
  */
 
-const UA = "VizzyblKnowledgeBot/1.0 (+https://yougrow.ai)";
 // Below this many chars of extracted markdown, retry the page via headless render.
 const MIN_STATIC_CHARS = 200;
 const STRIP = ["script", "style", "noscript", "nav", "header", "footer", "aside", "form", "svg", "iframe"];
@@ -83,7 +83,7 @@ export async function crawlAndCollect(opts: {
       if (seen.has(next)) continue;
       seen.add(next);
       try {
-        const res = await safeFetch(next, { headers: { "User-Agent": UA } });
+        const res = await safeFetch(next, { headers: { "User-Agent": scraperUserAgent() } });
         if (!res.ok) continue;
         const ct = res.headers.get("content-type") ?? "";
         if (!ct.includes("text/html")) continue;

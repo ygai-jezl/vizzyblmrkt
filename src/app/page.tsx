@@ -35,7 +35,15 @@ import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BaseJsonLd } from "@/components/site/JsonLd";
 import { HomeView } from "@/components/site/views";
-import { isSiteLoopEnabled, siteOrigin } from "@/lib/site/flags";
+import { FRONT_PAGE_METADATA, FrontPage } from "@/components/front/FrontPage";
+import {
+  isSiteHomeEnabled,
+  isSiteLoopEnabled,
+  siteEmbedScriptSrc,
+  siteMetadataBase,
+  siteOrigin,
+  siteWaitlistCampaign,
+} from "@/lib/site/flags";
 import { siteMetadata } from "@/lib/site/metadata";
 
 // Self-hosted display face (no external runtime request) for headings; body keeps
@@ -47,21 +55,20 @@ const display = Sora({
   display: "swap",
 });
 
-// Runtime: SITE_LOOP_ENABLED picks the homepage.
+// Runtime: SITE_HOME_ENABLED and SITE_LOOP_ENABLED pick the homepage.
 export const dynamic = "force-dynamic";
 
-// The canonical address is the platform origin (yougrow.ai), never the raw *.hosted.app deploy.
-const SITE_URL = siteOrigin();
-
-const LEGACY_METADATA: Metadata = {
+// The canonical address is the site origin (NEXT_PUBLIC_SITE_ORIGIN or the platform origin), never
+// the raw *.hosted.app deploy. With neither set the links stay relative to this host.
+const legacyMetadata = (): Metadata => ({
   title: "YouGrow.ai — The agentic growth loop",
   description:
     "YouGrow.ai is an agentic Content OS: an AI canvas that turns one idea into a whole campaign, a conversational command center, gamified waitlists with voice AI, and a visual email builder — all grounded in your own knowledge. Join the waitlist.",
-  metadataBase: new URL(SITE_URL),
+  metadataBase: siteMetadataBase(),
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
-    url: SITE_URL,
+    url: siteOrigin() || "/",
     siteName: "YouGrow.ai",
     title: "YouGrow.ai — The agentic growth loop",
     description:
@@ -73,7 +80,7 @@ const LEGACY_METADATA: Metadata = {
     description:
       "An agentic Content OS: AI content canvas, conversational command center, and gamified waitlists — grounded in your own knowledge.",
   },
-};
+});
 
 const HERO_STATS = [
   { icon: Database, label: "Grounded in your docs, site & code" },
@@ -90,15 +97,21 @@ const METRICS = [
 ];
 
 export async function generateMetadata(): Promise<Metadata> {
-  return isSiteLoopEnabled() ? siteMetadata("en", { kind: "home" }) : LEGACY_METADATA;
+  if (!isSiteHomeEnabled()) return FRONT_PAGE_METADATA;
+  return isSiteLoopEnabled() ? siteMetadata("en", { kind: "home" }) : legacyMetadata();
 }
 
-/** The homepage: the growth loop with SITE_LOOP_ENABLED, otherwise the current page. */
+/**
+ * The homepage. With SITE_HOME_ENABLED: the growth loop with SITE_LOOP_ENABLED, otherwise the
+ * earlier marketing page. Without it: a plain front page with a sign-in button.
+ */
 export default function Home() {
+  if (!isSiteHomeEnabled()) return <FrontPage />;
   return isSiteLoopEnabled() ? <HomeView lang="en" /> : <LegacyHome />;
 }
 
 function LegacyHome() {
+  const campaign = siteWaitlistCampaign();
   return (
     <div
       className={`${display.variable} min-h-screen bg-brand-bg text-white antialiased`}
@@ -123,15 +136,17 @@ function LegacyHome() {
               your own knowledge — while the loop compounds.
             </p>
 
-            {/* Primary CTA: our own dogfooded waitlist widget (see <Script> below). */}
+            {/* Primary CTA: the site's own waitlist widget, SITE_WAITLIST_CAMPAIGN (see <Script> below). */}
             <div
               id="join"
               className="mt-2 w-full max-w-md rounded-2xl border border-brand-line bg-brand-surface p-3 shadow-glow-soft"
             >
-              <div
-                data-vizzybl-campaign="agentic-growth-loop"
-                data-vizzybl-type="WIDGET_2"
-              />
+              {campaign ? (
+                <div
+                  data-vizzybl-campaign={campaign}
+                  data-vizzybl-type="WIDGET_2"
+                />
+              ) : null}
             </div>
 
             <a
@@ -330,19 +345,21 @@ function LegacyHome() {
       <SiteFooter />
 
       {/*
-        Loads our embed loader from the canonical PLATFORM ORIGIN (yougrow.ai —
-        see NEXT_PUBLIC_PLATFORM_ORIGIN / src/lib/platform/origin.ts). The loader
-        derives its iframe origin from its own script src, so the widget — and
-        every signup — routes to prod even when this page is viewed on the dev
-        deploy or locally. It MUST be the platform origin, not the raw
-        *.hosted.app deploy URL: that bare host is in no tenant's allowedOrigins
-        (or maps to the wrong tenant), so the embed's host→tenant resolution
-        fails and renders a 404. yougrow.ai resolves to the dogfood tenant that
-        owns the agentic-growth-loop campaign, so the widget renders.
+        Loads the embed loader from the canonical SITE ORIGIN (siteEmbedScriptSrc:
+        NEXT_PUBLIC_SITE_ORIGIN, else NEXT_PUBLIC_PLATFORM_ORIGIN, see
+        src/lib/site/flags.ts). The loader derives its iframe origin from its own
+        script src, so the widget, and every signup, routes to the live site even
+        when this page is viewed on a staging deploy or locally (our dev backend
+        sets NEXT_PUBLIC_SITE_ORIGIN to the live site for exactly this). It MUST
+        be the site's own host, not the raw *.hosted.app deploy URL: that bare
+        host is in no tenant's allowedOrigins (or maps to the wrong tenant), so
+        the embed's host→tenant resolution fails and renders a 404. The site
+        origin resolves to the tenant that owns SITE_WAITLIST_CAMPAIGN, so the
+        widget renders. With no origin set it loads from this host.
         "afterInteractive" injects the tag after hydration, so the
         data-vizzybl-campaign div above is already in the DOM when scan() runs.
       */}
-      <Script src="https://yougrow.ai/embed.js" strategy="afterInteractive" />
+      {campaign ? <Script src={siteEmbedScriptSrc()} strategy="afterInteractive" /> : null}
       <BaseJsonLd />
     </div>
   );

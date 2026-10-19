@@ -27,11 +27,11 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import { ensureAdminAccess, isVerifiedGoogleIdentity } from "./session";
 
-/** A verified Google identity for the default (yougrow.ai) allowlist. */
+/** A verified Google identity on the test allowlist (example.com). */
 function tok(overrides: Record<string, unknown> = {}): DecodedIdToken {
   return {
     uid: "u1",
-    email: "founder@yougrow.ai",
+    email: "founder@example.com",
     email_verified: true,
     firebase: { sign_in_provider: "google.com", identities: {} },
     ...overrides,
@@ -43,6 +43,10 @@ beforeEach(() => {
   // Force the "real deploy" path: not the emulator (empty string → falsy).
   vi.stubEnv("FIREBASE_AUTH_EMULATOR_HOST", "");
   vi.stubEnv("FIRESTORE_EMULATOR_HOST", "");
+  // Nothing is allowed by default; these tests run as a deployment that names its own.
+  vi.stubEnv("ADMIN_ALLOWED_DOMAINS", "example.com");
+  vi.stubEnv("ADMIN_BOOTSTRAP_TENANT_ID", "ten_demo");
+  vi.stubEnv("ADMIN_BOOTSTRAP_REGION", "eu");
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -81,7 +85,7 @@ describe("ensureAdminAccess — authentication gate", () => {
     verifyIdToken.mockResolvedValue(
       tok({ email_verified: false, firebase: { sign_in_provider: "password", identities: {} } }),
     );
-    // Auth gate skipped → allowlist passes (yougrow.ai) → missing claims → needs_refresh.
+    // Auth gate skipped → allowlist passes (example.com) → missing claims → needs_refresh.
     await expect(ensureAdminAccess("t")).resolves.toBe("needs_refresh");
     expect(setCustomUserClaims).toHaveBeenCalledTimes(1);
   });
@@ -92,10 +96,26 @@ describe("ensureAdminAccess — authorization + bootstrap", () => {
     verifyIdToken.mockResolvedValue(tok()); // no tenant_id/region yet
     await expect(ensureAdminAccess("t")).resolves.toBe("needs_refresh");
     expect(setCustomUserClaims).toHaveBeenCalledTimes(1);
+    expect(setCustomUserClaims).toHaveBeenCalledWith("u1", { tenant_id: "ten_demo", region: "eu", role: "admin" });
+  });
+
+  it("refuses with not_set_up, and mints nothing, when no bootstrap tenant is configured", async () => {
+    for (const value of ["", "   "]) {
+      vi.stubEnv("ADMIN_BOOTSTRAP_TENANT_ID", value);
+      verifyIdToken.mockResolvedValue(tok());
+      await expect(ensureAdminAccess("t")).resolves.toBe("not_set_up");
+    }
+    expect(setCustomUserClaims).not.toHaveBeenCalled();
+  });
+
+  it("still lets an admin who already has a tenant in when no bootstrap tenant is configured", async () => {
+    vi.stubEnv("ADMIN_BOOTSTRAP_TENANT_ID", "");
+    verifyIdToken.mockResolvedValue(tok({ tenant_id: "ten_demo", region: "us" }));
+    await expect(ensureAdminAccess("t")).resolves.toBe("ready");
   });
 
   it("is ready when the verified token already carries tenant_id + region", async () => {
-    verifyIdToken.mockResolvedValue(tok({ tenant_id: "ten_vzb", region: "us" }));
+    verifyIdToken.mockResolvedValue(tok({ tenant_id: "ten_demo", region: "us" }));
     await expect(ensureAdminAccess("t")).resolves.toBe("ready");
     expect(setCustomUserClaims).not.toHaveBeenCalled();
   });
@@ -104,5 +124,11 @@ describe("ensureAdminAccess — authorization + bootstrap", () => {
     verifyIdToken.mockResolvedValue(tok({ email: "stranger@gmail.com" }));
     await expect(ensureAdminAccess("t")).resolves.toBe("forbidden");
     expect(setCustomUserClaims).not.toHaveBeenCalled();
+  });
+
+  it("forbids everyone when no admin domain or email is configured", async () => {
+    vi.stubEnv("ADMIN_ALLOWED_DOMAINS", "");
+    verifyIdToken.mockResolvedValue(tok());
+    await expect(ensureAdminAccess("t")).resolves.toBe("forbidden");
   });
 });

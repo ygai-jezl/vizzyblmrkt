@@ -26,7 +26,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 /**
  * Admin signups table. `mode` switches between the Active list (offboard / delete
- * + per-launch move) and the Offboarded directory (delete only — PRD §4.2). Move
+ * + per-launch move) and the Offboarded directory (delete only). Move
  * controls need a single selection and a `campaignId` (rank is per-campaign).
  */
 export function SignupsTable({

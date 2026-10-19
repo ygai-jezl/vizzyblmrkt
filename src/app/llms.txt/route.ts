@@ -1,4 +1,5 @@
 import { agentFile, llmsTxt, PLAIN } from "@/lib/developers/agentDocs";
+import { originFromHeaders } from "@/lib/http/origin";
 import { isSiteSeoEnabled, siteOrigin } from "@/lib/site/flags";
 import { siteLlmsTxt } from "@/lib/site/llms";
 
@@ -10,9 +11,9 @@ export const dynamic = "force-dynamic";
  * whole site and keeps the developer index inside it; otherwise it is the developer
  * index alone, where a coding agent starts.
  */
-export function GET() {
+export function GET(req: Request) {
   if (isSiteSeoEnabled()) {
-    return new Response(siteLlmsTxt(siteOrigin()), {
+    return new Response(siteLlmsTxt(siteOrigin() || originFromHeaders(req.headers)), {
       headers: { "content-type": PLAIN, "cache-control": "public, max-age=300", "x-robots-tag": "noindex" },
     });
   }

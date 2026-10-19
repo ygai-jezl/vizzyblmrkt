@@ -4,6 +4,7 @@ import {
   createSession,
   destroySession,
 } from "@/lib/auth/session";
+import { WORKSPACE_NOT_SET_UP_MESSAGE } from "@/lib/auth/accessDenied";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 /**
  * Exchange a Google ID token for a session cookie.
  *  - 403 if the account isn't an allowed admin (wrong Workspace domain)
+ *  - 403 { error: "workspace_not_set_up" } if it is allowed but has no tenant and
+ *    ADMIN_BOOTSTRAP_TENANT_ID is unset, so there is nowhere to put it
  *  - 200 { needsRefresh: true } on first sign-in: claims were just minted; the
  *    client must force-refresh its ID token and POST again
  *  - 200 { ok: true } + Set-Cookie once the token carries the tenant/role claims
@@ -24,6 +27,9 @@ export async function POST(req: Request) {
     const access = await ensureAdminAccess(body.idToken);
     if (access === "forbidden") {
       return NextResponse.json({ error: "access_denied" }, { status: 403 });
+    }
+    if (access === "not_set_up") {
+      return NextResponse.json({ error: "workspace_not_set_up", message: WORKSPACE_NOT_SET_UP_MESSAGE }, { status: 403 });
     }
     if (access === "needs_refresh") {
       return NextResponse.json({ needsRefresh: true });

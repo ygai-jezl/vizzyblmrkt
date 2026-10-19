@@ -25,7 +25,7 @@ function isIpLiteral(host: string): boolean {
   return false;
 }
 
-/** Extra platform-owned domains, comma-separated, e.g. "yougrow.ai,vizzybl.app". */
+/** Extra platform-owned domains, comma-separated, e.g. "example.com,example.app". */
 function envReservedDomains(): string[] {
   return (process.env.PLATFORM_RESERVED_DOMAINS ?? "")
     .split(",")
@@ -35,7 +35,7 @@ function envReservedDomains(): string[] {
 
 /**
  * True when `host` must not be claimable as a tenant custom domain. Note the
- * platform host itself (PLATFORM_ORIGIN, e.g. yougrow.ai) is reserved here — the
+ * platform host itself (NEXT_PUBLIC_PLATFORM_ORIGIN's host) is reserved here: the
  * dogfood tenant that legitimately uses it was provisioned manually and is
  * grandfathered; no NEW tenant may claim it.
  */

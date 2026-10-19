@@ -1,7 +1,7 @@
 /**
  * Client-side widget-view beacon. Fires once per embedded-widget render to
  * record an impression — the only signal that captures viewers who never sign
- * up (PRD §4.2 "Views over Time" / "Referrer Sources").
+ * up (the "Views over Time" and "Referrer Sources" charts).
  *
  * No-op unless NEXT_PUBLIC_ANALYTICS_BQ_ENABLED is "true" (so it tree-shakes to
  * nothing when the pipeline is off). Posts SAME-ORIGIN to /api/track/view (the

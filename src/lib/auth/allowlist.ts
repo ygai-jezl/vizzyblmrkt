@@ -11,13 +11,14 @@
  * is trustworthy (not a self-asserted value). Do NOT call this on an unverified
  * email — that reintroduces the domain-spoofing bypass this precondition closes.
  *
- * Config (env): ADMIN_ALLOWED_DOMAINS (default "yougrow.ai"), ADMIN_ALLOWED_EMAILS.
+ * Config (env): ADMIN_ALLOWED_DOMAINS and ADMIN_ALLOWED_EMAILS, comma separated. Both
+ * empty by default: nobody is an admin until a deployment names its own.
  */
 export function isAllowedAdmin(email?: string, hostedDomain?: string): boolean {
   if (!email) return false;
   const allowedEmails = list(process.env.ADMIN_ALLOWED_EMAILS);
   if (allowedEmails.includes(email.toLowerCase())) return true;
-  const allowedDomains = list(process.env.ADMIN_ALLOWED_DOMAINS ?? "yougrow.ai");
+  const allowedDomains = list(process.env.ADMIN_ALLOWED_DOMAINS);
   const domain = (hostedDomain ?? email.split("@")[1] ?? "").toLowerCase();
   return !!domain && allowedDomains.includes(domain);
 }

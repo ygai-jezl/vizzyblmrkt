@@ -3,26 +3,26 @@
 # Provision the LinkedIn OAuth 2.0 secrets for the Distribute "Connect LinkedIn" flow.
 #
 # Two secrets back the flow (src/app/api/admin/integrations/linkedin/{start,callback}):
-#   linkedin-oauth-client-id      — OAuth 2.0 Client ID from the LinkedIn app
-#   linkedin-oauth-client-secret  — OAuth 2.0 Client Secret (confidential client)
-# (social-token-enc-key is SHARED with the X flow — already provisioned by
+#   linkedin-oauth-client-id      OAuth 2.0 Client ID from the LinkedIn app
+#   linkedin-oauth-client-secret  OAuth 2.0 Client Secret (confidential client)
+# (social-token-enc-key is SHARED with the X flow, already provisioned by
 #  infra/x-oauth/setup.sh; this script does NOT recreate it.)
 #
-# Prereq — create the LinkedIn app first (developer.linkedin.com/apps):
+# Prereq: create the LinkedIn app first (developer.linkedin.com/apps):
 #   1. Create app + associate it with a LinkedIn COMPANY PAGE (required).
 #   2. Products tab → request:
 #        - "Sign In with LinkedIn using OpenID Connect"  (openid profile → the member id)
 #        - "Share on LinkedIn"                           (w_member_social → post; NEEDS REVIEW)
 #   3. Auth tab → add the Authorized redirect URL EXACTLY:
 #        https://<host>/api/admin/integrations/linkedin/callback
-#      (dev host: vizzybl-marketing-dev--vizzybl-marketing-dev.us-central1.hosted.app)
+#      (<host> is your app's host, e.g. app.example.com)
 #   4. Copy the Client ID + Client Secret.
 #
 # Usage:
 #   ./setup.sh secret <project>   # create the 2 secrets + grant the runtime SA (REVERSIBLE)
 #   ./setup.sh verify <project>   # show the secret IAM bindings
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+#   <project> is your Google Cloud project id.
 #
 # After: uncomment the LINKEDIN_OAUTH_* block in apphosting.<env>.yaml, run
 #   firebase apphosting:secrets:grantaccess linkedin-oauth-client-id     --backend <backend> --project <project>
@@ -32,13 +32,22 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  secret|verify)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 RUNTIME_SA="firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com"
 
 create_secret() {
   local name="$1" value="$2"
   if gcloud secrets describe "${name}" --project="${PROJECT}" >/dev/null 2>&1; then
-    echo "    ${name} exists — adding a new version"
+    echo "    ${name} exists, adding a new version"
   else
     echo "    creating ${name}"
     gcloud secrets create "${name}" --project="${PROJECT}" --replication-policy="automatic"
@@ -66,7 +75,7 @@ verify() {
   for s in linkedin-oauth-client-id linkedin-oauth-client-secret; do
     echo "==> ${s}"
     gcloud secrets get-iam-policy "${s}" --project="${PROJECT}" --format="yaml(bindings)" 2>/dev/null \
-      || echo "    (not found — run: ./setup.sh secret ${PROJECT})"
+      || echo "    (not found. Run: ./setup.sh secret ${PROJECT})"
   done
 }
 

@@ -4,7 +4,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { situationKey } from "./keys";
 import { ensureMoved } from "./move";
-import { decideProposals } from "./proposals";
+import { decideProposals, proposedQuestion, proposedSubject } from "./proposals";
 import { addQuestion, createSubject } from "./records";
 import { createSituation, editSituation, listSituations, proposeSituation, readSituation, removeSituation } from "./situations";
 
@@ -79,6 +79,33 @@ describe("buying situations", () => {
     expect(await removeSituation(ctx, sid, deps)).toMatchObject({ ok: true, value: { questions: 2 } });
     expect((await brandMapRecords(ctx, db).get("q", q1.ok ? q1.value.id : ""))?.situationIds).toEqual([]);
     expect(await readSituation(ctx, sid, deps)).toBeNull();
+  });
+});
+
+describe("a buying situation's proposed questions", () => {
+  it("say which sit on a subject that isn't on the map yet, and come after the decided ones", async () => {
+    const db = await setup();
+    const deps = { db, nowMs: NOW, embed: quiet };
+    const store = brandMapRecords(ctx, db);
+    const now = new Date(NOW).toISOString();
+    const sit = await createSituation(ctx, { text: "I added this one myself" }, deps);
+    const sid = sit.ok ? sit.value.id : "";
+    const onMap = await createSubject(ctx, { name: "AI answer monitoring" }, deps);
+    const onMapId = onMap.ok ? onMap.value.id : "";
+    await addQuestion(ctx, onMapId, { text: "Which AI tools name us?", situationIds: [sid] }, deps);
+    const fresh = await proposedSubject(ctx, store, { name: "Prompt research", from: "situations", reason: "", now });
+    const base = { from: "situations" as const, reason: "", now, situationIds: [sid] };
+    await proposedQuestion(ctx, store, { ...base, subjectId: onMapId, text: "How do I track my brand in ChatGPT?" });
+    await proposedQuestion(ctx, store, { ...base, subjectId: fresh!.id, text: "How do I find the prompts my buyers use?" });
+
+    const read = await readSituation(ctx, sid, deps);
+    expect(read?.questions.map((q) => [q.text, q.status, q.subjectName, q.newSubject])).toEqual([
+      ["Which AI tools name us?", "decided", "AI answer monitoring", false],
+      ["How do I find the prompts my buyers use?", "proposed", "Prompt research", true],
+      ["How do I track my brand in ChatGPT?", "proposed", "AI answer monitoring", false],
+    ]);
+    // Only decided questions count.
+    expect(read?.situation.counts).toEqual({ questions: 1, answered: 0 });
   });
 });
 

@@ -26,7 +26,8 @@ export const SESSION_EXPIRED_EVENT = "vzb:session-expired";
 
 const MINT_STAMP_KEY = "vzb.sessionMintedAt";
 
-export type MintResult = "ok" | "forbidden" | "error";
+/** "not_set_up": the account is allowed, but the deployment has no workspace for first-time admins yet. */
+export type MintResult = "ok" | "forbidden" | "not_set_up" | "error";
 
 /** Record a successful mint (localStorage, shared across tabs). */
 export function stampSessionMinted(now = Date.now()): void {
@@ -60,12 +61,13 @@ export async function mintSession(user: User): Promise<MintResult> {
     stampSessionMinted();
     return "ok";
   }
-  return r.status === 403 ? "forbidden" : "error";
+  if (r.status === 403) return r.error === "workspace_not_set_up" ? "not_set_up" : "forbidden";
+  return "error";
 }
 
 async function postIdToken(
   idToken: string,
-): Promise<{ ok: boolean; needsRefresh: boolean; status: number }> {
+): Promise<{ ok: boolean; needsRefresh: boolean; status: number; error?: string }> {
   const res = await fetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -74,8 +76,14 @@ async function postIdToken(
   const body = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
     needsRefresh?: boolean;
+    error?: unknown;
   };
-  return { ok: body.ok === true, needsRefresh: body.needsRefresh === true, status: res.status };
+  return {
+    ok: body.ok === true,
+    needsRefresh: body.needsRefresh === true,
+    status: res.status,
+    ...(typeof body.error === "string" ? { error: body.error } : {}),
+  };
 }
 
 let inflightRefresh: Promise<boolean> | null = null;

@@ -953,17 +953,17 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # The public site (see apphosting.yaml): OFF in prod until the owner has checked it on dev.
-  # Set here on purpose; flip each to "true" to turn it on.
+  # The public site (see apphosting.yaml): ON in prod at the owner's request ("let's ship
+  # this", 2026-10-19). Set here on purpose; set one to "false" to turn it off.
   - variable: SITE_SEO_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: SITE_LOOP_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: SITE_LANGUAGES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME

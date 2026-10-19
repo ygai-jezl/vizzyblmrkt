@@ -15,6 +15,7 @@ import {
   EbookChapterSchema,
   CONTENT_PLAN_LIMITS,
   type BlogArticleLive,
+  type BlogHero,
   type ContentPlan,
   type ContentNode,
   type EbookDoc,
@@ -443,21 +444,26 @@ export async function updateContentPlan(
             (n) =>
               [
                 n.id,
-                { distributionStatus: n.distributionStatus ?? null, scheduledAt: n.scheduledAt ?? null, live: n.blog?.live },
+                { distributionStatus: n.distributionStatus ?? null, scheduledAt: n.scheduledAt ?? null, live: n.blog?.live, hero: n.blog?.hero },
               ] as const,
           ),
         )
       : new Map<
           string,
-          { distributionStatus: ContentNode["distributionStatus"]; scheduledAt: ContentNode["scheduledAt"]; live: BlogArticleLive | null | undefined }
+          {
+            distributionStatus: ContentNode["distributionStatus"];
+            scheduledAt: ContentNode["scheduledAt"];
+            live: BlogArticleLive | null | undefined;
+            hero: BlogHero | undefined;
+          }
         >();
     const graph = {
       ...incoming,
       nodes: incoming.nodes.map((n) => {
         const keep = owned.get(n.id);
         if (!keep) return n;
-        const { live, ...distribution } = keep;
-        return withStoredLive({ ...n, ...distribution }, live);
+        const { live, hero, ...distribution } = keep;
+        return withStoredBlog({ ...n, ...distribution }, { live, hero });
       }),
     };
     tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
@@ -465,15 +471,24 @@ export async function updateContentPlan(
 }
 
 /**
- * A blog article's live mark (`blog.live`) is set only by the live check, or a person's word
- * on it (`setLive` below): every other write (a canvas save, a fact check, a rewrite) keeps
- * the stored one, so none of them can undo it, or bring back one that was taken away.
+ * A blog article's server-owned marks keep their stored values through every other write (a
+ * canvas save, a fact check, a rewrite), so none of them can undo one or bring back one that
+ * was taken away:
+ *  - `blog.live`, set only by the live check or a person's word on it (`setLive` below);
+ *  - `blog.hero`, set only by the hero's own writer (`updateBlogHero`). The fact check saves
+ *    the whole meta it read at its start, and a hero made meanwhile would otherwise be lost.
  */
-function withStoredLive<N extends Pick<ContentNode, "blog">>(node: N, live: BlogArticleLive | null | undefined): N {
-  if (live === undefined && node.blog?.live === undefined) return node;
+function withStoredBlog<N extends Pick<ContentNode, "blog">>(
+  node: N,
+  stored: { live: BlogArticleLive | null | undefined; hero: BlogHero | undefined },
+): N {
+  const { live, hero } = stored;
+  if (live === undefined && node.blog?.live === undefined && hero === undefined && node.blog?.hero === undefined) return node;
   const blog = { ...(node.blog ?? BlogArticleMetaSchema.parse({})) };
   if (live === undefined) delete blog.live;
   else blog.live = live;
+  if (hero === undefined) delete blog.hero;
+  else blog.hero = hero;
   return { ...node, blog };
 }
 
@@ -540,7 +555,7 @@ export async function updateContentPlanNode(
     const stored = plan.graph.nodes[idx]!;
     const merged = ContentNodeSchema.parse({ ...stored, ...patch });
     const live = opts.setLive ? opts.setLive(stored.blog?.live ?? null) : stored.blog?.live;
-    const next = ContentNodeSchema.parse(withStoredLive(merged, live));
+    const next = ContentNodeSchema.parse(withStoredBlog(merged, { live, hero: stored.blog?.hero }));
     const nodes = [...plan.graph.nodes];
     nodes[idx] = next;
     tx.update(ref, {
@@ -548,6 +563,42 @@ export async function updateContentPlanNode(
       updatedAt: new Date().toISOString(),
     });
     return next;
+  });
+}
+
+/**
+ * The blog hero's own write: `next` gets the stored hero and the node, and returns the hero to
+ * save, or "keep" to write nothing (another run holds the lease, or this run was overtaken).
+ * In a transaction, like every node write, so a canvas save or fact check landing at the same
+ * moment can't lose it. Null when the plan or node is gone or not the caller's.
+ */
+export async function updateBlogHero(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  nodeId: string,
+  next: (stored: BlogHero | undefined, node: ContentNode) => BlogHero | "keep",
+  db?: FirestoreLike,
+): Promise<{ node: ContentNode; hero: BlogHero | undefined; wrote: boolean } | null> {
+  const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
+  const ref = database.collection(`workspaces/${workspaceId}/${CONTENT_PLANS}`).doc(planId);
+  return database.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const parsed = ContentPlanSchema.safeParse(snap.data());
+    if (!parsed.success) return null;
+    const plan = parsed.data;
+    if (plan.tenantId !== ctx.tenantId || plan.workspaceId !== workspaceId) return null;
+    const idx = plan.graph.nodes.findIndex((n) => n.id === nodeId);
+    if (idx < 0) return null;
+    const stored = plan.graph.nodes[idx]!;
+    const hero = next(stored.blog?.hero, stored);
+    if (hero === "keep") return { node: stored, hero: stored.blog?.hero, wrote: false };
+    const node = ContentNodeSchema.parse({ ...stored, blog: { ...(stored.blog ?? BlogArticleMetaSchema.parse({})), hero } });
+    const nodes = [...plan.graph.nodes];
+    nodes[idx] = node;
+    tx.update(ref, { "graph.nodes": nodes, updatedAt: new Date().toISOString() });
+    return { node, hero: node.blog?.hero, wrote: true };
   });
 }
 

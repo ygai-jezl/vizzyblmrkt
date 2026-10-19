@@ -430,6 +430,8 @@ export const BlogHeroSchema = z.object({
   /** The headline it was made for, to say "the title changed since". */
   forTitle: z.string().max(200).default(""),
   note: z.enum(["no_screenshot", "bundled_font"]).nullable().optional(),
+  /** The Brand Kit image record of the hero, for its thumbs (learning per style). */
+  assetId: z.string().max(128).nullable().optional(),
   startedAt: z.string().max(40).nullable().default(null),
   updatedAt: z.string().max(40).nullable().default(null),
 });

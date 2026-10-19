@@ -81,6 +81,9 @@ export interface CitableContext {
    *  checklist is exactly as before; with one it gains "Says where it doesn't fit" (when
    *  the map lists what the brand is not) and "Keeps to your names". */
   map?: ArticleMap | null;
+  /** Add the hero image item (BLOG_HERO_ENABLED; the inspector only). A warning at most,
+   *  never a rewrite, and outside the score, which is about the copy. */
+  heroCheck?: boolean;
 }
 
 /**
@@ -609,8 +612,29 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
 
   if (editorial) items.push(...voiceItems(markdown, o, brief, map));
 
-  const points = items.reduce((sum, it) => sum + (it.status === "pass" ? 1 : it.status === "warn" ? 0.5 : 0), 0);
-  return { score: Math.round((points / items.length) * 100), items, outline: o, figuresToCheck: unsupported };
+  if (context.heroCheck) {
+    const h = context.meta?.hero;
+    const has = Boolean(h?.heroRef && h?.shareRef);
+    add(
+      "e_hero",
+      "E",
+      "Hero image and share card",
+      has && h!.status === "ready" ? "pass" : "warn",
+      !has
+        ? h?.status === "pending"
+          ? "Being made."
+          : "No hero image yet."
+        : h!.status === "fallback"
+          ? "A title card for now: the image model didn't answer."
+          : h!.status === "failed"
+            ? "The last try wasn't saved, so the earlier image is in use."
+            : "A 1600x900 hero and a 1200x630 share card.",
+    );
+  }
+
+  const scored = items.filter((it) => it.id !== "e_hero");
+  const points = scored.reduce((sum, it) => sum + (it.status === "pass" ? 1 : it.status === "warn" ? 0.5 : 0), 0);
+  return { score: Math.round((points / scored.length) * 100), items, outline: o, figuresToCheck: unsupported };
 }
 
 /**

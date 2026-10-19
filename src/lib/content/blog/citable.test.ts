@@ -140,3 +140,23 @@ describe("the CITABLE check with a brand map", () => {
     expect(ids(SAMPLE_ARTICLE, mapWith({}))).not.toContain("i_limits");
   });
 });
+
+describe("the hero image item (BLOG_HERO_ENABLED)", () => {
+  const hero = (over: Record<string, unknown>) =>
+    BlogArticleMetaSchema.parse({ hero: { status: "ready", heroRef: "h.png", shareRef: "s.png", ...over } });
+  const item = (r: ReturnType<typeof evaluateCitable>) => r.items.find((i) => i.id === "e_hero");
+
+  it("is absent unless asked for, and never moves the score or asks for a rewrite", () => {
+    const without = evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF });
+    expect(item(without)).toBeUndefined();
+    const missing = evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, heroCheck: true });
+    expect(item(missing)).toMatchObject({ status: "warn", detail: "No hero image yet.", fix: "" });
+    expect(missing.score).toBe(without.score);
+  });
+
+  it("passes with a hero, warns on a title card or a failed try", () => {
+    expect(item(evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, meta: hero({}), heroCheck: true }))?.status).toBe("pass");
+    expect(item(evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, meta: hero({ status: "fallback" }), heroCheck: true }))?.status).toBe("warn");
+    expect(item(evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF, meta: hero({ status: "failed" }), heroCheck: true }))?.detail).toContain("earlier image");
+  });
+});

@@ -48,4 +48,18 @@ export interface BlogHubControls {
   editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
   onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
+  /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */
+  hero?: BlogHeroControls;
+}
+
+/** The hero card's actions. Each resolves to a line saying what went wrong, or null. */
+export interface BlogHeroControls {
+  /** Make (or make again) the hero; `styleId` = this article's own style, "brand" = the brand's. */
+  make: (nodeId: string, styleId?: string) => Promise<string | null>;
+  upload: (nodeId: string, file: File) => Promise<string | null>;
+  setAlt: (nodeId: string, alt: string) => Promise<string | null>;
+  /** The article whose hero is being made now, if any. */
+  busyId: string | null;
+  /** A stored file's address (the workspace's private asset proxy). */
+  assetUrl: (ref: string) => string;
 }

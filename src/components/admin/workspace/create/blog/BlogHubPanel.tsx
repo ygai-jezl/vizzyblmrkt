@@ -4,6 +4,7 @@ import { BlogArticleMetaSchema, type BlogArticleMeta, type ContentNode } from "@
 import { BlogAddress } from "./BlogAddress";
 import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
+import { BlogHeroCard } from "./BlogHeroCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
 
@@ -91,6 +92,8 @@ export function BlogHubReview({
       ) : null}
 
       <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />
+
+      {controls.hero ? <BlogHeroCard node={node} controls={controls.hero} disabled={disabled} /> : null}
 
       {/* A rewrite or a fact check hands back new meta, so the fields wait while one runs
           rather than take an edit that would be overwritten. */}

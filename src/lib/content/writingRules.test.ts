@@ -14,6 +14,7 @@ const WRITE_ON_THEIR_OWN = [
   "content.ebook_chat",
   "lifecycle.insight_line",
   "lifecycle.email_copy",
+  "content.image_alt_text",
 ];
 
 describe("no dashes in our copy", () => {
@@ -27,5 +28,11 @@ describe("no dashes in our copy", () => {
     const article = getPrompt("content.blog_draft").template;
     expect(article).toContain("each as [Title](URL), publisher, year");
     expect(article).toContain('("> "…" (Name, role)")');
+  });
+
+  it("the blog hero's picture brief keeps words out of the art", () => {
+    const brief = getPrompt("content.blog_hero_brief").template;
+    expect(brief).toContain("No text, words, letters, numbers, data charts or logos anywhere in the image");
+    expect(brief.replace(/\[\[[a-z_]+\]\]/g, "")).not.toMatch(/[—–]/);
   });
 });

@@ -67,21 +67,38 @@ export function labelInText(label: string, text: string): boolean {
   return false;
 }
 
+/** Labels that say where a value sits in a before and after, not what it is. */
+const GENERIC_LABELS = new Set(["before", "after", "then", "now", "from", "to", "start", "end"]);
+
+/** Both numbers in one sentence of the text (so a before and after is one claim, not two). */
+function inOneSentence(text: string, cores: string[]): boolean {
+  return text.split(/(?<=[.!?])\s+|\n+/).some((sentence) => {
+    const found = figureSet(sentence);
+    return cores.every((c) => found.has(c));
+  });
+}
+
 /**
  * Keep only the points the text supports; drop a display the text doesn't write. Null when
- * fewer than two remain.
+ * fewer than two remain. A before and after may use generic labels ("Before", "After") only
+ * when its two numbers are stated in one sentence.
  */
 export function verifyChart(chart: Chart, copy: CopyText): Chart | null {
   const text = copy.text ?? "";
   const numbers = figureSet(text);
   const banned = excludedCores(copy.excluded);
   const plainText = plain(text);
+  const generic =
+    chart.kind === "compare" &&
+    chart.points.length === 2 &&
+    chart.points.every((p) => GENERIC_LABELS.has(plain(p.label)) || labelInText(p.label, text)) &&
+    inOneSentence(text, chart.points.map((p) => normalizeFigure(String(p.value))));
   const seen = new Set<string>();
   const points: ChartPoint[] = [];
   for (const p of chart.points) {
     const core = normalizeFigure(String(p.value));
     if (!numbers.has(core) || banned.has(core)) continue;
-    if (!labelInText(p.label, text)) continue;
+    if (!labelInText(p.label, text) && !(generic && GENERIC_LABELS.has(plain(p.label)))) continue;
     const key = `${plain(p.label)}|${core}`;
     if (seen.has(key)) continue;
     seen.add(key);

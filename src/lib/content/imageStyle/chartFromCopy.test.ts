@@ -43,6 +43,14 @@ describe("verifyChart", () => {
     expect(verifyChart(chart([{ label: "28 Sep", value: 100 }, { label: "links", value: 4235 }]), { text: COPY, excluded: ["4,235"] })).toBeNull();
   });
 
+  it("Before and After are fine for one sentence's change, never to pair two unrelated numbers", () => {
+    const text = "Harbor's share of voice rose from 6% to 21%. Separately, AI traffic converts at 14.2%.";
+    const ok = verifyChart(chart([{ label: "Before", value: 6, display: "6%" }, { label: "After", value: 21, display: "21%" }], { kind: "compare" }), { text });
+    expect(ok?.points.map((p) => p.label)).toEqual(["Before", "After"]);
+    expect(verifyChart(chart([{ label: "Before", value: 6 }, { label: "After", value: 14.2 }], { kind: "compare" }), { text })).toBeNull();
+    expect(verifyChart(chart([{ label: "Before", value: 6 }, { label: "After", value: 21 }], { kind: "bar" }), { text })).toBeNull();
+  });
+
   it("a compare needs exactly two points; labels match whatever the month's length", () => {
     expect(verifyChart(chart([{ label: "19 days", value: 19 }, { label: "28 Sep", value: 100 }, { label: "4,235 links", value: 4235 }], { kind: "compare" }), { text: COPY })?.kind).toBe("bar");
     expect(labelInText("28 Sep", "On 28 September it changed")).toBe(true);

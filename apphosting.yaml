@@ -546,6 +546,16 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Find what people in one buying situation ask, from its panel (needs situations and research); the NEXT_PUBLIC twin shows its help step.
+  - variable: BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # A brand's first hand notes, and Vizzy adding to them (needs the notes).
   - variable: BRAND_NOTES_ENABLED
     value: "false"

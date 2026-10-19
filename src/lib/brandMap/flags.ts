@@ -2,8 +2,8 @@
  * Flags for the brand map. Each is off unless "true": listed "false" in apphosting.yaml
  * and turned on per deployment. Every one needs the record itself (BRAND_MAP_ENABLED).
  * Server flags are read at runtime; pages pass what is on to their client components. The
- * one NEXT_PUBLIC mirror only shows the Brand map tile. Off: nothing reads or writes a
- * brand map, and articles are written exactly as before.
+ * NEXT_PUBLIC mirrors only show the Brand map tile and a step on its help page. Off: nothing
+ * reads or writes a brand map, and articles are written exactly as before.
  */
 
 /** The record, the Brand map page and saving it. */
@@ -49,6 +49,19 @@ export function isBrandMapScaleEnabled(): boolean {
 /** Buying situations: research that finds them and what people in them ask, their tab, and an article's situation. */
 export function isBrandMapSituationsEnabled(): boolean {
   return isBrandMapScaleEnabled() && process.env.BRAND_MAP_SITUATIONS_ENABLED === "true";
+}
+
+/**
+ * "Find what they ask" on one buying situation on the map: research's second step for it (the
+ * questions people in it ask), its questions added or dismissed in its panel. Uses research.
+ */
+export function isBrandMapSituationAskEnabled(): boolean {
+  return isBrandMapSituationsEnabled() && isBrandMapResearchEnabled() && process.env.BRAND_MAP_SITUATION_ASK_ENABLED === "true";
+}
+
+/** Client mirror (build-time): the step on the Brand map help page. */
+export function isBrandMapSituationAskUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED === "true";
 }
 
 /** The brand's own research from a PDF: sends the uploaded file to Gemini to read, keeps only what it found. */

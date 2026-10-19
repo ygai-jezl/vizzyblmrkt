@@ -15,9 +15,9 @@ const plan = {
   blog: { ...SAMPLE_BRIEF, primaryQuestion: "How often should you check your AI search visibility?" },
 } as unknown as ContentPlan;
 
-async function questionsPrompt(): Promise<string> {
+async function questionsPrompt(onBrief?: (b: unknown) => void): Promise<string> {
   const grounded = vi.fn(async () => ({ text: "", model: "m", sources: [], supports: [] }));
-  await researchBlogBrief(
+  const r = await researchBlogBrief(
     {
       ctx: { tenantId: "ten_x", region: "us" } as never,
       workspace: { id: "ws1", name: "Acme programme", audience: "Heads of marketing" },
@@ -33,6 +33,7 @@ async function questionsPrompt(): Promise<string> {
       now: () => new Date("2026-10-07T09:00:00.000Z"),
     },
   );
+  onBrief?.(r.brief);
   return grounded.mock.calls.map((c) => String((c as unknown[])[0])).find((p) => p.includes("ENTITY: <name>")) ?? "";
 }
 
@@ -50,5 +51,18 @@ describe("research for an editorial article (CREATE_BLOG_EDITORIAL_ENABLED)", ()
     vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
     const prompt = await questionsPrompt();
     expect(prompt).toContain("The 6 questions they ask NEXT, spread across these intents");
+  });
+});
+
+describe("research for the editorial writer", () => {
+  it("marks the brief, so an article researched before is researched again", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    let brief: { researchStyle?: string } = {};
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "true");
+    await questionsPrompt((b) => (brief = b as typeof brief));
+    expect(brief.researchStyle).toBe("editorial");
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "false");
+    await questionsPrompt((b) => (brief = b as typeof brief));
+    expect(brief.researchStyle).toBeUndefined();
   });
 });

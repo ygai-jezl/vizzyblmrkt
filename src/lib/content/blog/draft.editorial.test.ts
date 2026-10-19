@@ -199,3 +199,29 @@ describe("what the editorial writer is shown of the brand's knowledge", () => {
     expect(String((citable.mock.calls[0] as unknown[])[0])).toContain("SHA-256");
   });
 });
+
+describe("an editorial article from a brief researched before the editorial writer", () => {
+  it("is not handed research's alternatives, definitions or a page's slogan", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    vi.stubEnv("CREATE_BLOG_EDITORIAL_ENABLED", "true");
+    const old = {
+      ...EDITORIAL_BRIEF,
+      questions: [
+        { question: "What is AI search visibility?", intent: "definition" as const, by: "research" as const },
+        { question: "What are the top alternatives to Rivalco?", intent: "alternatives" as const, by: "research" as const },
+        { question: "Why do answers change from day to day?", intent: "other" as const, by: "research" as const },
+      ],
+      links: [...EDITORIAL_BRIEF.links, { url: "https://acme.example/waitlist", label: "Speak Fluent AI. No Code Required.", intent: "convert" as const, by: "research" as const }],
+    };
+    const generate = vi.fn(async () => answer);
+    await draftBlogArticle(input({ brief: old }), { generate, now: NOW });
+    const prompt = String((generate.mock.calls[0] as unknown[])[0]);
+    expect(prompt).toContain("Why do answers change from day to day?");
+    expect(prompt).not.toContain("alternatives to Rivalco");
+    expect(prompt).not.toContain("What is AI search visibility?");
+    // Not as a question, and not as a company to name.
+    expect(prompt).not.toContain("Rivalco");
+    expect(prompt).not.toContain("Speak Fluent AI");
+    expect(prompt).toContain("Waitlist page");
+  });
+});

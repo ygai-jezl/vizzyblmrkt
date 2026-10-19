@@ -638,7 +638,9 @@ export function ContentCanvas({
    *  then its fact check. The caller has saved the plan and holds the node busy. */
   async function writeBlogHub(id: string): Promise<void> {
     patchNode(id, { busy: true });
-    if (!blogBriefRef.current.researchedAt) await researchBlog();
+    // Never researched, or researched before the editorial writer (whose research stays on the
+    // question): research first. Research replaces only its own rows; a person's stay.
+    if (!blogBriefRef.current.researchedAt || (editorialOn && blogBriefRef.current.researchStyle !== "editorial")) await researchBlog();
     else if (seenOn && seenIsStale(blogBriefRef.current)) {
       setBlogNote("Looking for your team's notes on this question…", "research");
       await findSeen();

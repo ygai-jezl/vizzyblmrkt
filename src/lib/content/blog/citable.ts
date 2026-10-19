@@ -6,6 +6,7 @@ import { EMPTY_BLOG_BRIEF, hostOf, normalizeUrl, ownHosts, usableSources } from 
 import type { ArticleMap } from "./articleMap";
 import { avoidedUses, countName, mentionsName } from "./names";
 import { aiTellsIn } from "@/lib/content/writingRules";
+import { focusedBrief, isChoosingQuestion, isSloganLabel } from "./focus";
 import { fold } from "@/lib/brandMap/changes";
 
 /**
@@ -97,7 +98,6 @@ const EXPERIENCE =
 const WRONG =
   /\b(mistakes?|pitfalls?|go(?:es)? wrong|trade-?offs?|when not to|downsides?|limits?|limitations?|what to avoid|risks?|myths?)\b/i;
 /** A title that is about choosing a product, and a heading that is. */
-const CHOOSING = /\b(best|top|alternatives?|vs\.?|versus|compare|comparison|choose|choosing|which (?:tool|platform|software|app|vendor)s?)\b/i;
 const CHOOSING_HEADING = /\b(alternatives?|competitors?|vs\.?|versus|top \d+|best (?:\w+ )?(?:tools?|platforms?|software|apps?))\b/i;
 /** A box the editorial shape leaves out. */
 const BOX_LABEL = /^(key\s+(facts|numbers|stats)|tl\s*;?\s*dr|(the\s+)?(direct|quick|short)\s+answer|answer|in\s+short)\b/i;
@@ -186,25 +186,55 @@ function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: 
     "Give one section to where it goes wrong: the common mistakes, the trade-offs, or when not to do it.",
   );
 
-  const offTopic = o.title && !CHOOSING.test(o.title) ? o.sections.find((sec) => CHOOSING_HEADING.test(sec.heading)) : undefined;
+  const offTopic = o.title && !isChoosingQuestion(o.title) ? o.sections.find((sec) => CHOOSING_HEADING.test(sec.heading)) : undefined;
   add(
     "v_focus",
     "Stays on its question",
-    offTopic ? "warn" : "pass",
+    offTopic ? "fail" : "pass",
     offTopic ? `“${said(offTopic.heading)}” is about choosing a product, which the title doesn't ask.` : "No section strays into choosing a product.",
     offTopic ? `Take out the section “${said(offTopic.heading)}”: the article's question is not about choosing a product.` : "",
+  );
+  // The same sentence said of several things is filler ("X: An alternative in the category." four times).
+  const counts = new Map<string, number>();
+  for (const block of parseArticle(markdown)) {
+    if (block.kind !== "list") continue;
+    for (const item of block.items) {
+      const rest = plainInline(item).replace(/^[^:]{1,60}:\s+/, "").toLowerCase().replace(/\s+/g, " ").trim();
+      if (rest.length >= 20) counts.set(rest, (counts.get(rest) ?? 0) + 1);
+    }
+  }
+  const filler = [...counts].find(([, n]) => n >= 3)?.[0];
+  add(
+    "v_repeat",
+    "No repeated filler",
+    filler ? "fail" : "pass",
+    filler ? `A list says the same thing about several items: “${said(filler).slice(0, 80)}”.` : "No list repeats itself.",
+    filler ? `Take out the list where every item says “${said(filler).slice(0, 80)}”, or say something different and true about each item.` : "",
+  );
+
+  // A page's slogan copied in as link text ("Speak Fluent ChatGPT. No Code Required.").
+  const slogans = new Map(brief.links.filter((l) => isSloganLabel(l.label)).map((l) => [normalizeUrl(l.url), l.label.trim().toLowerCase()]));
+  const copied = o.links.find((l) => slogans.get(normalizeUrl(l.href)) === l.text.trim().toLowerCase());
+  add(
+    "v_anchor",
+    "Link text says where it goes",
+    copied ? "fail" : "pass",
+    copied ? `Links with the page's slogan as its text: “${said(copied.text).slice(0, 80)}”.` : "No link uses a page's slogan as its text.",
+    copied ? `Rewrite the link text “${said(copied.text).slice(0, 80)}” to say what the reader gets there, in a few plain words.` : "",
   );
   return out;
 }
 
 export function evaluateCitable(markdown: string, context: CitableContext = {}): CitableReport {
-  const brief = context.brief ?? EMPTY_BLOG_BRIEF;
   const o = outlineArticle(markdown);
   const items: CitableItem[] = [];
   // An editorial article (CREATE_BLOG_EDITORIAL_ENABLED) is read against its own shape: no
   // Key facts or TL;DR box, no table required, sections that open by answering, and how it
-  // reads (the Voice items). The article says which shape it was written in.
+  // reads (the Voice items). The article says which shape it was written in, and is read
+  // against the brief its writer was given (no alternatives it wasn't asked about).
   const editorial = context.meta?.style === "editorial";
+  const given = context.brief ?? EMPTY_BLOG_BRIEF;
+  const brief = editorial ? focusedBrief(given, o.title ?? given.primaryQuestion) : given;
   const add = (
     id: string,
     letter: CitableLetter,

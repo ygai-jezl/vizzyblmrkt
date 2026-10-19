@@ -18,6 +18,8 @@ const creative = vi.hoisted(() => ({
   generateSocialPostImage: vi.fn(async (_input: Record<string, unknown>) => ({ imageAssetRef: "img.png", imagePrompt: "p", source: "agent3" })),
 }));
 vi.mock("@/lib/agents/creative", () => creative);
+const brandAssets = vi.hoisted(() => ({ countBrandAssetsUpTo: vi.fn(async () => 0) }));
+vi.mock("@/lib/admin/brandAssets", () => brandAssets);
 
 const { POST } = await import("./route");
 
@@ -101,6 +103,21 @@ describe("POST post-image", () => {
     await POST(req({ brief: "A desk", aspect: "1:1", style: "retro" }), params);
     expect(lastCall()).not.toHaveProperty("learningStyleId");
     expect(lastCall().brandContext).toContain("Global look.");
+  });
+
+  it("a style built from product screens asks for them first, unless made without one", async () => {
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    const res = await POST(req({ brief: "A desk", aspect: "1:1", styleId: "product_noir" }), params);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "needs_screenshots" });
+    expect(creative.generateSocialPostImage).not.toHaveBeenCalled();
+
+    const without = await POST(req({ brief: "A desk", aspect: "1:1", styleId: "product_noir", withoutScreenshot: true }), params);
+    expect(without.status).toBe(200);
+    brandAssets.countBrandAssetsUpTo.mockResolvedValueOnce(2);
+    expect((await POST(req({ brief: "A desk", aspect: "1:1", styleId: "product_noir" }), params)).status).toBe(200);
+    // A model style never asks.
+    expect((await POST(req({ brief: "A desk", aspect: "1:1", styleId: "soft_3d" }), params)).status).toBe(200);
   });
 
   it("refuses a style id that's too long", async () => {

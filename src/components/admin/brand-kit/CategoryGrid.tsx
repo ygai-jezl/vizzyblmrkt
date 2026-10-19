@@ -16,6 +16,7 @@ import {
   Map as MapIcon,
   NotebookPen,
   Paintbrush,
+  MonitorSmartphone,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import {
   BRAND_KIT_GRAPHICS_ROUTE,
   BRAND_KIT_EMAIL_STYLE_ROUTE,
   BRAND_KIT_IMAGE_STYLE_ROUTE,
+  BRAND_KIT_SCREENSHOTS_ROUTE,
   BRAND_KIT_MAP_ROUTE,
   BRAND_KIT_NOTES_ROUTE,
   isBrandVoiceUiEnabled,
@@ -89,7 +91,10 @@ const CATEGORIES: Category[] = [
     : []),
   // Hidden (not "Soon") while the Image style switch is off.
   ...(isBrandImageStyleUiEnabled()
-    ? [{ key: "image-style", label: "Image style", icon: Paintbrush, href: BRAND_KIT_IMAGE_STYLE_ROUTE }]
+    ? [
+        { key: "image-style", label: "Image style", icon: Paintbrush, href: BRAND_KIT_IMAGE_STYLE_ROUTE },
+        { key: "screenshots", label: "Screenshots", icon: MonitorSmartphone, href: BRAND_KIT_SCREENSHOTS_ROUTE },
+      ]
     : []),
   // Hidden (not "Soon") while the Brand map flag is off.
   ...(isBrandMapUiEnabled() ? [{ key: "brand-map", label: "Brand map", icon: MapIcon, href: BRAND_KIT_MAP_ROUTE }] : []),

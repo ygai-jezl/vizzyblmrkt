@@ -13,6 +13,7 @@ import {
   SOCIAL_IMAGE_STYLE_IDS,
 } from "@/lib/content/create/socialImage";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { countBrandAssetsUpTo } from "@/lib/admin/brandAssets";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/imageStyle/flags";
@@ -32,6 +33,8 @@ const BodySchema = z.object({
   style: z.enum(SOCIAL_IMAGE_STYLE_IDS).optional(),
   /** This image's own style (BRAND_IMAGE_STYLE_ENABLED): a style id, an old preset id, or "brand". */
   styleId: z.string().min(1).max(40).optional(),
+  /** Make a screenshot style without one (the person chose "Make it without a screenshot"). */
+  withoutScreenshot: z.boolean().optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
@@ -87,6 +90,24 @@ export async function POST(req: Request, { params }: RouteParams) {
     tenant,
     override: isBrandImageStyleOn() ? (parsed.data.styleId ?? parsed.data.style ?? null) : (parsed.data.style ?? null),
   });
+  // A style built from product screens asks for them the first time, at the moment it's used,
+  // unless the person chose to make it without one. They're kept in Brand › Screenshots.
+  if (
+    choice.resolved.engine === "template" &&
+    choice.resolved.requires.includes("screenshots") &&
+    parsed.data.withoutScreenshot !== true
+  ) {
+    const count = await countBrandAssetsUpTo(ctx, "screenshot", 1).catch(() => null);
+    if (count === 0) {
+      return NextResponse.json(
+        {
+          error: "needs_screenshots",
+          message: `${choice.resolved.label} is built from screens of your product. Add one or two screenshots, or make it without one.`,
+        },
+        { status: 409 },
+      );
+    }
+  }
   const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
   const result = await generateSocialPostImage({
     tenantId: ctx.tenantId,

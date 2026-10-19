@@ -11,7 +11,12 @@ import { z } from "zod";
  *
  * NOT to be confused with `src/lib/tenant/brandAsset.ts` (the brand-guideline PDF store).
  */
-export const BrandAssetCategorySchema = z.enum(["icon", "graphic"]);
+/**
+ * `screenshot` (BRAND_IMAGE_STYLE_ENABLED): screens of the brand's product that template styles
+ * build from (Product noir). PNG/JPEG only (the template renderer can't read WebP), stored
+ * without metadata and with their pixel size, and never sent to the image model as a reference.
+ */
+export const BrandAssetCategorySchema = z.enum(["icon", "graphic", "screenshot"]);
 export type BrandAssetCategory = z.infer<typeof BrandAssetCategorySchema>;
 
 /**
@@ -21,7 +26,7 @@ export type BrandAssetCategory = z.infer<typeof BrandAssetCategorySchema>;
  * are never listed in Icons/Graphics and are never fed to the image model. The generic
  * library routes keep parsing BrandAssetCategorySchema, so they refuse `header`.
  */
-export const BrandAssetKindSchema = z.enum(["icon", "graphic", "header"]);
+export const BrandAssetKindSchema = z.enum(["icon", "graphic", "screenshot", "header"]);
 export type BrandAssetKind = z.infer<typeof BrandAssetKindSchema>;
 
 export const BrandAssetSchema = z.object({
@@ -34,7 +39,7 @@ export const BrandAssetSchema = z.object({
   /** User-facing display name (defaults to the uploaded filename). */
   title: z.string().max(200),
   byteSize: z.number().int().nonnegative(),
-  /** The file's pixel size, read from its own header at upload. Header rows only. */
+  /** The file's pixel size, read from its own header at upload. Header and screenshot rows only. */
   width: z.number().int().min(1).optional(),
   height: z.number().int().min(1).optional(),
   createdAt: z.string(),

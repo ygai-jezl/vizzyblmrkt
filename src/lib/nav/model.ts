@@ -212,6 +212,7 @@ const BRAND_KIT_PAGES: Record<string, string> = {
   icons: "Icons",
   images: "Images",
   "image-style": "Image style",
+  screenshots: "Screenshots",
   logos: "Logos",
   map: "Brand map",
   notes: "What we've seen",

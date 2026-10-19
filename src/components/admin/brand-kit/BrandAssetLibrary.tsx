@@ -46,7 +46,7 @@ function formatRelative(iso: string): string {
   return iso.slice(0, 10);
 }
 
-const NOUN: Record<BrandAssetCategory, string> = { icon: "icon", graphic: "graphic" };
+const NOUN: Record<BrandAssetCategory, string> = { icon: "icon", graphic: "graphic", screenshot: "screenshot" };
 
 /**
  * The Brand Kit → Icons / Graphics gallery. Tenant-global upload library (raster PNG/JPG/WebP),
@@ -160,7 +160,7 @@ export function BrandAssetLibrary({
         <input
           ref={inputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={category === "screenshot" ? "image/png,image/jpeg" : "image/png,image/jpeg,image/webp"}
           multiple
           onChange={onPick}
           className="hidden"
@@ -390,6 +390,7 @@ function AssetMenu({
 }
 
 function EmptyState({ noun, onAdd, busy }: { noun: string; onAdd: () => void; busy: boolean }) {
+  const screenshots = noun === "screenshot";
   return (
     <div className="grid place-items-center rounded-xl border border-dashed border-neutral-300 px-6 py-16 text-center dark:border-neutral-700">
       <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-purple-100 text-purple-600 dark:bg-purple-950/40 dark:text-purple-300">
@@ -397,8 +398,9 @@ function EmptyState({ noun, onAdd, busy }: { noun: string; onAdd: () => void; bu
       </div>
       <p className="text-base font-semibold">Stay on brand, your way</p>
       <p className="mt-1 max-w-md text-sm text-neutral-500 dark:text-neutral-400">
-        Add brand {noun}s for consistency across your generated content. They&apos;re reused
-        automatically as visual references when your brand images are created.
+        {screenshots
+          ? "Add screens of your product (PNG or JPG). Product noir images are built from them. Crop out customer names, emails and private numbers first."
+          : `Add brand ${noun}s for consistency across your generated content. They're reused automatically as visual references when your brand images are created.`}
       </p>
       <button
         type="button"

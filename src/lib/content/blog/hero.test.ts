@@ -70,6 +70,17 @@ describe("makeBlogHero", () => {
     expect(hero()).toMatchObject({ status: "ready", styleId: "soft_3d", prompt: "A lighthouse over a calm sea", attempts: 1, alt: "A lighthouse beam crossing a dark sea, at dusk." });
   });
 
+  it("the picture brief carries what was learned for the hero's own style", async () => {
+    const { deps } = setup();
+    const learned = vi.fn((l: string | null | undefined) => `ctx:${l}`);
+    await makeBlogHero(
+      input(tenant({ defaultStyleId: "soft_3d", learned: { soft_3d: { directive: "Pastel ground.", sampleCount: 3, updatedAt: "t" } } }), { brandContextFor: learned }),
+      deps,
+    );
+    expect(learned).toHaveBeenCalledWith("Pastel ground.");
+    expect((deps.brief as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toContain("ctx:Pastel ground.");
+  });
+
   it("the article's own pick wins, is kept for next time, and \"brand\" (null) clears it", async () => {
     const { deps, hero, tick } = setup();
     await makeBlogHero(input(tenant({ defaultStyleId: "soft_3d" }), { styleOverride: "headline_card" }), deps);

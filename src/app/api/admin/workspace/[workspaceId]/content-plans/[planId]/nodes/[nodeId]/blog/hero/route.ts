@@ -63,12 +63,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     ...(styleId !== undefined ? { styleOverride: styleId === "brand" ? null : styleId } : {}),
     budgetMs: BUDGET_MS,
     retry: true,
-    brandContext: assembleBrandContext({
-      brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice, workspaceBrandVoice: s.ws.brandVoice }),
-      audience: s.ws.audience ?? null,
-      brandKit: tenant?.brandKit ?? null,
-      typography: tenant?.brandTypography ?? null,
-    }),
+    brandContextFor: (learned) =>
+      assembleBrandContext({
+        brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice, workspaceBrandVoice: s.ws.brandVoice }),
+        audience: s.ws.audience ?? null,
+        brandKit: tenant?.brandKit ?? null,
+        typography: tenant?.brandTypography ?? null,
+        // What was learned for the hero's own style (learning per style).
+        learnedImageStyle: learned,
+      }),
   });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   return NextResponse.json({ hero: r.hero });

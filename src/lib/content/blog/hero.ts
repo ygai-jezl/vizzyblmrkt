@@ -8,6 +8,8 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateImageWithDeadline, generateTextWithDeadline, generateTextWithImage, type GeneratedImage } from "@/lib/agents/gemini";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { renderStyleImage, type StyleImageRequest, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
 import { heroTitle } from "./heroTitle";
 
@@ -74,7 +76,9 @@ export interface MakeHeroInput {
   budgetMs: number;
   /** One more painting try when the first fails and time allows (Vizzy: no). */
   retry: boolean;
-  brandContext?: string;
+  /** The brand context for the picture brief, given what was learned for the hero's style
+   *  (undefined until any style has learned: then the brand's older learned look). */
+  brandContextFor?: (learned: string | null | undefined) => string;
 }
 
 export type MakeHeroResult =
@@ -167,7 +171,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
           excerpt: opening(node.body) || "(none)",
           style_label: direction.label,
           style_keywords: direction.keywords,
-          brand_context: input.brandContext ?? "",
+          brand_context: input.brandContextFor?.(learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(resolved.id))) ?? "",
         }),
         Math.min(15_000, Math.max(3_000, left() - RESERVE_MS - MODEL_TRY_MS)),
       ))?.trim() || `${title}. Visual style: ${direction.keywords}.`;

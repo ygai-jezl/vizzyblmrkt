@@ -38,6 +38,8 @@ firebase-adminsdk*.json
 
 # firebase
 .firebase/
+# npm run local: emulator config, saved emulator data and the log
+/.local/
 firebase-debug.log*
 firestore-debug.log*
 ui-debug.log*

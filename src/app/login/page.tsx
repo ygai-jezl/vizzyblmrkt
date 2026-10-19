@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithPopup } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
+import { accessDeniedMessage } from "@/lib/auth/accessDenied";
 import { mintSession, safeNextPath } from "@/lib/auth/clientSession";
 import { isNavV2Enabled } from "@/lib/nav/flags";
 
@@ -19,7 +20,7 @@ export default function LoginPage() {
       const cred = await signInWithPopup(getClientAuth(), googleProvider());
       const result = await mintSession(cred.user);
       if (result === "forbidden") {
-        setError("Access denied. Sign in with your @yougrow.ai account.");
+        setError(accessDeniedMessage());
         setBusy(false);
         return;
       }

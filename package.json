@@ -15,8 +15,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
-    "smoke": "firebase emulators:exec --config firebase.integration.json --project demo-vizzybl 'bash scripts/smoke.sh'",
-    "emulators": "firebase emulators:start --only firestore,auth"
+    "doctor": "node scripts/doctor.mjs",
+    "local": "node scripts/local.mjs",
+    "smoke": "(test -f .next/BUILD_ID || next build) && firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",
+    "emulators": "firebase emulators:start --only firestore,auth --project demo-yougrow"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^7.9.4",

@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
-# Isolated end-to-end smoke test. Run via:
-#   firebase emulators:exec --config firebase.integration.json --project demo-vizzybl 'bash scripts/smoke.sh'
-# Starts a production server on :3099 against the emulator, seeds, signs up
-# (twice, to prove idempotency), loads the hosted page, then tears down.
+# Isolated end-to-end smoke test. Run it with `npm run smoke`, which builds the
+# app first when there is no build yet (delete .next to force a fresh build) and
+# then runs:
+#   firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'
+# Starts a production server on :3099 (SMOKE_PORT moves it) against the emulator,
+# seeds the demo brand, signs up (twice, to prove idempotency), loads the hosted
+# page, signs in as the demo admin, runs a connected-product journey through API
+# v2, then tears down.
 set -uo pipefail
-PORT=3099
+PORT="${SMOKE_PORT:-3099}"
 BASE="http://localhost:$PORT"
 export ALLOW_SEED=true
-export GOOGLE_CLOUD_PROJECT=demo-vizzybl
+export GOOGLE_CLOUD_PROJECT=demo-yougrow
+# The demo brand answers on this port, and the seeded demo admin may sign in.
+export LOCAL_APP_PORT="$PORT"
+export ADMIN_ALLOWED_EMAILS=admin@example.com
+export ADMIN_ALLOWED_DOMAINS=""
+export ADMIN_BOOTSTRAP_TENANT_ID=ten_demo
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=local-demo-password
 # Force the log email provider so the smoke never fires real emails and sends are
 # deterministic (a real MANDRILL_API_KEY in .env.local would otherwise be used).
 export MANDRILL_API_KEY=""
@@ -18,7 +29,7 @@ export RESEND_API_KEY=""
 # the emulator); CONNECT_ISSUER is where its public keys are served.
 export LIFECYCLE_ENABLED=true
 export NEXT_PUBLIC_LIFECYCLE_ENABLED=true
-export LIFECYCLE_INGEST_ENABLED=true
+export API_V2_ENABLED=true
 export LIFECYCLE_MODE_CEILING=test
 export CONNECT_SECRET_ENC_KEY="smoke-only-connect-key-not-a-real-secret"
 export UNSUBSCRIBE_SIGNING_KEY="smoke-only-unsub-key-not-a-real-secret"
@@ -58,7 +69,7 @@ echo "HTTP $code"; [ "$code" = "400" ] || fail=1
 
 echo "--- hosted page (expect 200 + waitlist name) ---"
 code=$(curl -s -o /tmp/page.html -w "%{http_code}" "$BASE/waitlist/beta-launch")
-echo "HTTP $code"; grep -q "Vizzybl Beta" /tmp/page.html && echo "page renders campaign ✓" || fail=1
+echo "HTTP $code"; grep -q "Acme Beta" /tmp/page.html && echo "page renders campaign ✓" || fail=1
 
 echo "--- unknown campaign (expect 404) ---"
 code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/waitlist/nope/signup" \
@@ -74,7 +85,7 @@ grep -q "vizzybl:resize" /tmp/embed.js || { echo "embed.js missing loader body";
 echo "--- embed page WIDGET_2 (expect 200 + campaign name) ---"
 code=$(curl -s -o /tmp/embed.html -w "%{http_code}" -D /tmp/embed.hdr "$BASE/embed/beta-launch?type=WIDGET_2")
 echo "HTTP $code"; [ "$code" = "200" ] || fail=1
-grep -q "Vizzybl Beta" /tmp/embed.html && echo "embed renders campaign ✓" || fail=1
+grep -q "Acme Beta" /tmp/embed.html && echo "embed renders campaign ✓" || fail=1
 
 echo "--- embed is framable: frame-ancestors * AND no X-Frame-Options ---"
 grep -Fqi "frame-ancestors *" /tmp/embed.hdr && echo "frame-ancestors * ✓" || { echo "embed not framable"; fail=1; }
@@ -125,12 +136,13 @@ echo "--- post-verification page renders the FULL payoff (share/referral), not a
 curl -s -o /tmp/postverify.html "$BASE/waitlist/beta-verify?verified=1&rt=$RREF"
 grep -q "Email confirmed" /tmp/postverify.html || { echo "BUG: post-verify missing confirmation banner"; fail=1; }
 grep -q "Refer friends to move up the list." /tmp/postverify.html && echo "post-verify share payoff ✓" || { echo "BUG: post-verify missing share payoff"; fail=1; }
-if grep -q "Join the waitlist" /tmp/postverify.html; then echo "BUG: post-verify still shows the blank join form"; fail=1; fi
+# The button's rendered text: the bare words also sit in the page's message catalogue.
+if grep -q ">Join the waitlist<" /tmp/postverify.html; then echo "BUG: post-verify still shows the blank join form"; fail=1; fi
 
 echo "--- post-verification with a bogus rt falls back to the plain confirmed page (no payoff) ---"
 curl -s -o /tmp/postverify_bad.html "$BASE/waitlist/beta-verify?verified=1&rt=NOTAREALTOKEN"
 grep -q "Email confirmed" /tmp/postverify_bad.html || { echo "BUG: bogus-rt page missing banner"; fail=1; }
-grep -q "Join the waitlist" /tmp/postverify_bad.html && echo "bogus-rt falls back to join form ✓" || { echo "BUG: bogus rt did not fall back safely"; fail=1; }
+grep -q ">Join the waitlist<" /tmp/postverify_bad.html && echo "bogus-rt falls back to join form ✓" || { echo "BUG: bogus rt did not fall back safely"; fail=1; }
 
 echo "--- E joins via R's link (unverified) — R must NOT be credited yet ---"
 E=$(curl -s -X POST "$BASE/api/waitlist/beta-verify/signup" -H 'content-type: application/json' -d "{\"email\":\"verify-e@test.com\",\"referredBySignupToken\":\"$RREF\"}")
@@ -148,7 +160,7 @@ echo "--- admin: sign in via Auth emulator → session cookie ---"
 AUTH_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-127.0.0.1:9199}"
 ID=$(curl -s -X POST "http://$AUTH_HOST/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo" \
   -H 'content-type: application/json' \
-  -d '{"email":"admin@yougrow.ai","password":"vizzybl-demo-pass","returnSecureToken":true}' \
+  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"returnSecureToken\":true}" \
   | sed -n 's/.*"idToken":"\([^"]*\)".*/\1/p')
 [ -n "$ID" ] && echo "got idToken (len ${#ID})" || { echo "no idToken from auth emulator"; fail=1; }
 curl -s -c /tmp/cj.txt -o /tmp/sess.json -w "session HTTP %{http_code}\n" -X POST "$BASE/api/auth/session" \
@@ -199,7 +211,7 @@ grep -q '"amount_referred":1' /tmp/lb2.json && echo "leaderboard unchanged ✓" 
 # A full, strict CampaignSettings payload (the route rejects partials/unknowns).
 cat > /tmp/campaign_put.json <<'JSON'
 {
-  "waitlistName": "Vizzybl Beta (Updated)",
+  "waitlistName": "Acme Beta (Updated)",
   "waitlistUrlLocation": null,
   "spotsToMoveUponReferral": 15,
   "usesFirstnameLastname": false,
@@ -208,12 +220,12 @@ cat > /tmp/campaign_put.json <<'JSON'
   "hideCounts": false,
   "removeWidgetHeaders": false,
   "requiredContactDetail": "EMAIL",
-  "questions": [{ "question_value": "What will you use Vizzybl for?", "optional": true, "answer_value": null }],
-  "twitterMessage": "I just joined the Vizzybl waitlist!",
+  "questions": [{ "question_value": "What will you use Acme for?", "optional": true, "answer_value": null }],
+  "twitterMessage": "I just joined the Acme waitlist!",
   "sendEmailCongratulationsOnReferral": true,
   "leaderboardLength": 5,
   "offboardingEmail": { "enabled": true, "subject": "Off the {{waitlist_name}} list 🎉", "body": "Hi {{first_name}}, you are off the waitlist!" },
-  "configurationStyleJson": { "widgetButtonColor": "#111827", "socialLinks": { "twitter": "https://x.com/vizzybl" } }
+  "configurationStyleJson": { "widgetButtonColor": "#111827", "socialLinks": { "twitter": "https://x.com/example" } }
 }
 JSON
 
@@ -240,7 +252,7 @@ echo "HTTP $code"; cat /tmp/put.json; echo
 
 echo "--- campaign update persisted: admin settings page shows new name ---"
 code=$(curl -s -b /tmp/cj.txt -o /tmp/settings.html -w "%{http_code}" "$BASE/admin/settings/beta-launch")
-echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Vizzybl Beta (Updated)" /tmp/settings.html; } && echo "persisted ✓" || fail=1
+echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Acme Beta (Updated)" /tmp/settings.html; } && echo "persisted ✓" || fail=1
 
 echo "--- admin: settings list renders (expect 'Campaign settings') ---"
 code=$(curl -s -b /tmp/cj.txt -o /tmp/settings_list.html -w "%{http_code}" "$BASE/admin/settings")
@@ -261,7 +273,7 @@ grep -q '"ok":true' /tmp/proc.json || fail=1
 
 # Offboarded user RETAINED in the CRM, flagged offboarded (B2) — via the CRM API.
 echo "--- offboard retains the CRM contact, flagged offboarded ---"
-CID="ct_$(printf 'ten_vzb\noffb-smoke@test.com' | shasum -a 256 | cut -c1-40)"
+CID="ct_$(printf 'ten_demo\noffb-smoke@test.com' | shasum -a 256 | cut -c1-40)"
 curl -s -b /tmp/cj.txt -o /tmp/contact.json "$BASE/api/admin/crm/contacts/$CID"
 grep -q '"status":"offboarded"' /tmp/contact.json && echo "contact retained + offboarded ✓" \
   || { echo "BUG: CRM contact not retained/offboarded"; head -c 400 /tmp/contact.json; echo; fail=1; }
@@ -297,47 +309,31 @@ echo "--- lifecycle: the secret is never returned again ---"
 curl -s -b /tmp/cj.txt -o /tmp/conn_get.json "$BASE/api/admin/connections/$CONN_ID"
 if grep -q '"secret"' /tmp/conn_get.json; then echo "BUG: secret re-exposed"; fail=1; else echo "secret shown once ✓"; fi
 
-# The product signs its events with the connection secret (HMAC, direction "events").
-sign_and_post() { # <body-json-file> → /tmp/ingest.json
-  node -e '
-    const { createHmac } = require("node:crypto");
-    const body = require("node:fs").readFileSync(process.argv[1], "utf8").trim();
-    const ts = Math.floor(Date.now() / 1000);
-    const sig = createHmac("sha256", process.env.SECRET).update(`events:${ts}.${body}`).digest("hex");
-    console.log(JSON.stringify({ ts, sig, body }));
-  ' "$1" > /tmp/signed.json
-  TS=$(node -e 'console.log(require("/tmp/signed.json").ts)')
-  SIG=$(node -e 'console.log(require("/tmp/signed.json").sig)')
-  node -e 'process.stdout.write(require("/tmp/signed.json").body)' > /tmp/ingest_body.json
-  curl -s -o /tmp/ingest.json -w "%{http_code}" -X POST "$BASE/api/v1/events" \
-    -H 'content-type: application/json' \
-    -H "x-yougrow-key-id: $KEY_ID" -H "x-yougrow-timestamp: $TS" -H "x-yougrow-signature: v1=$SIG" \
-    --data-binary @/tmp/ingest_body.json
-}
+# API v2: the product authenticates with HTTP Basic (key id : secret) and sends
+# each user's state with PATCH and milestones as events.
+V2_AUTH="Authorization: Basic $(printf '%s:%s' "$KEY_ID" "$SECRET" | base64 | tr -d '\n')"
 
-echo "--- lifecycle: unsigned events are refused (expect 401) ---"
-code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/v1/events" \
-  -H 'content-type: application/json' -d '{"batch":[]}')
+echo "--- lifecycle: API v2 without credentials is refused (expect 401) ---"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/v2/users/$SBX_USER/events" \
+  -H 'content-type: application/json' -d '{"event":"report.exported"}')
 echo "HTTP $code"; [ "$code" = "401" ] || fail=1
 
-echo "--- lifecycle: signed sign-up events (expect 202 accepted:2) ---"
-node -e '
-  const u = process.argv[1];
-  const now = new Date().toISOString();
-  console.log(JSON.stringify({ batch: [
-    { type: "identify", messageId: "smoke-id-1", userId: u, timestamp: now,
-      traits: { email: process.argv[2], firstName: "Smoke", timezone: "Europe/London" },
-      consent: { basis: "consent" } },
-    { type: "track", messageId: "smoke-tr-1", userId: u, timestamp: now, event: "user.signed_up" },
-  ] }));
-' "$SBX_USER" "admin@yougrow.ai" > /tmp/events.json
-code=$(sign_and_post /tmp/events.json)
-echo "HTTP $code"; cat /tmp/ingest.json; echo
-{ [ "$code" = "202" ] && grep -q '"accepted":2' /tmp/ingest.json; } || fail=1
+echo "--- lifecycle: the product sends the sign-up as state (expect 200 applied) ---"
+NOW=$(node -e 'console.log(new Date().toISOString())')
+code=$(curl -s -o /tmp/patch_user.json -w "%{http_code}" -X PATCH "$BASE/api/v2/users/$SBX_USER" \
+  -H 'content-type: application/json' -H "$V2_AUTH" \
+  -d "{\"email\":\"$ADMIN_EMAIL\",\"firstName\":\"Smoke\",\"timezone\":\"Europe/London\",\"consent\":\"consent\",\"signedUpAt\":\"$NOW\"}")
+echo "HTTP $code"; head -c 300 /tmp/patch_user.json; echo
+{ [ "$code" = "200" ] && grep -q '"applied":true' /tmp/patch_user.json; } || fail=1
 
-echo "--- lifecycle: the same messageIds again are duplicates, not new users ---"
-code=$(sign_and_post /tmp/events.json)
-grep -q '"duplicates":2' /tmp/ingest.json && echo "idempotent ✓" || { echo "BUG: replay not deduplicated"; cat /tmp/ingest.json; fail=1; }
+echo "--- lifecycle: an event with an idempotency key is recorded once ---"
+code=$(curl -s -o /tmp/ev1.json -w "%{http_code}" -X POST "$BASE/api/v2/users/$SBX_USER/events" \
+  -H 'content-type: application/json' -H "$V2_AUTH" -d '{"event":"report.exported","idempotencyKey":"smoke-ev-1"}')
+echo "HTTP $code"; cat /tmp/ev1.json; echo
+{ [ "$code" = "200" ] && grep -q '"recorded":true' /tmp/ev1.json; } || fail=1
+curl -s -o /tmp/ev2.json -X POST "$BASE/api/v2/users/$SBX_USER/events" \
+  -H 'content-type: application/json' -H "$V2_AUTH" -d '{"event":"report.exported","idempotencyKey":"smoke-ev-1"}'
+grep -q '"duplicate":true' /tmp/ev2.json && echo "idempotent ✓" || { echo "BUG: replay not deduplicated"; cat /tmp/ev2.json; fail=1; }
 
 echo "--- lifecycle: context pull — the platform signs, the sandbox verifies (expect ok) ---"
 code=$(curl -s -b /tmp/cj.txt -o /tmp/ctx.json -w "%{http_code}" -X POST "$BASE/api/admin/connections/$CONN_ID/test-context" \

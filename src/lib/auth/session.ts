@@ -41,7 +41,7 @@ function adminApp(): App {
     process.env.FIREBASE_AUTH_EMULATOR_HOST
   ) {
     return initializeApp({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-vizzybl",
+      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-yougrow",
     });
   }
   return initializeApp({

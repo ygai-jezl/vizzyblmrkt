@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { signInWithPopup } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
+import { accessDeniedMessage } from "@/lib/auth/accessDenied";
 import {
   installSessionFetchInterceptor,
   mintSession,
@@ -67,7 +68,7 @@ export function SessionKeeper() {
       }
       setError(
         result === "forbidden"
-          ? "Access denied. Sign in with your @yougrow.ai account."
+          ? accessDeniedMessage()
           : "Sign-in failed. Please try again.",
       );
     } catch {

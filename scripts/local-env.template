@@ -1,0 +1,59 @@
+# Written by npm run local.
+# Settings for running YouGrow on your laptop against the Firebase emulators.
+# No accounts and no real Google Cloud project: demo-* projects never leave your machine.
+# You can edit values. npm run local only adds missing keys and never changes yours.
+# Delete this file to start again. Remove the first line to make npm run local leave it alone.
+
+# Local project and emulators
+GOOGLE_CLOUD_PROJECT=demo-yougrow
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=demo-yougrow
+FIRESTORE_EMULATOR_HOST={{FIRESTORE_HOST}}
+FIREBASE_AUTH_EMULATOR_HOST={{AUTH_HOST}}
+NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST={{AUTH_HOST}}
+
+# Who may sign in to the admin, and the demo brand they land in
+ADMIN_ALLOWED_EMAILS=admin@example.com
+# Empty: no whole domain is allowed, only the emails above.
+ADMIN_ALLOWED_DOMAINS=
+ADMIN_BOOTSTRAP_TENANT_ID=ten_demo
+ADMIN_BOOTSTRAP_REGION=us
+ALLOW_SEED=true
+
+# Links in emails and signed requests point at this laptop
+CONNECT_ISSUER={{APP_ORIGIN}}
+EMAIL_LINK_ORIGIN={{APP_ORIGIN}}
+CANVAS_ALLOW_INSECURE_LOCAL=1
+
+# Secrets made for this checkout only (random, never shown). Never reuse them anywhere else.
+LIFECYCLE_WORKER_SECRET={{SECRET}}
+EMAIL_WORKER_SECRET={{SECRET}}
+DISTRIBUTE_WORKER_SECRET={{SECRET}}
+CONNECT_SECRET_ENC_KEY={{SECRET}}
+SOCIAL_TOKEN_ENC_KEY={{SECRET}}
+GIT_TOKEN_ENC_KEY={{SECRET}}
+UNSUBSCRIBE_SIGNING_KEY={{SECRET}}
+INVITE_LINK_SIGNING_KEY={{SECRET}}
+CANVAS_CONTEXT_SIGNING_KEY={{SECRET}}
+
+# Optional: a Gemini API key from https://aistudio.google.com/apikey turns on AI writing,
+# images and knowledge search. Without one those stay off and everything else works.
+GEMINI_API_KEY=
+
+# No email provider is set, so emails are written to the log instead of sent.
+
+# Other switches that are on in the hosted dev environment
+LIFECYCLE_MODE_CEILING=live
+LIFECYCLE_CONSENT_AT_SEND=true
+LIFECYCLE_GO_LIVE_SWEEP=true
+LIFECYCLE_OPT_IN_AFTER_SIGNUP=true
+LIFECYCLE_DATE_START=true
+LIFECYCLE_SEND_TRACKING=true
+LIFECYCLE_PERSON_BRIEF=true
+LIFECYCLE_PERSON_PLANS=true
+AUDIENCE_PERSON_VIEW=true
+CONNECT_QUIET_UNCHANGED_WRITES=true
+CONNECT_DATE_FACTS=true
+WAITLIST_JOURNEY_HOLD_ON_PAUSE=true
+WAITLIST_ENGINE_PILOT_TENANTS=*
+
+{{FEATURE_SWITCHES}}

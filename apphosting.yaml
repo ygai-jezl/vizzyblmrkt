@@ -62,6 +62,14 @@ env:
     value: yougrow.ai
     availability:
       - RUNTIME
+  # Keeps the "Sign in with your @yougrow.ai account" refusal text (the code's
+  # default is now neutral). Message only: unlike NEXT_PUBLIC_ADMIN_HD it doesn't
+  # limit the Google account chooser.
+  - variable: NEXT_PUBLIC_ADMIN_SIGNIN_DOMAIN
+    value: yougrow.ai
+    availability:
+      - BUILD
+      - RUNTIME
 
   # Firestore→BigQuery analytics pipeline (Phase 2, docs/SETUP.md §11). Dataset
   # ids are NOT secrets. One same-region dataset per residency region; the

@@ -31,7 +31,7 @@ function getApp(): App {
   // Local dev/test against the Firestore emulator needs no credentials.
   if (process.env.FIRESTORE_EMULATOR_HOST) {
     return initializeApp({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-vizzybl",
+      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-yougrow",
     });
   }
   return initializeApp({

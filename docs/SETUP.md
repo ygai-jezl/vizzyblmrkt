@@ -167,10 +167,11 @@ emulator — no console setup needed):
 4. **First real prod tenant:** before admins sign in on prod, create the real
    `vizzybl.ai` tenant + campaign (a proper first-tenant flow, not the demo seed).
 
-> Local dev: `npm run smoke` seeds `admin@yougrow.ai` / `vizzybl-demo-pass` into
-> the Auth emulator with the right claims, exercising the full
-> sign-in → dashboard → offboard flow without any console setup. Real users never
-> use a password — the login UI is Google-only.
+> Local dev: `npm run local` and `npm run smoke` seed a demo admin,
+> `admin@example.com`, into the Auth emulator with the right claims (and a linked
+> Google identity, so the emulator's Google page lists it). The smoke test signs
+> in with its emulator-only password. Real users never use a password: the login
+> UI is Google-only.
 
 ## 9. App Hosting backend + connect repo
 ```bash
@@ -298,14 +299,20 @@ live, and copy. The snippet is:
 
 ## Local development
 ```bash
-cp .env.example .env.local        # fill in values / point at the emulator
 npm install
-npm run emulators                 # Firestore + Auth emulators
-# in another shell:
-npm run dev                       # http://localhost:3002
+npm run doctor                    # checks Node, Java 21+, the Firebase CLI and ports
+npm run local                     # emulators + seed + app on http://localhost:3002
 ```
-Set `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` in `.env.local` to route the admin
-SDK at the local emulator (no cloud credentials needed for local work).
+`npm run local` needs no accounts: it writes `.env.local` for the offline
+`demo-yougrow` project (only when there is none, or when it wrote the one there),
+starts the Firestore and Auth emulators, seeds the demo brand (Acme, tenant
+`ten_demo`), runs `next dev` and calls the scheduled-work routes every 2 minutes.
+Sign in with "Sign in with Google" and pick `admin@example.com` on the emulator's
+test page. Ctrl-C stops everything and keeps the data in `.local/emulator-data`;
+the full log is `.local/local.log`.
+
+By hand: `npm run emulators` (on `demo-yougrow`), `npm run seed`, then
+`npm run dev`, with the emulator settings from `.env.example` in `.env.local`.
 
 ## Deferred to later phases (do NOT set up now)
 VPC Service Controls perimeter, internal-only Cloud Run, a self-managed external

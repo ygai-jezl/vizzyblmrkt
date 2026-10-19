@@ -29,7 +29,7 @@ function adminApp(): App {
   const existing = getApps()[0];
   if (existing) return existing;
   if (process.env.FIRESTORE_EMULATOR_HOST) {
-    return initializeApp({ projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-vizzybl" });
+    return initializeApp({ projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-yougrow" });
   }
   return initializeApp({
     credential: applicationDefault(),

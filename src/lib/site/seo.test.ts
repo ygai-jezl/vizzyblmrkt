@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isCanonicalHost, siteOrigin } from "./flags";
+import { isCanonicalHost, siteEmbedScriptSrc, siteMetadataBase, siteOrigin, siteWaitlistCampaign } from "./flags";
 import { AI_BOTS, CONTENT_SIGNAL, robotsTxt } from "./robots";
 import { sitemapEntries, sitemapXml } from "./sitemap";
 import { serializeJsonLd, siteGraph, baseGraph } from "./jsonLd";
@@ -13,15 +13,38 @@ const on = (...names: string[]) => { for (const n of names) vi.stubEnv(n, "true"
 afterEach(() => vi.unstubAllEnvs());
 
 describe("origin", () => {
-  it("is the platform origin, else yougrow.ai; only that host is canonical", () => {
+  it("is NEXT_PUBLIC_SITE_ORIGIN, else the platform origin, else none (no built-in host)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", "");
     vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "");
-    expect(siteOrigin()).toBe(ORIGIN);
+    expect(siteOrigin()).toBe("");
+    expect(siteMetadataBase()).toBeUndefined();
+    expect(isCanonicalHost("localhost:3002")).toBe(false);
+    expect(siteEmbedScriptSrc()).toBe("/embed.js");
+    vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "https://app.example.com/");
+    expect(siteOrigin()).toBe("https://app.example.com");
+    vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", " https://www.example.com/ ");
+    expect(siteOrigin()).toBe("https://www.example.com");
+    expect(siteEmbedScriptSrc()).toBe("https://www.example.com/embed.js");
+    expect(siteMetadataBase()?.toString()).toBe("https://www.example.com/");
+  });
+
+  it("only the canonical host is canonical", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", "");
     vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "https://yougrow.ai/");
     expect(isCanonicalHost("yougrow.ai")).toBe(true);
     expect(isCanonicalHost("YouGrow.ai")).toBe(true);
     expect(isCanonicalHost("vizzybl-marketing-prod--vizzybl-marketing-prod.us-central1.hosted.app")).toBe(false);
     expect(isCanonicalHost("localhost:3002")).toBe(false);
     expect(isCanonicalHost(null)).toBe(false);
+  });
+
+  it("embeds the configured waitlist campaign only", () => {
+    vi.stubEnv("SITE_WAITLIST_CAMPAIGN", "");
+    expect(siteWaitlistCampaign()).toBe("");
+    vi.stubEnv("SITE_WAITLIST_CAMPAIGN", " spring-launch ");
+    expect(siteWaitlistCampaign()).toBe("spring-launch");
+    vi.stubEnv("SITE_WAITLIST_CAMPAIGN", '"><script>');
+    expect(siteWaitlistCampaign()).toBe("");
   });
 });
 
@@ -104,6 +127,7 @@ describe("JSON-LD", () => {
 
 describe("page metadata", () => {
   it("gives a canonical address, a share card, and hreflang only with the languages on", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", ORIGIN);
     on("SITE_LOOP_ENABLED");
     const m = siteMetadata("en", { kind: "stage", id: "plan" });
     expect(m.alternates).toEqual({ canonical: "/loop/plan" });

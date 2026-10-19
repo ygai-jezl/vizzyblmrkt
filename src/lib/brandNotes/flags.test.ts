@@ -6,7 +6,7 @@ import { isBrandNotesChatEnabled, isBrandNotesEnabled } from "./flags";
 
 afterEach(() => vi.unstubAllEnvs());
 
-/** The value a variable is given in an apphosting file, or null when it isn't there. */
+/** The value apphosting.yaml (the public base) gives a variable, or null when it isn't there. */
 function valueIn(file: string, variable: string): string | null {
   const text = readFileSync(join(process.cwd(), file), "utf8");
   const m = new RegExp(`- variable: ${variable}\\n\\s+value: "([^"]*)"`).exec(text);
@@ -25,10 +25,9 @@ describe("the switches for editorial articles and What we've seen", () => {
     expect([isBlogEditorialEnabled(), isBrandNotesEnabled(), isBrandNotesChatEnabled()]).toEqual([true, true, true]);
   });
 
-  it("are on in dev, and on in prod since the owner turned them on, each set there on purpose", () => {
+  it("are listed off in the public apphosting.yaml, like every switch", () => {
     for (const v of SWITCHES) {
-      expect(valueIn("apphosting.yaml", v), v).toBe("true");
-      expect(valueIn("apphosting.prod.yaml", v), v).toBe("true");
+      expect(valueIn("apphosting.yaml", v), v).toBe("false");
     }
   });
 });

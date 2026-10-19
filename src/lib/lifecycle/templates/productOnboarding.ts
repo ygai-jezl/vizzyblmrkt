@@ -10,7 +10,7 @@ import {
 
 /**
  * The "product onboarding" template: a post-signup sequence that splits on
- * onboarding progress (the vizzybl.ai 7-day shape, for any connected product).
+ * onboarding progress (a 7-day shape that fits any connected product).
  *
  *   trigger (user.signed_up)
  *    → wait (15 min; window-exempt for 2h15) → Welcome

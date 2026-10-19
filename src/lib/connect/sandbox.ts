@@ -32,7 +32,7 @@ import { deleteUser, patchUser } from "./v2/users";
  * there is no SSRF surface.
  */
 
-/** A GEO-analytics-style SaaS: mirrors vizzybl.ai's brand → audit → prompts. */
+/** A GEO-analytics-style SaaS: brand → audit → prompts. */
 export const SANDBOX_CATALOG: ConnectionCatalog = {
   events: [
     { name: "user.signed_up", label: "Signed up", description: "A new user created an account." },

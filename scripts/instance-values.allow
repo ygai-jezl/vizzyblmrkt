@@ -1,0 +1,23 @@
+# Files that may name our hosted copy of YouGrow (its domains, Google Cloud projects,
+# tenants, App Hosting address or Google Analytics id). Read by npm run check:instance.
+#
+# One entry per line: a path glob, then "  # " and why. Every entry needs a reason.
+# Globs: ** is any number of directories, * is anything but "/", ? is one character.
+# Everything else must read these values from config (see .env.example).
+
+# Tests: example data
+**/*.test.ts                              # tests: example data, never read at runtime
+agents/root_agent/tests/**                # agent tests: example data, never read at runtime
+
+# The product and its public site
+src/lib/site/content.json                 # marketing site content: the public site describes the hosted service
+sdk/node/**                               # the published Node SDK: its default origin is the hosted service, overridable
+
+# Docs about how we host it
+docs/DECISIONS.md                         # decision records about our own hosting
+
+# One-off operations scripts run against our projects, until they move out of this repo
+scripts/backfill-audience.ts              # one-off operations script run against our projects (moves out in a later step)
+scripts/diagnose-journey.ts               # one-off operations script run against our projects (moves out in a later step)
+scripts/fix-journey-graph.ts              # one-off operations script run against our projects (moves out in a later step)
+scripts/recover-journey-deadends.ts       # one-off operations script run against our projects (moves out in a later step)

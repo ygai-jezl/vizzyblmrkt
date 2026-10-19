@@ -6,7 +6,7 @@ import { StoredJourneyStyleSchema } from "./tenant";
 
 /**
  * Lifecycle journeys — branching email sequences for a CONNECTED PRODUCT's users
- * (e.g. vizzybl.ai's post-signup onboarding), run by the lifecycle runner
+ * (e.g. a SaaS app's post-signup onboarding), run by the lifecycle runner
  * (src/lib/lifecycle/runner.ts): the recipient is a product user, conditions read
  * the product's catalog (steps, traits, facts), and sends follow a per-recipient
  * local-time send window.

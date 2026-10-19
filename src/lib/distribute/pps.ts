@@ -22,7 +22,7 @@ export interface PpsResult {
   breakdown: PpsBreakdown;
 }
 
-/** Weights sum to 1; the hook carries the most, per the PRD's emphasis. */
+/** Weights sum to 1; the hook (the opening line) carries the most. */
 export const PPS_WEIGHTS = { brevity: 0.25, formatting: 0.25, keyword: 0.2, hook: 0.3 } as const;
 
 /** Per-channel ideal/max body length (code points) for the brevity heuristic. */

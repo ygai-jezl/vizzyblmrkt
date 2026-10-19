@@ -31,7 +31,7 @@ function adminApp(): App {
   if (existing) return existing;
   if (process.env.FIRESTORE_EMULATOR_HOST) {
     return initializeApp({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-vizzybl",
+      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-yougrow",
     });
   }
   return initializeApp({

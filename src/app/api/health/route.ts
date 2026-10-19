@@ -9,7 +9,6 @@ export function GET() {
   return NextResponse.json({
     status: "ok",
     service: "vizzybl-marketing",
-    phase: "0",
     time: new Date().toISOString(),
   });
 }

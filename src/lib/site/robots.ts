@@ -3,7 +3,7 @@
  * engines, AI assistants, AI agents and AI training crawlers. Content-Signal states
  * that consent in machine-readable form (https://contentsignals.org). Every other host
  * (staging, the raw *.hosted.app address, localhost) is kept out of search, so only
- * yougrow.ai gets indexed.
+ * the canonical host gets indexed.
  *
  * A crawler that finds its own name follows that group and ignores the "*" group, so
  * the named group repeats the rules in full. The AI names come from the community-kept

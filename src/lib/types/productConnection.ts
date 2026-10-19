@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Product Connection — how a tenant connects THEIR product (e.g. vizzybl.ai) so
+ * Product Connection: how a tenant connects THEIR product (e.g. their SaaS app) so
  * the platform understands the product's end users (who they are, which
  * onboarding steps they've done) and can run lifecycle journeys for them.
  *

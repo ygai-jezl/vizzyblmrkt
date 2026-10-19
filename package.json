@@ -2,6 +2,7 @@
   "name": "vizzybl-marketing",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": "24.x"
   },
@@ -14,8 +15,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
-    "smoke": "firebase emulators:exec --config firebase.integration.json --project demo-vizzybl 'bash scripts/smoke.sh'",
-    "emulators": "firebase emulators:start --only firestore,auth"
+    "doctor": "node scripts/doctor.mjs",
+    "local": "node scripts/local.mjs",
+    "selfhost": "node scripts/selfhost.mjs",
+    "check:instance": "node scripts/check-instance-values.mjs",
+    "check:private-paths": "node scripts/check-private-paths.mjs",
+    "agents:check": "node scripts/agents-check.mjs",
+    "smoke": "(test -f .next/BUILD_ID || next build) && node scripts/emulators.mjs exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",
+    "emulators": "node scripts/emulators.mjs start --only firestore,auth --project demo-yougrow"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^7.9.4",

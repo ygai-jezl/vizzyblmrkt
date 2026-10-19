@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
-# Build + deploy the knowledge-scraper Cloud Run Job.
+# Build + deploy the knowledge-scraper Cloud Run Job in your Google Cloud project.
 #
 # Usage:
-#   PROJECT=vizzybl-marketing-dev bash workers/knowledge-scraper/deploy.sh
-#   PROJECT=vizzybl-marketing-prod REGION=us-central1 bash workers/knowledge-scraper/deploy.sh
-#   GITHUB_APP_ID=123456 PROJECT=… bash workers/knowledge-scraper/deploy.sh   # with the read-only GitHub App
+#   PROJECT=my-project bash workers/knowledge-scraper/deploy.sh
+#   PROJECT=my-project REGION=us-central1 bash workers/knowledge-scraper/deploy.sh
+#   GITHUB_APP_ID=123456 PROJECT=my-project bash workers/knowledge-scraper/deploy.sh   # with the read-only GitHub App
+#   SCRAPER_USER_AGENT="MyBot/1.0 (+https://example.com/bot)" PROJECT=my-project bash workers/knowledge-scraper/deploy.sh
 #
-# Prereqs (one-time per project — see README.md "Provisioning"):
+# Settings (environment variables):
+#   PROJECT             required. Your Google Cloud project id.
+#   REGION              default us-central1. JOB_NAME and REPO default to knowledge-scraper.
+#   JOB_SA              the job's runtime service account (infra/knowledge/setup.sh creates
+#                       knowledge-scraper@<project>); unset uses the default compute SA.
+#   GITHUB_APP_ID       the public id of your read-only GitHub App, when you have one.
+#   SCRAPER_USER_AGENT  how the crawler names itself (unset: YouGrowBot/1.0). No commas.
+#
+# Prereqs (one time per project; see README.md "Provisioning"):
 #   - Artifact Registry repo `knowledge-scraper` exists (created here if missing).
 #   - A runtime SA with roles/datastore.user + roles/aiplatform.user (+ secret
 #     accessor for the git tokens). Pass it as JOB_SA, else the default compute SA.
@@ -14,7 +23,11 @@
 #     app can trigger it). Grant separately; not done here.
 set -euo pipefail
 
-PROJECT="${PROJECT:?set PROJECT=vizzybl-marketing-dev|prod}"
+PROJECT="${PROJECT:?Set PROJECT to your Google Cloud project id, e.g. PROJECT=my-project bash workers/knowledge-scraper/deploy.sh}"
+SCRAPER_USER_AGENT="${SCRAPER_USER_AGENT:-}"
+case "${SCRAPER_USER_AGENT}" in
+  *,*) echo "SCRAPER_USER_AGENT can't contain a comma (gcloud --set-env-vars splits on commas)." >&2; exit 2 ;;
+esac
 REGION="${REGION:-us-central1}"
 JOB_NAME="${JOB_NAME:-knowledge-scraper}"
 REPO="${REPO:-knowledge-scraper}"
@@ -57,8 +70,9 @@ DEPLOY_ARGS=(
   --max-retries=1
   --cpu=2
   --memory=4Gi
-  # The GitHub App id is public; set it with GITHUB_APP_ID=… when the app exists.
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}${GITHUB_APP_ID:+,GITHUB_APP_ID=${GITHUB_APP_ID}}"
+  # The GitHub App id is public; set it with GITHUB_APP_ID=... when the app exists.
+  # SCRAPER_USER_AGENT names your deployment to the sites the crawler reads.
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}${GITHUB_APP_ID:+,GITHUB_APP_ID=${GITHUB_APP_ID}}${SCRAPER_USER_AGENT:+,SCRAPER_USER_AGENT=${SCRAPER_USER_AGENT}}"
 )
 [[ -n "${JOB_SA:-}" ]] && DEPLOY_ARGS+=(--service-account="${JOB_SA}")
 # Guard the array expansion: under macOS bash 3.2 + `set -u`, "${EMPTY[@]}"

@@ -6,13 +6,13 @@ invokes it via `:streamQuery`, passing tenant/user context as a `[ctx:{...}]`
 message prefix (see callbacks/context_envelope.py) and the reasoning mode as a
 `[mode:fast|thinking]` prefix (see callbacks/chat_mode.py).
 
-Phase 2: instruction + context/mode callbacks only — no tools or sub-agents yet.
-Marketing-native FunctionTools and co-located sub-agents (creative, analytics)
-land in Phase 3; third-party MCP toolsets in Phase 4.
+It has root FunctionTools and three sub-agents (campaign_ops, lifecycle_ops,
+content_ops). Every tool calls back to the app's /api/agent/* routes with the
+signed `ctxToken` from the envelope; see README.md.
 
-Sessions + Memory Bank + Agent Identity are provided by Agent Runtime when this
-agent is deployed as an AdkApp with `identity_type=AGENT_IDENTITY`
-(see .agent_engine_config.json + deploy.sh). Memory is scoped per-tenant-per-user
+Sessions + Memory Bank are provided by Agent Runtime. The engine runs as a
+dedicated service account (`identity_type=SERVICE_ACCOUNT`, rendered into
+.agent_engine_config.json by deploy.sh). Memory is scoped per tenant per user
 by the composite `user_id` the proxy sends (see context/memory_config.py).
 """
 

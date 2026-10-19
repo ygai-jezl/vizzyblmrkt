@@ -1073,11 +1073,15 @@ export function resolveNextStep(
   return null;
 }
 
+/**
+ * The broadcast reply-to when neither the tenant nor the launch sets one:
+ * EMAIL_REPLY_TO, else the address in EMAIL_FROM. MailChimp requires one, so a
+ * deployment with neither fails the send with a reason instead of guessing.
+ */
 function replyToAddress(): string {
-  const raw =
-    process.env.EMAIL_REPLY_TO ||
-    process.env.EMAIL_FROM ||
-    "noreply@vizzybl.ai";
+  const raw = (process.env.EMAIL_REPLY_TO || process.env.EMAIL_FROM || "").trim();
   const m = raw.match(/<([^>]+)>/);
-  return (m ? m[1]! : raw).trim();
+  const address = (m ? m[1]! : raw).trim();
+  if (!address) throw new Error("no_reply_to: set EMAIL_REPLY_TO or EMAIL_FROM");
+  return address;
 }

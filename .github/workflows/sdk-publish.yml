@@ -26,6 +26,8 @@ permissions:
 
 jobs:
   publish:
+    # Our repository only: forks and our private mirror never try to publish.
+    if: github.repository == 'ygai-jezl/vizzyblmrkt'
     runs-on: ubuntu-latest
     environment: npm
     permissions:

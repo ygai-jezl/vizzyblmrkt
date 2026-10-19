@@ -3,10 +3,10 @@
 # Provision the X (Twitter) OAuth 2.0 secrets for the Distribute "Connect X" flow.
 #
 # Three secrets back the flow (src/app/api/admin/integrations/x/{start,callback}):
-#   x-oauth-client-id      — OAuth 2.0 Client ID from the X developer app (public,
+#   x-oauth-client-id      OAuth 2.0 Client ID from the X developer app (public,
 #                            but stored alongside the others for one grant)
-#   x-oauth-client-secret  — OAuth 2.0 Client Secret (confidential client)
-#   social-token-enc-key   — AES-256-GCM root key encrypting the per-tenant user
+#   x-oauth-client-secret  OAuth 2.0 Client Secret (confidential client)
+#   social-token-enc-key   AES-256-GCM root key encrypting the per-tenant user
 #                            tokens at rest (generated here; keep separate from the
 #                            git GIT_TOKEN_ENC_KEY)
 #
@@ -19,7 +19,7 @@
 #   ./setup.sh secret <project>   # create the 3 secrets + grant the runtime SA (REVERSIBLE)
 #   ./setup.sh verify <project>   # show the secret IAM bindings
 #
-#   <project> is vizzybl-marketing-dev (default) or vizzybl-marketing-prod.
+#   <project> is your Google Cloud project id.
 #
 # After: uncomment the X_OAUTH_* + SOCIAL_TOKEN_ENC_KEY block in apphosting.<env>.yaml
 # and deploy. Then Connect X from /admin/account/connections.
@@ -27,13 +27,22 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+case "${CMD}" in
+  secret|verify)
+    if [ -z "${PROJECT}" ]; then
+      echo "Usage: $0 ${CMD} <project>" >&2
+      exit 2
+    fi
+    ;;
+esac
 RUNTIME_SA="firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com"
 
 create_secret() {
   local name="$1" value="$2"
   if gcloud secrets describe "${name}" --project="${PROJECT}" >/dev/null 2>&1; then
-    echo "    ${name} exists — adding a new version"
+    echo "    ${name} exists, adding a new version"
   else
     echo "    creating ${name}"
     gcloud secrets create "${name}" --project="${PROJECT}" --replication-policy="automatic"
@@ -63,7 +72,7 @@ verify() {
   for s in x-oauth-client-id x-oauth-client-secret social-token-enc-key; do
     echo "==> ${s}"
     gcloud secrets get-iam-policy "${s}" --project="${PROJECT}" --format="yaml(bindings)" 2>/dev/null \
-      || echo "    (not found — run: ./setup.sh secret ${PROJECT})"
+      || echo "    (not found. Run: ./setup.sh secret ${PROJECT})"
   done
 }
 

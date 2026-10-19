@@ -178,15 +178,24 @@ describe("configuration", () => {
     expect(() => signingKeySource()).toThrow(/bad_kms_key_name/);
   });
 
+  it("defaults the local issuer to the npm run dev port, or PORT when set", () => {
+    vi.stubEnv("CONNECT_ISSUER", "");
+    vi.stubEnv("PORT", "");
+    expect(outboundIssuer()).toBe("http://localhost:3002");
+    vi.stubEnv("PORT", "3099");
+    expect(outboundIssuer()).toBe("http://localhost:3099");
+  });
+
   it("signs with an ephemeral key in local dev and tests", async () => {
     vi.stubEnv("CONNECT_SIGNING_KMS_KEY", "");
     vi.stubEnv("CONNECT_ISSUER", "");
+    vi.stubEnv("PORT", "");
     const body = "{}";
     const h = await signOutboundRequest({ audience: "ygk_b", direction: "webhook", jti: "wh_1", rawBody: body, nowMs: NOW });
     const r = verifyOutboundToken({
       token: bearerToken(h.authorization),
       jwks: await publishedJwks(),
-      issuer: "http://localhost:3000",
+      issuer: "http://localhost:3002",
       audience: "ygk_b",
       direction: "webhook",
       rawBody: body,

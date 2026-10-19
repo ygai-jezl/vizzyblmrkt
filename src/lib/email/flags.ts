@@ -3,8 +3,8 @@
  * options on top of it (a gradient header, a chosen header text colour, a header image,
  * logo clean-up), themes (a look and two fonts, with web fonts on their own flag), Create
  * layout buttons that follow it, the sign-up confirmation and offboarding emails wearing
- * it, and a lifecycle journey's own colours over it. Pure + client-safe. Each is ON in dev
- * (apphosting.yaml) and set explicitly in prod (apphosting.prod.yaml). Renderers never
+ * it, and a lifecycle journey's own colours over it. Pure + client-safe. Each is off unless
+ * "true" (listed "false" in apphosting.yaml, turned on per deployment). Renderers never
  * read these: they get the style as data.
  */
 

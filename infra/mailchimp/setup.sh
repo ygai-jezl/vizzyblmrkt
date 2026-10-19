@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
 # Provision the root secret that seals each brand's OWN Mailchimp API key at rest
-# (src/lib/mailchimp/keyBox.ts). Per GCP project; run against dev first, then prod.
+# (src/lib/mailchimp/keyBox.ts), in one Google Cloud project.
 #
 #   ./setup.sh secret <project>  # create mailchimp-key-enc-key + grant App Hosting (REVERSIBLE)
 #   ./setup.sh verify <project>  # show the secret's versions and who can read it
 #
-#   <project> defaults to vizzybl-marketing-dev. The App Hosting backend id is
-#   taken to match the project id; set BACKEND=<id> if yours differs.
+# Settings (environment variables):
+#   BACKEND   the App Hosting backend id (default: the project id).
 #
 # Order of operations (per environment):
 #   1) ./setup.sh secret <project>
-#      (apphosting.yaml references the secret and prod inherits it: it must exist,
-#      with App Hosting access, before any rollout, or the build fails.)
-#   2) deploy, with MAILCHIMP_KEY_SEALED_ENABLED "true" for that project
+#      (then reference it from apphosting.<env>.yaml as MAILCHIMP_KEY_ENC_KEY: a secret
+#      must exist, with App Hosting access, before any rollout, or the build fails.)
+#   2) deploy, with MAILCHIMP_KEY_SEALED_ENABLED "true" in apphosting.<env>.yaml
 #   3) seal keys saved before the switch:  scripts/seal-mailchimp-keys.ts
 #
 # Never rotate this by adding a new version: every sealed key would stop opening.
@@ -22,7 +22,19 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-PROJECT="${2:-vizzybl-marketing-dev}"
+PROJECT="${2:-}"
+
+usage() { sed -n '2,20p' "$0"; }
+
+case "$CMD" in
+  secret|verify) ;;
+  *) usage; exit 0 ;;
+esac
+if [ -z "$PROJECT" ]; then
+  echo "Usage: $0 $CMD <project>" >&2
+  exit 2
+fi
+
 BACKEND="${BACKEND:-$PROJECT}"
 SECRET_NAME="mailchimp-key-enc-key"
 
@@ -40,7 +52,7 @@ case "$CMD" in
     # its service agent); a plain IAM grant fails the build. This is the supported way.
     echo "==> Granting App Hosting backend '$BACKEND' access to $SECRET_NAME"
     firebase apphosting:secrets:grantaccess "$SECRET_NAME" --backend "$BACKEND" --project "$PROJECT" --non-interactive
-    echo "Done. MAILCHIMP_KEY_ENC_KEY is referenced from apphosting.yaml (prod inherits it)."
+    echo "Done. Reference it from apphosting.<env>.yaml as MAILCHIMP_KEY_ENC_KEY (secret: $SECRET_NAME)."
     ;;
   verify)
     echo "==> Versions of $SECRET_NAME"
@@ -50,8 +62,5 @@ case "$CMD" in
     echo "==> Who can read it"
     gcloud secrets get-iam-policy "$SECRET_NAME" --project="$PROJECT" \
       --format="table(bindings.role,bindings.members)" 2>/dev/null || true
-    ;;
-  *)
-    sed -n '2,20p' "$0"
     ;;
 esac

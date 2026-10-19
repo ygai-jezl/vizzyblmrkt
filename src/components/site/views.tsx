@@ -4,7 +4,7 @@ import {
   FEATURES, FEATURE_TAGS, STAGES, STAGE_IDS, nearFeature, nearStage, stageOf,
   type FeatureSlug, type StageId,
 } from "@/lib/site/content";
-import { siteOrigin } from "@/lib/site/flags";
+import { siteEmbedScriptSrc, siteWaitlistCampaign } from "@/lib/site/flags";
 import { CHAPTERS, FAQ, HERO_LABEL } from "@/lib/site/home";
 import { translator, type Translator } from "@/lib/site/i18n";
 import { sitePath, type SiteLang } from "@/lib/site/langs";
@@ -77,6 +77,7 @@ export function HomeView({ lang }: { lang: SiteLang }) {
   const { t, lines } = translator(lang);
   const labels = loopLabels(t);
   const core = CHAPTERS[0]!;
+  const campaign = siteWaitlistCampaign();
   return (
     <SiteShell lang={lang} page={{ kind: "home" }} withFaq>
       <HeroLoop labels={labels} label={t(HERO_LABEL)} lapText={t("The agentic growth loop · lap")} approveText={t("You approve what ships")} />
@@ -157,13 +158,15 @@ export function HomeView({ lang }: { lang: SiteLang }) {
 
         <section className="close" id="join">
           <h2><Lines parts={lines("Start your|first lap")} /></h2>
-          <div className="joinbox">
-            <div data-vizzybl-campaign="agentic-growth-loop" data-vizzybl-type="WIDGET_2" />
-          </div>
+          {campaign ? (
+            <div className="joinbox">
+              <div data-vizzybl-campaign={campaign} data-vizzybl-type="WIDGET_2" />
+            </div>
+          ) : null}
         </section>
       </main>
-      {/* Our own waitlist widget, loaded from the platform origin (see src/app/page.tsx for why it must be). */}
-      <Script src={`${siteOrigin()}/embed.js`} strategy="afterInteractive" />
+      {/* The site's own waitlist widget (SITE_WAITLIST_CAMPAIGN), loaded from the site origin (see src/app/page.tsx for why). */}
+      {campaign ? <Script src={siteEmbedScriptSrc()} strategy="afterInteractive" /> : null}
     </SiteShell>
   );
 }

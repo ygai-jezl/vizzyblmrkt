@@ -27,15 +27,20 @@ export { heroTitle };
  *     card lays the title over it.
  *  4. If painting fails, the title card is drawn with the bundled fonts, which can't fail,
  *     and the hero says `fallback`. `failed` only when the files can't be stored.
- *  5. Alt text: a vision pass (8 s), else the title.
+ *  5. Alt text: a vision pass (up to 12 s, when time allows), else the title.
  *  6. Saved only if this run still holds the hero, so a newer run is never overwritten.
  */
 
 export const HERO_LEASE_MS = 150_000;
+// Measured on dev Vertex, 2026-10-19 (three painted styles at 2K): the picture brief took 6 to
+// 8 s, painting 16 to 18 s, the alt text 6 to 9 s, and drawing the hero and share card about 1 s each.
 const MODEL_TRY_MS = 40_000;
-const ALT_MS = 8_000;
-/** Kept back from the budget for the fallback, storage and the final write. */
-const RESERVE_MS = 15_000;
+/** A painting try shorter than this can't finish, so it isn't started. */
+const MIN_TRY_MS = 12_000;
+const BRIEF_MS = 12_000;
+const ALT_MS = 12_000;
+/** Kept back from the budget for the title card, storage and the final write. */
+const RESERVE_MS = 6_000;
 
 export interface HeroDeps {
   now: () => number;
@@ -173,12 +178,13 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
           style_keywords: direction.keywords,
           brand_context: input.brandContextFor?.(learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(resolved.id))) ?? "",
         }),
-        Math.min(15_000, Math.max(3_000, left() - RESERVE_MS - MODEL_TRY_MS)),
+        // Leave enough for one painting try: in a short Vizzy turn the brief gives way first.
+        Math.min(BRIEF_MS, Math.max(3_000, left() - RESERVE_MS - 20_000)),
       ))?.trim() || `${title}. Visual style: ${direction.keywords}.`;
     let art: GeneratedImage | null = null;
     for (let i = 0; i < (input.retry ? 2 : 1) && !art; i++) {
       const timeout = Math.min(MODEL_TRY_MS, left() - RESERVE_MS);
-      if (timeout < 5_000) break;
+      if (timeout < MIN_TRY_MS) break;
       attempts++;
       art = await deps.paint(prompt, timeout);
     }
@@ -199,7 +205,11 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
 
   // 5. Alt text for painted art.
   if (made?.art) {
-    made.alt = cleanAlt(await deps.alt(renderPrompt("content.image_alt_text", { title }), made.art, ALT_MS).catch(() => null), title);
+    // With too little time left, the title stands in (a person can edit it on the card).
+    const altMs = Math.min(ALT_MS, left() - 3_000);
+    if (altMs >= 3_000) {
+      made.alt = cleanAlt(await deps.alt(renderPrompt("content.image_alt_text", { title }), made.art, altMs).catch(() => null), title);
+    }
   }
 
   // Store both files.

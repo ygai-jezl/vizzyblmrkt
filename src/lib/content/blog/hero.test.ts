@@ -106,9 +106,22 @@ describe("makeBlogHero", () => {
     await makeBlogHero(input(tenant({ defaultStyleId: "natural_photo" }), { retry: false }), a.deps);
     expect(a.deps.paint).toHaveBeenCalledTimes(1);
     const b = setup({ paint: vi.fn(async () => null) });
-    await makeBlogHero(input(tenant({ defaultStyleId: "natural_photo" }), { budgetMs: 18_000 }), b.deps);
+    await makeBlogHero(input(tenant({ defaultStyleId: "natural_photo" }), { budgetMs: 15_000 }), b.deps);
     expect(b.deps.paint).not.toHaveBeenCalled();
     expect(b.hero()).toMatchObject({ status: "fallback" });
+  });
+
+  it("a short Vizzy turn: one painting try, and the title as alt text when time runs out", async () => {
+    let clock = T0;
+    const { deps, hero } = setup({
+      now: () => clock,
+      // Painting takes 18 s, as measured on dev.
+      paint: vi.fn(async () => ((clock += 18_000), { bytes: Buffer.from("art"), mimeType: "image/png" })),
+    });
+    await makeBlogHero(input(tenant({ defaultStyleId: "soft_3d" }), { budgetMs: 22_000, retry: false }), deps);
+    expect(deps.paint).toHaveBeenCalledTimes(1);
+    expect(deps.alt).not.toHaveBeenCalled();
+    expect(hero()).toMatchObject({ status: "ready", alt: heroTitle(sampleHub()) });
   });
 
   it("one run at a time: a second within 150 s is told it's running; an old lease is taken over", async () => {

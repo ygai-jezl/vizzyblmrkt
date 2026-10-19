@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactElement } from "react";
+import type { Chart, ChartPoint, Figure } from "@/lib/types/imageStyle";
 
 /**
  * Pieces every template shares: colour maths, the headline laid out word by word (Satori has no
@@ -35,6 +36,26 @@ export interface TemplateInput {
   showHeadline?: boolean;
   showLogo?: boolean;
   fonts: { heading: string; body: string };
+  /** Data story: the numbers to chart (checked against the copy, or typed by a person). */
+  chart?: Chart | null;
+  /** Type poster: the one big number. */
+  figure?: Figure | null;
+  /** Line art: picks the pattern (the title, plus the attempt for Make again). */
+  seed?: number;
+}
+
+/** A point's number as drawn: the copy's own writing, else the value with its unit. */
+export function pointText(p: ChartPoint, unit: string): string {
+  if (p.display) return p.display;
+  const n = Number.isInteger(p.value) ? p.value.toLocaleString("en-US") : String(p.value);
+  if (!unit) return n;
+  return /^[%x×]$/.test(unit) ? `${n}${unit}` : `${n} ${unit}`;
+}
+
+/** The words a headline highlights (its *stars*), or null. */
+export function highlightedText(raw: string): string | null {
+  const words = headlineWords(raw).filter((w) => w.highlight).map((w) => w.text);
+  return words.length ? words.join(" ") : null;
 }
 
 // ── colour ─────────────────────────────────────────────────────────────────────────────────────

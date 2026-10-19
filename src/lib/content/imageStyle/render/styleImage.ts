@@ -13,6 +13,10 @@ import { productNoir } from "./templates/productNoir";
 import { headlineCard } from "./templates/headlineCard";
 import { titleCard } from "./templates/titleCard";
 import { artOverlay } from "./templates/artOverlay";
+import { dataStory } from "./templates/dataStory";
+import { typePoster } from "./templates/typePoster";
+import { pointText } from "./templates/shared";
+import type { Chart, Figure } from "@/lib/types/imageStyle";
 
 /**
  * Draw a brand image from a template: gathers the brand's accent, name, primary logo, newest
@@ -20,14 +24,29 @@ import { artOverlay } from "./templates/artOverlay";
  * caller can fall back (the title card, which uses only bundled fonts, is the last resort).
  */
 
-export type TemplateId = "product_noir" | "headline_card" | "title_card" | "art_overlay";
+export type TemplateId = "product_noir" | "headline_card" | "data_story" | "type_poster" | "title_card" | "art_overlay";
 
 const TEMPLATES: Record<TemplateId, (i: TemplateInput) => ReactElement> = {
   product_noir: productNoir,
   headline_card: headlineCard,
   title_card: titleCard,
   art_overlay: artOverlay,
+  data_story: dataStory,
+  type_poster: typePoster,
 };
+
+/** The template that draws a drawn style, or null for a painted one. */
+export function templateFor(styleId: string): TemplateId | null {
+  switch (styleId) {
+    case "product_noir":
+    case "headline_card":
+    case "data_story":
+    case "type_poster":
+      return styleId;
+    default:
+      return null;
+  }
+}
 
 const DEFAULT_ACCENT = "#5B4FE6";
 const HEX6 = /^#[0-9a-f]{6}$/i;
@@ -89,6 +108,12 @@ export interface StyleImageRequest {
   art?: Buffer | null;
   showHeadline?: boolean;
   showLogo?: boolean;
+  /** Data story's numbers. */
+  chart?: Chart | null;
+  /** Type poster's big number. */
+  figure?: Figure | null;
+  /** Line art's pattern. */
+  seed?: number;
 }
 
 export interface StyleImageResult {
@@ -106,7 +131,11 @@ export async function renderStyleImage(req: StyleImageRequest): Promise<StyleIma
     req.template === "product_noir" ? screenshotFor(req.ctx) : Promise.resolve(null),
   ]);
   const brandName = (req.tenant?.tenantName ?? "").trim().slice(0, 40) || "Your brand";
-  const text = [req.headline.replace(/\*/g, ""), req.eyebrow, req.subline, req.footer, logo ? "" : brandName]
+  const chartText = req.chart
+    ? [...req.chart.points.flatMap((p) => [p.label, pointText(p, req.chart!.unit)]), req.chart.source ?? ""].join(" ")
+    : "";
+  const figureText = req.figure ? `${req.figure.value} ${req.figure.unit.toUpperCase()}.` : "";
+  const text = [req.headline.replace(/\*/g, ""), req.eyebrow, req.subline, req.footer, logo ? "" : brandName, chartText, figureText]
     .filter(Boolean)
     .join(" ");
 
@@ -132,6 +161,9 @@ export async function renderStyleImage(req: StyleImageRequest): Promise<StyleIma
     showHeadline: req.showHeadline,
     showLogo,
     fonts: { heading: plan.heading, body: plan.body },
+    chart: req.chart ?? null,
+    figure: req.figure ?? null,
+    ...(req.seed !== undefined ? { seed: req.seed } : {}),
   };
   const png = await renderPng(TEMPLATES[req.template](input), { width, height, fonts: plan.fonts });
   if (!png) return null;

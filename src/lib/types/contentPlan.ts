@@ -129,6 +129,8 @@ export const EbookImageSlotSchema = z.object({
   contextPrompt: z.string().max(1000).default(""),
   /** The expanded image prompt actually rendered (transparency / re-roll reference). */
   imagePrompt: z.string().max(1000).nullable().optional(),
+  /** This image's own style, picked when it was made (a style or old preset id); absent = the brand's. */
+  imageStyleId: z.string().max(40).nullable().optional(),
 });
 export type EbookImageSlot = z.infer<typeof EbookImageSlotSchema>;
 
@@ -405,6 +407,34 @@ export const BlogArticleLiveSchema = z.object({
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 
+/**
+ * A blog article's hero image (BLOG_HERO_ENABLED): made after the fact check, in the
+ * brand's style or the article's own pick. Server-owned, like `live`: a canvas save or a
+ * fact check never overwrites it (src/lib/tenant/workspaceContent.ts).
+ */
+export const BlogHeroSchema = z.object({
+  /** pending = being made; ready; fallback = the title card (the image model failed); failed = not saved. */
+  status: z.enum(["pending", "ready", "fallback", "failed"]),
+  /** The style it was made in (a style id, or "title_card"). */
+  styleId: z.string().max(40).nullable().default(null),
+  /** The article's own style pick; absent = the brand's. */
+  styleOverride: z.string().max(40).nullable().optional(),
+  /** Workspace-asset filenames: the 1600x900 hero and the 1200x630 share card. */
+  heroRef: z.string().max(2000).nullable().default(null),
+  shareRef: z.string().max(2000).nullable().default(null),
+  alt: z.string().max(250).default(""),
+  /** The image prompt, for a model style. */
+  prompt: z.string().max(1000).nullable().optional(),
+  attempts: z.number().int().min(0).max(10).default(0),
+  error: z.string().max(200).nullable().optional(),
+  /** The headline it was made for, to say "the title changed since". */
+  forTitle: z.string().max(200).default(""),
+  note: z.enum(["no_screenshot", "bundled_font"]).nullable().optional(),
+  startedAt: z.string().max(40).nullable().default(null),
+  updatedAt: z.string().max(40).nullable().default(null),
+});
+export type BlogHero = z.infer<typeof BlogHeroSchema>;
+
 /** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
 export const BlogArticleMetaSchema = z.object({
   metaTitle: z.string().max(120).default(""),
@@ -425,6 +455,12 @@ export const BlogArticleMetaSchema = z.object({
   /** The shape the article was written in: "editorial" (CREATE_BLOG_EDITORIAL_ENABLED), else
    *  absent = the CITABLE structure. Its checklist follows this, not the switch. */
   style: z.enum(["editorial"]).optional(),
+  /** The hero image (BLOG_HERO_ENABLED). Optional with no default, so old metas parse exactly as they did. */
+  hero: BlogHeroSchema.optional(),
+  /** Where the client put the hero / share card on their own site (https). Our hosted addresses
+   *  never go into client markup, so the image is in the export only once one is set. */
+  imageUrl: z.string().max(2000).optional(),
+  shareImageUrl: z.string().max(2000).optional(),
 });
 export type BlogArticleMeta = z.infer<typeof BlogArticleMetaSchema>;
 
@@ -497,6 +533,9 @@ export const ContentNodeSchema = z.object({
   imageAspect: z.enum(["1:1", "4:5", "1.91:1"]).nullable().optional(),
   /** The expanded image prompt (transparency / re-roll reference). */
   imagePrompt: z.string().max(1000).nullable().optional(),
+  /** This image's own style, picked when it was made (a style or old preset id); absent/null =
+   *  the brand's (BRAND_IMAGE_STYLE_ENABLED). Saved so a regenerate keeps it. */
+  imageStyleId: z.string().max(40).nullable().optional(),
   // ── eBook hub (only on the `hub` node of an "ebook" plan; null elsewhere). The
   //    authored book is copied here from `ContentPlan.ebookDraft` at finalize so the
   //    canvas hub node IS the eBook. Additive + nullable so old/other plans parse. ──

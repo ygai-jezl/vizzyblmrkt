@@ -66,6 +66,8 @@ const ImageBlock = z.object({
   alt: z.string().max(200).default(""),
   href: z.string().max(MAX_URL).nullable().optional(),
   width: z.number().int().min(50).max(600).default(560),
+  /** This image's own style, picked when it was made; absent = the brand's (BRAND_IMAGE_STYLE_ENABLED). */
+  imageStyleId: z.string().max(40).nullable().optional(),
   align: align.default("center"),
   sectionBg,
 });

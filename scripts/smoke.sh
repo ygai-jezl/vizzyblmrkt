@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Isolated end-to-end smoke test. Run it with `npm run smoke`, which builds the
 # app first when there is no build yet (delete .next to force a fresh build) and
-# then runs:
+# then runs, with a global firebase CLI or else the pinned one through npx
+# (scripts/emulators.mjs):
 #   firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'
 # Starts a production server on :3099 (SMOKE_PORT moves it) against the emulator,
 # seeds the demo brand, signs up (twice, to prove idempotency), loads the hosted

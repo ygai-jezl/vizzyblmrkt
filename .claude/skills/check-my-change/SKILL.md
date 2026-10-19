@@ -15,6 +15,7 @@ npm run lint
 npm test
 npm run check:instance
 npm run check:private-paths
+npm run agents:check
 ```
 
 - `typecheck`: no errors printed means it passed.
@@ -31,6 +32,9 @@ npm run check:private-paths
 - `check:private-paths`: fails on files that belong only in a deployment's private repo, such
   as `.firebaserc` or `ops/`. Take them out of the change. A fork's own `apphosting.<env>.yaml`
   stays out of pull requests to the upstream repo too.
+- `agents:check`: fails when AGENTS.md, a skill, the README or `docs/self-host.md` names an npm
+  script or a path that isn't there, a skill's frontmatter is wrong, or `.env.example` doesn't
+  mention a variable the code reads. Fix the guide or `.env.example`, not the check.
 
 ## When relevant
 
@@ -62,7 +66,7 @@ Quote the real summary lines, for example:
 - typecheck: passed, no errors
 - lint: passed
 - test: the `Test Files` and `Tests` lines as printed
-- check:instance and check:private-paths: their one-line results
+- check:instance, check:private-paths and agents:check: their one-line results
 - build and smoke: the result, or why you didn't run them
 
 Say what you didn't run and why. Pull requests go against `dev`.

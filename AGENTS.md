@@ -38,6 +38,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 | `npm run smoke` | End to end test on throwaway emulators (needs Java; builds first when there is no build) |
 | `npm run check:instance` | Fails when code names one hosted copy (its domains, projects or tenants) |
 | `npm run check:private-paths` | Fails on files that belong only in a deployment's private repo |
+| `npm run agents:check` | Fails when a guide names a script or path that isn't there, or `.env.example` misses a variable |
 | `npm run doctor -- --cloud --project <id>` | Read-only checks of a Google Cloud project |
 | `npm run selfhost -- --project <id>` | The self-host plan, read-only. `--apply <step>` changes the project |
 

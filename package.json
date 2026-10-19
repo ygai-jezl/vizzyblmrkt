@@ -20,8 +20,9 @@
     "selfhost": "node scripts/selfhost.mjs",
     "check:instance": "node scripts/check-instance-values.mjs",
     "check:private-paths": "node scripts/check-private-paths.mjs",
-    "smoke": "(test -f .next/BUILD_ID || next build) && firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",
-    "emulators": "firebase emulators:start --only firestore,auth --project demo-yougrow"
+    "agents:check": "node scripts/agents-check.mjs",
+    "smoke": "(test -f .next/BUILD_ID || next build) && node scripts/emulators.mjs exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",
+    "emulators": "node scripts/emulators.mjs start --only firestore,auth --project demo-yougrow"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^7.9.4",

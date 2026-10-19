@@ -908,5 +908,7 @@ html:has(.yg[data-yg-theme="light"]), body:has(.yg[data-yg-theme="light"]) { bac
 .yg .qa dd { margin: 12px 0 0; max-width: 46ch; font: 400 16.5px/1.55 var(--text); color: var(--soft); }
 .yg .qa dd a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .yg .joinbox { width: 100%; max-width: 440px; margin: 40px auto 0; }
+/* Japanese uses the system's Japanese fonts (no font download). */
+.yg { --f-noto-jp: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", YuGothic, Meiryo, 'Noto Sans JP', 'Noto Sans CJK JP'; }
 @media (max-width: 900px) { .yg .faq .qa { grid-template-columns: 1fr; } }
 .yg[dir="rtl"] .qa dd a { unicode-bidi: isolate; }

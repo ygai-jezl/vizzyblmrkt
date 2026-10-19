@@ -28,7 +28,7 @@ describe("gaConfig", () => {
 
 describe("isGaTrackedPath", () => {
   it("measures only the public site", () => {
-    for (const p of ["/", "/login", "/developers", "/developers/events"]) {
+    for (const p of ["/", "/login", "/developers", "/developers/events", "/loop/plan", "/features/brand-kit", "/fr", "/ja/loop/learn", "/ar/features/voice-chat"]) {
       expect(isGaTrackedPath(p)).toBe(true);
     }
     for (const p of [
@@ -40,6 +40,10 @@ describe("isGaTrackedPath", () => {
       "/admin-preview/c1",
       "/unsubscribe",
       "/developersx",
+      "/loop",
+      "/esx",
+      "/fr/admin",
+      "/help/brand-map",
     ]) {
       expect(isGaTrackedPath(p)).toBe(false);
     }

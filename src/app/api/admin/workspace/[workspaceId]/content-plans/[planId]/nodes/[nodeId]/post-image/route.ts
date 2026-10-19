@@ -20,7 +20,10 @@ import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/i
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { htmlToText } from "@/lib/email/emailRender";
-import { renderStyleImage } from "@/lib/content/imageStyle/render/styleImage";
+import { renderStyleImage, templateFor, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
+import { chartFromCopy, figureFromCopy } from "@/lib/content/imageStyle/chartFromCopy";
+import { seedFor } from "@/lib/content/imageStyle/render/templates/lineArt";
+import { ChartSchema, FigureSchema, type Chart, type Figure } from "@/lib/types/imageStyle";
 import { headlineFrom, SOCIAL_RENDER_SIZE } from "@/lib/content/imageStyle/render/socialText";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
 import { recordImageAsset } from "@/lib/admin/brandKit";
@@ -42,6 +45,12 @@ const BodySchema = z.object({
   headline: z.string().max(160).optional(),
   /** Make a screenshot style without one (the person chose "Make it without a screenshot"). */
   withoutScreenshot: z.boolean().optional(),
+  /** Data story: the person's own numbers (else the post's, checked). */
+  chart: ChartSchema.optional(),
+  /** Type poster: the person's big number (else the post's first figure). */
+  figure: FigureSchema.optional(),
+  /** How many times this image has been made: Line art draws anew each time. */
+  attempt: z.number().int().min(0).max(1000).optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
@@ -120,60 +129,101 @@ export async function POST(req: Request, { params }: RouteParams) {
   const words = (parsed.data.headline?.trim() || headlineFrom(htmlToText(node.body || "")) || brief).slice(0, 160);
   const ownWords = parsed.data.headline?.trim() ? parsed.data.headline.trim() : null;
 
-  // A template style is drawn, not painted: exact words, the brand's fonts, logo and screens.
-  // If the render fails, the style's painted twin below still makes an image.
-  if (choice.enabled && choice.resolved.engine === "template" && words) {
-    const template = choice.resolved.id === "product_noir" ? "product_noir" : "headline_card";
-    const drawn = await renderStyleImage({
+  // What the v2 drawn styles draw: Data story's numbers (the person's, else the post's, checked;
+  // too few and the person is asked), Type poster's big number, Line art's pattern.
+  const resolved = choice.resolved;
+  const drawnId = choice.enabled && resolved.engine === "template" ? resolved.id : null;
+  const postText = htmlToText(node.body || "");
+  let chart: Chart | null = null;
+  if (drawnId === "data_story") {
+    chart = parsed.data.chart ?? (await chartFromCopy({ text: postText }));
+    if (!chart) {
+      return NextResponse.json(
+        {
+          error: "needs_numbers",
+          message: "Data story draws a chart from numbers in your post, and found fewer than two. Add your numbers, or make it a Type poster.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+  const figure: Figure | null =
+    drawnId === "type_poster" ? (parsed.data.figure ?? figureFromCopy({ text: `${words}\n${postText}` })) : null;
+  const seed = drawnId === "line_art" ? seedFor(words, parsed.data.attempt ?? 0) : undefined;
+
+  /** Store a drawn image as this post's, with what it drew. */
+  const saveDrawn = async (drawn: StyleImageResult) => {
+    const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
+    if (!stored.ok) return null;
+    const label = resolved.engine === "legacy" ? "" : resolved.label;
+    await recordImageAsset(
+      { tenantId: ctx.tenantId, region: ctx.region },
+      {
+        workspaceId,
+        filename: stored.filename,
+        mimeType: "image/png",
+        kind: "social",
+        prompt: `${label}: ${words}`.slice(0, 1000),
+        brief: (brief || words).slice(0, 1000),
+        aspect: parsed.data.aspect,
+        style: drawnId ?? "",
+        channel: node.channel,
+        source: { planId, nodeId },
+        parentAssetId: null,
+        byteSize: drawn.png.length,
+      },
+    ).catch((e) => console.warn("[brandKit] record social image failed:", e));
+    const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+      imageAssetRef: stored.filename,
+      imageAspect: parsed.data.aspect,
+      imagePrompt: null,
+      imageStyleId: choice.ownPick,
+      imageHeadline: ownWords,
+      ...(chart ? { imageChart: chart } : {}),
+      ...(figure && parsed.data.figure ? { imageFormatInputs: { ...(node.imageFormatInputs ?? {}), figure } } : {}),
+    });
+    if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
+    return NextResponse.json({
+      imageAssetRef: updated.imageAssetRef,
+      imagePrompt: null,
+      imageStyleId: choice.ownPick,
+      styleId: drawnId,
+      ...(chart ? { chart } : {}),
+      ...(figure ? { figure } : {}),
+      ...(drawn.note ? { note: drawn.note } : {}),
+    });
+  };
+  const draw = (art?: Buffer) =>
+    renderStyleImage({
       ctx,
       tenant,
-      template,
+      template: templateFor(drawnId!)!,
       size: SOCIAL_RENDER_SIZE[parsed.data.aspect],
       headline: words,
       showLogo: tenant?.imageStyle?.logoOnSocial !== false,
+      chart,
+      figure,
+      ...(seed !== undefined ? { seed } : {}),
+      ...(art ? { art } : {}),
     });
+
+  // A template style is drawn, not painted: exact words, the brand's fonts, logo and screens.
+  // If the render fails, the style's painted twin below still makes an image. Split card is
+  // drawn around painted art, so it's painted first (below).
+  if (drawnId && drawnId !== "split_card" && words) {
+    const drawn = await draw();
     if (drawn) {
-      const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
-      if (stored.ok) {
-        await recordImageAsset(
-          { tenantId: ctx.tenantId, region: ctx.region },
-          {
-            workspaceId,
-            filename: stored.filename,
-            mimeType: "image/png",
-            kind: "social",
-            prompt: `${choice.resolved.label}: ${words}`.slice(0, 1000),
-            brief: (brief || words).slice(0, 1000),
-            aspect: parsed.data.aspect,
-            style: choice.resolved.id,
-            channel: node.channel,
-            source: { planId, nodeId },
-            parentAssetId: null,
-            byteSize: drawn.png.length,
-          },
-        ).catch((e) => console.warn("[brandKit] record social image failed:", e));
-        const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
-          imageAssetRef: stored.filename,
-          imageAspect: parsed.data.aspect,
-          imagePrompt: null,
-          imageStyleId: choice.ownPick,
-          imageHeadline: ownWords,
-        });
-        if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
-        return NextResponse.json({
-          imageAssetRef: updated.imageAssetRef,
-          imagePrompt: null,
-          imageStyleId: choice.ownPick,
-          styleId: choice.resolved.id,
-          ...(drawn.note ? { note: drawn.note } : {}),
-        });
-      }
+      const saved = await saveDrawn(drawn);
+      if (saved) return saved;
     }
   }
-  if (!brief) return NextResponse.json({ error: "invalid_input", message: "Describe the image first." }, { status: 400 });
+  const split = drawnId === "split_card";
+  // Split card's photo pictures the post's words when no brief was given.
+  const paintBrief = brief || (split ? words : "");
+  if (!paintBrief) return NextResponse.json({ error: "invalid_input", message: "Describe the image first." }, { status: 400 });
 
   // A painted style: the brand's headline and logo go over the art when it asked for them.
-  const saved = choice.enabled && choice.resolved.engine === "model" ? tenant?.imageStyle : undefined;
+  const saved = choice.enabled && resolved.engine === "model" ? tenant?.imageStyle : undefined;
   const overlay =
     saved && (saved.headlineOnSocial !== false || saved.logoOnSocial !== false)
       ? { showHeadline: saved.headlineOnSocial !== false && !!words, showLogo: saved.logoOnSocial !== false }
@@ -184,9 +234,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     tenantId: ctx.tenantId,
     workspaceId,
     channel: node.channel,
-    brief,
+    brief: paintBrief,
     aspect: parsed.data.aspect,
-    style: choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE,
+    style: split ? "split_card" : (choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE),
     direction: choice.model.direction,
     ...(choice.enabled ? { learningStyleId: learnBucket } : {}),
     copyExcerpt: htmlToText(node.body || ""),
@@ -196,7 +246,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     nodeId,
     useBrandStyle,
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
-    ...(overlay
+    ...(split
+      ? {
+          // The painted photo becomes the split card's half.
+          finish: async (art) => {
+            const drawn = await draw(art.bytes);
+            return drawn ? { bytes: drawn.png, mimeType: "image/png" } : art;
+          },
+        }
+      : overlay
       ? {
           finish: async (art) => {
             const drawn = await renderStyleImage({
@@ -228,6 +286,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     }),
   });
 
+  // Split card without its photo (painting failed): the panel fills the frame.
+  if (!result.imageAssetRef && split && words) {
+    const drawn = await draw();
+    const saved = drawn ? await saveDrawn(drawn) : null;
+    if (saved) return saved;
+  }
   if (!result.imageAssetRef) {
     return NextResponse.json(
       { error: result.reason, message: IMAGE_ERRORS[result.reason ?? ""] ?? "Image generation failed." },

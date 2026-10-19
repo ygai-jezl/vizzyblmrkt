@@ -129,3 +129,4 @@ Cloud agents start on a fresh Ubuntu machine with no Google Cloud access, and ne
 - Run `npm run local` in a background terminal and wait for the `App:` line. With no Firebase CLI installed it fetches `firebase-tools@15.27.0` with npx, so it needs npm registry access. If a port is taken, use the `LOCAL_*_PORT` variables.
 - The app runs on the offline `demo-yougrow` project. Don't run deploys, `infra/` scripts or `npm run selfhost` from a cloud agent.
 - Check your work with `npm run typecheck`, `npm run lint` and `npm test`.
+- Install and start commands for Cursor's environment settings, Claude Code on the web and dev containers: `docs/agents/cloud.md`.

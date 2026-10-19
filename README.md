@@ -25,6 +25,8 @@ Get YouGrow running on my laptop. Follow AGENTS.md.
 The repo ships an agent kit for Claude Code and Cursor: [AGENTS.md](AGENTS.md), step by step
 skills in `.claude/skills/`, and safe defaults that ask before any deploy or cloud change.
 
+Prefer a container or a cloud agent? See [docs/agents/cloud.md](docs/agents/cloud.md).
+
 ## Without an agent
 
 You need Node 24 and Java 21 (the Firebase emulators run on Java).

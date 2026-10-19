@@ -1,0 +1,14 @@
+{
+  "name": "YouGrow",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "node",
+  "forwardPorts": [3002, 4000, 8080, 9099, 4400],
+  "portsAttributes": {
+    "3002": { "label": "App" },
+    "4000": { "label": "Emulator UI" },
+    "8080": { "label": "Firestore emulator" },
+    "9099": { "label": "Auth emulator" },
+    "4400": { "label": "Emulator hub" }
+  },
+  "postCreateCommand": "npm ci"
+}

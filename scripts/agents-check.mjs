@@ -9,7 +9,8 @@
 //   - AGENTS.md is over 200 lines or a SKILL.md over 500;
 //   - .env.example doesn't mention a variable the code in src/, scripts/ or workers/ reads.
 // The guides: every AGENTS.md and CLAUDE.md, .claude/skills/*/SKILL.md, README.md,
-// CONTRIBUTING.md and docs/self-host.md. The pieces are in scripts/lib/agents-check.mjs.
+// CONTRIBUTING.md, docs/self-host.md and docs/agents/cloud.md. The pieces are in
+// scripts/lib/agents-check.mjs.
 //
 // Paths are checked against git's view of the repo (tracked files, plus new ones that
 // aren't ignored), so a fresh clone and a working laptop give the same answer.
@@ -37,7 +38,7 @@ import { REPO_ROOT } from "./lib/local-env.mjs";
 
 const MAX_AGENTS_LINES = 200;
 const MAX_SKILL_LINES = 500;
-const ROOT_GUIDES = ["README.md", "CONTRIBUTING.md", "docs/self-host.md"];
+const ROOT_GUIDES = ["README.md", "CONTRIBUTING.md", "docs/self-host.md", "docs/agents/cloud.md"];
 const JSON_FILES = [".claude/settings.json", ".mcp.json", ".cursor/mcp.json"];
 
 /** Every file git would commit: tracked plus new and not ignored. */

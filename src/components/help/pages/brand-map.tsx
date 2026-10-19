@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
 
 export default function BrandMapHelp() {
   return (
@@ -90,6 +91,13 @@ export default function BrandMapHelp() {
         <li>
           To write one yourself, press <strong>Add a situation</strong>.
         </li>
+        {isBrandMapSituationAskUiEnabled() ? (
+          <li>
+            To get what people in a situation ask, open it and press <strong>Find what they ask</strong>. This takes up to a
+            minute. Add the questions that fit and dismiss the rest. A question on a subject that isn&apos;t on your map yet
+            brings its subject with it.
+          </li>
+        ) : null}
       </Steps>
 
       <H2 id="pdf">Import research from a PDF</H2>

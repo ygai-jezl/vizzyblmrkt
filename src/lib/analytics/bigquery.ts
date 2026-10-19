@@ -22,7 +22,7 @@ import type { CountRow } from "./analytics";
  * parameterized with @tenant_id bound from the SERVER-derived TenantContext, and
  * the dataset/project identifiers (which can't be query params) come only from a
  * fixed server-side env allowlist, never from user input. See
- * docs/VALIDATION-FINDINGS.md and docs/ARCHITECTURE-AND-DELIVERY.md §4.
+ * docs/ARCHITECTURE-AND-DELIVERY.md §4.
  */
 
 const TOP_N = 20;

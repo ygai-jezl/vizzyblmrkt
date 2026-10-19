@@ -15,7 +15,7 @@ import { TimeSeries } from "@/components/admin/charts/TimeSeries";
  * KPI cards + signup breakdowns are always present (Firestore real-time or
  * BigQuery at scale). The impression metrics are present only when widget
  * view-tracking is configured AND has data; otherwise an explanatory note is
- * shown (PRD §4.2: these require the embeddable widget layer + the pipeline).
+ * shown (these require the embeddable widget layer + the pipeline).
  *
  * Shared by the global Analytics page (which adds the campaign-switcher pills)
  * and the per-launch Analytics tab (already scoped to one launch), so both

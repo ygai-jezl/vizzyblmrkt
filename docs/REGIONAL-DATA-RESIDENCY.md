@@ -4,7 +4,7 @@
 
 ## 1. Feasibility verdict
 
-**Yes — your "a database backend in US, one in EU, one in Asia" is achievable today on GA Google products, with one correction and one shape.** The correction: there is **no Asia multi-region**. US and EU get replicated multi-region backends (5-nines); Asia must be a single region (4-nines). The shape: **one Firebase project, multiple *named* Firestore databases — one per region — selected at request time by a `region` field on the tenant**, with a per-region BigQuery dataset for analytics. This is exactly the pattern your sibling app `vizzybl-portal` already ships in production (`/Users/jezlloyd/vizzybl-portal/functions/src/db.ts`), which de-risks the work to "copy a proven shape." The one thing you must do **now** — before any production data exists — is thread an immutable `region` through Phase 0, because Firestore database location is immutable and region is as expensive to retrofit as `tenantId`. You can ship that region-readiness while provisioning only the US database.
+**Yes. A database backend in the US, one in the EU and one in Asia is achievable today on GA Google products, with one correction and one shape.** The correction: there is **no Asia multi-region**. US and EU get replicated multi-region backends (5-nines); Asia must be a single region (4-nines). The shape: **one Firebase project, multiple *named* Firestore databases (one per region), selected at request time by a `region` field on the tenant**, with a per-region BigQuery dataset for analytics. An earlier sibling app already ran this exact pattern in production, which reduces the work to copying a proven shape. The one thing you must do **now**, before any production data exists, is thread an immutable `region` through Phase 0, because Firestore database location is immutable and region is as expensive to retrofit as `tenantId`. You can ship that region-readiness while provisioning only the US database.
 
 ## 2. The Google constraints that drive the design
 
@@ -16,7 +16,7 @@
 | **"Residency" = data **at rest**, by contract.** Google's data-residency commitment covers Customer Data at rest (and in-use by the configured service) for services configured to a region/multi-region; it explicitly **excludes** resource identifiers, attributes, and metadata. ([assured-workloads/data-residency](https://docs.cloud.google.com/assured-workloads/docs/data-residency)) | At-rest in-region satisfies the common GDPR-style bar. US compute reading an EU DB keeps EU rows at-rest in the EU but **does** transit them to the US (a Restricted European Transfer covered by Google's SCCs/DPF — not an automatic violation). In-transit/in-use residency is a *separate, stronger* control requiring regional endpoints + regional compute. **Don't encode PII into doc/database IDs** — metadata isn't covered. |
 | **Only one free database per project; the rest bill from op #1 and need Blaze.** ([firestore/pricing](https://firebase.google.com/docs/firestore/pricing)) | US+EU+Asia = at most 1 free + 2 billed DBs. Backups/PITR also have no free tier. Move to Blaze before launch. |
 | **Rules, indexes, backups, PITR are per-database; backups stay in the source location.** Max 100 DBs/project. Cloud Functions v1 can't trigger named DBs — use 2nd-gen triggers, one per regional DB. ([manage-databases](https://firebase.google.com/docs/firestore/manage-databases)) | Per-region operational config multiplies. Deploy rules+indexes to **all** DBs in CI; never hand-edit one region. DB-per-tenant is ruled out (100 cap + 1-free rule). |
-| **`getFirestore(app, databaseId)` still carries a "preview / Do not use in production" banner** in the current (mid-2026) firebase-admin Node reference. ([firebase-admin.firestore](https://firebase.google.com/docs/reference/admin/node/firebase-admin.firestore)) | **This is current, not stale** — I re-verified it today. *However*, the multiple-databases feature is GA, and your own `vizzybl-portal` ships this exact call in production. Treat the banner as a documentation lag, pin your firebase-admin version, and note the proven workaround: **`db.settings({ databaseId })` does NOT work — you must use `getFirestore(app, databaseId)`** (documented verbatim in the sibling `db.ts`). |
+| **`getFirestore(app, databaseId)` still carries a "preview / Do not use in production" banner** in the current (mid-2026) firebase-admin Node reference. ([firebase-admin.firestore](https://firebase.google.com/docs/reference/admin/node/firebase-admin.firestore)) | **This is current, not stale** (re-verified on the date above). *However*, the multiple-databases feature is GA, and an earlier sibling app ran this exact call in production. Treat the banner as a documentation lag, pin your firebase-admin version, and note the proven workaround: **`db.settings({ databaseId })` does NOT work; you must use `getFirestore(app, databaseId)`**. |
 
 ## 3. Recommended regional backend structure
 
@@ -82,16 +82,16 @@ Because **cross-location JOINs are disallowed**, aggregate across regions by mov
 
 ## 8. The minimal Phase-0 code change to be region-READY now
 
-Make these four non-breaking changes now; **provision only the US database.** The map starts with one entry; lighting up EU/Asia later is "create the DB + add a map entry," zero schema migration — exactly how `tenantId` was front-loaded. Mirror the proven `vizzybl-portal` shape (`functions/src/region/types.ts`, `functions/src/db.ts`).
+Make these four non-breaking changes now; **provision only the US database.** The map starts with one entry; lighting up EU/Asia later is "create the DB + add a map entry," zero schema migration, exactly how `tenantId` was front-loaded.
 
-**(1) Add an immutable `region` to the tenant schema** — `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/types/tenant.ts`. Use a *logical* region enum (not a raw locationId) so physical location stays swappable:
+**(1) Add an immutable `region` to the tenant schema** in `src/lib/types/tenant.ts`. Use a *logical* region enum (not a raw locationId) so physical location stays swappable:
 ```ts
 export const Region = z.enum(["us", "eu", "asia"]);
 export type Region = z.infer<typeof Region>;
 // add to TenantSchema (required): region: Region,  // IMMUTABLE — set at creation, never updated
 ```
 
-**(2) New pure resolver** — `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/regionMap.ts`. Start with only the home region:
+**(2) New pure resolver** in `src/lib/tenant/regionMap.ts`. Start with only the home region:
 ```ts
 import type { Region } from "@/lib/types/tenant";
 // Logical region -> Firestore named-DB id. Add eu/asia entries when those DBs are provisioned.
@@ -107,7 +107,7 @@ export function databaseIdForRegion(region: Region): string {
 }
 ```
 
-**(3) Make `getDb` accept a `databaseId` and cache per-id** — `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/firestore.ts`. The no-arg call keeps today's behavior. **Use `getFirestore(app, databaseId)` — `db.settings({databaseId})` does NOT work** (sibling-verified):
+**(3) Make `getDb` accept a `databaseId` and cache per-id** in `src/lib/tenant/firestore.ts`. The no-arg call keeps today's behavior. **Use `getFirestore(app, databaseId)`; `db.settings({databaseId})` does NOT work** (sibling-verified):
 ```ts
 const clients = new Map<string, Firestore>();   // keyed by databaseId
 export function getDb(databaseId = "(default)"): Firestore {
@@ -141,8 +141,8 @@ Because the map has one entry and `getFirestore(app, "(default)")` ≡ today's `
 
 **Deferred (pre-design the seams, don't build):** EU/Asia database provisioning until a tenant needs them; full regional compute cells (per-region App Hosting + global ALB + regional endpoints) until a latency SLA or in-transit/in-use requirement forces it; Assured Workloads / EU Data Boundary and CMEK until **sovereignty** (not residency) is contractually required; cross-region global analytics beyond a thin aggregate-of-counts; per-end-user residency unless a regulator mandates end-user (not brand) residency.
 
-**Decisions the founder must make (immutable once chosen):**
-1. **Which Asia region** — `asia-southeast1` (Singapore, what the sibling uses), `asia-northeast1` (Tokyo), or `asia-south1` (Mumbai)? Drive by target market + any in-country localization law.
+**Decisions to make before you provision (immutable once chosen):**
+1. **Which Asia region:** `asia-southeast1` (Singapore, the one this codebase uses), `asia-northeast1` (Tokyo), or `asia-south1` (Mumbai)? Drive by target market + any in-country localization law.
 2. **At-rest residency only, or in-transit/in-use too?** At-rest → central-compute MVP is fine. In-transit → gate launch on regional cells.
 3. **EU multi-region `eur3` (recommended, 5-nines, in-EU) vs a single EU region?**
 4. **Sovereignty needed** (CMEK / EU-only Google personnel)? If no → skip Assured Workloads for the MVP.
@@ -151,4 +151,4 @@ Because the map has one entry and `getFirestore(app, "(default)")` ≡ today's `
 
 ---
 
-*Relevant files: `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/firestore.ts`, `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/registry.ts`, `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/context.ts`, `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/types.ts`, `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/tenant/repository.ts`, `/Users/jezlloyd/antigravity/vizzyblmarketing/src/lib/types/tenant.ts`; proven reference: `/Users/jezlloyd/vizzybl-portal/functions/src/region/types.ts`, `/Users/jezlloyd/vizzybl-portal/functions/src/db.ts`.*
+*Relevant files: `src/lib/tenant/firestore.ts`, `src/lib/tenant/registry.ts`, `src/lib/tenant/context.ts`, `src/lib/tenant/types.ts`, `src/lib/tenant/repository.ts`, `src/lib/types/tenant.ts`.*

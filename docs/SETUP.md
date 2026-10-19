@@ -226,7 +226,7 @@ All app queries bind `@tenant_id` (parameterized) — never interpolated. RLS is
 NOT used (it binds to IAM principals, not query params); isolation is enforced in
 app code, mirroring `TenantCollection`.
 
-### 11.3 `widget_views` table + the impression beacon (PRD §4.2)
+### 11.3 `widget_views` table + the impression beacon
 "Views over Time" and true "Referrer Sources" come from widget IMPRESSIONS, which
 never touch Firestore. The embed client fires a same-origin beacon
 (`src/lib/analytics/viewBeacon.ts`, via `EmbedAutoResize`) to the public
@@ -255,7 +255,7 @@ BigQuery Data Access audit logs. Then set the env (already in `apphosting*.yaml`
 flag off): `ANALYTICS_BQ_ENABLED`, `NEXT_PUBLIC_ANALYTICS_BQ_ENABLED`,
 `BQ_DATASET_US/EU/ASIA`. Validate backfill counts against
 `forTenant(ctx).signups.count(...)` / `.emailEvents.count(...)` before flipping
-the flag. See docs/ARCHITECTURE-AND-DELIVERY.md §7 + VALIDATION-FINDINGS.md.
+the flag. See docs/ARCHITECTURE-AND-DELIVERY.md §7.
 
 ---
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Provision the Knowledge Ingestion & Vector Retrieval (RAG) GCP side. See
-# memory feature-knowledge-rag-ingestion, workers/knowledge-scraper/README.md,
-# and src/lib/agents/knowledgeRetrieval.ts. The app ships OFF by default
-# (KNOWLEDGE_RAG_ENABLED="false"); this provisions the infra, then you flip the
-# flag. Least-privilege: the worker runs as a DEDICATED service account (NOT the
-# default compute SA), and the App Hosting SA can only trigger the one job.
+# workers/knowledge-scraper/README.md and src/lib/agents/knowledgeRetrieval.ts.
+# The app ships OFF by default (KNOWLEDGE_RAG_ENABLED="false"); this provisions
+# the infra, then you flip the flag. Least-privilege: the worker runs as a
+# DEDICATED service account (NOT the default compute SA), and the App Hosting SA
+# can only trigger the one job.
 #
 # Identities:
 #   knowledge-scraper@<project>          -> the Cloud Run Job RUNTIME SA (container)

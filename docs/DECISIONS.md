@@ -103,7 +103,7 @@ Adversarial review (post-build) findings, all addressed:
 
 Context: founder wants regional data residency (US / EU / Asia). Validated against
 current Google docs — see [REGIONAL-DATA-RESIDENCY.md](./REGIONAL-DATA-RESIDENCY.md).
-The sibling app `vizzybl-portal` already ships this named-database pattern in prod.
+An earlier sibling app already ran this named-database pattern in production.
 
 | # | Decision | Choice |
 |---|----------|--------|
@@ -128,16 +128,15 @@ The sibling app `vizzybl-portal` already ships this named-database pattern in pr
 - **Asia region = `asia-southeast1` (Singapore)** (immutable; matches the sibling app and the `gcp.resourceLocations` allow-list).
 - **EU = `eur3`** multi-region (5-nines, in-EU).
 - **Sovereignty = no** — residency only. Data-at-rest in-region + the `gcp.resourceLocations` org policy is sufficient. Assured Workloads / CMEK deferred unless a contract demands it.
-- **Provisioning:** all three regional databases now exist in **dev** (verified): `(default)`@`nam5` (US), `signups-eu`@`eur3` (EU), `signups-asia`@`asia-southeast1` (Asia). `region.ts` has all three `provisioned: true`; `firebase.json` lists all three so `firebase deploy --only firestore` pushes the deny-all rules + composite indexes to each. (Prod: provision the EU/Asia databases there before routing an EU/Asia tenant.) See [[gcp-dev-provisioning]] for the live project IDs, App Hosting backends, and org policies.
+- **Provisioning:** all three regional databases now exist in **dev** (verified): `(default)`@`nam5` (US), `signups-eu`@`eur3` (EU), `signups-asia`@`asia-southeast1` (Asia). `region.ts` has all three `provisioned: true`; `firebase.json` lists all three so `firebase deploy --only firestore` pushes the deny-all rules + composite indexes to each. (Prod: provision the EU/Asia databases there before routing an EU/Asia tenant.)
 
 ---
 
 ## ADR-0001 — MVP runtime, security posture, tenancy & scoring (2026-06-15)
 
-Context: kickoff. PRD validated against current Google Cloud docs (see
-[ARCHITECTURE-AND-DELIVERY.md](./ARCHITECTURE-AND-DELIVERY.md) and
-[VALIDATION-FINDINGS.md](./VALIDATION-FINDINGS.md)). Four decisions confirmed
-with the founder:
+Context: kickoff. The original product requirements were validated against current Google
+Cloud docs (see [ARCHITECTURE-AND-DELIVERY.md](./ARCHITECTURE-AND-DELIVERY.md)).
+Four decisions confirmed with the founder:
 
 | # | Decision | Choice | Rationale |
 |---|----------|--------|-----------|
@@ -147,11 +146,11 @@ with the founder:
 | 4 | **Leaderboard scoring** | Per-campaign **`spotsToMoveUponReferral`** (admin-editable integer); `score = amountReferred × spotsToMoveUponReferral`; ties broken by `createdAt ASC` | Honours the founder's "spots skipped per referral" model. `score` stays a small pure integer — we deliberately do NOT fold the Unix timestamp into it (avoids the seconds-vs-ms precision bug and a magic constant). Exact position/leaderboard math is finalized in Phase 2. Time is always integer Unix **seconds**. |
 
 ### Runtime / stack
-- **Next.js 15 + React 18 + TypeScript 5.6**, Tailwind, Zod, Vitest — aligned with the sibling app `vizzybl-portal`.
-- Deploy on **Firebase App Hosting**; two projects: `vizzybl-marketing-dev` and `vizzybl-marketing-prod`. Prod uses `minInstances: 1`.
+- **Next.js 15 + React 18 + TypeScript 5.6**, Tailwind, Zod, Vitest.
+- Deploy on **Firebase App Hosting**; two projects, one for dev and one for prod. Prod uses `minInstances: 1`.
 - Firestore accessed via `firebase-admin` (Application Default Credentials; no key files). `firestore-bigquery-export` extension on a **Blaze** project for the analytics pipeline (Phase 2) — the BigQuery *sandbox* cannot stream.
 
-### Data model (from `Vizzybl-Marketing Data Schema.md`)
+### Data model (from the original data schema)
 Root-level collections, all partitioned by `tenantId`:
 - `tenants` (global registry — not tenant-scoped; resolved by id / allow-listed origin)
 - `tenant_users` (flat user↔tenant associations; role `admin` | `member`)

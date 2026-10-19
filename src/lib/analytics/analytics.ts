@@ -161,7 +161,7 @@ function hostOf(url: string | null | undefined): string | null {
  * Firestore (real-time, exact); the heavy breakdowns come from BigQuery when the
  * pipeline is configured, and two impression-only metrics (`viewsByDay`,
  * `viewReferrerSources`) are present only when widget view-tracking has data.
- * `source` lets the UI label provenance and show the PRD's warning tooltips.
+ * `source` lets the UI label provenance and show its warning tooltips.
  */
 export interface HybridCampaignAnalytics extends CampaignAnalytics {
   /** Widget impressions over time — present only when view-tracking has data. */

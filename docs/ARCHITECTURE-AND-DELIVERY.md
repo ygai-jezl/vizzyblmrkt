@@ -1,8 +1,8 @@
 # vizzybl-marketing — Delivery & Architecture Assessment
 
 **Prepared by:** Senior Cloud Architect • **Date:** 2026-06-15
-**Scope:** Validation of the vizzybl-marketing PRD (multi-tenant SaaS waitlist MVP) against current (mid-2026) Google Cloud documentation, synthesized from 7 specialist reviews.
-**Bottom line:** The PRD's *instincts* are good and most named GCP controls are real — but several headline claims are factually wrong (free-tier streaming, security-rules-based tenant isolation, "Gemini 1.5 Pro"), and the proposed architecture is **over-built for an MVP** in exactly the way that creates the "tech debt adds up quickly" problem you're worried about. The right move is a lean App Hosting + Firestore + scoped-service-account footprint with isolation enforced *in application code*, deferring the VPC-SC perimeter, internal-only services, and the multi-agent platform.
+**Scope:** Validation of the original product requirements document (the PRD, for a multi-tenant SaaS waitlist MVP; it is not part of this repo) against current (mid-2026) Google Cloud documentation, synthesized from 7 specialist reviews.
+**Bottom line:** The PRD's *instincts* are good and most named GCP controls are real, but several headline claims are factually wrong (free-tier streaming, security-rules-based tenant isolation, "Gemini 1.5 Pro"), and the proposed architecture is **over-built for an MVP** in exactly the way that makes tech debt add up quickly. The right move is a lean App Hosting + Firestore + scoped-service-account footprint with isolation enforced *in application code*, deferring the VPC-SC perimeter, internal-only services, and the multi-agent platform.
 
 ---
 
@@ -14,7 +14,7 @@
 - **DO THIS NOW (#2):** pin the leaderboard score to **integer Unix seconds**, and re-weight the formula. The PRD's `Referrals*500 - signupSeconds` makes one referral worth only **8.3 minutes** of signup priority; and if milliseconds ever leak in, the timestamp term silently swamps referrals (JS doubles are safe only to 2^53).
 - **DO THIS NOW (#3):** decide the **App Hosting vs raw-Cloud-Run** question explicitly. App Hosting (the sibling-app convention) is the correct lean MVP runtime, but its managed load balancer **cannot** attach Cloud Armor / reCAPTCHA-WAF or join a VPC-SC perimeter. If edge WAF/VPC-SC is a hard requirement you must run raw Cloud Run behind your own external ALB — a materially heavier build. For the MVP, do reCAPTCHA Enterprise at the **application layer** instead.
 - **Replace "Serverless VPC Access connector" with Direct VPC egress** everywhere — it is the documented 2026 recommendation, scales to zero, and has **no always-on VM charge** ([docs](https://docs.cloud.google.com/run/docs/configuring/connecting-vpc)).
-- **Defer the heavy machinery.** The full VPC-SC perimeter, internal-only Cloud Run, Agent Engine/Runtime, Agent Identity, A2A, and the 6-agent system are **post-MVP**. For a waitlist MVP they are premature complexity (the inverse of the tech-debt you want to avoid). Keep the design *VPC-SC-ready* (Direct VPC egress, ingress settings) so the upgrade is non-breaking when compliance justifies it.
+- **Defer the heavy machinery.** The full VPC-SC perimeter, internal-only Cloud Run, Agent Engine/Runtime, Agent Identity, A2A, and the 6-agent system are **post-MVP**. For a waitlist MVP they are premature complexity (they create tech debt instead of avoiding it). Keep the design *VPC-SC-ready* (Direct VPC egress, ingress settings) so the upgrade is non-breaking when compliance justifies it.
 - **The good news:** reCAPTCHA Enterprise + Cloud Armor (CRS 4.22), Model Armor, Sensitive Data Protection, Firestore aggregation pricing, Cloud CDN counter caching, Identity Platform multi-tenancy, and the firestore-bigquery-export extension are all **real and current** — the PRD just needs corrected versions, the right cost model, and isolation in the right layer.
 
 ---
@@ -50,7 +50,7 @@ Verdicts: **Confirmed** / **Outdated** / **Incorrect** / **Needs-change**. Order
 
 **Principle:** ship the **leanest secure footprint** that delivers the waitlist MVP, and keep it *upgrade-ready* for the perimeter without re-platforming.
 
-**Runtime recommendation: Firebase App Hosting** (Next.js 15, zero-config) for the public landing page, signup/processor API, and admin portal — this *is* managed Cloud Run + Cloud CDN + Cloud Build + Secret Manager + a Google-managed LB, matches the sibling `vizzybl-portal` convention, and scales to zero (≈$0.01 at 10k visits/mo). **Do reCAPTCHA Enterprise at the application layer** (App Hosting's LB can't host Cloud Armor). Reserve raw Cloud Run + self-managed ALB only if/when edge WAF or a VPC-SC perimeter becomes a hard requirement.
+**Runtime recommendation: Firebase App Hosting** (Next.js 15, zero-config) for the public landing page, signup/processor API, and admin portal. This *is* managed Cloud Run + Cloud CDN + Cloud Build + Secret Manager + a Google-managed LB, matches the convention of an earlier sibling app, and scales to zero (≈$0.01 at 10k visits/mo). **Do reCAPTCHA Enterprise at the application layer** (App Hosting's LB can't host Cloud Armor). Reserve raw Cloud Run + self-managed ALB only if/when edge WAF or a VPC-SC perimeter becomes a hard requirement.
 
 ```
                           Internet (anonymous + tenant custom domains)
@@ -91,7 +91,7 @@ Verdicts: **Confirmed** / **Outdated** / **Incorrect** / **Needs-change**. Order
 
 ### Component decisions
 
-- **Hosting:** App Hosting backends, **one per environment** in **separate GCP projects** (`vizzybl-marketing-dev`, `vizzybl-marketing-prod`) per Firebase guidance, config via `apphosting.yaml` + `apphosting.prod.yaml` overrides, secrets in Secret Manager (pinned versions in prod). Set **`minInstances: 1`** on the prod public backend to kill cold starts (the pending queue can be up to **10s or 3.5× startup time**); `minInstances: 0` in dev for zero idle cost.
+- **Hosting:** App Hosting backends, **one per environment** in **separate GCP projects** (for example `<name>-dev` and `<name>-prod`) per Firebase guidance, config via `apphosting.yaml` + `apphosting.prod.yaml` overrides, secrets in Secret Manager (pinned versions in prod). Set **`minInstances: 1`** on the prod public backend to kill cold starts (the pending queue can be up to **10s or 3.5× startup time**); `minInstances: 0` in dev for zero idle cost.
 - **Data model & tenantId enforcement:** **single (default) Firestore database** + `tenantId` field. **Not** database-per-tenant (capped at 100/project — wrong for a viral many-tenant waitlist). Isolation enforced in a **single centralized repository layer** (see §4). `tenantId` derived from the **verified host→tenant mapping**, never from request body.
 - **Firestore → BigQuery pipeline:** the `firestore-bigquery-export` extension is the default (fastest, aligns with the sibling stack), on a **Blaze, billing-enabled** project. Partition the changelog **by date**, **cluster by tenantId**, promote `tenantId` to a **top-level typed STRING column** (RLS can't apply to the JSON `data` column). De-dupe in the latest view (window by `document_id` on Firestore update timestamp) because delivery is at-least-once/unordered. Keep survey answers/UTM in the JSON `data` column, project reported fields via `fs-bq-schema-views`. **Plan an initial backfill.** *(If you later enforce VPC-SC, either add the extension's Cloud Function + BigQuery to perimeter ingress/egress rules, or move ingestion in-perimeter via the Storage Write API.)*
 - **reCAPTCHA / Cloud Armor:** **MVP = application-layer reCAPTCHA Enterprise** (`createAssessment` server-side: verify `tokenProperties.valid`, `action == expected`, score; tokens single-use, expire 2 min; first 10k/mo free) + Firebase App Check + per-IP app-level rate limiting. **Add Cloud Armor (CRS 4.22) only post-MVP** with a self-managed ALB if abuse warrants it.
@@ -100,7 +100,7 @@ Verdicts: **Confirmed** / **Outdated** / **Incorrect** / **Needs-change**. Order
 
 ### Why deferring is the *right* call (not laziness)
 
-The full VPC-SC perimeter blocks **Cloud Build continuous deployment inside the perimeter**, forces restricted-VIP DNS + deny-all firewall plumbing, supports only `ANY_IDENTITY` ingress for Cloud Run, and is **incompatible with App Hosting** (public by design) — that is real, ongoing operational toil for a waitlist with no enterprise-PII compliance driver yet. The 6-agent system, Agent Runtime, Agent Identity, A2A, and Memory Bank are similarly heavy: the **only MVP agent is the Email Hub**, which is a single in-process `LlmAgent`. Building the full machinery now **is** the tech debt you're trying to avoid. Keep the architecture VPC-SC-*ready* (Direct VPC egress, correct ingress settings, scoped SAs) so the upgrade is non-breaking later.
+The full VPC-SC perimeter blocks **Cloud Build continuous deployment inside the perimeter**, forces restricted-VIP DNS + deny-all firewall plumbing, supports only `ANY_IDENTITY` ingress for Cloud Run, and is **incompatible with App Hosting** (public by design). That is real, ongoing operational toil for a waitlist with no enterprise-PII compliance driver yet. The 6-agent system, Agent Runtime, Agent Identity, A2A, and Memory Bank are similarly heavy: the **only MVP agent is the Email Hub**, which is a single in-process `LlmAgent`. Building the full machinery now **is** the tech debt this plan avoids. Keep the architecture VPC-SC-*ready* (Direct VPC egress, correct ingress settings, scoped SAs) so the upgrade is non-breaking later.
 
 ---
 
@@ -177,7 +177,7 @@ OWASP Top 10 2021 + API Security Top 10 2023 + LLM Top 10, mapped to specific GC
 ## 7. Phased Delivery Roadmap
 
 ### Phase 0 — Foundations
-- **Scope:** Two GCP/Firebase projects (`-dev`, `-prod`, **Blaze**); monorepo aligned with `vizzybl-portal` (Next.js 15, React 18, TS 5.6, Zod, Vitest, Tailwind); App Hosting backends + `apphosting.{env}.yaml`; CI (lint, typecheck, Vitest); per-service least-privilege SAs; Secret Manager.
+- **Scope:** Two GCP/Firebase projects (`-dev`, `-prod`, **Blaze**); monorepo on Next.js 15, React 18, TS 5.6, Zod, Vitest and Tailwind; App Hosting backends + `apphosting.{env}.yaml`; CI (lint, typecheck, Vitest); per-service least-privilege SAs; Secret Manager.
 - **Key services:** App Hosting, Cloud Build, Secret Manager, IAM.
 - **Security gates:** org policies (`iam.disableServiceAccountKeyCreation`, `iam.automaticIamGrantsForDefaultServiceAccounts`); budget alerts + billing-disable safeguard; lint rule banning raw `db.collection()`; **centralized tenant-aware repository scaffold landed before any feature code**.
 
@@ -201,18 +201,3 @@ OWASP Top 10 2021 + API Security Top 10 2023 + LLM Top 10, mapped to specific GC
 - **Key services:** `@google/genai`, ADK (TS), Model Armor (project floor settings, `INSPECT_ONLY` → `INSPECT_AND_BLOCK`), Cloud Tasks, Cloud Scheduler.
 - **Security gates:** Model Armor separate input/output templates (PI/jailbreak High); app-side hard check given fail-open; pinned model ids + retirement-date runbook; no `tenantId` in prompts (isolation via IAM + server predicates).
 - **Explicitly deferred beyond Phase 4 (gated on multi-agent milestone):** Agent Runtime/reasoningEngines, Agent Identity, A2A, Memory Bank, the Market Intelligence agent (BigQuery `AI.GENERATE_TEXT` bound to a current Gemini id), full VPC-SC perimeter, internal-only Cloud Run + self-managed ALB + Cloud Armor.
-
----
-
-## 8. Open Questions for the Founder
-
-1. **Edge WAF at launch?** Do the public signup/leaderboard endpoints need Cloud Armor + reCAPTCHA-WAF **at MVP**, or is app-layer reCAPTCHA sufficient? This decides **App Hosting (lean) vs raw Cloud Run + self-managed ALB (heavy)** — the single biggest footprint fork.
-2. **Compliance driver for VPC-SC / CMEK?** Is there an enterprise/GDPR/SOC2 requirement that mandates a data-exfiltration perimeter or customer-managed keys at launch? If no, both are correctly **deferred**.
-3. **Org-level vs standalone project?** VPC-SC requires an **Organization** + org-level access policy. A standalone `vizzybl-marketing` project can't create a perimeter the documented way — confirm the org structure if a perimeter is ever planned.
-4. **Expected tenant count & growth rate?** This determines single-DB-vs-dataset-per-tenant, and whether the 100-database / 2,500-authorized-resource / 100-service-account limits bite.
-5. **Referral weighting intent?** Should referrals **dominate** rank (timestamp only breaks exact ties), or is the current ~8.3-min-per-referral weighting intentional? Drives the score formula rewrite.
-6. **Leaderboard freshness & depth.** Is a **1–5 min stale** rank acceptable (lets us serve from cache/rollups and remove the live `count()` from the hot path)? How deep must exact ranks go?
-7. **PII fields & masking spec.** Exactly which PII is collected at signup (phone? last name? company? survey answers?), and what is the precise per-field masking rule for the public leaderboard?
-8. **TS-only agents?** Stay TypeScript (`@google/adk`, no ADK 2.0 graph engine) for the single Email Hub agent, or stand up a separate Python ADK 2.0 service for future graph/multi-agent workloads?
-9. **Dashboard real-time requirement.** Does analytics need sub-minute freshness (justifying streaming + monitoring) or is minutes-level latency acceptable (cheaper, avoids streaming-insert nuances)?
-10. **PII erasure policy for BigQuery.** A Firestore delete does **not** erase the BigQuery copy (changelog + time-travel + CDC delete window). What is the required erasure SLA, and do we need an explicit purge process + reduced time-travel window?

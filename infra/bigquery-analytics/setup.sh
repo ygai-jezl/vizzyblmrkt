@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # Provision the Firestore -> BigQuery hybrid-analytics pipeline (Phase 2).
-# See docs/SETUP.md §11, src/lib/analytics/bigquery.ts, and
-# memory feature-bigquery-analytics. The app code ships OFF by default
-# (ANALYTICS_BQ_ENABLED="false"); this provisions the GCP side, then you flip
-# the flag. Until the flag flips, the dashboard stays on the Firestore path.
+# See docs/SETUP.md §11 and src/lib/analytics/bigquery.ts. The app code ships
+# OFF by default (ANALYTICS_BQ_ENABLED="false"); this provisions the GCP side,
+# then you flip the flag. Until the flag flips, the dashboard stays on the
+# Firestore path.
 #
 # Pipeline per region (us / eu / asia):
 #   signups       -(firestore-bigquery-export)-> waitlist_<r>.signups_raw_*       -> signups_latest (view)

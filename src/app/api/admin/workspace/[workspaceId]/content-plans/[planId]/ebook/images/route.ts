@@ -14,10 +14,16 @@ import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
-import { deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
+
 import { deleteImageAsset } from "@/lib/admin/brandKit";
 import { EbookAspect } from "@/lib/types/contentPlan";
 import { htmlToText } from "@/lib/email/emailRender";
+import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
+import { imageStyleById } from "@/lib/content/imageStyle/catalogue";
+import { renderStyleImage } from "@/lib/content/imageStyle/render/styleImage";
+import { deleteWorkspaceAsset, storeWorkspaceImage } from "@/lib/workspace/assetStore";
+import { recordImageAsset } from "@/lib/admin/brandKit";
+import { FormatInputsSchema, ImageFormatIdSchema } from "@/lib/types/imageStyle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +50,9 @@ const BodySchema = z.object({
   useBrandStyle: z.boolean().optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default (full). */
   model: z.enum(IMAGE_MODEL_SLUGS).optional(),
+  /** The cover as a report cover (IMAGE_FORMATS_ENABLED), drawn with no image model. */
+  format: ImageFormatIdSchema.optional(),
+  formatInputs: FormatInputsSchema.optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -113,6 +122,53 @@ export async function POST(req: Request, { params }: RouteParams) {
     tenant,
     override: isBrandImageStyleEnabled() ? (parsed.data.styleId ?? style ?? null) : (style ?? null),
   });
+
+  // A report cover (IMAGE_FORMATS_ENABLED): drawn, not painted, at 4:5, in the brand's style
+  // (this cover's own pick, else the brand's eBook style, else its default).
+  if (target.kind === "cover" && mode === "create" && parsed.data.format === "report_cover" && isImageFormatsEnabled()) {
+    const own = parsed.data.styleId && imageStyleById(parsed.data.styleId) ? parsed.data.styleId : null;
+    const skin = own ?? tenant?.imageStyle?.channels?.ebook ?? tenant?.imageStyle?.defaultStyleId ?? "headline_card";
+    const fi = parsed.data.formatInputs ?? {};
+    const inputs = { ...fi, title: fi.title || ebook.title, subtitle: fi.subtitle || ebook.subtitle || "" };
+    const drawn = await renderStyleImage({ ctx, tenant, template: "report_cover", size: "portrait", headline: inputs.title, formatInputs: inputs, skin, eyebrow: "eBook" });
+    if (!drawn) return NextResponse.json({ error: "render_failed", message: "Couldn't draw the cover. Try again." }, { status: 502 });
+    const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
+    if (!stored.ok) return NextResponse.json({ error: stored.reason, message: IMAGE_ERRORS[stored.reason] ?? "Couldn't save the cover." }, { status: 502 });
+    const asset = await recordImageAsset(
+      { tenantId: ctx.tenantId, region: ctx.region },
+      {
+        workspaceId,
+        filename: stored.filename,
+        mimeType: "image/png",
+        kind: "ebook",
+        prompt: `Report cover: ${inputs.title}`.slice(0, 1000),
+        brief: inputs.title.slice(0, 1000),
+        aspect: "4:5",
+        style: `report_cover:${skin}`,
+        source: { planId, nodeId: null },
+        parentAssetId: null,
+        byteSize: drawn.png.length,
+      },
+    ).catch(() => null);
+    const coverRef = stored.filename;
+    const savedCover = await mutateContentPlanEbookDraft(ctx, workspaceId, planId, (draft) =>
+      applyGeneratedImage(draft, target, {
+        imageAssetRef: coverRef,
+        imagePrompt: null,
+        aspect: "4:5",
+        ...(own ? { imageStyleId: own } : {}),
+        format: "report_cover",
+        formatInputs: inputs,
+      }),
+    );
+    if (!savedCover || !draftHasImageRef(savedCover, target, coverRef)) {
+      await deleteWorkspaceAsset(ctx.tenantId, workspaceId, coverRef).catch(() => {});
+      if (asset?.id) await deleteImageAsset(ctx, asset.id).catch(() => {});
+      return NextResponse.json({ error: "not_applied", message: "Couldn't attach the cover. Try again." }, { status: 409 });
+    }
+    return NextResponse.json({ ebook: savedCover, imageAssetRef: coverRef });
+  }
+
   const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
   const result = await generateEbookSlotImage({
     tenantId: ctx.tenantId,

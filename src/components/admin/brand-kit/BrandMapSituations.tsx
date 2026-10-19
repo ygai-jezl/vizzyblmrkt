@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Star } from "lucide-react";
 import { SITUATION_W_LABEL, type BrandMapSituation, type SituationSide, type SituationW } from "@/lib/types/brandMapRecords";
 import type { SituationRead } from "@/lib/brandMap/situations";
@@ -10,13 +10,16 @@ import { Dot, STATE_LABEL, WriteNext } from "./BrandMapCoverage";
 import { smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
 import { BrandMapFindSituations } from "./BrandMapFindSituations";
+import { askedText, askSituation, proposedOf, type AskRun } from "./situationAsk";
 
 /**
  * The Buying situations tab (BRAND_MAP_SITUATIONS_ENABLED): the situations people are in when
  * they look for something like the brand, in their own words, and what they ask. A person
  * stars the ones to focus on (no limit), adds their own, and adds or dismisses what research
  * proposes. One opens with its questions, the subjects they sit on and how far along each
- * is, what of the brand's own backs it, and where it was seen on the web.
+ * is, what of the brand's own backs it, and where it was seen on the web. With
+ * BRAND_MAP_SITUATION_ASK_ENABLED, any situation on the map (one a person wrote too) can find
+ * what people in it ask, and its proposed questions are added or dismissed right there.
  */
 
 const MAP = "/api/admin/brand-kit/map";
@@ -26,6 +29,10 @@ const SIDE_LABEL: Record<SituationSide, string> = { business: "Business", profes
 
 type Filter = { kind: "all" } | { kind: "focus" } | { kind: "proposed" } | { kind: "w"; w: SituationW } | { kind: "side"; side: SituationSide };
 type Draft = { text: string; w: SituationW; wText: string; who: string; side: SituationSide; want: string; feel: string };
+type Note = { tone: "ok" | "err" | "info"; text: string };
+type Decide = (ids: { accept?: string[]; dismiss?: string[] }, done: string) => Promise<boolean>;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 const draftOf = (s?: BrandMapSituation): Draft => ({
   text: s?.text ?? "",
@@ -47,12 +54,18 @@ const shows = (f: Filter, s: BrandMapSituation) =>
 export function BrandMapSituations({
   canEdit,
   canFind,
+  askOn = false,
+  canAsk = false,
   brandName,
   programmes,
 }: {
   canEdit: boolean;
   /** Research can run here (its switch, and a model). */
   canFind: boolean;
+  /** "Find what they ask" is switched on: a situation's proposed questions are decided in its panel. */
+  askOn?: boolean;
+  /** ...and research can run here to find them (a model). */
+  canAsk?: boolean;
   brandName: string;
   programmes: Array<{ id: string; name: string }> | null;
 }) {
@@ -64,7 +77,12 @@ export function BrandMapSituations({
   const [open, setOpen] = useState<SituationRead | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ tone: "ok" | "err" | "info"; text: string } | null>(null);
+  const [note, setNote] = useState<Note | null>(null);
+  // "Find what they ask": the situation being asked about, what came back, and the page's run.
+  const [asking, setAsking] = useState<string | null>(null);
+  const [askNote, setAskNote] = useState<(Note & { id: string }) | null>(null);
+  const askRun = useRef<AskRun | null>(null);
+  const openRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const r = await api<{ situations?: BrandMapSituation[]; error?: string }>(`${MAP}/situations`);
@@ -76,13 +94,15 @@ export function BrandMapSituations({
   }, []);
   const loadOpen = useCallback(async (id: string) => {
     const r = await api<SituationRead & { error?: string }>(`${MAP}/situations/${encodeURIComponent(id)}`);
-    setOpen(r.ok ? r.data : null);
+    // Another one opened meanwhile: it has its own read.
+    if (openRef.current === id) setOpen(r.ok ? r.data : null);
   }, []);
 
   useEffect(() => {
     void load();
   }, [load, round]);
   useEffect(() => {
+    openRef.current = openId;
     if (openId) void loadOpen(openId);
     else setOpen(null);
   }, [openId, loadOpen]);
@@ -100,6 +120,44 @@ export function BrandMapSituations({
   const decide = (id: string, accept: boolean) =>
     act(() => api(`${MAP}/proposals`, { method: "POST", body: JSON.stringify({ [accept ? "accept" : "dismiss"]: { situations: [id] } }) }));
   const star = (s: BrandMapSituation) => act(() => api(`${MAP}/situations/${encodeURIComponent(s.id)}`, { method: "PATCH", body: JSON.stringify({ baseRev: s.rev, focus: !s.focus }) }));
+  const decideQuestions: Decide = (ids, done) => {
+    setAskNote(null);
+    return act(
+      () =>
+        api(`${MAP}/proposals`, {
+          method: "POST",
+          body: JSON.stringify({ ...(ids.accept?.length ? { accept: { questions: ids.accept } } : {}), ...(ids.dismiss?.length ? { dismiss: { questions: ids.dismiss } } : {}) }),
+        }),
+      done,
+    );
+  };
+
+  async function ask(id: string) {
+    setAsking(id);
+    setAskNote(null);
+    setNote(null);
+    const r = await askSituation(id, askRun.current, { api });
+    askRun.current = r.run;
+    setAsking(null);
+    setAskNote(
+      r.ok
+        ? { id, tone: "ok", text: askedText(r.questions) }
+        : { id, tone: "err", text: r.status === 0 ? "Research may still be finishing. Open this situation again in a minute." : errorText(r.data) },
+    );
+    await Promise.all([load(), openRef.current === id ? loadOpen(id) : Promise.resolve()]);
+  }
+
+  async function add(d: Draft) {
+    // The one added (or the one the map has already) opens, ready to find what people in it ask.
+    const made = { id: "" };
+    const ok = await act(async () => {
+      const r = await api<{ value?: { id: string }; current?: { id: string } }>(`${MAP}/situations`, { method: "POST", body: JSON.stringify(d) });
+      made.id = (askOn && (r.data.value?.id ?? r.data.current?.id)) || "";
+      return r;
+    }, canAsk ? "Added. Now find what people in it ask." : "Added. It's on your map.");
+    if (made.id) setOpenId(made.id);
+    if (ok) setAdding(false);
+  }
 
   const shown = useMemo(() => (list ?? []).filter((s) => shows(filter, s)), [list, filter]);
   const proposed = shown.filter((s) => s.status === "proposed");
@@ -143,9 +201,7 @@ export function BrandMapSituations({
           busy={busy}
           submitLabel="Add it"
           onCancel={() => setAdding(false)}
-          onSubmit={(d) =>
-            void act(() => api(`${MAP}/situations`, { method: "POST", body: JSON.stringify(d) }), "Added. It's on your map.").then((ok) => ok && setAdding(false))
-          }
+          onSubmit={(d) => void add(d)}
         />
       ) : null}
 
@@ -214,6 +270,18 @@ export function BrandMapSituations({
               programmes={programmes}
               act={act}
               decide={decide}
+              ask={
+                askOn
+                  ? {
+                      can: canAsk,
+                      asking: asking === open.situation.id,
+                      elsewhere: asking !== null && asking !== open.situation.id,
+                      note: askNote?.id === open.situation.id ? askNote : null,
+                      run: () => void ask(open.situation.id),
+                      decide: decideQuestions,
+                    }
+                  : null
+              }
               onGone={() => setOpenId(null)}
             />
           ) : (
@@ -258,6 +326,7 @@ function SituationDetail({
   programmes,
   act,
   decide,
+  ask,
   onGone,
 }: {
   read: SituationRead;
@@ -266,10 +335,20 @@ function SituationDetail({
   programmes: Array<{ id: string; name: string }> | null;
   act: (run: () => Promise<{ ok: boolean; data: unknown }>, done?: string) => Promise<boolean>;
   decide: (id: string, accept: boolean) => Promise<boolean>;
+  /** "Find what they ask" (its switch): null when it is off. */
+  ask: { can: boolean; asking: boolean; elsewhere: boolean; note: Note | null; run: () => void; decide: Decide } | null;
   onGone: () => void;
 }) {
   const { situation: s, questions } = read;
   const [editing, setEditing] = useState(false);
+  // Research can look for its questions once it's on the map; only admins decide what goes on.
+  const askable = Boolean(ask?.can && canEdit && s.status === "decided");
+  const asking = Boolean(ask?.asking);
+  const deciding = ask && canEdit ? ask.decide : null;
+  const { onMap, onNew } = proposedOf(questions);
+  const proposedCount = onMap.length + onNew.length;
+  // Deciding here, what waits for a decision comes first.
+  const listed = deciding ? [...questions.filter((q) => q.status === "proposed"), ...questions.filter((q) => q.status !== "proposed")] : questions;
   const facts = [
     s.wText ? [SITUATION_W_LABEL[s.w], s.wText] : null,
     s.who ? ["Who", s.who] : null,
@@ -328,23 +407,95 @@ function SituationDetail({
       </dl>
 
       <section aria-label="What they ask" className="space-y-1.5">
-        <span className={smallLabel}>What they ask</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className={smallLabel}>What they ask</span>
+          {askable && questions.length ? (
+            <button type="button" disabled={busy || asking || ask?.elsewhere} onClick={ask?.run} className={SMALL}>
+              {asking ? "Finding…" : "Find more"}
+            </button>
+          ) : null}
+        </div>
+        {asking ? (
+          <p role="status" className="text-xs text-neutral-500">
+            Finding what people in it ask. This takes up to a minute.
+          </p>
+        ) : null}
+        {ask?.note ? (
+          <p role="status" className={`text-xs ${ask.note.tone === "err" ? "text-red-700 dark:text-red-400" : "text-neutral-700 dark:text-neutral-300"}`}>
+            {ask.note.text}
+          </p>
+        ) : null}
+        {deciding && proposedCount > 1 ? (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {onMap.length ? (
+              <button
+                type="button"
+                disabled={busy || asking}
+                onClick={() => void deciding({ accept: onMap }, `${plural(onMap.length, "question")} added to your map.`)}
+                className={SMALL}
+              >
+                Add all on your subjects ({onMap.length})
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy || asking}
+              onClick={() => void deciding({ dismiss: [...onMap, ...onNew] }, `${plural(proposedCount, "question")} dismissed. Research won't bring them back.`)}
+              className={SMALL}
+            >
+              Dismiss all proposed ({proposedCount})
+            </button>
+          </div>
+        ) : null}
+        {deciding && onNew.length ? (
+          <p className="text-[11px] text-neutral-500">
+            {onNew.length === 1 ? "1 question is" : `${onNew.length} questions are`} on a subject that isn&apos;t on your map yet. Adding one adds its subject too. You can also look at new
+            subjects on the Subjects tab first.
+          </p>
+        ) : null}
         {questions.length ? (
           <ul className="space-y-1.5">
-            {questions.map((q) => (
+            {listed.map((q) => (
               <li key={q.id} className={`rounded-md border px-2 py-1.5 ${q.status === "proposed" ? "border-dashed border-neutral-400" : "border-neutral-200 dark:border-neutral-800"}`}>
                 <span className="block text-sm">{q.text}</span>
                 <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500">
                   <Dot state={q.state} />
                   {q.status === "proposed" ? "Proposed" : STATE_LABEL[q.state]}
-                  {q.subjectName ? <span>· {q.subjectName}</span> : null}
+                  {q.subjectName ? <span>· {deciding && q.status === "proposed" && q.newSubject ? `New subject: ${q.subjectName}` : q.subjectName}</span> : null}
                   {q.status === "decided" && q.state === "open" && programmes?.length ? <WriteNext questionId={q.id} programmes={programmes} situationId={s.status === "decided" ? s.id : undefined} /> : null}
+                  {deciding && q.status === "proposed" ? (
+                    <span className="flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={busy || asking}
+                        onClick={() => void deciding({ accept: [q.id] }, q.newSubject ? `Added, with its new subject “${q.subjectName}”.` : "Added to your map.")}
+                        className={SMALL}
+                      >
+                        {q.newSubject ? "Add with its subject" : "Add"}
+                      </button>
+                      <button type="button" disabled={busy || asking} onClick={() => void deciding({ dismiss: [q.id] }, "Dismissed. Research won't bring it back.")} className={SMALL}>
+                        Dismiss
+                      </button>
+                    </span>
+                  ) : null}
                 </span>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="text-xs text-neutral-500">No questions linked to it yet.</p>
+        ) : asking ? null : (
+          <div className="space-y-2">
+            <p className="text-xs text-neutral-500">No questions linked to it yet.</p>
+            {askable ? (
+              <div className="space-y-1">
+                <Button tone="primary" disabled={busy || ask?.elsewhere} onClick={ask?.run}>
+                  Find what they ask
+                </Button>
+                <p className="text-[11px] text-neutral-500">
+                  Research finds the questions people in this situation ask, and the subject on your map each one belongs to. Nothing goes on your map until you add it.
+                </p>
+              </div>
+            ) : null}
+          </div>
         )}
       </section>
 
@@ -383,12 +534,12 @@ function SituationDetail({
 
       {canEdit ? (
         <div className="flex flex-wrap gap-2 pt-1">
-          <button type="button" disabled={busy} onClick={() => setEditing(true)} className={SMALL}>
+          <button type="button" disabled={busy || asking} onClick={() => setEditing(true)} className={SMALL}>
             Edit
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || asking}
             onClick={() =>
               void act(() => api(`${MAP}/situations/${encodeURIComponent(s.id)}`, { method: "DELETE" }), "Removed. Its questions stay on their subjects.").then((ok) => ok && onGone())
             }

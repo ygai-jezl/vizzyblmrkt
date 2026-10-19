@@ -3,6 +3,8 @@ import { renderPng, RENDER_SIZES } from "./render";
 import { bundledFontPlan } from "./renderFonts";
 import { dataStory, niceMax } from "./templates/dataStory";
 import { typePoster } from "./templates/typePoster";
+import { splitCard } from "./templates/splitCard";
+import { lineArt, seedFor, seeded } from "./templates/lineArt";
 import { highlightedText, pointText, type TemplateInput } from "./templates/shared";
 import { templateFor } from "./styleImage";
 import type { Chart } from "@/lib/types/imageStyle";
@@ -15,7 +17,8 @@ async function sizesOk(make: (i: Omit<TemplateInput, "fonts">) => TemplateInput,
   const plan = await bundledFontPlan();
   for (const [size, { width, height }] of Object.entries(RENDER_SIZES)) {
     const input = make({ width, height, headline: "For 19 days, it *stopped.*", eyebrow: "Research", footer: "example.com", accent: "#5B4FE6", brandName: "Example" });
-    const png = await renderPng((name === "poster" ? typePoster : dataStory)({ ...input, fonts: { heading: plan.heading, body: plan.body } }), { width, height, fonts: plan.fonts });
+    const tpl = name.startsWith("poster") ? typePoster : name.startsWith("split") ? splitCard : name.startsWith("line") ? lineArt : dataStory;
+    const png = await renderPng(tpl({ ...input, fonts: { heading: plan.heading, body: plan.body } }), { width, height, fonts: plan.fonts });
     expect(png, `${name} ${size}`).not.toBeNull();
     expect([png!.readUInt32BE(16), png!.readUInt32BE(20)], `${name} ${size}`).toEqual([width, height]);
   }
@@ -41,5 +44,21 @@ describe("v2 drawn styles", () => {
     expect(highlightedText("Then it *stopped.*")).toBe("stopped.");
     expect(highlightedText("No stars")).toBeNull();
     expect([templateFor("data_story"), templateFor("type_poster"), templateFor("soft_3d")]).toEqual(["data_story", "type_poster", null]);
+  });
+
+  it("Split card draws with painted art and without it; Line art from a seed, at every size", async () => {
+    const PIXEL = { src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", width: 1, height: 1 };
+    await sizesOk((i) => ({ ...i, art: PIXEL, fonts: { heading: "", body: "" } }), "split");
+    await sizesOk((i) => ({ ...i, fonts: { heading: "", body: "" } }), "split no art");
+    await sizesOk((i) => ({ ...i, seed: seedFor("x", 2), fonts: { heading: "", body: "" } }), "line");
+  }, 60_000);
+
+  it("the same title draws the same pattern; Make again a new one", () => {
+    expect(seedFor("A title", 0)).toBe(seedFor("A title", 0));
+    expect(seedFor("A title", 1)).not.toBe(seedFor("A title", 0));
+    const a = seeded(42);
+    const b = seeded(42);
+    expect([a(), a(), a()]).toEqual([b(), b(), b()]);
+    expect(a()).toBeGreaterThanOrEqual(0);
   });
 });

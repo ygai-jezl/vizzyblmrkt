@@ -15,6 +15,8 @@ import { titleCard } from "./templates/titleCard";
 import { artOverlay } from "./templates/artOverlay";
 import { dataStory } from "./templates/dataStory";
 import { typePoster } from "./templates/typePoster";
+import { splitCard } from "./templates/splitCard";
+import { lineArt } from "./templates/lineArt";
 import { pointText } from "./templates/shared";
 import type { Chart, Figure } from "@/lib/types/imageStyle";
 
@@ -24,7 +26,15 @@ import type { Chart, Figure } from "@/lib/types/imageStyle";
  * caller can fall back (the title card, which uses only bundled fonts, is the last resort).
  */
 
-export type TemplateId = "product_noir" | "headline_card" | "data_story" | "type_poster" | "title_card" | "art_overlay";
+export type TemplateId =
+  | "product_noir"
+  | "headline_card"
+  | "data_story"
+  | "type_poster"
+  | "split_card"
+  | "line_art"
+  | "title_card"
+  | "art_overlay";
 
 const TEMPLATES: Record<TemplateId, (i: TemplateInput) => ReactElement> = {
   product_noir: productNoir,
@@ -33,6 +43,8 @@ const TEMPLATES: Record<TemplateId, (i: TemplateInput) => ReactElement> = {
   art_overlay: artOverlay,
   data_story: dataStory,
   type_poster: typePoster,
+  split_card: splitCard,
+  line_art: lineArt,
 };
 
 /** The template that draws a drawn style, or null for a painted one. */
@@ -42,6 +54,8 @@ export function templateFor(styleId: string): TemplateId | null {
     case "headline_card":
     case "data_story":
     case "type_poster":
+    case "split_card":
+    case "line_art":
       return styleId;
     default:
       return null;

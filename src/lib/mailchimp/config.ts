@@ -1,4 +1,5 @@
 import type { Tenant } from "@/lib/types/tenant";
+import { readOwnMailchimpKey } from "./keyBox";
 import type { MailchimpConfigResult } from "./types";
 
 /**
@@ -10,6 +11,9 @@ import type { MailchimpConfigResult } from "./types";
  *    used as a fallback.
  *  - a tenant that simply set its own apiKey (gate off) still uses it.
  *  - otherwise → the SHARED account from env (MAILCHIMP_API_KEY, …).
+ *  - a saved own key that won't open (sealed, but the root secret is missing or
+ *    wrong) → `own_key_unreadable`. Never the shared account instead: that would
+ *    send this brand's mail from someone else's Mailchimp.
  *
  * The data-center prefix (e.g. "us21") is the suffix of the API key (keys look
  * like "<hex>-us21"); we derive it unless explicitly configured.
@@ -21,7 +25,9 @@ export function resolveMailchimpConfig(
   tenant: Tenant | null,
 ): MailchimpConfigResult {
   const cfg = tenant?.mailchimpConfig;
-  const ownKey = cfg?.apiKey?.trim();
+  const own = readOwnMailchimpKey(tenant?.id ?? "", cfg);
+  if (!own.ok) return { ok: false, reason: "own_key_unreadable" };
+  const ownKey = own.apiKey;
 
   // Gate on, but nothing to fall back to.
   if (cfg?.requiresOwnApiKey && !ownKey) {

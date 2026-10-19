@@ -27,7 +27,9 @@ export type MailchimpConfigError =
   /** No shared env creds (e.g. local dev / before secrets are set). */
   | "shared_not_configured"
   /** Couldn't determine the data-center prefix from the key. */
-  | "no_server_prefix";
+  | "no_server_prefix"
+  /** The tenant's own key is saved sealed but won't open (root secret missing or wrong). */
+  | "own_key_unreadable";
 
 export type MailchimpConfigResult =
   | { ok: true; config: ResolvedMailchimpConfig }

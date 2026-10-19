@@ -11,6 +11,7 @@ export function broadcastErrorText(code: string | null | undefined, audienceMode
       : "Nobody from this launch is in your Mailchimp audience yet, so nothing was sent. People are added once they verify their email.";
   }
   if (c === "mailchimp_config:byo_required_not_configured") return "This brand needs its own Mailchimp account connected before it can send newsletters.";
+  if (c === "mailchimp_config:own_key_unreadable") return "This brand's Mailchimp key is saved but can't be unlocked on this YouGrow, so newsletters can't send. Whoever runs it needs to check the key that unlocks it, or save the Mailchimp key again.";
   if (c.startsWith("mailchimp_config:")) return "Mailchimp isn't set up on this YouGrow, so newsletters can't send. Whoever runs it needs to add it.";
   if (c === "launch_archived") return "This launch is archived, so nothing was sent.";
   if (c === "must_be_future") return "Pick a future date and time.";

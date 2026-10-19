@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { resolveMailchimpConfig, deriveServerPrefix } from "./config";
+import { sealMailchimpKey } from "./keyBox";
 import type { Tenant, MailchimpTenantConfig } from "@/lib/types/tenant";
 
 function tenant(cfg?: MailchimpTenantConfig): Tenant {
@@ -10,6 +11,7 @@ const ENV_KEYS = [
   "MAILCHIMP_API_KEY",
   "MAILCHIMP_AUDIENCE_ID",
   "MAILCHIMP_SERVER_PREFIX",
+  "MAILCHIMP_KEY_ENC_KEY",
 ];
 
 describe("resolveMailchimpConfig (feature gate)", () => {
@@ -73,5 +75,43 @@ describe("resolveMailchimpConfig (feature gate)", () => {
       tenant({ requiresOwnApiKey: true, apiKey: "tk-us1" }),
     );
     expect(r).toEqual({ ok: false, reason: "byo_required_not_configured" });
+  });
+
+  describe("a sealed own key", () => {
+    function sealedTenant(id: string, sealedFor: string): Tenant {
+      return {
+        id,
+        mailchimpConfig: {
+          requiresOwnApiKey: false,
+          apiKeyEnc: sealMailchimpKey(sealedFor, "tk-eu7"),
+          audienceId: "ten_aud",
+        },
+      } as unknown as Tenant;
+    }
+    beforeEach(() => {
+      process.env.MAILCHIMP_KEY_ENC_KEY = "test-only-root-not-a-real-secret-0123456789";
+    });
+
+    it("opens it and uses it, prefix derived from the opened key", () => {
+      const r = resolveMailchimpConfig(sealedTenant("ten_a", "ten_a"));
+      expect(r).toEqual({
+        ok: true,
+        config: { apiKey: "tk-eu7", serverPrefix: "eu7", audienceId: "ten_aud", source: "tenant" },
+      });
+    });
+
+    it("never falls back to the shared account when it won't open", () => {
+      process.env.MAILCHIMP_API_KEY = "key-us5";
+      process.env.MAILCHIMP_AUDIENCE_ID = "aud_1";
+      // Sealed for another brand: the AAD doesn't match.
+      expect(resolveMailchimpConfig(sealedTenant("ten_a", "ten_b"))).toEqual({
+        ok: false,
+        reason: "own_key_unreadable",
+      });
+      // The root secret is gone.
+      const t = sealedTenant("ten_a", "ten_a");
+      delete process.env.MAILCHIMP_KEY_ENC_KEY;
+      expect(resolveMailchimpConfig(t)).toEqual({ ok: false, reason: "own_key_unreadable" });
+    });
   });
 });

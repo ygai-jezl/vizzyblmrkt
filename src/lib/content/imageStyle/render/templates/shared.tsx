@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactElement } from "react";
-import type { Chart, ChartPoint, Figure } from "@/lib/types/imageStyle";
+import type { Chart, ChartPoint, Figure, FormatInputs } from "@/lib/types/imageStyle";
 
 /**
  * Pieces every template shares: colour maths, the headline laid out word by word (Satori has no
@@ -42,6 +42,9 @@ export interface TemplateInput {
   figure?: Figure | null;
   /** Line art: picks the pattern (the title, plus the attempt for Make again). */
   seed?: number;
+  /** Formats: what they draw, and the style that skins them. */
+  formatInputs?: FormatInputs | null;
+  skin?: string | null;
 }
 
 /** A point's number as drawn: the copy's own writing, else the value with its unit. */
@@ -70,6 +73,12 @@ export function rgba(hex: string, a: number): string {
   const [r, g, b] = rgb(hex);
   return `rgba(${r},${g},${b},${a})`;
 }
+/** Any colour this file makes (#hex or rgb()) at an alpha. */
+export function withAlpha(color: string, a: number): string {
+  const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(color.trim());
+  return m ? `rgba(${m[1]},${m[2]},${m[3]},${a})` : rgba(color, a);
+}
+
 /** Towards white by t (0 to 1). */
 export function tint(hex: string, t: number): string {
   const [r, g, b] = rgb(hex);

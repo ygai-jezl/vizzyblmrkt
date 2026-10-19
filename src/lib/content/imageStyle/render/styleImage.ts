@@ -17,8 +17,9 @@ import { dataStory } from "./templates/dataStory";
 import { typePoster } from "./templates/typePoster";
 import { splitCard } from "./templates/splitCard";
 import { lineArt } from "./templates/lineArt";
+import { partnerLockup, portraitCard, reportCover } from "./templates/formats";
 import { pointText } from "./templates/shared";
-import type { Chart, Figure } from "@/lib/types/imageStyle";
+import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 
 /**
  * Draw a brand image from a template: gathers the brand's accent, name, primary logo, newest
@@ -34,7 +35,10 @@ export type TemplateId =
   | "split_card"
   | "line_art"
   | "title_card"
-  | "art_overlay";
+  | "art_overlay"
+  | "portrait"
+  | "partner"
+  | "report_cover";
 
 const TEMPLATES: Record<TemplateId, (i: TemplateInput) => ReactElement> = {
   product_noir: productNoir,
@@ -45,7 +49,15 @@ const TEMPLATES: Record<TemplateId, (i: TemplateInput) => ReactElement> = {
   type_poster: typePoster,
   split_card: splitCard,
   line_art: lineArt,
+  portrait: portraitCard,
+  partner: partnerLockup,
+  report_cover: reportCover,
 };
+
+/** The template that draws a format, or null for the standard image. */
+export function formatTemplate(format: ImageFormatId | null | undefined): TemplateId | null {
+  return format === "portrait" || format === "partner" || format === "report_cover" ? format : null;
+}
 
 /** The template that draws a drawn style, or null for a painted one. */
 export function templateFor(styleId: string): TemplateId | null {
@@ -128,6 +140,9 @@ export interface StyleImageRequest {
   figure?: Figure | null;
   /** Line art's pattern. */
   seed?: number;
+  /** A format's words, and the style that skins it. */
+  formatInputs?: FormatInputs | null;
+  skin?: string | null;
 }
 
 export interface StyleImageResult {
@@ -149,7 +164,9 @@ export async function renderStyleImage(req: StyleImageRequest): Promise<StyleIma
     ? [...req.chart.points.flatMap((p) => [p.label, pointText(p, req.chart!.unit)]), req.chart.source ?? ""].join(" ")
     : "";
   const figureText = req.figure ? `${req.figure.value} ${req.figure.unit.toUpperCase()}.` : "";
-  const text = [req.headline.replace(/\*/g, ""), req.eyebrow, req.subline, req.footer, logo ? "" : brandName, chartText, figureText]
+  const fi = req.formatInputs;
+  const formatText = fi ? [fi.quote, fi.name, fi.role, fi.partner, fi.line, fi.title, fi.subtitle, fi.figure?.value, fi.figure?.unit, "“”×"].filter(Boolean).join(" ") : "";
+  const text = [req.headline.replace(/\*/g, ""), req.eyebrow, req.subline, req.footer, logo ? "" : brandName, chartText, figureText, formatText]
     .filter(Boolean)
     .join(" ");
 
@@ -177,6 +194,8 @@ export async function renderStyleImage(req: StyleImageRequest): Promise<StyleIma
     fonts: { heading: plan.heading, body: plan.body },
     chart: req.chart ?? null,
     figure: req.figure ?? null,
+    formatInputs: req.formatInputs ?? null,
+    skin: req.skin ?? null,
     ...(req.seed !== undefined ? { seed: req.seed } : {}),
   };
   const png = await renderPng(TEMPLATES[req.template](input), { width, height, fonts: plan.fonts });

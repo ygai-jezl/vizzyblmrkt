@@ -1177,6 +1177,20 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Find what they ask" on one buying situation (a person's own, or one Vizzy proposed and
+  # a person added): research's second step for that situation, a run at a time, and its
+  # questions added or dismissed right there. Uses the routes situations already has; needs
+  # BRAND_MAP_SITUATIONS_ENABLED and BRAND_MAP_RESEARCH_ENABLED. The NEXT_PUBLIC twin only
+  # adds the step to the Brand map help page.
+  - variable: BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
   # Editorial blog articles (feat/blog-editorial-voice). CREATE_BLOG_EDITORIAL_ENABLED: a
   # CITABLE blog hub is researched on its own question and written as an editorial article
   # (an opening that answers, sections whose first sentence answers, trade-offs and

@@ -921,6 +921,17 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # "Find what they ask" on one buying situation (see apphosting.yaml): OFF in prod until
+  # checked on dev and the owner turns it on.
+  - variable: BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Editorial blog articles, What we've seen and its Vizzy tools (see apphosting.yaml): ON in
   # prod, turned on by the owner on 2026-10-18 (before a dev click-through). Their indexes are
   # on the prod databases and the prod root agent is redeployed with the notes tools. To switch

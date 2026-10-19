@@ -385,5 +385,9 @@
 "Join the waitlist on this page. Developers can read how to connect a product in the developer docs.": "انضم إلى قائمة الانتظار من هذه الصفحة. ويمكن للمطورين قراءة طريقة ربط منتج في وثائق المطورين.",
 "Language": "اللغة",
 "Help": "المساعدة",
-"Developer docs": "وثائق المطورين"
+"Developer docs": "وثائق المطورين",
+"Theme": "المظهر",
+"Light": "فاتح",
+"System": "النظام",
+"Dark": "داكن"
 }

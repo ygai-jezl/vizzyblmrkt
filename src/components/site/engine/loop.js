@@ -11,6 +11,7 @@
  *   options.labels    { stages: {id: name}, core: [line, ...], ghost: [make, grow], approve, back }
  *   options.onPick    called with a stage id when its node or label is clicked
  *   options.onLap     called with the lap number (travel)
+ * Follows the page's colour scheme (light or dark), redrawing on a "yg-theme" event or an OS change.
  * Returns { setTarget(u | "core"), destroy() }.
  */
 
@@ -25,6 +26,9 @@ const STAGES = [
 ];
 const MAKE = [[0, "#ddd3ff"], [0.35, "#a78bfa"], [0.7, "#6f6cf4"], [1, "#3b82f6"]];
 const GROW = [[0, "#b5f5fd"], [0.35, "#22d3ee"], [0.7, "#14b8a6"], [1, "#34d399"]];
+// On a light page additive glow disappears, so particles are deeper colours drawn normally.
+const MAKE_L = [[0, "#8b5cf6"], [0.35, "#7c3aed"], [0.7, "#4f46e5"], [1, "#2563eb"]];
+const GROW_L = [[0, "#0891b2"], [0.35, "#0e7490"], [0.7, "#0d9488"], [1, "#059669"]];
 const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 const ramp = (stops, t) => {
   for (let i = 1; i < stops.length; i++) if (t <= stops[i][0]) {
@@ -41,6 +45,7 @@ export function createLoop(root, o) {
   const cv = root.querySelector("canvas"), ctx = cv.getContext("2d");
   const overlay = root.querySelector(".overlay"), eclipse = root.querySelector(".eclipse"), corona = root.querySelector(".corona");
   const PX = new Float32Array(M), PY = new Float32Array(M), NX = new Float32Array(M), NY = new Float32Array(M), BY = new Float32Array(M);
+  let lightMode = false;
   let W, H, CX, CY, A, R0, vertical = null, scale = 1, maxBY, N = 0, SPR = [];
   let pu, sp, off, sz, al, ph, born, nodeEls = {}, lblEls = {}, gateEl = null, gateU = 0.55, xlEls = [];
   let pulse = o.mode === "park" ? 0.9 : 0.02, target = null, amp = 1, ampT = 1, lap = 1, flare = 0, time = 0, last = 0, running = false, dead = false;
@@ -73,7 +78,8 @@ export function createLoop(root, o) {
   function sprites() {
     SPR = [];
     for (let b = 0; b < NB; b++) {
-      const c = colorArr((b + 0.5) / NB), w = c.map((v) => Math.round(v + (255 - v) * 0.65));
+      const u = (b + 0.5) / NB, k = (u * M) | 0, t = Math.min(1, Math.max(0, (BY[k] + maxBY) / (2 * maxBY)));
+      const c = lightMode ? ramp(u < 0.5 ? MAKE_L : GROW_L, t) : colorArr(u), w = lightMode ? c : c.map((v) => Math.round(v + (255 - v) * 0.65));
       const s = document.createElement("canvas"); s.width = s.height = 32;
       const g = s.getContext("2d"), gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
       gr.addColorStop(0, `rgba(${w},1)`); gr.addColorStop(0.2, `rgba(${c},0.9)`);
@@ -142,7 +148,7 @@ export function createLoop(root, o) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = "destination-out"; ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = lightMode ? "source-over" : "lighter";
     for (let i = 0; i < act; i++) {
       const u = pu[i], k = (u * M) | 0, oo = off[i] * (1 + 0.2 * Math.sin(time * 0.0005 + ph[i]));
       let du = Math.abs(u - pulse); if (du > 0.5) du = 1 - du;
@@ -200,8 +206,11 @@ export function createLoop(root, o) {
     }
     if (k < 1) root.style.setProperty("--lk", Math.max(0.6, k).toFixed(3));
   }
+  const isLight = () => getComputedStyle(root).colorScheme === "light";
+  function restyle() { const l = isLight(); if (l === lightMode || dead) return; lightMode = l; if (vertical !== null) { sprites(); warm(); } }
   function size() {
     const w = root.clientWidth; if (!w || dead) return;
+    lightMode = isLight();
     const v = o.vertical ?? w < 640;
     if (v !== vertical) { vertical = v; root.classList.toggle("v", v); geometry(); sprites(); particles(); layout(); }
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -222,6 +231,9 @@ export function createLoop(root, o) {
   let rz;
   const ro = new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(size, 120); });
   ro.observe(root);
+  const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+  document.addEventListener("yg-theme", restyle);
+  scheme.addEventListener("change", restyle);
   let io = null;
   if (!reduce) {
     io = new IntersectionObserver((es) => {
@@ -238,6 +250,7 @@ export function createLoop(root, o) {
     },
     destroy() {
       dead = true; running = false; clearTimeout(rz); ro.disconnect(); if (io) io.disconnect();
+      document.removeEventListener("yg-theme", restyle); scheme.removeEventListener("change", restyle);
     },
   };
 }

@@ -385,5 +385,9 @@
 "Join the waitlist on this page. Developers can read how to connect a product in the developer docs.": "このページからウェイトリストに登録してください。開発者の方は、プロダクトの接続方法を開発者ドキュメントで確認できます。",
 "Language": "言語",
 "Help": "ヘルプ",
-"Developer docs": "開発者ドキュメント"
+"Developer docs": "開発者ドキュメント",
+"Theme": "テーマ",
+"Light": "ライト",
+"System": "システム",
+"Dark": "ダーク"
 }

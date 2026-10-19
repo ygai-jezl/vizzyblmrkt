@@ -385,5 +385,9 @@
 "Join the waitlist on this page. Developers can read how to connect a product in the developer docs.": "Trag dich auf dieser Seite in die Warteliste ein. Entwickler lesen in der Doku, wie sie ein Produkt anbinden.",
 "Language": "Sprache",
 "Help": "Hilfe",
-"Developer docs": "Entwickler-Doku"
+"Developer docs": "Entwickler-Doku",
+"Theme": "Darstellung",
+"Light": "Hell",
+"System": "System",
+"Dark": "Dunkel"
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import "./site.css";
 import { FEATURES, FEATURE_TAGS, STAGES, STAGE_IDS, type StageId } from "@/lib/site/content";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
@@ -7,12 +8,15 @@ import { isHelpPagesEnabled } from "@/lib/help/flags";
 import { isSiteLanguagesEnabled, isSiteSeoEnabled, siteOrigin } from "@/lib/site/flags";
 import { GITHUB_URL, LINKEDIN_URL } from "@/lib/site/home";
 import { translator, type Translator } from "@/lib/site/i18n";
+import { SITE_THEME_COOKIE } from "@/lib/site/theme";
+import { parseThemePreference } from "@/lib/theme";
 import { serializeJsonLd, siteGraph } from "@/lib/site/jsonLd";
 import { LANG_INFO, SITE_LANGS, sitePath, type SiteLang, type SitePage } from "@/lib/site/langs";
 import { SITE_FONT_VARS } from "./fonts";
 import { GITHUB_ICON, LINKEDIN_ICON, LoopMarkSymbol } from "./icons";
 import { SiteBehaviour } from "./SiteBehaviour";
 import { SiteHeader, type MenuStage } from "./SiteHeader";
+import { ThemeSwitch } from "./ThemeSwitch";
 import type { LoopLabels } from "./Loops";
 
 /** The loop's words in a language, for the client loop components. */
@@ -41,7 +45,7 @@ function menuStages(lang: SiteLang, ids: StageId[]): MenuStage[] {
  * block, the footer and the page's JSON-LD. `around` is the previous and next page
  * for the arrow keys on a stage page.
  */
-export function SiteShell({ lang, page, children, around, withFaq }: {
+export async function SiteShell({ lang, page, children, around, withFaq }: {
   lang: SiteLang;
   page: SitePage;
   children: ReactNode;
@@ -55,8 +59,10 @@ export function SiteShell({ lang, page, children, around, withFaq }: {
     ? SITE_LANGS.map((l) => ({ code: l, name: LANG_INFO[l].name, href: sitePath(l, page), current: l === lang }))
     : [];
   const seo = isSiteSeoEnabled();
+  // Light, system or dark: an explicit choice is in a cookie, so the first paint is already right.
+  const theme = parseThemePreference((await cookies()).get(SITE_THEME_COOKIE)?.value);
   return (
-    <div className={`yg ${SITE_FONT_VARS}`} lang={lang} dir={info.dir}>
+    <div className={`yg ${SITE_FONT_VARS}`} lang={lang} dir={info.dir} data-yg-theme={theme === "system" ? undefined : theme}>
       <LoopMarkSymbol />
       <SiteHeader
         homeHref={home}
@@ -84,10 +90,13 @@ export function SiteShell({ lang, page, children, around, withFaq }: {
             <a href="/llms.txt">llms.txt</a>
           </span>
         ) : null}
-        <span className="social">
-          <a href={GITHUB_URL} target="_blank" rel="noopener" aria-label="YouGrow on GitHub" title="GitHub">{GITHUB_ICON}</a>
-          <a href={LINKEDIN_URL} target="_blank" rel="noopener" aria-label="YouGrow on LinkedIn" title="LinkedIn">{LINKEDIN_ICON}</a>
-        </span>
+        <div className="end">
+          <ThemeSwitch initial={theme} labels={{ theme: t("Theme"), light: t("Light"), system: t("System"), dark: t("Dark") }} />
+          <span className="social">
+            <a href={GITHUB_URL} target="_blank" rel="noopener" aria-label="YouGrow on GitHub" title="GitHub">{GITHUB_ICON}</a>
+            <a href={LINKEDIN_URL} target="_blank" rel="noopener" aria-label="YouGrow on LinkedIn" title="LinkedIn">{LINKEDIN_ICON}</a>
+          </span>
+        </div>
       </footer>
       {seo ? (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(siteGraph(siteOrigin(), lang, page, { withFaq })) }} />

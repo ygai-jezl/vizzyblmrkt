@@ -31,6 +31,7 @@ from .sub_agents.content_ops.agent import content_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
 from .tools.insights_summary import get_insights_summary
 from .tools.email_style import get_email_style, suggest_email_style
+from .tools.image_style import get_image_style, suggest_image_style
 from .tools.journey_style import get_journey_email_style, set_journey_email_style
 from .tools.brand_map import get_brand_map, suggest_brand_map
 from .tools.brand_notes import get_brand_notes, suggest_brand_notes
@@ -51,6 +52,7 @@ root_agent = LlmAgent(
     # numbers (aggregates only); get/suggest_email_style read the brand-wide Email
     # style and save a suggestion an admin applies; get/set_journey_email_style read
     # and set one journey's own look, in its draft (Lifecycle Ops has them too);
+    # get/suggest_image_style read the brand's image style and save a suggestion an admin applies;
     # get_brand_map/suggest_brand_map read the brand map and file suggestions an admin
     # accepts; get_brand_notes/suggest_brand_notes read What we've seen and file suggested
     # notes in the person's own words; get_setup_status/read_help_page answer "what should I set up first?"
@@ -61,6 +63,8 @@ root_agent = LlmAgent(
         get_insights_summary,
         get_email_style,
         suggest_email_style,
+        get_image_style,
+        suggest_image_style,
         get_journey_email_style,
         set_journey_email_style,
         get_brand_map,

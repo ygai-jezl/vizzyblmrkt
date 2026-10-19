@@ -48,6 +48,7 @@ def draft_content_plan(
     subject_id: str = "",
     question_id: str = "",
     situation_id: str = "",
+    hero_style: str = "",
 ) -> dict:
     """Draft a content plan in a programme and save it as a DRAFT.
 
@@ -80,6 +81,10 @@ def draft_content_plan(
         situation_id: Blog hub only, with a brandMap that lists situations. The id of the
             buying situation the article is for (the article opens by meeting its reader
             there), or "none". Leave empty and research picks one.
+        hero_style: Blog hub only, and only when the operator asked for a particular
+            look for this article's hero image ("make the hero a photo"): one of
+            product_noir, headline_card, illustration, editorial_photo, soft_3d, paper_collage, natural_photo, product_still_life or brand_character. It applies to this article only. Leave empty for the brand's
+            style.
 
     Returns:
         A status dict to relay (includes a card the chat shows with an Open link).
@@ -88,7 +93,7 @@ def draft_content_plan(
         name, objective, spark, hub_channel, spoke_channels, topics, hub_url, sequence_type,
         primary_question, buyer_questions, subject_id, question_id, situation_id,
     )
-    return client.draft_plan(_state(tool_context), workspace_id, intake, spark)
+    return client.draft_plan(_state(tool_context), workspace_id, intake, spark, hero_style)
 
 
 def get_content_plan(tool_context: ToolContext, plan_id: str = "", workspace_id: str = "") -> dict:

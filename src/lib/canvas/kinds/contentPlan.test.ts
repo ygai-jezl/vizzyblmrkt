@@ -176,6 +176,39 @@ describe("content_plan canvas kind", () => {
     expect(unresearched.r.summary).toContain("the article is written and fact-checked (research didn't finish: press Research on the canvas for sources)");
   });
 
+  it("makes the blog hero when the turn has time, in the style asked for, else asks the canvas to", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("BLOG_HERO_ENABLED", "true");
+    const blogIntake = { ...intake, strategy: { objective: "brand_visibility" }, topology: { hubChannel: "blog", spokeChannels: [] } };
+    const research = vi.fn(async () => ({ ok: true as const, brief: {} as never, searched: true, found: { questions: 1, links: 1, facts: 1, sources: 1, verifiedSources: 1 } }));
+    const checkFacts = vi.fn(async () => ({ ok: true as const, node: {} as never, corrected: 0, checked: true }));
+    const makeHero = vi.fn(async (_i: Record<string, unknown>) => ({ ok: true as const, node: {} as never, hero: { status: "ready", heroRef: "h.png" } as never }));
+    const run = (clock: () => number) => {
+      const db = world();
+      return authorContentPlanDraft(
+        { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake, heroStyleId: "soft_3d" }, brief: "" },
+        { ...deps(db), research: research as never, checkFacts: checkFacts as never, makeHero: makeHero as never, now: clock },
+      ).then((r) => ({ r, db }));
+    };
+
+    const fast = await run(() => 0);
+    if (!fast.r.ok) throw new Error("expected a draft");
+    expect(makeHero.mock.calls[0]![0]).toMatchObject({ styleOverride: "soft_3d", budgetMs: 40_000, retry: false });
+    expect(fast.r.summary).toContain("fact-checked, with its hero image");
+
+    // No time left: the hero is asked for, and the canvas makes it when the article is opened.
+    __resetRateLimitState();
+    makeHero.mockClear();
+    let t = 0;
+    const slow = await run(() => (t += 130_000));
+    if (!slow.r.ok) throw new Error("expected a draft");
+    expect(makeHero).not.toHaveBeenCalled();
+    expect(slow.r.summary).toContain("(its hero image is made when you open it)");
+    const hub = (Object.values(plans(slow.db))[0] as { graph: { nodes: ContentNode[] } }).graph.nodes.find((n) => n.type === "hub")!;
+    expect(hub.blog?.hero).toMatchObject({ status: "pending", startedAt: null, styleOverride: "soft_3d", heroRef: null });
+  });
+
   it("leaves a newsletter hub, and a blog hub with the flag off, exactly as before", async () => {
     const research = vi.fn();
     const db = world();

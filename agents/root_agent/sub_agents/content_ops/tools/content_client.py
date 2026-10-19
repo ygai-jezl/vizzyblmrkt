@@ -183,7 +183,7 @@ def get_plan(state: "dict | None", workspace_id: str, plan_id: str) -> dict:
     return error_result(status_code, body)
 
 
-def draft_plan(state: "dict | None", workspace_id: str, intake: dict, brief: str) -> dict:
+def draft_plan(state: "dict | None", workspace_id: str, intake: dict, brief: str, hero_style: str = "") -> dict:
     ws = _workspace(state, workspace_id)
     if not ws:
         return {"status": "needs_workspace", "message": "Which content programme is this plan for?"}
@@ -199,6 +199,10 @@ def draft_plan(state: "dict | None", workspace_id: str, intake: dict, brief: str
         "intake": intake,
         "brief": brief or "",
     }
+    # This article's own hero style (a style id, as the read lists them); empty = the brand's.
+    style = "_".join((hero_style or "").strip().lower().replace("-", " ").split())
+    if style:
+        payload["heroStyleId"] = style
     status_code, body_text = _request("POST", base + CANVAS_PATH, token, payload)
     return parse_author_response(status_code, body_text)
 

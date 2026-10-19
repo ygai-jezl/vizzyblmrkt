@@ -125,6 +125,8 @@ const ROOT_FILE = /^(?:\.[\w-]+\.[\w.-]+|\.[\w-]+rc|\.gitignore|[\w.-]+\.(?:md|j
 export const PATHS_PEOPLE_CREATE = {
   ".env.local": "npm run local writes it; git ignored",
   "agents/.venv": "the Python virtualenv the Vizzy setup creates; git ignored",
+  "CLAUDE.local.md": "a person's own Claude Code notes; git ignored",
+  ".claude/settings.local.json": "a person's own Claude Code settings; git ignored",
   "apphosting.live.yaml": "npm run selfhost writes it in a fork; never in this repo",
   ".firebaserc": "a deployment's own project aliases; never in this repo",
 };

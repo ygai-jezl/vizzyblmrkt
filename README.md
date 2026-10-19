@@ -5,6 +5,10 @@ posts, all run with an AI agent. Self-host it on your own Google Cloud.
 
 ## Quick start with an AI coding agent
 
+New to this? [Start with Claude or Cursor](docs/start-with-claude-or-cursor.md) walks you
+through it step by step: what to install, what the agent will do and ask, what to ask next,
+and how to host your own copy.
+
 **Claude Code:**
 
 ```bash

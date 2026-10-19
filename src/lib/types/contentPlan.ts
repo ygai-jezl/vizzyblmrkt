@@ -404,6 +404,8 @@ export const BlogArticleLiveSchema = z.object({
   titleMatched: z.boolean().default(false),
   /** When the live check last found it. */
   checkedAt: z.string().max(40).optional(),
+  /** The live page carries a share image (og:image), as last checked (BLOG_HERO_ENABLED). */
+  shareImage: z.boolean().optional(),
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 

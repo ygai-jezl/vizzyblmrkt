@@ -117,6 +117,11 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
         </p>
       ) : null}
       {!making && titleChanged ? <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">The title changed since this was made.</p> : null}
+      {has && node.blog?.live?.shareImage === false ? (
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          Your live page has no share image, so links to it show none. Copy the share tags under Export into its head.
+        </p>
+      ) : null}
 
       {has ? (
         <label className="mt-2 block text-xs">

@@ -6,6 +6,7 @@ import { normalizeUrl } from "./brief";
 import { outlineArticle } from "./outline";
 import { fetchSourcePage } from "./research";
 import { syncPlanPageSoftly } from "./pageActions";
+import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
 
 /**
  * "Check it's live" (BRAND_MAP_PAGES_ENABLED): open the article's address and compare the
@@ -25,6 +26,8 @@ export interface LiveCheck {
   title: string;
   /** It is the article's title. */
   matched: boolean;
+  /** The page carries a share image (og:image); only reported when asked for. */
+  shareImage?: boolean;
 }
 
 export type LiveOutcome =
@@ -60,12 +63,19 @@ export function titlesMatch(pageTitle: string, articleTitles: string[]): boolean
 export async function checkLive(
   url: string,
   articleTitles: string[],
-  fetchPage: (url: string) => Promise<{ title: string; refused?: boolean } | null> = fetchSourcePage,
+  fetchPage: (url: string) => Promise<{ title: string; refused?: boolean; ogImage?: string } | null> = fetchSourcePage,
+  opts: { shareImage?: boolean } = {},
 ): Promise<LiveCheck> {
   const page = await fetchPage(url).catch(() => null);
   if (!page) return { reachable: false, refused: false, title: "", matched: false };
   if (page.refused) return { reachable: true, refused: true, title: "", matched: false };
-  return { reachable: true, refused: false, title: page.title, matched: titlesMatch(page.title, articleTitles) };
+  return {
+    reachable: true,
+    refused: false,
+    title: page.title,
+    matched: titlesMatch(page.title, articleTitles),
+    ...(opts.shareImage ? { shareImage: Boolean(page.ogImage) } : {}),
+  };
 }
 
 /** Check, mark or clear that a blog article is live at its address, and save it on the hub. */
@@ -88,7 +98,7 @@ export async function setArticleLive(
   let check: LiveCheck | null = null;
   if (args.action === "check") {
     const title = node.body.trim() ? outlineArticle(node.body).title : null;
-    check = await checkLive(url, [title ?? "", meta.metaTitle], deps.fetchPage);
+    check = await checkLive(url, [title ?? "", meta.metaTitle], deps.fetchPage, { shareImage: isBlogHeroEnabled() });
     // A match is live; anything else leaves it as it was, and says why.
     if (!check.matched) return { ok: true, node, check };
   }
@@ -97,8 +107,17 @@ export async function setArticleLive(
   const setLive = (stored: BlogArticleLive | null): BlogArticleLive | null => {
     const before = sameAddress(stored);
     if (args.action === "clear") return null;
-    if (args.action === "check") return { url, at: before?.at ?? at, by: "check", titleMatched: true, checkedAt: at };
-    return { url, at: before?.at ?? at, by: "operator", titleMatched: before?.titleMatched ?? false, ...(before?.checkedAt ? { checkedAt: before.checkedAt } : {}) };
+    if (args.action === "check") {
+      return { url, at: before?.at ?? at, by: "check", titleMatched: true, checkedAt: at, ...(check?.shareImage !== undefined ? { shareImage: check.shareImage } : {}) };
+    }
+    return {
+      url,
+      at: before?.at ?? at,
+      by: "operator",
+      titleMatched: before?.titleMatched ?? false,
+      ...(before?.checkedAt ? { checkedAt: before.checkedAt } : {}),
+      ...(before?.shareImage !== undefined ? { shareImage: before.shareImage } : {}),
+    };
   };
 
   let updated: ContentNode | null;

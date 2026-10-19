@@ -107,6 +107,7 @@ export function BlogHubReview({
           brandName={controls.brandName}
           logoUrl={controls.logoUrl}
           map={controls.map ?? null}
+          hero={controls.hero ? { assetUrl: controls.hero.assetUrl } : null}
         />
       </fieldset>
     </div>

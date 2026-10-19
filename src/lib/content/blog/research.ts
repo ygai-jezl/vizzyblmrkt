@@ -101,6 +101,8 @@ export interface FetchedPage {
   /** The site answered but would not let us read the page (it turns robots away). That
    *  settles nothing about what the page says. */
   refused?: boolean;
+  /** The page's og:image, when it has one (the blog hero's live check). */
+  ogImage?: string;
 }
 
 // The listing of a programme's pages lives with the knowledge base now (the brand map reads
@@ -345,7 +347,8 @@ export async function fetchSourcePage(url: string): Promise<FetchedPage | null> 
       return null;
     }
     const html = await readTextCapped(res, PAGE_BYTES);
-    return { url: res.url || url, ...readPageMeta(html), text: htmlToText(html) };
+    const ogImage = metaContent(html, "og:image").slice(0, 2000);
+    return { url: res.url || url, ...readPageMeta(html), text: htmlToText(html), ...(ogImage ? { ogImage } : {}) };
   } catch {
     return null;
   }

@@ -588,7 +588,8 @@ env:
     availability:
       - RUNTIME
   # Store a brand's own Mailchimp key sealed (above), never as plain text. Reads
-  # understand both forms either way. Off in prod (apphosting.prod.yaml).
+  # understand both forms either way. On in prod too since 2026-10-19
+  # (apphosting.prod.yaml).
   - variable: MAILCHIMP_KEY_SEALED_ENABLED
     value: "true"
     availability:

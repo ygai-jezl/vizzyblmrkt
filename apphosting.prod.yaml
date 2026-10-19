@@ -975,33 +975,33 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Brand image style, blog hero and website fonts (see apphosting.yaml): OFF in prod until
-  # checked on dev. All six must be set here: this file only overrides apphosting.yaml, so a
-  # switch left out would be ON in prod.
+  # Brand image style, blog hero and website fonts (see apphosting.yaml): ON in prod since the
+  # owner's go-ahead on 2026-10-19. All six stay set here on purpose: this file only overrides
+  # apphosting.yaml, and turning one off is a one-line change.
   - variable: BRAND_IMAGE_STYLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: BLOG_HERO_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BLOG_HERO_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME
   - variable: BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

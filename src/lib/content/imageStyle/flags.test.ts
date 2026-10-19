@@ -45,10 +45,10 @@ describe("the image style switches", () => {
     expect(isBlogHeroUiEnabled()).toBe(true);
   });
 
-  it("are on in dev and set to \"false\" in prod on purpose (a switch left out of prod is on there)", () => {
+  it("are on in dev and in prod, each set in prod on purpose", () => {
     for (const v of SWITCHES) {
       expect(valueIn("apphosting.yaml", v), v).toBe("true");
-      expect(valueIn("apphosting.prod.yaml", v), v).toBe("false");
+      expect(valueIn("apphosting.prod.yaml", v), v).toBe("true");
     }
   });
 });

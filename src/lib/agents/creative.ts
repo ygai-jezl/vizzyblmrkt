@@ -249,6 +249,11 @@ export interface GenerateSocialImageInput {
    * (lite, or full when brand-style references are attached).
    */
   imageModel?: string;
+  /**
+   * Brand image style: a last step on the finished picture before it's stored (the brand's
+   * headline and logo laid over the art). Returns the image to store; on failure, the art as is.
+   */
+  finish?: (img: GeneratedImage) => Promise<GeneratedImage>;
 }
 
 export interface GenerateSocialImageResult {
@@ -315,7 +320,7 @@ export async function generateSocialPostImage(
         })
       : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect], input.imageModel);
   // Best-of-N (L3): when enabled, generate several and auto-pick the most on-brand.
-  const img =
+  let img =
     input.useBrandStyle !== false && isBestOfNEnabled()
       ? await generateBestOfN({
           n: bestOfNCount(),
@@ -326,6 +331,10 @@ export async function generateSocialPostImage(
       : await produceImage();
   if (!img) {
     return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
+  }
+  if (input.finish) {
+    const art = img;
+    img = await input.finish(art).catch(() => art);
   }
   const stored = await storeWorkspaceImage(input.tenantId, input.workspaceId, img.bytes, img.mimeType);
   if (!stored.ok) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: stored.reason };

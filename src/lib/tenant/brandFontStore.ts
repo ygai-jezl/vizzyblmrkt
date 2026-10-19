@@ -154,3 +154,36 @@ export async function deleteBrandFontBytes(tenantId: string, filename: string): 
     /* best-effort */
   }
 }
+
+/**
+ * Free fonts fetched for the image renderer (Google Fonts TTFs) are cached in the bucket under
+ * `font-cache/google/`, shared by every tenant (they're public, open-licence files). Served by
+ * nothing; the key is built from a slug we make, never from input.
+ */
+export const FONT_CACHE_KEY = /^[a-z0-9-]{1,80}-[1-9]00\.ttf$/;
+
+export async function readCachedFont(key: string): Promise<Buffer | null> {
+  if (!FONT_CACHE_KEY.test(key)) return null;
+  const bucketName = process.env.EMAIL_ASSET_BUCKET;
+  if (!bucketName) return null;
+  try {
+    const [bytes] = await getStorage(adminApp()).bucket(bucketName).file(`font-cache/google/${key}`).download();
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeCachedFont(key: string, bytes: Buffer): Promise<void> {
+  if (!FONT_CACHE_KEY.test(key)) return;
+  const bucketName = process.env.EMAIL_ASSET_BUCKET;
+  if (!bucketName) return;
+  try {
+    await getStorage(adminApp()).bucket(bucketName).file(`font-cache/google/${key}`).save(bytes, {
+      contentType: "font/ttf",
+      resumable: false,
+    });
+  } catch (err) {
+    console.warn("[brandFont] cache write failed:", err);
+  }
+}

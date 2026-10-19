@@ -20,11 +20,19 @@ const creative = vi.hoisted(() => ({
 vi.mock("@/lib/agents/creative", () => creative);
 const brandAssets = vi.hoisted(() => ({ countBrandAssetsUpTo: vi.fn(async () => 0) }));
 vi.mock("@/lib/admin/brandAssets", () => brandAssets);
+const render = vi.hoisted(() => ({
+  renderStyleImage: vi.fn(async (_r: Record<string, unknown>) => ({ png: Buffer.from("png"), width: 1080, height: 1080 }) as { png: Buffer; width: number; height: number } | null),
+}));
+vi.mock("@/lib/content/imageStyle/render/styleImage", () => render);
+const store = vi.hoisted(() => ({ storeWorkspaceImage: vi.fn(async () => ({ ok: true, filename: "drawn.png" })) }));
+vi.mock("@/lib/workspace/assetStore", () => store);
+const kit = vi.hoisted(() => ({ recordImageAsset: vi.fn(async (_s: unknown, _row: Record<string, unknown>) => ({})) }));
+vi.mock("@/lib/admin/brandKit", () => kit);
 
 const { POST } = await import("./route");
 
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
-const plan = { graph: { nodes: [{ id: "n1", channel: "linkedin", body: "<p>Hello</p>" }] } };
+const plan = { graph: { nodes: [{ id: "n1", channel: "linkedin", body: "<p>We cut onboarding to five minutes. Here's how. #growth</p>" }] } };
 const params = { params: Promise.resolve({ workspaceId: "ws_1", planId: "p1", nodeId: "n1" }) };
 const req = (body: unknown) =>
   new Request("http://localhost/api/x", {
@@ -124,5 +132,67 @@ describe("POST post-image", () => {
     vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
     const res = await POST(req({ brief: "A desk", aspect: "1:1", styleId: "x".repeat(41) }), params);
     expect(res.status).toBe(400);
+  });
+
+  describe("template styles are drawn, not painted", () => {
+    beforeEach(() => vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true"));
+    const lastRender = () => render.renderStyleImage.mock.calls.at(-1)![0];
+
+    it("draws the post's first line in the brand's Headline card, with no brief needed", async () => {
+      tenantMod.getTenantById.mockResolvedValueOnce({ imageStyle: { defaultStyleId: "headline_card" } });
+      const res = await POST(req({ aspect: "4:5", styleId: "brand" }), params);
+      expect(res.status).toBe(200);
+      expect(lastRender()).toMatchObject({ template: "headline_card", size: "portrait", headline: "We cut onboarding to five minutes.", showLogo: true });
+      expect(creative.generateSocialPostImage).not.toHaveBeenCalled();
+      expect(lastPatch()).toMatchObject({ imageAssetRef: "drawn.png", imagePrompt: null, imageStyleId: null, imageHeadline: null });
+      expect(kit.recordImageAsset.mock.calls[0]![1]).toMatchObject({ kind: "social", style: "headline_card" });
+    });
+
+    it("the person's own words are used and kept with the post", async () => {
+      await POST(req({ aspect: "1:1", styleId: "product_noir", headline: "Five *minutes* to value", withoutScreenshot: true }), params);
+      expect(lastRender()).toMatchObject({ template: "product_noir", size: "square", headline: "Five *minutes* to value" });
+      expect(lastPatch()).toMatchObject({ imageStyleId: "product_noir", imageHeadline: "Five *minutes* to value" });
+    });
+
+    it("a failed render still makes an image, painted in the style's twin", async () => {
+      render.renderStyleImage.mockResolvedValueOnce(null);
+      const res = await POST(req({ brief: "A desk", aspect: "1:1", styleId: "headline_card" }), params);
+      expect(res.status).toBe(200);
+      expect(lastCall()).toMatchObject({ style: "illustration" });
+    });
+
+    it("without a brief, a painted style asks for one", async () => {
+      const res = await POST(req({ aspect: "1:1", styleId: "soft_3d" }), params);
+      expect(res.status).toBe(400);
+      expect(creative.generateSocialPostImage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("type over painted art", () => {
+    beforeEach(() => vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true"));
+
+    it("lays the headline and logo over the art when the brand asked for them", async () => {
+      await POST(req({ brief: "A desk", aspect: "1.91:1", styleId: "soft_3d" }), params);
+      const finish = lastCall().finish as (img: { bytes: Buffer; mimeType: string }) => Promise<{ bytes: Buffer; mimeType: string }>;
+      const out = await finish({ bytes: Buffer.from("art"), mimeType: "image/jpeg" });
+      expect(render.renderStyleImage.mock.calls[0]![0]).toMatchObject({
+        template: "art_overlay",
+        size: "landscape",
+        headline: "We cut onboarding to five minutes.",
+        art: Buffer.from("art"),
+        showHeadline: true,
+        showLogo: true,
+      });
+      expect(out.mimeType).toBe("image/png");
+    });
+
+    it("not when both are switched off, nor before the brand saved a style", async () => {
+      tenantMod.getTenantById.mockResolvedValueOnce({ imageStyle: { defaultStyleId: "soft_3d", headlineOnSocial: false, logoOnSocial: false } });
+      await POST(req({ brief: "A desk", aspect: "1:1", styleId: "brand" }), params);
+      expect(lastCall()).not.toHaveProperty("finish");
+      tenantMod.getTenantById.mockResolvedValueOnce({});
+      await POST(req({ brief: "A desk", aspect: "1:1", styleId: "soft_3d" }), params);
+      expect(lastCall()).not.toHaveProperty("finish");
+    });
   });
 });

@@ -536,6 +536,8 @@ export const ContentNodeSchema = z.object({
   /** This image's own style, picked when it was made (a style or old preset id); absent/null =
    *  the brand's (BRAND_IMAGE_STYLE_ENABLED). Saved so a regenerate keeps it. */
   imageStyleId: z.string().max(40).nullable().optional(),
+  /** Brand image style: the words drawn on this post's image (`*stars*` mark the highlight). */
+  imageHeadline: z.string().max(160).nullable().optional(),
   // ── eBook hub (only on the `hub` node of an "ebook" plan; null elsewhere). The
   //    authored book is copied here from `ContentPlan.ebookDraft` at finalize so the
   //    canvas hub node IS the eBook. Additive + nullable so old/other plans parse. ──

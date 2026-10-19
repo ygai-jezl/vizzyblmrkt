@@ -508,6 +508,8 @@ export async function updateContentPlanNode(
       | "imageAssetRef"
       | "imageAspect"
       | "imagePrompt"
+      | "imageStyleId"
+      | "imageHeadline"
       | "blog"
     >
   >,

@@ -251,6 +251,18 @@ export function ImageStyleCard({
             );
           })}
         </div>
+        {canEdit && draft.defaultStyleId && imageStyleById(draft.defaultStyleId)?.engine === "template" && imageStyleById(draft.defaultStyleId)?.built ? (
+          <figure className="space-y-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              key={`${draft.defaultStyleId}${draft.accentHex ?? ""}${draft.logoOnSocial}`}
+              src={`/api/admin/brand-kit/image-style/preview?styleId=${draft.defaultStyleId}&size=share&logo=${draft.logoOnSocial ? 1 : 0}${draft.accentHex ? `&accent=${encodeURIComponent(draft.accentHex)}` : ""}`}
+              alt={`${defaultLabel} drawn with your logo, fonts and accent`}
+              className="aspect-[1200/630] w-full max-w-xl rounded-md border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900"
+            />
+            <figcaption className="text-xs text-neutral-500">With your logo, fonts and accent.</figcaption>
+          </figure>
+        ) : null}
       </section>
 
       <section className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">

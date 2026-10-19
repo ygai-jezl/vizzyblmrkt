@@ -24,6 +24,8 @@ import {
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
 import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { resolveImageStyle } from "@/lib/content/imageStyle/resolve";
+import { useBrandImageStyle } from "@/components/admin/imageStyle/useBrandImageStyle";
 import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
 import type { BlogHubControls } from "./blog/types";
 import type { TemplateOption } from "./types";
@@ -529,6 +531,15 @@ function SocialImageControls({
   // with the post, so a regenerate keeps it.
   const styleUi = isBrandImageStyleUiEnabled();
   const [styleId, setStyleId] = useState<string | null>(node.imageStyleId ?? null);
+  // A drawn (template) style puts words on the image, as does a painted one when the brand puts
+  // its headline on social images. Blank = the post's first line. Saved with the post.
+  const { style: brandStyle } = useBrandImageStyle(styleUi);
+  const resolved = styleUi
+    ? resolveImageStyle({ enabled: true, surface: "social", channel: node.channel, brand: brandStyle ?? undefined, override: styleId })
+    : null;
+  const drawn = resolved?.engine === "template";
+  const showWords = drawn || (resolved?.engine === "model" && !!brandStyle && brandStyle.headlineOnSocial !== false);
+  const [headline, setHeadline] = useState(node.imageHeadline ?? "");
   // A style built from product screens, with none saved yet: ask for them here (they're kept
   // in Brand › Screenshots), or make it without one.
   const [needsShots, setNeedsShots] = useState<string | null>(null);
@@ -547,7 +558,7 @@ function SocialImageControls({
     : null;
 
   async function generate(opts: { withoutScreenshot?: boolean } = {}) {
-    if (!brief.trim() || busy) return;
+    if ((!brief.trim() && !drawn) || busy) return;
     setBusy("generate");
     onBusyChange?.(true);
     setErr(null);
@@ -562,9 +573,10 @@ function SocialImageControls({
           // dropdown omits it so the server keeps its adaptive default (lite, or full when
           // brand-style references are attached). See imageModelOverride.
           body: JSON.stringify({
-            brief: brief.trim(),
+            ...(brief.trim() ? { brief: brief.trim() } : {}),
             aspect,
             ...(styleUi ? { styleId: styleId ?? "brand" } : { style }),
+            ...(showWords && headline.trim() ? { headline: headline.trim() } : {}),
             ...(opts.withoutScreenshot ? { withoutScreenshot: true } : {}),
             useBrandStyle,
             model: imageModelOverride(model, "social"),
@@ -586,7 +598,7 @@ function SocialImageControls({
           imageAssetRef: data.imageAssetRef,
           imageAspect: aspect,
           imagePrompt: data.imagePrompt ?? null,
-          ...(styleUi ? { imageStyleId: styleId } : {}),
+          ...(styleUi ? { imageStyleId: styleId, imageHeadline: showWords && headline.trim() ? headline.trim() : null } : {}),
         });
       } else {
         setErr(data.message ?? "Couldn't generate — try again.");
@@ -702,14 +714,29 @@ function SocialImageControls({
           />
         </div>
       ) : null}
-      <textarea
-        value={brief}
-        onChange={(e) => setBrief(e.target.value)}
-        rows={2}
-        maxLength={1000}
-        placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
-        className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-      />
+      {drawn ? null : (
+        <textarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={2}
+          maxLength={1000}
+          placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
+          className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      )}
+      {showWords ? (
+        <div className={drawn ? "" : "mt-2"}>
+          <input
+            value={headline}
+            onChange={(e) => setHeadline(e.target.value)}
+            maxLength={160}
+            aria-label="Words on the image"
+            placeholder="Words on the image (blank: the post's first line)"
+            className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          <p className="mt-1 text-[10px] text-neutral-400">Put *stars* around words to highlight them.</p>
+        </div>
+      ) : null}
       <div className="mt-2 flex items-center gap-1">
         <span className="text-[10px] uppercase tracking-wide text-neutral-400">Aspect</span>
         {SOCIAL_ASPECTS.map((a) => (
@@ -818,7 +845,7 @@ function SocialImageControls({
         <button
           type="button"
           onClick={() => generate()}
-          disabled={busy !== null || !brief.trim()}
+          disabled={busy !== null || (!brief.trim() && !drawn)}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
           {busy === "generate" ? "Generating…" : hasImage ? "Regenerate" : "✨ Generate image"}

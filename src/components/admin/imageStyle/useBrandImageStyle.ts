@@ -13,10 +13,14 @@ function load(): Promise<StoredImageStyle | null> {
   return pending;
 }
 
-/** The brand's image style, for the pickers to show "Brand default (…)". */
-export function useBrandImageStyle(): { style: StoredImageStyle | null; loaded: boolean } {
+/**
+ * The brand's image style, for the pickers to show "Brand default (…)". With `enabled` false
+ * (the image style switched off) nothing is fetched.
+ */
+export function useBrandImageStyle(enabled = true): { style: StoredImageStyle | null; loaded: boolean } {
   const [state, setState] = useState<{ style: StoredImageStyle | null; loaded: boolean }>({ style: null, loaded: false });
   useEffect(() => {
+    if (!enabled) return;
     let live = true;
     void load().then((style) => {
       if (live) setState({ style, loaded: true });
@@ -24,6 +28,6 @@ export function useBrandImageStyle(): { style: StoredImageStyle | null; loaded: 
     return () => {
       live = false;
     };
-  }, []);
+  }, [enabled]);
   return state;
 }

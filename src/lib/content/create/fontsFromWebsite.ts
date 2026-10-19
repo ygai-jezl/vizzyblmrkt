@@ -100,6 +100,17 @@ function lookup<T>(table: Record<string, T> | Map<string, T>, family: string): T
   return get(key) ?? get(key.replace(/\s+(std|pro|text|display|web|xx|variable|vf)$/i, ""));
 }
 
+/**
+ * A family's free Google twin with no lookup: itself when it's a popular Google family, the
+ * closest match when it's a known paid one, else null (unknown: may still be on Google Fonts).
+ */
+export function freeMatchFor(family: string): { family: string; source: "google" | "match" } | null {
+  const google = lookup(KNOWN_GOOGLE, family);
+  if (google) return { family: google, source: "google" };
+  const paid = lookup(PAID_MATCH, family);
+  return paid ? { family: paid, source: "match" } : null;
+}
+
 /** The family a generic name falls back to when the site's own font can't be identified. */
 function genericMatch(generic: "sans" | "serif" | "mono"): string {
   return generic === "serif" ? "Source Serif 4" : generic === "mono" ? "JetBrains Mono" : "Inter";

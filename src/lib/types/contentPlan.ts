@@ -373,6 +373,9 @@ export const BlogBriefSchema = z.object({
   authorUrl: z.union([HttpsUrl, z.literal("")]).optional(),
   /** What the brand has seen, for this article (BRAND_NOTES_ENABLED). Absent = never matched. */
   seen: BlogSeenSchema.optional(),
+  /** "editorial" once research ran for the editorial writer; absent = researched before (or never), so
+   *  an editorial article is researched again before it is written. */
+  researchStyle: z.enum(["editorial"]).optional(),
 });
 export type BlogBrief = z.infer<typeof BlogBriefSchema>;
 

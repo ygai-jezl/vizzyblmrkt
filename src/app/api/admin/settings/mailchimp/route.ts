@@ -3,6 +3,12 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById, updateTenantConfig } from "@/lib/tenant";
+import {
+  MAILCHIMP_KEY_UNCONFIGURED,
+  hasOwnMailchimpKey,
+  isMailchimpKeySealingEnabled,
+  storedKeyFields,
+} from "@/lib/mailchimp/keyBox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +32,8 @@ export async function GET(req: Request) {
   const cfg = tenant?.mailchimpConfig;
   return NextResponse.json({
     requiresOwnApiKey: cfg?.requiresOwnApiKey ?? false,
-    apiKeySet: Boolean(cfg?.apiKey),
+    apiKeySet: hasOwnMailchimpKey(cfg),
+    apiKeySealed: Boolean(cfg?.apiKeyEnc),
     audienceId: cfg?.audienceId ?? null,
     serverPrefix: cfg?.serverPrefix ?? null,
   });
@@ -50,12 +57,24 @@ export async function PUT(req: Request) {
   }
   const existing = tenant.mailchimpConfig;
 
+  // Sealed when the switch is on (a kept plain key is sealed too). The whole map
+  // is replaced below, so a plain `apiKey` left out here is gone from the record.
+  let keyFields: ReturnType<typeof storedKeyFields>;
+  try {
+    keyFields = storedKeyFields(
+      ctx.tenantId,
+      existing,
+      parsed.data.apiKey,
+      isMailchimpKeySealingEnabled(),
+    );
+  } catch (err) {
+    if ((err as Error).message !== MAILCHIMP_KEY_UNCONFIGURED) throw err;
+    return NextResponse.json({ error: "mailchimp_key_sealing_unconfigured" }, { status: 503 });
+  }
+
   const next = {
     requiresOwnApiKey: parsed.data.requiresOwnApiKey,
-    apiKey:
-      parsed.data.apiKey === undefined
-        ? existing?.apiKey
-        : parsed.data.apiKey || undefined,
+    ...keyFields,
     audienceId: parsed.data.audienceId ?? existing?.audienceId,
     serverPrefix: parsed.data.serverPrefix ?? existing?.serverPrefix,
   };

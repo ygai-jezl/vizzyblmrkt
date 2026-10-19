@@ -27,10 +27,17 @@ export type Region = z.infer<typeof Region>;
  * MailChimp account (env-configured). When `requiresOwnApiKey` is true the
  * tenant is gated OFF the shared account and MUST bring its own credentials
  * (`apiKey` + `audienceId`). See src/lib/mailchimp/config.ts.
+ *
+ * The key is stored SEALED in `apiKeyEnc` (src/lib/mailchimp/keyBox.ts). A plain
+ * `apiKey` is only left on brands saved before sealing was switched on, until
+ * they save again or scripts/seal-mailchimp-keys.ts seals it.
  */
 export const MailchimpTenantConfigSchema = z.object({
   requiresOwnApiKey: z.boolean().default(false),
+  /** Legacy plain text key. Never written while MAILCHIMP_KEY_SEALED_ENABLED is on. */
   apiKey: z.string().optional(),
+  /** The key, sealed (ciphertext / iv / GCM tag, all base64), bound to the tenant id. */
+  apiKeyEnc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }).optional(),
   serverPrefix: z.string().optional(),
   audienceId: z.string().optional(),
 });

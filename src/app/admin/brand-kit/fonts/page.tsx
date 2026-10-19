@@ -57,6 +57,8 @@ export default async function BrandKitFontsPage() {
         initialTypography={tenant?.brandTypography ?? null}
         initialFonts={fonts}
         tenantId={ctx.tenantId}
+        siteFonts={tenant?.imageStyle?.siteFonts ?? null}
+        siteDomain={tenant?.rootDomain ?? null}
       />
     </div>
   );

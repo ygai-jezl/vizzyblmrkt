@@ -24,7 +24,9 @@ import {
 } from "@/lib/content/fonts";
 import { brandFontPublicUrl } from "@/lib/content/brandKit";
 import { fontWeightLabel, renderableFilename } from "@/lib/content/imageStyle/fontRows";
-import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
+import type { SiteFonts } from "@/lib/types/imageStyle";
+import { SiteFontsPanel } from "./SiteFontsPanel";
 
 const SIZE_OPTIONS = [10, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 84, 96];
 const SELECT =
@@ -48,10 +50,15 @@ export function FontsManager({
   initialTypography,
   initialFonts,
   tenantId,
+  siteFonts = null,
+  siteDomain = null,
 }: {
   initialTypography: BrandTypography | null;
   initialFonts: BrandFont[];
   tenantId: string;
+  /** Brand image style: the fonts found on the website, and the website. */
+  siteFonts?: SiteFonts | null;
+  siteDomain?: string | null;
 }) {
   // Lazy initializer — seededTextStyles() (8× randomUUID) must run once, not on every render.
   const [styles, setStyles] = useState<TextStyle[]>(() =>
@@ -420,6 +427,10 @@ export function FontsManager({
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {isSiteFontsUiEnabled() ? (
+        <SiteFontsPanel initial={siteFonts} domain={siteDomain} onUpload={() => uploadRef.current?.click()} />
       ) : null}
 
       {/* Guidelines */}

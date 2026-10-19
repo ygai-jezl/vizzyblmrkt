@@ -55,6 +55,7 @@ export const CORE_SECRETS = [
   { name: "connect-secret-enc-key", env: "CONNECT_SECRET_ENC_KEY", encoding: "base64" },
   { name: "social-token-enc-key", env: "SOCIAL_TOKEN_ENC_KEY", encoding: "base64" },
   { name: "git-token-enc-key", env: "GIT_TOKEN_ENC_KEY", encoding: "base64" },
+  { name: "mailchimp-key-enc-key", env: "MAILCHIMP_KEY_ENC_KEY", encoding: "base64" },
   { name: "unsubscribe-signing-key", env: "UNSUBSCRIBE_SIGNING_KEY", encoding: "base64" },
   { name: "invite-link-signing-key", env: "INVITE_LINK_SIGNING_KEY", encoding: "base64" },
   { name: "canvas-context-signing-key", env: "CANVAS_CONTEXT_SIGNING_KEY", encoding: "base64" },

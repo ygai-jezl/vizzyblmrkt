@@ -357,7 +357,7 @@ describe("npm run doctor -- --cloud", { timeout: SLOW }, () => {
     expect(r.out).toContain("ok    Billing is on");
     expect(r.out).toMatch(/fail +\d+ required APIs are off/);
     expect(r.out).toContain(`fix: npm run selfhost -- --project ${PROJECT} --apply apis`);
-    expect(r.out).toMatch(/fail +9 core secrets are missing/);
+    expect(r.out).toMatch(/fail +10 core secrets are missing/);
     expect(r.out).toContain(`No App Hosting backend "${PROJECT}"`);
     expect(r.out).toContain("No apphosting.live.yaml in this folder.");
     expect(r.code).toBe(1);

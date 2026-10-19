@@ -79,7 +79,7 @@ project and what will change, and asks `Go ahead? [y/N]`. Run one step on its ow
 | `firebase` | Adds Firebase to the project and makes a web app called YouGrow. | `firebase apps:list WEB --project <id>` |
 | `firestore` | Creates the default Firestore database and deploys `firestore.rules` and `firestore.indexes.json` to it. Asks the location (default `nam5`, the US). **The location is permanent** ([locations](https://firebase.google.com/docs/firestore/locations)). | `gcloud firestore databases describe --database='(default)' --project <id>` |
 | `storage` | Creates a private bucket, `<id>-yougrow-assets`, for brand files and images. | `gcloud storage buckets describe gs://<id>-yougrow-assets` |
-| `secrets` | Makes the app's nine keys and worker secrets with random values, plus the web app's public API key, in Secret Manager. Values are never shown. | `gcloud secrets list --project <id>` |
+| `secrets` | Makes the app's ten keys and worker secrets with random values, plus the web app's public API key, in Secret Manager. Values are never shown. | `gcloud secrets list --project <id>` |
 | `workspace` | Creates your first workspace (your brand) with the app's own code. Asks its name and website domain. | `npx tsx scripts/selfhost/create-workspace.ts --project <id> --list` |
 | `backend` | Creates the App Hosting backend, lets it use Vertex AI, the bucket and the secrets, and sets its environment name to `live` so it reads `apphosting.live.yaml`. | `firebase apphosting:backends:list --project <id>` |
 | `connect` | Creates the key that signs requests to connected products, and turns on clean-up of old event data. | `bash infra/lifecycle/setup.sh verify <id>` |

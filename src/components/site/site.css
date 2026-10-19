@@ -4,6 +4,9 @@
  * design prototype; keyframes are prefixed yg- for the same reason.
  */
 html:has(.yg), body:has(.yg) { background: #0b0b0c; }
+/* The app's globals put overflow-x: hidden on html and body, which makes body a scroll
+   container and breaks position: sticky (the pinned loops). clip hides sideways overflow without that. */
+html:has(.yg), body:has(.yg) { overflow-x: clip; }
 @media (prefers-color-scheme: light) { html:has(.yg:not([data-yg-theme="dark"])), body:has(.yg:not([data-yg-theme="dark"])) { background: #f4f3ef; } }
 html:has(.yg[data-yg-theme="light"]), body:has(.yg[data-yg-theme="light"]) { background: #f4f3ef; }
 /* The design was written against browser defaults: inside .yg, undo Tailwind's global

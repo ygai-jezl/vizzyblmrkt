@@ -66,6 +66,7 @@ export {
   createTenant,
   backfillTenantFavicon,
   updateTenantConfig,
+  sealTenantMailchimpKey,
   updateTenantSenderConfig,
   addTenantMember,
   addAllowedOrigin,

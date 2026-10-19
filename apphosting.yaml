@@ -579,6 +579,20 @@ env:
     secret: connect-secret-enc-key
     availability:
       - RUNTIME
+  # Root key that seals each brand's own Mailchimp API key (AES-GCM; see
+  # src/lib/mailchimp/keyBox.ts). Prod inherits it, so it must exist in BOTH
+  # projects before a rollout. Create with
+  #   infra/mailchimp/setup.sh secret <project>
+  - variable: MAILCHIMP_KEY_ENC_KEY
+    secret: mailchimp-key-enc-key
+    availability:
+      - RUNTIME
+  # Store a brand's own Mailchimp key sealed (above), never as plain text. Reads
+  # understand both forms either way. Off in prod (apphosting.prod.yaml).
+  - variable: MAILCHIMP_KEY_SEALED_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   # Requests the platform sends TO products (context pulls, webhooks) carry an
   # ES256 JWT signed with this Cloud KMS key (HSM, never exported) — not the
   # connection secret. Public keys: <CONNECT_ISSUER>/.well-known/jwks.json.

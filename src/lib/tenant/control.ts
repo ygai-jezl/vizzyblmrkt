@@ -10,6 +10,8 @@ import {
   EmailStyleInputSchema,
   StoredEmailStyleSchema,
   EmailStyleSuggestionSchema,
+  MailchimpTenantConfigSchema,
+  type MailchimpTenantConfig,
   type Tenant,
   type BrandKit,
   type BrandVoice,
@@ -77,6 +79,32 @@ export async function updateTenantConfig(
     .collection("tenants")
     .doc(id)
     .update({ ...rest, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * Swap a tenant's plain text own Mailchimp key for its sealed form
+ * (scripts/seal-mailchimp-keys.ts). In a transaction, so it can't undo a save that
+ * races it: the key is re-read, and nothing is written if it was sealed or cleared
+ * since. `seal` turns the plain key into the sealed blob (and may throw to abort).
+ * Returns whether it sealed one.
+ */
+export async function sealTenantMailchimpKey(
+  id: string,
+  seal: (plainKey: string) => NonNullable<MailchimpTenantConfig["apiKeyEnc"]>,
+  db: FirestoreLike = getDb(),
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const cfg = MailchimpTenantConfigSchema.safeParse((await tx.get(ref)).data()?.mailchimpConfig);
+    const plain = cfg.success && !cfg.data.apiKeyEnc ? cfg.data.apiKey?.trim() : undefined;
+    if (!plain) return false;
+    tx.update(ref, {
+      "mailchimpConfig.apiKeyEnc": seal(plain),
+      "mailchimpConfig.apiKey": FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  });
 }
 
 /**

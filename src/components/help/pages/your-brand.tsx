@@ -1,7 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
-import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
 
 export default function YourBrandHelp() {
   const imageStyle = isBrandImageStyleUiEnabled();
@@ -124,8 +124,9 @@ export default function YourBrandHelp() {
               Open <Open href="/admin/brand-kit/image-style">Brand › Image style</Open>.
             </li>
             <li>
-              Pick a <strong>Default style</strong>. Drawn styles (Product noir, Headline card) show your words exactly;
-              painted styles show no words.
+              Pick a <strong>Default style</strong>. Drawn styles (
+              {isMoreStylesUiEnabled() ? "Product noir, Headline card, Data story, Type poster, Split card, Line art" : "Product noir, Headline card"})
+              show your words exactly; painted styles show no words.
             </li>
             <li>
               Under <strong>Per channel</strong>, give a channel its own style if you want one.
@@ -142,6 +143,21 @@ export default function YourBrandHelp() {
             screenshots, kept in <Open href="/admin/brand-kit/screenshots">Brand › Screenshots</Open>. Crop out customer
             names, emails and private numbers first.
           </P>
+          {isMoreStylesUiEnabled() ? (
+            <P>
+              Data story draws a chart from numbers in your post or article. It only uses numbers written there, and never
+              one the fact check couldn&apos;t trace. With fewer than two, you&apos;re asked to add yours, or it&apos;s made
+              as a Type poster.
+            </P>
+          ) : null}
+          {isImageFormatsUiEnabled() ? (
+            <P>
+              Formats work in any style. Pick <strong>Format</strong> next to Style on a post, the hero card or the eBook
+              cover: a <strong>Portrait card</strong> (someone&apos;s words, their name and role), a{" "}
+              <strong>Partner lockup</strong> (your logo and a partner&apos;s name) or a <strong>Report cover</strong>. The
+              picture is a painted scene: never a person, and never a partner&apos;s logo.
+            </P>
+          ) : null}
         </>
       ) : null}
 

@@ -3,7 +3,7 @@
  * brand's channel style and its default (resolve.ts), with the switch read on the server.
  */
 import type { Tenant } from "@/lib/types/tenant";
-import { isBrandImageStyleEnabled } from "./flags";
+import { isBrandImageStyleEnabled, isMoreStylesEnabled } from "./flags";
 import { resolveImageStyle, type ImageSurface, type ResolvedImageStyle } from "./resolve";
 import { modelDirectionFor, type ModelDirection } from "./direction";
 
@@ -31,6 +31,7 @@ export function styleForImage(input: {
     channel: input.channel,
     brand: input.tenant?.imageStyle ?? null,
     override: ownPick,
+    more: isMoreStylesEnabled(),
   });
   return { enabled, resolved, model: modelDirectionFor(resolved), ownPick };
 }

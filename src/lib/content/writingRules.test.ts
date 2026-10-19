@@ -35,4 +35,18 @@ describe("no dashes in our copy", () => {
     expect(brief).toContain("No text, words, letters, numbers, data charts or logos anywhere in the image");
     expect(brief.replace(/\[\[[a-z_]+\]\]/g, "")).not.toMatch(/[—–]/);
   });
+
+  it("the chart prompt never lets a number be invented", () => {
+    const chart = getPrompt("content.chart_from_copy").template;
+    expect(chart).toContain("Use ONLY numbers written in the text, exactly as they are");
+    expect(chart.replace(/\[\[[a-z_]+\]\]/g, "")).not.toMatch(/[—–]/);
+  });
+
+  it("a format's painted scene has no people, no logos and no text", () => {
+    const scene = getPrompt("content.format_scene_brief").template;
+    expect(scene).toContain("NO people at all: no faces");
+    expect(scene).toContain("NO logos, brand marks, product names, company names or trademarks");
+    expect(scene).toContain("NO text, letters, numbers or charts anywhere");
+    expect(scene.replace(/\[\[[a-z_]+\]\]/g, "")).not.toMatch(/[—–]/);
+  });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ImageStyleInputSchema, StoredImageStyleSchema, ImageStyleSuggestionSchema } from "./imageStyle";
 import { TenantSchema } from "./tenant";
-import { BlogArticleMetaSchema, BlogHeroSchema } from "./contentPlan";
+import { BlogArticleMetaSchema, BlogHeroSchema, ContentNodeSchema, EbookImageSlotSchema } from "./contentPlan";
+import { ChartSchema, FormatInputsSchema } from "./imageStyle";
 
 const tenantBase = {
   id: "ten_A",
@@ -66,5 +67,28 @@ describe("image style schemas", () => {
     expect("imageUrl" in old).toBe(false);
     const hero = BlogHeroSchema.parse({ status: "pending" });
     expect(hero).toMatchObject({ styleId: null, heroRef: null, shareRef: null, alt: "", attempts: 0, forTitle: "" });
+  });
+
+  it("v2 fields: old documents parse exactly as before, damaged ones read as none", () => {
+    const node = {
+      id: "n1", type: "spoke", channel: "linkedin", role: "Post", position: { x: 0, y: 0 },
+    };
+    const old = ContentNodeSchema.parse(node);
+    for (const k of ["imageFormat", "imageFormatInputs", "imageChart"]) expect(k in old, k).toBe(false);
+    const damaged = ContentNodeSchema.parse({ ...node, imageFormat: "poster", imageChart: { kind: "pie", points: [] }, imageFormatInputs: "x" });
+    expect([damaged.imageFormat, damaged.imageChart, damaged.imageFormatInputs]).toEqual([undefined, undefined, undefined]);
+    const hero = BlogHeroSchema.parse({ status: "ready", format: "report_cover", formatInputs: { title: "T", figure: { value: "120", unit: "teams" } }, note: "no_numbers" });
+    expect(hero).toMatchObject({ format: "report_cover", formatInputs: { figure: { value: "120", unit: "teams" } }, note: "no_numbers" });
+    expect(EbookImageSlotSchema.parse({ id: "cover", aspect: "4:5", format: "report_cover" })).toMatchObject({ aspect: "4:5", format: "report_cover" });
+    expect("format" in EbookImageSlotSchema.parse({ id: "c" })).toBe(false);
+  });
+
+  it("a chart needs two to twelve points, each with a label and a number", () => {
+    const ok = ChartSchema.parse({ kind: "line", points: [{ label: "10 Sep", value: 0 }, { label: "28 Sep", value: 100, display: "100%" }] });
+    expect(ok).toMatchObject({ unit: "", points: [{ label: "10 Sep" }, { display: "100%" }] });
+    expect(ChartSchema.safeParse({ kind: "line", points: [{ label: "a", value: 1 }] }).success).toBe(false);
+    expect(ChartSchema.safeParse({ kind: "bar", points: [{ label: "", value: 1 }, { label: "b", value: 2 }] }).success).toBe(false);
+    expect(ChartSchema.safeParse({ kind: "bar", points: [{ label: "a", value: Number.NaN }, { label: "b", value: 2 }] }).success).toBe(false);
+    expect(FormatInputsSchema.safeParse({ quote: "q".repeat(241) }).success).toBe(false);
   });
 });

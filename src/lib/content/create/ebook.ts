@@ -12,6 +12,7 @@ export const EBOOK_ASPECTS = ["1:1", "1:4"] as const;
 export const EBOOK_ASPECT_LABELS: Record<EbookAspect, string> = {
   "1:1": "Square (1:1)",
   "1:4": "Tall page (1:4)",
+  "4:5": "Report cover (4:5)",
 };
 
 /**
@@ -25,11 +26,12 @@ export const EBOOK_ASPECT_LABELS: Record<EbookAspect, string> = {
 export const EBOOK_ASPECT_TO_GEMINI: Record<EbookAspect, string> = {
   "1:1": "1:1",
   "1:4": "1:4",
+  "4:5": "4:5",
 };
 
 /** CSS `aspect-ratio` value for framing a slot in the reading pane. */
 export function ebookAspectRatioCss(aspect: EbookAspect): string {
-  return aspect === "1:4" ? "1 / 4" : "1 / 1";
+  return aspect === "1:4" ? "1 / 4" : aspect === "4:5" ? "4 / 5" : "1 / 1";
 }
 
 /**

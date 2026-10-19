@@ -181,6 +181,9 @@ export function applyGeneratedImage(
     contextPrompt?: string;
     /** The image's own style, saved with it (BRAND_IMAGE_STYLE_ENABLED); absent = left as it is. */
     imageStyleId?: string | null;
+    /** The cover as a report cover and its words (IMAGE_FORMATS_ENABLED); any other cover clears them. */
+    format?: EbookImageSlot["format"];
+    formatInputs?: EbookImageSlot["formatInputs"];
   },
   makeSlotId: () => string = () => `img_${crypto.randomUUID()}`,
 ): EbookDoc {
@@ -204,6 +207,7 @@ export function applyGeneratedImage(
           : prev?.imageStyleId !== undefined
             ? { imageStyleId: prev.imageStyleId }
             : {}),
+        ...(image.format ? { format: image.format, ...(image.formatInputs ? { formatInputs: image.formatInputs } : {}) } : {}),
       },
     };
   }

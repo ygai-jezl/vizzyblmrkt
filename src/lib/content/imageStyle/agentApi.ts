@@ -3,8 +3,8 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { BRAND_KIT_IMAGE_STYLE_ROUTE } from "@/lib/content/brandKit";
 import { IMAGE_STYLE_CHANNELS } from "@/lib/types/imageStyle";
-import { IMAGE_STYLES, imageStyleById } from "./catalogue";
-import { isBlogHeroEnabled, isBrandImageStyleEnabled } from "./flags";
+import { IMAGE_STYLES, imageStyleById, isStyleAvailable } from "./catalogue";
+import { isBlogHeroEnabled, isBrandImageStyleEnabled, isMoreStylesEnabled } from "./flags";
 
 /**
  * For Vizzy: the brand's image style (saved, pending suggestion, the styles it can pick from), so
@@ -50,7 +50,7 @@ export async function agentImageStyle(ctx: TenantContext, db?: FirestoreLike): P
         id: s.id,
         label: s.label,
         hint: s.hint,
-        built: s.built,
+        built: isStyleAvailable(s, isMoreStylesEnabled()),
         kind: s.engine === "template" ? "drawn: exact words and numbers" : "painted: no words in the art",
         ...(s.requires.length ? { needs: s.requires } : {}),
       })),

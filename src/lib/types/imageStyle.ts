@@ -140,3 +140,58 @@ export const ImageStyleSuggestionSchema = z.object({
   suggestedAt: z.string().min(1).max(40),
 });
 export type ImageStyleSuggestion = z.infer<typeof ImageStyleSuggestionSchema>;
+
+// ── v2: what drawn styles and formats draw (BRAND_IMAGE_STYLE_MORE_ENABLED, IMAGE_FORMATS_ENABLED) ──
+
+/** A chart's shape: a line over time, bars side by side, or a before and after. */
+export const CHART_KINDS = ["line", "bar", "compare"] as const;
+
+export const ChartPointSchema = z.object({
+  label: z.string().trim().min(1).max(40),
+  value: z.number().finite(),
+  /** The number as the copy writes it ("4,235", "42%"), drawn on the chart. */
+  display: z.string().trim().max(16).optional(),
+});
+export type ChartPoint = z.infer<typeof ChartPointSchema>;
+
+/** Data story's numbers: from the copy (checked in code) or typed by a person. */
+export const ChartSchema = z.object({
+  kind: z.enum(CHART_KINDS),
+  /** Shown after values that have no `display` ("%", "links"). */
+  unit: z.string().trim().max(12).default(""),
+  points: z.array(ChartPointSchema).min(2).max(12),
+  /** The point the accent and the annotation go on. */
+  highlight: z.number().int().min(0).max(11).optional(),
+  /** Where the numbers come from, in a few words ("Our data, Sep 2026"). */
+  source: z.string().trim().max(120).optional(),
+});
+export type Chart = z.infer<typeof ChartSchema>;
+
+/** Type poster's one big number ("19" "days", "4,235" "links"). */
+export const FigureSchema = z.object({
+  value: z.string().trim().min(1).max(14),
+  unit: z.string().trim().max(24).default(""),
+});
+export type Figure = z.infer<typeof FigureSchema>;
+
+/** Formats work in any style: the brand's style skins them. */
+export const IMAGE_FORMAT_IDS = ["standard", "portrait", "partner", "report_cover"] as const;
+export const ImageFormatIdSchema = z.enum(IMAGE_FORMAT_IDS);
+export type ImageFormatId = z.infer<typeof ImageFormatIdSchema>;
+
+/**
+ * What a format draws. Portrait card: a quote, name and role (the picture is a painted scene,
+ * never a person). Partner lockup: the partner's name in type and one line (never their logo).
+ * Report cover: title, subtitle and a big number.
+ */
+export const FormatInputsSchema = z.object({
+  quote: z.string().trim().max(240).optional(),
+  name: z.string().trim().max(80).optional(),
+  role: z.string().trim().max(80).optional(),
+  partner: z.string().trim().max(60).optional(),
+  line: z.string().trim().max(140).optional(),
+  title: z.string().trim().max(140).optional(),
+  subtitle: z.string().trim().max(200).optional(),
+  figure: FigureSchema.optional(),
+});
+export type FormatInputs = z.infer<typeof FormatInputsSchema>;

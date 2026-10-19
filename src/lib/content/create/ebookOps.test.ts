@@ -110,6 +110,14 @@ describe("applyEbookOps — bodies + image slots", () => {
 describe("applyGeneratedImage", () => {
   const img = { imageAssetRef: "abc.png", imagePrompt: "a prompt", aspect: "1:4" as const, contextPrompt: "a hero" };
 
+  it("cover: a report cover keeps its format and words; any other cover clears them", () => {
+    const report = applyGeneratedImage(book(), { kind: "cover" }, { ...img, aspect: "4:5", format: "report_cover", formatInputs: { title: "Book" } }, () => "ns1");
+    expect(report.coverImage).toMatchObject({ aspect: "4:5", format: "report_cover", formatInputs: { title: "Book" } });
+    const painted = applyGeneratedImage(report, { kind: "cover" }, img);
+    expect(painted.coverImage).not.toHaveProperty("format");
+    expect(painted.coverImage).not.toHaveProperty("formatInputs");
+  });
+
   it("cover: sets EbookDoc.coverImage (generated)", () => {
     const out = applyGeneratedImage(book(), { kind: "cover" }, img, () => "ns1");
     expect(out.coverImage).toMatchObject({ id: "ns1", status: "generated", imageAssetRef: "abc.png", aspect: "1:4" });

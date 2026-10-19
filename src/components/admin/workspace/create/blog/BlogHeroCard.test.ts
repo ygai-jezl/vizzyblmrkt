@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlogArticleMetaSchema, type ContentNode } from "@/lib/types/contentPlan";
 import { BlogHeroCard } from "./BlogHeroCard";
 
@@ -40,5 +40,20 @@ describe("BlogHeroCard", () => {
     expect(html(node({ ...made, status: "fallback", styleId: "title_card" }))).toContain("Try the image again");
     expect(html(node(made), "hub")).toContain("Making the hero image");
     expect(html(node({ ...made, forTitle: "An older title" }))).toContain("The title changed since this was made.");
+  });
+
+  describe("formats (IMAGE_FORMATS_ENABLED)", () => {
+    afterEach(() => vi.unstubAllEnvs());
+    it("offers the Format menu, names the format, and says when a chart stepped down", () => {
+      vi.stubEnv("NEXT_PUBLIC_BRAND_IMAGE_STYLE_ENABLED", "true");
+      vi.stubEnv("NEXT_PUBLIC_IMAGE_FORMATS_ENABLED", "true");
+      const out = html(node({ ...made, format: "report_cover", formatInputs: { title: "T" } }));
+      expect(out).toContain("Report cover in Headline card.");
+      expect(out).toContain('aria-label="Title"');
+      expect(html(node({ ...made, styleId: "type_poster", note: "no_numbers" }))).toContain("Not enough checked numbers in the article for a chart");
+    });
+    it("without the switch, no Format menu", () => {
+      expect(html(node(made))).not.toContain("Partner lockup");
+    });
   });
 });

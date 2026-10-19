@@ -9,6 +9,9 @@ import { imageStyleById } from "@/lib/content/imageStyle/catalogue";
 import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
 import { BRAND_KIT_SCREENSHOTS_ROUTE } from "@/lib/content/brandKit";
 import type { BlogHeroControls } from "./types";
+import { FormatFields, FORMAT_OPTIONS, formatReady } from "@/components/admin/imageStyle/FormatFields";
+import { isImageFormatsUiEnabled } from "@/lib/content/imageStyle/flags";
+import type { FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 
 /** How long a run holds the hero (the server's lease); a pending one older than this died. */
 const LEASE_MS = 150_000;
@@ -33,6 +36,10 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
   const [error, setError] = useState<string | null>(null);
   const [vote, setVote] = useState<"up" | "down" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Formats (IMAGE_FORMATS_ENABLED): the hero as a portrait card, partner lockup or report cover.
+  const formatsUi = isImageFormatsUiEnabled();
+  const [format, setFormat] = useState<ImageFormatId>(hero?.format ?? "standard");
+  const [formatInputs, setFormatInputs] = useState<FormatInputs>(hero?.formatInputs ?? {});
   useEffect(() => setAlt(hero?.alt ?? ""), [hero?.alt, hero?.heroRef]);
   useEffect(() => setVote(null), [hero?.assetId]);
 
@@ -42,6 +49,11 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
   const off = disabled || making;
   const has = Boolean(hero?.heroRef && hero?.shareRef);
   const titleChanged = has && hero!.forTitle && hero!.forTitle !== heroTitle(node);
+
+  /** Make again, in the chosen format when formats are on. */
+  const makeAgain = () =>
+    controls.make(node.id, formatsUi ? { format, ...(format === "standard" ? {} : { formatInputs }) } : {});
+  const formatLabel = FORMAT_OPTIONS.find((o) => o.id === hero?.format && o.id !== "standard")?.label;
 
   async function run(p: Promise<string | null>) {
     setError(null);
@@ -67,7 +79,7 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
           <ImageStylePicker
             surface="blogHero"
             value={hero?.styleOverride ?? null}
-            onChange={(id) => void run(controls.make(node.id, id ?? "brand"))}
+            onChange={(id) => void run(controls.make(node.id, { styleId: id ?? "brand" }))}
             disabled={off}
             selectClassName="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
           />
@@ -98,7 +110,7 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
           ? "Making the hero image…"
           : !has
             ? "No hero image yet."
-            : `${styleName(hero!.styleId)}${hero!.styleOverride ? ", this article only" : ""}.`}
+            : `${formatLabel ? `${formatLabel} in ${styleName(hero!.styleId)}` : styleName(hero!.styleId)}${hero!.styleOverride ? ", this article only" : ""}.`}
       </p>
       {!making && hero?.status === "fallback" ? (
         <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">A title card for now: the image model didn&apos;t answer. Try the image again.</p>
@@ -117,6 +129,32 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
         </p>
       ) : null}
       {!making && titleChanged ? <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">The title changed since this was made.</p> : null}
+      {!making && hero?.note === "no_numbers" ? (
+        <p className="mt-1 text-xs text-neutral-500">Not enough checked numbers in the article for a chart, so it&apos;s drawn as a {styleName(hero.styleId)}.</p>
+      ) : null}
+      {formatsUi ? (
+        <div className="mt-2 text-xs">
+          <label className="flex items-center gap-2 text-neutral-500">
+            Format
+            <select
+              value={format}
+              disabled={off}
+              onChange={(e) => setFormat(e.target.value as ImageFormatId)}
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+            >
+              {FORMAT_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {format !== "standard" ? <FormatFields format={format} inputs={formatInputs} onChange={setFormatInputs} disabled={off} /> : null}
+          {format === "portrait" || format === "partner" ? (
+            <p className="mt-1 text-[10px] text-neutral-400">Blank name and role: the article&apos;s author. Blank partner: the integration the brief names.</p>
+          ) : null}
+        </div>
+      ) : null}
       {has && node.blog?.live?.shareImage === false ? (
         <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
           Your live page has no share image, so links to it show none. Copy the share tags under Export into its head.
@@ -140,7 +178,7 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button type="button" className={BUTTON} disabled={off} onClick={() => void run(controls.make(node.id))}>
+        <button type="button" className={BUTTON} disabled={off || (formatsUi && format === "portrait" && !formatReady(format, formatInputs))} onClick={() => void run(makeAgain())}>
           <RefreshCw size={12} />
           {!has ? "Make hero image" : hero?.status === "fallback" ? "Try the image again" : "Make again"}
         </button>

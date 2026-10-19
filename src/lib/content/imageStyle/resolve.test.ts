@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveImageStyle, usableStyle, channelKeyFor } from "./resolve";
-import { IMAGE_STYLES, LEGACY_TO_STYLE, canonicalStyleId, builtImageStyles, imageStyleById } from "./catalogue";
+import { IMAGE_STYLES, LEGACY_TO_STYLE, canonicalStyleId, availableImageStyles, imageStyleById, isStyleAvailable } from "./catalogue";
 import { IMAGE_STYLE_IDS, type StoredImageStyle } from "@/lib/types/imageStyle";
 import { SOCIAL_IMAGE_STYLE_IDS } from "@/lib/content/create/socialImage";
 import { EBOOK_IMAGE_STYLE_IDS } from "@/lib/content/create/ebook";
@@ -99,11 +99,21 @@ describe("resolveImageStyle", () => {
     });
   });
 
-  it("an unbuilt style resolves to its nearest built one", () => {
+  it("a v2 style, with its switch off, resolves to its nearest v1 one", () => {
     expect(resolveImageStyle({ enabled: true, surface: "social", override: "type_poster" })).toMatchObject({ id: "headline_card" });
     expect(resolveImageStyle({ enabled: true, surface: "social", override: "split_card" })).toMatchObject({ id: "natural_photo" });
     expect(resolveImageStyle({ enabled: true, surface: "ebook", override: "data_story" })).toMatchObject({ id: "illustration" });
     expect(usableStyle("not_a_style", "social")).toBeNull();
+  });
+
+  it("with the v2 switch on, the four drawn styles are made as themselves", () => {
+    for (const id of ["data_story", "type_poster", "split_card", "line_art"]) {
+      expect(resolveImageStyle({ enabled: true, surface: "social", override: id, more: true }), id).toMatchObject({ engine: "template", id });
+      expect(resolveImageStyle({ enabled: true, surface: "blogHero", brand: brand({ defaultStyleId: id as never }), more: true }), id).toMatchObject({ id, source: "default" });
+    }
+    expect(resolveImageStyle({ enabled: true, surface: "social", override: "data_story", more: true })).toMatchObject({ requires: ["numbers"] });
+    // Where a drawn style can't go, its painted twin, as before.
+    expect(resolveImageStyle({ enabled: true, surface: "ebook", override: "split_card", more: true })).toMatchObject({ id: "natural_photo" });
   });
 
   it("maps surfaces to the brand's channel keys", () => {
@@ -117,14 +127,16 @@ describe("the catalogue", () => {
   it("lists every style id once, and every fallback and twin is a real, usable style", () => {
     expect(IMAGE_STYLES.map((s) => s.id).sort()).toEqual([...IMAGE_STYLE_IDS].sort());
     for (const s of IMAGE_STYLES) {
-      if (!s.built) expect(imageStyleById(s.builtFallback)?.built, s.id).toBe(true);
+      expect(s.built, s.id).toBe(true);
+      if (s.since === "v2") expect(isStyleAvailable(imageStyleById(s.builtFallback), false), s.id).toBe(true);
       if (s.engine === "template") expect(imageStyleById(s.modelTwin)?.engine, s.id).toBe("model");
       if (s.engine === "model") expect(s.keywords.length, s.id).toBeGreaterThan(20);
       for (const surface of ["social", "blogHero", "ebook", "email", "launchEmail"] as const) {
         expect(usableStyle(s.id, surface), `${s.id} on ${surface}`).not.toBeNull();
       }
     }
-    expect(builtImageStyles().map((s) => s.id)).toHaveLength(9);
+    expect(availableImageStyles(false).map((s) => s.id)).toHaveLength(9);
+    expect(availableImageStyles(true).map((s) => s.id)).toHaveLength(13);
   });
 
   it("maps every old preset (and only those) into a learning bucket", () => {

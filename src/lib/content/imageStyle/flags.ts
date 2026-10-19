@@ -40,3 +40,23 @@ export function isSiteFontsEnabled(): boolean {
 export function isSiteFontsUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_BRAND_IMAGE_STYLE_SITE_FONTS_ENABLED === "true" && isBrandImageStyleUiEnabled();
 }
+
+/** Server: the v2 drawn styles (Data story, Type poster, Split card, Line art). Off = "Coming". */
+export function isMoreStylesEnabled(): boolean {
+  return process.env.BRAND_IMAGE_STYLE_MORE_ENABLED === "true" && isBrandImageStyleEnabled();
+}
+
+/** Client mirror: the four styles pickable in Brand › Image style and the pickers. */
+export function isMoreStylesUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_BRAND_IMAGE_STYLE_MORE_ENABLED === "true" && isBrandImageStyleUiEnabled();
+}
+
+/** Server: image formats (portrait card, partner lockup, report cover) and the eBook report cover. */
+export function isImageFormatsEnabled(): boolean {
+  return process.env.IMAGE_FORMATS_ENABLED === "true" && isBrandImageStyleEnabled();
+}
+
+/** Client mirror: the Format menus on social posts, the hero card and the eBook cover. */
+export function isImageFormatsUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_IMAGE_FORMATS_ENABLED === "true" && isBrandImageStyleUiEnabled();
+}

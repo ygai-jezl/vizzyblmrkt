@@ -5,6 +5,8 @@ import {
   isBlogHeroEnabled,
   isBlogHeroUiEnabled,
   isBrandImageStyleEnabled,
+  isImageFormatsEnabled,
+  isMoreStylesEnabled,
   isSiteFontsEnabled,
 } from "./flags";
 
@@ -43,6 +45,17 @@ describe("the image style switches", () => {
     expect(isBlogHeroUiEnabled()).toBe(false);
     vi.stubEnv("NEXT_PUBLIC_BLOG_CITABLE_ENABLED", "true");
     expect(isBlogHeroUiEnabled()).toBe(true);
+  });
+
+  it("v2's switches need the image style, and are listed off in the public apphosting.yaml", () => {
+    vi.stubEnv("BRAND_IMAGE_STYLE_MORE_ENABLED", "true");
+    vi.stubEnv("IMAGE_FORMATS_ENABLED", "true");
+    expect([isMoreStylesEnabled(), isImageFormatsEnabled()]).toEqual([false, false]);
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    expect([isMoreStylesEnabled(), isImageFormatsEnabled()]).toEqual([true, true]);
+    for (const v of ["BRAND_IMAGE_STYLE_MORE_ENABLED", "NEXT_PUBLIC_BRAND_IMAGE_STYLE_MORE_ENABLED", "IMAGE_FORMATS_ENABLED", "NEXT_PUBLIC_IMAGE_FORMATS_ENABLED"]) {
+      expect(valueIn("apphosting.yaml", v), v).toBe("false");
+    }
   });
 
   it("are listed off in the public apphosting.yaml, like every switch", () => {

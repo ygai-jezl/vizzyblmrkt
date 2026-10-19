@@ -482,6 +482,28 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Image styles v2 (both need the image style): the last four drawn styles (Data story,
+  # Type poster, Split card, Line art; off, they show "Coming" and fall back as before),
+  # then formats (portrait card, partner lockup, report cover) on social posts, the blog
+  # hero and the eBook cover. Portrait and partner cards paint a scene with the image model.
+  - variable: BRAND_IMAGE_STYLE_MORE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_IMAGE_STYLE_MORE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: IMAGE_FORMATS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_IMAGE_FORMATS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
 
   # == Brand map and What we've seen ==
   # The brand map, then its research, Wikidata lookups, pages, Vizzy's suggestions, any

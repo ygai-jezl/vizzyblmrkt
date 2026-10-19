@@ -10,7 +10,8 @@ import {
   type ImageStyleInput,
   type StoredImageStyle,
 } from "@/lib/types/imageStyle";
-import { IMAGE_STYLES, imageStyleById } from "@/lib/content/imageStyle/catalogue";
+import { IMAGE_STYLES, imageStyleById, isStyleAvailable } from "@/lib/content/imageStyle/catalogue";
+import { isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
 import { ImageStyleSwatch } from "./ImageStyleSwatch";
 
 /** Vizzy's pending suggestion as the page shows it (who asked stays on the server). */
@@ -224,13 +225,13 @@ export function ImageStyleCard({
                 key={s.id}
                 type="button"
                 aria-pressed={on}
-                disabled={disabled || !s.built}
+                disabled={disabled || !isStyleAvailable(s, isMoreStylesUiEnabled())}
                 onClick={() => pick(s.id)}
                 className={`flex flex-col gap-2 rounded-lg border-2 p-2 text-left transition-colors disabled:cursor-not-allowed ${
                   on
                     ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
                     : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-800"
-                } ${s.built ? "" : "opacity-50"}`}
+                } ${isStyleAvailable(s, isMoreStylesUiEnabled()) ? "" : "opacity-50"}`}
               >
                 <ImageStyleSwatch id={s.id} className="aspect-video w-full" />
                 <span className="flex items-center justify-between gap-2">
@@ -240,7 +241,7 @@ export function ImageStyleCard({
                   </span>
                   {on ? (
                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-200">Default</span>
-                  ) : !s.built ? (
+                  ) : !isStyleAvailable(s, isMoreStylesUiEnabled()) ? (
                     <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-500 dark:bg-neutral-800">Coming</span>
                   ) : null}
                 </span>
@@ -251,7 +252,7 @@ export function ImageStyleCard({
             );
           })}
         </div>
-        {canEdit && draft.defaultStyleId && imageStyleById(draft.defaultStyleId)?.engine === "template" && imageStyleById(draft.defaultStyleId)?.built ? (
+        {canEdit && draft.defaultStyleId && imageStyleById(draft.defaultStyleId)?.engine === "template" && isStyleAvailable(imageStyleById(draft.defaultStyleId), isMoreStylesUiEnabled()) ? (
           <figure className="space-y-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -272,7 +273,7 @@ export function ImageStyleCard({
         </div>
         <div className="grid max-w-xl grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-center gap-x-4 gap-y-2">
           {IMAGE_STYLE_CHANNELS.map((key) => {
-            const choices = IMAGE_STYLES.filter((s) => s.built && (s.engine === "model" || TEMPLATE_CHANNELS.has(key)));
+            const choices = IMAGE_STYLES.filter((s) => isStyleAvailable(s, isMoreStylesUiEnabled()) && (s.engine === "model" || TEMPLATE_CHANNELS.has(key)));
             return (
               <label key={key} className="contents">
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">{CHANNEL_LABELS[key]}</span>

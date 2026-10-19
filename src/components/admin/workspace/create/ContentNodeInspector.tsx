@@ -23,7 +23,7 @@ import {
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
 import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
-import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleUiEnabled, isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
 import { resolveImageStyle } from "@/lib/content/imageStyle/resolve";
 import { useBrandImageStyle } from "@/components/admin/imageStyle/useBrandImageStyle";
 import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
@@ -535,7 +535,7 @@ function SocialImageControls({
   // its headline on social images. Blank = the post's first line. Saved with the post.
   const { style: brandStyle } = useBrandImageStyle(styleUi);
   const resolved = styleUi
-    ? resolveImageStyle({ enabled: true, surface: "social", channel: node.channel, brand: brandStyle ?? undefined, override: styleId })
+    ? resolveImageStyle({ enabled: true, surface: "social", channel: node.channel, brand: brandStyle ?? undefined, override: styleId, more: isMoreStylesUiEnabled() })
     : null;
   const drawn = resolved?.engine === "template";
   const showWords = drawn || (resolved?.engine === "model" && !!brandStyle && brandStyle.headlineOnSocial !== false);

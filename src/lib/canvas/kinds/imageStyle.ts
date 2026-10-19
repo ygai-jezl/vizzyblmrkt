@@ -4,8 +4,8 @@ import { setTenantImageStyleSuggestion } from "@/lib/tenant/control";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { IMAGE_STYLE_CHANNELS, IMAGE_STYLE_SUGGESTION_LIMITS, ImageStyleIdSchema, ImageStyleSuggestionSchema } from "@/lib/types/imageStyle";
 import { BRAND_KIT_IMAGE_STYLE_ROUTE } from "@/lib/content/brandKit";
-import { imageStyleById } from "@/lib/content/imageStyle/catalogue";
-import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { imageStyleById, isStyleAvailable } from "@/lib/content/imageStyle/catalogue";
+import { isBrandImageStyleEnabled, isMoreStylesEnabled } from "@/lib/content/imageStyle/flags";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -42,7 +42,7 @@ export async function authorImageStyleSuggestion(
   const { defaultStyleId, reason } = req.data;
   const channels = Object.fromEntries(Object.entries(req.data.channels ?? {}).filter(([, v]) => v));
   const unbuilt = [["default", defaultStyleId], ...Object.entries(channels)]
-    .filter(([, id]) => !imageStyleById(id as string)?.built)
+    .filter(([, id]) => !isStyleAvailable(imageStyleById(id as string), isMoreStylesEnabled()))
     .map(([where, id]) => `${where}: ${labelOf(id as string)} isn't available yet`);
   if (unbuilt.length) return { ok: false, status: 400, error: "style_not_built", issues: unbuilt };
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) {

@@ -234,6 +234,8 @@ export interface SituationQuestion {
   status: RecordStatus;
   subjectId: string;
   subjectName: string;
+  /** Its subject is still a proposal: adding the question adds the subject too. */
+  newSubject: boolean;
   state: QuestionState;
 }
 
@@ -267,7 +269,16 @@ export async function readSituation(ctx: TenantContext, id: string, deps: Deps =
     return s.answeredIds.includes(qid) ? "answered" : s.draftedIds.includes(qid) ? "drafted" : s.plannedIds.includes(qid) ? "planned" : "open";
   };
   const shown = questions
-    .map((q) => ({ id: q.id, text: q.text, intent: q.intent, status: q.status, subjectId: q.subjectId, subjectName: subjects.get(q.subjectId)?.name ?? "", state: stateOf(q.id, q.subjectId) }))
+    .map((q) => ({
+      id: q.id,
+      text: q.text,
+      intent: q.intent,
+      status: q.status,
+      subjectId: q.subjectId,
+      subjectName: subjects.get(q.subjectId)?.name ?? "",
+      newSubject: subjects.get(q.subjectId)?.status === "proposed",
+      state: stateOf(q.id, q.subjectId),
+    }))
     .sort((a, b) => Number(a.status === "proposed") - Number(b.status === "proposed") || a.text.localeCompare(b.text));
   const decided = shown.filter((q) => q.status === "decided");
   const counts = { questions: decided.length, answered: decided.filter((q) => q.state === "answered").length };

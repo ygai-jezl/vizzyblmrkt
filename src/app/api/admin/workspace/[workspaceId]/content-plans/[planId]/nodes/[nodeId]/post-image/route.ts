@@ -7,10 +7,13 @@ import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceCon
 import { generateSocialPostImage } from "@/lib/agents/creative";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import {
+  DEFAULT_SOCIAL_IMAGE_STYLE,
   isSocialImageEnabled,
   isSocialImageChannel,
   SOCIAL_IMAGE_STYLE_IDS,
 } from "@/lib/content/create/socialImage";
+import { styleForImage } from "@/lib/content/imageStyle/forImage";
+import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { htmlToText } from "@/lib/email/emailRender";
@@ -23,7 +26,10 @@ type RouteParams = { params: Promise<{ workspaceId: string; planId: string; node
 const BodySchema = z.object({
   brief: z.string().min(1).max(1000),
   aspect: z.enum(["1:1", "4:5", "1.91:1"]),
-  style: z.enum(SOCIAL_IMAGE_STYLE_IDS),
+  /** An old preset (the pre-image-style menu). */
+  style: z.enum(SOCIAL_IMAGE_STYLE_IDS).optional(),
+  /** This image's own style (BRAND_IMAGE_STYLE_ENABLED): a style id, an old preset id, or "brand". */
+  styleId: z.string().min(1).max(40).optional(),
   /** Brand-style loop override (default true = apply learned style + references). */
   useBrandStyle: z.boolean().optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
@@ -71,13 +77,22 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const tenant = await getTenantById(ctx.tenantId);
   const useBrandStyle = parsed.data.useBrandStyle !== false;
+  // The image's own pick, else the brand's style for this channel, else its default. With the
+  // image style off, only the old preset counts: exactly as before.
+  const choice = styleForImage({
+    surface: "social",
+    channel: node.channel,
+    tenant,
+    override: isBrandImageStyleOn() ? (parsed.data.styleId ?? parsed.data.style ?? null) : (parsed.data.style ?? null),
+  });
   const result = await generateSocialPostImage({
     tenantId: ctx.tenantId,
     workspaceId,
     channel: node.channel,
     brief: parsed.data.brief,
     aspect: parsed.data.aspect,
-    style: parsed.data.style,
+    style: choice.model.styleId ?? DEFAULT_SOCIAL_IMAGE_STYLE,
+    direction: choice.model.direction,
     copyExcerpt: htmlToText(node.body || ""),
     // Register the generated image in the Brand Kit library (best-effort).
     region: ctx.region,
@@ -113,9 +128,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     imageAssetRef: result.imageAssetRef,
     imageAspect: parsed.data.aspect,
     imagePrompt: result.imagePrompt ?? null,
+    // Saved with the post, so a regenerate keeps this image's own style.
+    ...(choice.enabled ? { imageStyleId: choice.ownPick } : {}),
   });
   if (!updated) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
-  return NextResponse.json({ imageAssetRef: updated.imageAssetRef, imagePrompt: updated.imagePrompt ?? null });
+  return NextResponse.json({
+    imageAssetRef: updated.imageAssetRef,
+    imagePrompt: updated.imagePrompt ?? null,
+    ...(choice.enabled ? { imageStyleId: choice.ownPick, styleId: choice.model.styleId } : {}),
+  });
 }
 
 /**

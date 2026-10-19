@@ -20,6 +20,8 @@ const UpdateBroadcastSchema = z
       .refine((u) => /^https?:\/\//i.test(u), "must be an http(s) URL")
       .nullable(),
     agentMeta: AgentMetaSchema,
+    /** The hero's own style (BRAND_IMAGE_STYLE_ENABLED); null = the brand's. */
+    heroImageStyleId: z.string().max(40).nullable(),
   })
   .partial();
 

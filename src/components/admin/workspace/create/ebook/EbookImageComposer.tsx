@@ -15,6 +15,8 @@ import {
   type ImageModelSlug,
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 
 const PRIMARY =
   "rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900";
@@ -38,6 +40,7 @@ export function EbookImageComposer({
   seedAspect,
   chapters,
   hasImage,
+  seedStyleId = null,
   onEbook,
   onClose,
 }: {
@@ -51,6 +54,8 @@ export function EbookImageComposer({
   chapters: { id: string; title: string }[];
   /** True when the target already holds an image (so we lead with Refine, not Generate). */
   hasImage: boolean;
+  /** The image's own style, saved with it (BRAND_IMAGE_STYLE_ENABLED); null = the brand's. */
+  seedStyleId?: string | null;
   onEbook: (ebook: EbookDoc) => void;
   onClose: () => void;
 }) {
@@ -59,6 +64,9 @@ export function EbookImageComposer({
   const [brief, setBrief] = useState(seedBrief);
   const [aspect, setAspect] = useState<EbookAspect>(seedAspect);
   const [style, setStyle] = useState<string>(DEFAULT_EBOOK_IMAGE_STYLE);
+  // Image style (BRAND_IMAGE_STYLE_ENABLED): this image's own pick, null = the brand's.
+  const styleUi = isBrandImageStyleUiEnabled();
+  const [styleId, setStyleId] = useState<string | null>(seedStyleId);
   // Per-generation image model (defaults to this surface's current model — full).
   const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.ebook);
   const [pickKind, setPickKind] = useState<"cover" | "new">(chapters.length ? "new" : "cover");
@@ -80,7 +88,13 @@ export function EbookImageComposer({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Send `model` only when changed from this surface's default (see imageModelOverride).
-        body: JSON.stringify({ target: effectiveTarget, aspect, style, model: imageModelOverride(model, "ebook"), ...payload }),
+        body: JSON.stringify({
+          target: effectiveTarget,
+          aspect,
+          ...(styleUi ? { styleId: styleId ?? "brand" } : { style }),
+          model: imageModelOverride(model, "ebook"),
+          ...payload,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as { ebook?: EbookDoc; message?: string };
       if (res.ok && data.ebook) {
@@ -174,16 +188,30 @@ export function EbookImageComposer({
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-sm">
-          <span className="text-neutral-500">Style</span>
-          <select value={style} onChange={(e) => setStyle(e.target.value)} className="rounded-md border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900">
-            {EBOOK_IMAGE_STYLES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {styleUi ? (
+          <div className="flex items-start gap-1.5 text-sm">
+            <span className="pt-1 text-neutral-500">Style</span>
+            <ImageStylePicker
+              surface="ebook"
+              value={styleId}
+              onChange={setStyleId}
+              legacy={EBOOK_IMAGE_STYLES.map((s) => ({ id: s.id, label: s.label }))}
+              disabled={busy}
+              selectClassName="rounded-md border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+            />
+          </div>
+        ) : (
+          <label className="flex items-center gap-1.5 text-sm">
+            <span className="text-neutral-500">Style</span>
+            <select value={style} onChange={(e) => setStyle(e.target.value)} className="rounded-md border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+              {EBOOK_IMAGE_STYLES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex items-center gap-1.5 text-sm">
           <span className="text-neutral-500">Model</span>
           <ImageModelSelect value={model} onChange={setModel} />

@@ -21,6 +21,8 @@ const CreateBroadcastSchema = z.object({
     .nullable()
     .optional(),
   agentMeta: AgentMetaSchema.optional(),
+  /** The hero's own style (BRAND_IMAGE_STYLE_ENABLED); null = the brand's. */
+  heroImageStyleId: z.string().max(40).nullable().optional(),
   // "weekly" targets the launch's weekly-newsletter opt-in segment (the Weekly
   // tab); absent ⇒ "launch" (the whole-launch waitlist segment, existing UI).
   audienceMode: z.enum(["launch", "weekly"]).optional(),
@@ -86,6 +88,7 @@ export async function POST(
     subject: parsed.data.subject,
     body: parsed.data.body,
     heroImageUrl: parsed.data.heroImageUrl ?? null,
+    ...(parsed.data.heroImageStyleId !== undefined ? { heroImageStyleId: parsed.data.heroImageStyleId } : {}),
     status: "draft",
     mailchimpCampaignId: null,
     stats: null,

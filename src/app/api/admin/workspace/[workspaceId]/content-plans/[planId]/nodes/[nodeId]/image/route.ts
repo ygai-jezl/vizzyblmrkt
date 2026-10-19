@@ -12,6 +12,7 @@ import { htmlToText } from "@/lib/email/emailRender";
 import { findCopyBlockIndex } from "@/lib/types/emailLayout";
 import { platformOrigin } from "@/lib/platform/origin";
 import { originFromHeaders } from "@/lib/http/origin";
+import { styleForImage } from "@/lib/content/imageStyle/forImage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ const BodySchema = z.object({
   blockId: z.string().max(64).optional(),
   /** Operator-selected image model slug (lite | full). Omit to use the surface default. */
   model: z.enum(IMAGE_MODEL_SLUGS).optional(),
+  /** This image's own style (BRAND_IMAGE_STYLE_ENABLED): a style id or "brand". */
+  styleId: z.string().min(1).max(40).optional(),
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
@@ -55,9 +58,13 @@ export async function POST(req: Request, { params }: RouteParams) {
   const copyBlock = copyIdx >= 0 ? node.layout!.blocks[copyIdx] : undefined;
   const copyHtml = copyBlock && copyBlock.kind === "text" ? copyBlock.html : node.body;
 
+  // The block's own pick, else the brand's newsletter style, else its default. Off, or before the
+  // brand picks: today's prompt, exactly as before.
+  const choice = styleForImage({ surface: "email", tenant, override: parsed.data.styleId ?? null });
   const result = await generateEmailBlockImage({
     tenantId: ctx.tenantId,
     ownerId: workspaceId,
+    direction: choice.model.direction,
     brief: parsed.data.brief,
     subject: node.subject ?? "",
     copyExcerpt: htmlToText(copyHtml || ""),
@@ -81,5 +88,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: 502 },
     );
   }
-  return NextResponse.json({ imageUrl: result.imageUrl });
+  return NextResponse.json({
+    imageUrl: result.imageUrl,
+    ...(choice.enabled ? { imageStyleId: choice.ownPick, styleId: choice.model.styleId } : {}),
+  });
 }

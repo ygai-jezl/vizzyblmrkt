@@ -8,7 +8,8 @@ import { brandVoiceSection } from "./prompts/compose";
 import { generateText, generateImage, generateBlockImage, generateEbookImage } from "./gemini";
 import { storeEmailImage } from "./imageStore";
 import { storeWorkspaceImage, readWorkspaceAsset, deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
-import { SOCIAL_ASPECT_TO_GEMINI, socialImageStyle, type SocialAspect, type SocialImageStyle } from "@/lib/content/create/socialImage";
+import { SOCIAL_ASPECT_TO_GEMINI, socialImageStyle, type SocialAspect } from "@/lib/content/create/socialImage";
+import { briefWithDirection, type ArtDirection } from "@/lib/content/imageStyle/direction";
 import {
   EBOOK_ASPECT_TO_GEMINI,
   EBOOK_IMAGE_INLINE_MAX_BYTES,
@@ -118,6 +119,11 @@ export interface GenerateHeroImageInput {
   baseUrl?: string;
   /** Resolved tenant-global brand voice (fenced as untrusted); absent ⇒ tone enum only. */
   brandVoice?: string | null;
+  /**
+   * The image style (BRAND_IMAGE_STYLE_ENABLED): written into the brief, and the image is made
+   * with the brand image model (Nano Banana) instead of Imagen. Absent = exactly as before.
+   */
+  direction?: ArtDirection | null;
 }
 
 /** Why an image couldn't be produced — surfaced verbatim to the operator. */
@@ -138,11 +144,11 @@ export async function generateHeroImage(
   const expandPrompt = renderPrompt("creative.image_brief", {
     brand_tone: strategyVars(input.campaign).brand_tone,
     brand_voice: brandVoiceSection(input.brandVoice),
-    brief: input.brief,
+    brief: briefWithDirection(input.brief, input.direction ?? null),
   });
   // Expand the brief into a richer image prompt; fall back to the raw brief.
   const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
-  const img = await generateImage(imagePrompt);
+  const img = input.direction ? await generateBlockImage(imagePrompt) : await generateImage(imagePrompt);
   if (!img) {
     return { imageUrl: null, source: "unavailable", reason: "image_model_unavailable" };
   }
@@ -167,6 +173,8 @@ export interface GenerateBlockImageInput {
   baseUrl?: string;
   /** Operator-selected image model id (resolveImageModel). Omit to use the default lite model. */
   imageModel?: string;
+  /** The image style (BRAND_IMAGE_STYLE_ENABLED), written into the brief. Absent = as before. */
+  direction?: ArtDirection | null;
 }
 
 export interface GenerateBlockImageResult {
@@ -185,7 +193,7 @@ export async function generateEmailBlockImage(
   input: GenerateBlockImageInput,
 ): Promise<GenerateBlockImageResult> {
   const expandPrompt = renderPrompt("content.email_image_brief", {
-    brief: input.brief,
+    brief: briefWithDirection(input.brief, input.direction ?? null),
     subject: input.subject || "(none)",
     copy_excerpt: input.copyExcerpt?.slice(0, 800) || "(none)",
     brand_context: input.brandContext,
@@ -210,7 +218,10 @@ export interface GenerateSocialImageInput {
   /** The post copy (plain text) so the image supports the message. */
   copyExcerpt?: string;
   aspect: SocialAspect;
-  style: SocialImageStyle;
+  /** What the image is recorded as: an old preset id, or a style id when `direction` is given. */
+  style: string;
+  /** A style's art direction (BRAND_IMAGE_STYLE_ENABLED); absent = the preset named by `style`. */
+  direction?: ArtDirection | null;
   /** Pre-assembled on-brand context (see brandContext.ts). */
   brandContext: string;
   knowledgeContext?: string;
@@ -257,7 +268,7 @@ export interface GenerateSocialImageResult {
 export async function generateSocialPostImage(
   input: GenerateSocialImageInput,
 ): Promise<GenerateSocialImageResult> {
-  const style = socialImageStyle(input.style);
+  const style = input.direction ?? socialImageStyle(input.style);
   const expandPrompt = renderPrompt("content.social_image_brief", {
     brief: input.brief,
     channel: input.channel,
@@ -347,8 +358,10 @@ export interface GenerateEbookImageInput {
   /** For CREATE: the art brief. For EDIT: the change instruction ("make the background navy"). */
   brief: string;
   aspect: EbookAspect;
-  /** Style preset id (see EBOOK_IMAGE_STYLES). */
+  /** Style preset id (see EBOOK_IMAGE_STYLES), or a style id when `direction` is given. */
   style: string;
+  /** A style's art direction (BRAND_IMAGE_STYLE_ENABLED); absent = the preset named by `style`. */
+  direction?: ArtDirection | null;
   /** Pre-assembled on-brand context (see brandContext.ts). */
   brandContext: string;
   knowledgeContext?: string;
@@ -404,7 +417,7 @@ export interface GenerateEbookImageResult {
 export async function generateEbookSlotImage(
   input: GenerateEbookImageInput,
 ): Promise<GenerateEbookImageResult> {
-  const style = ebookImageStyle(input.style);
+  const style = input.direction ?? ebookImageStyle(input.style);
 
   // Iterative edit: load the prior image (clamped) as the model input. If it can't be read,
   // FAIL — never silently regenerate from the terse instruction (that would overwrite the

@@ -136,6 +136,19 @@ describe("applyGeneratedImage", () => {
     const guarded = applyGeneratedImage(nearMax, { kind: "new", chapterId: "c1" }, img, () => "ns1");
     expect(guarded.chapters[0]!.images).toHaveLength(0); // no room for the anchor
   });
+
+  it("saves the image's own style when given, and leaves it alone when not (an edit)", () => {
+    const cover = applyGeneratedImage(book(), { kind: "cover" }, { ...img, imageStyleId: "soft_3d" }, () => "ns1");
+    expect(cover.coverImage?.imageStyleId).toBe("soft_3d");
+    const edited = applyGeneratedImage(cover, { kind: "cover" }, img);
+    expect(edited.coverImage?.imageStyleId).toBe("soft_3d");
+    const reset = applyGeneratedImage(cover, { kind: "cover" }, { ...img, imageStyleId: null });
+    expect(reset.coverImage?.imageStyleId).toBeNull();
+    const fresh = applyGeneratedImage(book(), { kind: "new", chapterId: "c1" }, { ...img, imageStyleId: "natural_photo" }, () => "ns1");
+    expect(fresh.chapters[0]!.images[0]?.imageStyleId).toBe("natural_photo");
+    const plain = applyGeneratedImage(book(), { kind: "new", chapterId: "c1" }, img, () => "ns1");
+    expect(plain.chapters[0]!.images[0]).not.toHaveProperty("imageStyleId");
+  });
 });
 
 describe("draftHasImageRef", () => {

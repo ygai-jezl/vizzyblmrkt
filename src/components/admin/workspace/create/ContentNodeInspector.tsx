@@ -22,6 +22,8 @@ import {
   type ImageModelSlug,
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
 import type { BlogHubControls } from "./blog/types";
 import type { TemplateOption } from "./types";
@@ -523,6 +525,10 @@ function SocialImageControls({
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
   const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
+  // Image style (BRAND_IMAGE_STYLE_ENABLED): this image's own pick, null = the brand's. Saved
+  // with the post, so a regenerate keeps it.
+  const styleUi = isBrandImageStyleUiEnabled();
+  const [styleId, setStyleId] = useState<string | null>(node.imageStyleId ?? null);
   // Per-generation image model (defaults to this surface's current model — lite).
   const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.social);
   // Brand-style loop: apply the learned brand style + reference images by default.
@@ -553,7 +559,7 @@ function SocialImageControls({
           body: JSON.stringify({
             brief: brief.trim(),
             aspect,
-            style,
+            ...(styleUi ? { styleId: styleId ?? "brand" } : { style }),
             useBrandStyle,
             model: imageModelOverride(model, "social"),
           }),
@@ -569,6 +575,7 @@ function SocialImageControls({
           imageAssetRef: data.imageAssetRef,
           imageAspect: aspect,
           imagePrompt: data.imagePrompt ?? null,
+          ...(styleUi ? { imageStyleId: styleId } : {}),
         });
       } else {
         setErr(data.message ?? "Couldn't generate — try again.");
@@ -669,23 +676,38 @@ function SocialImageControls({
           </button>
         ))}
       </div>
-      <div className="mt-2">
-        <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
-          Style
-          <select
-            value={style}
-            onChange={(e) => setStyle(e.target.value as SocialImageStyle)}
-            className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-          >
-            {SOCIAL_IMAGE_STYLES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
-      </div>
+      {styleUi ? (
+        <div className="mt-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-400">Style</div>
+          <ImageStylePicker
+            surface="social"
+            channel={node.channel}
+            value={styleId}
+            onChange={setStyleId}
+            legacy={SOCIAL_IMAGE_STYLES.map((s) => ({ id: s.id, label: s.label }))}
+            disabled={busy !== null}
+            selectClassName="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          />
+        </div>
+      ) : (
+        <div className="mt-2">
+          <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
+            Style
+            <select
+              value={style}
+              onChange={(e) => setStyle(e.target.value as SocialImageStyle)}
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+            >
+              {SOCIAL_IMAGE_STYLES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
+        </div>
+      )}
       <div className="mt-2">
         <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
           Model

@@ -16,6 +16,8 @@ export interface EmailComposerValue {
   subject: string;
   body: string;
   heroImageUrl?: string | null;
+  /** The hero's own style (BRAND_IMAGE_STYLE_ENABLED); null/absent = the brand's. */
+  heroImageStyleId?: string | null;
   agentMeta?: { source: "agent3" | "human"; variantId?: string; at?: string };
 }
 
@@ -61,10 +63,11 @@ export function EmailComposer({
     });
   }
 
-  function applyImage(url: string) {
+  function applyImage(url: string, styleId?: string | null) {
     onChange({
       ...value,
       heroImageUrl: url,
+      ...(styleId !== undefined ? { heroImageStyleId: styleId } : {}),
       agentMeta: { source: "agent3", at: new Date().toISOString() },
     });
   }
@@ -124,6 +127,7 @@ export function EmailComposer({
         performanceHint={performanceHint}
         onApplyVariant={applyVariant}
         onApplyImage={applyImage}
+        heroStyleId={value.heroImageStyleId ?? null}
       />
     </div>
   );

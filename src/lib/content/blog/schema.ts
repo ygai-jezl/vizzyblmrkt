@@ -131,6 +131,15 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
   }
   const citation = [...cited].map(([url, name]) => ({ "@type": "CreativeWork", url, ...(name ? { name } : {}) }));
 
+  // The hero (BLOG_HERO_ENABLED), only at its address on the client's own site: our markup
+  // never points at files we host.
+  const heroUrl = isHttps(input.meta?.imageUrl) ? input.meta!.imageUrl! : null;
+  const shareUrl = isHttps(input.meta?.shareImageUrl) ? input.meta!.shareImageUrl! : null;
+  const images = [
+    ...(heroUrl ? [{ "@type": "ImageObject", url: heroUrl, width: 1600, height: 900 }] : []),
+    ...(shareUrl ? [{ "@type": "ImageObject", url: shareUrl, width: 1200, height: 630 }] : []),
+  ];
+
   const webPage = pageUrl ? { "@type": "WebPage", "@id": pageUrl } : null;
   const posting: Record<string, unknown> = {
     "@type": "BlogPosting",
@@ -140,6 +149,7 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     ...(o.lastUpdated ? { datePublished: o.lastUpdated, dateModified: o.lastUpdated } : {}),
     ...(author ? { author: person } : publisherRef ? { author: publisherRef } : {}),
     ...(publisherRef ? { publisher: publisherRef } : {}),
+    ...(images.length ? { image: images.length === 1 ? images[0] : images } : {}),
     wordCount: o.words,
     ...(about.length ? { about } : {}),
     ...(mentions.length ? { mentions } : {}),
@@ -174,6 +184,9 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     "It mirrors what is on the page. If you change the title, the date or an FAQ answer after pasting, copy the markup again — never mark up what a reader cannot see.",
   ];
   if (missing.length) notes.push(`Still to fill in before it is complete: ${missing.join(", ")}.`);
+  if (input.meta?.hero?.heroRef && !heroUrl) {
+    notes.push("Put the hero image on your site and give its address under Export: the markup then lists it as the article's image.");
+  }
   if (author && !authorUrl && brief.authorRole !== undefined) {
     notes.push(`Add ${author}'s profile page under Publisher, so search engines can tell who wrote it.`);
   }

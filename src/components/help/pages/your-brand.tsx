@@ -1,8 +1,10 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
 
 export default function YourBrandHelp() {
+  const imageStyle = isBrandImageStyleUiEnabled();
   return (
     <article>
       <H1>Your brand</H1>
@@ -100,6 +102,48 @@ export default function YourBrandHelp() {
         </li>
       </Steps>
       <P>Emails can use some of the listed fonts, but never a font you upload.</P>
+      {imageStyle ? (
+        <P>
+          Images can use a font you upload (TTF, OTF, WOFF or WOFF2).
+          {isSiteFontsUiEnabled()
+            ? " Without one, they use the fonts your website uses, or the closest free font. Press Check my site under Found on your site to see which."
+            : ""}
+        </P>
+      ) : null}
+
+      {imageStyle ? (
+        <>
+          <H2 id="image-style">Pick your image style</H2>
+          <P>
+            Every image Vizzy makes starts from your image style: social posts, eBook images, email images
+            {isBlogHeroUiEnabled() ? " and the hero image on every blog article" : ""}. Anyone making an image can pick
+            another style for that image only.
+          </P>
+          <Steps>
+            <li>
+              Open <Open href="/admin/brand-kit/image-style">Brand › Image style</Open>.
+            </li>
+            <li>
+              Pick a <strong>Default style</strong>. Drawn styles (Product noir, Headline card) show your words exactly;
+              painted styles show no words.
+            </li>
+            <li>
+              Under <strong>Per channel</strong>, give a channel its own style if you want one.
+            </li>
+            <li>
+              Choose your <strong>Accent</strong>, and whether social images carry your logo and the post&apos;s headline.
+            </li>
+            <li>
+              Press <strong>Save</strong>.
+            </li>
+          </Steps>
+          <P>
+            Product noir is built from screens of your product. The first time you use it, you&apos;re asked for one to five
+            screenshots, kept in <Open href="/admin/brand-kit/screenshots">Brand › Screenshots</Open>. Crop out customer
+            names, emails and private numbers first.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="voice">Write your brand voice</H2>
       <P>
@@ -182,6 +226,12 @@ export default function YourBrandHelp() {
           ["Couldn’t find colours from that source", "Try another source, or add colours by hand with + Add colour."],
           ["That PDF is too large (max 14MB).", "Upload a smaller copy of the PDF, or fill in the fields by hand."],
           ["Extraction failed", "Press Re-extract, try another PDF, or fill in the fields by hand."],
+          ...(imageStyle
+            ? ([
+                ["is built from screens of your product", "Press Add screenshots, or Make it without a screenshot, or pick another style."],
+                ["Can't be used in images. Upload it as TTF, OTF or WOFF.", "Upload the same font as a TTF, OTF or WOFF file."],
+              ] as [string, string][])
+            : []),
         ]}
       />
 

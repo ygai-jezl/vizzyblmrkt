@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { BlogArticleMeta, BlogBrief } from "@/lib/types/contentPlan";
 import { CITABLE_LETTERS, evaluateCitable, type CitableStatus } from "@/lib/content/blog/citable";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
+import { isBlogHeroUiEnabled } from "@/lib/content/imageStyle/flags";
 
 /**
  * The CITABLE check, live in the inspector: the same evaluateCitable the server runs after
@@ -40,7 +41,7 @@ export function CitableChecklist({
   map?: ArticleMap | null;
 }) {
   const report = useMemo(
-    () => (markdown.trim() ? evaluateCitable(markdown, { brief, meta, pageUrl, map }) : null),
+    () => (markdown.trim() ? evaluateCitable(markdown, { brief, meta, pageUrl, map, heroCheck: isBlogHeroUiEnabled() }) : null),
     [markdown, brief, meta, pageUrl, map],
   );
   if (!report) return null;

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { forTenant, isRateLimited } from "@/lib/tenant";
+import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
+import { updateBlogHero } from "@/lib/tenant/workspaceContent";
+import { BlogHeroSchema } from "@/lib/types/contentPlan";
+import { makeBlogHero } from "@/lib/content/blog/hero";
+import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
@@ -45,6 +49,8 @@ const ContentPlanInput = z.object({
   intake: z.unknown().optional(),
   nodeIds: z.array(z.string().min(1).max(80)).min(1).max(20).optional(),
   instructions: z.string().trim().max(1500).optional(),
+  /** A blog hub's hero in its own style (BLOG_HERO_ENABLED): a style id, else the brand's. */
+  heroStyleId: z.string().trim().min(1).max(40).optional(),
 });
 
 /** Each draft is an architect call plus several copywriter calls: keep it bounded per tenant. */
@@ -54,6 +60,10 @@ const BLOG_RESEARCH_MS = 40_000;
 /** …and the fact check only runs if the article was written inside this long. */
 const BLOG_CHECK_BY_MS = 100_000;
 const BLOG_CHECK_MS = 45_000;
+/** The blog hero (BLOG_HERO_ENABLED) is made only if started inside this long, and must be
+ *  done by HERO_DONE_BY_MS; otherwise the canvas makes it when the article is opened. */
+const HERO_BY_MS = 125_000;
+const HERO_DONE_BY_MS = 150_000;
 const SOCIAL = new Set(["promo_pre", "promo_post", "spoke"]);
 
 export interface ContentPlanDeps {
@@ -63,6 +73,9 @@ export interface ContentPlanDeps {
   /** Blog hubs: the research before writing, and the fact check after. */
   research?: typeof researchPlanBlog;
   checkFacts?: typeof checkPlanBlogFacts;
+  /** The blog hero, made when the turn has time, else asked for. */
+  makeHero?: typeof makeBlogHero;
+  askHero?: typeof updateBlogHero;
   /** The agent's request has to return: fill what fits in this long. */
   budgetMs?: number;
   now?: () => number;
@@ -227,6 +240,43 @@ export async function authorContentPlanDraft(
     if (factsChecked) plan = (await getContentPlan(ctx, ws.id, created.id, deps.db)) ?? plan;
   }
 
+  // The blog hero: made now if the turn has time (no retry; the title card if painting
+  // fails), else asked for, and the canvas makes it the first time the article is opened.
+  let hero: "made" | "asked" | null = null;
+  const writtenHub = blogHub ? plan.graph.nodes.find((n) => n.id === blogHub.id) : undefined;
+  if (writtenHub?.body.trim() && isBlogHeroEnabled()) {
+    const elapsed = now() - started;
+    if (elapsed < HERO_BY_MS) {
+      const tenant = await getTenantById(ctx.tenantId, deps.db).catch(() => null);
+      const made = await (deps.makeHero ?? makeBlogHero)({
+        ctx,
+        tenant,
+        workspaceId: ws.id,
+        planId: plan.id,
+        nodeId: writtenHub.id,
+        ...(req.data.heroStyleId ? { styleOverride: req.data.heroStyleId } : {}),
+        budgetMs: Math.min(40_000, HERO_DONE_BY_MS - elapsed),
+        retry: false,
+      }).catch(() => null);
+      if (made?.ok && made.hero.heroRef) hero = "made";
+    }
+    if (!hero) {
+      const asked = await (deps.askHero ?? updateBlogHero)(
+        ctx,
+        ws.id,
+        plan.id,
+        writtenHub.id,
+        (stored) =>
+          stored?.heroRef
+            ? "keep"
+            : BlogHeroSchema.parse({ ...(stored ?? {}), status: "pending", startedAt: null, styleOverride: req.data.heroStyleId ?? null }),
+        deps.db,
+      ).catch(() => null);
+      if (asked) hero = "asked";
+    }
+    if (hero) plan = (await getContentPlan(ctx, ws.id, created.id, deps.db)) ?? plan;
+  }
+
   const { url, card: c } = card(plan, ws, result.failed.length);
   // Vizzy repeats this to the operator, so it says exactly what was done to a blog hub —
   // and nothing about research or a fact check when neither ran (the flag is off).
@@ -234,7 +284,8 @@ export async function authorContentPlanDraft(
     ? `the article is ${researched ? "researched and written" : "written"}` +
       (factsChecked ? " and fact-checked" : "") +
       (researched ? "" : " (research didn't finish: press Research on the canvas for sources)") +
-      (factsChecked ? "" : " (press Check facts on the canvas before you approve it)")
+      (factsChecked ? "" : " (press Check facts on the canvas before you approve it)") +
+      (hero === "made" ? ", with its hero image" : hero === "asked" ? " (its hero image is made when you open it)" : "")
     : null;
   const written = sequence
     ? `${result.filled.length} of ${toFill.length} emails written`

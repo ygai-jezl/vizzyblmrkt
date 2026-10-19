@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { isAllowedScreenshotType } from "@/lib/workspace/assetStore";
+import { isAllowedScreenshotType, sniffImageMime } from "@/lib/workspace/assetStore";
+import { readImageSize, stripImageMetadata } from "@/lib/email/imageSize";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { storeBrandAsset, MAX_ASSET_BYTES } from "@/lib/tenant/brandAssetStore";
 import {
   recordBrandAsset,
@@ -12,6 +14,8 @@ import { BrandAssetCategorySchema } from "@/lib/types/brandAsset";
 import { isBrandAssetsEnabled } from "@/lib/content/brandKit";
 
 export const runtime = "nodejs";
+
+const PNG_OR_JPEG = new Set(["image/png", "image/jpeg"]);
 export const dynamic = "force-dynamic";
 
 /**
@@ -33,6 +37,12 @@ export async function POST(req: Request) {
   const form = await req.formData().catch(() => null);
   const category = BrandAssetCategorySchema.safeParse(form?.get("category"));
   if (!category.success) return NextResponse.json({ error: "invalid_category" }, { status: 400 });
+  // Screenshots (BRAND_IMAGE_STYLE_ENABLED) are product screens for template styles: only with
+  // the image style on, and PNG/JPEG only (the template renderer can't read WebP).
+  const screenshot = category.data === "screenshot";
+  if (screenshot && !isBrandImageStyleEnabled()) {
+    return NextResponse.json({ error: "invalid_category" }, { status: 400 });
+  }
   const file = form?.get("file");
   if (!file || !(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
@@ -43,9 +53,9 @@ export async function POST(req: Request) {
       { status: 413 },
     );
   }
-  if (!isAllowedScreenshotType(file.type)) {
+  if (!isAllowedScreenshotType(file.type) || (screenshot && !PNG_OR_JPEG.has(file.type))) {
     return NextResponse.json(
-      { error: "bad_type", message: "Upload a PNG, JPG or WebP image." },
+      { error: "bad_type", message: screenshot ? "Upload a PNG or JPG screenshot." : "Upload a PNG, JPG or WebP image." },
       { status: 400 },
     );
   }
@@ -68,7 +78,22 @@ export async function POST(req: Request) {
     );
   }
 
-  const bytes = Buffer.from(await file.arrayBuffer());
+  let bytes = Buffer.from(await file.arrayBuffer());
+  let size: { width: number; height: number } | null = null;
+  if (screenshot) {
+    // Trust the SNIFFED type, not the declared one; store without metadata (EXIF, text chunks,
+    // XMP) since product screens can carry more than they show; record the pixel size.
+    const sniffed = sniffImageMime(bytes);
+    if (!sniffed || !PNG_OR_JPEG.has(sniffed)) {
+      return NextResponse.json({ error: "bad_type", message: "Upload a PNG or JPG screenshot." }, { status: 400 });
+    }
+    const stripped = stripImageMetadata(bytes);
+    if (stripped) bytes = Buffer.from(stripped);
+    size = readImageSize(bytes);
+    if (!size) {
+      return NextResponse.json({ error: "bad_type", message: "That screenshot couldn't be read. Try another PNG or JPG." }, { status: 400 });
+    }
+  }
   const stored = await storeBrandAsset(ctx.tenantId, category.data, bytes, file.type);
   if (!stored.ok) {
     if (stored.reason === "too_large") {
@@ -102,6 +127,7 @@ export async function POST(req: Request) {
         mimeType: stored.mimeType,
         title,
         byteSize: bytes.length,
+        ...(size ? { width: size.width, height: size.height } : {}),
       },
     );
   } catch (err) {

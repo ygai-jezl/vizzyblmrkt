@@ -27,6 +27,18 @@ import {
 } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 import { compactTheme } from "@/lib/email/emailThemes";
+import {
+  ImageStyleIdSchema,
+  ImageStyleInputSchema,
+  ImageStyleSuggestionSchema,
+  SiteFontsSchema,
+  StoredImageStyleSchema,
+  type ImageStyleId,
+  type ImageStyleInput,
+  type ImageStyleSuggestion,
+  type SiteFonts,
+  type StoredImageStyle,
+} from "@/lib/types/imageStyle";
 
 /**
  * Control-plane writes — the `tenants` registry lives in the (default) database,
@@ -297,6 +309,133 @@ export async function clearTenantEmailStyleSuggestion(
     if (!snap.exists || pendingSuggestedAt(snap.data()) !== suggestedAt) return false;
     tx.update(ref, { emailStyleSuggestion: FieldValue.delete(), updatedAt: new Date().toISOString() });
     return true;
+  });
+}
+
+/** The stored image style read leniently off a raw doc: a damaged value reads as none. */
+function storedImageStyle(data: Record<string, unknown> | undefined): StoredImageStyle | null {
+  const parsed = StoredImageStyleSchema.safeParse(data?.imageStyle);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The pending image style suggestion's compare-and-clear key, read off the raw doc. */
+function pendingImageSuggestedAt(data: Record<string, unknown> | undefined): unknown {
+  return (data?.imageStyleSuggestion as { suggestedAt?: unknown } | undefined)?.suggestedAt;
+}
+
+/**
+ * Write the brand's image style (Brand › Image style). The input is parsed strictly. What the
+ * page doesn't edit (what was learned per style, the fonts found on the website) is kept: the
+ * whole map is rebuilt in a transaction from the lenient read, so a damaged stored value never
+ * blocks a Save. An unset accent is stored as no key. With `clearSuggestionAt` (an admin saved
+ * Vizzy's suggestion) the same transaction clears it, only if it's still that one.
+ */
+export async function setTenantImageStyle(
+  id: string,
+  input: ImageStyleInput,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+  opts: { updatedBy?: string; clearSuggestionAt?: string } = {},
+): Promise<StoredImageStyle> {
+  const given = ImageStyleInputSchema.parse(input);
+  const ref = db.collection("tenants").doc(id);
+  const now = new Date().toISOString();
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.data();
+    const kept = storedImageStyle(data);
+    const next = StoredImageStyleSchema.parse({
+      defaultStyleId: given.defaultStyleId,
+      channels: given.channels,
+      ...(given.accentHex ? { accentHex: given.accentHex.toLowerCase() } : {}),
+      logoOnSocial: given.logoOnSocial,
+      headlineOnSocial: given.headlineOnSocial,
+      ...(kept?.siteFonts ? { siteFonts: kept.siteFonts } : {}),
+      ...(kept?.learned ? { learned: kept.learned } : {}),
+      updatedAt: now,
+      ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
+    });
+    // Firestore rejects `undefined` values: store only the channels that are set.
+    const channels = Object.fromEntries(Object.entries(next.channels ?? {}).filter(([, v]) => v));
+    const stored = JSON.parse(JSON.stringify({ ...next, channels })) as StoredImageStyle;
+    const write = { imageStyle: stored, updatedAt: now };
+    const clearAt = opts.clearSuggestionAt;
+    const matches = !!clearAt && pendingImageSuggestedAt(data) === clearAt;
+    tx.update(ref, matches ? { ...write, imageStyleSuggestion: FieldValue.delete() } : write);
+    return stored;
+  });
+}
+
+/** "Reset": remove the image style, so images go back to today's presets. A pending suggestion stays. */
+export async function clearTenantImageStyle(id: string, db: FirestoreLike = getDb() as unknown as FirestoreLike): Promise<void> {
+  await db.collection("tenants").doc(id).update({ imageStyle: FieldValue.delete(), updatedAt: new Date().toISOString() });
+}
+
+/** Save Vizzy's image style suggestion, replacing any older one. Never touches `imageStyle`. */
+export async function setTenantImageStyleSuggestion(
+  id: string,
+  suggestion: ImageStyleSuggestion,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<ImageStyleSuggestion> {
+  const next = ImageStyleSuggestionSchema.parse(suggestion);
+  await db
+    .collection("tenants")
+    .doc(id)
+    .update({ imageStyleSuggestion: JSON.parse(JSON.stringify(next)), updatedAt: new Date().toISOString() });
+  return next;
+}
+
+/** Dismiss the pending image style suggestion, only if it's still the one made at `suggestedAt`. */
+export async function clearTenantImageStyleSuggestion(
+  id: string,
+  suggestedAt: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || pendingImageSuggestedAt(snap.data()) !== suggestedAt) return false;
+    tx.update(ref, { imageStyleSuggestion: FieldValue.delete(), updatedAt: new Date().toISOString() });
+    return true;
+  });
+}
+
+/**
+ * Record what was learned for one style from the brand's thumbs up and down (`directive: null`
+ * = nothing learned yet). Only that style's entry changes: everything else in the map is kept.
+ */
+export async function setTenantStyleLearned(
+  id: string,
+  styleId: ImageStyleId,
+  input: { directive: string | null; sampleCount: number },
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<void> {
+  const style = ImageStyleIdSchema.parse(styleId);
+  const ref = db.collection("tenants").doc(id);
+  const now = new Date().toISOString();
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const kept = storedImageStyle(snap.data()) ?? { defaultStyleId: null };
+    const learned = {
+      ...(kept.learned ?? {}),
+      [style]: { directive: input.directive ? input.directive.slice(0, 2000) : null, sampleCount: input.sampleCount, updatedAt: now },
+    };
+    tx.update(ref, { imageStyle: JSON.parse(JSON.stringify({ ...kept, learned })), updatedAt: now });
+  });
+}
+
+/** Record the fonts found on the brand's website (null = forget them). Everything else is kept. */
+export async function setTenantSiteFonts(
+  id: string,
+  fonts: SiteFonts | null,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<void> {
+  const next = fonts === null ? null : SiteFontsSchema.parse(fonts);
+  const ref = db.collection("tenants").doc(id);
+  const now = new Date().toISOString();
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const { siteFonts: _old, ...kept } = storedImageStyle(snap.data()) ?? { defaultStyleId: null };
+    tx.update(ref, { imageStyle: JSON.parse(JSON.stringify(next ? { ...kept, siteFonts: next } : kept)), updatedAt: now });
   });
 }
 

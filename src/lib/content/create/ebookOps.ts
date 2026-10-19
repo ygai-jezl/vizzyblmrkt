@@ -174,7 +174,14 @@ export type EbookImageTarget =
 export function applyGeneratedImage(
   draft: EbookDoc,
   target: EbookImageTarget,
-  image: { imageAssetRef: string; imagePrompt: string | null; aspect: EbookImageSlot["aspect"]; contextPrompt?: string },
+  image: {
+    imageAssetRef: string;
+    imagePrompt: string | null;
+    aspect: EbookImageSlot["aspect"];
+    contextPrompt?: string;
+    /** The image's own style, saved with it (BRAND_IMAGE_STYLE_ENABLED); absent = left as it is. */
+    imageStyleId?: string | null;
+  },
   makeSlotId: () => string = () => `img_${crypto.randomUUID()}`,
 ): EbookDoc {
   const { MAX_IMAGES_PER_CHAPTER, MAX_CHAPTER_CHARS } = CONTENT_PLAN_LIMITS;
@@ -192,6 +199,11 @@ export function applyGeneratedImage(
         align: prev?.align ?? "center",
         wrap: prev?.wrap ?? false,
         contextPrompt: image.contextPrompt ?? prev?.contextPrompt ?? "",
+        ...(image.imageStyleId !== undefined
+          ? { imageStyleId: image.imageStyleId }
+          : prev?.imageStyleId !== undefined
+            ? { imageStyleId: prev.imageStyleId }
+            : {}),
       },
     };
   }
@@ -200,7 +212,14 @@ export function applyGeneratedImage(
       ...c,
       images: c.images.map((s) =>
         s.id === target.slotId
-          ? { ...s, status: "generated" as const, imageAssetRef: image.imageAssetRef, imagePrompt: image.imagePrompt ?? null, aspect: image.aspect }
+          ? {
+              ...s,
+              status: "generated" as const,
+              imageAssetRef: image.imageAssetRef,
+              imagePrompt: image.imagePrompt ?? null,
+              aspect: image.aspect,
+              ...(image.imageStyleId !== undefined ? { imageStyleId: image.imageStyleId } : {}),
+            }
           : s,
       ),
     }));
@@ -218,6 +237,7 @@ export function applyGeneratedImage(
       align: "center",
       wrap: false,
       contextPrompt: image.contextPrompt ?? "",
+      ...(image.imageStyleId !== undefined ? { imageStyleId: image.imageStyleId } : {}),
     };
     const anchor = buildImageAnchor(slot.id);
     if (c.bodyHtml.length + anchor.length > MAX_CHAPTER_CHARS) return c;

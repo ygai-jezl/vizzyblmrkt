@@ -22,6 +22,10 @@ import {
   type ImageModelSlug,
 } from "@/lib/content/create/imageModels";
 import { ImageModelSelect } from "@/components/admin/ImageModelSelect";
+import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
+import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { resolveImageStyle } from "@/lib/content/imageStyle/resolve";
+import { useBrandImageStyle } from "@/components/admin/imageStyle/useBrandImageStyle";
 import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
 import type { BlogHubControls } from "./blog/types";
 import type { TemplateOption } from "./types";
@@ -523,6 +527,23 @@ function SocialImageControls({
     node.imageAspect ?? defaultAspectForChannel(node.channel),
   );
   const [style, setStyle] = useState<SocialImageStyle>(DEFAULT_SOCIAL_IMAGE_STYLE);
+  // Image style (BRAND_IMAGE_STYLE_ENABLED): this image's own pick, null = the brand's. Saved
+  // with the post, so a regenerate keeps it.
+  const styleUi = isBrandImageStyleUiEnabled();
+  const [styleId, setStyleId] = useState<string | null>(node.imageStyleId ?? null);
+  // A drawn (template) style puts words on the image, as does a painted one when the brand puts
+  // its headline on social images. Blank = the post's first line. Saved with the post.
+  const { style: brandStyle } = useBrandImageStyle(styleUi);
+  const resolved = styleUi
+    ? resolveImageStyle({ enabled: true, surface: "social", channel: node.channel, brand: brandStyle ?? undefined, override: styleId })
+    : null;
+  const drawn = resolved?.engine === "template";
+  const showWords = drawn || (resolved?.engine === "model" && !!brandStyle && brandStyle.headlineOnSocial !== false);
+  const [headline, setHeadline] = useState(node.imageHeadline ?? "");
+  // A style built from product screens, with none saved yet: ask for them here (they're kept
+  // in Brand › Screenshots), or make it without one.
+  const [needsShots, setNeedsShots] = useState<string | null>(null);
+  const shotRef = useRef<HTMLInputElement>(null);
   // Per-generation image model (defaults to this surface's current model — lite).
   const [model, setModel] = useState<ImageModelSlug>(DEFAULT_IMAGE_MODEL_SLUG.social);
   // Brand-style loop: apply the learned brand style + reference images by default.
@@ -536,11 +557,12 @@ function SocialImageControls({
     ? `/api/admin/workspace/${workspaceId}/asset/${node.imageAssetRef}`
     : null;
 
-  async function generate() {
-    if (!brief.trim() || busy) return;
+  async function generate(opts: { withoutScreenshot?: boolean } = {}) {
+    if ((!brief.trim() && !drawn) || busy) return;
     setBusy("generate");
     onBusyChange?.(true);
     setErr(null);
+    setNeedsShots(null);
     try {
       const res = await fetch(
         `/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${node.id}/post-image`,
@@ -551,9 +573,11 @@ function SocialImageControls({
           // dropdown omits it so the server keeps its adaptive default (lite, or full when
           // brand-style references are attached). See imageModelOverride.
           body: JSON.stringify({
-            brief: brief.trim(),
+            ...(brief.trim() ? { brief: brief.trim() } : {}),
             aspect,
-            style,
+            ...(styleUi ? { styleId: styleId ?? "brand" } : { style }),
+            ...(showWords && headline.trim() ? { headline: headline.trim() } : {}),
+            ...(opts.withoutScreenshot ? { withoutScreenshot: true } : {}),
             useBrandStyle,
             model: imageModelOverride(model, "social"),
           }),
@@ -563,12 +587,18 @@ function SocialImageControls({
         imageAssetRef?: string;
         imagePrompt?: string | null;
         message?: string;
+        error?: string;
       };
+      if (res.status === 409 && data.error === "needs_screenshots") {
+        setNeedsShots(data.message ?? "This style is built from screens of your product.");
+        return;
+      }
       if (res.ok && data.imageAssetRef) {
         onUpdate({
           imageAssetRef: data.imageAssetRef,
           imageAspect: aspect,
           imagePrompt: data.imagePrompt ?? null,
+          ...(styleUi ? { imageStyleId: styleId, imageHeadline: showWords && headline.trim() ? headline.trim() : null } : {}),
         });
       } else {
         setErr(data.message ?? "Couldn't generate — try again.");
@@ -579,6 +609,37 @@ function SocialImageControls({
       setBusy(null);
       onBusyChange?.(false);
     }
+  }
+
+  /** Save 1 to 5 product screenshots to Brand › Screenshots, then make the image. */
+  async function addScreenshots(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])].slice(0, 5);
+    e.target.value = "";
+    if (files.length === 0 || busy) return;
+    setBusy("upload");
+    setErr(null);
+    let saved = 0;
+    let lastError: string | null = null;
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append("category", "screenshot");
+        fd.append("file", file);
+        const res = await fetch("/api/admin/brand-kit/assets/upload", { method: "POST", body: fd });
+        if (res.ok) saved += 1;
+        else lastError = ((await res.json().catch(() => ({}))) as { message?: string }).message ?? "Couldn't save a screenshot.";
+      }
+    } catch {
+      lastError = "Couldn't save the screenshots. Try again.";
+    } finally {
+      setBusy(null);
+    }
+    if (saved === 0) {
+      setErr(lastError ?? "Couldn't save the screenshots. Try again.");
+      return;
+    }
+    setNeedsShots(null);
+    await generate();
   }
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -653,14 +714,29 @@ function SocialImageControls({
           />
         </div>
       ) : null}
-      <textarea
-        value={brief}
-        onChange={(e) => setBrief(e.target.value)}
-        rows={2}
-        maxLength={1000}
-        placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
-        className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-      />
+      {drawn ? null : (
+        <textarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={2}
+          maxLength={1000}
+          placeholder="Describe the image (on-brand; text-free unless you ask for words)…"
+          className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      )}
+      {showWords ? (
+        <div className={drawn ? "" : "mt-2"}>
+          <input
+            value={headline}
+            onChange={(e) => setHeadline(e.target.value)}
+            maxLength={160}
+            aria-label="Words on the image"
+            placeholder="Words on the image (blank: the post's first line)"
+            className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          <p className="mt-1 text-[10px] text-neutral-400">Put *stars* around words to highlight them.</p>
+        </div>
+      ) : null}
       <div className="mt-2 flex items-center gap-1">
         <span className="text-[10px] uppercase tracking-wide text-neutral-400">Aspect</span>
         {SOCIAL_ASPECTS.map((a) => (
@@ -669,23 +745,38 @@ function SocialImageControls({
           </button>
         ))}
       </div>
-      <div className="mt-2">
-        <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
-          Style
-          <select
-            value={style}
-            onChange={(e) => setStyle(e.target.value as SocialImageStyle)}
-            className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-          >
-            {SOCIAL_IMAGE_STYLES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
-      </div>
+      {styleUi ? (
+        <div className="mt-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-400">Style</div>
+          <ImageStylePicker
+            surface="social"
+            channel={node.channel}
+            value={styleId}
+            onChange={setStyleId}
+            legacy={SOCIAL_IMAGE_STYLES.map((s) => ({ id: s.id, label: s.label }))}
+            disabled={busy !== null}
+            selectClassName="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          />
+        </div>
+      ) : (
+        <div className="mt-2">
+          <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
+            Style
+            <select
+              value={style}
+              onChange={(e) => setStyle(e.target.value as SocialImageStyle)}
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs normal-case text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+            >
+              {SOCIAL_IMAGE_STYLES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="mt-1 text-[10px] text-neutral-400">{socialImageStyle(style).hint}</p>
+        </div>
+      )}
       <div className="mt-2">
         <label className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-neutral-400">
           Model
@@ -705,11 +796,56 @@ function SocialImageControls({
         />
         Use learned brand style
       </label>
+      {needsShots ? (
+        <div className="mt-2 space-y-2 rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="font-medium text-neutral-800 dark:text-neutral-200">{needsShots}</p>
+          <p className="text-neutral-500 dark:text-neutral-400">
+            Add 1 to 5 PNG or JPG screens. They&apos;re kept in Brand › Screenshots, so you only do this once.
+          </p>
+          <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            Crop out customer names, emails and private numbers first.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => shotRef.current?.click()}
+              disabled={busy !== null}
+              className="rounded-md bg-neutral-900 px-3 py-1.5 font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+            >
+              {busy === "upload" ? "Saving…" : "Add screenshots"}
+            </button>
+            <button
+              type="button"
+              onClick={() => generate({ withoutScreenshot: true })}
+              disabled={busy !== null}
+              className="rounded-md border border-neutral-300 px-3 py-1.5 disabled:opacity-50 dark:border-neutral-700"
+            >
+              Make it without a screenshot
+            </button>
+            <button
+              type="button"
+              onClick={() => setNeedsShots(null)}
+              disabled={busy !== null}
+              className="px-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+            >
+              Pick another style
+            </button>
+          </div>
+          <input
+            ref={shotRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            multiple
+            onChange={addScreenshots}
+            className="hidden"
+          />
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={generate}
-          disabled={busy !== null || !brief.trim()}
+          onClick={() => generate()}
+          disabled={busy !== null || (!brief.trim() && !drawn)}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
           {busy === "generate" ? "Generating…" : hasImage ? "Regenerate" : "✨ Generate image"}

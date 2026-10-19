@@ -101,6 +101,8 @@ export const AbVariantSchema = z.object({
   subject: z.string(),
   body: z.string(),
   heroImageUrl: z.string().nullable().optional(),
+  /** The hero's own style, picked when it was made (BRAND_IMAGE_STYLE_ENABLED); absent = the brand's. */
+  heroImageStyleId: z.string().max(40).nullable().optional(),
 });
 export type AbVariant = z.infer<typeof AbVariantSchema>;
 
@@ -124,6 +126,8 @@ export const JourneyNodeDataSchema = z.object({
   subject: z.string().optional(),
   body: z.string().optional(),
   heroImageUrl: z.string().nullable().optional(),
+  /** The hero's own style, picked when it was made (BRAND_IMAGE_STYLE_ENABLED); absent = the brand's. */
+  heroImageStyleId: z.string().max(40).nullable().optional(),
   agentMeta: AgentMetaSchema.optional(),
   // email node — optional A/B test (absent = single-email behaviour; base
   // subject/body is the control arm).

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { storeBrandFont, MAX_FONT_BYTES } from "@/lib/tenant/brandFontStore";
+import { storeBrandFont, deleteBrandFontBytes, MAX_FONT_BYTES } from "@/lib/tenant/brandFontStore";
 import { recordBrandFont, countBrandFontsUpTo, MAX_FONTS_PER_TENANT } from "@/lib/admin/brandFonts";
 import { isBrandFontsEnabled } from "@/lib/content/brandKit";
 import { sanitizeFontFamily } from "@/lib/content/fonts";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { inspectUploadedFont, inspectedFields } from "@/lib/content/imageStyle/render/fonts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,21 +83,37 @@ export async function POST(req: Request) {
     );
   }
 
+  // With the brand image style on, read the file for the image renderer: weight, italic, its real
+  // family name (so Inter Bold and Inter Regular are one family), and a TTF copy of a WOFF2.
+  const inspected = isBrandImageStyleEnabled()
+    ? await inspectUploadedFont(ctx.tenantId, stored, bytes)
+    : null;
+
   const rawName = typeof file.name === "string" ? file.name : "";
   const formFamily = typeof form?.get("family") === "string" ? String(form.get("family")) : "";
+  const fileFamily = inspected?.info?.family ? sanitizeFontFamily(inspected.info.family) : "";
   // Restrict to a safe charset — the family is echoed into a client @font-face rule injected via
   // dangerouslySetInnerHTML, so a raw newline/`<`/`{`/`;` must never survive to the stored value.
-  const family = sanitizeFontFamily(formFamily || familyFromName(rawName)) || "Custom font";
+  const family =
+    sanitizeFontFamily(formFamily || fileFamily || familyFromName(rawName)) || "Custom font";
   const title = (rawName.split(/[/\\]/).pop() || family).slice(0, 200);
 
   let font;
   try {
     font = await recordBrandFont(
       { tenantId: ctx.tenantId, region: ctx.region },
-      { family, filename: stored.filename, mimeType: stored.mimeType, title, byteSize: bytes.length },
+      {
+        family,
+        filename: stored.filename,
+        mimeType: stored.mimeType,
+        title,
+        byteSize: bytes.length,
+        ...(inspected ? inspectedFields(inspected) : {}),
+      },
     );
   } catch (err) {
     console.warn("[brandKit] font upload record failed:", err);
+    if (inspected?.derivedFilename) await deleteBrandFontBytes(ctx.tenantId, inspected.derivedFilename);
     return NextResponse.json(
       { error: "record_failed", message: "Couldn't save the font to your library — try again." },
       { status: 502 },

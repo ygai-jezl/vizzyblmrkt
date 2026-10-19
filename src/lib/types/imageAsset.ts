@@ -14,7 +14,7 @@ import { StyleProfileSchema } from "./styleProfile";
  * workspace-asset proxy. The served URL is DERIVED, never stored:
  *   `/api/admin/workspace/${workspaceId}/asset/${filename}`
  */
-export const ImageAssetKind = z.enum(["social", "ebook", "customized", "upload"]);
+export const ImageAssetKind = z.enum(["social", "ebook", "customized", "upload", "blog_hero"]);
 export type ImageAssetKind = z.infer<typeof ImageAssetKind>;
 
 /** Where the asset came from (best-effort linkage back to the content that produced it). */

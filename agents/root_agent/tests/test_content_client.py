@@ -68,6 +68,16 @@ def test_draft_uses_the_programme_in_view_and_relays_the_card(monkeypatch):
     assert seen["payload"]["scope"] == {"workspaceId": "ws1"}
 
 
+def test_draft_sends_this_articles_hero_style_only_when_asked(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com/")
+    sent = []
+    monkeypatch.setattr(cc, "_request", lambda m, u, t, payload=None: (sent.append(payload), (200, json.dumps({"ok": True, "id": "p1"})))[1])
+    cc.draft_plan({"ctxToken": "tok", "workspaceId": "ws1"}, "", {"name": "x"}, "brief", "Natural photo")
+    cc.draft_plan({"ctxToken": "tok", "workspaceId": "ws1"}, "", {"name": "x"}, "brief")
+    assert sent[0]["heroStyleId"] == "natural_photo"
+    assert "heroStyleId" not in sent[1]
+
+
 def test_rewrite_needs_a_plan_and_pieces_and_explains_locked_pieces(monkeypatch):
     assert cc.rewrite_nodes({"ctxToken": "t", "workspaceId": "ws1"}, "", "", ["s1"], "shorter")["status"] == "needs_plan"
     assert cc.rewrite_nodes({"ctxToken": "t", "workspaceId": "ws1", "planId": "p1"}, "", "", [], "x")["status"] == "needs_nodes"

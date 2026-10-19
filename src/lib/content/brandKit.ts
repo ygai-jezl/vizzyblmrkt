@@ -128,6 +128,10 @@ export const BRAND_KIT_ICONS_ROUTE = "/admin/brand-kit/icons";
 export const BRAND_KIT_GRAPHICS_ROUTE = "/admin/brand-kit/graphics";
 /** Brand › Email style (gated by EMAIL_STYLE_ENABLED, see src/lib/email/flags.ts). */
 export const BRAND_KIT_EMAIL_STYLE_ROUTE = "/admin/brand-kit/email-style";
+/** Brand › Image style (BRAND_IMAGE_STYLE_ENABLED). */
+export const BRAND_KIT_IMAGE_STYLE_ROUTE = "/admin/brand-kit/image-style";
+/** Brand › Screenshots (BRAND_IMAGE_STYLE_ENABLED): product screens for template styles. */
+export const BRAND_KIT_SCREENSHOTS_ROUTE = "/admin/brand-kit/screenshots";
 /** Brand › Brand map (gated by BRAND_MAP_ENABLED, see src/lib/brandMap/flags.ts). */
 export const BRAND_KIT_MAP_ROUTE = "/admin/brand-kit/map";
 /** Brand › What we've seen (gated by BRAND_NOTES_ENABLED, see src/lib/brandNotes/flags.ts). */

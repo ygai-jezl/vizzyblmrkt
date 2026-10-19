@@ -3,7 +3,14 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { setImageBrandVote } from "@/lib/admin/brandKit";
-import { refreshExemplarStyle, refreshLearnedImageStyle } from "@/lib/content/create/styleProfile";
+import {
+  refreshExemplarStyle,
+  refreshLearnedImageStyle,
+  refreshLearnedStyleBucket,
+} from "@/lib/content/create/styleProfile";
+import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
+import { learnsFromThumbs } from "@/lib/content/imageStyle/learning";
+import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
 
 export const runtime = "nodejs";
@@ -57,6 +64,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     await refreshExemplarStyle(ctx, assetId).catch(() => {});
   } else {
     await refreshLearnedImageStyle(ctx).catch(() => {});
+  }
+  // Learning per style (BRAND_IMAGE_STYLE_ENABLED): the vote also teaches the image's own style.
+  const bucket = canonicalStyleId(updated.style);
+  if (isBrandImageStyleEnabled() && bucket && learnsFromThumbs(bucket)) {
+    await refreshLearnedStyleBucket(ctx, bucket).catch(() => {});
   }
 
   return NextResponse.json({ image: updated });

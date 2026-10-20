@@ -55,6 +55,13 @@ export const DOC_PAGES: DocPage[] = [
     summary: "Authenticating your requests (HTTP Basic, secret rotation), verifying YouGrow's ES256 tokens, reading the raw body, and test vectors.",
   },
   {
+    slug: "open-source",
+    path: "/developers/open-source",
+    label: "Open source",
+    summary:
+      "YouGrow is open source: run it on your laptop with no accounts, host your own copy on Google Cloud, and build on it with Claude Code or Cursor, step by step.",
+  },
+  {
     slug: "api",
     path: "/developers/api",
     label: "API reference",

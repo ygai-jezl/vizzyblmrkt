@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import DevelopersHome from "@/app/developers/page";
 import ConnectYourCodeDocs from "@/app/developers/connect-your-code/page";
 import ContextEndpointDocs from "@/app/developers/context-endpoint/page";
+import OpenSourceDocs from "@/app/developers/open-source/page";
 import SecurityDocs from "@/app/developers/security/page";
 import UsersDocs from "@/app/developers/users/page";
 import WebhooksDocs from "@/app/developers/webhooks/page";
@@ -25,6 +26,7 @@ const RENDER: Record<string, () => ReactNode> = {
   "context-endpoint": ContextEndpointDocs,
   webhooks: WebhooksDocs,
   security: SecurityDocs,
+  "open-source": OpenSourceDocs,
 };
 
 export const MARKDOWN = "text/markdown; charset=utf-8";

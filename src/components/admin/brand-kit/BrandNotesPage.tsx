@@ -40,6 +40,7 @@ const SOURCE_LABEL: Record<BrandNoteSource, string> = {
   paste: "From a pasted call or document",
   article: "Written for an article",
   chat: "Suggested by Vizzy",
+  question: "Answer to a question",
 };
 
 type Filter = "all" | "suggested" | "unused" | BrandNoteKind;

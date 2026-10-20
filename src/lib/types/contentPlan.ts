@@ -315,6 +315,19 @@ export type BlogSeenNote = z.infer<typeof BlogSeenNoteSchema>;
  * person wrote for this article alone, and the questions that would help when nothing matched.
  * The editorial writer takes first-hand experience from here and nowhere else.
  */
+/**
+ * One of the questions an article asked its team (BRAND_NOTES_QUESTIONS_ENABLED): kept on What
+ * we've seen as a note of its own. `answer` is a copy of that note's answer for the browser; the
+ * note holds the real one, and the server copies it back in before the article is written or checked.
+ */
+export const BlogSeenQuestionSchema = z.object({
+  /** The question's note on Brand › What we've seen. */
+  id: z.string().min(1).max(64),
+  question: z.string().min(1).max(300),
+  answer: z.string().max(1200).default(""),
+});
+export type BlogSeenQuestion = z.infer<typeof BlogSeenQuestionSchema>;
+
 export const BlogSeenSchema = z.object({
   notes: z.array(BlogSeenNoteSchema).max(6).default([]),
   /** Weaker matches: shown on request, never used unless a person adds one. */
@@ -327,6 +340,8 @@ export const BlogSeenSchema = z.object({
   save: z.boolean().default(true),
   /** Questions written for this article, shown when nothing matched. */
   asks: z.array(z.string().max(300)).max(3).default([]),
+  /** The questions as saved on What we've seen, with their answers (BRAND_NOTES_QUESTIONS_ENABLED). */
+  questions: z.array(BlogSeenQuestionSchema).max(3).optional(),
   /** The question the last match ran for; a different question now means match again. */
   matchedFor: z.string().max(300).default(""),
   matchedAt: z.string().nullable().default(null),

@@ -859,6 +859,9 @@ function SeenBox({
   const questions = answers ? (seen?.questions ?? []) : [];
   // The questions' own boxes replace the one shared box, unless an article from before has text in it.
   const ownBox = !questions.length || own.trim() !== "";
+  // Answered questions are experience the article can speak from, as notes are.
+  const answered = questions.filter((q) => q.answer.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT).length;
+  const has = notes.length > 0 || answered > 0;
   const patch = (p: Partial<BlogSeen>) => set({ seen: BlogSeenSchema.parse({ ...(seen ?? {}), ...p }) });
   const remove = (noteId: string) =>
     patch({ notes: notes.filter((n) => n.id !== noteId), removed: [...new Set([...(seen?.removed ?? []), noteId])].slice(-50) });
@@ -876,7 +879,7 @@ function SeenBox({
     if (!own.includes(q)) patch({ own: `${q}\n${own}`.slice(0, 3000) });
     document.getElementById(`${id}-own`)?.focus();
   };
-  const tone = notes.length
+  const tone = has
     ? "border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/30"
     : looked
       ? "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/30"
@@ -888,14 +891,20 @@ function SeenBox({
         <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-100">What we&rsquo;ve seen</span>
         <span
           className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-            notes.length
+            has
               ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
               : looked
                 ? "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100"
                 : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
           }`}
         >
-          {notes.length ? `${notes.length} from your brand` : looked ? "Nothing matched" : "Not looked yet"}
+          {notes.length
+            ? `${notes.length} from your brand`
+            : answered
+              ? `${answered} answered`
+              : looked
+                ? "Nothing matched"
+                : "Not looked yet"}
         </span>
       </div>
 
@@ -913,6 +922,11 @@ function SeenBox({
 
       {!looked ? (
         <p className={HINT}>Research looks for the notes on Brand › What we&rsquo;ve seen that fit this question.</p>
+      ) : !notes.length && answered ? (
+        <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
+          None of your brand&rsquo;s notes fits this question closely enough, so the article speaks from your team&rsquo;s answers
+          below.
+        </p>
       ) : !notes.length ? (
         <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
           None of your brand&rsquo;s notes fits this question closely enough. Without one, the article is written as analysis and

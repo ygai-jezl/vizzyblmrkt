@@ -39,6 +39,10 @@ describe("What we've seen in the article's brief", () => {
     expect(out).toContain("Also asked for: Tracking AI referral traffic");
     expect(out).toContain(">Answered<");
     expect(out).not.toContain("Also save to your brand");
+    // One is answered: the article speaks from it, so the box no longer says nothing matched.
+    expect(out).toContain(">1 answered<");
+    expect(out).toContain("so the article speaks from your team’s answers");
+    expect(out).not.toContain("claims no experience of its own");
   });
 
   it("keeps the shared box for an article from before that has text in it", () => {

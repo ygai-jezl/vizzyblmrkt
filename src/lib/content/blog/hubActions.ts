@@ -19,7 +19,7 @@ import { syncPlanPageSoftly } from "./pageActions";
 import { rememberAuthor, withRememberedAuthor } from "./authors";
 import { keepArticleSeen, matchSeen, refreshAnswers, type SeenDeps } from "./seen";
 import { isBlogEditorialEnabled } from "./flags";
-import { isBrandNotesEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled } from "@/lib/brandNotes/flags";
 import type { BlogSeen } from "@/lib/types/contentPlan";
 
 /**
@@ -194,6 +194,11 @@ export type BlogSeenOutcome = { ok: true; seen: BlogSeen } | BlogActionError;
 /** Whether an article's notes can be matched: the brand's notes and the editorial writer that uses them. */
 export function isSeenOn(): boolean {
   return isBrandNotesEnabled() && isBlogEditorialEnabled();
+}
+
+/** Whether an article's questions for its team are kept as open questions, each answered in its own box. */
+export function isSeenQuestionsOn(): boolean {
+  return isSeenOn() && isBrandNotesQuestionsEnabled();
 }
 
 /**

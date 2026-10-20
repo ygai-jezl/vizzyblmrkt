@@ -1,4 +1,5 @@
-import type { BlogArticleMeta, BlogBrief } from "@/lib/types/contentPlan";
+import type { BlogArticleMeta, BlogBrief, BlogSeenQuestion } from "@/lib/types/contentPlan";
+import { BRAND_NOTE_LIMITS } from "@/lib/types/brandNote";
 import { articleFigures } from "./figures";
 import { blockPlain, countWords, inlineLinks, parseArticle, plainInline } from "./markdown";
 import { outlineArticle, type ArticleOutline } from "./outline";
@@ -110,11 +111,20 @@ function firstSentence(text: string): string {
   return /^(.+?[.!?])(?:\s|$)/.exec(text.trim())?.[1] ?? text.trim();
 }
 
-/** The experience an article may claim: its matched notes and what a person wrote for it. */
+/** The questions an article asked its team that have an answer (a few words aren't one yet). */
+export function answeredQuestions(brief: BlogBrief): BlogSeenQuestion[] {
+  return (brief.seen?.questions ?? []).filter((q) => q.answer.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT);
+}
+
+/** The experience an article may claim: its matched notes, its team's answers and what a person wrote for it. */
 export function seenNotes(brief: BlogBrief): string[] {
   const seen = brief.seen;
   if (!seen) return [];
-  return [...seen.notes.map((n) => n.text), ...(seen.own.trim() ? [seen.own.trim()] : [])];
+  return [
+    ...seen.notes.map((n) => n.text),
+    ...answeredQuestions(brief).map((q) => q.answer.trim()),
+    ...(seen.own.trim() ? [seen.own.trim()] : []),
+  ];
 }
 
 function voiceItems(markdown: string, o: ArticleOutline, brief: BlogBrief, map: ArticleMap | null): CitableItem[] {

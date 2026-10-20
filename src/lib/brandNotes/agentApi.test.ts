@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { signCanvasContext } from "@/lib/canvas/auth";
 import { agentReadNotes, agentSuggestNotes, brandNotesAgentGate } from "./agentApi";
-import { createNote, listNotes } from "./store";
+import { askQuestions, createNote, listNotes } from "./store";
 
 const member: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_m", role: "member" };
 const req = (token?: string) => new Request("https://app.example.com/api/agent/brand-notes", { headers: token ? { "x-canvas-context": token } : {} });
@@ -51,5 +51,21 @@ describe("Vizzy and What we've seen", () => {
     expect(r.body).toMatchObject({ total: 2, kept: 1, waiting: 1, notes: [{ kind: "tested" }] });
     expect((r.body as { fewest: string[] }).fewest).toContain("disagree");
     expect((r.body as { fewest: string[] }).fewest).not.toContain("tested");
+  });
+
+  it("reads the open questions apart, with the articles that asked them, once they are on", async () => {
+    const d = deps();
+    await createNote(member, { text: "We tested daily checks for a month.", kind: "tested", subjectIds: [], canName: false }, { source: "typed" }, d);
+    await askQuestions(member, { questions: ["When did a weekly check miss a change?"], article: { ref: "ws_1/plan_1", title: "How often to check" } }, d);
+    const off = await agentReadNotes(member, {}, d);
+    expect(off.body).toMatchObject({ total: 1, kept: 1, waiting: 0 });
+    expect((off.body as { open?: unknown }).open).toBeUndefined();
+    vi.stubEnv("BRAND_NOTES_QUESTIONS_ENABLED", "true");
+    const on = await agentReadNotes(member, {}, d);
+    expect(on.body).toMatchObject({
+      total: 1,
+      waiting: 0,
+      open: { count: 1, questions: [{ question: "When did a weekly check miss a change?", askedFor: ["How often to check"] }] },
+    });
   });
 });

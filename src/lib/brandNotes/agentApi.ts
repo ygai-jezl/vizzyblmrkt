@@ -3,7 +3,7 @@ import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasConte
 import { isRateLimited } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BRAND_NOTE_KIND_LABEL, BRAND_NOTE_KINDS, BRAND_NOTE_LIMITS, BrandNoteKind } from "@/lib/types/brandNote";
-import { isBrandNotesChatEnabled } from "./flags";
+import { isBrandNotesChatEnabled, isBrandNotesQuestionsEnabled } from "./flags";
 import { suggestKind } from "./prompts";
 import { createNote, listNotes, nearestNotes, summariseNotes, type NotesDeps } from "./store";
 
@@ -11,7 +11,9 @@ import { createNote, listNotes, nearestNotes, summariseNotes, type NotesDeps } f
  * What Vizzy may do with What we've seen (BRAND_NOTES_CHAT_ENABLED): read the brand's notes (a
  * summary, the newest, or those nearest some words) and file new ones as SUGGESTIONS in the
  * person's own words. Nothing it files is used by an article until an admin keeps it on Brand ›
- * What we've seen. Auth is the signed canvas capability token (the tenant comes from it).
+ * What we've seen. With BRAND_NOTES_QUESTIONS_ENABLED it also reads the open questions: what
+ * articles asked the team that nobody has answered yet. Auth is the signed canvas capability
+ * token (the tenant comes from it).
  */
 
 export type ApiResult = { status: number; body: unknown };
@@ -20,6 +22,9 @@ const NOTE =
   "Vizzy only files suggested notes, in the person's own words: an article uses a note only after an admin keeps it on Brand › What we've seen. " +
   "Never invent experience or figures.";
 const LINK = "/admin/brand-kit/notes";
+const OPEN_NOTE =
+  "Open questions: articles asked the team these and nobody has answered yet. Ask the person one; they answer it in the article's What we've seen box or on Brand › What we've seen, and every article that asked it can use the answer.";
+const MAX_OPEN = 5;
 /** Suggestions from chat are bounded per brand. */
 const CHAT_LIMIT = { prefix: "brand_notes_chat", burstLimit: 5, hourlyLimit: 40 };
 const MAX_PER_CALL = 5;
@@ -42,6 +47,7 @@ export async function agentReadNotes(ctx: TenantContext, opts: { find?: string |
   const shown = find
     ? (await nearestNotes(ctx, find, { limit: 8 }, deps)).map((n) => n.note)
     : notes.filter((n) => n.status === "kept").slice(0, 10);
+  const open = isBrandNotesQuestionsEnabled() ? notes.filter((n) => n.status === "asked") : [];
   return {
     status: 200,
     body: {
@@ -52,6 +58,15 @@ export async function agentReadNotes(ctx: TenantContext, opts: { find?: string |
       fewest: kinds.filter((k) => k.kept === Math.min(...kinds.map((x) => x.kept))).map((k) => k.kind),
       notes: shown.map((n) => ({ kind: n.kind, text: brief(n.text), usedIn: n.usedBy?.length ?? 0, ...(n.status === "suggested" ? { waiting: true } : {}) })),
       ...(find ? { find } : {}),
+      ...(open.length
+        ? {
+            open: {
+              count: open.length,
+              questions: open.slice(0, MAX_OPEN).map((n) => ({ question: brief(n.question ?? ""), askedFor: (n.askedFor ?? []).map((a) => a.title).slice(0, 3) })),
+              note: OPEN_NOTE,
+            },
+          }
+        : {}),
       link: LINK,
       note: NOTE,
     },

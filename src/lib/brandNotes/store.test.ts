@@ -5,12 +5,18 @@ import { BRAND_MAP_VECTORS, brandMapVectorDocId } from "@/lib/tenant/brandMapVec
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import { BRAND_NOTE_LIMITS, type BrandNote, type BrandNoteInput } from "@/lib/types/brandNote";
 import {
+  addAskedFor,
+  answerQuestion,
+  askQuestions,
   createNote,
   getNote,
   listNotes,
   markNotesUsed,
   nearestNotes,
+  nearestOpenQuestions,
+  notesById,
   notesForSubjects,
+  QUESTION_HEADROOM,
   removeNote,
   summariseNotes,
   updateNote,
@@ -136,7 +142,137 @@ describe("What we've seen: the brand's notes", () => {
       { ...base, id: "2", text: "b", kind: "tested", subjectIds: ["s1", "s2"], status: "kept" },
       { ...base, id: "3", text: "c", kind: "mistake", subjectIds: ["s3"], status: "suggested" },
     ]);
-    expect(s).toMatchObject({ total: 3, kept: 2, suggested: 1, subjectIds: ["s1", "s2"] });
+    expect(s).toMatchObject({ total: 3, kept: 2, suggested: 1, asked: 0, subjectIds: ["s1", "s2"] });
     expect(s.kinds).toMatchObject({ tested: 2, mistake: 0, disagree: 0 });
+  });
+
+  it("counts open questions apart, and in nothing else", () => {
+    const base: Omit<BrandNote, "id" | "text" | "kind" | "subjectIds" | "status" | "source"> = {
+      tenantId: "t",
+      canName: false,
+      sourceRef: null,
+      usedBy: [],
+      createdBy: null,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const s = summariseNotes([
+      { ...base, id: "1", text: "a", kind: "tested", subjectIds: ["s1"], status: "kept", source: "typed" },
+      { ...base, id: "2", text: "", kind: "tested", subjectIds: ["s2"], status: "asked", source: "question", question: "Which test surprised you?" },
+      { ...base, id: "3", text: "c", kind: "mistake", subjectIds: [], status: "suggested", source: "chat" },
+    ]);
+    expect(s).toMatchObject({ total: 2, kept: 1, suggested: 1, asked: 1, subjectIds: ["s1"] });
+    expect(s.kinds.tested).toBe(1);
+  });
+});
+
+describe("What we've seen: open questions", () => {
+  const article = { ref: "ws1/p1", title: "Finding buyer prompts in Search Console" };
+  const vec = (d: { db: FakeFirestore }, kind: "note" | "question", id: string) => d.db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", kind, id));
+
+  it("keeps an article's questions as open questions, linked to it, with one embedding call", async () => {
+    const d = deps();
+    const made = await askQuestions(A, { questions: ["Which test surprised you most?", "  Which test surprised you most? ", "When did a rival's page beat yours?"], article }, d);
+    expect(made).toHaveLength(2);
+    expect(made[0]).toMatchObject({
+      text: "",
+      status: "asked",
+      source: "question",
+      sourceRef: null,
+      subjectIds: [],
+      question: "Which test surprised you most?",
+      askedFor: [article],
+      createdBy: "u1",
+    });
+    expect(d.embed).toHaveBeenCalledTimes(1);
+    expect(vec(d, "question", made[0]!.id)).toMatchObject({ kind: "question", status: "asked" });
+    expect(vec(d, "note", made[0]!.id)).toBeUndefined();
+    expect(await listNotes(B, d)).toEqual([]);
+    expect(await notesById(B, [made[0]!.id], d)).toEqual([]);
+    expect((await notesById(A, [made[1]!.id, made[0]!.id], d)).map((n) => n.id)).toEqual([made[1]!.id, made[0]!.id]);
+  });
+
+  it("keeps no questions when the brand is near its backstop", async () => {
+    const d = deps();
+    const notes = forTenant(A, d.db).brandNotes;
+    await Promise.all(
+      Array.from({ length: BRAND_NOTE_LIMITS.MAX_NOTES - QUESTION_HEADROOM }, (_, i) => notes.create(`bn_fill${String(i).padStart(6, "0")}`, { status: "kept" } as never)),
+    );
+    expect(await askQuestions(A, { questions: ["Which test surprised you most?"], article }, d)).toEqual([]);
+  });
+
+  it("links a question to each article that asks it, once", async () => {
+    const d = deps();
+    const [q] = await askQuestions(A, { questions: ["Which test surprised you most?"], article }, d);
+    const other = { ref: "ws1/p2", title: "Tracking AI referral traffic" };
+    await addAskedFor(A, q!.id, other, d);
+    await addAskedFor(A, q!.id, other, d);
+    expect((await getNote(A, q!.id, d))?.askedFor).toEqual([article, other]);
+    expect(await addAskedFor(B, q!.id, other, d)).toBeNull();
+    const typed = await createNote(A, note(), { source: "typed" }, d);
+    if (!typed.ok) throw new Error("not made");
+    expect((await addAskedFor(A, typed.value.id, other, d))?.askedFor).toBeUndefined();
+  });
+
+  it("becomes a kept note once answered, and an open question again once cleared", async () => {
+    const d = deps();
+    const [q] = await askQuestions(A, { questions: ["What did you test first?"], article }, d);
+    const id = q!.id;
+
+    const short = await answerQuestion(A, id, "We ran", { subjectId: "sub_1" }, d);
+    expect(short.ok && short.value).toMatchObject({ status: "asked", text: "We ran", subjectIds: [] });
+    expect(d.embed).toHaveBeenCalledTimes(1);
+
+    const answered = await answerQuestion(A, id, "We ran the same question every day for a week.", { subjectId: "sub_1" }, d);
+    expect(answered.ok && answered.value).toMatchObject({ status: "kept", kind: "tested", subjectIds: ["sub_1"], answeredBy: "u1" });
+    expect(vec(d, "question", id)).toMatchObject({ status: "answered" });
+    expect(vec(d, "note", id)).toMatchObject({ status: "kept" });
+    expect(d.embed).toHaveBeenCalledTimes(2);
+    expect(d.embed.mock.calls[1]![0]).toEqual([{ content: "What did you test first?\nWe ran the same question every day for a week.", title: "What we've seen" }]);
+
+    await answerQuestion(A, id, "We ran the same question every day for a week, twice.", {}, d);
+    expect(d.embed).toHaveBeenCalledTimes(2);
+    await answerQuestion(A, id, "We ran the same question every day for a week, twice.", { done: true }, d);
+    expect(d.embed).toHaveBeenCalledTimes(3);
+
+    const cleared = await answerQuestion(A, id, "  ", {}, d);
+    expect(cleared.ok && cleared.value).toMatchObject({ status: "asked", text: "", subjectIds: [] });
+    expect(vec(d, "question", id)).toMatchObject({ status: "asked" });
+    expect(vec(d, "note", id)).toBeUndefined();
+
+    expect((await answerQuestion(B, id, "We ran the same question every day.", {}, d)).ok).toBe(false);
+    const typed = await createNote(A, note(), { source: "typed" }, d);
+    if (!typed.ok) throw new Error("not made");
+    expect(await answerQuestion(A, typed.value.id, "We ran the same question every day.", {}, d)).toEqual({ ok: false, status: 404, error: "not_found" });
+  });
+
+  it("is kept on the page only by answering it, and removed with both of its embeddings", async () => {
+    const d = deps();
+    const [q] = await askQuestions(A, { questions: ["What did you test first?"], article }, d);
+    expect(await updateNote(A, q!.id, { status: "kept" }, d)).toEqual({ ok: false, status: 409, error: "unanswered_question" });
+    const kept = await updateNote(A, q!.id, { text: "We ran the same question every day for a week." }, d);
+    expect(kept.ok && kept.value).toMatchObject({ status: "kept", answeredBy: "u1" });
+    expect(vec(d, "question", q!.id)).toMatchObject({ status: "answered" });
+    expect(vec(d, "note", q!.id)).toMatchObject({ status: "kept" });
+    expect((await removeNote(A, q!.id, d)).ok).toBe(true);
+    expect(vec(d, "question", q!.id)).toBeUndefined();
+    expect(vec(d, "note", q!.id)).toBeUndefined();
+  });
+
+  it("finds open questions close in meaning, leaving out the ones asked for", async () => {
+    const d = deps();
+    const [a, b] = await askQuestions(A, { questions: ["What did you test first?", "Which rival page beat yours?"], article }, d);
+    await answerQuestion(A, b!.id, "A rival's comparison page outranked ours for a month.", {}, d);
+    const rows = [
+      { tenantId: "ten_A", kind: "question", ref: a!.id, status: "asked", _distance: 0.1 },
+      { tenantId: "ten_A", kind: "question", ref: b!.id, status: "asked", _distance: 0.15 },
+      { tenantId: "ten_B", kind: "question", ref: a!.id, status: "asked", _distance: 0.1 },
+    ];
+    const vectors: KnowledgeCollectionLike = {
+      where: () => vectors,
+      findNearest: () => ({ get: async () => ({ empty: false, size: rows.length, docs: rows.map((r, i) => ({ id: `v${i}`, data: () => r })) }) }),
+    };
+    expect((await nearestOpenQuestions(A, [1, 0], { limit: 3 }, { ...d, vectors })).map((n) => n.note.id)).toEqual([a!.id]);
+    expect(await nearestOpenQuestions(A, [1, 0], { limit: 3, exclude: [a!.id] }, { ...d, vectors })).toEqual([]);
   });
 });

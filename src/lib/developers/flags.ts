@@ -31,3 +31,12 @@ export function githubAppPublicUrl(): string | null {
   const slug = process.env.GITHUB_APP_SLUG?.trim();
   return slug && /^[a-z0-9-]{1,100}$/.test(slug) ? `https://github.com/apps/${slug}` : null;
 }
+
+/**
+ * The open-source project's home, linked from /developers/open-source. Defaults to the
+ * upstream repository; a fork can point its own docs at itself with SOURCE_REPO_URL.
+ */
+export function sourceRepoUrl(): string {
+  const url = process.env.SOURCE_REPO_URL?.trim().replace(/\/+$/, "");
+  return url && /^https:\/\/[^\s"'<>]+$/.test(url) ? url : "https://github.com/ygai-jezl/vizzyblmrkt";
+}

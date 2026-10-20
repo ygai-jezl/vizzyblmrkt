@@ -4,6 +4,7 @@ import { H2 } from "@/components/developers/Doc";
 import DevelopersHome from "@/app/developers/page";
 import ConnectYourCodeDocs from "@/app/developers/connect-your-code/page";
 import ContextEndpointDocs from "@/app/developers/context-endpoint/page";
+import OpenSourceDocs from "@/app/developers/open-source/page";
 import EventsMoved from "@/app/developers/events/page";
 import { GET as eventsMarkdown } from "@/app/developers/events.md/route";
 import SecurityDocs from "@/app/developers/security/page";
@@ -27,6 +28,7 @@ const PAGES: Record<string, () => ReactNode> = {
   "context-endpoint": ContextEndpointDocs,
   webhooks: WebhooksDocs,
   security: SecurityDocs,
+  "open-source": OpenSourceDocs,
 };
 
 type El = { type: unknown; props: { children?: ReactNode } & Record<string, unknown> };

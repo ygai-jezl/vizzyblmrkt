@@ -33,6 +33,7 @@ import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
 import { briefOf } from "@/lib/content/blog/brief";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { draftBlogArticle } from "@/lib/content/blog/draft";
+import { refreshAnswers } from "@/lib/content/blog/seen";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { BlogArticleMeta, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 
@@ -211,7 +212,8 @@ export async function generateNode(
   // = the generic hub draft below, unchanged).
   const citableBlog =
     node.type === "hub" && node.channel === "blog" && !input.skeletonBody?.trim() && isBlogCitableEnabled();
-  const brief = briefOf(plan);
+  // The answers to its questions are read live: one changed on Brand › What we've seen wins.
+  const brief = citableBlog ? await refreshAnswers(ctx, briefOf(plan), {}, `${workspaceId}/${plan.id}`) : briefOf(plan);
 
   // Ground: scoped → pre-filter by the first scope topic (findNearest takes one).
   const scopedTopic =

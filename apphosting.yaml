@@ -570,6 +570,16 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # An article's questions kept as open questions, each answered in a box that saves as you type (needs the notes).
+  - variable: BRAND_NOTES_QUESTIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

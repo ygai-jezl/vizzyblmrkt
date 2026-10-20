@@ -8,6 +8,7 @@ const WRITE_ON_THEIR_OWN = [
   "content.suggest_angle",
   "content.brand_notes_extract",
   "content.blog_note_asks",
+  "content.blog_note_asks_reuse",
   "content.blog_draft",
   "content.blog_draft_editorial",
   "content.blog_fact_check",

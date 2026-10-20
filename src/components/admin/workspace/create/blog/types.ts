@@ -3,6 +3,7 @@ import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import type { AddressSaved } from "@/lib/content/blog/address";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
 import type { FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
+import type { SeenAnswers } from "./useSeenAnswers";
 
 /** What a Make again asks for: this article's own style ("brand" = the brand's), a format and its words. */
 export interface HeroMakeOptions {
@@ -52,6 +53,10 @@ export interface BlogHubControls {
   /** Look again for the brand's notes that fit the article (What we've seen). Left out while
    *  BRAND_NOTES_ENABLED or the editorial writer is off, and then the box isn't shown. */
   onFindSeen?: () => void;
+  /** Answers to the article's questions for its team, each saved as it is typed
+   *  (BRAND_NOTES_QUESTIONS_ENABLED). Left out while that is off, and then the questions share
+   *  one box, saved with the plan. */
+  answers?: SeenAnswers;
   /** Articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED): the author's role and bio can be set. */
   editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */

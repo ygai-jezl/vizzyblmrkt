@@ -21,12 +21,18 @@ export const BRAND_NOTE_KIND_LABEL: Record<BrandNoteKind, { one: string; many: s
   disagree: { one: "Where we disagree", many: "Where we disagree" },
 };
 
-/** Where a note came from: typed on the page, pulled out of a pasted call, written for an article, or suggested by Vizzy. */
-export const BrandNoteSource = z.enum(["typed", "paste", "article", "chat"]);
+/**
+ * Where a note came from: typed on the page, pulled out of a pasted call, written for an article,
+ * suggested by Vizzy, or a question an article asked its team (BRAND_NOTES_QUESTIONS_ENABLED).
+ */
+export const BrandNoteSource = z.enum(["typed", "paste", "article", "chat", "question"]);
 export type BrandNoteSource = z.infer<typeof BrandNoteSource>;
 
-/** `suggested`: Vizzy proposed it and nobody has kept it yet; articles use only `kept` notes. */
-export const BrandNoteStatus = z.enum(["kept", "suggested"]);
+/**
+ * `suggested`: Vizzy proposed it and nobody has kept it yet. `asked`: a question an article asked
+ * its team that nobody has answered yet (its text is empty). Articles use only `kept` notes.
+ */
+export const BrandNoteStatus = z.enum(["kept", "suggested", "asked"]);
 export type BrandNoteStatus = z.infer<typeof BrandNoteStatus>;
 
 export const BRAND_NOTE_LIMITS = {
@@ -36,6 +42,10 @@ export const BRAND_NOTE_LIMITS = {
   MAX_TEXT: 1200,
   MAX_SUBJECTS: 8,
   MAX_USED_BY: 50,
+  MAX_QUESTION: 300,
+  /** The articles an open question was asked for. */
+  MAX_ASKED_FOR: 20,
+  MAX_ARTICLE_TITLE: 200,
 } as const;
 
 /** What a person (or Vizzy) gives for a note. */
@@ -49,6 +59,15 @@ export type BrandNoteInput = z.infer<typeof BrandNoteInputSchema>;
 
 export const BrandNotePatchSchema = BrandNoteInputSchema.partial().extend({ status: z.literal("kept").optional() });
 export type BrandNotePatch = z.infer<typeof BrandNotePatchSchema>;
+
+/** An article a note is linked to: `<workspaceId>/<planId>`, and what it was called. */
+export interface NoteArticle {
+  ref: string;
+  title: string;
+}
+
+/** A question with no answer yet: listed apart, used by no article. */
+export const isOpenQuestion = (n: Pick<BrandNote, "status">): boolean => n.status === "asked";
 
 export interface BrandNote {
   id: string;
@@ -65,6 +84,13 @@ export interface BrandNote {
   status: BrandNoteStatus;
   /** The articles that used it (`<workspaceId>/<planId>`), newest last, capped. */
   usedBy: string[];
+  /** The question it answers, when an article asked its team (source `question`). */
+  question?: string | null;
+  /** The articles that asked that question, oldest first, capped; the title is as it was then. */
+  askedFor?: NoteArticle[];
+  /** Who last answered the question, and when. */
+  answeredBy?: string | null;
+  answeredAt?: string | null;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;

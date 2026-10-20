@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -75,9 +75,19 @@ export default function WriteAndScheduleHelp() {
           Blog articles are written the way a practitioner writes: the answer first, the trade-offs and the common mistakes,
           and your brand kept to the margins. In the hub&apos;s <strong>Brief</strong>, <strong>What we&apos;ve seen</strong>{" "}
           shows the notes from <Open href="/help/your-brand#seen">your team&apos;s experience</Open> that fit the
-          article&apos;s question; remove any that don&apos;t belong. When nothing fits, answer one of the questions it
-          suggests and the article can speak from experience. Under <strong>Publisher</strong>, add the author&apos;s role and
-          a short bio for the byline and the author box at the end.
+          article&apos;s question; remove any that don&apos;t belong.{" "}
+          {isBrandNotesQuestionsUiEnabled() ? (
+            <>
+              When nothing fits, it asks your team up to three questions. Press <strong>+</strong> beside one to answer it in its
+              own box. The answer saves as you type: once it says <strong>Saved to What we&apos;ve seen</strong>, it is one of
+              your team&apos;s notes. Every question is kept on What we&apos;ve seen too, answered or not, linked to the article,
+              so another article that needs the same answer can ask it again.
+            </>
+          ) : (
+            <>When nothing fits, answer one of the questions it suggests and the article can speak from experience.</>
+          )}{" "}
+          Under <strong>Publisher</strong>, add the author&apos;s role and a short bio for the byline and the author box at the
+          end.
         </P>
       ) : null}
       <P>
@@ -168,6 +178,14 @@ export default function WriteAndScheduleHelp() {
             "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
           ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
+          ...(isBrandNotesQuestionsUiEnabled()
+            ? ([
+                [
+                  "Couldn't save. Your text is kept; it tries again as you type.",
+                  "Check your connection and keep typing, or click outside the box. Anything not saved yet is saved before the article is written.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
         ]}
       />
 

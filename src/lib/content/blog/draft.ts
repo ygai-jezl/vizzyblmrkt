@@ -24,7 +24,7 @@ import {
   ownHosts,
   usableSources,
 } from "./brief";
-import { citableGaps, evaluateCitable, seenNotes, type CitableReport } from "./citable";
+import { answeredQuestions, citableGaps, evaluateCitable, seenNotes, type CitableReport } from "./citable";
 import { unsupportedFigures } from "./figures";
 import { blogWriterThinkingBudget, isBlogEditorialEnabled } from "./flags";
 import { slugify } from "./markdown";
@@ -172,14 +172,18 @@ const withoutAuthorBox = (markdown: string) => splitAuthorBox(markdown).body;
 
 /**
  * What the editorial writer is told about first-hand experience. Experience may come only
- * from the brand's own notes (What we've seen): the ones matched to this article and what a
- * person wrote for it. With none, the article claims none.
+ * from the brand's own notes (What we've seen): the ones matched to this article, its team's
+ * answers to the questions it asked, and what a person wrote for it. With none, the article
+ * claims none.
  */
 export function seenBlock(brief: BlogBrief): string {
   const seen = brief.seen;
   const clean = (s: string) => s.replace(/<\/?\s*seen\s*>/gi, " ").replace(/\s+/g, " ").trim();
   const lines = [
     ...(seen?.notes ?? []).map((n) => `${n.canName ? "(the people in it may be named)" : "(keep every person and company in it anonymous)"} ${clean(n.text)}`),
+    ...answeredQuestions(brief).map(
+      (q) => `(the team's answer when asked "${clean(q.question).replace(/"/g, "'")}"; keep every person and company in it anonymous) ${clean(q.answer)}`,
+    ),
     ...(seen?.own.trim() ? [`(what the team wrote for this article; keep every person and company in it anonymous) ${clean(seen.own)}`] : []),
   ];
   if (!lines.length) {

@@ -21,6 +21,14 @@ export default function DevelopersHome() {
         </Link>
         .
       </Note>
+      <P>
+        YouGrow is open source. To run it on your laptop, host your own copy or build on it with Claude Code or Cursor,
+        see{" "}
+        <Link className="underline" href="/developers/open-source">
+          Open source
+        </Link>
+        .
+      </P>
 
       <H2 id="how">How it works</H2>
       <Code title="The parts of a connection">{`Your product ── each user's state (HTTP Basic, your key) ──▶ PATCH ${origin}/api/v2/users/{userId}
@@ -160,6 +168,13 @@ const verifier = createVerifier({ keyId: process.env.YOUGROW_KEY_ID!${sdkOrigin}
         <li>
           <a className="underline" href="/developers/test-vectors.json">Test vectors</a> for verifying our tokens in any
           language, and our public keys at <C>{`${origin}/.well-known/jwks.json`}</C>.
+        </li>
+        <li>
+          Working on YouGrow itself, or hosting your own copy? Start at{" "}
+          <Link className="underline" href="/developers/open-source">
+            Open source
+          </Link>
+          : one prompt gets it running on your laptop.
         </li>
       </UL>
       <Note>

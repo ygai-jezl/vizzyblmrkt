@@ -156,14 +156,14 @@ export async function notesForSubjects(ctx: TenantContext, subjectIds: string[],
   return found.filter((n) => n.status === "kept");
 }
 
-/** The kept notes nearest some text in meaning (or a query vector already made from it), most similar first; [] when embeddings are down. */
+/** The kept notes nearest some text in meaning (or a query vector already made from it, null when that failed), most similar first; [] when embeddings are down. */
 export async function nearestNotes(
   ctx: TenantContext,
   text: string,
   opts: { limit: number; minSim?: number; vector?: number[] | null },
   deps: NotesDeps = {},
 ): Promise<Array<{ note: BrandNote; sim: number }>> {
-  const vector = opts.vector ?? (await (deps.query ?? embedQuery)(text.slice(0, 2000), ctx.region).catch(() => null));
+  const vector = opts.vector !== undefined ? opts.vector : await (deps.query ?? embedQuery)(text.slice(0, 2000), ctx.region).catch(() => null);
   if (!vector) return [];
   const near = await nearestBrandMapRecords(ctx, { kind: "note", vector, limit: opts.limit, statuses: ["kept"], minSim: opts.minSim }, deps.vectors).catch(
     () => [],

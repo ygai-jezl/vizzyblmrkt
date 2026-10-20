@@ -17,7 +17,7 @@ import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { mapQuestionsByWords } from "@/lib/brandMap/articleScale";
 import { syncPlanPageSoftly } from "./pageActions";
 import { rememberAuthor, withRememberedAuthor } from "./authors";
-import { keepArticleSeen, matchSeen, type SeenDeps } from "./seen";
+import { keepArticleSeen, matchSeen, refreshAnswers, type SeenDeps } from "./seen";
 import { isBlogEditorialEnabled } from "./flags";
 import { isBrandNotesEnabled } from "@/lib/brandNotes/flags";
 import type { BlogSeen } from "@/lib/types/contentPlan";
@@ -123,8 +123,9 @@ export async function checkPlanBlogFacts(
     return { ok: false, status: 409, error: "node_locked" };
   }
 
-  // The same grounding the writer had (same question, same number of chunks).
-  const brief = briefOf(plan);
+  // The same grounding the writer had (same question, same number of chunks), and the live
+  // answers to the questions it asked its team.
+  const brief = await refreshAnswers(ctx, briefOf(plan), { db: deps.db });
   const scopedTopic = plan.knowledge.groundingScope === "scoped" ? plan.scope.topics[0] : undefined;
   const req: ContextRetrievalRequest = {
     ctx,
@@ -208,11 +209,18 @@ export async function matchPlanSeen(
   const { workspace, plan } = args;
   if (!isSeenOn()) return { ok: false, status: 503, error: "unavailable" };
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
-  const brief = briefOf(plan);
+  // The live answers to its questions first: one removed on Brand › What we've seen is gone.
+  const brief = await refreshAnswers(ctx, briefOf(plan), deps);
   const brand = await tenantBrand(ctx);
   const seen = await matchSeen(
     ctx,
-    { plan, brief, brandName: brief.publisherName.trim() || brand.name || workspace.name, audience: workspace.audience },
+    {
+      plan,
+      brief,
+      brandName: brief.publisherName.trim() || brand.name || workspace.name,
+      audience: workspace.audience,
+      article: { ref: `${workspace.id}/${plan.id}`, title: plan.name.trim() || brief.primaryQuestion },
+    },
     deps,
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: { ...brief, seen } }, deps.db);

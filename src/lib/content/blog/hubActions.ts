@@ -125,7 +125,7 @@ export async function checkPlanBlogFacts(
 
   // The same grounding the writer had (same question, same number of chunks), and the live
   // answers to the questions it asked its team.
-  const brief = await refreshAnswers(ctx, briefOf(plan), { db: deps.db });
+  const brief = await refreshAnswers(ctx, briefOf(plan), { db: deps.db }, `${workspace.id}/${plan.id}`);
   const scopedTopic = plan.knowledge.groundingScope === "scoped" ? plan.scope.topics[0] : undefined;
   const req: ContextRetrievalRequest = {
     ctx,
@@ -215,7 +215,7 @@ export async function matchPlanSeen(
   if (!isSeenOn()) return { ok: false, status: 503, error: "unavailable" };
   if (!isCitableBlogPlan(plan)) return { ok: false, status: 409, error: "not_a_blog_plan" };
   // The live answers to its questions first: one removed on Brand › What we've seen is gone.
-  const brief = await refreshAnswers(ctx, briefOf(plan), deps);
+  const brief = await refreshAnswers(ctx, briefOf(plan), deps, `${workspace.id}/${plan.id}`);
   const brand = await tenantBrand(ctx);
   const seen = await matchSeen(
     ctx,

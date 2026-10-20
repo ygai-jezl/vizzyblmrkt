@@ -325,6 +325,8 @@ export const BlogSeenQuestionSchema = z.object({
   id: z.string().min(1).max(64),
   question: z.string().min(1).max(300),
   answer: z.string().max(1200).default(""),
+  /** The other articles that asked it too, by name (a few), so the article shows it is shared. */
+  also: z.array(z.string().max(200)).max(3).optional(),
 });
 export type BlogSeenQuestion = z.infer<typeof BlogSeenQuestionSchema>;
 

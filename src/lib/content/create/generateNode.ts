@@ -213,7 +213,7 @@ export async function generateNode(
   const citableBlog =
     node.type === "hub" && node.channel === "blog" && !input.skeletonBody?.trim() && isBlogCitableEnabled();
   // The answers to its questions are read live: one changed on Brand › What we've seen wins.
-  const brief = citableBlog ? await refreshAnswers(ctx, briefOf(plan)) : briefOf(plan);
+  const brief = citableBlog ? await refreshAnswers(ctx, briefOf(plan), {}, `${workspaceId}/${plan.id}`) : briefOf(plan);
 
   // Ground: scoped → pre-filter by the first scope topic (findNearest takes one).
   const scopedTopic =

@@ -104,6 +104,9 @@ describe("an article's questions for its team, kept as open questions", () => {
     ]);
     expect(String(generate.mock.calls[0]![0])).toContain("[1] When did a weekly check miss a change that mattered?");
     expect((await getNote(A, open!.id, deps))?.askedFor).toEqual([other, article]);
+    // The article says which other article asked it too.
+    expect(seen.questions?.[0]?.also).toEqual(["Tracking AI referral traffic"]);
+    expect(seen.questions?.[1]?.also).toBeUndefined();
     expect(await listNotes(A, deps)).toHaveLength(3);
   });
 
@@ -148,7 +151,7 @@ describe("the answers, when the article is written and checked", () => {
     const b = brief({ seen: { questions: [{ id: q1!.id, question: q1!.question, answer: "old copy" }, { id: q2!.id, question: q2!.question, answer: "" }] } });
     await answerQuestion(A, q1!.id, "We ran the same question every day for a week.", {}, deps);
     await removeNote(A, q2!.id, deps);
-    const live = await refreshAnswers(A, b, deps);
+    const live = await refreshAnswers(A, b, deps, "ws1/p1");
     expect(live.seen?.questions).toEqual([{ id: q1!.id, question: "What did you test first?", answer: "We ran the same question every day for a week." }]);
     expect((await refreshAnswers(B, b, deps)).seen?.questions).toEqual([]);
     vi.stubEnv("BRAND_NOTES_QUESTIONS_ENABLED", "false");

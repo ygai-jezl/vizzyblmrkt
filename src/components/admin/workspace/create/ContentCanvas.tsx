@@ -41,6 +41,7 @@ import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
 import type { BlogHubControls, HeroMakeOptions, LiveResult } from "./blog/types";
+import { useSeenAnswers } from "./blog/useSeenAnswers";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { isAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
@@ -118,6 +119,7 @@ export function ContentCanvas({
   pagesOn = false,
   editorialOn = false,
   seenOn = false,
+  seenQuestionsOn = false,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -139,6 +141,9 @@ export function ContentCanvas({
   editorialOn?: boolean;
   /** Articles draw on the brand's notes (BRAND_NOTES_ENABLED with the editorial writer). */
   seenOn?: boolean;
+  /** An article's questions for its team are kept as open questions, each answered in its own
+   *  box that saves as it is typed (BRAND_NOTES_QUESTIONS_ENABLED, with seenOn). */
+  seenQuestionsOn?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -190,6 +195,11 @@ export function ContentCanvas({
     setBlogBriefState(next);
   }, []);
   const [blogBusy, setBlogBusy] = useState<null | "research" | "check" | "seen">(null);
+  // Answers to the article's questions save on their own (never with the plan); every save()
+  // finishes them first, so a step never runs on an answer still being typed.
+  const answers = useSeenAnswers(
+    citableBlog && seenOn && seenQuestionsOn ? `/api/admin/workspace/${workspaceId}/content-plans/${initial.id}/blog/seen/answer` : null,
+  );
   // The blog hero (BLOG_HERO_ENABLED): which article's hero is being made now.
   const heroOn = citableBlog && isBlogHeroUiEnabled();
   const [heroBusy, setHeroBusy] = useState<string | null>(null);
@@ -920,6 +930,7 @@ export function ContentCanvas({
   // and can't clobber a concurrently-written brief/body. `nodesOverride` still lets the
   // layout editor persist a just-computed list.
   async function save(nodesOverride?: Node[], edgesOverride?: Edge[]): Promise<boolean> {
+    await answers.flush().catch(() => undefined);
     const src = nodesOverride ?? nodesRef.current;
     const edgeSrc = edgesOverride ?? edgesRef.current;
     const graph = {
@@ -974,6 +985,7 @@ export function ContentCanvas({
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
+          ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),
           ...(heroOn
             ? {
                 hero: {

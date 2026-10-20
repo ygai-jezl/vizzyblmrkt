@@ -14,7 +14,8 @@ import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blog/flags";
-import { isSeenOn } from "@/lib/content/blog/hubActions";
+import { isSeenOn, isSeenQuestionsOn } from "@/lib/content/blog/hubActions";
+import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
 import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
@@ -49,6 +50,11 @@ export default async function ContentPlanPage({
       : null,
   ]);
   if (!plan) notFound();
+  // The answers to a blog article's questions are read live: one given on Brand › What we've seen shows here.
+  const shown =
+    plan.blog?.seen?.questions?.length && isSeenQuestionsOn()
+      ? { ...plan, blog: await refreshAnswers(ctx, plan.blog, {}, `${workspaceId}/${planId}`).catch(() => plan.blog) }
+      : plan;
 
   // An eBook that hasn't been finalized (no graph yet) has no canvas to show — send the
   // operator back into the authoring studio to resume (also covers a stale/bookmarked URL).
@@ -93,7 +99,7 @@ export default async function ContentPlanPage({
         // Remount only when Vizzy saves a new version (nav v2 phase 4), never on the operator's own saves.
         key={plan.agentRevision ?? 0}
         workspaceId={workspaceId}
-        initial={plan}
+        initial={shown}
         templates={templateOptions}
         brandName={ws.name}
         primaryLogoUrl={primaryLogoUrl}
@@ -103,6 +109,7 @@ export default async function ContentPlanPage({
         pagesOn={isBrandMapPagesEnabled()}
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
+        seenQuestionsOn={isSeenQuestionsOn()}
       />
     </div>
   );

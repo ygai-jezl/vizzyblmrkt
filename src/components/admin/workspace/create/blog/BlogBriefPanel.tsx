@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Minus, Plus } from "lucide-react";
 import {
   BlogSeenSchema,
   SEEN_ADDED_BY_YOU,
   type BlogSeen,
   type BlogSeenNote,
+  type BlogSeenQuestion,
   BlogEntityRelation,
   BlogIntent,
   BlogLinkIntent,
@@ -22,6 +24,8 @@ import { notOnMap } from "@/lib/content/blog/names";
 import type { BlogHubControls } from "./types";
 import { MapSubjectSearch } from "@/components/admin/brand-kit/MapSubjectSearch";
 import { BRAND_KIT_NOTES_ROUTE } from "@/lib/content/brandKit";
+import { BRAND_NOTE_LIMITS } from "@/lib/types/brandNote";
+import type { AnswerSave, SeenAnswers } from "./useSeenAnswers";
 
 /**
  * The blog hub's brief, editable: the question the article answers, what buyers ask, and
@@ -745,22 +749,104 @@ function AuthorDetails({ brief, set }: { brief: BlogBrief; set: (patch: Partial<
   );
 }
 
+const ANSWER_STATUS: Record<AnswerSave, string> = {
+  saving: "Saving…",
+  saved: "Saved to What we've seen",
+  failed: "Couldn't save. Your text is kept; it tries again as you type.",
+};
+
+/** One of the article's questions for its team: + opens its own box, which saves as it is typed. */
+function QuestionCard({
+  q,
+  save,
+  locked,
+  onType,
+  onLeave,
+}: {
+  q: BlogSeenQuestion;
+  save: AnswerSave | undefined;
+  locked: boolean;
+  onType: (text: string) => void;
+  onLeave: () => void;
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const answered = q.answer.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT;
+  const tone =
+    save === "failed" ? "text-red-600 dark:text-red-400" : save === "saved" ? "text-emerald-700 dark:text-emerald-300" : "text-neutral-500 dark:text-neutral-400";
+  return (
+    <div className="rounded-md border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`${id}-answer`}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-start gap-1.5 rounded-md px-2.5 py-2 text-left text-xs leading-snug hover:bg-neutral-50 dark:hover:bg-neutral-900"
+      >
+        <span aria-hidden className="mt-px shrink-0 text-blue-700 dark:text-blue-300">
+          {open ? <Minus size={13} strokeWidth={2.5} /> : <Plus size={13} strokeWidth={2.5} />}
+        </span>
+        <span className="min-w-0 flex-1">
+          {q.question}
+          {q.also?.length ? <span className={`mt-1 block ${HINT}`}>Also asked for: {q.also.join(", ")}</span> : null}
+        </span>
+        {!open && answered ? (
+          <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            Answered
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div id={`${id}-answer`} className="space-y-1 px-2.5 pb-2.5 pl-7">
+          <label htmlFor={`${id}-text`} className="sr-only">
+            Your answer to: {q.question}
+          </label>
+          <textarea
+            id={`${id}-text`}
+            value={q.answer}
+            onChange={(e) => onType(e.target.value)}
+            onBlur={onLeave}
+            disabled={locked}
+            rows={4}
+            maxLength={BRAND_NOTE_LIMITS.MAX_TEXT}
+            placeholder="In your own words. A few sentences is plenty."
+            className={`w-full ${INPUT} leading-relaxed disabled:opacity-60`}
+          />
+          <div className="flex items-start justify-between gap-2">
+            <span className={HINT}>What happened, to whom (no names needed), and what surprised you.</span>
+            <span role="status" className={`shrink-0 text-right text-[11px] ${tone}`}>
+              {save ? ANSWER_STATUS[save] : ""}
+            </span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * What we've seen, for this article: the brand's notes that match its question strongly (put in
  * by the match, removable), the weaker ones a person may add, and what a person writes for this
  * article alone. With nothing matched, three questions the team could answer. The writer takes
- * first-hand experience from here and nowhere else.
+ * first-hand experience from here and nowhere else. With `answers` (BRAND_NOTES_QUESTIONS_ENABLED)
+ * each question has its own box that saves as it is typed, and the questions are kept on What
+ * we've seen whether answered or not.
  */
 function SeenBox({
   brief,
   set,
   onFind,
   busy,
+  answers,
+  locked = false,
 }: {
   brief: BlogBrief;
   set: (patch: Partial<BlogBrief>) => void;
   onFind: () => void;
   busy: boolean;
+  answers?: SeenAnswers;
+  /** Research or a match is running: what is typed now would be lost. */
+  locked?: boolean;
 }) {
   const id = useId();
   const [showNear, setShowNear] = useState(false);
@@ -770,6 +856,9 @@ function SeenBox({
   const asks = seen?.asks ?? [];
   const own = seen?.own ?? "";
   const looked = Boolean(seen?.matchedAt);
+  const questions = answers ? (seen?.questions ?? []) : [];
+  // The questions' own boxes replace the one shared box, unless an article from before has text in it.
+  const ownBox = !questions.length || own.trim() !== "";
   const patch = (p: Partial<BlogSeen>) => set({ seen: BlogSeenSchema.parse({ ...(seen ?? {}), ...p }) });
   const remove = (noteId: string) =>
     patch({ notes: notes.filter((n) => n.id !== noteId), removed: [...new Set([...(seen?.removed ?? []), noteId])].slice(-50) });
@@ -779,6 +868,10 @@ function SeenBox({
       near: near.filter((x) => x.id !== n.id),
       removed: (seen?.removed ?? []).filter((x) => x !== n.id),
     });
+  const answer = (qid: string, text: string) => {
+    patch({ questions: questions.map((x) => (x.id === qid ? { ...x, answer: text } : x)) });
+    answers?.save(qid, text);
+  };
   const ask = (q: string) => {
     if (!own.includes(q)) patch({ own: `${q}\n${own}`.slice(0, 3000) });
     document.getElementById(`${id}-own`)?.focus();
@@ -827,7 +920,24 @@ function SeenBox({
         </p>
       ) : null}
 
-      {looked && !notes.length && asks.length ? (
+      {questions.length ? (
+        <div className="space-y-1.5">
+          <div className={LABEL_TEXT}>
+            {notes.length ? "Your team's answers for this article" : "Answer any of these and the article can speak from experience"}
+          </div>
+          <p className={HINT}>Each question is kept on What we&rsquo;ve seen, linked to this article, answered or not.</p>
+          {questions.map((q) => (
+            <QuestionCard
+              key={q.id}
+              q={q}
+              save={answers?.state[q.id]}
+              locked={locked}
+              onType={(text) => answer(q.id, text)}
+              onLeave={() => answers?.done(q.id)}
+            />
+          ))}
+        </div>
+      ) : looked && !notes.length && asks.length ? (
         <div className="space-y-1.5">
           <div className={LABEL_TEXT}>Answer one of these and the article can speak from experience</div>
           {asks.map((q) => (
@@ -844,28 +954,32 @@ function SeenBox({
         </div>
       ) : null}
 
-      <div>
-        <label htmlFor={`${id}-own`} className={LABEL}>
-          {notes.length ? "Anything else for this article" : "Your answer"}
-        </label>
-        <textarea
-          id={`${id}-own`}
-          aria-describedby={`${id}-own-hint`}
-          value={own}
-          onChange={(e) => patch({ own: e.target.value })}
-          rows={notes.length ? 2 : 4}
-          maxLength={3000}
-          placeholder={notes.length ? "What else have you seen on this question?" : "In your own words. A few sentences is plenty."}
-          className={`mt-1 w-full ${INPUT} leading-relaxed`}
-        />
-        <p id={`${id}-own-hint`} className={`mt-1 ${HINT}`}>
-          Good answers are specific: what happened, to whom (no names needed), and what surprised you.
-        </p>
-      </div>
-      <label className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
-        <input type="checkbox" checked={seen?.save ?? true} onChange={(e) => patch({ save: e.target.checked })} />
-        Also save to your brand&rsquo;s notes
-      </label>
+      {ownBox ? (
+        <>
+          <div>
+            <label htmlFor={`${id}-own`} className={LABEL}>
+              {notes.length ? "Anything else for this article" : "Your answer"}
+            </label>
+            <textarea
+              id={`${id}-own`}
+              aria-describedby={`${id}-own-hint`}
+              value={own}
+              onChange={(e) => patch({ own: e.target.value })}
+              rows={notes.length ? 2 : 4}
+              maxLength={3000}
+              placeholder={notes.length ? "What else have you seen on this question?" : "In your own words. A few sentences is plenty."}
+              className={`mt-1 w-full ${INPUT} leading-relaxed`}
+            />
+            <p id={`${id}-own-hint`} className={`mt-1 ${HINT}`}>
+              Good answers are specific: what happened, to whom (no names needed), and what surprised you.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
+            <input type="checkbox" checked={seen?.save ?? true} onChange={(e) => patch({ save: e.target.checked })} />
+            Also save to your brand&rsquo;s notes
+          </label>
+        </>
+      ) : null}
 
       {near.length ? (
         <div className="space-y-1.5">
@@ -1059,7 +1173,9 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
         </p>
       </div>
 
-      {controls.onFindSeen ? <SeenBox brief={brief} set={set} onFind={controls.onFindSeen} busy={busy === "seen"} /> : null}
+      {controls.onFindSeen ? (
+        <SeenBox brief={brief} set={set} onFind={controls.onFindSeen} busy={busy === "seen"} answers={controls.answers} locked={locked} />
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <button

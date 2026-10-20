@@ -206,11 +206,16 @@ export async function matchSeen(
 }
 
 const isAnswered = (q: BlogSeenQuestion) => q.answer.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT;
-const asQuestion = (n: BrandNote): BlogSeenQuestion => ({
-  id: n.id,
-  question: (n.question ?? "").slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION),
-  answer: n.text.slice(0, BRAND_NOTE_LIMITS.MAX_TEXT),
-});
+/** A question's note as an article holds it: `article` is that article, left out of the others that asked it. */
+function asQuestion(n: BrandNote, article?: string): BlogSeenQuestion {
+  const also = (n.askedFor ?? []).filter((a) => a.ref !== article).map((a) => a.title.slice(0, 200)).slice(-3);
+  return {
+    id: n.id,
+    question: (n.question ?? "").slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION),
+    answer: n.text.slice(0, BRAND_NOTE_LIMITS.MAX_TEXT),
+    ...(also.length ? { also } : {}),
+  };
+}
 /** How close in meaning an open question must be to be offered for reuse; the model decides. */
 const OPEN_MIN_SIM = CANDIDATE_MIN_SIM;
 const OPEN_CANDIDATES = 5;
@@ -247,7 +252,7 @@ async function articleQuestions(
   if (a.oldAsks.length) {
     const asked = a.oldAsks.slice(0, room);
     const kept = await askQuestions(ctx, { questions: asked, article: a.article }, deps).catch(() => []);
-    return { questions: [...answered, ...kept.map(asQuestion)], unsaved: kept.length ? [] : asked };
+    return { questions: [...answered, ...kept.map((n) => asQuestion(n, a.article.ref))], unsaved: kept.length ? [] : asked };
   }
 
   const keep = new Set(answered.map((q) => q.id));
@@ -276,7 +281,7 @@ async function articleQuestions(
     fresh.length ? askQuestions(ctx, { questions: fresh, article: a.article }, deps).catch(() => []) : Promise.resolve([] as BrandNote[]),
   ]);
   return {
-    questions: [...answered, ...linked.map((n, i) => asQuestion(n ?? reused[i]!)), ...made.map(asQuestion)],
+    questions: [...answered, ...linked.map((n, i) => asQuestion(n ?? reused[i]!, a.article.ref)), ...made.map((n) => asQuestion(n, a.article.ref))],
     unsaved: made.length ? [] : fresh,
   };
 }
@@ -320,9 +325,10 @@ export async function keepArticleSeen(
 /**
  * The live answers to an article's questions (BRAND_NOTES_QUESTIONS_ENABLED), copied onto its
  * brief: an answer changed on Brand › What we've seen wins, and a question removed there is
- * gone. Off, nothing asked, or the notes can't be read: the brief as it is.
+ * gone. `article` (`<workspaceId>/<planId>`) names the other articles that asked each one. Off,
+ * nothing asked, or the notes can't be read: the brief as it is.
  */
-export async function refreshAnswers(ctx: TenantContext, brief: BlogBrief, deps: NotesDeps = {}): Promise<BlogBrief> {
+export async function refreshAnswers(ctx: TenantContext, brief: BlogBrief, deps: NotesDeps = {}, article?: string): Promise<BlogBrief> {
   const seen = brief.seen;
   const questions = seen?.questions;
   if (!isBrandNotesQuestionsEnabled() || !seen || !questions?.length) return brief;
@@ -331,7 +337,7 @@ export async function refreshAnswers(ctx: TenantContext, brief: BlogBrief, deps:
   const live = new Map(found.filter((n) => n.source === "question").map((n) => [n.id, n]));
   const next = questions.flatMap((q) => {
     const n = live.get(q.id);
-    return n ? [{ id: q.id, question: (n.question || q.question).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION), answer: n.text.slice(0, BRAND_NOTE_LIMITS.MAX_TEXT) }] : [];
+    return n ? [{ ...asQuestion(n, article), question: (n.question || q.question).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION) }] : [];
   });
   return { ...brief, seen: { ...seen, questions: next } };
 }

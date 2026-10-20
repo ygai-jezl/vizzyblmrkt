@@ -75,6 +75,9 @@ function problem(status: number, data: Record<string, unknown>): string {
 /** What the button asks Vizzy (BRAND_NOTES_CHAT_ENABLED). */
 const INTERVIEW =
   "Interview me for What we've seen: ask me one question at a time about something our team has seen, starting with the kinds of note we have least of, and file each answer as a suggested note in my words once I agree.";
+/** The same, starting with the questions our articles asked (BRAND_NOTES_QUESTIONS_ENABLED). */
+const INTERVIEW_OPEN =
+  "Interview me for What we've seen: ask me one question at a time about something our team has seen, starting with our open questions and then the kinds of note we have least of, and file each answer as a suggested note in my words once I agree.";
 
 export function BrandNotesPage({
   initialNotes,
@@ -132,7 +135,7 @@ export function BrandNotesPage({
           <div className="flex flex-wrap justify-end gap-2">
             {canEdit ? <PasteNotes subjects={subjects} onAdded={(added) => setNotes((list) => [...added, ...list])} /> : null}
             {chatOn && shell ? (
-              <button type="button" onClick={() => shell.ask(INTERVIEW)} className={`${SECONDARY} inline-flex items-center gap-1.5 bg-white py-1.5 text-sm dark:bg-neutral-950`}>
+              <button type="button" onClick={() => shell.ask(questionsOn && summary.asked ? INTERVIEW_OPEN : INTERVIEW)} className={`${SECONDARY} inline-flex items-center gap-1.5 bg-white py-1.5 text-sm dark:bg-neutral-950`}>
                 <MessageCircle size={14} aria-hidden /> Let Vizzy interview me
               </button>
             ) : null}

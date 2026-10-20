@@ -19,3 +19,17 @@ export function isBrandNotesUiEnabled(): boolean {
 export function isBrandNotesChatEnabled(): boolean {
   return isBrandNotesEnabled() && process.env.BRAND_NOTES_CHAT_ENABLED === "true";
 }
+
+/**
+ * An article's questions for its team are kept on What we've seen as open questions, linked to
+ * the article, each answered in its own box that saves as it is typed; another article reuses an
+ * open question that fits it (needs the notes).
+ */
+export function isBrandNotesQuestionsEnabled(): boolean {
+  return isBrandNotesEnabled() && process.env.BRAND_NOTES_QUESTIONS_ENABLED === "true";
+}
+
+/** Client mirror (build-time), for the help pages only: screens get the server value as a prop. */
+export function isBrandNotesQuestionsUiEnabled(): boolean {
+  return isBrandNotesUiEnabled() && process.env.NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED === "true";
+}

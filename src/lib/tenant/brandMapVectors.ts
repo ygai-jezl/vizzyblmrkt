@@ -14,8 +14,12 @@ import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "./ty
  */
 export const BRAND_MAP_VECTORS = "brand_map_vectors" as const;
 
-/** `note`: one of the brand's first-hand notes (What we've seen, BRAND_NOTES_ENABLED). */
-export type BrandMapVectorKind = "subject" | "situation" | "note";
+/**
+ * `note`: one of the brand's first-hand notes (What we've seen, BRAND_NOTES_ENABLED). `question`:
+ * the question an open question asks (BRAND_NOTES_QUESTIONS_ENABLED), apart from the notes so
+ * questions never crowd them out of a search.
+ */
+export type BrandMapVectorKind = "subject" | "situation" | "note" | "question";
 
 /** At most this many neighbours per search (Firestore allows 1,000; nothing here needs more). */
 export const MAX_NEAREST = 50;

@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
 
 export default function YourBrandHelp() {
@@ -211,6 +211,14 @@ export default function YourBrandHelp() {
             otherwise articles keep them anonymous. The panels beside your notes show which kinds you have least of, and which
             subjects on your brand map have no note yet.
           </P>
+          {isBrandNotesQuestionsUiEnabled() ? (
+            <P>
+              When none of your notes fits a blog article, the article asks your team questions. Each one is kept here as an open
+              question, linked to the articles that asked it. Press <strong>Open questions</strong> to see them, and answer one in
+              its box: it saves as you type, and every article that asked it can use the answer. Once answered, it is a note like
+              any other, with its question above it.
+            </P>
+          ) : null}
         </>
       ) : null}
 

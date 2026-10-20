@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isBlogEditorialEnabled } from "@/lib/content/blog/flags";
-import { isBrandNotesChatEnabled, isBrandNotesEnabled } from "./flags";
+import { isBrandNotesChatEnabled, isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesQuestionsUiEnabled } from "./flags";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -13,7 +13,14 @@ function valueIn(file: string, variable: string): string | null {
   return m ? m[1]! : null;
 }
 
-const SWITCHES = ["CREATE_BLOG_EDITORIAL_ENABLED", "BRAND_NOTES_ENABLED", "NEXT_PUBLIC_BRAND_NOTES_ENABLED", "BRAND_NOTES_CHAT_ENABLED"];
+const SWITCHES = [
+  "CREATE_BLOG_EDITORIAL_ENABLED",
+  "BRAND_NOTES_ENABLED",
+  "NEXT_PUBLIC_BRAND_NOTES_ENABLED",
+  "BRAND_NOTES_CHAT_ENABLED",
+  "BRAND_NOTES_QUESTIONS_ENABLED",
+  "NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED",
+];
 
 describe("the switches for editorial articles and What we've seen", () => {
   it("the editorial writer needs the CITABLE blog hub, and Vizzy's notes need the notes", () => {
@@ -23,6 +30,17 @@ describe("the switches for editorial articles and What we've seen", () => {
     vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
     vi.stubEnv("BRAND_NOTES_ENABLED", "true");
     expect([isBlogEditorialEnabled(), isBrandNotesEnabled(), isBrandNotesChatEnabled()]).toEqual([true, true, true]);
+  });
+
+  it("open questions need the notes, on the server and in the browser", () => {
+    vi.stubEnv("BRAND_NOTES_QUESTIONS_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED", "true");
+    expect([isBrandNotesQuestionsEnabled(), isBrandNotesQuestionsUiEnabled()]).toEqual([false, false]);
+    vi.stubEnv("BRAND_NOTES_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_ENABLED", "true");
+    expect([isBrandNotesQuestionsEnabled(), isBrandNotesQuestionsUiEnabled()]).toEqual([true, true]);
+    vi.stubEnv("BRAND_NOTES_QUESTIONS_ENABLED", "yes");
+    expect(isBrandNotesQuestionsEnabled()).toBe(false);
   });
 
   it("are listed off in the public apphosting.yaml, like every switch", () => {

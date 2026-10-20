@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ClipboardPaste, MessageCircle, RefreshCw, X } from "lucide-react";
 import { useShell } from "@/components/admin/nav/ShellProvider";
@@ -11,7 +11,9 @@ import {
   type BrandNote,
   type BrandNoteKind,
   type BrandNoteSource,
+  type NoteArticle,
 } from "@/lib/types/brandNote";
+import { createAnswerQueue, type AnswerSave } from "@/lib/brandNotes/answerQueue";
 import { summariseNotes } from "@/lib/brandNotes/summary";
 import { KIND_QUESTIONS, noteQuestion, suggestKind, suggestSubjects } from "@/lib/brandNotes/prompts";
 import type { NoteSubject } from "@/lib/brandNotes/subjects";
@@ -21,6 +23,8 @@ import type { FoundNote } from "@/lib/brandNotes/extract";
  * Brand › What we've seen: add a note (prompted by a question aimed at what the brand has least
  * of), the notes themselves, and two panels that push for a rich and varied set: the mix of
  * kinds, and which brand map subjects nothing covers yet. Members see it all; admins change it.
+ * With open questions (BRAND_NOTES_QUESTIONS_ENABLED), the questions articles asked the team are
+ * listed apart, each with the articles that asked it and a box that saves its answer as it is typed.
  */
 
 const CARD = "rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950";
@@ -43,7 +47,7 @@ const SOURCE_LABEL: Record<BrandNoteSource, string> = {
   question: "Answer to a question",
 };
 
-type Filter = "all" | "suggested" | "unused" | BrandNoteKind;
+type Filter = "all" | "suggested" | "unused" | "open" | BrandNoteKind;
 type Prefill = { nonce: number; kind?: BrandNoteKind; subjectId?: string };
 
 async function send(url: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
@@ -77,6 +81,7 @@ export function BrandNotesPage({
   subjects,
   canEdit,
   chatOn = false,
+  questionsOn = false,
 }: {
   initialNotes: BrandNote[];
   /** The decided subjects on the brand's saved map; null = no saved map (no coverage shown). */
@@ -84,6 +89,8 @@ export function BrandNotesPage({
   canEdit: boolean;
   /** Vizzy can interview a person for notes (BRAND_NOTES_CHAT_ENABLED). */
   chatOn?: boolean;
+  /** Open questions are listed and can be answered (BRAND_NOTES_QUESTIONS_ENABLED). */
+  questionsOn?: boolean;
 }) {
   const shell = useShell();
   const [notes, setNotes] = useState(initialNotes);
@@ -103,8 +110,19 @@ export function BrandNotesPage({
   };
   const replace = (note: BrandNote) => setNotes((list) => list.map((n) => (n.id === note.id ? note : n)));
 
+  // Open questions aren't notes yet: they show only under their own filter.
   const shown = notes.filter((n) =>
-    filter === "all" ? true : filter === "suggested" ? n.status === "suggested" : filter === "unused" ? !n.usedBy?.length : n.kind === filter,
+    filter === "open"
+      ? n.status === "asked"
+      : n.status === "asked"
+        ? false
+        : filter === "all"
+          ? true
+          : filter === "suggested"
+            ? n.status === "suggested"
+            : filter === "unused"
+              ? !n.usedBy?.length
+              : n.kind === filter,
   );
 
   return (
@@ -149,6 +167,11 @@ export function BrandNotesPage({
                   Suggested · {summary.suggested}
                 </FilterChip>
               ) : null}
+              {questionsOn && summary.asked ? (
+                <FilterChip on={filter === "open"} onClick={() => setFilter("open")}>
+                  Open questions · {summary.asked}
+                </FilterChip>
+              ) : null}
               <FilterChip on={filter === "unused"} onClick={() => setFilter("unused")}>
                 Not used yet
               </FilterChip>
@@ -161,18 +184,25 @@ export function BrandNotesPage({
           </div>
           {shown.length === 0 ? (
             <p className={`${CARD} ${HINT}`}>
-              {notes.length === 0
+              {summary.total === 0 && filter !== "open"
                 ? "No notes yet. Start with the question above: one story, test or mistake per note, in your own words."
                 : "No notes match this filter."}
             </p>
           ) : (
-            shown.map((n) => <NoteCard key={n.id} note={n} names={names} subjects={subjects} canEdit={canEdit} onChange={replace} onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))} />)
+            shown.map((n) =>
+              n.status === "asked" ? (
+                <OpenQuestionCard key={n.id} note={n} canEdit={canEdit} onChange={replace} onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))} />
+              ) : (
+                <NoteCard key={n.id} note={n} names={names} subjects={subjects} canEdit={canEdit} onChange={replace} onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))} />
+              ),
+            )
           )}
         </section>
       </div>
 
       <aside className="space-y-5">
-        <MixPanel kinds={summary.kinds} canEdit={canEdit} onAsk={(kind) => ask({ kind })} />
+        {questionsOn && summary.asked ? <OpenQuestionsPanel count={summary.asked} onShow={() => setFilter("open")} /> : null}
+        <MixPanel kinds={summary.kinds} canEdit={canEdit} onAsk={(kind) => ask({ kind })} openQuestions={questionsOn && summary.asked > 0} />
         {subjects ? <CoveragePanel subjects={subjects} uncovered={uncovered} canEdit={canEdit} onAsk={(subjectId) => ask({ subjectId })} /> : null}
         <section aria-label="What makes a good note" className="rounded-lg bg-neutral-100 p-4 text-sm leading-relaxed dark:bg-neutral-900">
           <h2 className="text-sm font-semibold">What makes a good note</h2>
@@ -489,7 +519,9 @@ function NoteCard({
         </div>
       ) : (
         <>
+          {note.question ? <p className={`${HINT} leading-relaxed`}>Asked: {note.question}</p> : null}
           <p className="whitespace-pre-line text-sm leading-relaxed">{note.text}</p>
+          {note.askedFor?.length ? <AskedFor articles={note.askedFor} /> : null}
           <div className="flex flex-wrap items-center gap-1.5">
             {(note.subjectIds ?? []).map((sid) => (
               <span key={sid} className={SUBJECT_CHIP}>
@@ -536,7 +568,184 @@ function NoteCard({
   );
 }
 
-function MixPanel({ kinds, canEdit, onAsk }: { kinds: Record<BrandNoteKind, number>; canEdit: boolean; onAsk: (kind: BrandNoteKind) => void }) {
+/** Where to open an article a note is linked to (`<workspaceId>/<planId>`). */
+function articleHref(ref: string): string | null {
+  const [ws, plan] = ref.split("/");
+  return ws && plan ? `/admin/workspace/${encodeURIComponent(ws)}/create/${encodeURIComponent(plan)}` : null;
+}
+
+/** The articles that asked a question, each a link to the article. */
+function AskedFor({ articles }: { articles: NoteArticle[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+      <span>Asked for</span>
+      {articles.map((a) => {
+        const href = articleHref(a.ref);
+        const name = a.title || "An article";
+        return href ? (
+          <a key={a.ref} href={href} className={`${SUBJECT_CHIP} hover:underline`}>
+            {name}
+          </a>
+        ) : (
+          <span key={a.ref} className={SUBJECT_CHIP}>
+            {name}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+const ANSWER_STATUS: Record<AnswerSave, string> = {
+  saving: "Saving…",
+  saved: "Saved",
+  failed: "Couldn't save. Your text is kept; it tries again as you type.",
+};
+
+/**
+ * A question an article asked the team, not answered yet: the articles that asked it, and (for
+ * admins) a box that saves the answer as it is typed. Once answered and the person leaves the
+ * box, it shows as a note like any other.
+ */
+function OpenQuestionCard({
+  note,
+  canEdit,
+  onChange,
+  onRemoved,
+}: {
+  note: BrandNote;
+  canEdit: boolean;
+  onChange: (note: BrandNote) => void;
+  onRemoved: (id: string) => void;
+}) {
+  const id = useId();
+  const [text, setText] = useState(note.text);
+  const [save, setSave] = useState<AnswerSave | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const changed = useRef(onChange);
+  changed.current = onChange;
+  const queue = useMemo(
+    () =>
+      createAnswerQueue(
+        (noteId) => `/api/admin/brand-kit/notes/${noteId}/answer`,
+        (_id, s) => setSave(s),
+        undefined,
+        (_id, data, done) => {
+          const saved = (data as { note?: BrandNote } | null)?.note;
+          if (done && saved && saved.status !== "asked") changed.current(saved);
+        },
+      ),
+    [],
+  );
+  useEffect(() => {
+    window.addEventListener("pagehide", queue.leave);
+    return () => {
+      window.removeEventListener("pagehide", queue.leave);
+      queue.leave();
+    };
+  }, [queue]);
+  const asked = note.askedFor?.length ?? 0;
+
+  async function remove() {
+    setBusy(true);
+    const r = await send(`/api/admin/brand-kit/notes/${note.id}`, "DELETE");
+    setBusy(false);
+    if (!r.ok) return setError(problem(r.status, r.data));
+    onRemoved(note.id);
+  }
+
+  return (
+    <article className={`${CARD} space-y-2.5 border-dashed border-amber-400 dark:border-amber-700`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">Open question</span>
+        <span className={HINT}>
+          Asked for {asked === 1 ? "1 article" : `${asked} articles`} · not answered yet
+        </span>
+      </div>
+      <p className="text-sm leading-relaxed">{note.question}</p>
+      {asked ? <AskedFor articles={note.askedFor ?? []} /> : null}
+      {canEdit ? (
+        <div className="space-y-1.5">
+          <label htmlFor={`${id}-answer`} className={LABEL}>
+            Your answer
+          </label>
+          <textarea
+            id={`${id}-answer`}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              queue.save(note.id, e.target.value);
+            }}
+            onBlur={() => queue.done(note.id)}
+            rows={3}
+            maxLength={BRAND_NOTE_LIMITS.MAX_TEXT}
+            placeholder="Answer it here. It saves as you type, and every article that asked it can use it."
+            className={`${FIELD} leading-relaxed`}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span role="status" className={save === "failed" ? "text-xs text-red-600 dark:text-red-400" : HINT}>
+              {save ? ANSWER_STATUS[save] : ""}
+            </span>
+            {confirm ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <span className={HINT}>The articles that asked it stop showing it.</span>
+                <button type="button" disabled={busy} onClick={() => void remove()} className={`${SECONDARY} border-red-300 text-red-700 dark:border-red-900 dark:text-red-400`}>
+                  Remove for good
+                </button>
+                <button type="button" onClick={() => setConfirm(false)} className={SECONDARY}>
+                  Keep
+                </button>
+              </span>
+            ) : (
+              <button type="button" onClick={() => setConfirm(true)} className={SECONDARY}>
+                Remove question
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className={HINT}>Only an admin can answer it here. Anyone working on an article that asked it can answer it there.</p>
+      )}
+      {error ? (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+/** How many questions articles asked that nobody has answered yet. */
+function OpenQuestionsPanel({ count, onShow }: { count: number; onShow: () => void }) {
+  return (
+    <section aria-label="Open questions" className={`${CARD} space-y-2 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40`}>
+      <h2 className="text-sm font-semibold">Open questions</h2>
+      <p className="text-sm">
+        <span className="text-2xl font-semibold tabular-nums text-amber-800 dark:text-amber-300">{count}</span>{" "}
+        <span className="text-neutral-700 dark:text-neutral-300">asked by your articles, not answered yet</span>
+      </p>
+      <p className={HINT}>Answer one and every article that asked it can speak from experience.</p>
+      <button type="button" onClick={onShow} className={SECONDARY}>
+        Show them
+      </button>
+    </section>
+  );
+}
+
+function MixPanel({
+  kinds,
+  canEdit,
+  onAsk,
+  openQuestions = false,
+}: {
+  kinds: Record<BrandNoteKind, number>;
+  canEdit: boolean;
+  onAsk: (kind: BrandNoteKind) => void;
+  /** There are open questions: say they count once answered. */
+  openQuestions?: boolean;
+}) {
   const order = [...BRAND_NOTE_KINDS].sort((a, b) => kinds[b] - kinds[a]);
   return (
     <section aria-label="Mix of experience" className={`${CARD} space-y-3`}>
@@ -570,6 +779,7 @@ function MixPanel({ kinds, canEdit, onAsk }: { kinds: Record<BrandNoteKind, numb
           </li>
         ))}
       </ul>
+      {openQuestions ? <p className={HINT}>Open questions don&rsquo;t count here until they&rsquo;re answered.</p> : null}
     </section>
   );
 }

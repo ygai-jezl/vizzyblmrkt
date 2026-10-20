@@ -4,9 +4,9 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import type { AdminGate } from "@/lib/connect/admin";
 import type { TenantContext } from "@/lib/tenant/types";
-import { BrandNoteInputSchema, BrandNotePatchSchema } from "@/lib/types/brandNote";
-import { isBrandNotesEnabled } from "./flags";
-import { createNote, listNotes, removeNote, summariseNotes, updateNote, type NotesDeps, type NotesResult } from "./store";
+import { BRAND_NOTE_LIMITS, BrandNoteInputSchema, BrandNotePatchSchema } from "@/lib/types/brandNote";
+import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled } from "./flags";
+import { answerQuestion, createNote, listNotes, removeNote, summariseNotes, updateNote, type NotesDeps, type NotesResult } from "./store";
 
 /**
  * The APIs behind Brand › What we've seen: origin, flag, sign-in and (to change anything)
@@ -61,4 +61,14 @@ export async function updateFromRequest(ctx: TenantContext, id: string, body: un
 
 export async function removeFromRequest(ctx: TenantContext, id: string, deps: NotesDeps = {}): Promise<Response> {
   return respond(await removeNote(ctx, id, deps), () => ({ ok: true }));
+}
+
+const AnswerBody = z.object({ text: z.string().max(BRAND_NOTE_LIMITS.MAX_TEXT), done: z.boolean().default(false) });
+
+/** Answer an open question on the page, saved as it is typed (BRAND_NOTES_QUESTIONS_ENABLED; admins). */
+export async function answerFromRequest(ctx: TenantContext, id: string, body: unknown, deps: NotesDeps = {}): Promise<Response> {
+  if (!isBrandNotesQuestionsEnabled()) return NextResponse.json({ error: "brand_notes_questions_disabled" }, { status: 503 });
+  const parsed = AnswerBody.safeParse(body);
+  if (!parsed.success) return invalid(parsed.error.issues);
+  return respond(await answerQuestion(ctx, id, parsed.data.text, { done: parsed.data.done }, deps), (note) => ({ note }));
 }

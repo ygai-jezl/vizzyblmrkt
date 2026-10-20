@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ANSWER_WAIT_MS, createAnswerQueue, type AnswerSave } from "./useSeenAnswers";
+import { ANSWER_WAIT_MS, createAnswerQueue, type AnswerSave } from "./answerQueue";
 
 const URL = "/api/admin/workspace/ws_1/content-plans/plan_1/blog/seen/answer";
 
@@ -11,7 +11,7 @@ function setup(ok: () => boolean = () => true) {
   const send = vi.fn(async (_url: string, init?: RequestInit) => {
     bodies.push({ ...JSON.parse(String(init?.body)), ...(init?.keepalive ? { keepalive: true } : {}) });
     if (hold) await new Promise<void>((r) => release.push(r));
-    return { ok: ok() } as Response;
+    return { ok: ok(), json: async () => ({ saved: true }) } as unknown as Response;
   });
   const queue = createAnswerQueue(URL, (id, s) => states.push([id, s]), send as unknown as typeof fetch);
   return {
@@ -107,5 +107,16 @@ describe("answers saved as they are typed", () => {
     t.queue.save("bn_1", "half typed, then more");
     await vi.runAllTimersAsync();
     expect(t.bodies.at(-1)).toEqual({ noteId: "bn_1", text: "half typed, then more", done: false });
+  });
+
+  it("can save each question at its own address, and say what each save answered", async () => {
+    const saved: Array<[string, unknown, boolean]> = [];
+    const send = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, json: async () => ({ note: { status: "kept" } }) }) as unknown as Response);
+    const queue = createAnswerQueue((id) => `/api/admin/brand-kit/notes/${id}/answer`, () => {}, send as unknown as typeof fetch, (id, data, done) => saved.push([id, data, done]));
+    queue.save("bn_1", "We ran it daily for a week");
+    queue.done("bn_1");
+    await vi.runAllTimersAsync();
+    expect(send.mock.calls[0]![0]).toBe("/api/admin/brand-kit/notes/bn_1/answer");
+    expect(saved).toEqual([["bn_1", { note: { status: "kept" } }, true]]);
   });
 });

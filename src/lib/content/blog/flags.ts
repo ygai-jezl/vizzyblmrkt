@@ -36,6 +36,15 @@ export function isBlogEditorialEnabled(): boolean {
   return isBlogCitableEnabled() && process.env.CREATE_BLOG_EDITORIAL_ENABLED === "true";
 }
 
+/**
+ * Client flag: an approved article with an address gets "Summarize with AI" links for its
+ * page, each opening an answer engine with a prompt built from the article. Nothing runs on
+ * the server. Off: the export is exactly as before.
+ */
+export function isBlogAiSummaryUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED === "true";
+}
+
 function envInt(name: string, fallback: number): number {
   const n = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(n) ? n : fallback;

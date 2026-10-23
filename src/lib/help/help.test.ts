@@ -26,6 +26,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_BRAND_NOTES_ENABLED = "true";
   process.env.NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED = "true";
   process.env.NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

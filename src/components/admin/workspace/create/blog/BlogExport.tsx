@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BlogArticleMeta, BlogBrief, BlogCrawlerCheck } from "@/lib/types/contentPlan";
+import { aiSummaryHtml, aiSummaryLinks, aiSummaryMarkdown } from "@/lib/content/blog/aiSummary";
 import { hostOf } from "@/lib/content/blog/brief";
+import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 import { crawlerLabel } from "@/lib/content/blog/crawlers";
 import { renderArticleHtml } from "@/lib/content/blog/markdown";
 import { schemaScriptTag, suggestBlogSchema } from "@/lib/content/blog/schema";
@@ -31,7 +33,7 @@ const INPUT =
 const BUTTON =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
 
-type CopyKind = "markdown" | "html" | "schema" | "tags";
+type CopyKind = "markdown" | "html" | "schema" | "tags" | "summary-html" | "summary-markdown";
 
 /** "7 Oct 2026" */
 function day(iso: string): string {
@@ -68,6 +70,68 @@ function CrawlerNote({ check }: { check: BlogCrawlerCheck }) {
   );
 }
 
+/**
+ * "Summarize with AI" buttons for the article's own page (NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED),
+ * made once it is approved and has its address. The prompt is built from the copy on screen; an
+ * edit un-approves the article, so the links are never for copy nobody approved.
+ */
+function AiSummary({
+  markdown,
+  pageUrl,
+  brand,
+  approved,
+  copy,
+  copyLabel,
+}: {
+  markdown: string;
+  pageUrl: string | null;
+  brand: string;
+  approved: boolean;
+  copy: (kind: CopyKind, make: () => string) => void;
+  copyLabel: (kind: CopyKind, idle: string) => string;
+}) {
+  const summary = useMemo(() => (approved ? aiSummaryLinks({ markdown, pageUrl, brand }) : null), [approved, markdown, pageUrl, brand]);
+  const note = !approved
+    ? "Approve the article to get its Summarize with AI links."
+    : !pageUrl?.trim()
+      ? "Add the article's address to make its links."
+      : "Use the article's own https address to make its links.";
+  return (
+    <div className="mt-3 border-t border-neutral-200 pt-3 text-xs dark:border-neutral-800">
+      <div className={LABEL}>Summarize with AI</div>
+      {summary ? (
+        <>
+          <p className="mt-1 rounded-md border border-neutral-200 bg-neutral-50 p-2 leading-relaxed text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+            {summary.prompt}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-neutral-500 dark:text-neutral-400">Try it:</span>
+            {summary.links.map((l) => (
+              <a key={l.id} href={l.href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:no-underline">
+                {l.label}
+                <span aria-hidden="true"> ↗</span>
+              </a>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" onClick={() => copy("summary-html", () => aiSummaryHtml(summary.links))} className={BUTTON}>
+              {copyLabel("summary-html", "Copy buttons HTML")}
+            </button>
+            <button type="button" onClick={() => copy("summary-markdown", () => aiSummaryMarkdown(summary.links))} className={BUTTON}>
+              {copyLabel("summary-markdown", "Copy links Markdown")}
+            </button>
+          </div>
+          <p className="mt-2 text-neutral-500 dark:text-neutral-400">
+            Paste the buttons near the top or the end of the article. Each one opens that engine with the prompt above.
+          </p>
+        </>
+      ) : (
+        <p className="mt-1 text-neutral-500 dark:text-neutral-400">{note}</p>
+      )}
+    </div>
+  );
+}
+
 function Count({ id, length, aim }: { id: string; length: number; aim: number }) {
   return (
     <span
@@ -91,6 +155,7 @@ export function BlogExport({
   logoUrl,
   map = null,
   hero = null,
+  approved = false,
 }: {
   markdown: string;
   meta: BlogArticleMeta | null | undefined;
@@ -105,6 +170,8 @@ export function BlogExport({
   map?: ArticleMap | null;
   /** The hero image (BLOG_HERO_ENABLED): where its files are, to download them. */
   hero?: { assetUrl: (ref: string) => string } | null;
+  /** The article is approved: its Summarize with AI links can be made. */
+  approved?: boolean;
 }) {
   const id = useId();
   const schema = useMemo(
@@ -295,6 +362,17 @@ export function BlogExport({
           {copied ? (copied.ok ? "Copied" : "Couldn't copy") : ""}
         </span>
       </div>
+
+      {isBlogAiSummaryUiEnabled() ? (
+        <AiSummary
+          markdown={markdown}
+          pageUrl={pageUrl}
+          brand={brief.publisherName.trim() || brandName}
+          approved={approved}
+          copy={(kind, make) => void copy(kind, make)}
+          copyLabel={copyLabel}
+        />
+      ) : null}
 
       {brief.crawlers ? <CrawlerNote check={brief.crawlers} /> : null}
 

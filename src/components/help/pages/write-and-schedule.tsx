@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -70,6 +71,17 @@ export default function WriteAndScheduleHelp() {
         saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
+      {isBlogAiSummaryUiEnabled() ? (
+        <P>
+          Once the article is approved and has its address (the <strong>Hub URL</strong> when you start the draft, or{" "}
+          <strong>Article address</strong> on the hub), <strong>Summarize with AI</strong> under <strong>Export</strong> gives
+          links that open ChatGPT, Claude, Perplexity and Google AI Mode with a prompt to summarize the article and cite your
+          brand. The prompt is written from the article&apos;s title and its first sections. Press{" "}
+          <strong>Copy buttons HTML</strong> or <strong>Copy links Markdown</strong> and paste them near the top or the end of
+          the article on your site. Editing the article takes its approval away, so approve it again for links that match.
+          Gemini isn&apos;t there yet, because its app can&apos;t take a prompt from a link.
+        </P>
+      ) : null}
       {isBrandNotesUiEnabled() ? (
         <P>
           Blog articles are written the way a practitioner writes: the answer first, the trade-offs and the common mistakes,
@@ -178,6 +190,16 @@ export default function WriteAndScheduleHelp() {
             "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
           ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
+          ...(isBlogAiSummaryUiEnabled()
+            ? ([
+                ["Approve the article to get its Summarize with AI links.", "Read the article and press Approve."],
+                [
+                  "Add the article's address to make its links.",
+                  "Set the address the article has, or will have, on your site: Article address on the hub, or the Hub URL.",
+                ],
+                ["Use the article's own https address to make its links.", "Use the article's full https address, not your home page."],
+              ] as Array<[string, string]>)
+            : []),
           ...(isBrandNotesQuestionsUiEnabled()
             ? ([
                 [

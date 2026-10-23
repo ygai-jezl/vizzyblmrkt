@@ -49,8 +49,10 @@ const TOPICS = 3;
 /** One line, no double quotes (the prompt quotes the title), cut on a word. */
 function clean(s: string, max: number): string {
   const t = s.replace(/["“”]/g, "").replace(/\s+/g, " ").trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max - 1);
+  // Counted and cut in whole characters: half an emoji would make the link impossible to encode.
+  const chars = Array.from(t);
+  if (chars.length <= max) return t;
+  const cut = chars.slice(0, max - 1).join("");
   const space = cut.lastIndexOf(" ");
   return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
@@ -60,9 +62,10 @@ function topic(heading: string): string {
   return clean(heading, TOPIC_MAX).replace(/[\s?.!:;,]+$/, "");
 }
 
-/** encodeURIComponent, with the few characters it leaves alone that break a Markdown link. */
+/** encodeURIComponent, with the few characters it leaves alone that break a Markdown link. A
+ *  stray half character in the copy becomes a replacement mark rather than an error. */
 function encodePrompt(s: string): string {
-  return encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return encodeURIComponent(s.toWellFormed()).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 /** The prompt each engine gets: read the page, summarize it, cite the brand in this answer. */
@@ -91,12 +94,18 @@ export function aiSummaryLinks(input: { markdown: string; pageUrl: string | null
 
 export const AI_SUMMARY_HEADING = "Summarize this article with AI";
 
+// Just enough style to read as buttons on any page, in the page's own colours; the site can
+// restyle them through the ai-summary class.
+const LIST_STYLE = "list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px";
+const BUTTON_STYLE = "display:inline-block;padding:6px 14px;border:1px solid currentColor;border-radius:999px;text-decoration:none";
+
 /** The buttons for the article's page, as HTML to paste. */
 export function aiSummaryHtml(links: AiSummaryLink[]): string {
   const items = links.map(
-    (l) => `    <li><a href="${escapeHtml(l.href)}" target="_blank" rel="noopener nofollow">${escapeHtml(l.label)}</a></li>`,
+    (l) =>
+      `    <li><a href="${escapeHtml(l.href)}" target="_blank" rel="noopener nofollow" style="${BUTTON_STYLE}">${escapeHtml(l.label)}</a></li>`,
   );
-  return [`<div class="ai-summary">`, `  <p>${AI_SUMMARY_HEADING}</p>`, `  <ul>`, ...items, `  </ul>`, `</div>`].join("\n");
+  return [`<div class="ai-summary">`, `  <p>${AI_SUMMARY_HEADING}</p>`, `  <ul style="${LIST_STYLE}">`, ...items, `  </ul>`, `</div>`].join("\n");
 }
 
 /** The same links as one line of Markdown. */

@@ -74,7 +74,8 @@ export default function WriteAndScheduleHelp() {
       {isBlogAiSummaryUiEnabled() ? (
         <P>
           Once the article is approved and has its address (the <strong>Hub URL</strong> when you start the draft, or{" "}
-          <strong>Article address</strong> on the hub), <strong>Summarize with AI</strong> under <strong>Export</strong> gives
+          <strong>Article address</strong> on the hub where it shows), <strong>Summarize with AI</strong> under{" "}
+          <strong>Export</strong> gives
           links that open ChatGPT, Claude, Perplexity and Google AI Mode with a prompt to summarize the article and cite your
           brand. The prompt is written from the article&apos;s title and its first sections. Press{" "}
           <strong>Copy buttons HTML</strong> or <strong>Copy links Markdown</strong> and paste them near the top or the end of
@@ -195,7 +196,7 @@ export default function WriteAndScheduleHelp() {
                 ["Approve the article to get its Summarize with AI links.", "Read the article and press Approve."],
                 [
                   "Add the article's address to make its links.",
-                  "Set the address the article has, or will have, on your site: Article address on the hub, or the Hub URL.",
+                  "Set the address the article has, or will have, on your site: the Hub URL, or Article address on the hub where it shows.",
                 ],
                 ["Use the article's own https address to make its links.", "Use the article's full https address, not your home page."],
               ] as Array<[string, string]>)

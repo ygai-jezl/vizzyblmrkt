@@ -109,6 +109,21 @@ describe("aiSummaryLinks", () => {
     }
   });
 
+  it("cuts long text on whole characters, so emoji and headings without spaces still make links", () => {
+    const md = [
+      `# A ${"😀".repeat(70)}`,
+      "",
+      "Intro.",
+      "",
+      `## ${"日".repeat(88)}🚀${"日".repeat(5)}`,
+      "",
+      "Text.",
+    ].join("\n");
+    const out = aiSummaryLinks({ markdown: md, pageUrl: URL_, brand: "🚀".repeat(45) })!;
+    expect(out.prompt).toContain(`${"日".repeat(88)}🚀…`);
+    for (const l of out.links) expect(qOf(l.href)).toBe(out.prompt);
+  });
+
   it("is null without a usable address or copy", () => {
     expect(aiSummaryLinks({ markdown: ARTICLE, pageUrl: null })).toBeNull();
     expect(aiSummaryLinks({ markdown: ARTICLE, pageUrl: "" })).toBeNull();
@@ -128,10 +143,12 @@ describe("aiSummaryHtml and aiSummaryMarkdown", () => {
     const html = aiSummaryHtml(links);
     expect(html).toContain('<div class="ai-summary">');
     expect(html).toContain("<p>Summarize this article with AI</p>");
-    expect(html).toContain(
-      '<li><a href="https://chatgpt.com/?hints=search&amp;q=a%22b" target="_blank" rel="noopener nofollow">ChatGPT</a></li>',
-    );
+    expect(html).toContain('<li><a href="https://chatgpt.com/?hints=search&amp;q=a%22b" target="_blank" rel="noopener nofollow" style="');
+    expect(html).toContain(">ChatGPT</a></li>");
     expect(html).toContain(">&lt;Claude&gt;</a>");
+    // Buttons in a row, not a bulleted list, in the page's own colours.
+    expect(html).toMatch(/<ul style="list-style:none;[^"]*display:flex/);
+    expect(html).toContain("border:1px solid currentColor");
   });
 
   it("gives the same links as one line of Markdown", () => {

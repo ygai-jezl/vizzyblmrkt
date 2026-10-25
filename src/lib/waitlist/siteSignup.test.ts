@@ -183,7 +183,7 @@ describe("confirming a site sign-up", () => {
     const w = await world();
     await w.add({ email: "sam@example.com" });
     const token = tokenFrom(w.sent[0]!);
-    expect(await peekSiteConfirm(ctx, "news", token, w.db)).toEqual({ state: "ready", backAgain: false });
+    expect(await peekSiteConfirm(ctx, "news", token, w.db)).toEqual({ state: "ready", backAgain: false, locale: "en" });
     const r = await confirmSiteSignup(ctx, "news", token, { db: w.db, nowMs: NOW });
     expect(r).toMatchObject({ outcome: "confirmed", backAgain: false });
     expect((await w.signup())?.status).toBe("verified_active");
@@ -193,7 +193,7 @@ describe("confirming a site sign-up", () => {
     // Pressing again changes nothing.
     expect(await confirmSiteSignup(ctx, "news", token, { db: w.db, nowMs: NOW })).toMatchObject({ outcome: "already" });
     expect(enrol).toHaveBeenCalledTimes(1);
-    expect(await peekSiteConfirm(ctx, "news", token, w.db)).toEqual({ state: "done" });
+    expect(await peekSiteConfirm(ctx, "news", token, w.db)).toEqual({ state: "done", locale: "en" });
   });
 
   it("a wrong token, or another launch's, confirms nothing", async () => {
@@ -228,7 +228,7 @@ describe("confirming a site sign-up", () => {
     expect(await w.add({ email: "sam@example.com" }, NOW + 2 * DAY)).toEqual({ ok: true, reply: { status: "confirmation_sent" } });
     const fresh = tokenFrom(w.sent[1]!);
     expect(fresh).not.toBe(tokenFrom(w.sent[0]!));
-    expect(await peekSiteConfirm(ctx, "news", fresh, w.db)).toEqual({ state: "ready", backAgain: true });
+    expect(await peekSiteConfirm(ctx, "news", fresh, w.db)).toEqual({ state: "ready", backAgain: true, locale: "en" });
 
     const r = await confirmSiteSignup(ctx, "news", fresh, { db: w.db, nowMs: NOW + 2 * DAY });
     expect(r).toMatchObject({ outcome: "confirmed", backAgain: true });

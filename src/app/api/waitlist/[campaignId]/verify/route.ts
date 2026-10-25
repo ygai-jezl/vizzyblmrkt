@@ -8,6 +8,7 @@ import {
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import { afterVerify } from "@/lib/waitlist/afterVerify";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,25 @@ export async function GET(
 
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) return back("verify=invalid");
+
+  // A site sign-up confirms on the Confirm subscription page, never on a click
+  // (LAUNCH_SITE_SIGNUPS_ENABLED): send its token there instead.
+  if (isSiteSignupsEnabled() && token) {
+    const rows = await forTenant(ctx)
+      .signups.find({ where: [["campaignId", "==", campaignId], ["verificationToken", "==", token]], limit: 1 })
+      .catch(() => []);
+    if (rows[0]?.joinedVia === "site") {
+      return new NextResponse(null, {
+        status: 303,
+        headers: {
+          Location: appendTenantParam(
+            `/waitlist/${encodeURIComponent(campaignId)}/confirm?token=${encodeURIComponent(token)}`,
+            tenantId,
+          ),
+        },
+      });
+    }
+  }
 
   const result = await verifySignupByToken(ctx, campaignId, token);
 

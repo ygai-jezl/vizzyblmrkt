@@ -178,8 +178,8 @@ export async function addSiteSignup(
 
 export type SiteConfirmState =
   /** Ready to confirm. `backAgain`: they unsubscribed before; confirming lifts it brand-wide. */
-  | { state: "ready"; backAgain: boolean }
-  | { state: "done" }
+  | { state: "ready"; backAgain: boolean; locale: string | null }
+  | { state: "done"; locale: string | null }
   | { state: "blocked" }
   | { state: "invalid" };
 
@@ -208,8 +208,9 @@ export async function peekSiteConfirm(
   const reason = await suppressionReasonOf(ctx, signup.email, db);
   if (reason === "spam" || reason === "hard_bounce") return { state: "blocked" };
   const backAgain = reason === "unsubscribe";
-  if (signup.status === "verified_active" && !backAgain) return { state: "done" };
-  return { state: "ready", backAgain };
+  const locale = signup.locale ?? null;
+  if (signup.status === "verified_active" && !backAgain) return { state: "done", locale };
+  return { state: "ready", backAgain, locale };
 }
 
 /**
@@ -231,8 +232,8 @@ export async function launchHasWeeklyStep(ctx: TenantContext, campaign: Campaign
 }
 
 export type SiteConfirmResult =
-  | { outcome: "confirmed"; campaign: Campaign; backAgain: boolean }
-  | { outcome: "already"; campaign: Campaign }
+  | { outcome: "confirmed"; campaign: Campaign; backAgain: boolean; locale: string | null }
+  | { outcome: "already"; campaign: Campaign; locale: string | null }
   | { outcome: "blocked" | "invalid" };
 
 /** Someone pressed Confirm subscription. Safe to repeat. */
@@ -259,12 +260,13 @@ export async function confirmSiteSignup(
     if (cur.status === "verified_active" && backAgain) return back;
     return null;
   });
-  if (!claimed) return wasConfirmed ? { outcome: "already", campaign } : { outcome: "invalid" };
+  const locale = signup.locale ?? null;
+  if (!claimed) return wasConfirmed ? { outcome: "already", campaign, locale } : { outcome: "invalid" };
 
   if (backAgain) await liftUnsubscribe(ctx, signup.email!, deps.db);
   if (!wasConfirmed) {
     await afterVerify(ctx, campaign, claimed, { resubscribe: backAgain });
-    return { outcome: "confirmed", campaign, backAgain };
+    return { outcome: "confirmed", campaign, backAgain, locale };
   }
   // Confirmed before, unsubscribed, now back: onto the list again, and the weekly list
   // if the journey has a weekly step (it won't take them a second time).
@@ -274,5 +276,5 @@ export async function confirmSiteSignup(
   } catch (err) {
     console.warn(`[site-signups] re-adding ${campaign.id} to the newsletter failed:`, err);
   }
-  return { outcome: "confirmed", campaign, backAgain };
+  return { outcome: "confirmed", campaign, backAgain, locale };
 }

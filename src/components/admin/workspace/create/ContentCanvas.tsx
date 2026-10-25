@@ -17,7 +17,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import type { BlogBrief, BlogHero, BlogSeen, ContentNode, ContentPlan, ContentNodeType } from "@/lib/types/contentPlan";
-import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
+import { BlogArticleMetaSchema, CONTENT_PLAN_LIMITS } from "@/lib/types/contentPlan";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
 import { CITE_TAG, isCiteSourcesUiEnabled } from "@/lib/knowledge/cite";
@@ -36,6 +36,10 @@ import {
 import { ContentNodeInspector } from "./ContentNodeInspector";
 import { AddNodePalette } from "./AddNodePalette";
 import { EmailLayoutEditor } from "./email-layout/EmailLayoutEditor";
+import { EditModeView } from "@/components/admin/editor/EditModeView";
+import { isEditModeEnabled } from "@/lib/content/editor/flags";
+import { CitableChecklist } from "./blog/CitableChecklist";
+import { splitBlogTitle } from "./preview/contentPreviewHelpers";
 import { ContentPreviewModal } from "./preview/ContentPreviewModal";
 import type { EmailLayout } from "@/lib/types/emailLayout";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
@@ -178,6 +182,8 @@ export function ContentCanvas({
   const [name, setName] = useState(initial.name);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutEditorFor, setLayoutEditorFor] = useState<string | null>(null);
+  // Edit mode (NEXT_PUBLIC_EDIT_MODE_ENABLED): the hub whose Markdown is open in the rich editor.
+  const [editModeFor, setEditModeFor] = useState<string | null>(null);
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -1133,6 +1139,13 @@ export function ContentCanvas({
           onOpenLayout={
             selectedCn.type === "email" ? () => setLayoutEditorFor(selectedCn.id) : undefined
           }
+          onOpenEditMode={
+            isEditModeEnabled() &&
+            selectedCn.type === "hub" &&
+            (selectedCn.channel === "blog" || selectedCn.channel === "newsletter")
+              ? () => setEditModeFor(selectedCn.id)
+              : undefined
+          }
           blog={blogControls}
           onOpenPreview={
             selectedCn.type === "trigger" ||
@@ -1156,6 +1169,51 @@ export function ContentCanvas({
             workspaceId={workspaceId}
             fullEbook={previewNode.channel === "ebook" ? initial.ebookDraft ?? null : null}
             onClose={() => setPreviewFor(null)}
+          />
+        );
+      })()}
+
+      {(() => {
+        if (!editModeFor) return null;
+        const editNode = nodes.map(cnOf).find((cn) => cn.id === editModeFor);
+        if (!editNode) return null;
+        const isBlog = editNode.channel === "blog";
+        const heroRef = isBlog && heroOn ? editNode.blog?.hero?.heroRef ?? null : null;
+        return (
+          <EditModeView
+            format={isBlog ? "blog" : "newsletter"}
+            kicker={isBlog ? "Blog hub" : "Newsletter"}
+            title={splitBlogTitle(editNode).title}
+            value={editNode.body}
+            primaryLabel="Save"
+            draftKey={`${planId}:${editNode.id}`}
+            maxChars={CONTENT_PLAN_LIMITS.MAX_BODY_CHARS}
+            heroUrl={heroRef ? `/api/admin/workspace/${workspaceId}/asset/${heroRef}` : null}
+            checks={
+              citableBlog && isBlog
+                ? (markdown) => (
+                    <CitableChecklist markdown={markdown} brief={blogBrief} meta={editNode.blog} pageUrl={pageUrl} map={brandMap ?? null} />
+                  )
+                : undefined
+            }
+            onSave={async (body) => {
+              // As the Layout editor does: persist the next node list first, and only then take
+              // it into the canvas, so a failed save leaves Edit mode open with the changes.
+              // A changed body un-approves the hub, as typing in Final copy does.
+              const nextNodes = nodesRef.current.map((n) => {
+                if (n.id !== editModeFor) return n;
+                const cur = (n.data as ContentNodeData).cn;
+                const status = cur.status === "approved" ? "generated" : cur.status;
+                return { ...n, data: { ...n.data, cn: { ...cur, body, status } } };
+              });
+              const ok = await save(nextNodes);
+              if (ok) {
+                applyNodes(() => nextNodes);
+                setMsg("Saved.");
+              }
+              return ok;
+            }}
+            onClose={() => setEditModeFor(null)}
           />
         );
       })()}

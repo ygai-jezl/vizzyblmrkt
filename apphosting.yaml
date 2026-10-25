@@ -638,6 +638,28 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Edit mode: a rich text editor over the Markdown of blog and newsletter hubs (the
+  # Markdown is still what's saved), and over broadcast, journey and lifecycle emails.
+  - variable: NEXT_PUBLIC_EDIT_MODE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Newsletter hubs sent and previewed as formatted email, not as Markdown symbols.
+  - variable: NEWSLETTER_MARKDOWN_EMAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # The eBook studio and on brand social post images.
   - variable: CREATE_EBOOK_ENABLED
     value: "false"

@@ -397,8 +397,9 @@ function canonBlocks(nodes: JSONContent[] | undefined): Canon[] {
 export interface DocLoss {
   /** The kind of block that would change ("table", "box", "paragraph", …). */
   kind: string;
-  /** Where it is: the heading it sits under, or its own opening words. */
+  /** Where it is: the heading it sits under (`under`), or its own opening words. */
   near: string;
+  under: boolean;
 }
 
 const KIND: Record<string, string> = {
@@ -435,7 +436,8 @@ export function docLoss(doc: JSONContent, format: EditFormat): DocLoss | null {
     const at = node ?? blocks[blocks.length - 1];
     const kind = KIND[at?.type ?? ""] ?? "part";
     const own = at ? words(textOf(at)) : "";
-    return { kind, near: node?.type === "heading" || !heading ? own : words(heading) };
+    const under = node?.type !== "heading" && Boolean(heading);
+    return { kind, near: under ? words(heading) : own, under };
   }
   return null;
 }

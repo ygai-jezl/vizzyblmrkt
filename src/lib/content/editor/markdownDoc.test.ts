@@ -127,6 +127,10 @@ describe("markdownToDoc", () => {
     expect(marksOf("both")).toEqual(["bold", "link"]);
   });
 
+  it("builds the email schema too", () => {
+    expect(() => getSchema(editorExtensions("email"))).not.toThrow();
+  });
+
   it("fits the editor's schema", () => {
     for (const md of [CITABLE, EDITORIAL, "", "Just one line."]) {
       expect(() => schema.nodeFromJSON(markdownToDoc(md, "blog")).check()).not.toThrow();
@@ -289,7 +293,7 @@ describe("docLoss", () => {
         },
       ],
     };
-    expect(docLoss(doc, "blog")).toEqual({ kind: "paragraph", near: "Pricing" });
+    expect(docLoss(doc, "blog")).toEqual({ kind: "paragraph", near: "Pricing", under: true });
   });
 
   it("names a nested list, which is flattened", () => {
@@ -311,7 +315,7 @@ describe("docLoss", () => {
       ],
     };
     expect(docToMarkdown(doc)).toBe("- Parent\n- Child");
-    expect(docLoss(doc, "blog")).toEqual({ kind: "list", near: "Parent Child" });
+    expect(docLoss(doc, "blog")).toEqual({ kind: "list", near: "Parent Child", under: false });
   });
 
   it("names a one column table, which Markdown can't hold", () => {

@@ -625,6 +625,13 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # "Summarize with AI" links for an approved blog article's page (needs
+  # NEXT_PUBLIC_BLOG_CITABLE_ENABLED).
+  - variable: NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # The eBook studio and on brand social post images.
   - variable: CREATE_EBOOK_ENABLED
     value: "false"

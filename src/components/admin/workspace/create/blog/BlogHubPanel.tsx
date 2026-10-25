@@ -108,6 +108,7 @@ export function BlogHubReview({
           logoUrl={controls.logoUrl}
           map={controls.map ?? null}
           hero={controls.hero ? { assetUrl: controls.hero.assetUrl } : null}
+          approved={node.status === "approved"}
         />
       </fieldset>
     </div>

@@ -227,6 +227,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Sign-ups from a brand's own site: a launch's site key and POST /api/v2/signups
+  # (needs CONNECT_SECRET_ENC_KEY, which seals the key's secret).
+  - variable: LAUNCH_SITE_SIGNUPS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Lifecycle journeys and connected products ==
   # Connected products and their journeys, and API v2 (/api/v2/users).

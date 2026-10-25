@@ -7,9 +7,7 @@ import {
 } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
-import { syncSignupToAudience } from "@/lib/mailchimp";
-import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
-import { recordSignupContact } from "@/lib/crm/contactService";
+import { afterVerify } from "@/lib/waitlist/afterVerify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,42 +80,9 @@ export async function GET(
       })
       .catch(() => []);
     const signup = rows[0];
-    if (signup) {
-      // Two best-effort, INDEPENDENT side effects: keep the marketing audience in
-      // sync, and enrol the new subscriber into the active journey (so late
-      // joiners — anyone verifying after the journey was activated — still get the
-      // sequence). Each is isolated so one failing can't skip the other, and
-      // neither can break the verification redirect.
-      try {
-        await syncSignupToAudience(ctx, campaign, signup);
-      } catch (err) {
-        console.warn(
-          `[mailchimp] audience sync on verify failed for ${campaign.id}:`,
-          err,
-        );
-      }
-      try {
-        await enrolSignupInWaitlistJourney(ctx, campaign.id, signup);
-      } catch (err) {
-        console.warn(
-          `[journey] enrollment on verify failed for ${campaign.id}:`,
-          err,
-        );
-      }
-      // Unified CRM: refresh the contact now that this person is verified —
-      // flips consent to verified_active and (for corporate domains) queues
-      // Agent-1 enrichment. Force verified state: we're in the verified branch,
-      // so don't depend on the just-read row's status being fresh.
-      try {
-        await recordSignupContact(ctx, campaign, {
-          ...signup,
-          status: "verified_active",
-          verified: true,
-        });
-      } catch (err) {
-        console.warn(`[crm] contact upsert on verify failed for ${campaign.id}:`, err);
-      }
-    }
+    // Audience sync, journey enrolment and the CRM contact: best-effort, and none
+    // can break the verification redirect (src/lib/waitlist/afterVerify.ts).
+    if (signup) await afterVerify(ctx, campaign, signup);
   }
 
   if (result.status === "verified" || result.status === "already_verified") {

@@ -87,3 +87,20 @@ export function NextPage({ slug }: { slug: string }) {
     </p>
   );
 }
+
+/**
+ * Who gets which emails, by how they got into YouGrow. The one answer every page about
+ * newsletters, launches and connected products points to (LAUNCH_SITE_SIGNUPS_ENABLED).
+ */
+export function WhoGetsWhichEmails() {
+  return (
+    <Pairs
+      head={["How they got in", "What they get"]}
+      rows={[
+        ["YouGrow's page or widget", "The launch's journey and its broadcasts. The weekly newsletter once they reach its weekly step."],
+        ["Your own form, with a site key", "The same: the launch's journey, its broadcasts, and the weekly newsletter once they reach its weekly step."],
+        ["Your app, through the API (users.update)", "Onboarding journeys only. Never broadcasts or the weekly newsletter."],
+      ]}
+    />
+  );
+}

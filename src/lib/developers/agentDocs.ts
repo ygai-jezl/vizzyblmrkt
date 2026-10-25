@@ -5,8 +5,9 @@ import ContextEndpointDocs from "@/app/developers/context-endpoint/page";
 import OpenSourceDocs from "@/app/developers/open-source/page";
 import SecurityDocs from "@/app/developers/security/page";
 import UsersDocs from "@/app/developers/users/page";
+import SiteSignupsDocs from "@/app/developers/site-signups/page";
 import WebhooksDocs from "@/app/developers/webhooks/page";
-import { DOC_PAGES, hasMarkdown, markdownPath } from "./docs";
+import { hasMarkdown, markdownPath, shownDocPages } from "./docs";
 import { isHelpPagesEnabled } from "@/lib/help/flags";
 import { docsOrigin, isDevelopersDocsEnabled } from "./flags";
 import { docToMarkdown } from "./markdown";
@@ -23,6 +24,7 @@ const RENDER: Record<string, () => ReactNode> = {
   "": DevelopersHome,
   "connect-your-code": ConnectYourCodeDocs,
   users: UsersDocs,
+  "site-signups": SiteSignupsDocs,
   "context-endpoint": ContextEndpointDocs,
   webhooks: WebhooksDocs,
   security: SecurityDocs,
@@ -47,7 +49,7 @@ export function llmsTxt(origin = docsOrigin()): string {
     "The contract for an integration is these docs, the OpenAPI spec, the JSON Schemas below and the published `@yougrowai/node` package (0.3.0 and later) — not YouGrow's own source code, which can be ahead of what's deployed. API v1 (`POST /api/v1/events`, HMAC-signed) was removed on 2026-09-25.",
     "",
     "## Docs",
-    ...DOC_PAGES.filter(hasMarkdown).map((p) => `- [${p.label}](${origin}${markdownPath(p)}): ${p.summary}`),
+    ...shownDocPages().filter(hasMarkdown).map((p) => `- [${p.label}](${origin}${markdownPath(p)}): ${p.summary}`),
     "",
     "## Machine-readable",
     `- [OpenAPI 3.1 spec](${origin}/developers/openapi.json): every endpoint, field, response and error of API v2, and what YouGrow sends you (context requests, webhooks). People browse it at ${origin}/developers/api.`,
@@ -64,7 +66,7 @@ export function llmsTxt(origin = docsOrigin()): string {
 }
 
 export function llmsFullTxt(origin = docsOrigin()): string {
-  return DOC_PAGES.filter(hasMarkdown)
+  return shownDocPages().filter(hasMarkdown)
     .map((p) => `<!-- ${origin}${p.path} -->\n\n${pageMarkdown(p.slug, origin)}`)
     .join("\n---\n\n");
 }

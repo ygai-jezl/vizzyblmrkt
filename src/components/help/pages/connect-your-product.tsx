@@ -1,5 +1,6 @@
-import { H1, H2, Lead, P } from "@/components/developers/Doc";
-import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { C, H1, H2, Lead, P } from "@/components/developers/Doc";
+import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 
 export default function ConnectYourProductHelp() {
   return (
@@ -126,6 +127,18 @@ export default function ConnectYourProductHelp() {
         skipped. Details: <Open href="/developers/users">sending users</Open>. The <strong>Setup</strong> tab ticks each part
         off as it arrives.
       </P>
+
+      {isSiteSignupsEnabled() ? (
+        <>
+          <H2 id="newsletter">Your app&apos;s users and your newsletter</H2>
+          <P>
+            People your app sends get onboarding journeys only, never broadcasts or the weekly newsletter. Want a newsletter
+            list? Use a launch&apos;s site key, not <C>users.update</C>. See{" "}
+            <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+          </P>
+          <WhoGetsWhichEmails />
+        </>
+      ) : null}
 
       <H2 id="test">Test the context endpoint (optional)</H2>
       <P>

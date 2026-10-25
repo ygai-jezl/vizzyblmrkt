@@ -4,6 +4,43 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0005 · Sign-ups from a brand's own site go to a launch, with a site key (2026-10-25)
+
+Context: a brand wanted its own "Get the weekly newsletter" box (not our embed) to feed
+a newsletter in YouGrow. Three facts shaped the answer. API v2 users (connected-product
+users) never get broadcasts or the weekly newsletter: those only go to a launch's
+sign-ups, through Mailchimp tags (`waitlist-{id}`, `weekly-{id}`). The public waitlist
+sign-up route only takes YouGrow's own form (no CORS; reCAPTCHA when it's on). And each
+launch has exactly one journey on both engines (`journey_{id}`, `lcjw_{sha}`), which
+takes everyone on the launch when it's turned on.
+
+Owner decisions (2026-10-25), behind `LAUNCH_SITE_SIGNUPS_ENABLED`, off in production:
+- **D1**: a newsletter is a launch of its own. Its one journey is the newsletter journey
+  (a welcome, then the weekly step). No journey code changes, and the brand's waitlist
+  launch is never touched. Rejected: a second journey per launch (both engines, and the
+  sweeps that enrol everyone) and skipping journeys (a new "no journey" mark both engines
+  must respect, and no welcome email).
+- **Site keys**: one per launch, `ygl_…` / `ygls_…`, sealed under `CONNECT_SECRET_ENC_KEY`
+  with their own purpose labels (no new secret for self-hosters), routed by the
+  control-plane `launch_keys/{keyId}`, separate from `connection_keys` so a site key
+  never works as a product key or the reverse. `POST /api/v2/signups`, server to server.
+- **YouGrow always confirms**: a site sign-up is unconfirmed whatever the launch's double
+  opt-in setting; at most one confirmation per address per launch a day.
+- **D2**: the confirmation link opens a page with a Confirm subscription button (POST),
+  so mail scanners that open links can't confirm for someone. Existing launches keep
+  confirming on the click.
+- **D3**: someone who unsubscribed can sign up again; confirming lifts their
+  unsubscribe (brand-wide, and the page says so). Spam reports and hard bounces are never
+  lifted. Mailchimp won't resubscribe a member it holds as unsubscribed, so they're set to
+  pending and Mailchimp asks them once more.
+- Unsubscribes stay in YouGrow; nothing is sent to the brand's server for these people.
+
+Where: `src/lib/waitlist/siteKeys.ts`, `siteKeyAuth.ts`, `siteSignup.ts`,
+`siteSignupHttp.ts`, `siteConfirmHttp.ts`; help `/help/newsletter-from-your-site`;
+developer docs `/developers/site-signups`.
+
+---
+
 ## ADR-0004 — Waitlist journeys move to the lifecycle engine (2026-09-24)
 
 Context: a launch's welcome & nurture journey ran on the original waitlist

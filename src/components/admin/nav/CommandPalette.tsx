@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { openHowTo } from "@/components/help/openHowTo";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
-import { HELP_PAGES } from "@/lib/help/pages";
+import { shownHelpPages } from "@/lib/help/pages";
 import { isBrandKitUiEnabled } from "@/lib/content/brandKit";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
@@ -273,7 +273,7 @@ export function CommandPalette({
 
         {GUIDE ? (
           <Command.Group heading="Help">
-            {HELP_PAGES.map((p) => (
+            {shownHelpPages().map((p) => (
               <Command.Item
                 key={p.path}
                 value={`help how to ${p.label} ${p.summary}`}

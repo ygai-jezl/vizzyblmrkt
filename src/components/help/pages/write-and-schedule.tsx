@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 
 export default function WriteAndScheduleHelp() {
@@ -136,6 +137,12 @@ export default function WriteAndScheduleHelp() {
         It goes to people on a launch&apos;s waitlist who reached the weekly newsletter step of its welcome journey. If nobody
         has yet, YouGrow tells you and sends nothing.
       </P>
+      {isSiteSignupsEnabled() ? (
+        <P>
+          Newsletter sign-ups from your own site join a launch just for the newsletter, and Send this week&apos;s newsletter
+          offers that launch first. See <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+        </P>
+      ) : null}
       <Steps>
         <li>
           Open your launch, then <strong>Emails</strong>, and press <strong>Edit journey</strong>. On an Exit step, tick{" "}

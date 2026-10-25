@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
-import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 
 export default function LaunchAndWaitlistHelp() {
   return (
@@ -122,6 +123,19 @@ export default function LaunchAndWaitlistHelp() {
         Your referral reward is <strong>Spots skipped per referral</strong>, under <strong>Gamification</strong> on the
         Settings tab. Keep it above 0 so people move up when friends join.
       </P>
+
+      {isSiteSignupsEnabled() ? (
+        <>
+          <H2 id="own-form">Use your own sign-up form</H2>
+          <P>
+            Rather keep your own box than embed ours? On <strong>Page &amp; widget</strong>, choose{" "}
+            <strong>Your own form</strong>: your server adds each email with the launch&apos;s site key, and YouGrow sends the
+            confirmation. For a newsletter, use a launch just for it. See{" "}
+            <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+          </P>
+          <WhoGetsWhichEmails />
+        </>
+      ) : null}
 
       <H2 id="check">Check it worked</H2>
       <Checks>

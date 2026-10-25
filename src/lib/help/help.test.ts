@@ -28,6 +28,9 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED = "true";
   process.env.NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED = "true";
   process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "true";
+  process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
+  process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
+  process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

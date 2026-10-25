@@ -277,7 +277,9 @@ export function EditModeView(props: EditModeProps) {
       aria-label={`Edit mode: ${title}`}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
+          // Stop it here: the window Edit mode opened from (a broadcast's) closes on Escape too.
           e.preventDefault();
+          e.stopPropagation();
           requestClose();
         }
       }}

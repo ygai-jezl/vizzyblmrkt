@@ -1,6 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { EditModeSwitch } from "@/components/admin/editor/EditModeSwitch";
+import { EditModeView } from "@/components/admin/editor/EditModeView";
+import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
+import { MERGE_VARS } from "@/lib/email/mergeVars";
 import { CreativeDirectorPanel, type CopyVariant } from "./CreativeDirectorPanel";
 import { AgentPresenceToken } from "./AgentPresenceToken";
 import { MergeVariableMenu } from "./MergeVariableMenu";
@@ -27,15 +31,23 @@ export interface EmailComposerProps {
   value: EmailComposerValue;
   onChange: (next: EmailComposerValue) => void;
   performanceHint?: string;
+  /** Names this email's unsaved Edit mode text in the browser's session (the broadcast or node). */
+  draftKey?: string;
 }
 
+/** A broadcast's body may be this long (the broadcasts API's limit). */
+const MAX_EMAIL_BODY_CHARS = 50_000;
+
 export function EmailComposer({
+  mode,
   campaignId,
   value,
   onChange,
   performanceHint,
+  draftKey,
 }: EmailComposerProps) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const [editMode, setEditMode] = useState(false);
 
   function insertAtCursor(token: string) {
     const el = bodyRef.current;
@@ -111,7 +123,33 @@ export function EmailComposer({
           </div>
         ) : null}
 
+        {isEditModeEmailsEnabled() ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label htmlFor={`email-body-${mode}`} className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+              Body
+            </label>
+            <EditModeSwitch raw="HTML" onOpen={() => setEditMode(true)} />
+          </div>
+        ) : null}
+        {editMode ? (
+          <EditModeView
+            format="email"
+            kicker={mode === "broadcast" ? "Broadcast email" : "Journey email"}
+            title={value.subject}
+            value={value.body}
+            primaryLabel="Done"
+            draftKey={draftKey ?? `${mode}:${campaignId}`}
+            maxChars={MAX_EMAIL_BODY_CHARS}
+            tokens={MERGE_VARS.map((v) => `{{${v}}}`)}
+            onSave={(body) => {
+              edited({ body });
+              return true;
+            }}
+            onClose={() => setEditMode(false)}
+          />
+        ) : null}
         <textarea
+          id={`email-body-${mode}`}
           ref={bodyRef}
           value={value.body}
           onChange={(e) => edited({ body: e.target.value })}

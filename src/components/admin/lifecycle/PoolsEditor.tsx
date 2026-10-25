@@ -12,6 +12,9 @@ import type { Signup } from "@/lib/types/signup";
 import { ConditionList } from "./ConditionList";
 import type { FieldOption } from "./model";
 import { Badge, Button, Field, inputClass } from "../connect/ui";
+import { EditModeSwitch } from "../editor/EditModeSwitch";
+import { EditModeView } from "../editor/EditModeView";
+import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
 
 /**
  * Content pools: the emails each Email step can send. A step sends the FIRST
@@ -54,6 +57,11 @@ const WAITLIST_TOKENS = [
   ["{{voice_chat_link}}", "Link that opens the voice chat"],
   ["{{metadata.company}}", "Anything captured at signup"],
 ] as const;
+
+/** Every token a list above names, one by one, for Edit mode's Merge values. */
+function tokensOf(list: readonly (readonly [string, string])[]): string[] {
+  return list.flatMap(([t]) => t.split(" / "));
+}
 
 /** A welcome-journey email as it will look, rendered by the original engine's compiler. */
 function renderWaitlistPreview(
@@ -334,7 +342,10 @@ function ItemEditor({
 }) {
   const [open, setOpen] = useState(index === 0);
   const [preview, setPreview] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const set = (patch: Partial<PoolItem>) => onChange({ ...item, ...patch });
+  // Edit mode (NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED); an email from the layout editor keeps that editor.
+  const canEditMode = isEditModeEmailsEnabled() && !readOnly && !item.layout;
   const rendered = useMemo(() => {
     if (!preview) return null;
     if (waitlist) return { ...renderWaitlistPreview(item, waitlist.launchName, waitlist.brand, emailStyle), missing: [] as string[] };
@@ -418,6 +429,28 @@ function ItemEditor({
               This email was designed in the layout editor; the body below is generated from it and editing it here
               replaces the design.
             </p>
+          ) : null}
+          {canEditMode ? (
+            <div className="-mb-2 flex justify-end">
+              <EditModeSwitch raw="HTML" onOpen={() => setEditMode(true)} />
+            </div>
+          ) : null}
+          {editMode ? (
+            <EditModeView
+              format="email"
+              kicker="Lifecycle email"
+              title={item.subject || item.label}
+              value={item.body}
+              primaryLabel="Done"
+              draftKey={`pool:${item.id}`}
+              maxChars={20000}
+              tokens={tokensOf(waitlist ? WAITLIST_TOKENS : TOKENS)}
+              onSave={(body) => {
+                set({ body, layout: null });
+                return true;
+              }}
+              onClose={() => setEditMode(false)}
+            />
           ) : null}
           <Field label="Body" hint="HTML or plain text. Blank lines make paragraphs. Tokens are filled in per person at send time.">
             <textarea

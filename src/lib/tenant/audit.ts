@@ -45,6 +45,8 @@ export interface LaunchDeletionCounts {
   /** The launch's waitlist journey on the lifecycle engine and its enrolments (engine move); only when present. */
   waitlistJourneys?: number;
   waitlistEnrolments?: number;
+  /** The launch's site key (LAUNCH_SITE_SIGNUPS_ENABLED); only when present. */
+  siteKeys?: number;
 }
 
 /**

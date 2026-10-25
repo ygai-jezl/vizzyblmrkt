@@ -126,6 +126,8 @@ export {
   deleteConnectionKey,
 } from "./connectionKeys";
 export type { ConnectionKeyRecord } from "./connectionKeys";
+export { putLaunchKey, getLaunchKey, deleteLaunchKey } from "./launchKeys";
+export type { LaunchKeyRecord } from "./launchKeys";
 export { applyProductMessage } from "./productIngest";
 export type { ApplyOutcome, ApplyMessageArgs } from "./productIngest";
 export { isRateLimited } from "./rateLimit";

@@ -107,6 +107,19 @@ export const SignupSchema = z.object({
    */
   unsubscribedAt: z.string().nullable().optional(),
 
+  /**
+   * How they joined: YouGrow's page or widget ("form"), or the brand's own site
+   * through the launch's site key ("site", LAUNCH_SITE_SIGNUPS_ENABLED). Set by the
+   * server only; absent = "form".
+   */
+  joinedVia: z.enum(["form", "site"]).nullable().optional(),
+  /** Where on the brand's site they signed up, as its server said (site sign-ups only). */
+  siteSource: z.string().max(200).nullable().optional(),
+  /** When the last confirmation email went (site sign-ups: at most one a day). */
+  confirmationSentAt: z.string().nullable().optional(),
+  /** When they confirmed again after unsubscribing, which lifted the unsubscribe. */
+  resubscribedAt: z.string().nullable().optional(),
+
   // Arbitrary developer payload + form answers
   metadata: z.record(z.string(), z.unknown()).optional(),
   answers: z.array(AnswerSchema).optional(),

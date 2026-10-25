@@ -113,4 +113,26 @@ describe("createSignup", () => {
       { question_value: "Role?", optional: false, answer_value: "Eng" },
     ]);
   });
+  it("site sign-ups start unconfirmed with a token, even when the launch doesn't ask for confirmation", async () => {
+    const db = new FakeFirestore();
+    const { signup } = await createSignup(ctx, campaign({ usesSignupVerification: false }), { email: "sam@example.com" }, {
+      ...opts(db),
+      requireVerification: true,
+      extra: { joinedVia: "site", siteSource: "blog/one", confirmationSentAt: "2026-06-15T16:00:00Z" },
+    });
+    expect(signup.status).toBe("unverified");
+    expect(signup.verified).toBe(false);
+    expect(signup.verificationToken).toBeTruthy();
+    expect(signup.joinedVia).toBe("site");
+    expect(signup.siteSource).toBe("blog/one");
+    expect(signup.confirmationSentAt).toBe("2026-06-15T16:00:00Z");
+  });
+
+  it("form sign-ups carry none of the site fields", async () => {
+    const db = new FakeFirestore();
+    const { signup } = await createSignup(ctx, campaign(), { email: "maya@example.com" }, opts(db));
+    expect(signup).not.toHaveProperty("joinedVia");
+    expect(signup).not.toHaveProperty("siteSource");
+    expect(signup.status).toBe("verified_active");
+  });
 });

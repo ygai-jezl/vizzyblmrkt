@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { isReadyNewsletterHub, listReadyHubs } from "./weeklyHubs";
 
@@ -84,5 +84,34 @@ describe("listReadyHubs", () => {
       plan([node({ id: "h", body: "Just a plain first line here.", role: "Hub" })]),
     ]);
     expect(hubs[0]!.subject).toBe("Just a plain first line here.");
+  });
+});
+
+describe("listReadyHubs, formatted (NEWSLETTER_MARKDOWN_EMAIL_ENABLED)", () => {
+  const md = "# Big News\n\n## What is new\n\n**Journey links** carry on from another journey.\n\n- One\n- Two";
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("keeps the Markdown exactly as it is with the switch off", () => {
+    vi.stubEnv("NEWSLETTER_MARKDOWN_EMAIL_ENABLED", "false");
+    expect(listReadyHubs([plan([node({ id: "h", body: md })])])[0]!.body).toBe(md);
+  });
+
+  it("hands the broadcast email HTML with the switch on", () => {
+    vi.stubEnv("NEWSLETTER_MARKDOWN_EMAIL_ENABLED", "true");
+    const [hub] = listReadyHubs([plan([node({ id: "h", body: md })])]);
+    expect(hub!.body).toContain(">What is new</h2>");
+    expect(hub!.body).toContain("<strong>Journey links</strong>");
+    expect(hub!.body).toContain("<li");
+    expect(hub!.body).not.toContain("**");
+    // The subject and snippet still come from the Markdown.
+    expect(hub!.subject).toBe("Big News");
+    expect(hub!.snippet).not.toContain("<");
+  });
+
+  it("sends the Markdown as before when its HTML wouldn't fit a broadcast", () => {
+    vi.stubEnv("NEWSLETTER_MARKDOWN_EMAIL_ENABLED", "true");
+    let tiny = "";
+    while (tiny.length < 19_900) tiny += "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\n";
+    expect(listReadyHubs([plan([node({ id: "h", body: tiny })])])[0]!.body).toBe(tiny);
   });
 });

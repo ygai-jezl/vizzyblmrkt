@@ -3,6 +3,8 @@ import {
   splitBlogTitle,
   metaSnippet,
 } from "@/components/admin/workspace/create/preview/contentPreviewHelpers";
+import { isNewsletterMarkdownEmailEnabled } from "@/lib/email/flags";
+import { MAX_BROADCAST_BODY_CHARS, renderNewsletterHtml } from "@/lib/email/newsletterMarkdown";
 
 /**
  * Pure view-model for the Weekly-newsletter tab: aggregate every "ready" hub
@@ -40,8 +42,21 @@ export function isReadyNewsletterHub(node: ContentNode): boolean {
   return node.channel === "newsletter";
 }
 
-/** Every ready newsletter hub across the workspace's plans, newest plan first. */
-export function listReadyHubs(plans: ContentPlan[]): ReadyHub[] {
+/** The hub as email HTML, or its Markdown as before when the HTML wouldn't fit a broadcast. */
+function emailBody(markdown: string): string {
+  const html = renderNewsletterHtml(markdown);
+  return html.length <= MAX_BROADCAST_BODY_CHARS ? html : markdown;
+}
+
+/**
+ * Every ready newsletter hub across the workspace's plans, newest plan first. With `formatted`
+ * (NEWSLETTER_MARKDOWN_EMAIL_ENABLED) the body is the hub's Markdown as email HTML, so the
+ * broadcast it's snapshotted into sends headings and bold rather than `##` and `**`.
+ */
+export function listReadyHubs(
+  plans: ContentPlan[],
+  { formatted = isNewsletterMarkdownEmailEnabled() }: { formatted?: boolean } = {},
+): ReadyHub[] {
   const out: ReadyHub[] = [];
   for (const plan of plans) {
     for (const node of plan.graph.nodes) {
@@ -55,7 +70,7 @@ export function listReadyHubs(plans: ContentPlan[]): ReadyHub[] {
         scheduledAt: node.scheduledAt ?? null,
         subject: splitBlogTitle(node).title,
         snippet: metaSnippet(node.body),
-        body: node.body,
+        body: formatted ? emailBody(node.body) : node.body,
       });
     }
   }

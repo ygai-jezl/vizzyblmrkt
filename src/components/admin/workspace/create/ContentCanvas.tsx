@@ -632,6 +632,15 @@ export function ContentCanvas({
     }
   }
 
+  /** The hero card's Make again, style pick and upload save first, like the inspector's other
+   *  buttons: the server draws the saved title, so an edited title not saved yet was missed. */
+  async function saveThenHero(id: string, run: () => Promise<string | null>, failed: string): Promise<string | null> {
+    setHeroBusy(id);
+    if (await save().catch(() => false)) return run();
+    setHeroBusy(null);
+    return failed;
+  }
+
   async function setHeroAlt(id: string, alt: string): Promise<string | null> {
     try {
       const res = await fetch(heroUrl(id), {
@@ -989,8 +998,8 @@ export function ContentCanvas({
           ...(heroOn
             ? {
                 hero: {
-                  make: makeHero,
-                  upload: uploadHero,
+                  make: (id, opts) => saveThenHero(id, () => makeHero(id, opts), "Save failed. The hero image wasn't made."),
+                  upload: (id, file) => saveThenHero(id, () => uploadHero(id, file), "Save failed. Your image wasn't used."),
                   setAlt: setHeroAlt,
                   busyId: heroBusy,
                   assetUrl: (ref: string) => `/api/admin/workspace/${workspaceId}/asset/${ref}`,

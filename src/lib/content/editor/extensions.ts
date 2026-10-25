@@ -5,6 +5,7 @@ import Table from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
 import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
+import TextAlign from "@tiptap/extension-text-align";
 import { safeHref } from "@/lib/content/blog/markdown";
 import { isSafeHref } from "@/lib/email/emailRender";
 
@@ -121,6 +122,8 @@ export function editorExtensions(format: EditFormat, box: typeof ArticleBox = Ar
         strike: false,
       }),
       Underline,
+      // Keeps a centred line; the toolbar doesn't set alignment.
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
       link,
     ];
   }

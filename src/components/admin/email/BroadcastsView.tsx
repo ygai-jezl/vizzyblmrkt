@@ -356,6 +356,7 @@ export function BroadcastsView({
             campaignId={campaignId}
             value={value}
             onChange={setValue}
+            draftKey={`broadcast:${campaignId}:${editingId ?? "new"}`}
           />
 
           {error ? (

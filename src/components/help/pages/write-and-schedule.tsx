@@ -1,7 +1,10 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
+import { isEditModeEnabled } from "@/lib/content/editor/flags";
+import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -71,6 +74,16 @@ export default function WriteAndScheduleHelp() {
         saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
+      {isEditModeEnabled() ? (
+        <P>
+          To edit an article or a newsletter the way readers will see it, click the hub and press <strong>Edit mode</strong>{" "}
+          beside <strong>Final copy</strong>. Headings, bold, lists, links, tables and boxes such as <strong>Key facts</strong>{" "}
+          look as they will on the page, with the article&apos;s checks and an outline beside the text. Press{" "}
+          <strong>Save</strong> when you&apos;re done. What&apos;s saved is still Markdown, so <strong>Copy Markdown</strong>, the
+          checks and Vizzy work as before, and <strong>Markdown</strong> at the top shows the text itself. Changes you
+          haven&apos;t saved stay in this browser until you close the tab, and Edit mode offers them back when you open it again.
+        </P>
+      ) : null}
       {isBlogAiSummaryUiEnabled() ? (
         <P>
           Once the article is approved and has its address (the <strong>Hub URL</strong> when you start the draft, or{" "}
@@ -136,6 +149,12 @@ export default function WriteAndScheduleHelp() {
         It goes to people on a launch&apos;s waitlist who reached the weekly newsletter step of its welcome journey. If nobody
         has yet, YouGrow tells you and sends nothing.
       </P>
+      {isSiteSignupsEnabled() ? (
+        <P>
+          Newsletter sign-ups from your own site join a launch just for the newsletter, and Send this week&apos;s newsletter
+          offers that launch first. See <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+        </P>
+      ) : null}
       <Steps>
         <li>
           Open your launch, then <strong>Emails</strong>, and press <strong>Edit journey</strong>. On an Exit step, tick{" "}
@@ -156,6 +175,13 @@ export default function WriteAndScheduleHelp() {
           <strong>Schedule for later</strong> and press <strong>Schedule</strong>.
         </li>
       </Steps>
+
+      {isNewsletterMarkdownEmailUiEnabled() ? (
+        <P>
+          The newsletter goes out formatted: its headings, bold, lists and links arrive the way the hub&apos;s{" "}
+          <strong>Preview</strong> shows them.
+        </P>
+      ) : null}
 
       <H2 id="check">Check it worked</H2>
       <Checks>
@@ -199,6 +225,27 @@ export default function WriteAndScheduleHelp() {
                   "Set the address the article has, or will have, on your site: the Hub URL, or Article address on the hub where it shows.",
                 ],
                 ["Use the article's own https address to make its links.", "Use the article's full https address, not your home page."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isEditModeEnabled()
+            ? ([
+                [
+                  "Edit mode can't keep",
+                  "The message names the part, such as a table with one column. Change that part in Markdown, or remove it, then press Edit mode again.",
+                ],
+                [
+                  "can't be kept in Markdown, so it will be saved simpler.",
+                  "Press Save anyway to save it without that formatting, or Keep editing to change it. Italics inside a word and lists inside lists are the usual causes.",
+                ],
+                [
+                  "Save failed. Your changes are still here, so try again.",
+                  "Check your connection and press Save again. Your text stays in this browser until you close the tab.",
+                ],
+                [
+                  "That address can't be a link here.",
+                  "Use a web address that starts with https://, a page on your site such as /pricing, or a section of the article such as #faq.",
+                ],
+                ["Shorten it to save.", "An article or a newsletter holds up to 20,000 characters. Cut it down, then save."],
               ] as Array<[string, string]>)
             : []),
           ...(isBrandNotesQuestionsUiEnabled()

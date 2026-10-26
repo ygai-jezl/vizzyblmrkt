@@ -48,6 +48,7 @@ import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
 import type { BrandAuthor } from "@/lib/types/brandAuthor";
 import type { BrandNote } from "@/lib/types/brandNote";
+import type { SiteKey } from "@/lib/types/siteKey";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -413,6 +414,8 @@ export interface TenantRepositories {
   brandAuthors: TenantCollection<BrandAuthor>;
   /** What we've seen: the brand's own first-hand notes (src/lib/brandNotes/store.ts). */
   brandNotes: TenantCollection<BrandNote>;
+  /** A launch's site key, one per launch by launch id (src/lib/waitlist/siteKeys.ts). */
+  siteKeys: TenantCollection<SiteKey>;
 }
 
 /**
@@ -533,5 +536,8 @@ export function forTenant(
     brandAuthors: new TenantCollection<BrandAuthor>(regionalDb, "brand_authors", t),
     // The brand's first-hand notes may name its customers → regional DB, with the content they inform.
     brandNotes: new TenantCollection<BrandNote>(regionalDb, "brand_notes", t),
+    // A launch's site key (a sealed secret, no end-user PII) sits with its launch → regional DB.
+    // The control-plane `launch_keys` lookup lives in src/lib/tenant/launchKeys.ts.
+    siteKeys: new TenantCollection<SiteKey>(regionalDb, "launch_site_keys", t),
   };
 }

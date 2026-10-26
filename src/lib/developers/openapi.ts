@@ -17,6 +17,8 @@ import {
 } from "@/lib/connect/v2/contract";
 import { BATCH_ITEM_NOTES, BatchItemDocSchema, BatchRequestDocSchema, describeProperties, tidy, toJson, USER_NOTES, type Io } from "./schemas";
 import { STATE_NOTES, USER_ID_NOTES } from "./userFields";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+import { SITE_SIGNUP_LIMITS, SITE_SIGNUPS_PATH, SiteSignupReplySchema, SiteSignupRequestSchema } from "@/lib/waitlist/siteSignupContract";
 
 /**
  * API v2 as an OpenAPI 3.1 document, built from the contract's Zod schemas
@@ -69,6 +71,17 @@ export const COMPONENTS: Record<string, Component> = {
       entityId: "The entity it happened to — one of the user's `entities`, e.g. the brand an audit ran on. A journey about one entity follows it.",
     },
   },
+  SiteSignupRequest: {
+    schema: SiteSignupRequestSchema,
+    io: "input",
+    description: "One email from your own sign-up box, for the launch your site key belongs to. Unknown fields are refused.",
+    notes: {
+      email: "The address to confirm and subscribe.",
+      firstName: "Used in the greeting.",
+      locale: "The language of their emails, e.g. `en-GB`; kept when the launch offers it.",
+      source: "Where on your site they signed up, e.g. `blog/first-post`.",
+    },
+  },
   ContextResponse: {
     schema: ContextResponseSchema,
     io: "input",
@@ -108,6 +121,12 @@ export const COMPONENTS: Record<string, Component> = {
       keyId: "The key id you authenticated with.",
       rotating: "A new secret was issued in the last 24 hours; the previous one keeps working until then.",
     },
+  },
+  SiteSignupReply: {
+    schema: SiteSignupReplySchema,
+    io: "output",
+    description:
+      "`confirmation_sent` (202): the confirmation email is on its way. `already_confirmed`: already on the list. `not_sent`: nothing was sent, because a confirmation went in the last day (`recently_sent`), the address bounced or reported spam (`blocked`), or they were taken off the launch (`removed`). Show your visitor the same message whatever it says.",
   },
   EventResponse: {
     schema: EventResponseSchema,
@@ -244,7 +263,67 @@ function responses(): Record<string, Json> {
 
 const use = (name: string) => ({ $ref: `#/components/responses/${name}` });
 
+/** POST /api/v2/signups: a launch's site key, not a product key (LAUNCH_SITE_SIGNUPS_ENABLED; listed only while on). */
+function siteSignupPath(): Json {
+  const kbSite = kb(SITE_SIGNUP_LIMITS.maxBodyBytes);
+  const error = (description: string, examples: Examples) => ({ description, content: body("Error", examples) });
+  const shared = (name: string) => ({ $ref: `#/components/responses/${name}` });
+  return {
+    [SITE_SIGNUPS_PATH]: {
+      post: {
+        operationId: "addSiteSignup",
+        tags: ["Sign-ups"],
+        security: [{ siteKeyAuth: [] }],
+        summary: "Add a sign-up from your own site",
+        description: `Adds one email to the launch your site key belongs to and sends the confirmation email; they join the launch (its journey, broadcasts and weekly newsletter) once they confirm. One confirmation per address per launch a day; an address that bounced or reported spam is never emailed. Server to server only. ${SITE_SIGNUP_LIMITS.perMinute} calls a minute and ${SITE_SIGNUP_LIMITS.perHour} an hour per key, ${kbSite} per call.`,
+        requestBody: {
+          required: true,
+          content: body("SiteSignupRequest", {
+            minimal: { summary: "Just the email", value: { email: "sam@example.com" } },
+            full: { summary: "With a name, language and source", value: { email: "sam@example.com", firstName: "Sam", locale: "en-GB", source: "blog/first-post" } },
+          }),
+        },
+        responses: {
+          "202": { description: "The confirmation email is on its way.", content: body("SiteSignupReply", { sent: { summary: "Sent", value: { status: "confirmation_sent" } } }) },
+          "200": {
+            description: "Nothing sent: already confirmed, or not sent and why.",
+            content: body("SiteSignupReply", {
+              already: { summary: "Already on the list", value: { status: "already_confirmed" } },
+              recently: { summary: "Sent in the last day", value: { status: "not_sent", reason: "recently_sent" } },
+              blocked: { summary: "Bounced or reported spam", value: { status: "not_sent", reason: "blocked" } },
+              removed: { summary: "Taken off the launch", value: { status: "not_sent", reason: "removed" } },
+            }),
+          },
+          "400": shared("Invalid"),
+          "401": error("The site key id or secret is missing or wrong, or the key was revoked.", {
+            unauthorized: {
+              summary: "Wrong key id or secret",
+              value: { error: "unauthorized", message: "Use HTTP Basic auth: your site key id as the username, its secret as the password." },
+            },
+          }),
+          "404": error("Sign-ups from your site aren't switched on for this YouGrow.", {
+            off: { summary: "Switched off", value: { error: "site_signups_disabled", message: "Sign-ups from your site aren't turned on for this YouGrow." } },
+          }),
+          "409": error("The launch is archived.", {
+            closed: { summary: "Archived", value: { error: "launch_closed", message: "This launch is archived, so it takes no new sign-ups." } },
+          }),
+          "413": error(`The body is over ${kbSite}.`, { too_large: { summary: "Too large", value: { error: "body_too_large", message: `At most ${kbSite}.` } } }),
+          "429": shared("RateLimited"),
+          "503": error("The confirmation couldn't be sent, or the key couldn't be checked. Retry after `Retry-After`.", {
+            email: { summary: "Email unavailable", value: { error: "email_unavailable", message: "The confirmation email couldn't be sent. Try again shortly." } },
+            unavailable: { summary: "Can't check the key", value: { error: "unavailable" } },
+          }),
+        },
+      },
+    },
+  };
+}
+
 function paths(): Json {
+  return { ...apiPaths(), ...(isSiteSignupsEnabled() ? siteSignupPath() : {}) };
+}
+
+function apiPaths(): Json {
   const errors = (...names: Array<[string, string]>) => Object.fromEntries(names.map(([code, name]) => [code, use(name)]));
   return {
     [V2_PATHS.user]: {
@@ -558,6 +637,7 @@ export function openApiSpec(origin: string): Json {
       { name: "Users", description: "Send each user's current state, read it back, or erase it." },
       { name: "Events", description: "Optional milestones." },
       { name: "Connection", description: "Check the key you're using." },
+      ...(isSiteSignupsEnabled() ? [{ name: "Sign-ups", description: "Add sign-ups from your own site to a launch, with its site key." }] : []),
     ],
     paths: paths(),
     webhooks: webhooks(o),
@@ -573,6 +653,15 @@ export function openApiSpec(origin: string): Json {
           scheme: "basic",
           description: "Username: your key id (`ygk_…`). Password: your secret (`ygs_…`). HTTPS only. After a rotation, the previous secret works for 24 hours.",
         },
+        ...(isSiteSignupsEnabled()
+          ? {
+              siteKeyAuth: {
+                type: "http",
+                scheme: "basic",
+                description: "For POST /api/v2/signups only. Username: a launch's site key id (`ygl_…`). Password: its secret (`ygls_…`). HTTPS only, from your server.",
+              },
+            }
+          : {}),
         bearerAuth: {
           type: "http",
           scheme: "bearer",

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { DOC_PAGES } from "@/lib/developers/docs";
+import { shownDocPages } from "@/lib/developers/docs";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { BaseJsonLd } from "@/components/site/JsonLd";
 
@@ -31,7 +31,7 @@ export default function DevelopersLayout({ children }: { children: ReactNode }) 
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 md:grid-cols-[12rem_1fr]">
         <nav className="text-sm md:sticky md:top-6 md:self-start" aria-label="Developer docs">
           <ul className="flex flex-wrap gap-x-4 gap-y-1 md:block md:space-y-1">
-            {DOC_PAGES.map((n) => (
+            {shownDocPages().map((n) => (
               <li key={n.path}>
                 <Link href={n.path} className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white">
                   {n.label}

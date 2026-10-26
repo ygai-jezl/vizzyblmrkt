@@ -31,6 +31,13 @@ export interface CreateSignupOptions {
    * launch's supported set by the route. Stored so emails match the signup language.
    */
   locale?: string | null;
+  /**
+   * Start unconfirmed, with a confirmation token, whatever the launch's double
+   * opt-in setting. Site sign-ups always confirm by email (src/lib/waitlist/siteSignup.ts).
+   */
+  requireVerification?: boolean;
+  /** Server-set fields the public form can never send (site sign-ups). */
+  extra?: Pick<Partial<Signup>, "joinedVia" | "siteSource" | "confirmationSentAt">;
 }
 
 export interface SignupResult {
@@ -89,7 +96,7 @@ export async function createSignup(
   const id = deterministicSignupId(campaign.id, contactKey);
 
   const referralToken = generateReferralToken();
-  const verified = !campaign.usesSignupVerification;
+  const verified = !(opts.requireVerification || campaign.usesSignupVerification);
   const status: Signup["status"] = verified ? "verified_active" : "unverified";
   // Double opt-in: an unverified signup gets a token to confirm via email.
   const verificationToken = verified ? null : generateVerificationToken();
@@ -124,6 +131,7 @@ export async function createSignup(
       input.utm && Object.values(input.utm).some(Boolean) ? input.utm : undefined,
     referrerUrl: input.referrerUrl || null,
     locale: opts.locale ?? null,
+    ...opts.extra,
     createdAt: now,
   };
 

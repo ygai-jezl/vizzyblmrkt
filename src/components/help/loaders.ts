@@ -7,6 +7,7 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "your-brand": () => import("./pages/your-brand"),
   "email-style": () => import("./pages/email-style"),
   "launch-and-waitlist": () => import("./pages/launch-and-waitlist"),
+  "newsletter-from-your-site": () => import("./pages/newsletter-from-your-site"),
   "programmes-and-knowledge": () => import("./pages/programmes-and-knowledge"),
   "brand-map": () => import("./pages/brand-map"),
   "write-and-schedule": () => import("./pages/write-and-schedule"),

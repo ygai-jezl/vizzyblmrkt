@@ -2,7 +2,7 @@ import { HELP_BODIES } from "@/components/help/bodies";
 import { docsOrigin } from "@/lib/developers/flags";
 import { docToMarkdown } from "@/lib/developers/markdown";
 import { isHelpPagesEnabled } from "./flags";
-import { HELP_GROUPS, HELP_PAGES, helpMarkdownPath } from "./pages";
+import { HELP_GROUPS, helpMarkdownPath, shownHelpPages } from "./pages";
 
 /**
  * What AI assistants read (Vizzy included): each help page as Markdown, an
@@ -26,7 +26,7 @@ export function helpLlmsTxt(origin = docsOrigin()): string {
     "",
   ];
   for (const g of HELP_GROUPS) {
-    const pages = HELP_PAGES.filter((p) => p.group === g.key);
+    const pages = shownHelpPages().filter((p) => p.group === g.key);
     if (!pages.length) continue;
     lines.push(`## ${g.label || "Start here"}`);
     for (const p of pages) lines.push(`- [${p.label}](${origin}${helpMarkdownPath(p)}): ${p.summary}`);
@@ -37,7 +37,7 @@ export function helpLlmsTxt(origin = docsOrigin()): string {
 }
 
 export function helpLlmsFullTxt(origin = docsOrigin()): string {
-  return HELP_PAGES.map((p) => `<!-- ${origin}${p.path} -->\n\n${helpPageMarkdown(p.slug, origin)}`).join("\n---\n\n");
+  return shownHelpPages().map((p) => `<!-- ${origin}${p.path} -->\n\n${helpPageMarkdown(p.slug, origin)}`).join("\n---\n\n");
 }
 
 function notFound(): Response {

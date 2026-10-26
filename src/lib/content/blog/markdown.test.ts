@@ -5,6 +5,7 @@ import {
   inlineLinks,
   lastUpdatedOf,
   parseArticle,
+  parseInline,
   plainInline,
   renderArticleHtml,
   safeHref,
@@ -304,5 +305,25 @@ describe("article markdown", () => {
     expect(slugify("What does it cost? (2026)")).toBe("what-does-it-cost-2026");
     expect(lastUpdatedOf("*Last updated: 2026-10-07*")).toBe("2026-10-07");
     expect(lastUpdatedOf("Last updated yesterday")).toBeNull();
+  });
+});
+
+describe("escapes and closing hashes", () => {
+  it("keeps an escaped delimiter as text", () => {
+    expect(plainInline("a \\*starred\\* word")).toBe("a *starred* word");
+    expect(parseInline("a \\*starred\\* word")).toEqual([{ t: "text", v: "a \\*starred\\* word" }]);
+    expect(parseInline("\\[not](a link)")).toEqual([{ t: "text", v: "\\[not](a link)" }]);
+    expect(parseInline("*real* italic")[0]).toEqual({ t: "em", c: [{ t: "text", v: "real" }] });
+  });
+
+  it("checks a link with the check it is given", () => {
+    const anyToken = (raw: string) => (/^\{\{\w+\}\}$/.test(raw) ? raw : null);
+    expect(parseInline("[Read]({{hub_url}})")).toEqual([{ t: "text", v: "Read" }]);
+    expect(parseInline("[Read]({{hub_url}})", anyToken)).toEqual([{ t: "link", href: "{{hub_url}}", c: [{ t: "text", v: "Read" }] }]);
+  });
+
+  it("strips a closing run of #s only after a space", () => {
+    expect(parseArticle("## Why C#")[0]).toEqual({ kind: "heading", level: 2, text: "Why C#" });
+    expect(parseArticle("## Closed ##")[0]).toEqual({ kind: "heading", level: 2, text: "Closed" });
   });
 });

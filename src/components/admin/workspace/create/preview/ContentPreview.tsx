@@ -6,6 +6,8 @@ import { truncateSeeMore } from "@/lib/distribute/preview/linkedin";
 import { truncateCaption } from "@/lib/distribute/preview/instagram";
 import { deconstructToThread } from "@/lib/distribute/threadDeconstructor";
 import { wrap, renderEmailLayout, bodyToHtml } from "@/lib/email/emailRender";
+import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
+import { renderNewsletterHtml } from "@/lib/email/newsletterMarkdown";
 import { MarkdownMessage } from "@/components/admin/chat/MarkdownMessage";
 import { ArticleMarkdown } from "@/components/admin/workspace/create/blog/ArticleMarkdown";
 import { isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
@@ -468,12 +470,16 @@ function EmailFrame({ node, view, brandName, emailStyle }: FrameProps) {
   const subject = node.subject?.trim() || node.role || "(no subject)";
   const preheader = node.previewText?.trim() || firstLine(node.body);
   const html = useMemo(() => {
+    // A newsletter hub's Markdown, drawn as the email it's sent as (NEWSLETTER_MARKDOWN_EMAIL_ENABLED).
+    const newsletter = node.type === "hub" && node.channel === "newsletter" && isNewsletterMarkdownEmailUiEnabled();
     const inner =
       node.layout && node.layout.blocks?.length
         ? renderEmailLayout(node.layout, { style: emailStyle })
-        : bodyToHtml(node.body || "");
+        : newsletter
+          ? renderNewsletterHtml(node.body || "")
+          : bodyToHtml(node.body || "");
     return wrap(inner, null, { style: emailStyle });
-  }, [node.layout, node.body, emailStyle]);
+  }, [node.layout, node.body, node.type, node.channel, emailStyle]);
 
   if (view === "feed") {
     // As seen "in the feed": the inbox list row.

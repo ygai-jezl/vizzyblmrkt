@@ -1,5 +1,6 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
 
 export default function OnboardingJourneysHelp() {
   return (
@@ -58,6 +59,14 @@ export default function OnboardingJourneysHelp() {
         Change the words on the <strong>Content</strong> tab and the timing on the <strong>Canvas</strong> tab. Press{" "}
         <strong>Save draft</strong> as you go. <strong>Timeline preview</strong> shows when each email would arrive.
       </P>
+      {isEditModeEmailsEnabled() ? (
+        <P>
+          To write an email the way it will look, press <strong>Edit mode</strong> above its <strong>Body</strong>. Add
+          headings, bold, lists and links, and put in a token such as <code>{"{{user.first_name|there}}"}</code> from{" "}
+          <strong>Merge values</strong> beside the text. Press <strong>Done</strong>, then <strong>Save draft</strong>. An email
+          that has HTML Edit mode can&apos;t keep, such as an image or a table, opens as HTML with a note saying what it is.
+        </P>
+      ) : null}
 
       <H2 id="test">Publish it in test mode</H2>
       <P>A new journey starts in test mode: only the test users you list join, and they get real emails.</P>

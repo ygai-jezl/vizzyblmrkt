@@ -9,6 +9,7 @@ import {
 } from "./audit";
 import { gcsAuditSink, type AuditObjectSink } from "./auditSink";
 import { TenantIsolationError } from "./errors";
+import { deleteLaunchKey } from "./launchKeys";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import type { FirestoreLike, TenantContext } from "./types";
 
@@ -112,6 +113,13 @@ export async function deleteLaunch(
     const inviteWaves = await repo.inviteWaves.deleteWhere(where);
     if (invites) deleted.invites = invites;
     if (inviteWaves) deleted.inviteWaves = inviteWaves;
+    // The launch's site key: its routing first, so the key stops working, then the key.
+    const siteKey = await repo.siteKeys.getById(campaignId);
+    if (siteKey) {
+      await deleteLaunchKey(siteKey.keyId, ctx.tenantId, db);
+      await repo.siteKeys.delete(campaignId);
+      deleted.siteKeys = 1;
+    }
     // The launch's waitlist journey on the lifecycle engine (engine move): its
     // enrolments, versions and counters, then the journey itself.
     const waitlistEnrolments = await repo.waitlistEnrolments.deleteWhere(where);

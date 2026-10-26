@@ -127,3 +127,32 @@ export async function isSuppressedFor(
   ]);
   return all != null || cat != null;
 }
+
+/** Why an address is suppressed brand-wide, or null when it isn't. */
+export async function suppressionReasonOf(
+  ctx: TenantContext,
+  email: string | null | undefined,
+  db?: FirestoreLike,
+): Promise<EmailSuppressionReason | null> {
+  if (!email) return null;
+  const doc = await forTenant(ctx, db).emailSuppressions.getById(suppressionDocId(ctx.tenantId, email));
+  return doc?.reason ?? null;
+}
+
+/**
+ * Lift a brand-wide UNSUBSCRIBE because the person confirmed again by email (a site
+ * sign-up, LAUNCH_SITE_SIGNUPS_ENABLED). Only an unsubscribe is ever lifted: a spam
+ * report or a hard bounce stays for good. True when a row was removed.
+ */
+export async function liftUnsubscribe(
+  ctx: TenantContext,
+  email: string,
+  db?: FirestoreLike,
+): Promise<boolean> {
+  const repo = forTenant(ctx, db).emailSuppressions;
+  const id = suppressionDocId(ctx.tenantId, email);
+  const doc = await repo.getById(id);
+  if (!doc || doc.reason !== "unsubscribe") return false;
+  await repo.delete(id);
+  return true;
+}

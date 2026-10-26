@@ -10,7 +10,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { docsOrigin } from "@/lib/developers/flags";
 import { helpPageMarkdown } from "./agentFiles";
 import { isSetupGuideEnabled } from "./flags";
-import { HELP_PAGES, helpPage } from "./pages";
+import { helpPage, isHelpPageShown, shownHelpPages } from "./pages";
 
 /**
  * For Vizzy: where the brand is on its setup, and the help pages, so "What
@@ -75,7 +75,7 @@ export async function agentSetupStatus(ctx: TenantContext, db?: FirestoreLike, o
           warning: st.done ? null : (st.warning ?? null),
         })),
       })),
-      helpPages: HELP_PAGES.map((p) => ({ page: p.slug || "get-set-up", title: p.slug ? p.label : "Get set up", summary: p.summary, url: `${origin}${p.path}` })),
+      helpPages: shownHelpPages().map((p) => ({ page: p.slug || "get-set-up", title: p.slug ? p.label : "Get set up", summary: p.summary, url: `${origin}${p.path}` })),
     },
   };
 }
@@ -84,9 +84,9 @@ export async function agentSetupStatus(ctx: TenantContext, db?: FirestoreLike, o
 export function agentHelpPage(page: string, origin = docsOrigin()): ApiResult {
   const slug = page === "get-set-up" ? "" : page;
   const p = helpPage(slug);
-  const markdown = p ? helpPageMarkdown(slug, origin) : null;
+  const markdown = p && isHelpPageShown(p) ? helpPageMarkdown(slug, origin) : null;
   if (!p || !markdown) {
-    return { status: 404, body: { error: "not_found", pages: HELP_PAGES.map((x) => x.slug || "get-set-up") } };
+    return { status: 404, body: { error: "not_found", pages: shownHelpPages().map((x) => x.slug || "get-set-up") } };
   }
   return { status: 200, body: { page, title: p.slug ? p.label : "Get set up", url: `${origin}${p.path}`, markdown } };
 }

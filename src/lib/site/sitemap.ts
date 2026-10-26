@@ -1,6 +1,6 @@
-import { DOC_PAGES } from "@/lib/developers/docs";
+import { shownDocPages } from "@/lib/developers/docs";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
-import { HELP_PAGES } from "@/lib/help/pages";
+import { shownHelpPages } from "@/lib/help/pages";
 import { isHelpPagesEnabled } from "@/lib/help/flags";
 import { FEATURE_ORDER, STAGE_IDS } from "./content";
 import { isSiteLanguagesEnabled, isSiteLoopEnabled } from "./flags";
@@ -35,8 +35,8 @@ export function sitemapEntries(origin: string): SitemapEntry[] {
   } else {
     out.push({ loc: `${origin}/` });
   }
-  if (isDevelopersDocsEnabled()) for (const p of DOC_PAGES) out.push({ loc: origin + p.path });
-  if (isHelpPagesEnabled()) for (const p of HELP_PAGES) out.push({ loc: origin + p.path });
+  if (isDevelopersDocsEnabled()) for (const p of shownDocPages()) out.push({ loc: origin + p.path });
+  if (isHelpPagesEnabled()) for (const p of shownHelpPages()) out.push({ loc: origin + p.path });
   return out;
 }
 

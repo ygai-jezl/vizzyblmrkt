@@ -91,3 +91,18 @@ export function isEmailStyleTransactionalEnabled(): boolean {
 export function isEmailJourneyStyleEnabled(): boolean {
   return process.env.EMAIL_JOURNEY_STYLE_ENABLED === "true";
 }
+
+/**
+ * Server flag — newsletter hubs go out as formatted email: the Weekly screen hands the
+ * broadcast HTML drawn from the hub's Markdown (headings, bold, lists, links) instead of the
+ * raw Markdown, which the send path escapes so `##` and `**` reached the inbox as symbols.
+ * Off: the hub's text exactly as before.
+ */
+export function isNewsletterMarkdownEmailEnabled(): boolean {
+  return process.env.NEWSLETTER_MARKDOWN_EMAIL_ENABLED === "true";
+}
+
+/** Client mirror — the canvas preview of a newsletter hub draws the same formatted email. */
+export function isNewsletterMarkdownEmailUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED === "true";
+}

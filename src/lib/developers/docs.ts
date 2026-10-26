@@ -1,3 +1,5 @@
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+
 /**
  * The /developers pages, in reading order — one list for the docs navigation,
  * the Markdown twins (`<path>.md`), llms.txt and llms-full.txt.
@@ -14,6 +16,8 @@ export interface DocPage {
    * OpenAPI spec in the browser, so agents read /developers/openapi.json instead.
    */
   markdown?: false;
+  /** A page about a switched-off feature: listed and served only while its switch is on. */
+  onlyWhen?: "site_signups";
 }
 
 export const DOC_PAGES: DocPage[] = [
@@ -35,6 +39,14 @@ export const DOC_PAGES: DocPage[] = [
     label: "Sending users",
     summary:
       "API v2: send each user's current state — sign-ups, onboarding steps, facts, opt-outs, exclusions and deletion — with the fields, responses, errors and limits.",
+  },
+  {
+    slug: "site-signups",
+    path: "/developers/site-signups",
+    label: "Sign-ups from your site",
+    summary:
+      "Your own sign-up box: your server adds each email to a launch with its site key, and YouGrow confirms it. The call, fields, responses and limits.",
+    onlyWhen: "site_signups",
   },
   {
     slug: "context-endpoint",
@@ -69,6 +81,16 @@ export const DOC_PAGES: DocPage[] = [
     markdown: false,
   },
 ];
+
+/** Whether a page is listed and served now (its switch, if it has one, is on). */
+export function isDocPageShown(page: Pick<DocPage, "onlyWhen">): boolean {
+  return page.onlyWhen === "site_signups" ? isSiteSignupsEnabled() : true;
+}
+
+/** The pages to list now: every page, less those whose switch is off. */
+export function shownDocPages(): DocPage[] {
+  return DOC_PAGES.filter(isDocPageShown);
+}
 
 /** Whether a page has a Markdown twin (and so a place in llms-full.txt). */
 export function hasMarkdown(page: Pick<DocPage, "markdown">): boolean {

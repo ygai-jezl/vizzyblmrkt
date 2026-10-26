@@ -43,6 +43,19 @@ function seedLaunch(db: FakeFirestore, tenantId: string, campaignId: string) {
 }
 
 describe("deleteLaunch", () => {
+  it("removes the launch's site key and its routing, and counts it", async () => {
+    const db = new FakeFirestore();
+    seedLaunch(db, "ten_A", "camp1");
+    db.seed("launch_site_keys", "camp1", { tenantId: "ten_A", campaignId: "camp1", keyId: "ygl_one", status: "active" });
+    db.seed("launch_keys", "ygl_one", { keyId: "ygl_one", tenantId: "ten_A", region: "us", campaignId: "camp1" });
+    db.seed("launch_site_keys", "camp2", { tenantId: "ten_A", campaignId: "camp2", keyId: "ygl_two", status: "active" });
+    const result = await deleteLaunch(ctxAdmin, "camp1", {}, db, new FakeAuditSink());
+    expect(result.deleted).toMatchObject({ siteKeys: 1 });
+    expect(db.raw("launch_site_keys", "camp1")).toBeUndefined();
+    expect(db.raw("launch_keys", "ygl_one")).toBeUndefined();
+    expect(db.raw("launch_site_keys", "camp2")).toBeDefined();
+  });
+
   it("also purges the launch's invites and invite waves, and counts them", async () => {
     const db = new FakeFirestore();
     seedLaunch(db, "ten_A", "camp1");

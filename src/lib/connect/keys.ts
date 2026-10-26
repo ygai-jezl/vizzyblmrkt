@@ -41,8 +41,8 @@ export const ROTATION_OVERLAP_MS = 24 * 3600_000;
 
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 
-/** A random lower-case base32 token of `chars` characters (5 bits each). */
-function randomToken(chars: number): string {
+/** A random lower-case base32 token of `chars` characters (5 bits each). Also makes site key ids. */
+export function randomToken(chars: number): string {
   const bytes = randomBytes(chars);
   let out = "";
   for (let i = 0; i < chars; i += 1) out += BASE32[bytes[i]! & 31];

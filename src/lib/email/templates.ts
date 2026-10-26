@@ -16,6 +16,9 @@ import { themeTokens } from "./emailThemes";
  * through wrap(): the colour header, the card and theme, and the button in the button colour
  * with a readable label. Subject and text are the same either way; with no style the HTML is
  * today's literal. Pure + client-safe, so the Email style page can preview it.
+ *
+ * `kind: "newsletter"` is the wording for a site sign-up (LAUNCH_SITE_SIGNUPS_ENABLED):
+ * "Confirm your subscription" rather than a place on a waitlist.
  */
 export function verificationEmail(opts: {
   to: string;
@@ -24,8 +27,11 @@ export function verificationEmail(opts: {
   firstName?: string | null;
   locale?: string | null;
   style?: ResolvedEmailStyle | null;
+  kind?: "waitlist" | "newsletter";
 }): EmailMessage {
   const { locale } = opts;
+  // The lines that differ by kind; greeting, paste-link and footer are shared.
+  const k = opts.kind === "newsletter" ? "email.newsletterConfirm" : "email.verify";
   const info = localeInfo(locale);
   const name = escapeHtml(opts.waitlistName);
   // Greeting differs by channel: HTML escapes the name, plain text does not.
@@ -35,20 +41,20 @@ export function verificationEmail(opts: {
   const greetingText = opts.firstName
     ? getMessage(locale, "email.verify.greetingNamed", { name: opts.firstName })
     : getMessage(locale, "email.verify.greetingPlain");
-  const subject = getMessage(locale, "email.verify.subject", { name: opts.waitlistName });
-  const text = `${greetingText}\n\n${getMessage(locale, "email.verify.bodyText", { name: opts.waitlistName })}\n${opts.verifyUrl}\n\n${getMessage(locale, "email.verify.footer")}`;
+  const subject = getMessage(locale, `${k}.subject`, { name: opts.waitlistName });
+  const text = `${greetingText}\n\n${getMessage(locale, `${k}.bodyText`, { name: opts.waitlistName })}\n${opts.verifyUrl}\n\n${getMessage(locale, "email.verify.footer")}`;
   if (opts.style) {
     const url = escapeHtml(opts.verifyUrl);
     const inner = [
       `<p>${greetingHtml}</p>`,
-      `<p>${getMessage(locale, "email.verify.bodyHtml", { name: `<strong>${name}</strong>` })}</p>`,
-      styledButton(opts.verifyUrl, getMessage(locale, "email.verify.button"), opts.style),
+      `<p>${getMessage(locale, `${k}.bodyHtml`, { name: `<strong>${name}</strong>` })}</p>`,
+      styledButton(opts.verifyUrl, getMessage(locale, `${k}.button`), opts.style),
       `<p style="color:#666;font-size:13px;word-wrap:break-word">${getMessage(locale, "email.verify.pasteLink")}<br>${url}</p>`,
       `<p style="color:#999;font-size:12px;margin-top:28px">${getMessage(locale, "email.verify.footer")}</p>`,
     ].join("\n    ");
     // The inbox preview repeats the opening lines, so it never says anything the email doesn't.
     const preheader = preheaderFrom(
-      `${greetingText} ${getMessage(locale, "email.verify.bodyHtml", { name: opts.waitlistName })}`,
+      `${greetingText} ${getMessage(locale, `${k}.bodyHtml`, { name: opts.waitlistName })}`,
     );
     return {
       to: opts.to,
@@ -63,9 +69,9 @@ export function verificationEmail(opts: {
     text,
     html: `<!doctype html><html lang="${info.code}" dir="${info.dir}"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
   <p>${greetingHtml}</p>
-  <p>${getMessage(locale, "email.verify.bodyHtml", { name: `<strong>${name}</strong>` })}</p>
+  <p>${getMessage(locale, `${k}.bodyHtml`, { name: `<strong>${name}</strong>` })}</p>
   <p style="margin:28px 0">
-    <a href="${opts.verifyUrl}" style="background:#111;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block">${getMessage(locale, "email.verify.button")}</a>
+    <a href="${opts.verifyUrl}" style="background:#111;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block">${getMessage(locale, `${k}.button`)}</a>
   </p>
   <p style="color:#666;font-size:13px">${getMessage(locale, "email.verify.pasteLink")}<br>${opts.verifyUrl}</p>
   <p style="color:#999;font-size:12px;margin-top:28px">${getMessage(locale, "email.verify.footer")}</p>

@@ -19,6 +19,16 @@ describe("emailToEditorHtml", () => {
     );
   });
 
+  it("gives each lifecycle block token between blocks a paragraph of its own", () => {
+    const body =
+      "<p>Hi {{user.first_name|there}},</p>\n<p>Here's where you are:</p>\n{{block.checklist}}\n{{block.next_step}}\n<p>Reply any time.</p>";
+    expect(emailToEditorHtml(body)).toBe(
+      "<p>Hi {{user.first_name|there}},</p>\n<p>Here's where you are:</p>\n<p>{{block.checklist}}</p>\n<p>{{block.next_step}}</p>\n<p>Reply any time.</p>",
+    );
+    // A token inside a sentence stays where it is.
+    expect(emailToEditorHtml("<p>See {{block.insight}} below</p>")).toBe("<p>See {{block.insight}} below</p>");
+  });
+
   it("is empty for an empty body", () => {
     expect(emailToEditorHtml("  \n ")).toBe("");
   });

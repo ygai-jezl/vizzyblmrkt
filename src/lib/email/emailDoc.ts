@@ -6,11 +6,27 @@ import { FOOTER_MARKER, escapeHtml, looksHtml, paragraphize, sanitizeEmailHtml }
  * is refused by name rather than quietly losing it. Pure, client-safe.
  */
 
+// A lifecycle block token ({{block.checklist}}) between blocks, on a line of its own: run
+// together into one paragraph, they would put a table inside a <p>.
+const BLOCK_TOKEN = /\{\{\s*block\.[a-z_]+\s*\}\}/g;
+const LOOSE_BLOCK_TOKENS =
+  /(^|<\/(?:p|ul|ol|h[1-6])>)(\s*(?:\{\{\s*block\.[a-z_]+\s*\}\}\s*)+)(?=<(?:p|ul|ol|h[1-6])\b|$)/g;
+
+/** Each block token that stands between blocks in a paragraph of its own, the shape the
+ *  lifecycle renderer draws as the block itself. */
+function ownParagraphs(html: string): string {
+  return html.replace(LOOSE_BLOCK_TOKENS, (_m, before: string, tokens: string) => {
+    const each = tokens.match(BLOCK_TOKEN) ?? [];
+    return `${before}\n${each.map((t) => `<p>${t}</p>`).join("\n")}\n`;
+  });
+}
+
 /** The HTML Edit mode starts from: plain text as the paragraphs it is sent as (a blank line
- *  starts one, a single line break stays a break), HTML as sanitizeEmailHtml keeps it. */
+ *  starts one, a single line break stays a break), HTML as sanitizeEmailHtml keeps it, with
+ *  any block token between blocks in a paragraph of its own. */
 export function emailToEditorHtml(body: string): string {
   if (!body.trim()) return "";
-  return looksHtml(body) ? sanitizeEmailHtml(body) : paragraphize(escapeHtml(body));
+  return looksHtml(body) ? ownParagraphs(sanitizeEmailHtml(body)) : paragraphize(escapeHtml(body));
 }
 
 /** What Edit mode saves: the editor's HTML, sanitized; "" when nothing was written. */

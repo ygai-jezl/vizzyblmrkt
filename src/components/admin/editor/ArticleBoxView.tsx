@@ -7,7 +7,9 @@ import { ArticleBox } from "@/lib/content/editor/extensions";
 function ArticleBoxView({ node, updateAttributes, editor }: NodeViewProps) {
   const label = String(node.attrs.label ?? "");
   return (
-    <NodeViewWrapper className="mt-5 rounded-lg border border-neutral-300 bg-neutral-50 px-4 py-3 first:mt-0 dark:border-neutral-700 dark:bg-neutral-900">
+    // The wrapper is the only child of the node view's own element, so the gap above sits on
+    // that element (ARTICLE_DOC spaces the editor's top-level blocks), not here.
+    <NodeViewWrapper className="rounded-lg border border-neutral-300 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
       <div contentEditable={false}>
         <input
           aria-label="Box label"

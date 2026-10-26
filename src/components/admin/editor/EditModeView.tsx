@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { PenLine, X } from "lucide-react";
@@ -60,7 +60,9 @@ const ARTICLE_DOC =
     "[&_.selectedCell]:bg-blue-50 dark:[&_.selectedCell]:bg-blue-950 " +
     "[&_pre]:mt-5 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-neutral-200 [&_pre]:bg-neutral-50 [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs [&_pre]:leading-snug dark:[&_pre]:border-neutral-800 dark:[&_pre]:bg-neutral-900 " +
     "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-neutral-100 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.9em] dark:[&_:not(pre)>code]:bg-neutral-800 " +
-    "[&_hr]:my-8 [&_hr]:border-neutral-200 dark:[&_hr]:border-neutral-800";
+    "[&_hr]:my-8 [&_hr]:border-neutral-200 dark:[&_hr]:border-neutral-800 " +
+    // A box's node view (a React renderer element around the drawn box).
+    "[&_.react-renderer]:mt-5 [&>.react-renderer:first-child]:mt-0";
 
 const DOC_CLASS: Record<EditFormat, string> = {
   blog: ARTICLE_DOC,
@@ -169,6 +171,7 @@ export function EditModeView(props: EditModeProps) {
   const [note, setNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const shown = useDeferredValue(raw);
+  const root = useRef<HTMLDivElement>(null);
 
   const toContent = (text: string) => (markdown ? markdownToDoc(text, format) : emailToEditorHtml(text));
   const fromEditor = (ed: Editor) => (markdown ? docToMarkdown(ed.getJSON()) : editorHtmlToEmail(ed.getHTML()));
@@ -177,6 +180,8 @@ export function EditModeView(props: EditModeProps) {
   const editor = useEditor({
     immediatelyRender: false,
     extensions,
+    // The cursor starts in the text, so typing and Escape work at once.
+    autofocus: blocked ? false : "start",
     content: blocked ? "" : toContent(value),
     editorProps: { attributes: { class: DOC_CLASS[format], "aria-label": "Text" } },
     onUpdate: ({ editor: ed }) => {
@@ -195,6 +200,11 @@ export function EditModeView(props: EditModeProps) {
       document.body.style.overflow = before;
     };
   }, []);
+
+  // Focus inside Edit mode (the editor takes it once it's ready), so Escape reaches it.
+  useEffect(() => {
+    if (target && !root.current?.contains(document.activeElement)) root.current?.focus();
+  }, [target]);
 
   // Offer back what was typed here before a reload, or before Vizzy saved the plan.
   useEffect(() => {
@@ -272,6 +282,8 @@ export function EditModeView(props: EditModeProps) {
 
   return createPortal(
     <div
+      ref={root}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label={`Edit mode: ${title}`}
@@ -283,7 +295,7 @@ export function EditModeView(props: EditModeProps) {
           requestClose();
         }
       }}
-      className="fixed inset-0 z-50 flex flex-col bg-neutral-100 text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100"
+      className="fixed inset-0 z-50 flex flex-col bg-neutral-100 text-neutral-900 outline-none dark:bg-neutral-900 dark:text-neutral-100"
     >
       <header className="flex flex-wrap items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2.5 dark:border-neutral-800 dark:bg-neutral-950">
         <button

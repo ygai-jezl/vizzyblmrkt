@@ -54,7 +54,7 @@ export function LinkPopover({ editor, format, onClose }: { editor: Editor; forma
           onClose();
         }
       }}
-      className="absolute right-0 top-full z-20 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] space-y-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+      className="absolute left-0 top-full z-20 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] space-y-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
     >
       <label className="block space-y-1">
         <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Link address</span>

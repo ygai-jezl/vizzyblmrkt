@@ -227,6 +227,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Sign-ups from a brand's own site: a launch's site key and POST /api/v2/signups
+  # (needs CONNECT_SECRET_ENC_KEY, which seals the key's secret).
+  - variable: LAUNCH_SITE_SIGNUPS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Lifecycle journeys and connected products ==
   # Connected products and their journeys, and API v2 (/api/v2/users).
@@ -628,6 +634,28 @@ env:
   # "Summarize with AI" links for an approved blog article's page (needs
   # NEXT_PUBLIC_BLOG_CITABLE_ENABLED).
   - variable: NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Edit mode: a rich text editor over the Markdown of blog and newsletter hubs (the
+  # Markdown is still what's saved), and over broadcast, journey and lifecycle emails.
+  - variable: NEXT_PUBLIC_EDIT_MODE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Newsletter hubs sent and previewed as formatted email, not as Markdown symbols.
+  - variable: NEWSLETTER_MARKDOWN_EMAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED
     value: "false"
     availability:
       - BUILD

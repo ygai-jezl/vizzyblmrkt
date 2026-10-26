@@ -30,6 +30,7 @@ import { useBrandImageStyle } from "@/components/admin/imageStyle/useBrandImageS
 import { ChartEditor } from "@/components/admin/imageStyle/ChartEditor";
 import { EMPTY_DRAFT, chartFromDraft, draftFromChart, type ChartDraft } from "@/components/admin/imageStyle/chartDraft";
 import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
+import { EditModeSwitch } from "@/components/admin/editor/EditModeSwitch";
 import { BlogHubBrief, BlogHubReview } from "./blog/BlogHubPanel";
 import type { BlogHubControls } from "./blog/types";
 import type { TemplateOption } from "./types";
@@ -58,6 +59,7 @@ export function ContentNodeInspector({
   onDelete,
   onClose,
   onOpenLayout,
+  onOpenEditMode,
   onOpenPreview,
   onImageBusyChange,
   blog,
@@ -81,6 +83,8 @@ export function ContentNodeInspector({
   onClose: () => void;
   /** Email nodes — open the visual layout editor (mounted at the canvas level). */
   onOpenLayout?: () => void;
+  /** Blog and newsletter hubs (NEXT_PUBLIC_EDIT_MODE_ENABLED) — open Edit mode over the Markdown. */
+  onOpenEditMode?: () => void;
   /** Content nodes — open the channel-native WYSIWYG preview (feed / opened). */
   onOpenPreview?: () => void;
   /** Blog hub written to the CITABLE structure — the plan's brief plus the research and
@@ -441,19 +445,38 @@ export function ContentNodeInspector({
         </button>
       ) : null}
 
-      <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        Final copy{isEmail && node.layout ? " (rendered from layout — read-only)" : ""}
-        <textarea
-          value={node.body}
-          onChange={(e) => onUpdate({ body: e.target.value })}
-          readOnly={Boolean(isEmail && node.layout)}
-          rows={16}
-          placeholder={busy ? "Generating…" : "Generate to draft this node, or write it here."}
-          className={`mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900 ${
-            isEmail && node.layout ? "opacity-60" : ""
-          }`}
-        />
-      </label>
+      {onOpenEditMode ? (
+        <div>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <label htmlFor={`final-copy-${node.id}`} className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+              Final copy
+            </label>
+            <EditModeSwitch raw="Markdown" onOpen={onOpenEditMode} disabled={busy} />
+          </div>
+          <textarea
+            id={`final-copy-${node.id}`}
+            value={node.body}
+            onChange={(e) => onUpdate({ body: e.target.value })}
+            rows={16}
+            placeholder={busy ? "Generating…" : "Generate to draft this node, or write it here."}
+            className="w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900"
+          />
+        </div>
+      ) : (
+        <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          Final copy{isEmail && node.layout ? " (rendered from layout — read-only)" : ""}
+          <textarea
+            value={node.body}
+            onChange={(e) => onUpdate({ body: e.target.value })}
+            readOnly={Boolean(isEmail && node.layout)}
+            rows={16}
+            placeholder={busy ? "Generating…" : "Generate to draft this node, or write it here."}
+            className={`mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-xs leading-relaxed dark:border-neutral-700 dark:bg-neutral-900 ${
+              isEmail && node.layout ? "opacity-60" : ""
+            }`}
+          />
+        </label>
+      )}
 
       {/* Blog hub — the fact check, the CITABLE check and the hand-over, read off the copy above. */}
       {blogHub ? <BlogHubReview node={node} controls={blogHub} onUpdate={onUpdate} disabled={busy} /> : null}

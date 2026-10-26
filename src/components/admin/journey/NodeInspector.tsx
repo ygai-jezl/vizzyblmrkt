@@ -75,6 +75,7 @@ export function NodeInspector({
           <EmailComposer
             mode="journey-node"
             campaignId={campaignId}
+            draftKey={`journey:${campaignId}:${node.id}`}
             value={{
               subject: String(data.subject ?? ""),
               body: String(data.body ?? ""),

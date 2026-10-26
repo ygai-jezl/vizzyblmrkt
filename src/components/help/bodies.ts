@@ -4,6 +4,7 @@ import EmailSendingHelp from "./pages/email-sending";
 import YourBrandHelp from "./pages/your-brand";
 import EmailStyleHelp from "./pages/email-style";
 import LaunchAndWaitlistHelp from "./pages/launch-and-waitlist";
+import NewsletterFromYourSiteHelp from "./pages/newsletter-from-your-site";
 import ProgrammesAndKnowledgeHelp from "./pages/programmes-and-knowledge";
 import BrandMapHelp from "./pages/brand-map";
 import WriteAndScheduleHelp from "./pages/write-and-schedule";
@@ -22,6 +23,7 @@ export const HELP_BODIES: Record<string, () => ReactNode> = {
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,
   "launch-and-waitlist": LaunchAndWaitlistHelp,
+  "newsletter-from-your-site": NewsletterFromYourSiteHelp,
   "programmes-and-knowledge": ProgrammesAndKnowledgeHelp,
   "brand-map": BrandMapHelp,
   "write-and-schedule": WriteAndScheduleHelp,

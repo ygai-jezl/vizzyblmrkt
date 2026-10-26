@@ -27,6 +27,7 @@ import {
 import { SocialIcon } from "@/components/waitlist/socialIcons";
 import { ShareSection } from "@/components/waitlist/ShareSection";
 import { getWidgetMessages } from "@/lib/i18n/messages";
+import { SiteFormPanel } from "./SiteFormPanel";
 
 interface CampaignOption {
   id: string;
@@ -114,6 +115,7 @@ export function WidgetBuilder({
   tenantId,
   campaigns,
   initialCampaignId,
+  siteForm,
 }: {
   /** The admin's own request origin — used for the (authenticated) preview iframe. */
   origin: string;
@@ -123,8 +125,14 @@ export function WidgetBuilder({
   tenantId: string;
   campaigns: CampaignOption[];
   initialCampaignId: string;
+  /**
+   * Offer "Your own form" (LAUNCH_SITE_SIGNUPS_ENABLED, read on the server): the
+   * launch's site key and the call its server makes. Absent = no such choice.
+   */
+  siteForm?: { canEdit: boolean };
 }) {
   const router = useRouter();
+  const [ownForm, setOwnForm] = useState(false);
   const [tab, setTab] = useState<Tab>("design");
   const [campaignId, setCampaignId] = useState(initialCampaignId);
   const [surface, setSurface] = useState<PreviewSurface>("WIDGET_1");
@@ -367,6 +375,9 @@ export function WidgetBuilder({
         <DesignTab
           surface={surface}
           setSurface={setSurface}
+          ownForm={ownForm && Boolean(siteForm)}
+          setOwnForm={setOwnForm}
+          siteForm={siteForm ? { ...siteForm, campaignId } : undefined}
           mode={mode}
           setMode={setMode}
           branding={branding}
@@ -413,6 +424,9 @@ export function WidgetBuilder({
 function DesignTab({
   surface,
   setSurface,
+  ownForm,
+  setOwnForm,
+  siteForm,
   mode,
   setMode,
   branding,
@@ -427,6 +441,9 @@ function DesignTab({
 }: {
   surface: PreviewSurface;
   setSurface: (s: PreviewSurface) => void;
+  ownForm: boolean;
+  setOwnForm: (on: boolean) => void;
+  siteForm?: { canEdit: boolean; campaignId: string };
   mode: PreviewMode;
   setMode: (m: PreviewMode) => void;
   branding: BrandingDraft;
@@ -456,27 +473,51 @@ function DesignTab({
     }
   }
 
+  const pillClass = (active: boolean) =>
+    `rounded-md border px-3 py-1.5 text-sm ${
+      active
+        ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+        : "border-neutral-300 dark:border-neutral-700"
+    }`;
+  const pills = (
+    <div className="flex flex-wrap gap-2">
+      {SURFACES.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          onClick={() => {
+            setSurface(s.id);
+            setOwnForm(false);
+          }}
+          className={pillClass(!ownForm && s.id === surface)}
+        >
+          {s.label}
+        </button>
+      ))}
+      {siteForm ? (
+        <button type="button" onClick={() => setOwnForm(true)} className={pillClass(ownForm)}>
+          Your own form
+        </button>
+      ) : null}
+    </div>
+  );
+
+  if (ownForm && siteForm) {
+    return (
+      <div className="space-y-6">
+        {pills}
+        <p className="text-xs text-neutral-500">
+          Keep your own sign-up box. Your server sends each email to YouGrow with this launch&apos;s site key.
+          YouGrow sends the confirmation email, and people join once they confirm.
+        </p>
+        <SiteFormPanel campaignId={siteForm.campaignId} canEdit={siteForm.canEdit} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        {SURFACES.map((s) => {
-          const active = s.id === surface;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSurface(s.id)}
-              className={`rounded-md border px-3 py-1.5 text-sm ${
-                active
-                  ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                  : "border-neutral-300 dark:border-neutral-700"
-              }`}
-            >
-              {s.label}
-            </button>
-          );
-        })}
-      </div>
+      {pills}
       <p className="text-xs text-neutral-500">{description}</p>
 
       {!isHosted ? (

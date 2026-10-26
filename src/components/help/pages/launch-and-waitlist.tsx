@@ -1,5 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
-import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
+import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 
 export default function LaunchAndWaitlistHelp() {
   return (
@@ -61,6 +63,13 @@ export default function LaunchAndWaitlistHelp() {
         invites. With double opt-in on, people are verified once they confirm their email. With it off, everyone is verified
         as soon as they join.
       </P>
+      {isEditModeEmailsEnabled() ? (
+        <P>
+          In a broadcast or a welcome journey email, press <strong>Edit mode</strong> above the <strong>Body</strong> to write
+          it the way it will look, with headings, bold, lists and links. Press <strong>Done</strong> to put it back in the email,
+          then save the email as usual.
+        </P>
+      ) : null}
 
       <H2 id="welcome">Turn on the welcome email</H2>
       <P>Every new launch starts with a draft welcome journey. Nothing sends until you publish it.</P>
@@ -122,6 +131,19 @@ export default function LaunchAndWaitlistHelp() {
         Your referral reward is <strong>Spots skipped per referral</strong>, under <strong>Gamification</strong> on the
         Settings tab. Keep it above 0 so people move up when friends join.
       </P>
+
+      {isSiteSignupsEnabled() ? (
+        <>
+          <H2 id="own-form">Use your own sign-up form</H2>
+          <P>
+            Rather keep your own box than embed ours? On <strong>Page &amp; widget</strong>, choose{" "}
+            <strong>Your own form</strong>: your server adds each email with the launch&apos;s site key, and YouGrow sends the
+            confirmation. For a newsletter, use a launch just for it. See{" "}
+            <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+          </P>
+          <WhoGetsWhichEmails />
+        </>
+      ) : null}
 
       <H2 id="check">Check it worked</H2>
       <Checks>

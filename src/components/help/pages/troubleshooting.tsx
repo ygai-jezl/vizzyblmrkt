@@ -1,5 +1,6 @@
-import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
+import { C, H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { NextPage, Open } from "@/components/help/blocks";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 
 export default function TroubleshootingHelp() {
   return (
@@ -42,6 +43,27 @@ export default function TroubleshootingHelp() {
         to. YouGrow says so when you press Send or Schedule.{" "}
         <Open href="/help/write-and-schedule#newsletter">Send the weekly newsletter</Open>.
       </P>
+
+      {isSiteSignupsEnabled() ? (
+        <>
+          <H2 id="site-no-confirmation">My site&apos;s sign-ups get no confirmation email</H2>
+          <P>
+            Look at what the call answered. <C>recently_sent</C>: a confirmation went to that address in the last day.{" "}
+            <C>blocked</C>: email to it bounced or was reported as spam, so it&apos;s never emailed. <C>removed</C>:
+            someone took them off the launch. A 503 means the email couldn&apos;t go: check{" "}
+            <Open href="/help/email-sending">Email sending</Open>, then call again.{" "}
+            <Open href="/help/newsletter-from-your-site#call">Send each sign-up from your server</Open>.
+          </P>
+
+          <H2 id="site-no-welcome">People who confirmed didn&apos;t get the welcome email</H2>
+          <P>
+            Publish the launch&apos;s journey: its <strong>Emails</strong> tab should show <strong>Welcome &amp; nurture</strong>{" "}
+            as Live. Journey emails also need your privacy policy link in{" "}
+            <Open href="/help/email-sending">Email sending</Open>. People who confirmed before you published join when you
+            first publish.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="sandbox">My sandbox doesn&apos;t count as my product</H2>
       <P>

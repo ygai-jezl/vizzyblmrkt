@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { H2 } from "@/components/developers/Doc";
 import DevelopersHome from "@/app/developers/page";
@@ -9,6 +9,7 @@ import EventsMoved from "@/app/developers/events/page";
 import { GET as eventsMarkdown } from "@/app/developers/events.md/route";
 import SecurityDocs from "@/app/developers/security/page";
 import UsersDocs from "@/app/developers/users/page";
+import SiteSignupsDocs from "@/app/developers/site-signups/page";
 import WebhooksDocs from "@/app/developers/webhooks/page";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import { EventRequestSchema, UserPatchSchema } from "@/lib/connect/v2/contract";
@@ -20,11 +21,17 @@ import { SCALAR_SCRIPT, SCALAR_VERSION } from "./scalar";
 import { jsonSchema, SCHEMAS } from "./schemas";
 import { STATE_NOTES, USER_FIELDS } from "./userFields";
 
+// Every switched page is shown, so its links, sections and Markdown are checked too.
+vi.hoisted(() => {
+  process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "true";
+});
+
 const ORIGIN = "https://yougrow.test";
 const PAGES: Record<string, () => ReactNode> = {
   "": DevelopersHome,
   "connect-your-code": ConnectYourCodeDocs,
   users: UsersDocs,
+  "site-signups": SiteSignupsDocs,
   "context-endpoint": ContextEndpointDocs,
   webhooks: WebhooksDocs,
   security: SecurityDocs,
@@ -315,5 +322,29 @@ describe("docs for features behind a switch", () => {
 
   it("say, with or without date facts, that a request about one entity can return the person's own facts", () => {
     expect(pageMarkdown("context-endpoint", ORIGIN)).toContain("Facts are matched by id, so the person's own facts");
+  });
+});
+
+describe("Sign-ups from your site (LAUNCH_SITE_SIGNUPS_ENABLED)", () => {
+  afterEach(() => {
+    process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "true";
+  });
+
+  it("documents the call, every field and every response", () => {
+    const md = pageMarkdown("site-signups", ORIGIN)!;
+    expect(md).toContain('-u "$YOUGROW_KEY_ID:$YOUGROW_SECRET"');
+    for (const field of ["email", "firstName", "locale", "source"]) expect(md, field).toMatch(new RegExp(`\\| \`${field}\` \\| `));
+    for (const body of ["confirmation_sent", "already_confirmed", "not_sent: recently_sent", "not_sent: blocked", "not_sent: removed", "launch_closed", "rate_limited", "email_unavailable"]) {
+      expect(md, body).toContain(body);
+    }
+    expect(pageMarkdown("users", ORIGIN)).toContain(`(${ORIGIN}/developers/site-signups.md)`);
+  });
+
+  it("is listed only while the switch is on", () => {
+    expect(llmsTxt(ORIGIN)).toContain(`${ORIGIN}/developers/site-signups.md`);
+    process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "false";
+    expect(llmsTxt(ORIGIN)).not.toContain("site-signups");
+    expect(llmsFullTxt(ORIGIN)).not.toContain("Sign-ups from your site");
+    expect(pageMarkdown("users", ORIGIN)).not.toContain("site-signups");
   });
 });

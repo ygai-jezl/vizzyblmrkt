@@ -22,7 +22,8 @@ export type ArticleBlock =
   | { kind: "code"; text: string; lang: string }
   | { kind: "rule" };
 
-const HEADING = /^(#{1,4})\s+(.+?)\s*#*\s*$/;
+// A closing run of #s counts only after a space ("## Why C#" keeps its "#").
+const HEADING = /^(#{1,4})\s+(.+?)(?:\s+#+)?\s*$/;
 const UL_ITEM = /^\s*[-*+]\s+(.*)$/;
 const OL_ITEM = /^\s*\d{1,3}[.)]\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
@@ -206,34 +207,53 @@ export type Inline =
   | { t: "code"; v: string }
   | { t: "link"; href: string; c: Inline[] };
 
+/** Which link targets survive: `safeHref` for an article; an email may allow more. */
+export type HrefCheck = (raw: string) => string | null;
+
 /** `lead` = how many characters at the start of the match belong to the text before it
  *  (the italic rules match one character of context instead of using a lookbehind, which
  *  older Safari cannot parse). */
-const INLINE_RULES: { re: RegExp; lead?: boolean; make: (m: RegExpExecArray) => Inline }[] = [
+const INLINE_RULES: { re: RegExp; lead?: boolean; make: (m: RegExpExecArray, check: HrefCheck) => Inline }[] = [
   {
     // [text](url) — the url may hold one level of (brackets), as Wikipedia's do; an
     // optional "title" after it is dropped.
     re: /\[((?:[^\]\\]|\\.)+)\]\(\s*<?((?:[^()\s<>]|\([^()\s]*\))+)>?(?:\s+"[^"]*")?\s*\)/,
-    make: (m) => {
-      const href = safeHref(m[2] ?? "");
-      const inner = parseInline(m[1] ?? "");
+    make: (m, check) => {
+      const href = check(release(m[2] ?? ""));
+      const inner = parseHeld(m[1] ?? "", check);
       // Not a link we will follow → keep the words, drop the target.
       return href ? { t: "link", href, c: inner } : { t: "text", v: plainOf(inner) };
     },
   },
-  { re: /`([^`]+)`/, make: (m) => ({ t: "code", v: m[1] ?? "" }) },
-  { re: /\*\*([^\s*](?:[\s\S]*?[^\s*])?)\*\*/, make: (m) => ({ t: "strong", c: parseInline(m[1] ?? "") }) },
+  { re: /`([^`]+)`/, make: (m) => ({ t: "code", v: release(m[1] ?? "") }) },
+  {
+    re: /\*\*([^\s*](?:[\s\S]*?[^\s*])?)\*\*/,
+    make: (m, check) => ({ t: "strong", c: parseHeld(m[1] ?? "", check) }),
+  },
   {
     re: /(^|[^\w*])\*([^\s*](?:[^*]*?[^\s*])?)\*(?![\w*])/,
     lead: true,
-    make: (m) => ({ t: "em", c: parseInline(m[2] ?? "") }),
+    make: (m, check) => ({ t: "em", c: parseHeld(m[2] ?? "", check) }),
   },
   {
     re: /(^|[^\w_])_([^\s_](?:[^_]*?[^\s_])?)_(?![\w_])/,
     lead: true,
-    make: (m) => ({ t: "em", c: parseInline(m[2] ?? "") }),
+    make: (m, check) => ({ t: "em", c: parseHeld(m[2] ?? "", check) }),
   },
 ];
+
+// An escaped character ("\*") is held as a private-use character while the rules run, so it
+// never opens or closes a span, and is released (backslash and all) into the text it ends up in.
+const ESCAPED = /\\([\\`*_{}[\]()#+\-.!|>])/g;
+const HELD = /[\uE000-\uE07F]/g;
+
+function hold(text: string): string {
+  return text.replace(ESCAPED, (_, c: string) => String.fromCharCode(0xe000 + c.charCodeAt(0)));
+}
+
+function release(text: string): string {
+  return text.replace(HELD, (ch) => `\\${String.fromCharCode(ch.charCodeAt(0) - 0xe000)}`);
+}
 
 /** A link target an article may carry: http(s), site-relative, or an in-page anchor. */
 export function safeHref(raw: string): string | null {
@@ -244,26 +264,31 @@ export function safeHref(raw: string): string | null {
   return null;
 }
 
-/** Parse inline Markdown (bold, italic, code, links) into a small tree. */
-export function parseInline(text: string): Inline[] {
+/** Parse inline Markdown (bold, italic, code, links) into a small tree. A backslash escape
+ *  ("\*") stays text. `check` decides which link targets are kept (default: `safeHref`). */
+export function parseInline(text: string, check: HrefCheck = safeHref): Inline[] {
+  return parseHeld(hold(text ?? ""), check);
+}
+
+function parseHeld(text: string, check: HrefCheck): Inline[] {
   const out: Inline[] = [];
-  let rest = text ?? "";
+  let rest = text;
   while (rest) {
-    let best: { index: number; length: number; node: Inline } | null = null;
+    let best: { index: number; length: number; m: RegExpExecArray; rule: (typeof INLINE_RULES)[number] } | null = null;
     for (const rule of INLINE_RULES) {
       const m = rule.re.exec(rest);
       if (!m) continue;
       const lead = rule.lead ? (m[1] ?? "").length : 0;
       if (best === null || m.index + lead < best.index) {
-        best = { index: m.index + lead, length: m[0].length - lead, node: rule.make(m) };
+        best = { index: m.index + lead, length: m[0].length - lead, m, rule };
       }
     }
     if (!best) break;
-    if (best.index > 0) out.push({ t: "text", v: rest.slice(0, best.index) });
-    out.push(best.node);
+    if (best.index > 0) out.push({ t: "text", v: release(rest.slice(0, best.index)) });
+    out.push(best.rule.make(best.m, check));
     rest = rest.slice(best.index + best.length);
   }
-  if (rest) out.push({ t: "text", v: rest });
+  if (rest) out.push({ t: "text", v: release(rest) });
   return out;
 }
 

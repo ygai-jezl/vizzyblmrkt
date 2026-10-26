@@ -11,6 +11,7 @@ import { productUserDocId } from "../profile";
 import { SANDBOX_CATALOG } from "../sandbox";
 import { isSuppressedFor, suppressEmail } from "@/lib/email/suppression";
 import { handleBatch, handleDeleteUser, handleGetUser, handleMe, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
+import { createSiteKey } from "@/lib/waitlist/siteKeys";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
 const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -116,6 +117,15 @@ describe("GET /api/v2/me", () => {
     invalidateConnectionCaches(connection.keyId, ctxA.tenantId, connection.id);
     const res = await handleMe(request("GET", { keyId: connection.keyId, secret }), { db, nowMs: () => NOW + 60_000 });
     expect(await json(res)).toMatchObject({ connection: { environment: "staging" }, rotating: true });
+  });
+
+  it("refuses a launch's site key", async () => {
+    const db = new FakeFirestore();
+    const r = await createSiteKey(ctxA, "news", { db, nowMs: NOW });
+    if ("error" in r) throw new Error(r.error);
+    const site = { keyId: r.key.keyId, secret: r.secret };
+    expect((await handleMe(request("GET", site), { db, nowMs: () => NOW })).status).toBe(401);
+    expect((await handlePatchUser(request("PATCH", site, { email: "sam@example.com" }), "u1", { db, nowMs: () => NOW })).status).toBe(401);
   });
 });
 

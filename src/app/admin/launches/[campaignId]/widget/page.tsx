@@ -6,6 +6,7 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { platformOrigin } from "@/lib/platform/origin";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { WidgetBuilder } from "@/components/admin/WidgetBuilder";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ export default async function LaunchWidgetPage({
           },
         ]}
         initialCampaignId={campaign.id}
+        siteForm={isSiteSignupsEnabled() ? { canEdit: ctx.role === "admin" } : undefined}
       />
     </div>
   );

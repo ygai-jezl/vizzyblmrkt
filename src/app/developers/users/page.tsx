@@ -4,6 +4,7 @@ import { V2_LIMITS } from "@/lib/connect/v2/contract";
 import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
 import { isLifecycleDateStartEnabled } from "@/lib/lifecycle/flags";
 import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { ACTIVITY_FACT, QUIET_AFTER_DAYS } from "@/lib/audience/personStage";
 import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
 import { codeText, USER_FIELDS, USER_ID_NOTES } from "@/lib/developers/userFields";
@@ -30,6 +31,13 @@ export default function UsersDocs() {
         product&apos;s <strong>Integration guide</strong> (Products → your product) lists what to send from your own code,
         with file pointers — and a <strong>Copy prompt</strong> button that hands the whole job to your coding agent.
       </Note>
+      {isSiteSignupsEnabled() ? (
+        <Note>
+          <strong>Want a newsletter list?</strong> People you send here get onboarding journeys only, never broadcasts or the
+          weekly newsletter. For a sign-up box on your site, use a launch&apos;s site key:{" "}
+          <Link href="/developers/site-signups">Sign-ups from your site</Link>.
+        </Note>
+      ) : null}
 
       <H2 id="setup">Before you start</H2>
       <OL>

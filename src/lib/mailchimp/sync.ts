@@ -4,7 +4,7 @@ import type { Campaign } from "@/lib/types/campaign";
 import type { Signup } from "@/lib/types/signup";
 import { resolveMailchimpConfig } from "./config";
 import { upsertMember, archiveMember } from "./client";
-import type { MailchimpResult } from "./types";
+import type { MailchimpResult, ResolvedMailchimpConfig, UpsertMemberInput } from "./types";
 
 /**
  * Stable per-launch tag. Used both to tag synced subscribers and to scope
@@ -40,6 +40,22 @@ function mergeFieldsFor(signup: Signup): Record<string, string | number> {
 }
 
 /**
+ * Upsert a member; with `resubscribe`, someone who unsubscribed in Mailchimp and has
+ * just confirmed again with us (a site sign-up). Mailchimp won't set such a member
+ * back to subscribed ("Member In Compliance State"), so they're set to pending
+ * instead and Mailchimp asks them once more itself.
+ */
+async function upsertOrAskAgain(
+  cfg: ResolvedMailchimpConfig,
+  input: UpsertMemberInput,
+  resubscribe: boolean,
+): Promise<MailchimpResult> {
+  const res = await upsertMember(cfg, input);
+  if (res.ok || !resubscribe || !/compliance/i.test(res.reason ?? "")) return res;
+  return upsertMember(cfg, { ...input, status: "pending" });
+}
+
+/**
  * Best-effort: upsert a verified signup into the tenant's MailChimp audience,
  * tagged by launch so Broadcasts & Journeys can target it. Never throws — the
  * caller's flow (signup / verify) must not fail on a sync hiccup.
@@ -48,6 +64,7 @@ export async function syncSignupToAudience(
   ctx: TenantContext,
   campaign: Campaign,
   signup: Signup,
+  opts: { resubscribe?: boolean } = {},
 ): Promise<MailchimpResult> {
   if (!signup.email) return { ok: false, reason: "no_email" };
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
@@ -58,12 +75,11 @@ export async function syncSignupToAudience(
     );
     return { ok: false, reason: resolved.reason };
   }
-  return upsertMember(resolved.config, {
-    email: signup.email,
-    status: "subscribed",
-    mergeFields: mergeFieldsFor(signup),
-    tags: [campaignTag(campaign.id)],
-  });
+  return upsertOrAskAgain(
+    resolved.config,
+    { email: signup.email, status: "subscribed", mergeFields: mergeFieldsFor(signup), tags: [campaignTag(campaign.id)] },
+    opts.resubscribe === true,
+  );
 }
 
 /**
@@ -76,6 +92,7 @@ export async function syncSignupToWeekly(
   ctx: TenantContext,
   campaign: Campaign,
   signup: Signup,
+  opts: { resubscribe?: boolean } = {},
 ): Promise<MailchimpResult> {
   if (!signup.email) return { ok: false, reason: "no_email" };
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
@@ -86,12 +103,11 @@ export async function syncSignupToWeekly(
     );
     return { ok: false, reason: resolved.reason };
   }
-  return upsertMember(resolved.config, {
-    email: signup.email,
-    status: "subscribed",
-    mergeFields: mergeFieldsFor(signup),
-    tags: [weeklyTag(campaign.id)],
-  });
+  return upsertOrAskAgain(
+    resolved.config,
+    { email: signup.email, status: "subscribed", mergeFields: mergeFieldsFor(signup), tags: [weeklyTag(campaign.id)] },
+    opts.resubscribe === true,
+  );
 }
 
 /** Best-effort: archive a member when they're offboarded / deleted. */

@@ -45,7 +45,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 ## Where things live
 
 - `src/app`: routes. `admin/` is the admin portal, `api/admin/` its APIs, `api/agent/` the routes Vizzy's tools call, `api/v2/` the API for connected products, `waitlist/` and `embed/` the public sign-up pages, `help/` the public how-tos.
-- `src/lib`: the logic. `tenant/` is the only code that touches Firestore. Also `auth/` (sessions, admin access), `http/` (origin checks), `lifecycle/` and `journey/` (journeys), `email/`, `distribute/` and `social/` (posts), `knowledge/` and `agents/` (AI and retrieval), `help/` (help page list), `content/writingRules.ts` (house style).
+- `src/lib`: the logic. `tenant/` is the only code that touches Firestore. Also `auth/` (sessions, admin access), `http/` (origin checks), `lifecycle/` and `journey/` (journeys), `email/`, `distribute/` and `social/` (posts), `knowledge/` and `agents/` (AI and retrieval), `help/` (help page list), `content/writingRules.ts` (house style), `waitlist/siteKeys.ts` (a launch's site key, for sign-ups from a brand's own site).
 - `src/components`: React components. Help page bodies are in `src/components/help/pages/`.
 - `agents/root_agent`: Vizzy, the Python ADK agent. It has its own AGENTS.md.
 - `workers/knowledge-scraper`: the Cloud Run Job that reads sites and repos into knowledge. Own AGENTS.md.

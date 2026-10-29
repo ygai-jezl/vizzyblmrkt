@@ -1,4 +1,4 @@
-import type { ConnectionCatalog, ConsentPolicy } from "@/lib/types/productConnection";
+import type { ConnectionCatalog, ConsentPolicy, StageClocks } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import { DATE_START_LIMITS } from "@/lib/types/lifecycle";
@@ -11,7 +11,7 @@ import { onboardingProgress } from "@/lib/lifecycle/entities";
  * page and Vizzy's brief. Pure and client-safe.
  */
 
-/** Signed up this recently, with no onboarding step done yet: new. */
+/** Signed up this recently, with no onboarding step done yet: new. A product can set its own (stageClocks). */
 export const NEW_FOR_DAYS = 2;
 /** No new onboarding step for this long, with steps still to do: stuck. */
 export const STUCK_AFTER_DAYS = 7;
@@ -60,16 +60,23 @@ function lastStepMs(user: Pick<ProductUser, "steps" | "entities">): number | nul
   return times.length ? Math.max(...times) : null;
 }
 
+/** The product's own clocks, or the defaults. */
+export function clocksOf(clocks: StageClocks | null | undefined): StageClocks {
+  return clocks ?? { newForDays: NEW_FOR_DAYS, stuckAfterDays: STUCK_AFTER_DAYS, quietAfterDays: QUIET_AFTER_DAYS };
+}
+
 export function personStage(
   user: StageUser,
   catalog: Pick<ConnectionCatalog, "onboardingSteps"> & Partial<Pick<ConnectionCatalog, "facts" | "entityKinds">>,
   nowMs: number,
+  stageClocks?: StageClocks | null,
 ): PersonStage {
+  const clocks = clocksOf(stageClocks);
   const progress = onboardingProgress(user, catalog);
   const signedUpMs = Date.parse(user.signedUpAt ?? user.firstSeenAt);
   const active = lastActiveAt(user, catalog);
   const sinceActive = active ? daysSince(Date.parse(active), nowMs) : null;
-  const quietDays = sinceActive !== null && sinceActive >= QUIET_AFTER_DAYS ? sinceActive : null;
+  const quietDays = sinceActive !== null && sinceActive >= clocks.quietAfterDays ? sinceActive : null;
   const base = { done: progress.done, total: progress.total, quietDays };
   if (user.activated || progress.finished) return { ...base, kind: "activated", nextStep: null, daysOnStep: null };
   if (progress.total === 0) return { ...base, kind: "member", nextStep: null, daysOnStep: null };
@@ -78,9 +85,9 @@ export function personStage(
   const daysOnStep = Number.isFinite(fromMs) ? Math.max(0, daysSince(fromMs, nowMs)) : null;
   const sinceSignup = Number.isFinite(signedUpMs) ? daysSince(signedUpMs, nowMs) : null;
   const kind: PersonStageKind =
-    daysOnStep !== null && daysOnStep >= STUCK_AFTER_DAYS
+    daysOnStep !== null && daysOnStep >= clocks.stuckAfterDays
       ? "stuck"
-      : progress.done === 0 && sinceSignup !== null && sinceSignup < NEW_FOR_DAYS
+      : progress.done === 0 && sinceSignup !== null && sinceSignup < clocks.newForDays
         ? "new"
         : "onboarding";
   return { ...base, kind, nextStep: progress.next?.label ?? null, daysOnStep };
@@ -102,7 +109,7 @@ export function stageChips(stage: PersonStage): Array<{ tone: "neutral" | "blue"
 /** The stage in a sentence, for Vizzy's brief: "Onboarding, 2 of 5 steps done; stuck on Connect your site for 7 days". */
 export function stageText(stage: PersonStage): string {
   const parts: string[] = [];
-  if (stage.kind === "new") parts.push("New: signed up in the last two days, no onboarding step done yet");
+  if (stage.kind === "new") parts.push("New: signed up recently, no onboarding step done yet");
   if (stage.kind === "onboarding" || stage.kind === "stuck") {
     parts.push(`Onboarding, ${stage.done} of ${stage.total} steps done`);
     if (stage.nextStep && stage.daysOnStep !== null) {

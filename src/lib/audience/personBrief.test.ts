@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { recordEmailEvent } from "@/lib/email/events";
 import { eraseProductUser } from "@/lib/connect/erase";
@@ -8,6 +8,7 @@ import { CONNECTION_ID, T0, contextStub, ctx, productContext, publishOnboarding,
 import { forTenant } from "@/lib/tenant";
 import { loadPersonBrief } from "./personBrief";
 import { loadPersonRecord } from "./personRecord";
+import { personIdOf, syncPerson } from "./personSync";
 
 const MIN = 60_000;
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -114,5 +115,55 @@ describe("loadPersonBrief", () => {
     expect(await loadPersonBrief({ ...ctx, tenantId: "ten_other" }, w.user.id, { db: w.db })).toEqual({ found: false, erased: false });
     await eraseProductUser(ctx, CONNECTION_ID, w.user.id, w.db);
     expect(await loadPersonBrief(ctx, w.user.id, { db: w.db })).toEqual({ found: false, erased: true });
+  });
+});
+
+describe("loadPersonBrief for a whole person (the one view)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function wholeWorld() {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    db.seed("campaigns", "camp1", { tenantId: ctx.tenantId, waitlistName: "Ada Byron's beta" });
+    db.seed("signups", "s_ada", {
+      tenantId: ctx.tenantId,
+      campaignId: "camp1",
+      email: "ada@customer.test",
+      firstName: "Ada",
+      lastName: "Byron",
+      status: "verified_active",
+      amountReferred: 2,
+      referralToken: "r",
+      referralLink: "https://example.test/r",
+      score: 0,
+      createdAt: iso(T0),
+    });
+    return db;
+  }
+
+  it("reads their most recent product, with the launches they joined, without their name", async () => {
+    const db = await wholeWorld();
+    const user = seedUser(db, "ada_1", { email: "ada@customer.test", emailNormalized: "ada@customer.test", firstName: "Ada", lastName: "Byron" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const r = await loadPersonBrief(ctx, personIdOf(ctx.tenantId, "ada@customer.test"), { db, nowMs: T0 });
+    expect(r.found).toBe(true);
+    const brief = (r as unknown as { brief: Record<string, unknown> }).brief;
+    expect(brief.personId).toBe(user.id);
+    expect(brief.launches).toEqual([expect.objectContaining({ status: "confirmed", via: "form", referrals: 2 })]);
+    expect(JSON.stringify(brief)).not.toContain("Byron");
+    expect(JSON.stringify(brief)).not.toContain("ada@customer.test");
+  });
+
+  it("says when someone only joined launches, and finds nobody while the one view is off", async () => {
+    const db = await wholeWorld();
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const id = personIdOf(ctx.tenantId, "ada@customer.test");
+    expect(await loadPersonBrief(ctx, id, { db, nowMs: T0 })).toEqual({ found: false, erased: false, onlyLaunches: true });
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "false");
+    expect(await loadPersonBrief(ctx, id, { db, nowMs: T0 })).toEqual({ found: false, erased: false });
   });
 });

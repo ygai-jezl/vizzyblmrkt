@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant, getConnectionKey } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -67,6 +67,26 @@ describe("connections admin API", () => {
     expect(p.status).toBe(200);
     expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.environment).toBe("production");
     expect((await patchConnection(ctxA, connection.id, { environment: "qa" }, db)).status).toBe(400);
+  });
+
+  it("saves a product's own stage clocks only where the one view is on, and only when New ends before Stuck", async () => {
+    const db = new FakeFirestore();
+    const r = await createProductConnection(ctxA, { name: "App", kind: "custom", environment: "production" }, { origin, db });
+    const { connection } = r.body as { connection: { id: string } };
+    const clocks = { newForDays: 3, stuckAfterDays: 10, quietAfterDays: 30 };
+    expect(await patchConnection(ctxA, connection.id, { stageClocks: clocks }, db)).toMatchObject({ status: 400, body: { error: "stage_clocks_unavailable" } });
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    try {
+      expect((await patchConnection(ctxA, connection.id, { stageClocks: clocks }, db)).status).toBe(200);
+      expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.stageClocks).toEqual(clocks);
+      expect((await patchConnection(ctxA, connection.id, { stageClocks: { ...clocks, newForDays: 10 } }, db)).status).toBe(400);
+      expect((await patchConnection(ctxA, connection.id, { stageClocks: { ...clocks, quietAfterDays: 91 } }, db)).status).toBe(400);
+      expect((await patchConnection(ctxA, connection.id, { stageClocks: null }, db)).status).toBe(200);
+      expect((await forTenant(ctxA, db).productConnections.getById(connection.id))?.stageClocks).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("saves an invite sign-up link only on an allowed link domain", async () => {

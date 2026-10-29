@@ -37,7 +37,14 @@ function seed(db: FakeFirestore) {
   });
   db.seed("product_users", "pu_gone", { tenantId: "ten_A", connectionId: "pc_prod", steps: {}, lastSeenAt: "2026-09-23T12:00:00Z", status: "deleted" });
   db.seed("product_users", "pu_test", { tenantId: "ten_A", connectionId: "pc_sandbox", steps: {}, lastSeenAt: "2026-09-23T13:00:00Z", status: "active" });
-  db.seed("contacts", "ct_1", { tenantId: "ten_A", contactKey: "amara.k@example.com", status: "active" });
+  db.seed("contacts", "ct_1", {
+    tenantId: "ten_A",
+    contactKey: "amara.k@example.com",
+    status: "active",
+    campaigns: [{ campaignId: "camp1", signupId: "sig_1", status: "verified_active" }],
+  });
+  // With person records on, someone who only uses the product has a contact too, with no sign-up.
+  db.seed("contacts", "ct_2", { tenantId: "ten_A", contactKey: "ben@example.net", status: "active", campaigns: [], consentStatus: "none" });
 }
 
 describe("loadAudienceProductUsers", () => {

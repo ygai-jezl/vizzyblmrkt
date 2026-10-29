@@ -225,4 +225,12 @@ describe("a person's page", () => {
     expect(crumbs("/admin/crm")).toEqual([{ label: "Audience" }]);
     expect(crumbs("/admin/crm/people")).toEqual([{ label: "Audience" }]);
   });
+
+  it("sits under Audience › People for a whole person (the one view)", () => {
+    expect(crumbs("/admin/crm/people/ct_9b2e")).toEqual([
+      { label: "Audience", href: "/admin/crm" },
+      { label: "People", href: "/admin/crm" },
+      { label: "Person" },
+    ]);
+  });
 });

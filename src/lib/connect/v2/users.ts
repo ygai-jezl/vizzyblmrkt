@@ -34,6 +34,7 @@ import {
   type UserView,
 } from "./contract";
 import { isDateFactsEnabled, isEntitiesEnabled, isQuietUnchangedWritesEnabled } from "./flags";
+import { personAfterProductErase, personAfterProductWrites, previousPersonKey } from "@/lib/audience/personHooks";
 import { dateFactIds } from "../dateFacts";
 
 /**
@@ -60,8 +61,9 @@ type WriteOutcome =
    * `consentGranted`: someone YouGrow already knew moved to a basis the connection accepts for marketing.
    * `quiet`: the write changed nothing and left no Events row.
    * `newEntities`: entities this write added (they fire `entity.created`).
+   * `previousKey`: the person they belonged to before the write (their address may have changed).
    */
-  | { kind: "applied"; user: ProductUser; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }> }
+  | { kind: "applied"; user: ProductUser; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }>; previousKey: string | null }
   | { kind: "skipped"; reason: "stale_write" | "deleted_later"; storedUpdatedAt: string | null; user: ProductUser | null }
   | { kind: "invalid"; fields: Array<{ path: string; message: string }> };
 
@@ -165,14 +167,14 @@ async function writeUser(
   const newEntities = Object.entries(applied.user.entities ?? {})
     .filter(([id]) => !had[id])
     .map(([id, e]) => ({ id, kind: e.kind }));
-  return { kind: "applied", user: applied.user, consentGranted, quiet, newEntities };
+  return { kind: "applied", user: applied.user, consentGranted, quiet, newEntities, previousKey: previousPersonKey(before) };
 }
 
 /** Enrolment, invites, diagnostics and health for the writes that applied. Never throws. */
 async function afterWrites(
   ctx: TenantContext,
   connection: ProductConnection,
-  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean; quiet?: boolean; newEntities?: Array<{ id: string; kind: string }> }>,
+  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean; quiet?: boolean; newEntities?: Array<{ id: string; kind: string }>; previousKey?: string | null }>,
   rejected: IngestSummary["rejected"],
   nowMs: number,
   db?: FirestoreLike,
@@ -221,6 +223,8 @@ async function afterWrites(
       console.error(`[api-v2] invite progress failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
   }
+  // Their person record: the product's link, and the move when their address changed.
+  await personAfterProductWrites(ctx, connection, writes, { db, nowMs });
   const observedTraits = new Map<string, string>();
   for (const w of writes) {
     for (const [k, v] of Object.entries(w.patch.traits ?? {})) observedTraits.set(k, v === null ? "null" : typeof v);
@@ -254,7 +258,7 @@ export async function patchUser(
     const live = w.user && w.user.status === "active" ? userStateOf(w.user) : undefined;
     return { applied: false, reason: w.reason, storedUpdatedAt: w.storedUpdatedAt, ...(live ? { user: live } : {}) };
   }
-  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities }], [], nowMs, deps.db);
+  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities, previousKey: w.previousKey }], [], nowMs, deps.db);
   return { applied: true, user: userStateOf(w.user) };
 }
 
@@ -267,7 +271,7 @@ export async function patchBatch(
 ): Promise<BatchResponse> {
   const nowMs = deps.nowMs ?? Date.now();
   const out: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
-  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }> }> = [];
+  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }>; previousKey: string | null }> = [];
   const rejected: IngestSummary["rejected"] = [];
   const dateFacts = isDateFactsEnabled() ? dateFactIds(connection.catalog) : undefined;
   for (const [index, raw] of items.slice(0, V2_LIMITS.maxBatch).entries()) {
@@ -292,7 +296,7 @@ export async function patchBatch(
       const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db, parsed.ignoredFields.map((f) => f.path));
       if (w.kind === "applied") {
         out.applied += 1;
-        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities });
+        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities, previousKey: w.previousKey });
         if (parsed.ignoredFields.length) out.results.push({ index, userId, status: "applied", reason: "fields_ignored", fields: parsed.ignoredFields });
       } else if (w.kind === "skipped") {
         out.ignored += 1;
@@ -361,6 +365,7 @@ export async function deleteUser(
   }
   await eraseProductUserHistory(ctx, id, deps.db);
   if (user?.status === "active" && user.emailNormalized) await scrubSuppressionEmails(ctx, user.emailNormalized, deps.db);
+  await personAfterProductErase(ctx, previousPersonKey(user), { db: deps.db, nowMs });
   // The Events tab shows that an erasure arrived — without the user id.
   const messageId = `v2:erase:${randomUUID()}`;
   const now = new Date(nowMs).toISOString();
@@ -444,6 +449,9 @@ export async function recordUserEvent(
     await enrolOnEvents(ctx, connection, [{ user: result.user, event: body.event, timestamp, entityId }], { db: deps.db, nowMs }).catch((err) => {
       console.error(`[api-v2] event enrolment failed for ${ctx.tenantId}/${connection.id}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     });
+  }
+  if (result.outcome === "applied" && result.user) {
+    await personAfterProductWrites(ctx, connection, [{ user: result.user }], { db: deps.db, nowMs });
   }
   // A milestone can activate the user (onboarding.completed) — invites count that.
   if (result.outcome === "applied" && result.user && isInvitesEnabled()) {

@@ -5,6 +5,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import {
   ConnectionCatalogSchema,
   ConsentPolicySchema,
+  StageClocksSchema,
   ENTITY_KIND_RE,
   ProductEnvironment,
   SandboxUserSchema,
@@ -34,7 +35,8 @@ import {
 import { zodReason } from "./protocol";
 import { ENTITY_ID_RE } from "./v2/contract";
 import { isOwnOrVerifiedAddress } from "@/lib/lifecycle/policy";
-import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
+import { personAfterProductRevoked } from "@/lib/audience/personHooks";
 
 /**
  * The Products admin API, as plain functions (status + body) so they're tested
@@ -128,7 +130,13 @@ export async function getConnectionDetail(ctx: TenantContext, id: string, db?: F
   return ok({
     connection: publicConnection(conn),
     diagnostics,
-    features: { entities: isEntitiesEnabled(), catalogHistory: isCatalogHistoryEnabled(), dateFacts: isDateFactsEnabled(), personView: isPersonViewEnabled() },
+    features: {
+      entities: isEntitiesEnabled(),
+      catalogHistory: isCatalogHistoryEnabled(),
+      dateFacts: isDateFactsEnabled(),
+      personView: isPersonViewEnabled(),
+      stageClocks: isOneViewEnabled(),
+    },
   });
 }
 
@@ -151,6 +159,8 @@ const PatchInput = z
     /** With `catalog`: the catalogRev it was edited from. A save from an older copy is refused. */
     catalogRev: z.number().int().min(0).optional(),
     consentPolicy: ConsentPolicySchema.optional(),
+    /** The New, Stuck and Quiet clocks (AUDIENCE_ONE_VIEW_ENABLED); null puts back the defaults. */
+    stageClocks: StageClocksSchema.nullable().optional(),
     defaults: z.object({ timezone: z.string().max(64), locale: z.string().max(16) }).optional(),
   })
   .strict();
@@ -184,6 +194,8 @@ export async function patchConnection(
   if (p.catalog && !isDateFactsEnabled() && p.catalog.facts.some((f) => f.type === "date" && !wasDate(conn, f.id))) {
     return fail(400, "date_facts_unavailable");
   }
+
+  if (p.stageClocks !== undefined && !isOneViewEnabled()) return fail(400, "stage_clocks_unavailable");
 
   if (conn.kind === "sandbox" && (p.contextEndpoint !== undefined || p.webhookEndpoint !== undefined)) {
     return fail(400, "sandbox_endpoints_fixed");
@@ -236,6 +248,10 @@ export async function patchConnection(
     ...(signupUrl !== undefined ? { signupUrl } : {}),
     ...(p.consentPolicy ? { consentPolicy: p.consentPolicy } : {}),
     ...(p.defaults ? { defaults: p.defaults } : {}),
+    // New clocks move people's stages today, not at tomorrow's check.
+    ...(p.stageClocks !== undefined && JSON.stringify(p.stageClocks) !== JSON.stringify(conn.stageClocks ?? null)
+      ? { stageClocks: p.stageClocks, personSweep: null }
+      : {}),
     updatedAt: new Date().toISOString(),
   };
   if (!p.catalog) {
@@ -353,6 +369,7 @@ export async function revokeProductConnection(ctx: TenantContext, id: string, db
   if (!conn) return fail(404, "not_found");
   await revokeConnection(ctx, id, db);
   invalidateConnectionCaches(conn.keyId, ctx.tenantId, id);
+  await personAfterProductRevoked(ctx, id, { db });
   return ok({ ok: true });
 }
 

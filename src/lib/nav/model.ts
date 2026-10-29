@@ -348,11 +348,14 @@ export function breadcrumbsFor(
     case "lifecycle":
       return id ? [{ label: "Journeys", href: "/admin/lifecycle" }, { label: "Journey" }] : [{ label: "Journeys" }];
     case "crm":
-      // A person's page (AUDIENCE_PERSON_VIEW). Never their name: these labels are also what
-      // Vizzy is told about the page in view.
-      return id === "people" && rest[0]
-        ? [{ label: PAGES.crm!, href: "/admin/crm" }, { label: "Product users", href: "/admin/crm?tab=product" }, { label: "Person" }]
-        : [{ label: PAGES.crm! }];
+      // A person's page: a whole person (ct_, AUDIENCE_ONE_VIEW_ENABLED) or a product user
+      // (AUDIENCE_PERSON_VIEW). Never their name: these labels are also what Vizzy is told
+      // about the page in view.
+      if (id === "people" && rest[0]) {
+        const list = rest[0].startsWith("ct_") ? { label: "People", href: "/admin/crm" } : { label: "Product users", href: "/admin/crm?tab=product" };
+        return [{ label: PAGES.crm!, href: "/admin/crm" }, list, { label: "Person" }];
+      }
+      return [{ label: PAGES.crm! }];
     case "products":
       return id ? [{ label: "Products", href: "/admin/products" }, { label: "Product" }] : [{ label: "Products" }];
     case "brands":

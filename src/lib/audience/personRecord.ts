@@ -17,6 +17,7 @@ import { personScrubber } from "./identityScrubber";
 import { personPlanDocId, unseenWords } from "./personPlans";
 import { lastActiveAt, personReach, personStage, type PersonReach, type PersonStage } from "./personStage";
 import { TIMELINE_LIMIT, personTimeline, type PersonMoment } from "./personTimeline";
+import { isOnALaunch } from "./personLinks";
 
 /**
  * Everything YouGrow holds about one product user, gathered for their page: who
@@ -205,7 +206,7 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
   const doneAt = (stepId: string) => user.steps[stepId]?.doneAt ?? focus.find((e) => e.steps[stepId])?.steps[stepId]?.doneAt ?? null;
   // One entry per person per journey: a journey they've been in, finished or not, can't take them again.
   const beenIn = new Set(journeys.map((j) => j.journeyId));
-  const waitlist = contacts.find((c) => c.status !== "deleted");
+  const waitlist = contacts.find(isOnALaunch);
 
   return {
     found: true,
@@ -221,7 +222,7 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
       signedUpAt: user.signedUpAt ?? user.firstSeenAt,
       lastSyncAt: user.lastSeenAt,
       lastActiveAt: lastActiveAt(user, catalog),
-      stage: personStage(user, catalog, nowMs),
+      stage: personStage(user, catalog, nowMs, connection.stageClocks),
       reach: personReach(user, connection.consentPolicy, optOuts),
       categoryLabels,
       steps: progress.checklist.map((s) => ({ id: s.id, label: s.label, done: s.done, doneAt: s.done ? doneAt(s.id) : null })),

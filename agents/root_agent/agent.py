@@ -30,6 +30,7 @@ from .sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
 from .sub_agents.content_ops.agent import content_ops_agent
 from .tools.retrieve_knowledge import retrieve_knowledge
 from .tools.insights_summary import get_insights_summary
+from .tools.audience_counts import get_audience_counts
 from .tools.email_style import get_email_style, suggest_email_style
 from .tools.image_style import get_image_style, suggest_image_style
 from .tools.journey_style import get_journey_email_style, set_journey_email_style
@@ -49,7 +50,8 @@ root_agent = LlmAgent(
     before_model_callback=[apply_context_envelope, apply_chat_mode],
     # retrieve_knowledge grounds answers on the launch's ingested docs/site/repos
     # (RAG); get_insights_summary answers "how are we doing?" from the Insights
-    # numbers (aggregates only); get/suggest_email_style read the brand-wide Email
+    # numbers (aggregates only); get_audience_counts counts the audience by launch,
+    # product and stage (counts only, never a person); get/suggest_email_style read the brand-wide Email
     # style and save a suggestion an admin applies; get/set_journey_email_style read
     # and set one journey's own look, in its draft (Lifecycle Ops has them too);
     # get/suggest_image_style read the brand's image style and save a suggestion an admin applies;
@@ -61,6 +63,7 @@ root_agent = LlmAgent(
     tools=[
         retrieve_knowledge,
         get_insights_summary,
+        get_audience_counts,
         get_email_style,
         suggest_email_style,
         get_image_style,

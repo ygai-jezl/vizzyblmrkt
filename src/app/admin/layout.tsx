@@ -22,7 +22,7 @@ import { DeveloperDocsProvider } from "@/components/developers/DocsAvailability"
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
-import { isPersonBriefEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
@@ -179,6 +179,7 @@ export default async function AdminLayout({
         launches={launches}
         archivedLaunches={archivedLaunches}
         ctx={sidebarCtx}
+        oneView={isOneViewEnabled()}
       />
       <main className="min-w-0 flex-1 px-6 py-6">
         <DeveloperDocsProvider enabled={docs}>{children}</DeveloperDocsProvider>

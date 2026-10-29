@@ -2,7 +2,7 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithDeadline } from "@/lib/agents/gemini";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
-import { embedQuery } from "@/lib/agents/embeddings";
+import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
 import {
   BlogSeenSchema,
   SEEN_ADDED_BY_YOU,
@@ -16,6 +16,7 @@ import {
 import { BRAND_NOTE_LIMITS, type BrandNote, type NoteArticle, type NotesRest } from "@/lib/types/brandNote";
 import {
   addAskedFor,
+  alreadyOnFile,
   askQuestions,
   createNote,
   holdNotes,
@@ -24,6 +25,7 @@ import {
   nearestOpenQuestions,
   notesById,
   notesForSubjects,
+  QUESTION_TITLE,
   releaseHolds,
   updateNote,
   type NotesDeps,
@@ -125,13 +127,13 @@ export function parseReuse(raw: string, count: number): number[] {
   return out;
 }
 
-export function parseAsks(raw: string): string[] {
+export function parseAsks(raw: string, max = 3): string[] {
   const out: string[] = [];
   for (const line of (raw ?? "").split(/\r?\n/)) {
     const m = /^\s*(?:[-*•]\s*)?\**ASK\**\s*:\**\s*(.+)$/i.exec(line);
     const q = m?.[1]?.trim().replace(/^["“]|["”]$/g, "");
     if (q && q.length >= 12 && !out.includes(q)) out.push(q.slice(0, 300));
-    if (out.length === 3) break;
+    if (out.length === max) break;
   }
   return out;
 }
@@ -228,7 +230,13 @@ export async function matchSeen(
     const same = current.matchedFor === question;
     // A brief from before open questions has asks and no questions: those asks are kept as they are.
     const oldAsks = current.questions === undefined && same ? current.asks : [];
-    const r = await articleQuestions(ctx, { article, prior, matched: notes.length > 0, same, oldAsks, vector: vector ?? null, brand, question, spark, audience }, deps);
+    // What the brand already has on this question, so new questions ask for something else.
+    const have = [...notes, ...restingFits, ...weaker].map((n) => n.text);
+    const r = await articleQuestions(
+      ctx,
+      { article, prior, matched: notes.length > 0, same, oldAsks, vector: vector ?? null, brand, question, spark, audience, rest, have },
+      deps,
+    );
     questions = r.questions;
     // The asks follow, so the article reads the same with the switch turned off again.
     asks = notes.length ? [] : [...questions.map((q) => q.question), ...r.unsaved].slice(0, 3);
@@ -277,6 +285,26 @@ function asQuestion(n: BrandNote, article?: string): BlogSeenQuestion {
 /** How close in meaning an open question must be to be offered for reuse; the model decides. */
 const OPEN_MIN_SIM = CANDIDATE_MIN_SIM;
 const OPEN_CANDIDATES = 5;
+/** Questions asked for beyond the ones needed, so one that repeats what the brand has can be dropped. */
+const SPARE_QUESTIONS = 2;
+/** What the fresh questions prompt is shown of what the brand already has. */
+const HAVE_LINES = 12;
+const ASKED_ALREADY = 6;
+/**
+ * How close in meaning (cosine, both embedded as documents) a new question may come to one
+ * already asked or answered, or to a kept note, before it counts as asking for the same thing.
+ * A backstop: the prompt is shown what is close already, and this catches what slips through.
+ * Measured with scripts/measure-question-dupes.ts on text-embedding-005 (2026-10-29), re-run it
+ * before changing either:
+ *   - question to question: the same ask reworded scored 0.848 to 0.981 (seven of eight at 0.939
+ *     or more), a different ask on the same subject 0.720 to 0.915. At 0.93 seven of eight repeats
+ *     are dropped and no different question is.
+ *   - question to note: a note that answers it scored 0.726 to 0.873, one on the same subject
+ *     that doesn't 0.643 to 0.773. No cutoff separates them, so 0.85 drops only the closest and
+ *     never a question a note leaves open.
+ */
+export const DUP_QUESTION_SIM = 0.93;
+export const DUP_NOTE_SIM = 0.85;
 
 /**
  * An article's questions for its team, kept as open questions (BRAND_NOTES_QUESTIONS_ENABLED).
@@ -285,6 +313,11 @@ const OPEN_CANDIDATES = 5;
  * before has its questions kept without a model call. Otherwise open questions close in meaning
  * are offered to the model to reuse, and the rest are new. `unsaved`: new questions the brand had
  * no room to keep (near its backstop), shown the old way.
+ *
+ * With notes resting (`rest`), every article asks, whatever matched: the model is shown what the
+ * brand already has and has been asked on the question, and a question that repeats any of it by
+ * meaning is dropped. An open question already asked for as many articles as a note may go into
+ * is not offered again.
  */
 async function articleQuestions(
   ctx: TenantContext,
@@ -299,11 +332,13 @@ async function articleQuestions(
     question: string;
     spark: string;
     audience: string;
+    rest?: NotesRest | null;
+    have?: string[];
   },
   deps: SeenDeps,
 ): Promise<{ questions: BlogSeenQuestion[]; unsaved: string[] }> {
   const answered = a.prior.filter(isAnswered);
-  if (a.matched) return { questions: answered, unsaved: [] };
+  if (a.matched && !a.rest) return { questions: answered, unsaved: [] };
   if (a.same && a.prior.length) return { questions: a.prior, unsaved: [] };
   const room = 3 - answered.length;
   if (room <= 0) return { questions: answered.slice(0, 3), unsaved: [] };
@@ -314,9 +349,10 @@ async function articleQuestions(
   }
 
   const keep = new Set(answered.map((q) => q.id));
-  const open = a.vector
-    ? await nearestOpenQuestions(ctx, a.vector, { limit: OPEN_CANDIDATES, minSim: OPEN_MIN_SIM, exclude: keep }, deps).catch(() => [])
-    : [];
+  const open = (
+    a.vector ? await nearestOpenQuestions(ctx, a.vector, { limit: OPEN_CANDIDATES, minSim: OPEN_MIN_SIM, exclude: keep }, deps).catch(() => []) : []
+  ).filter((o) => !a.rest || (o.note.askedFor?.length ?? 0) < a.rest.maxUses);
+  if (a.rest) return freshQuestions(ctx, { ...a, answered, room, open }, deps);
   const vars = { brand_name: a.brand, question: a.question, spark: a.spark, audience: a.audience };
   const raw = await (deps.generate ?? generateTextWithDeadline)(
     open.length
@@ -342,6 +378,96 @@ async function articleQuestions(
     questions: [...answered, ...linked.map((n, i) => asQuestion(n ?? reused[i]!, a.article.ref)), ...made.map((n) => asQuestion(n, a.article.ref))],
     unsaved: made.length ? [] : fresh,
   };
+}
+
+/** Every article's questions with notes resting: something the brand doesn't have yet, never asked before. */
+async function freshQuestions(
+  ctx: TenantContext,
+  a: Parameters<typeof articleQuestions>[1] & { answered: BlogSeenQuestion[]; room: number; open: Array<{ note: BrandNote; sim: number }> },
+  deps: SeenDeps,
+): Promise<{ questions: BlogSeenQuestion[]; unsaved: string[] }> {
+  const count = a.room + SPARE_QUESTIONS;
+  const openIds = new Set(a.open.map((o) => o.note.id));
+  const asked = a.vector
+    ? await nearestOpenQuestions(
+        ctx,
+        a.vector,
+        { limit: ASKED_ALREADY, minSim: OPEN_MIN_SIM, exclude: [...a.answered.map((q) => q.id), ...openIds], statuses: ["asked", "answered"] },
+        deps,
+      ).catch(() => [])
+    : [];
+  const strip = (t: string, tag: string) => oneLine(t).replace(new RegExp(`</?\\s*${tag}\\s*>`, "gi"), " ").slice(0, 300);
+  const have = [
+    ...(a.have ?? []).map((t) => `- ${strip(t, "have")}`),
+    ...a.answered.map((q) => `- Asked already: ${strip(q.question, "have")}`),
+    ...asked.map((o) => `- Asked already: ${strip(o.note.question ?? "", "have")}`),
+  ].slice(0, HAVE_LINES);
+  const raw = await (deps.generate ?? generateTextWithDeadline)(
+    renderPrompt("content.blog_note_asks_fresh", {
+      brand_name: a.brand,
+      question: a.question,
+      spark: a.spark,
+      audience: a.audience,
+      count,
+      have: have.join("\n") || "(nothing yet)",
+      open: a.open.map((o, i) => `[${i + 1}] ${strip(o.note.question ?? "", "open")}`).join("\n") || "(none)",
+    }),
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256 },
+  ).catch(() => null);
+  if (!raw) return { questions: a.answered, unsaved: [] };
+
+  const reused = (a.open.length ? parseReuse(raw, a.open.length) : []).slice(0, a.room).map((i) => a.open[i]!.note);
+  const norm = (q: string) => oneLine(q).toLowerCase();
+  const taken = new Set([...a.answered.map((q) => q.question), ...reused.map((n) => n.question ?? ""), ...asked.map((o) => o.note.question ?? "")].map(norm));
+  const candidates = parseAsks(raw, count).filter((q) => !taken.has(norm(q)));
+  const unique = await uniqueQuestions(ctx, candidates, a.room - reused.length, deps);
+  const [linked, made] = await Promise.all([
+    Promise.all(reused.map((n) => addAskedFor(ctx, n.id, a.article, deps).catch(() => n))),
+    unique.questions.length ? askQuestions(ctx, { questions: unique.questions, article: a.article, vectors: unique.vectors }, deps).catch(() => []) : Promise.resolve([] as BrandNote[]),
+  ]);
+  return {
+    questions: [...a.answered, ...linked.map((n, i) => asQuestion(n ?? reused[i]!, a.article.ref)), ...made.map((n) => asQuestion(n, a.article.ref))],
+    unsaved: made.length ? [] : unique.questions,
+  };
+}
+
+const cosine = (x: number[], y: number[]) => {
+  let dot = 0;
+  let nx = 0;
+  let ny = 0;
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    dot += x[i]! * y[i]!;
+    nx += x[i]! * x[i]!;
+    ny += y[i]! * y[i]!;
+  }
+  return nx && ny ? dot / Math.sqrt(nx * ny) : 0;
+};
+
+/**
+ * The first `want` questions that repeat, by meaning, nothing on What we've seen and none of the
+ * others, with their vectors (made once, kept with the questions). Embeddings down: the first
+ * `want` as they are, so an article still asks.
+ */
+export async function uniqueQuestions(
+  ctx: TenantContext,
+  candidates: string[],
+  want: number,
+  deps: NotesDeps = {},
+): Promise<{ questions: string[]; vectors: number[][] | null }> {
+  if (want <= 0 || !candidates.length) return { questions: [], vectors: null };
+  const made = await (deps.embed ?? embedDocuments)(candidates.map((content) => ({ content, title: QUESTION_TITLE })), ctx.region).catch(() => null);
+  if (!made || made.length !== candidates.length || made.some((v) => !v?.length)) return { questions: candidates.slice(0, want), vectors: null };
+  const vectors = made as number[][];
+  const onFile = await Promise.all(vectors.map((v) => alreadyOnFile(ctx, v, { questionSim: DUP_QUESTION_SIM, noteSim: DUP_NOTE_SIM }, deps)));
+  const questions: string[] = [];
+  const kept: number[][] = [];
+  candidates.forEach((q, i) => {
+    const v = vectors[i]!;
+    if (questions.length === want || onFile[i] || kept.some((k) => cosine(k, v) >= DUP_QUESTION_SIM)) return;
+    questions.push(q);
+    kept.push(v);
+  });
+  return { questions, vectors: kept };
 }
 
 /**

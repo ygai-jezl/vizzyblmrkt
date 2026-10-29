@@ -264,14 +264,23 @@ const asArticle = (a: NoteArticle): NoteArticle => ({
   title: oneLine(a.title).slice(0, BRAND_NOTE_LIMITS.MAX_ARTICLE_TITLE),
 });
 
-/** Embed open questions' questions in one call (best effort), each searched by whether it is answered. */
-async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: NotesDeps): Promise<void> {
+/** How a question is embedded, so a question about to be asked compares like for like with one kept. */
+export const QUESTION_TITLE = "A question for the team";
+
+/**
+ * Embed open questions' questions in one call (best effort), each searched by whether it is
+ * answered. Vectors already made for the same questions (`given`, by question) are used as they are.
+ */
+async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: NotesDeps, given?: Map<string, number[]>): Promise<void> {
   if (!notes.length) return;
   try {
-    const vectors = await (deps.embed ?? embedDocuments)(
-      notes.map((n) => ({ content: n.question ?? "", title: "A question for the team" })),
-      ctx.region,
-    );
+    const all = given && notes.every((n) => given.has(n.question ?? ""));
+    const vectors = all
+      ? notes.map((n) => given.get(n.question ?? "")!)
+      : await (deps.embed ?? embedDocuments)(
+          notes.map((n) => ({ content: n.question ?? "", title: QUESTION_TITLE })),
+          ctx.region,
+        );
     await Promise.all(
       notes.map((n, i) => {
         const v = vectors[i];
@@ -289,11 +298,13 @@ async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: Note
  */
 export async function askQuestions(
   ctx: TenantContext,
-  args: { questions: string[]; article: NoteArticle },
+  args: { questions: string[]; article: NoteArticle; /** Their vectors (QUESTION_TITLE), in the same order, when already made. */ vectors?: number[][] | null },
   deps: NotesDeps = {},
 ): Promise<BrandNote[]> {
   const notes = notesOf(ctx, deps);
-  const questions = [...new Set(args.questions.map((q) => oneLine(q).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION)).filter(Boolean))];
+  const clean = (q: string) => oneLine(q).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION);
+  const given = args.vectors?.length === args.questions.length ? new Map(args.questions.map((q, i) => [clean(q), args.vectors![i]!])) : undefined;
+  const questions = [...new Set(args.questions.map(clean).filter(Boolean))];
   if (!questions.length) return [];
   if ((await notes.count()) + questions.length > BRAND_NOTE_LIMITS.MAX_NOTES - QUESTION_HEADROOM) return [];
   const at = nowIso(deps);
@@ -318,7 +329,7 @@ export async function askQuestions(
       }),
     ),
   );
-  await embedQuestions(ctx, made, deps);
+  await embedQuestions(ctx, made, deps, given);
   return made;
 }
 
@@ -378,21 +389,43 @@ export async function answerQuestion(
   return { ok: true, value: updated };
 }
 
-/** Open questions close in meaning to a query vector, most similar first, leaving out some ids. */
+/**
+ * Questions close in meaning to a query vector, most similar first, leaving out some ids: open
+ * ones by default, or answered ones too (`statuses`).
+ */
 export async function nearestOpenQuestions(
   ctx: TenantContext,
   vector: number[],
-  opts: { limit: number; minSim?: number; exclude?: Iterable<string> },
+  opts: { limit: number; minSim?: number; exclude?: Iterable<string>; statuses?: Array<"asked" | "answered"> },
   deps: NotesDeps = {},
 ): Promise<Array<{ note: BrandNote; sim: number }>> {
   const exclude = new Set(opts.exclude ?? []);
-  const near = await nearestBrandMapRecords(
-    ctx,
-    { kind: "question", vector, limit: opts.limit + exclude.size, statuses: ["asked"], minSim: opts.minSim },
-    deps.vectors,
-  ).catch(() => []);
+  const statuses = opts.statuses ?? ["asked"];
+  const near = await nearestBrandMapRecords(ctx, { kind: "question", vector, limit: opts.limit + exclude.size, statuses, minSim: opts.minSim }, deps.vectors).catch(
+    () => [],
+  );
   const found = await Promise.all(near.filter((n) => !exclude.has(n.ref)).map(async (n) => ({ note: await getNote(ctx, n.ref, deps), sim: n.sim })));
-  return found.filter((n): n is { note: BrandNote; sim: number } => n.note?.status === "asked").slice(0, opts.limit);
+  const wanted = (n: BrandNote | null) =>
+    n?.source === "question" && ((n.status === "asked" && statuses.includes("asked")) || (n.status === "kept" && statuses.includes("answered")));
+  return found.filter((n): n is { note: BrandNote; sim: number } => wanted(n.note)).slice(0, opts.limit);
+}
+
+/**
+ * Whether What we've seen already holds something this close in meaning to a question about to
+ * be asked (its vector made with QUESTION_TITLE): a question asked or answered, at `questionSim`,
+ * or a kept note, at `noteSim`. False when the search can't run, so a question is never lost to it.
+ */
+export async function alreadyOnFile(
+  ctx: TenantContext,
+  vector: number[],
+  opts: { questionSim: number; noteSim: number },
+  deps: NotesDeps = {},
+): Promise<boolean> {
+  const [questions, notes] = await Promise.all([
+    nearestBrandMapRecords(ctx, { kind: "question", vector, limit: 1, statuses: ["asked", "answered"], minSim: opts.questionSim }, deps.vectors).catch(() => []),
+    nearestBrandMapRecords(ctx, { kind: "note", vector, limit: 1, statuses: ["kept"], minSim: opts.noteSim }, deps.vectors).catch(() => []),
+  ]);
+  return questions.length > 0 || notes.length > 0;
 }
 
 /** Notes by id, in the order asked; one that is gone (or another brand's) is left out. */

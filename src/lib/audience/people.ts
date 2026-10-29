@@ -5,6 +5,7 @@ import { onboardingSummary, type OnboardingSummary } from "@/lib/connect/onboard
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductUser } from "@/lib/types/productUser";
 import { lastActiveAt, personReach, personStage, type PersonReach, type PersonStage } from "./personStage";
+import { isOnALaunch } from "./personLinks";
 
 /**
  * Audience → Product users with the person view on: everyone using your connected
@@ -62,7 +63,7 @@ export async function loadAudiencePeople(
     Promise.all(chunks.map((chunk) => repos.contacts.find({ where: [["contactKey", "in", chunk]] }).catch(() => []))),
     Promise.all(chunks.map((chunk) => repos.emailSuppressions.find({ where: [["normalizedEmail", "in", chunk]], limit: 2000 }))),
   ]);
-  const waitlist = new Set(contacts.flat().filter((c) => c.status !== "deleted").map((c) => c.contactKey));
+  const waitlist = new Set(contacts.flat().filter(isOnALaunch).map((c) => c.contactKey));
   const optOuts = new Map<string, EmailSuppression[]>();
   for (const o of suppressions.flat()) optOuts.set(o.normalizedEmail, [...(optOuts.get(o.normalizedEmail) ?? []), o]);
   const byId = new Map(connections.map((c) => [c.id, c]));
@@ -77,7 +78,7 @@ export async function loadAudiencePeople(
         email: u.email ?? null,
         product: `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}`,
         onboarding: onboardingSummary(u, { onboardingSteps: c.catalog?.onboardingSteps ?? [], entityKinds: c.catalog?.entityKinds ?? [] }),
-        stage: personStage(u, c.catalog, nowMs),
+        stage: personStage(u, c.catalog, nowMs, c.stageClocks),
         reach: personReach(u, c.consentPolicy, (u.emailNormalized && optOuts.get(u.emailNormalized)) || []),
         signedUpAt: u.signedUpAt ?? u.firstSeenAt,
         lastSyncAt: u.lastSeenAt,

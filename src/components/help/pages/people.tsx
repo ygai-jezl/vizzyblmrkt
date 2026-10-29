@@ -1,7 +1,10 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
+import { isOneViewEnabled } from "@/lib/audience/flags";
 
 export default function PeopleHelp() {
+  // One People list (AUDIENCE_ONE_VIEW_ENABLED) in place of the Product users tab.
+  const oneView = isOneViewEnabled();
   return (
     <article>
       <H1>One person&apos;s view</H1>
@@ -25,15 +28,31 @@ export default function PeopleHelp() {
       />
 
       <H2 id="open">Open someone&apos;s page</H2>
-      <Steps>
-        <li>
-          Open <Open href="/admin/crm">Audience</Open> and choose the <strong>Product users</strong> tab.
-        </li>
-        <li>
-          Search by name or email, or filter by stage, such as <strong>Stuck</strong> or <strong>Quiet</strong>.
-        </li>
-        <li>Click their row.</li>
-      </Steps>
+      {oneView ? (
+        <Steps>
+          <li>
+            Open <Open href="/admin/crm">Audience</Open>. The <strong>People</strong> tab lists everyone.
+          </li>
+          <li>
+            Pick your product at the top, then a stage such as <strong>Stuck</strong> or <strong>Quiet</strong>, or search
+            by name or email.
+          </li>
+          <li>
+            Click their row. Their page shows each launch they joined too, and each product they use has a part like the
+            one below. See <Open href="/help/your-audience">Your audience</Open>.
+          </li>
+        </Steps>
+      ) : (
+        <Steps>
+          <li>
+            Open <Open href="/admin/crm">Audience</Open> and choose the <strong>Product users</strong> tab.
+          </li>
+          <li>
+            Search by name or email, or filter by stage, such as <strong>Stuck</strong> or <strong>Quiet</strong>.
+          </li>
+          <li>Click their row.</li>
+        </Steps>
+      )}
 
       <H2 id="page">What their page shows</H2>
       <UL>
@@ -63,7 +82,7 @@ export default function PeopleHelp() {
 
       <H2 id="check">Check it worked</H2>
       <Checks>
-        <li>A test user you just signed up appears on the Product users tab.</li>
+        <li>A test user you just signed up appears {oneView ? "in People, under your product" : "on the Product users tab"}.</li>
         <li>Their page shows the journey they&apos;re in and when their next email goes out.</li>
       </Checks>
 

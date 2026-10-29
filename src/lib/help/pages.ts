@@ -1,4 +1,5 @@
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+import { isOneViewEnabled } from "@/lib/audience/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -21,7 +22,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups";
+  onlyWhen?: "site_signups" | "audience_one_view";
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -61,6 +62,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("brand-map", "Brand map", "grow", "Set the names and subjects every blog article is written from."),
   page("write-and-schedule", "Write and schedule", "grow", "Write posts, articles and newsletters with Vizzy, then schedule and send them."),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
+  page(
+    "your-audience",
+    "Your audience",
+    "grow",
+    "Everyone from your launches, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
+    "audience_one_view",
+  ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
   page("invite-your-waitlist", "Invite your waitlist", "product", "Bring the people on your waitlist into your product, in waves."),
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
@@ -71,7 +79,9 @@ export const HELP_PAGES: HelpPage[] = [
 
 /** Whether a page is listed and served now (its switch, if it has one, is on). */
 export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
-  return p.onlyWhen === "site_signups" ? isSiteSignupsEnabled() : true;
+  if (p.onlyWhen === "site_signups") return isSiteSignupsEnabled();
+  if (p.onlyWhen === "audience_one_view") return isOneViewEnabled();
+  return true;
 }
 
 /** The pages to list now: every page, less those whose switch is off. */

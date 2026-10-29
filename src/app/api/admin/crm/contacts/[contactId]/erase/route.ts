@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * GDPR Art.17 erasure of a contact (§H2). Admin-only — it irreversibly deletes
- * the contact + its email engagement and unsubscribes externally. Enqueues a
- * `contact_erase` job (the cascade runs in the worker, idempotently).
+ * the contact, their sign-ups on every launch and their email engagement, and
+ * unsubscribes externally. Enqueues a `contact_erase` job (the cascade runs in
+ * the worker, idempotently).
  */
 export async function POST(
   req: Request,
@@ -29,7 +30,9 @@ export async function POST(
   await enqueueEmailJob(ctx, {
     type: "contact_erase",
     campaignId: contact.campaignIds[0] ?? "manual",
-    dedupeKey: `erase:contact:${contactId}`,
+    // Per record, not per id: someone who comes back after an erase gets a new record (same
+    // id, new createdAt), and erasing them again must run again, not hit the old job.
+    dedupeKey: `erase:contact:${contactId}:${contact.createdAt}`,
     payload: { contactId },
   });
   return NextResponse.json({ ok: true, status: "queued" });

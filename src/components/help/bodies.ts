@@ -14,6 +14,7 @@ import InviteYourWaitlistHelp from "./pages/invite-your-waitlist";
 import OnboardingJourneysHelp from "./pages/onboarding-journeys";
 import ReviewAndApprovalsHelp from "./pages/review-and-approvals";
 import PeopleHelp from "./pages/people";
+import YourAudienceHelp from "./pages/your-audience";
 import TroubleshootingHelp from "./pages/troubleshooting";
 
 /** Each help page's body by slug ("" = Get set up): the /help routes, their Markdown copies and llms-full.txt render these. */
@@ -33,5 +34,6 @@ export const HELP_BODIES: Record<string, () => ReactNode> = {
   "onboarding-journeys": OnboardingJourneysHelp,
   "review-and-approvals": ReviewAndApprovalsHelp,
   "people": PeopleHelp,
+  "your-audience": YourAudienceHelp,
   "troubleshooting": TroubleshootingHelp,
 };

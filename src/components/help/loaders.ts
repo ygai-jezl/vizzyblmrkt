@@ -17,5 +17,6 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "onboarding-journeys": () => import("./pages/onboarding-journeys"),
   "review-and-approvals": () => import("./pages/review-and-approvals"),
   "people": () => import("./pages/people"),
+  "your-audience": () => import("./pages/your-audience"),
   "troubleshooting": () => import("./pages/troubleshooting"),
 };

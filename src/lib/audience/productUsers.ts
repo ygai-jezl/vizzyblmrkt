@@ -4,6 +4,7 @@ import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/e
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import { onboardingSummary, type OnboardingSummary } from "@/lib/connect/onboardingSummary";
+import { isOnALaunch } from "./personLinks";
 
 /**
  * Audience → Product users (nav v2 phase 3): the people using your connected
@@ -80,7 +81,7 @@ export async function loadAudienceProductUsers(ctx: TenantContext, db?: Firestor
   const waitlist = new Set<string>();
   for (let i = 0; i < keys.length; i += 30) {
     const found = await repos.contacts.find({ where: [["contactKey", "in", keys.slice(i, i + 30)]] }).catch(() => []);
-    for (const c of found) if (c.status !== "deleted") waitlist.add(c.contactKey);
+    for (const c of found) if (isOnALaunch(c)) waitlist.add(c.contactKey);
   }
   return audienceProductRows(connections, users, waitlist);
 }

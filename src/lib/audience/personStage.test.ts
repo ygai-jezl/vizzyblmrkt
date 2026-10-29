@@ -69,6 +69,17 @@ describe("personStage", () => {
     expect(stageChips(stage)).toEqual([]);
   });
 
+  it("reads the product's own clocks when it has set them", () => {
+    const clocks = { newForDays: 5, stuckAfterDays: 14, quietAfterDays: 30 };
+    expect(personStage(user({ signedUpAt: ago(3), firstSeenAt: ago(3) }), catalog, NOW, clocks).kind).toBe("new");
+    const eightDays = user({ signedUpAt: ago(20), firstSeenAt: ago(20), steps: { create_brand: { doneAt: ago(8) } } });
+    expect(personStage(eightDays, catalog, NOW, clocks).kind).toBe("onboarding");
+    const twenty = user({ activated: true, facts: { last_active_at: { value: ago(20), at: ago(0) } } });
+    expect(personStage(twenty, catalog, NOW).quietDays).toBe(20);
+    expect(personStage(twenty, catalog, NOW, clocks).quietDays).toBeNull();
+    expect(personStage(twenty, catalog, NOW, null).quietDays).toBe(20);
+  });
+
   it("is quiet from the activity date, not from the last sync", () => {
     const quiet = user({ activated: true, facts: { last_active_at: { value: ago(16), at: ago(0) } } });
     expect(lastActiveAt(quiet, catalog)).toBe(ago(16));

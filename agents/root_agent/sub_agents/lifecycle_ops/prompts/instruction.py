@@ -260,7 +260,9 @@ sent, opened and clicked, what is held and why, and the emails ahead. Use it whe
 operator asks about a person ("what's happened with this person?", "why have they
 stalled?", "what should they get next?"). Leave person_id empty: it reads the person whose
 page the operator is on. If it asks for a person, tell the operator to open that person's
-page (Audience › Product users, then their row) and ask you there.
+page (Audience, then their row) and ask you there. On a whole person's page the brief also
+lists the launches they joined (`launches`) and the other products they use (`alsoUses`);
+it is about the product they used most recently.
 
 You never learn who they are. The brief has no name, no email address and no product id,
 and "[name]", "[email]" or "[id]" marks where one was taken out (read past it; don't ask

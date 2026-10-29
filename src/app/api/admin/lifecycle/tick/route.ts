@@ -6,6 +6,7 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { drainLifecycleTenant, runLifecycleTick } from "@/lib/lifecycle/runner";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { runWaitlistTick } from "@/lib/lifecycle/waitlist/tick";
+import { isPersonLinksEnabled } from "@/lib/audience/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,15 +17,15 @@ export const dynamic = "force-dynamic";
  *    $LIFECYCLE_WORKER_SECRET` — fans out across every tenant and region;
  *  - a signed-in admin — runs their own tenant only.
  * Product journeys run while LIFECYCLE_ENABLED is on, and waitlist journeys
- * (engine move) while WAITLIST_ENGINE_ENABLED is on. With both off the
- * scheduler gets a no-op 200 (so it doesn't alarm on a dark deploy) and
- * everyone else a 404.
+ * (engine move) while WAITLIST_ENGINE_ENABLED is on, and the person record sweep
+ * while AUDIENCE_PERSON_LINKS_ENABLED is on. With all three off the scheduler gets
+ * a no-op 200 (so it doesn't alarm on a dark deploy) and everyone else a 404.
  */
 export async function POST(req: Request) {
   const machine = workerSecretMatches(req.headers.get("x-worker-secret"), process.env.LIFECYCLE_WORKER_SECRET);
   const product = isLifecycleEnabled();
   const waitlist = isWaitlistEngineEnabled();
-  if (!product && !waitlist) {
+  if (!product && !waitlist && !isPersonLinksEnabled()) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });

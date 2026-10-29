@@ -50,7 +50,12 @@ export interface AdminSidebarProps {
   /** Archived (closed) launches — rendered in a separate, collapsed section. */
   archivedLaunches: Array<{ id: string; name: string }>;
   ctx: { tenantId: string; region: string; role: string };
+  /** One People list (AUDIENCE_ONE_VIEW_ENABLED): the Master Database and Identity Radar placeholders go. */
+  oneView?: boolean;
 }
+
+/** The placeholders the one People list replaces. */
+const REPLACED_BY_PEOPLE = new Set(["/admin/database", "/admin/identity"]);
 
 const STATIC_GROUPS: NavGroup[] = [
   {
@@ -142,8 +147,10 @@ export function AdminSidebar({
   launches,
   archivedLaunches,
   ctx,
+  oneView = false,
 }: AdminSidebarProps) {
   const pathname = usePathname();
+  const groups = oneView ? STATIC_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !REPLACED_BY_PEOPLE.has(i.href)) })) : STATIC_GROUPS;
   const approvalCount = useApprovalCount();
   const [collapsed, setCollapsed] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
@@ -164,7 +171,7 @@ export function AdminSidebar({
 
   // Every link that participates in active-state resolution.
   const allLinks: NavLink[] = [
-    ...STATIC_GROUPS.flatMap((g) => g.items),
+    ...groups.flatMap((g) => g.items),
     ...launchLinks,
     ...archivedLinks,
     NEW_LAUNCH_LINK,
@@ -257,8 +264,8 @@ export function AdminSidebar({
       <nav className="flex-1 space-y-3 overflow-y-auto px-2 py-3">
         {/* Command Center */}
         <div className="space-y-0.5">
-          {sectionHeader(STATIC_GROUPS[0]!.title)}
-          {STATIC_GROUPS[0]!.items.map(renderLink)}
+          {sectionHeader(groups[0]!.title)}
+          {groups[0]!.items.map(renderLink)}
         </div>
 
         {/* Active Launches (dynamic) */}
@@ -300,7 +307,7 @@ export function AdminSidebar({
           ))}
 
         {/* Data Engine + Strategy Hub */}
-        {STATIC_GROUPS.slice(1).map((group) => (
+        {groups.slice(1).map((group) => (
           <div key={group.title} className="space-y-0.5">
             {sectionHeader(group.title)}
             {group.items.map(renderLink)}

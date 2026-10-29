@@ -72,11 +72,17 @@ export function PersonView({
   personId,
   canEdit,
   vizzy = false,
+  embedded = null,
 }: {
   personId: string;
   canEdit: boolean;
   /** Vizzy can read this person's situation (LIFECYCLE_PERSON_BRIEF): offer to ask. */
   vizzy?: boolean;
+  /**
+   * One product on a whole person's page (AUDIENCE_ONE_VIEW_ENABLED): no way back, no export
+   * or Vizzy (the page has them), and erasing removes them from this product only.
+   */
+  embedded?: { onErased: () => void } | null;
 }) {
   const router = useRouter();
   const shell = useShell();
@@ -105,7 +111,7 @@ export function PersonView({
     });
   }, [subscribe, personId, load]);
 
-  const back = (
+  const back = embedded ? null : (
     <Link href={PEOPLE_HREF} className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
       <ArrowLeft size={14} /> Product users
     </Link>
@@ -143,12 +149,16 @@ export function PersonView({
     await load();
   };
   const erase = async () => {
-    if (!window.confirm(`Erase ${p.email ?? p.name ?? "this person"}? Their profile, journey progress and email history are deleted. This can't be undone.`)) return;
+    const ask = embedded
+      ? `Erase them from ${p.product}? Their user record, journey progress and email history in this product are deleted. Their launches and other products stay. This can't be undone.`
+      : `Erase ${p.email ?? p.name ?? "this person"}? Their profile, journey progress and email history are deleted. This can't be undone.`;
+    if (!window.confirm(ask)) return;
     setBusy("erase");
     const r = await api(`/api/admin/connections/${p.connectionId}/users/${p.id}`, { method: "DELETE" });
     setBusy(null);
     if (!r.ok) return setMsg({ tone: "err", text: errorText(r.data) });
-    router.push(PEOPLE_HREF);
+    if (embedded) embedded.onErased();
+    else router.push(PEOPLE_HREF);
   };
 
   const reach = reachText(p.reach, p.categoryLabels);
@@ -159,13 +169,23 @@ export function PersonView({
 
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1.5">
-          <h1 className="text-lg font-semibold">{p.name ?? p.email ?? "Unnamed user"}</h1>
-          <p className="break-words text-sm text-neutral-500">
-            {p.name && p.email ? `${p.email} · ` : ""}
-            <Link href={`/admin/products/${p.connectionId}?tab=users`} className="hover:underline">
-              {p.product}
-            </Link>
-          </p>
+          {embedded ? (
+            <h2 className="text-base font-semibold">
+              <Link href={`/admin/products/${p.connectionId}?tab=users`} className="hover:underline">
+                {p.product}
+              </Link>
+            </h2>
+          ) : (
+            <>
+              <h1 className="text-lg font-semibold">{p.name ?? p.email ?? "Unnamed user"}</h1>
+              <p className="break-words text-sm text-neutral-500">
+                {p.name && p.email ? `${p.email} · ` : ""}
+                <Link href={`/admin/products/${p.connectionId}?tab=users`} className="hover:underline">
+                  {p.product}
+                </Link>
+              </p>
+            </>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {stageChips(p.stage).map((c) => (
               <Chip key={c.text} tone={c.tone}>
@@ -176,7 +196,7 @@ export function PersonView({
               {reach.chip}
             </Chip>
             {p.sandbox ? <Chip>Sandbox test user</Chip> : null}
-            {p.waitlistContactId && p.email ? (
+            {p.waitlistContactId && p.email && !embedded ? (
               <Link href={`/admin/crm?q=${encodeURIComponent(p.email)}`}>
                 <Chip tone="blue">On your waitlist</Chip>
               </Link>
@@ -197,12 +217,16 @@ export function PersonView({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {vizzy && shell ? (
+          {vizzy && shell && !embedded ? (
             <Button tone="primary" onClick={() => shell.setVizzyOpen(true)} title="Vizzy sees their situation, never their name or address">
               <Sparkles size={14} /> Ask Vizzy
             </Button>
           ) : null}
-          {canEdit ? (
+          {canEdit && embedded ? (
+            <Button tone="danger" disabled={busy === "erase"} onClick={() => void erase()}>
+              <Trash2 size={14} /> {busy === "erase" ? "Erasing…" : "Erase from this product"}
+            </Button>
+          ) : canEdit ? (
             <>
               <a
                 href={`/api/admin/audience/people/${encodeURIComponent(p.id)}/export`}

@@ -1,6 +1,7 @@
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { tombstoneOf } from "./profile";
+import { personAfterProductErase, previousPersonKey } from "@/lib/audience/personHooks";
 
 /**
  * Erasure (GDPR Art. 17) of one product user. Two routes in: the product's own
@@ -19,11 +20,13 @@ export async function eraseProductUser(
   const user = await repo.productUsers.getById(productUserId);
   if (!user || user.connectionId !== connectionId) return false;
   const email = user.emailNormalized ?? null;
+  const personKey = previousPersonKey(user);
   await repo.productUsers.claim(productUserId, (cur) =>
     cur.status === "deleted" ? null : tombstoneOf(cur, nowMs),
   );
   await eraseProductUserHistory(ctx, productUserId, db);
   if (email) await scrubSuppressionEmails(ctx, email, db);
+  await personAfterProductErase(ctx, personKey, { db, nowMs });
   return true;
 }
 

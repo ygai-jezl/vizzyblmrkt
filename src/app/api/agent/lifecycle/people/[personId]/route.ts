@@ -25,7 +25,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ personId
   const r = await loadPersonBrief(gate.ctx, personId);
   // Who asked about whom, by id only: a person's data left for the model.
   console.info(`[person-brief] tenant=${gate.ctx.tenantId} operator=${gate.ctx.userId ?? "unknown"} person=${personId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80)} found=${r.found}`);
-  if (!r.found) return NextResponse.json({ error: r.erased ? "person_erased" : "person_not_found" }, { status: 404 });
+  if (!r.found) {
+    const error = r.erased ? "person_erased" : "onlyLaunches" in r && r.onlyLaunches ? "person_only_launches" : "person_not_found";
+    return NextResponse.json({ error }, { status: 404 });
+  }
   // `plans`: a plan can be drafted for them (LIFECYCLE_PERSON_PLANS).
   return NextResponse.json({ brief: r.brief, plans: isPersonPlansEnabled() }, { headers: { "cache-control": "no-store" } });
 }

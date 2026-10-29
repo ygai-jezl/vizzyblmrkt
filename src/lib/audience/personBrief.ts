@@ -2,6 +2,8 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { identityScrubber } from "./identityScrubber";
 import { loadPersonRecord, type PersonRecord } from "./personRecord";
 import { reachText, stageText } from "./personStage";
+import { isOneViewEnabled } from "./flags";
+import { loadWholePerson } from "./wholePerson";
 
 /**
  * What Vizzy may know about ONE person: their situation, not who they are.
@@ -79,6 +81,21 @@ export interface PersonBrief {
   /** AI lines for this person waiting for staff in Approvals. */
   approvalsWaiting: number;
   /**
+   * With the one view (AUDIENCE_ONE_VIEW_ENABLED), read from their whole person's page: the
+   * launches they joined, and the other products they use (the brief is about the one they
+   * used most recently).
+   */
+  launches?: Array<{
+    launch: string;
+    status: "confirmed" | "not_confirmed" | "offboarded";
+    joined: string | null;
+    via: "form" | "site";
+    referrals: number;
+    invite: string | null;
+    waitlistJourney: string | null;
+  }>;
+  alsoUses?: string[];
+  /**
    * Their plan, while plans are on: the one staff approved (it steers their AI line) and the
    * draft still waiting for a decision. Absent while plans are off.
    */
@@ -121,7 +138,7 @@ function pathOf(url: string | null): string | null {
 }
 
 /** Fields that are ours alone: ids we made, dates, and fixed words the agent's prompt names. */
-const OURS = new Set(["personId", "journeyId", "today", "signedUp", "lastActive", "timezone", "kind", "status", "mode", "wording", "on", "entered", "ended", "doneOn", "reviewOn", "can", "writtenBy"]);
+const OURS = new Set(["personId", "journeyId", "today", "signedUp", "lastActive", "timezone", "kind", "status", "mode", "wording", "on", "entered", "ended", "doneOn", "reviewOn", "can", "writtenBy", "joined", "via", "invite"]);
 
 /** Every other string in the brief goes through the scrubber, whoever wrote it: nothing relies on a field being "safe". */
 function scrubAll<T>(value: T, scrub: (s: string) => string, key = ""): T {
@@ -209,9 +226,48 @@ export async function loadPersonBrief(
   ctx: TenantContext,
   personId: string,
   deps: { db?: FirestoreLike; nowMs?: number } = {},
-): Promise<{ found: true; brief: PersonBrief } | { found: false; erased: boolean }> {
+): Promise<{ found: true; brief: PersonBrief } | { found: false; erased: boolean; onlyLaunches?: boolean }> {
   const nowMs = deps.nowMs ?? Date.now();
+  if (personId.startsWith("ct_")) return loadWholeBrief(ctx, personId, { db: deps.db, nowMs });
   const r = await loadPersonRecord(ctx, personId, { db: deps.db, nowMs });
   if (!r.found) return { found: false, erased: Boolean(r.erasedAt) };
   return { found: true, brief: personBrief(r.person, nowMs) };
+}
+
+const LAUNCH_STATUS = { verified_active: "confirmed", unverified: "not_confirmed", offboarded: "offboarded" } as const;
+
+/**
+ * A whole person's brief: the brief of the product they used most recently, with the
+ * launches they joined and the other products they use, all scrubbed the same way.
+ * Someone who only joined launches has no product situation to read.
+ */
+async function loadWholeBrief(
+  ctx: TenantContext,
+  personId: string,
+  deps: { db?: FirestoreLike; nowMs: number },
+): Promise<{ found: true; brief: PersonBrief } | { found: false; erased: boolean; onlyLaunches?: boolean }> {
+  if (!isOneViewEnabled()) return { found: false, erased: false };
+  const whole = await loadWholePerson(ctx, personId, deps.db);
+  if (!whole) return { found: false, erased: false };
+  const at = (p: { lastActiveAt?: string | null; signedUpAt?: string | null }) => p.lastActiveAt ?? p.signedUpAt ?? "";
+  const product = [...whole.products].sort((a, b) => at(b).localeCompare(at(a)))[0];
+  if (!product) return { found: false, erased: false, onlyLaunches: true };
+  const r = await loadPersonRecord(ctx, product.productUserId, deps);
+  if (!r.found) return { found: false, erased: Boolean(r.erasedAt) };
+  const brief = personBrief(r.person, deps.nowMs);
+  const scrub = identityScrubber({ name: whole.name ?? r.person.name, email: whole.email ?? r.person.email, userId: r.person.externalUserId });
+  const date = daysIn(r.person.timezone);
+  const extra = {
+    launches: whole.launches.map((l) => ({
+      launch: l.name,
+      status: LAUNCH_STATUS[l.status as keyof typeof LAUNCH_STATUS] ?? "not_confirmed",
+      joined: date(l.joinedAt),
+      via: l.via,
+      referrals: l.referrals,
+      invite: l.invite,
+      waitlistJourney: l.journey ? `${l.journey.status}, ${l.journey.sent} sent` : null,
+    })),
+    alsoUses: whole.products.filter((p) => p.productUserId !== product.productUserId).map((p) => p.name),
+  };
+  return { found: true, brief: { ...brief, ...scrubAll(extra, (s: string) => scrub(s)) } };
 }

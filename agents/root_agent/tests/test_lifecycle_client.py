@@ -246,6 +246,22 @@ def test_a_plan_is_saved_as_a_draft_for_the_person_in_view(monkeypatch):
     assert calls[0]["payload"]["scope"] == {"personId": "pu_3f9a"} and calls[0]["payload"]["kind"] == "person_plan"
 
 
+def test_on_a_whole_persons_page_the_plan_goes_to_the_product_user_their_brief_is_about(monkeypatch):
+    state = {**STATE, "personId": "ct_9b2e"}
+    assert lc.save_person_plan(dict(state), "g", "a", None, None)["status"] == "needs_person"
+    _capture(monkeypatch, 200, {"brief": {"personId": "pu_3f9a", "stage": {}}, "plans": True})
+    assert lc.get_person(state, "")["status"] == "success"
+    calls = _capture(monkeypatch, 200, {"ok": True, "id": "pp_pu_3f9a", "status": "draft"})
+    assert lc.save_person_plan(state, "Connect their site", "One short email.", None, None)["status"] == "success"
+    assert calls[0]["payload"]["scope"] == {"personId": "pu_3f9a"}
+
+
+def test_a_brief_for_someone_who_only_joined_launches_says_so(monkeypatch):
+    _capture(monkeypatch, 404, {"error": "person_only_launches"})
+    out = lc.get_person({**STATE, "personId": "ct_9b2e"}, "")
+    assert out["status"] == "error" and "only joined your launches" in out["message"]
+
+
 def test_a_plan_needs_a_person_and_its_two_parts(monkeypatch):
     calls = _capture(monkeypatch)
     assert lc.save_person_plan(dict(STATE), "g", "a", None, None)["status"] == "needs_person"

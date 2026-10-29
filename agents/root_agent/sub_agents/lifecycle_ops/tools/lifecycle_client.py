@@ -210,6 +210,7 @@ _PERSON_ERRORS = {
     "unavailable": "Looking at one person isn't switched on in this environment.",
     "person_not_found": "I couldn't find that person in this account.",
     "person_erased": "That person has been erased, so there's nothing I can read about them.",
+    "person_only_launches": "This person has only joined your launches. I can read the situation of people who use a connected product.",
     "rate_limited": "I've looked at a lot of people in the last hour — please try again a bit later.",
 }
 
@@ -220,7 +221,7 @@ def get_person(state: "dict | None", person_id: str) -> dict:
     if not resolved:
         return {
             "status": "needs_person",
-            "message": "Open the person's page (Audience › Product users, then their row) and ask me there — I can only look at the person in view.",
+            "message": "Open the person's page (Audience, then their row) and ask me there. I can only look at the person in view.",
         }
     got = _base_and_token(state)
     if isinstance(got, dict):
@@ -233,6 +234,9 @@ def get_person(state: "dict | None", person_id: str) -> dict:
         # it also says whether a plan can be drafted for them.
         state["personBriefEnabled"] = True
         state["personPlansEnabled"] = bool(body.get("plans"))
+        # On a whole person's page the brief is about one of their product users: a plan is theirs.
+        if isinstance(body["brief"].get("personId"), str):
+            state["briefPersonId"] = body["brief"]["personId"]
         return {"status": "success", "brief": body["brief"]}
     code = body.get("error") or f"http_{status_code}"
     if code in _PERSON_ERRORS:
@@ -412,8 +416,13 @@ def save_person_plan(
     if not resolved:
         return {
             "status": "needs_person",
-            "message": "Open the person's page (Audience › Product users, then their row) and ask me there — I can only plan for the person in view.",
+            "message": "Open the person's page (Audience, then their row) and ask me there. I can only plan for the person in view.",
         }
+    if str(resolved).startswith("ct_"):
+        # A whole person (the one view): the plan belongs to the product user their brief is about.
+        resolved = (state or {}).get("briefPersonId") or ""
+        if not resolved:
+            return {"status": "needs_person", "message": "Let me read this person first (get_person_brief), then I can save their plan."}
     if not (goal or "").strip() or not (angle or "").strip():
         return {"status": "needs_plan", "message": "A plan needs a goal (what they should do next) and an angle (how to put it to them)."}
     got = _base_and_token(state)

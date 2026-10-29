@@ -19,7 +19,7 @@ import { syncPlanPageSoftly } from "./pageActions";
 import { rememberAuthor, withRememberedAuthor } from "./authors";
 import { keepArticleSeen, matchSeen, refreshAnswers, type SeenDeps } from "./seen";
 import { isBlogEditorialEnabled } from "./flags";
-import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "@/lib/brandNotes/flags";
 import type { BlogSeen } from "@/lib/types/contentPlan";
 
 /**
@@ -199,6 +199,11 @@ export function isSeenOn(): boolean {
 /** Whether an article's questions for its team are kept as open questions, each answered in its own box. */
 export function isSeenQuestionsOn(): boolean {
   return isSeenOn() && isBrandNotesQuestionsEnabled();
+}
+
+/** Whether a note rests after an article uses it, and every article asks its team three new questions. */
+export function isSeenRestOn(): boolean {
+  return isSeenQuestionsOn() && isBrandNotesRestEnabled();
 }
 
 /**

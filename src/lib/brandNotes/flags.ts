@@ -33,3 +33,16 @@ export function isBrandNotesQuestionsEnabled(): boolean {
 export function isBrandNotesQuestionsUiEnabled(): boolean {
   return isBrandNotesUiEnabled() && process.env.NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED === "true";
 }
+
+/**
+ * A note rests after an article uses it, and goes in only by hand once enough articles have; every
+ * article asks its team three new questions whatever matched (needs the open questions).
+ */
+export function isBrandNotesRestEnabled(): boolean {
+  return isBrandNotesQuestionsEnabled() && process.env.BRAND_NOTES_REST_ENABLED === "true";
+}
+
+/** Client mirror (build-time), for the help pages only: screens get the server value as a prop. */
+export function isBrandNotesRestUiEnabled(): boolean {
+  return isBrandNotesQuestionsUiEnabled() && process.env.NEXT_PUBLIC_BRAND_NOTES_REST_ENABLED === "true";
+}

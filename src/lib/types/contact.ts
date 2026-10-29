@@ -34,6 +34,8 @@ export const ContactCampaignLinkSchema = z.object({
   amountReferred: z.number().int().nonnegative().default(0),
   score: z.number().int().nullable().optional(),
   joinedAt: z.string(), // signup.createdAt
+  /** How they joined this launch: its page or widget ("form"), or the brand's own site ("site"). */
+  joinedVia: z.enum(["form", "site"]).nullable().optional(),
 });
 export type ContactCampaignLink = z.infer<typeof ContactCampaignLinkSchema>;
 
@@ -69,6 +71,35 @@ export const ContactAnswerSchema = z.object({
   question_value: z.string(),
   answer_value: z.string(),
 });
+
+/**
+ * The person record's link to one of their user records in a connected product
+ * (AUDIENCE_PERSON_LINKS_ENABLED): what the People list filters and shows without
+ * reading the product user. Derived; src/lib/audience/personSync.ts keeps it.
+ */
+export const PersonProductLinkSchema = z.object({
+  connectionId: z.string(),
+  productUserId: z.string(),
+  stage: z.enum(["new", "onboarding", "stuck", "activated", "member"]),
+  /** Not active for the product's quiet clock or longer (the days follow from lastActiveAt). */
+  quiet: z.boolean().default(false),
+  activated: z.boolean().default(false),
+  signedUpAt: z.string().nullable().optional(),
+  lastActiveAt: z.string().nullable().optional(),
+  /** Whether this product's rules let us email them: yes, service emails only or some categories ("limited"), or no. */
+  reach: z.enum(["yes", "limited", "no"]),
+  /** The product's groups they belong to (workspaces, teams, households: the product's own word). */
+  groups: z.array(z.string()).default([]),
+});
+export type PersonProductLink = z.infer<typeof PersonProductLinkSchema>;
+
+/** Brand-wide and per-category opt-outs for the address, as of the last full sync. */
+export const PersonOptOutsSchema = z.object({
+  /** The strongest brand-wide block: a bounce, then a complaint, then an unsubscribe. */
+  blocked: z.enum(["unsubscribe", "spam", "hard_bounce"]).nullable().default(null),
+  categories: z.array(z.string()).default([]),
+});
+export type PersonOptOuts = z.infer<typeof PersonOptOutsSchema>;
 
 export const ContactSchema = z.object({
   id: z.string(),
@@ -112,6 +143,28 @@ export const ContactSchema = z.object({
 
   /** Storage-limitation purge boundary (nullable = keep). */
   retentionUntil: z.string().nullable().optional(),
+
+  // ---- The person record (AUDIENCE_PERSON_LINKS_ENABLED). Derived from the person's
+  // sign-ups, product users and opt-outs by src/lib/audience/personSync.ts, and safe
+  // to rebuild at any time. Absent on contacts no sync has reached yet.
+
+  /** Their user records in connected products. */
+  products: z.array(PersonProductLinkSchema).optional(),
+  /**
+   * Tags the People list filters on with one array-contains: `all`, `launch:any`,
+   * `launch:<campaignId>`, `via:form`, `via:site`, `product:any`, `product:<connectionId>`,
+   * `stage:<connectionId>:<stage>`, `quiet:<connectionId>`, `group:<connectionId>:<id>`.
+   */
+  memberOf: z.array(z.string()).optional(),
+  /** The best reach across their sources, unless a brand-wide opt-out stops everything. */
+  reach: z.enum(["yes", "limited", "no"]).optional(),
+  optOuts: PersonOptOutsSchema.optional(),
+  /** When they were last active anywhere we can see (the list's order). */
+  activeAt: z.string().optional(),
+  /** When the tags, reach or a product's stage last changed: what segments will listen to. */
+  changedAt: z.string().optional(),
+  /** A write path owes this person a sync; the lifecycle tick drains these. */
+  needsSync: z.boolean().optional(),
 
   firstSeenAt: z.string(),
   updatedAt: z.string(),

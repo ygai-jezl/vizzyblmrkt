@@ -52,7 +52,7 @@ function derive(ctx: TenantContext, signup: Signup): Derived {
   return { email, phone, contactKey, emailDomain, isCorporate, companyId, verified, consent };
 }
 
-function linkFromSignup(signup: Signup): ContactCampaignLink {
+export function linkFromSignup(signup: Signup): ContactCampaignLink {
   return {
     campaignId: signup.campaignId,
     signupId: signup.id,
@@ -61,6 +61,7 @@ function linkFromSignup(signup: Signup): ContactCampaignLink {
     amountReferred: signup.amountReferred ?? 0,
     score: typeof signup.score === "number" ? signup.score : null,
     joinedAt: signup.createdAt,
+    joinedVia: signup.joinedVia ?? "form",
   };
 }
 
@@ -77,6 +78,58 @@ function tokensFor(c: {
 function initialEnrichmentStatus(d: Derived): ContactEnrichmentStatus {
   if (d.isCorporate) return d.verified ? "pending" : "none";
   return d.email ? "skipped" : "none";
+}
+
+/** A new contact's fields, from the sign-up that first names them. */
+function newContactFields(d: Derived & { contactKey: string }, signup: Signup, now: string) {
+  const link = linkFromSignup(signup);
+  const enrichmentStatus = initialEnrichmentStatus(d);
+  return {
+    contactKey: d.contactKey,
+    email: d.email,
+    phone: d.phone,
+    firstName: signup.firstName ?? null,
+    lastName: signup.lastName ?? null,
+    status: "active" as const,
+    verified: d.verified,
+    consentStatus: d.consent,
+    emailDomain: d.emailDomain,
+    isCorporateDomain: d.isCorporate,
+    companyId: d.companyId,
+    campaigns: [link],
+    campaignIds: [signup.campaignId],
+    totalReferred: link.amountReferred,
+    utm: signup.utm,
+    referrerUrl: signup.referrerUrl ?? null,
+    answers: signup.answers?.map((a) => ({
+      question_value: a.question_value,
+      answer_value: a.answer_value,
+    })),
+    enrichment: {
+      status: enrichmentStatus,
+      companyId: d.companyId,
+      domain: d.emailDomain,
+    },
+    searchTokens: tokensFor({
+      firstName: signup.firstName,
+      lastName: signup.lastName,
+      email: d.email,
+      emailDomain: d.emailDomain,
+    }),
+    retentionUntil: null,
+    firstSeenAt: now,
+    updatedAt: now,
+    createdAt: now,
+  };
+}
+
+/**
+ * A new contact for this sign-up, as the sign-up route would create it, or null when
+ * there's nothing to key on. For the person sync, which finds sign-ups with no contact.
+ */
+export function contactFieldsFromSignup(ctx: TenantContext, signup: Signup, now: string) {
+  const d = derive(ctx, signup);
+  return d.contactKey ? newContactFields({ ...d, contactKey: d.contactKey }, signup, now) : null;
 }
 
 /** Never downgrade a contact's consent (except an explicit erasure elsewhere). */
@@ -130,45 +183,7 @@ export async function upsertContactFromSignup(
   const id = deterministicContactId(ctx.tenantId, d.contactKey);
   const now = opts.now ?? new Date().toISOString();
   const link = linkFromSignup(signup);
-
-  const enrichmentStatus = initialEnrichmentStatus(d);
-  const createData = {
-    contactKey: d.contactKey,
-    email: d.email,
-    phone: d.phone,
-    firstName: signup.firstName ?? null,
-    lastName: signup.lastName ?? null,
-    status: "active" as const,
-    verified: d.verified,
-    consentStatus: d.consent,
-    emailDomain: d.emailDomain,
-    isCorporateDomain: d.isCorporate,
-    companyId: d.companyId,
-    campaigns: [link],
-    campaignIds: [signup.campaignId],
-    totalReferred: link.amountReferred,
-    utm: signup.utm,
-    referrerUrl: signup.referrerUrl ?? null,
-    answers: signup.answers?.map((a) => ({
-      question_value: a.question_value,
-      answer_value: a.answer_value,
-    })),
-    enrichment: {
-      status: enrichmentStatus,
-      companyId: d.companyId,
-      domain: d.emailDomain,
-    },
-    searchTokens: tokensFor({
-      firstName: signup.firstName,
-      lastName: signup.lastName,
-      email: d.email,
-      emailDomain: d.emailDomain,
-    }),
-    retentionUntil: null,
-    firstSeenAt: now,
-    updatedAt: now,
-    createdAt: now,
-  };
+  const createData = newContactFields({ ...d, contactKey: d.contactKey }, signup, now);
 
   try {
     const contact = await repo.contacts.create(id, createData as never);

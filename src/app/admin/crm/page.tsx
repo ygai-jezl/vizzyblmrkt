@@ -4,7 +4,7 @@ import type { ListResult } from "@/lib/admin/crm";
 import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
-import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPersonLinksEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
 import { forTenant } from "@/lib/tenant";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
@@ -45,9 +45,15 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
   // The person view: a fuller Product users list, and the tab kept in the address bar so
   // coming back from a person lands where you left.
   const personView = phase3 && isPersonViewEnabled();
+  // One People list across every source, in place of the Signups and Product users tabs.
+  const oneView = phase3 && isOneViewEnabled();
+  // With person records on, people who only use a product aren't sign-ups: the Signups tab leaves them out.
+  const signupsOnly = isPersonLinksEnabled() ? { launchesOnly: true } : {};
   const [companies, contacts, engaged, funnel] = await Promise.all([
     tab("companies", listCompanies(ctx, {})),
-    tab("contacts", listContacts(ctx, q ? { q } : launch ? { campaignId: launch.id } : {})),
+    oneView
+      ? Promise.resolve({ items: [], nextCursor: null })
+      : tab("contacts", listContacts(ctx, q ? { q } : launch ? { campaignId: launch.id } : signupsOnly)),
     tab("engaged", listEngagedContacts(ctx, {})),
     // Nav v2 phase 4: the growth path in numbers, for this launch or every launch.
     invites ? loadFunnel(ctx, { campaignId: launch?.id ?? null }).catch(() => null) : null,
@@ -80,8 +86,8 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
         engagedCursor={engaged.nextCursor}
         initialQuery={q}
         initialLaunch={launch ? { id: launch.id, name: launch.waitlistName } : null}
-        audience={phase3 ? { productUsers: isLifecycleEnabled(), personView } : null}
-        initialTab={personView ? sp.tab : undefined}
+        audience={phase3 ? { productUsers: isLifecycleEnabled(), personView, oneView } : null}
+        initialTab={personView || oneView ? sp.tab : undefined}
       />
     </div>
   );

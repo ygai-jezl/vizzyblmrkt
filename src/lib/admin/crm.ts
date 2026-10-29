@@ -1,5 +1,5 @@
 import { forTenant } from "@/lib/tenant";
-import type { TenantContext } from "@/lib/tenant/types";
+import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { WhereClause } from "@/lib/tenant/repository";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
@@ -13,6 +13,11 @@ export interface ListContactsParams {
   campaignId?: string;
   corporate?: boolean;
   enriched?: boolean;
+  /**
+   * Only people from launches (AUDIENCE_PERSON_LINKS_ENABLED): with person records on, contacts
+   * include people who only use a product, and the Signups tab leaves them out.
+   */
+  launchesOnly?: boolean;
   /** Keyset cursor: the createdAt of the last row of the previous page. */
   cursor?: string;
   limit?: number;
@@ -32,6 +37,7 @@ export interface ListResult<T> {
 export async function listContacts(
   ctx: TenantContext,
   params: ListContactsParams = {},
+  db?: FirestoreLike,
 ): Promise<ListResult<Contact>> {
   const limit = Math.min(params.limit ?? CRM_PAGE_SIZE, 200);
   const where: WhereClause[] = [];
@@ -41,8 +47,9 @@ export async function listContacts(
   else if (params.campaignId) where.push(["campaignIds", "array-contains", params.campaignId]);
   else if (params.enriched) where.push(["enrichment.status", "==", "enriched"]);
   else if (params.corporate) where.push(["isCorporateDomain", "==", true]);
+  else if (params.launchesOnly) where.push(["memberOf", "array-contains", "launch:any"]);
 
-  const rows = await forTenant(ctx).contacts.find({
+  const rows = await forTenant(ctx, db).contacts.find({
     where,
     orderBy: [["createdAt", "desc"]],
     startAfter: params.cursor ? [params.cursor] : undefined,

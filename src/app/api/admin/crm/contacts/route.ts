@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { listContacts } from "@/lib/admin/crm";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
+import { isPersonLinksEnabled } from "@/lib/audience/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ export async function GET(req: Request) {
     campaignId: sp.get("campaignId") ?? undefined,
     corporate: sp.get("corporate") === "1",
     enriched: sp.get("enriched") === "1",
+    // With person records on, people who only use a product aren't sign-ups.
+    launchesOnly: isPersonLinksEnabled(),
     cursor: sp.get("cursor") ?? undefined,
   });
   // Nav v2 phase 4: each row's furthest invite stage (Invited / Signed up / Activated).

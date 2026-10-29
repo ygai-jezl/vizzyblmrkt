@@ -44,7 +44,7 @@ export function ContactDetail({ contactId, isAdmin }: { contactId: string; isAdm
   const { contact, company, emails } = data;
 
   async function erase() {
-    if (!window.confirm("Permanently erase this contact and all their email history? This cannot be undone (GDPR erasure).")) {
+    if (!window.confirm("Permanently erase this person? Their contact, their sign-ups on every launch and all their email history go. Their unsubscribe keeps holding, without their address. This cannot be undone (GDPR erasure).")) {
       return;
     }
     setErasing(true);

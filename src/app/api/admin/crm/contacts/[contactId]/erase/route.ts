@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * GDPR Art.17 erasure of a contact (§H2). Admin-only — it irreversibly deletes
- * the contact + its email engagement and unsubscribes externally. Enqueues a
- * `contact_erase` job (the cascade runs in the worker, idempotently).
+ * the contact, their sign-ups on every launch and their email engagement, and
+ * unsubscribes externally. Enqueues a `contact_erase` job (the cascade runs in
+ * the worker, idempotently).
  */
 export async function POST(
   req: Request,

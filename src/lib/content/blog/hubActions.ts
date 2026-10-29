@@ -20,6 +20,7 @@ import { rememberAuthor, withRememberedAuthor } from "./authors";
 import { keepArticleSeen, matchSeen, refreshAnswers, type SeenDeps } from "./seen";
 import { isBlogEditorialEnabled } from "./flags";
 import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "@/lib/brandNotes/flags";
+import { NotesRestSchema, type NotesRest } from "@/lib/types/brandNote";
 import type { BlogSeen } from "@/lib/types/contentPlan";
 
 /**
@@ -44,12 +45,12 @@ export function isCitableBlogPlan(plan: ContentPlan): boolean {
  * origins it allow-listed and the sending domains it verified. Research uses those to
  * tell the brand's own pages from everyone else's.
  */
-async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; sites: string[] }> {
+async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; sites: string[]; notesRest: NotesRest }> {
   try {
     const tenant = await getTenantById(ctx.tenantId);
-    return { name: tenant?.tenantName?.trim() || null, sites: tenantDomains(tenant) };
+    return { name: tenant?.tenantName?.trim() || null, sites: tenantDomains(tenant), notesRest: NotesRestSchema.parse(tenant?.brandNotesRest ?? {}) };
   } catch {
-    return { name: null, sites: [] };
+    return { name: null, sites: [], notesRest: NotesRestSchema.parse({}) };
   }
 }
 
@@ -180,7 +181,8 @@ export async function checkPlanBlogFacts(
   // was written with say so, and what a person wrote for it joins the brand's notes.
   await rememberAuthor(ctx, brief, deps.db);
   if (isBrandNotesEnabled()) {
-    await keepArticleSeen(ctx, { article: `${workspace.id}/${plan.id}`, brief, used: result.meta.style === "editorial" }, { db: deps.db }).catch((err) =>
+    const title = isSeenRestOn() ? plan.name.trim() || brief.primaryQuestion : undefined;
+    await keepArticleSeen(ctx, { article: `${workspace.id}/${plan.id}`, brief, used: result.meta.style === "editorial", title }, { db: deps.db }).catch((err) =>
       console.error("[blog] keeping the article's notes failed", err),
     );
   }
@@ -230,6 +232,7 @@ export async function matchPlanSeen(
       brandName: brief.publisherName.trim() || brand.name || workspace.name,
       audience: workspace.audience,
       article: { ref: `${workspace.id}/${plan.id}`, title: plan.name.trim() || brief.primaryQuestion },
+      rest: isSeenRestOn() ? brand.notesRest : null,
     },
     deps,
   );

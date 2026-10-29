@@ -10,23 +10,27 @@ import {
   type BlogSeen,
   type BlogSeenNote,
   type BlogSeenQuestion,
+  type BlogSeenResting,
   type ContentPlan,
 } from "@/lib/types/contentPlan";
-import { BRAND_NOTE_LIMITS, type BrandNote, type NoteArticle } from "@/lib/types/brandNote";
+import { BRAND_NOTE_LIMITS, type BrandNote, type NoteArticle, type NotesRest } from "@/lib/types/brandNote";
 import {
   addAskedFor,
   askQuestions,
   createNote,
+  holdNotes,
   markNotesUsed,
   nearestNotes,
   nearestOpenQuestions,
   notesById,
   notesForSubjects,
+  releaseHolds,
   updateNote,
   type NotesDeps,
 } from "@/lib/brandNotes/store";
 import { suggestKind } from "@/lib/brandNotes/prompts";
-import { isBrandNotesQuestionsEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "@/lib/brandNotes/flags";
+import { noteRest, type NoteRestState } from "@/lib/brandNotes/rest";
 import { answeredQuestions } from "./citable";
 
 /**
@@ -41,6 +45,10 @@ import { answeredQuestions } from "./citable";
  * questions linked to the article, and an open question another article asked is reused when it
  * fits. The article's own questions stay until its question changes, and their answers are never
  * matched back in as notes of their own.
+ *
+ * With BRAND_NOTES_REST_ENABLED a note rests after an article uses it (src/lib/brandNotes/rest.ts):
+ * one that fits but rests is shown apart for a person to add, never put in by the match. The
+ * article's draft holds the notes it took, so another draft researched meanwhile leaves them alone.
  */
 
 /** At most this many notes go into an article by themselves. */
@@ -48,6 +56,9 @@ export const STRONG_NOTES = 3;
 const NEAR_NOTES = 5;
 const MAX_NOTES = 6;
 const CANDIDATES = 12;
+/** With notes resting, more are looked at, so resting ones don't crowd fresh ones out. */
+const REST_CANDIDATES = 20;
+const RESTING_NOTES = 5;
 /**
  * How close in meaning (cosine, question against stored note) a note must be to be put to the
  * model check at all; the check, not this number, decides what is strong. Measured on 40
@@ -72,7 +83,20 @@ export function seenQuestion(plan: Pick<ContentPlan, "name" | "scope">, brief: B
   return (brief.primaryQuestion.trim() || plan.scope.spark.trim() || plan.name).replace(/\s+/g, " ").slice(0, 300);
 }
 
-const asSeen = (n: BrandNote, why: string): BlogSeenNote => ({ id: n.id, text: n.text.slice(0, BRAND_NOTE_LIMITS.MAX_TEXT), why, canName: n.canName });
+const asSeen = (n: BrandNote, why: string, r?: NoteRestState | null): BlogSeenNote => ({
+  id: n.id,
+  text: n.text.slice(0, BRAND_NOTE_LIMITS.MAX_TEXT),
+  why,
+  canName: n.canName,
+  ...(r ? { usedIn: Math.min(r.written, BRAND_NOTE_LIMITS.MAX_USED_BY), lastUsedAt: r.last?.at ?? null } : {}),
+});
+const asResting = (n: BrandNote, r: NoteRestState): BlogSeenResting => ({
+  ...asSeen(n, "", r),
+  reason: r.reason ?? "held",
+  until: r.until,
+  byTitle: r.by?.title.slice(0, 200) ?? null,
+  byAt: r.by?.at ?? null,
+});
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
 export type Verdict = "STRONG" | "WEAK" | "NO";
@@ -121,13 +145,16 @@ export async function matchSeen(
     audience?: string | null;
     /** The article (`<workspaceId>/<planId>` and its name): with it, its questions are kept as open questions. */
     article?: NoteArticle;
+    /** The brand's rest setting: with it and the article (BRAND_NOTES_REST_ENABLED), notes rest after use. */
+    rest?: NotesRest | null;
   },
   deps: SeenDeps = {},
 ): Promise<BlogSeen> {
   const now = (deps.now ?? (() => new Date()))();
-  const current = BlogSeenSchema.parse(args.brief.seen ?? {});
+  const { resting: _resting, ...current } = BlogSeenSchema.parse(args.brief.seen ?? {});
   const question = seenQuestion(args.plan, args.brief);
   const article = isBrandNotesQuestionsEnabled() ? args.article : undefined;
+  const rest = article && args.rest && isBrandNotesRestEnabled() ? args.rest : null;
   const prior = article ? (current.questions ?? []) : [];
   const priorIds = new Set(prior.map((q) => q.id));
   const removed = new Set(current.removed);
@@ -142,7 +169,9 @@ export async function matchSeen(
 
   const [linked, near] = await Promise.all([
     args.brief.subjectId ? notesForSubjects(ctx, [args.brief.subjectId], deps).catch(() => []) : Promise.resolve([] as BrandNote[]),
-    nearestNotes(ctx, about, { limit: CANDIDATES, minSim: CANDIDATE_MIN_SIM, ...(vector !== undefined ? { vector } : {}) }, deps).catch(() => []),
+    nearestNotes(ctx, about, { limit: rest ? REST_CANDIDATES : CANDIDATES, minSim: CANDIDATE_MIN_SIM, ...(vector !== undefined ? { vector } : {}) }, deps).catch(
+      () => [],
+    ),
   ]);
   const sim = new Map(near.map((n) => [n.note.id, n.sim]));
   const linkedOk = linked.filter((n) => !skip(n.id)).sort((a, b) => (sim.get(b.id) ?? 0) - (sim.get(a.id) ?? 0));
@@ -164,15 +193,32 @@ export async function matchSeen(
     if (raw) verdicts = parseVerdicts(raw, toCheck.length);
   }
 
-  const strong = [
-    ...linkedOk.map((n) => asSeen(n, WHY_LINKED)),
-    ...toCheck.filter((_, i) => verdicts[i] === "STRONG").map((n) => asSeen(n, WHY_CLOSE)),
-  ].slice(0, Math.max(0, Math.min(STRONG_NOTES, MAX_NOTES - manual.length)));
+  // With notes resting, one that fits but rests is set apart; the rest go in as before.
+  const restOf = new Map(rest ? [...linkedOk, ...toCheck].map((n) => [n.id, noteRest(n, rest, now, article!.ref)]) : []);
+  const resting = (n: BrandNote) => Boolean(restOf.get(n.id)?.reason);
+  const fits = [
+    ...linkedOk.map((n) => ({ n, why: WHY_LINKED })),
+    ...toCheck.filter((_, i) => verdicts[i] === "STRONG").map((n) => ({ n, why: WHY_CLOSE })),
+  ];
+  let picked = fits.filter((f) => !resting(f.n)).slice(0, Math.max(0, Math.min(STRONG_NOTES, MAX_NOTES - manual.length)));
+  const restingFits = fits.filter((f) => resting(f.n)).map((f) => asResting(f.n, restOf.get(f.n.id)!));
+  if (rest && picked.length) {
+    // The draft holds what it took; one another draft took a moment ago rests instead.
+    const ids = picked.map((f) => f.n.id);
+    const held = new Set(await holdNotes(ctx, ids, article!, { rest }, deps).catch(() => ids));
+    const lost = picked.filter((f) => !held.has(f.n.id)).map((f) => f.n.id);
+    if (lost.length) {
+      for (const n of await notesById(ctx, lost, deps).catch(() => [])) restingFits.push(asResting(n, noteRest(n, rest, now, article!.ref)));
+      picked = picked.filter((f) => held.has(f.n.id));
+    }
+  }
+  const strong = picked.map((f) => asSeen(f.n, f.why, restOf.get(f.n.id)));
   const strongIds = new Set(strong.map((n) => n.id));
+  const restingIds = new Set(restingFits.map((n) => n.id));
   const weaker = [...linkedOk, ...toCheck.filter((_, i) => verdicts[i] !== "NO")]
-    .filter((n) => !strongIds.has(n.id))
+    .filter((n) => !strongIds.has(n.id) && !restingIds.has(n.id) && !resting(n))
     .slice(0, NEAR_NOTES)
-    .map((n) => asSeen(n, WHY_NEAR));
+    .map((n) => asSeen(n, WHY_NEAR, restOf.get(n.id)));
   const notes = [...manual, ...strong];
 
   const audience = oneLine(args.audience ?? "").slice(0, 300) || "(not given)";
@@ -194,10 +240,22 @@ export async function matchSeen(
     asks = raw ? parseAsks(raw) : [];
   }
 
+  if (rest) {
+    // What the article chose itself stays held; what it no longer has is let go.
+    const chosen = [...manual.map((n) => n.id), ...(questions ?? []).filter(isAnswered).map((q) => q.id)];
+    const keep = new Set([...notes.map((n) => n.id), ...chosen]);
+    const drop = [...current.notes.map((n) => n.id), ...current.removed].filter((id) => !keep.has(id));
+    await Promise.all([
+      chosen.length ? holdNotes(ctx, chosen, article!, { force: true }, deps).catch(() => []) : null,
+      drop.length ? releaseHolds(ctx, drop, article!.ref, deps).catch(() => undefined) : null,
+    ]);
+  }
+
   return BlogSeenSchema.parse({
     ...current,
     notes,
     near: weaker,
+    ...(rest ? { resting: restingFits.slice(0, RESTING_NOTES) } : {}),
     asks,
     ...(questions !== undefined ? { questions } : {}),
     matchedFor: question,
@@ -294,13 +352,14 @@ async function articleQuestions(
  */
 export async function keepArticleSeen(
   ctx: TenantContext,
-  args: { article: string; brief: BlogBrief; used: boolean },
+  args: { article: string; brief: BlogBrief; used: boolean; /** With notes resting (BRAND_NOTES_REST_ENABLED): each use is dated, under this title. */ title?: string },
   deps: NotesDeps = {},
 ): Promise<void> {
   const seen = args.brief.seen;
   if (!seen) return;
   const used = [...seen.notes.map((n) => n.id), ...answeredQuestions(args.brief).map((q) => q.id)];
-  if (args.used && used.length) await markNotesUsed(ctx, used, args.article, deps);
+  const dated = args.title !== undefined && isBrandNotesRestEnabled() ? { title: args.title } : undefined;
+  if (args.used && used.length) await markNotesUsed(ctx, used, args.article, deps, dated);
   const asks = new Set(seen.asks.map(oneLine));
   const text = seen.own
     .split(/\r?\n/)

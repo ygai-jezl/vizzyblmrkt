@@ -275,6 +275,20 @@ export const ProductConnectionSchema = z.object({
   catalogRev: z.number().int().nonnegative().optional(),
   consentPolicy: ConsentPolicySchema,
   stageClocks: StageClocksSchema.nullable().optional(),
+  /**
+   * Today's check of this product's people for the person record (AUDIENCE_PERSON_LINKS_ENABLED):
+   * stages move as the clocks pass. Resumes from `cursor` (an inclusive lastSeenAt) next tick.
+   */
+  personSweep: z
+    .object({
+      day: z.string(),
+      status: z.enum(["running", "done"]),
+      cursor: z.string().nullable(),
+      checked: z.number().int().nonnegative(),
+      updatedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
   defaults: z.object({
     timezone: z.string().max(64).default("Europe/London"),
     locale: z.string().max(16).default("en"),

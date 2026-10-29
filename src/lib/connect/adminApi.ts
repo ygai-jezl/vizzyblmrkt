@@ -247,7 +247,8 @@ export async function patchConnection(
     ...(signupUrl !== undefined ? { signupUrl } : {}),
     ...(p.consentPolicy ? { consentPolicy: p.consentPolicy } : {}),
     ...(p.defaults ? { defaults: p.defaults } : {}),
-    ...(p.stageClocks !== undefined ? { stageClocks: p.stageClocks } : {}),
+    // New clocks move people's stages today, not at tomorrow's check.
+    ...(p.stageClocks !== undefined ? { stageClocks: p.stageClocks, personSweep: null } : {}),
     updatedAt: new Date().toISOString(),
   };
   if (!p.catalog) {

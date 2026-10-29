@@ -67,6 +67,8 @@ export interface SyncDeps {
   db?: FirestoreLike;
   nowMs?: number;
   connections?: PeopleConnections;
+  /** Work out what would change and report it, writing nothing (the backfill's dry run). */
+  dryRun?: boolean;
 }
 
 export type SyncOutcome = "created" | "updated" | "unchanged" | "deleted" | "none";
@@ -203,7 +205,7 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     // A record that only ever came from products goes with its last product user. One with
     // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it).
     if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length) {
-      await repo.contacts.delete(personId);
+      if (!deps.dryRun) await repo.contacts.delete(personId);
       return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [] };
     }
   }
@@ -220,6 +222,15 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       changedAt: nowIso,
     } as unknown as Omit<Contact, "id" | "tenantId">;
   };
+
+  if (deps.dryRun) {
+    const patch = existing ? patchFor(existing, next, nowIso) : null;
+    return {
+      personId,
+      outcome: !existing ? "created" : patch ? "updated" : "unchanged",
+      ...tagChanges(existing?.memberOf ?? [], summary.memberOf),
+    };
+  }
 
   let before: string[] = [];
   let patched = false;

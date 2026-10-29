@@ -49,6 +49,8 @@ import { draftDocId, scheduleDraft, supersedeDrafts } from "./drafts";
 import { decideSendVersion, type SendVersion } from "./decide";
 import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } from "./prepare";
 import { runWaitlistTick } from "./waitlist/tick";
+import { isPersonLinksEnabled } from "@/lib/audience/flags";
+import { sweepPeople } from "@/lib/audience/personSweep";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { dateStartOf, JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
@@ -808,6 +810,8 @@ export interface LifecycleTickResult {
   goLive?: { journeys: number; enrolled: number };
   /** Journeys that start when a date passes: today's check of their people (LIFECYCLE_DATE_START). */
   dateStart?: { journeys: number; checked: number; enrolled: number };
+  /** Person records rebuilt or checked (AUDIENCE_PERSON_LINKS_ENABLED). */
+  people?: { synced: number; checked: number; failed: number };
 }
 
 /**
@@ -833,6 +837,7 @@ export async function runLifecycleTick(
     ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
     ...(product && isLifecycleGoLiveSweepEnabled() ? { goLive: { journeys: 0, enrolled: 0 } } : {}),
     ...(product && isLifecycleDateStartEnabled() ? { dateStart: { journeys: 0, checked: 0, enrolled: 0 } } : {}),
+    ...(isPersonLinksEnabled() ? { people: { synced: 0, checked: 0, failed: 0 } } : {}),
   };
   for (const [index, t] of tenants.entries()) {
     if (clock() >= deadline) {
@@ -903,6 +908,17 @@ export async function runLifecycleTick(
         if (!product) total.tenants += 1;
       } catch (err) {
         console.warn(`[lifecycle] tenant ${t.id} (${t.region}) waitlist drain failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
+    }
+    // Person records, after the sends: what's left of the tenant's share, and never less than a minimum slice.
+    if (total.people && clock() < deadline) {
+      try {
+        const p = await sweepPeople(ctx, { db: deps.db, now: clock, deadlineMs: Math.min(deadline, Math.max(tenantDeadline, clock() + MIN_TENANT_SLICE_MS)) });
+        total.people.synced += p.synced;
+        total.people.checked += p.checked;
+        total.people.failed += p.failed;
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) person sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }
     }
   }

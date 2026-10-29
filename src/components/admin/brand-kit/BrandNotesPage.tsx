@@ -41,6 +41,9 @@ const PRIMARY =
   "rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900";
 const SECONDARY =
   "rounded-md border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
+/** A number inside a sentence: sized to its digits, not the line. */
+const NUMBER_FIELD =
+  "rounded-md border border-neutral-300 px-2 py-1 text-sm tabular-nums disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900";
 const CHIP = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs";
 const SUBJECT_CHIP = `${CHIP} border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200`;
 
@@ -748,7 +751,7 @@ function RestSetting({ settings, canEdit, onSaved }: { settings: NotesRest; canE
               setDays(e.target.value);
               setStatus(null);
             }}
-            className={`${FIELD} w-16`}
+            className={`${NUMBER_FIELD} w-16`}
           />
           <span>days after an article uses it. After</span>
           <label htmlFor={`${id}-uses`} className="sr-only">
@@ -765,7 +768,7 @@ function RestSetting({ settings, canEdit, onSaved }: { settings: NotesRest; canE
               setUses(e.target.value);
               setStatus(null);
             }}
-            className={`${FIELD} w-14`}
+            className={`${NUMBER_FIELD} w-14`}
           />
           <span>articles, it goes in only when you add it.</span>
           <span className="ml-auto flex items-center gap-2">

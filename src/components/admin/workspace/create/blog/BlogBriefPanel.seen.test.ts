@@ -83,8 +83,13 @@ describe("What we've seen in the article's brief", () => {
 
     it("says so when every note that fits is resting", () => {
       const out = html(controls(brief({ resting: RESTING.slice(0, 1), questions: OPEN }), { answers, seenRest: true }));
-      expect(out).toContain("The notes that fit this question were used recently, so they rest.");
+      expect(out).toContain("The notes that fit this question were used recently, so they rest. Answer a question below, or use one anyway.");
       expect(out).toContain(">2 to answer<");
+      // No questions came back (the model was down): it says what can be done instead, never "Nothing matched".
+      const none = html(controls(brief({ resting: RESTING, questions: [] }), { answers, seenRest: true }));
+      expect(none).toContain(">3 resting<");
+      expect(none).toContain("Use one anyway, or write what you’ve seen below.");
+      expect(none).not.toContain("Nothing matched");
     });
 
     it("shows none of it with the switch off", () => {

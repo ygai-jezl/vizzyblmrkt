@@ -923,7 +923,9 @@ function SeenBox({
             ? `${notes.length ? `${notes.length} from your brand` : `${answered} answered`} · ${toAnswer} to answer`
             : rest && looked && toAnswer
               ? `${toAnswer} to answer`
-              : notes.length
+              : rest && looked && !notes.length && !answered && resting.length
+                ? `${resting.length} resting`
+                : notes.length
                 ? `${notes.length} from your brand`
                 : answered
                   ? `${answered} answered`
@@ -965,7 +967,8 @@ function SeenBox({
         </p>
       ) : !notes.length && resting.length ? (
         <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
-          The notes that fit this question were used recently, so they rest. Answer a question below, or use one anyway.
+          The notes that fit this question were used recently, so they rest.{" "}
+          {questions.length ? "Answer a question below, or use one anyway." : "Use one anyway, or write what you’ve seen below."}
         </p>
       ) : !notes.length ? (
         <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">

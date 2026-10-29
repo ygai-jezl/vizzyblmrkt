@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, setBrandMapVectorStatus, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import {
@@ -11,6 +11,7 @@ import {
   type BrandNoteSource,
   type BrandNoteStatus,
   type NoteArticle,
+  NotesRestSchema,
   type NoteUse,
   type NotesRest,
 } from "@/lib/types/brandNote";
@@ -133,6 +134,12 @@ export async function removeNote(ctx: TenantContext, id: string, deps: NotesDeps
   await removeBrandMapVector(ctx, "note", id, deps.db).catch(() => undefined);
   await removeBrandMapVector(ctx, "question", id, deps.db).catch(() => undefined);
   return { ok: true, value: null };
+}
+
+/** The brand's rest setting (BRAND_NOTES_REST_ENABLED): the defaults when it has none, or it can't be read. */
+export async function readNotesRest(ctx: TenantContext, deps: NotesDeps = {}): Promise<NotesRest> {
+  const tenant = await getTenantById(ctx.tenantId, deps.db).catch(() => null);
+  return NotesRestSchema.parse(tenant?.brandNotesRest ?? {});
 }
 
 /** A note's uses with one for an article put in its place: one per article, newest last, capped. */

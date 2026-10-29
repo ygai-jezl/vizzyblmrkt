@@ -4,8 +4,9 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import type { AdminGate } from "@/lib/connect/admin";
 import type { TenantContext } from "@/lib/tenant/types";
-import { BRAND_NOTE_LIMITS, BrandNoteInputSchema, BrandNotePatchSchema } from "@/lib/types/brandNote";
-import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled } from "./flags";
+import { setTenantNotesRest } from "@/lib/tenant/control";
+import { BRAND_NOTE_LIMITS, BrandNoteInputSchema, BrandNotePatchSchema, NotesRestInputSchema } from "@/lib/types/brandNote";
+import { isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "./flags";
 import { answerQuestion, createNote, listNotes, removeNote, summariseNotes, updateNote, type NotesDeps, type NotesResult } from "./store";
 
 /**
@@ -71,4 +72,12 @@ export async function answerFromRequest(ctx: TenantContext, id: string, body: un
   const parsed = AnswerBody.safeParse(body);
   if (!parsed.success) return invalid(parsed.error.issues);
   return respond(await answerQuestion(ctx, id, parsed.data.text, { done: parsed.data.done }, deps), (note) => ({ note }));
+}
+
+/** How often the brand's notes go into articles by themselves (BRAND_NOTES_REST_ENABLED; admins). */
+export async function restFromRequest(ctx: TenantContext, body: unknown, deps: NotesDeps = {}): Promise<Response> {
+  if (!isBrandNotesRestEnabled()) return NextResponse.json({ error: "brand_notes_rest_disabled" }, { status: 503 });
+  const parsed = NotesRestInputSchema.safeParse(body);
+  if (!parsed.success) return invalid(parsed.error.issues);
+  return NextResponse.json({ rest: await setTenantNotesRest(ctx.tenantId, parsed.data, deps.db) });
 }

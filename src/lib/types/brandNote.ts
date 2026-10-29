@@ -68,11 +68,17 @@ export type BrandNotePatch = z.infer<typeof BrandNotePatchSchema>;
  * person adds it.
  */
 export const NOTES_REST_DEFAULTS = { restDays: 30, maxUses: 3 } as const;
+export const NOTES_REST_LIMITS = { restDays: { min: 0, max: 365 }, maxUses: { min: 1, max: 50 } } as const;
+const RestDays = z.number().int().min(NOTES_REST_LIMITS.restDays.min).max(NOTES_REST_LIMITS.restDays.max);
+const MaxUses = z.number().int().min(NOTES_REST_LIMITS.maxUses.min).max(NOTES_REST_LIMITS.maxUses.max);
+/** As stored: a value it lacks is the default. */
 export const NotesRestSchema = z.object({
-  restDays: z.number().int().min(0).max(365).default(NOTES_REST_DEFAULTS.restDays),
-  maxUses: z.number().int().min(1).max(50).default(NOTES_REST_DEFAULTS.maxUses),
+  restDays: RestDays.default(NOTES_REST_DEFAULTS.restDays),
+  maxUses: MaxUses.default(NOTES_REST_DEFAULTS.maxUses),
 });
 export type NotesRest = z.infer<typeof NotesRestSchema>;
+/** As a person saves it: both numbers, so a Save never falls back to a default they didn't see. */
+export const NotesRestInputSchema = z.object({ restDays: RestDays, maxUses: MaxUses }).strict();
 
 /**
  * One article's use of a note (BRAND_NOTES_REST_ENABLED), one per article. A draft that holds it

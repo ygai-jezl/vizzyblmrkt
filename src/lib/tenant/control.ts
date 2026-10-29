@@ -39,6 +39,7 @@ import {
   type SiteFonts,
   type StoredImageStyle,
 } from "@/lib/types/imageStyle";
+import { NotesRestSchema, type NotesRest } from "@/lib/types/brandNote";
 
 /**
  * Control-plane writes — the `tenants` registry lives in the (default) database,
@@ -421,6 +422,20 @@ export async function setTenantStyleLearned(
     };
     tx.update(ref, { imageStyle: JSON.parse(JSON.stringify({ ...kept, learned })), updatedAt: now });
   });
+}
+
+/**
+ * How often the brand's notes go into articles by themselves (Brand › What we've seen,
+ * BRAND_NOTES_REST_ENABLED): top-level `brandNotesRest`, parsed strictly. Returns what was stored.
+ */
+export async function setTenantNotesRest(
+  id: string,
+  rest: NotesRest,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<NotesRest> {
+  const next = NotesRestSchema.parse(rest);
+  await db.collection("tenants").doc(id).update({ brandNotesRest: { ...next }, updatedAt: new Date().toISOString() });
+  return next;
 }
 
 /** Record the fonts found on the brand's website (null = forget them). Everything else is kept. */

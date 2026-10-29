@@ -32,3 +32,21 @@ export function isPersonBriefEnabled(): boolean {
 export function isPersonPlansEnabled(): boolean {
   return isPersonBriefEnabled() && process.env.LIFECYCLE_PERSON_PLANS === "true";
 }
+
+/**
+ * One person record per brand per address (the contact), linked to their sign-ups on
+ * every launch and their user record in every product, rebuilt on every write and
+ * swept on the lifecycle tick. Off: contacts come from sign-ups only, as before.
+ */
+export function isPersonLinksEnabled(): boolean {
+  return process.env.AUDIENCE_PERSON_LINKS_ENABLED === "true";
+}
+
+/**
+ * One People list across every source and one page per person, with whole-person
+ * erase and export, stage clocks per product and Vizzy's audience counts. Needs the
+ * person links. Off: the Signups and Product users tabs, as before.
+ */
+export function isOneViewEnabled(): boolean {
+  return isPersonLinksEnabled() && process.env.AUDIENCE_ONE_VIEW_ENABLED === "true";
+}

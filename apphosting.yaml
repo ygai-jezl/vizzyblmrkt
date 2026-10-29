@@ -321,6 +321,16 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # One person record per brand per address, across launches and products, kept up to
+  # date on every write; then one People list and one page per person (needs the first).
+  - variable: AUDIENCE_PERSON_LINKS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: AUDIENCE_ONE_VIEW_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

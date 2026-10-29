@@ -12,7 +12,10 @@ import {
   type BrandNoteKind,
   type BrandNoteSource,
   type NoteArticle,
+  type NotesRest,
+  NOTES_REST_LIMITS,
 } from "@/lib/types/brandNote";
+import { noteRest, restDate, usesOf, type NoteRestState } from "@/lib/brandNotes/rest";
 import { createAnswerQueue, type AnswerSave } from "@/lib/brandNotes/answerQueue";
 import { summariseNotes } from "@/lib/brandNotes/summary";
 import { KIND_QUESTIONS, noteQuestion, suggestKind, suggestSubjects } from "@/lib/brandNotes/prompts";
@@ -25,6 +28,8 @@ import type { FoundNote } from "@/lib/brandNotes/extract";
  * kinds, and which brand map subjects nothing covers yet. Members see it all; admins change it.
  * With open questions (BRAND_NOTES_QUESTIONS_ENABLED), the questions articles asked the team are
  * listed apart, each with the articles that asked it and a box that saves its answer as it is typed.
+ * With notes resting (BRAND_NOTES_REST_ENABLED), each note says where and when it was used and
+ * whether it rests, and admins set how long a note rests and after how many articles.
  */
 
 const CARD = "rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950";
@@ -47,7 +52,7 @@ const SOURCE_LABEL: Record<BrandNoteSource, string> = {
   question: "Answer to a question",
 };
 
-type Filter = "all" | "suggested" | "unused" | "open" | BrandNoteKind;
+type Filter = "all" | "suggested" | "unused" | "open" | "ready" | "resting" | "used_up" | BrandNoteKind;
 type Prefill = { nonce: number; kind?: BrandNoteKind; subjectId?: string };
 
 async function send(url: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
@@ -85,6 +90,7 @@ export function BrandNotesPage({
   canEdit,
   chatOn = false,
   questionsOn = false,
+  rest = null,
 }: {
   initialNotes: BrandNote[];
   /** The decided subjects on the brand's saved map; null = no saved map (no coverage shown). */
@@ -94,6 +100,8 @@ export function BrandNotesPage({
   chatOn?: boolean;
   /** Open questions are listed and can be answered (BRAND_NOTES_QUESTIONS_ENABLED). */
   questionsOn?: boolean;
+  /** Notes rest after use (BRAND_NOTES_REST_ENABLED): the brand's setting, and when the page was drawn. */
+  rest?: { settings: NotesRest; now: string } | null;
 }) {
   const shell = useShell();
   const [notes, setNotes] = useState(initialNotes);
@@ -101,6 +109,20 @@ export function BrandNotesPage({
   const [prefill, setPrefill] = useState<Prefill>({ nonce: 0 });
   const addRef = useRef<HTMLElement>(null);
   const summary = useMemo(() => summariseNotes(notes), [notes]);
+  const [restSettings, setRestSettings] = useState(rest?.settings ?? null);
+  // Whether each kept note rests, as of when the page was drawn (the same on the server and in the browser).
+  const restOf = useMemo(() => {
+    const out = new Map<string, NoteRestState>();
+    if (!rest || !restSettings) return out;
+    const now = new Date(rest.now);
+    for (const n of notes) if (n.status === "kept") out.set(n.id, noteRest(n, restSettings, now));
+    return out;
+  }, [notes, rest, restSettings]);
+  const restCounts = useMemo(() => {
+    const c = { ready: 0, resting: 0, used_up: 0 };
+    for (const r of restOf.values()) c[r.reason === "used_up" ? "used_up" : r.reason ? "resting" : "ready"] += 1;
+    return c;
+  }, [restOf]);
   const names = useMemo(() => new Map((subjects ?? []).map((s) => [s.id, s.name])), [subjects]);
   const uncovered = useMemo(() => {
     const covered = new Set(summary.subjectIds);
@@ -124,8 +146,10 @@ export function BrandNotesPage({
           : filter === "suggested"
             ? n.status === "suggested"
             : filter === "unused"
-              ? !n.usedBy?.length
-              : n.kind === filter,
+              ? !n.usedBy?.length && !usesOf(n).length
+              : filter === "ready" || filter === "resting" || filter === "used_up"
+                ? restFilter(restOf.get(n.id)) === filter
+                : n.kind === filter,
   );
 
   return (
@@ -141,6 +165,7 @@ export function BrandNotesPage({
             ) : null}
           </div>
         ) : null}
+        {rest && restSettings ? <RestSetting settings={restSettings} canEdit={canEdit} onSaved={setRestSettings} /> : null}
         {canEdit ? (
           <section ref={addRef} aria-label="Add a note" className={CARD}>
             <AddNote
@@ -175,6 +200,23 @@ export function BrandNotesPage({
                   Open questions · {summary.asked}
                 </FilterChip>
               ) : null}
+              {rest ? (
+                <>
+                  <FilterChip on={filter === "ready"} onClick={() => setFilter("ready")}>
+                    Ready · {restCounts.ready}
+                  </FilterChip>
+                  {restCounts.resting ? (
+                    <FilterChip on={filter === "resting"} onClick={() => setFilter("resting")}>
+                      Resting · {restCounts.resting}
+                    </FilterChip>
+                  ) : null}
+                  {restCounts.used_up ? (
+                    <FilterChip on={filter === "used_up"} onClick={() => setFilter("used_up")}>
+                      Used up · {restCounts.used_up}
+                    </FilterChip>
+                  ) : null}
+                </>
+              ) : null}
               <FilterChip on={filter === "unused"} onClick={() => setFilter("unused")}>
                 Not used yet
               </FilterChip>
@@ -196,7 +238,16 @@ export function BrandNotesPage({
               n.status === "asked" ? (
                 <OpenQuestionCard key={n.id} note={n} canEdit={canEdit} onChange={replace} onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))} />
               ) : (
-                <NoteCard key={n.id} note={n} names={names} subjects={subjects} canEdit={canEdit} onChange={replace} onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))} />
+                <NoteCard
+                  key={n.id}
+                  note={n}
+                  names={names}
+                  subjects={subjects}
+                  canEdit={canEdit}
+                  onChange={replace}
+                  onRemoved={(id) => setNotes((list) => list.filter((x) => x.id !== id))}
+                  {...(rest ? { rest: { state: restOf.get(n.id) ?? null, now: rest.now } } : {})}
+                />
               ),
             )
           )}
@@ -204,6 +255,7 @@ export function BrandNotesPage({
       </div>
 
       <aside className="space-y-5">
+        {rest ? <RestPanel counts={restCounts} onShow={setFilter} /> : null}
         {questionsOn && summary.asked ? <OpenQuestionsPanel count={summary.asked} onShow={() => setFilter("open")} /> : null}
         <MixPanel kinds={summary.kinds} canEdit={canEdit} onAsk={(kind) => ask({ kind })} openQuestions={questionsOn && summary.asked > 0} />
         {subjects ? <CoveragePanel subjects={subjects} uncovered={uncovered} canEdit={canEdit} onAsk={(subjectId) => ask({ subjectId })} /> : null}
@@ -428,6 +480,7 @@ function NoteCard({
   canEdit,
   onChange,
   onRemoved,
+  rest,
 }: {
   note: BrandNote;
   names: Map<string, string>;
@@ -435,6 +488,8 @@ function NoteCard({
   canEdit: boolean;
   onChange: (note: BrandNote) => void;
   onRemoved: (id: string) => void;
+  /** Notes rest after use: whether this one does (null for one not kept), and when the page was drawn. */
+  rest?: { state: NoteRestState | null; now: string };
 }) {
   const id = useId();
   const [editing, setEditing] = useState(false);
@@ -445,7 +500,8 @@ function NoteCard({
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const used = note.usedBy?.length ?? 0;
+  const used = rest?.state ? rest.state.written : (note.usedBy?.length ?? 0);
+  const last = rest?.state?.last ? ` · last on ${restDate(rest.state.last.at, rest.now)}` : "";
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);
@@ -471,9 +527,10 @@ function NoteCard({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300">
           {BRAND_NOTE_KIND_LABEL[note.kind].one}
           {note.status === "suggested" ? <span className="ml-2 font-medium normal-case tracking-normal text-amber-700 dark:text-amber-400">Suggested, not kept yet</span> : null}
+          {rest?.state?.reason ? <RestPill state={rest.state} now={rest.now} /> : null}
         </span>
         <span className={HINT}>
-          {SOURCE_LABEL[note.source]} · {used ? `used in ${used} article${used === 1 ? "" : "s"}` : "not used yet"}
+          {SOURCE_LABEL[note.source]} · {used ? `used in ${used} article${used === 1 ? "" : "s"}${last}` : "not used yet"}
         </span>
       </div>
       {editing ? (
@@ -525,6 +582,7 @@ function NoteCard({
           {note.question ? <p className={`${HINT} leading-relaxed`}>Asked: {note.question}</p> : null}
           <p className="whitespace-pre-line text-sm leading-relaxed">{note.text}</p>
           {note.askedFor?.length ? <AskedFor articles={note.askedFor} /> : null}
+          {rest ? <WhereUsed note={note} state={rest.state} now={rest.now} /> : null}
           <div className="flex flex-wrap items-center gap-1.5">
             {(note.subjectIds ?? []).map((sid) => (
               <span key={sid} className={SUBJECT_CHIP}>
@@ -575,6 +633,183 @@ function NoteCard({
 function articleHref(ref: string): string | null {
   const [ws, plan] = ref.split("/");
   return ws && plan ? `/admin/workspace/${encodeURIComponent(ws)}/create/${encodeURIComponent(plan)}` : null;
+}
+
+/** Which of the rest filters a kept note falls under. */
+const restFilter = (r: NoteRestState | undefined): Filter | null => (!r ? null : r.reason === "used_up" ? "used_up" : r.reason ? "resting" : "ready");
+
+/** Why a note rests, as a pill beside its kind. */
+function RestPill({ state, now }: { state: NoteRestState; now: string }) {
+  const [label, tone] =
+    state.reason === "used_up"
+      ? ["Used up", "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"]
+      : state.reason === "held"
+        ? ["In a draft", "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200"]
+        : [`Resting until ${restDate(state.until, now)}`, "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"];
+  return <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal ${tone}`}>{label}</span>;
+}
+
+/** Where a note was used and when, newest first, each a link to the article; and what its rest means. */
+function WhereUsed({ note, state, now }: { note: BrandNote; state: NoteRestState | null; now: string }) {
+  const [open, setOpen] = useState(false);
+  const uses = usesOf(note).sort((a, b) => b.at.localeCompare(a.at));
+  const dated = new Set(uses.map((u) => u.ref));
+  const earlier = (note.usedBy ?? []).filter((ref) => !dated.has(ref)).length;
+  const held = state?.reason === "held" && state.by ? state.by : null;
+  if (!uses.length && !earlier) return null;
+  return (
+    <div className="space-y-1.5 border-t border-neutral-100 pt-2 text-xs dark:border-neutral-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-neutral-600 dark:text-neutral-300">
+          {state?.reason === "used_up"
+            ? "Goes in only when someone adds it to an article."
+            : held
+              ? `In the draft “${held.title}”, not written yet. Other articles leave it alone meanwhile.`
+              : ""}
+        </span>
+        <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="text-blue-700 hover:underline dark:text-blue-300">
+          Where it was used · {open ? "Hide" : "Show"}
+        </button>
+      </div>
+      {open ? (
+        <ul className="space-y-1">
+          {uses.map((u) => {
+            const href = articleHref(u.ref);
+            const name = u.title || "An article";
+            return (
+              <li key={u.ref} className="flex flex-wrap justify-between gap-3">
+                {href ? (
+                  <a href={href} className="text-blue-700 hover:underline dark:text-blue-300">
+                    {name}
+                  </a>
+                ) : (
+                  <span>{name}</span>
+                )}
+                <span className="text-neutral-500 dark:text-neutral-400">{u.written ? `written ${restDate(u.at, now)}` : `in a draft since ${restDate(u.at, now)}`}</span>
+              </li>
+            );
+          })}
+          {earlier ? (
+            <li className="text-neutral-500 dark:text-neutral-400">
+              And {earlier} earlier {earlier === 1 ? "article" : "articles"}, from before dates were kept
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/** How often a note goes into articles by itself; admins change it, everyone reads it. */
+function RestSetting({ settings, canEdit, onSaved }: { settings: NotesRest; canEdit: boolean; onSaved: (s: NotesRest) => void }) {
+  const id = useId();
+  const [days, setDays] = useState(String(settings.restDays));
+  const [uses, setUses] = useState(String(settings.maxUses));
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const restDays = Number(days);
+  const maxUses = Number(uses);
+  const valid =
+    Number.isInteger(restDays) &&
+    restDays >= NOTES_REST_LIMITS.restDays.min &&
+    restDays <= NOTES_REST_LIMITS.restDays.max &&
+    Number.isInteger(maxUses) &&
+    maxUses >= NOTES_REST_LIMITS.maxUses.min &&
+    maxUses <= NOTES_REST_LIMITS.maxUses.max;
+  const changed = restDays !== settings.restDays || maxUses !== settings.maxUses;
+
+  async function save() {
+    setBusy(true);
+    setStatus(null);
+    const r = await send("/api/admin/brand-kit/notes/settings", "PUT", { restDays, maxUses });
+    setBusy(false);
+    if (!r.ok || !r.data.rest) return setStatus(r.status === 403 ? "Only an admin can change this." : "That didn't save. Check your connection and try again.");
+    onSaved(r.data.rest as NotesRest);
+    setStatus("Saved");
+  }
+
+  return (
+    <section aria-label="How often a note goes in" className={`${CARD} space-y-2.5`}>
+      <h2 className="text-sm font-semibold">How often a note goes in</h2>
+      {canEdit ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span>A note rests for</span>
+          <label htmlFor={`${id}-days`} className="sr-only">
+            Days a note rests after an article uses it
+          </label>
+          <input
+            id={`${id}-days`}
+            type="number"
+            inputMode="numeric"
+            min={NOTES_REST_LIMITS.restDays.min}
+            max={NOTES_REST_LIMITS.restDays.max}
+            value={days}
+            onChange={(e) => {
+              setDays(e.target.value);
+              setStatus(null);
+            }}
+            className={`${FIELD} w-16`}
+          />
+          <span>days after an article uses it. After</span>
+          <label htmlFor={`${id}-uses`} className="sr-only">
+            Articles before a note goes in only when you add it
+          </label>
+          <input
+            id={`${id}-uses`}
+            type="number"
+            inputMode="numeric"
+            min={NOTES_REST_LIMITS.maxUses.min}
+            max={NOTES_REST_LIMITS.maxUses.max}
+            value={uses}
+            onChange={(e) => {
+              setUses(e.target.value);
+              setStatus(null);
+            }}
+            className={`${FIELD} w-14`}
+          />
+          <span>articles, it goes in only when you add it.</span>
+          <span className="ml-auto flex items-center gap-2">
+            <span role="status" className={HINT}>
+              {status ?? (valid ? "" : `Use 0 to ${NOTES_REST_LIMITS.restDays.max} days and 1 to ${NOTES_REST_LIMITS.maxUses.max} articles.`)}
+            </span>
+            <button type="button" disabled={busy || !valid || !changed} onClick={() => void save()} className={PRIMARY}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </span>
+        </div>
+      ) : (
+        <p className="text-sm">
+          A note rests for {settings.restDays} days after an article uses it. After {settings.maxUses} articles, it goes in only when someone adds it.
+        </p>
+      )}
+      <p className={HINT}>Every article also asks your team three new questions, so there is always something new to add.</p>
+    </section>
+  );
+}
+
+/** How many notes are ready for an article, resting, and used up; each count shows those notes. */
+function RestPanel({ counts, onShow }: { counts: { ready: number; resting: number; used_up: number }; onShow: (f: Filter) => void }) {
+  const rows: Array<[Filter, string, number, string]> = [
+    ["ready", "Ready for an article", counts.ready, ""],
+    ["resting", "Resting", counts.resting, "text-amber-800 dark:text-amber-300"],
+    ["used_up", "Used up", counts.used_up, "text-neutral-600 dark:text-neutral-300"],
+  ];
+  return (
+    <section aria-label="Ready, resting and used up" className={`${CARD} space-y-2.5`}>
+      <h2 className="text-sm font-semibold">Ready for articles</h2>
+      <ul className="space-y-1.5">
+        {rows.map(([f, label, n, tone]) => (
+          <li key={f}>
+            <button type="button" onClick={() => onShow(f)} className="flex w-full items-center justify-between rounded px-1 py-0.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900">
+              <span>{label}</span>
+              <span className={`font-semibold tabular-nums ${tone}`}>{n}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className={HINT}>When most of a subject&rsquo;s notes are resting, its next articles lean on new questions.</p>
+    </section>
+  );
 }
 
 /** The articles that asked a question, each a link to the article. */

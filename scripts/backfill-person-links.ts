@@ -1,5 +1,5 @@
 /**
- * backfill-person-links.ts — build the person record for everyone a brand already has:
+ * backfill-person-links.ts: build the person record for everyone a brand already has:
  * each contact (from launch sign-ups) and each user of a connected product, linked by
  * address (AUDIENCE_PERSON_LINKS_ENABLED). New writes keep the records up to date once
  * the switch is on; this covers everyone from before. Run it before turning the switch

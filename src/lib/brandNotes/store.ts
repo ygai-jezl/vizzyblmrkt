@@ -11,8 +11,11 @@ import {
   type BrandNoteSource,
   type BrandNoteStatus,
   type NoteArticle,
+  type NoteUse,
+  type NotesRest,
 } from "@/lib/types/brandNote";
 import { suggestKind } from "./prompts";
+import { noteRest, usesOf } from "./rest";
 
 /**
  * What we've seen (BRAND_NOTES_ENABLED): the brand's own first-hand notes. Each note is one
@@ -132,16 +135,90 @@ export async function removeNote(ctx: TenantContext, id: string, deps: NotesDeps
   return { ok: true, value: null };
 }
 
-/** Record that an article used these notes (`<workspaceId>/<planId>`), each once, capped. */
-export async function markNotesUsed(ctx: TenantContext, ids: string[], article: string, deps: NotesDeps = {}): Promise<void> {
+/** A note's uses with one for an article put in its place: one per article, newest last, capped. */
+function withUse(n: Pick<BrandNote, "uses">, use: NoteUse | null, ref: string): NoteUse[] {
+  return [...usesOf(n).filter((u) => u.ref !== ref), ...(use ? [use] : [])].slice(-BRAND_NOTE_LIMITS.MAX_USES);
+}
+
+/**
+ * Record that an article used these notes (`<workspaceId>/<planId>`), each once, capped. With
+ * `dated` (BRAND_NOTES_REST_ENABLED) the use is dated too: the time it was first written with the
+ * note, which a later check of the same article never moves; a draft's hold becomes that use.
+ */
+export async function markNotesUsed(
+  ctx: TenantContext,
+  ids: string[],
+  article: string,
+  deps: NotesDeps = {},
+  dated?: { title: string },
+): Promise<void> {
   const notes = notesOf(ctx, deps);
+  const at = nowIso(deps);
   await Promise.all(
     [...new Set(ids)].map((id) =>
       notes
         .claim(id, (n) => {
           const used = Array.isArray(n.usedBy) ? n.usedBy : [];
-          if (used.includes(article)) return null;
-          return { usedBy: [...used, article].slice(-BRAND_NOTE_LIMITS.MAX_USED_BY) };
+          const mine = dated ? usesOf(n).find((u) => u.ref === article) : undefined;
+          if (used.includes(article) && (!dated || mine?.written)) return null;
+          return {
+            ...(used.includes(article) ? {} : { usedBy: [...used, article].slice(-BRAND_NOTE_LIMITS.MAX_USED_BY) }),
+            ...(dated ? { uses: withUse(n, { ref: article, title: oneLine(dated.title).slice(0, BRAND_NOTE_LIMITS.MAX_ARTICLE_TITLE), at, written: true }, article) } : {}),
+          };
+        })
+        .catch(() => null),
+    ),
+  );
+}
+
+/**
+ * A draft takes these notes (BRAND_NOTES_REST_ENABLED): each kept note gets a hold for the
+ * article, dated now, unless it rests for that article (written recently, used up, or another
+ * draft took it first) and a person didn't choose it (`force`). One the article was already
+ * written with keeps its written use. Each claim reads the note fresh, so of two drafts taking the
+ * same note at once only one holds it. The ids the article holds, in the order asked.
+ */
+export async function holdNotes(
+  ctx: TenantContext,
+  ids: string[],
+  article: NoteArticle,
+  opts: { rest?: Partial<NotesRest> | null; force?: boolean } = {},
+  deps: NotesDeps = {},
+): Promise<string[]> {
+  const notes = notesOf(ctx, deps);
+  const now = (deps.now ?? (() => new Date()))();
+  const { ref, title } = asArticle(article);
+  const held = await Promise.all(
+    [...new Set(ids)].map(async (id) => {
+      let ok = false;
+      await notes
+        .claim(id, (n) => {
+          ok = false;
+          if (n.status !== "kept") return null;
+          if (usesOf(n).find((u) => u.ref === ref)?.written) {
+            ok = true;
+            return null;
+          }
+          if (!opts.force && noteRest(n, opts.rest, now, ref).reason) return null;
+          ok = true;
+          return { uses: withUse(n, { ref, title, at: now.toISOString(), written: false }, ref) };
+        })
+        .catch(() => null);
+      return ok ? id : null;
+    }),
+  );
+  return held.filter((id): id is string => id !== null);
+}
+
+/** An article's draft lets these notes go (BRAND_NOTES_REST_ENABLED): only its holds, never a use it was written with. */
+export async function releaseHolds(ctx: TenantContext, ids: string[], ref: string, deps: NotesDeps = {}): Promise<void> {
+  const notes = notesOf(ctx, deps);
+  await Promise.all(
+    [...new Set(ids)].map((id) =>
+      notes
+        .claim(id, (n) => {
+          const mine = usesOf(n).find((u) => u.ref === ref);
+          return mine && !mine.written ? { uses: withUse(n, null, ref) } : null;
         })
         .catch(() => null),
     ),

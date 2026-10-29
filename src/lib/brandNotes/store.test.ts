@@ -10,6 +10,7 @@ import {
   askQuestions,
   createNote,
   getNote,
+  holdNotes,
   listNotes,
   markNotesUsed,
   nearestNotes,
@@ -17,6 +18,7 @@ import {
   notesById,
   notesForSubjects,
   QUESTION_HEADROOM,
+  releaseHolds,
   removeNote,
   summariseNotes,
   updateNote,
@@ -274,5 +276,84 @@ describe("What we've seen: open questions", () => {
     };
     expect((await nearestOpenQuestions(A, [1, 0], { limit: 3 }, { ...d, vectors })).map((n) => n.note.id)).toEqual([a!.id]);
     expect(await nearestOpenQuestions(A, [1, 0], { limit: 3, exclude: [a!.id] }, { ...d, vectors })).toEqual([]);
+  });
+});
+
+describe("What we've seen: drafts holding notes, and dated uses (BRAND_NOTES_REST_ENABLED)", () => {
+  const P1 = { ref: "ws1/p1", title: "How often to check prompts" };
+  const P2 = { ref: "ws1/p2", title: "Share of voice for local shops" };
+  async function made(d: ReturnType<typeof deps>) {
+    const r = await createNote(A, note(), { source: "typed" }, d);
+    if (!r.ok) throw new Error("not made");
+    return r.value.id;
+  }
+
+  it("a draft holds a note, and a second draft is turned away until the first lets it go", async () => {
+    const d = deps();
+    const id = await made(d);
+    expect(await holdNotes(A, [id, id], P1, {}, d)).toEqual([id]);
+    expect((await getNote(A, id, d))?.uses).toEqual([expect.objectContaining({ ref: "ws1/p1", title: P1.title, written: false })]);
+    expect(await holdNotes(A, [id], P2, {}, d)).toEqual([]);
+    // Its own draft taking it again only moves the date.
+    expect(await holdNotes(A, [id], P1, {}, d)).toEqual([id]);
+    expect((await getNote(A, id, d))?.uses).toHaveLength(1);
+
+    await releaseHolds(A, [id], P1.ref, d);
+    expect((await getNote(A, id, d))?.uses).toEqual([]);
+    expect(await holdNotes(A, [id], P2, {}, d)).toEqual([id]);
+  });
+
+  it("of two drafts taking the same note at once, only one holds it", async () => {
+    const d = deps();
+    const id = await made(d);
+    const [one, two] = await Promise.all([holdNotes(A, [id], P1, {}, d), holdNotes(A, [id], P2, {}, d)]);
+    expect([...one, ...two]).toEqual([id]);
+    expect((await getNote(A, id, d))?.uses).toHaveLength(1);
+  });
+
+  it("a person choosing a resting note holds it anyway", async () => {
+    const d = deps();
+    const id = await made(d);
+    await holdNotes(A, [id], P1, {}, d);
+    expect(await holdNotes(A, [id], P2, { force: true }, d)).toEqual([id]);
+    expect((await getNote(A, id, d))?.uses?.map((u) => u.ref)).toEqual(["ws1/p1", "ws1/p2"]);
+  });
+
+  it("writing the article turns its hold into a dated use that a later check never moves", async () => {
+    const d = deps();
+    const id = await made(d);
+    await holdNotes(A, [id], P1, {}, d);
+    await markNotesUsed(A, [id], P1.ref, d, { title: P1.title });
+    const first = (await getNote(A, id, d))!;
+    expect(first.usedBy).toEqual(["ws1/p1"]);
+    expect(first.uses).toEqual([expect.objectContaining({ ref: "ws1/p1", written: true })]);
+    await markNotesUsed(A, [id], P1.ref, d, { title: "Renamed" });
+    await holdNotes(A, [id], P1, {}, d);
+    await releaseHolds(A, [id], P1.ref, d);
+    expect((await getNote(A, id, d))?.uses).toEqual(first.uses);
+    // Written recently, it rests for other drafts.
+    expect(await holdNotes(A, [id], P2, { rest: { restDays: 30 } }, d)).toEqual([]);
+    expect(await holdNotes(A, [id], P2, { rest: { restDays: 0 } }, d)).toEqual([id]);
+  });
+
+  it("an undated use from before gets its date when the article is checked again", async () => {
+    const d = deps();
+    const id = await made(d);
+    await markNotesUsed(A, [id], P1.ref, d);
+    expect((await getNote(A, id, d))?.uses).toBeUndefined();
+    await markNotesUsed(A, [id], P1.ref, d, { title: P1.title });
+    expect((await getNote(A, id, d))?.uses).toEqual([expect.objectContaining({ ref: "ws1/p1", written: true })]);
+    expect((await getNote(A, id, d))?.usedBy).toEqual(["ws1/p1"]);
+  });
+
+  it("never holds an open question or another brand's note", async () => {
+    const d = deps();
+    const id = await made(d);
+    const [q] = await askQuestions(A, { questions: ["Which prompt did you stop tracking, and why?"], article: P1 }, d);
+    expect(await holdNotes(A, [q!.id], P1, {}, d)).toEqual([]);
+    expect(await holdNotes(B, [id], P1, { force: true }, d)).toEqual([]);
+    await releaseHolds(B, [id], P1.ref, d);
+    await markNotesUsed(B, [id], P1.ref, d, { title: P1.title });
+    expect((await getNote(A, id, d))?.uses).toBeUndefined();
   });
 });

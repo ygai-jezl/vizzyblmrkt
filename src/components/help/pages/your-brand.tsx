@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
 
 export default function YourBrandHelp() {
@@ -213,10 +213,21 @@ export default function YourBrandHelp() {
           </P>
           {isBrandNotesQuestionsUiEnabled() ? (
             <P>
-              When none of your notes fits a blog article, the article asks your team questions. Each one is kept here as an open
-              question, linked to the articles that asked it. Press <strong>Open questions</strong> to see them, and answer one in
+              {isBrandNotesRestUiEnabled()
+                ? "Every blog article asks your team three new questions, written to avoid what you already have."
+                : "When none of your notes fits a blog article, the article asks your team questions."}{" "}
+              Each one is kept here as an open question, linked to the articles that asked it. Press <strong>Open questions</strong> to see them, and answer one in
               its box: it saves as you type, and every article that asked it can use the answer. Once answered, it is a note like
               any other, with its question above it.
+            </P>
+          ) : null}
+          {isBrandNotesRestUiEnabled() ? (
+            <P>
+              Each note says how many articles used it and when. Once an article uses a note, it rests: other articles leave it
+              out for 30 days, and after 3 articles it goes in only when someone adds it, so the same story doesn&apos;t spread
+              across your blog. Change both numbers under <strong>How often a note goes in</strong>. Press{" "}
+              <strong>Ready</strong>, <strong>Resting</strong> or <strong>Used up</strong> to see those notes, and{" "}
+              <strong>Where it was used</strong> on a note to see its articles.
             </P>
           ) : null}
         </>

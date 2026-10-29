@@ -46,6 +46,7 @@ import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import type { TemplateOption } from "./types";
 import type { BlogHubControls, HeroMakeOptions, LiveResult } from "./blog/types";
 import { useSeenAnswers } from "./blog/useSeenAnswers";
+import { seenSummary } from "./blog/seenSummary";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { isAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
@@ -124,6 +125,7 @@ export function ContentCanvas({
   editorialOn = false,
   seenOn = false,
   seenQuestionsOn = false,
+  seenRestOn = false,
 }: {
   workspaceId: string;
   initial: ContentPlan;
@@ -148,6 +150,8 @@ export function ContentCanvas({
   /** An article's questions for its team are kept as open questions, each answered in its own
    *  box that saves as it is typed (BRAND_NOTES_QUESTIONS_ENABLED, with seenOn). */
   seenQuestionsOn?: boolean;
+  /** Notes rest after use, and every article asks its team new questions (BRAND_NOTES_REST_ENABLED, with seenQuestionsOn). */
+  seenRestOn?: boolean;
 }) {
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
@@ -480,6 +484,7 @@ export function ContentCanvas({
       if (!res.ok || !data.seen) return null;
       setBlogBrief({ ...blogBriefRef.current, seen: data.seen });
       const n = data.seen.notes.length;
+      if (seenOn && seenQuestionsOn && seenRestOn) return seenSummary(data.seen);
       return n
         ? `${n === 1 ? "One of your team's notes fits" : `${n} of your team's notes fit`} this question.`
         : "None of your team's notes fits this question closely: see What we've seen.";
@@ -1001,6 +1006,7 @@ export function ContentCanvas({
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),
+          ...(seenOn && seenQuestionsOn && seenRestOn ? { seenRest: true } : {}),
           ...(heroOn
             ? {
                 hero: {

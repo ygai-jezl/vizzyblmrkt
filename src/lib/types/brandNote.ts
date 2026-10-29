@@ -42,6 +42,8 @@ export const BRAND_NOTE_LIMITS = {
   MAX_TEXT: 1200,
   MAX_SUBJECTS: 8,
   MAX_USED_BY: 50,
+  /** Dated uses kept per note (BRAND_NOTES_REST_ENABLED), newest last. */
+  MAX_USES: 50,
   MAX_QUESTION: 300,
   /** The articles an open question was asked for. */
   MAX_ASKED_FOR: 20,
@@ -59,6 +61,36 @@ export type BrandNoteInput = z.infer<typeof BrandNoteInputSchema>;
 
 export const BrandNotePatchSchema = BrandNoteInputSchema.partial().extend({ status: z.literal("kept").optional() });
 export type BrandNotePatch = z.infer<typeof BrandNotePatchSchema>;
+
+/**
+ * How often a note goes into articles by itself (BRAND_NOTES_REST_ENABLED), set per brand: it rests
+ * for `restDays` after an article uses it, and after `maxUses` articles it goes in only when a
+ * person adds it.
+ */
+export const NOTES_REST_DEFAULTS = { restDays: 30, maxUses: 3 } as const;
+export const NOTES_REST_LIMITS = { restDays: { min: 0, max: 365 }, maxUses: { min: 1, max: 50 } } as const;
+const RestDays = z.number().int().min(NOTES_REST_LIMITS.restDays.min).max(NOTES_REST_LIMITS.restDays.max);
+const MaxUses = z.number().int().min(NOTES_REST_LIMITS.maxUses.min).max(NOTES_REST_LIMITS.maxUses.max);
+/** As stored: a value it lacks is the default. */
+export const NotesRestSchema = z.object({
+  restDays: RestDays.default(NOTES_REST_DEFAULTS.restDays),
+  maxUses: MaxUses.default(NOTES_REST_DEFAULTS.maxUses),
+});
+export type NotesRest = z.infer<typeof NotesRestSchema>;
+/** As a person saves it: both numbers, so a Save never falls back to a default they didn't see. */
+export const NotesRestInputSchema = z.object({ restDays: RestDays, maxUses: MaxUses }).strict();
+
+/**
+ * One article's use of a note (BRAND_NOTES_REST_ENABLED), one per article. A draft that holds it
+ * (`written` false, `at` when its draft last took it), or the article written and checked with it
+ * (`written` true, `at` when it was first written).
+ */
+export interface NoteUse {
+  ref: string;
+  title: string;
+  at: string;
+  written: boolean;
+}
 
 /** An article a note is linked to: `<workspaceId>/<planId>`, and what it was called. */
 export interface NoteArticle {
@@ -84,6 +116,8 @@ export interface BrandNote {
   status: BrandNoteStatus;
   /** The articles that used it (`<workspaceId>/<planId>`), newest last, capped. */
   usedBy: string[];
+  /** The same with dates, and the drafts holding it (BRAND_NOTES_REST_ENABLED), newest last, capped. */
+  uses?: NoteUse[];
   /** The question it answers, when an article asked its team (source `question`). */
   question?: string | null;
   /** The articles that asked that question, oldest first, capped; the title is as it was then. */

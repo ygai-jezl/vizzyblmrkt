@@ -596,6 +596,16 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # A note rests after an article uses it, and every article asks three new questions (needs the open questions).
+  - variable: BRAND_NOTES_REST_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_NOTES_REST_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

@@ -9,7 +9,10 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BlogBriefSchema, ContentPlanSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
-import { checkPlanBlogFacts, isCitableBlogPlan, researchPlanBlog } from "./hubActions";
+import { checkPlanBlogFacts, isCitableBlogPlan, matchPlanSeen, researchPlanBlog } from "./hubActions";
+import { forTenant } from "@/lib/tenant";
+import { createNote } from "@/lib/brandNotes/store";
+import type { KnowledgeCollectionLike } from "@/lib/tenant/types";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
 import { readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
 
@@ -229,5 +232,27 @@ describe("blog hub actions", () => {
     expect(await checkPlanBlogFacts(ctx, { workspace: ws, plan: seed(db), nodeId: "nope" }, { db })).toMatchObject({ ok: false, status: 404 });
     vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "false");
     expect(await check(hub())).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it("matches the article's notes with the brand's own rest setting, and saves the resting ones on its brief", async () => {
+    for (const v of ["CREATE_BLOG_EDITORIAL_ENABLED", "BRAND_NOTES_ENABLED", "BRAND_NOTES_QUESTIONS_ENABLED", "BRAND_NOTES_REST_ENABLED"]) vi.stubEnv(v, "true");
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    const made = await createNote(ctx, { text: "A client's visibility jumped after a rival's page went offline.", kind: "customer_story", subjectIds: [], canName: false }, { source: "typed" }, { db, embed: async () => [] });
+    if (!made.ok) throw new Error("not made");
+    const at = new Date(Date.now() - 6 * 86_400_000).toISOString();
+    await forTenant(ctx, db).brandNotes.update(made.value.id, { usedBy: ["ws1/other"], uses: [{ ref: "ws1/other", title: "Another article", at, written: true }] });
+    const row = { tenantId: "ten_A", kind: "note", ref: made.value.id, status: "kept", _distance: 0.1 };
+    const vectors: KnowledgeCollectionLike = { where: () => vectors, findNearest: () => ({ get: async () => ({ empty: false, size: 1, docs: [{ id: "v0", data: () => row }] }) }) };
+    const generate = vi.fn(async (prompt: string) => (prompt.includes("ASK:") ? "ASK: When did a result change what you published?" : "[1]: STRONG"));
+    const deps = { db, vectors, generate, query: async () => [1], embed: async () => [] };
+
+    const resting = await matchPlanSeen(ctx, { workspace: ws, plan }, deps);
+    expect(resting).toMatchObject({ ok: true, seen: { notes: [], resting: [{ id: made.value.id, reason: "recent", byTitle: "Another article" }] } });
+    expect((db.raw(KEY, "p1")!.blog as { seen: { resting: unknown[] } }).seen.resting).toHaveLength(1);
+
+    tenants.getTenantById.mockResolvedValue({ tenantName: "Acme Ltd", brandNotesRest: { restDays: 3, maxUses: 3 } });
+    const ready = await matchPlanSeen(ctx, { workspace: ws, plan }, deps);
+    expect(ready).toMatchObject({ ok: true, seen: { notes: [{ id: made.value.id, usedIn: 1 }], resting: [] } });
   });
 });

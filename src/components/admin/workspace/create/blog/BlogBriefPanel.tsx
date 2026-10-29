@@ -8,6 +8,7 @@ import {
   type BlogSeen,
   type BlogSeenNote,
   type BlogSeenQuestion,
+  type BlogSeenResting,
   BlogEntityRelation,
   BlogIntent,
   BlogLinkIntent,
@@ -25,6 +26,7 @@ import type { BlogHubControls } from "./types";
 import { MapSubjectSearch } from "@/components/admin/brand-kit/MapSubjectSearch";
 import { BRAND_KIT_NOTES_ROUTE } from "@/lib/content/brandKit";
 import { BRAND_NOTE_LIMITS } from "@/lib/types/brandNote";
+import { restDate } from "@/lib/brandNotes/rest";
 import type { AnswerSave, SeenAnswers } from "./useSeenAnswers";
 
 /**
@@ -824,13 +826,25 @@ function QuestionCard({
   );
 }
 
+/** Why a note that fits rests, in a line: used up, written into another article lately, or held by another draft. */
+function whyResting(n: BlogSeenResting, ref: string | null): string {
+  if (n.reason === "used_up") return `Used in ${n.usedIn ?? 0} articles · goes in only when you add it`;
+  const title = n.byTitle ? `“${n.byTitle}”` : "another article";
+  if (n.reason === "held") return `In the draft ${title}, not written yet`;
+  const on = n.byAt ? ` on ${restDate(n.byAt, ref)}` : "";
+  const until = n.until ? ` · rests until ${restDate(n.until, ref)}` : "";
+  return `Used in ${title}${on}${until}`;
+}
+
 /**
  * What we've seen, for this article: the brand's notes that match its question strongly (put in
  * by the match, removable), the weaker ones a person may add, and what a person writes for this
  * article alone. With nothing matched, three questions the team could answer. The writer takes
  * first-hand experience from here and nowhere else. With `answers` (BRAND_NOTES_QUESTIONS_ENABLED)
  * each question has its own box that saves as it is typed, and the questions are kept on What
- * we've seen whether answered or not.
+ * we've seen whether answered or not. With `rest` (BRAND_NOTES_REST_ENABLED) each note says how
+ * often it was used, the ones that fit but rest are listed apart with Use anyway, and the
+ * questions are new for this article whatever matched.
  */
 function SeenBox({
   brief,
@@ -839,6 +853,7 @@ function SeenBox({
   busy,
   answers,
   locked = false,
+  rest = false,
 }: {
   brief: BlogBrief;
   set: (patch: Partial<BlogBrief>) => void;
@@ -847,12 +862,16 @@ function SeenBox({
   answers?: SeenAnswers;
   /** Research or a match is running: what is typed now would be lost. */
   locked?: boolean;
+  rest?: boolean;
 }) {
   const id = useId();
   const [showNear, setShowNear] = useState(false);
+  const [showResting, setShowResting] = useState(true);
   const seen = brief.seen;
   const notes = seen?.notes ?? [];
   const near = seen?.near ?? [];
+  const resting = rest ? (seen?.resting ?? []) : [];
+  const lookedAt = seen?.matchedAt ?? null;
   const asks = seen?.asks ?? [];
   const own = seen?.own ?? "";
   const looked = Boolean(seen?.matchedAt);
@@ -861,6 +880,7 @@ function SeenBox({
   const ownBox = !questions.length || own.trim() !== "";
   // Answered questions are experience the article can speak from, as notes are.
   const answered = questions.filter((q) => q.answer.trim().length >= BRAND_NOTE_LIMITS.MIN_TEXT).length;
+  const toAnswer = questions.length - answered;
   const has = notes.length > 0 || answered > 0;
   const patch = (p: Partial<BlogSeen>) => set({ seen: BlogSeenSchema.parse({ ...(seen ?? {}), ...p }) });
   const remove = (noteId: string) =>
@@ -869,6 +889,7 @@ function SeenBox({
     patch({
       notes: [...notes, { ...n, why: SEEN_ADDED_BY_YOU }].slice(0, 6),
       near: near.filter((x) => x.id !== n.id),
+      ...(seen?.resting ? { resting: seen.resting.filter((x) => x.id !== n.id) } : {}),
       removed: (seen?.removed ?? []).filter((x) => x !== n.id),
     });
   const answer = (qid: string, text: string) => {
@@ -898,21 +919,38 @@ function SeenBox({
                 : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
           }`}
         >
-          {notes.length
-            ? `${notes.length} from your brand`
-            : answered
-              ? `${answered} answered`
-              : looked
-                ? "Nothing matched"
-                : "Not looked yet"}
+          {rest && looked && (notes.length || answered) && toAnswer
+            ? `${notes.length ? `${notes.length} from your brand` : `${answered} answered`} · ${toAnswer} to answer`
+            : rest && looked && toAnswer
+              ? `${toAnswer} to answer`
+              : rest && looked && !notes.length && !answered && resting.length
+                ? `${resting.length} resting`
+                : notes.length
+                ? `${notes.length} from your brand`
+                : answered
+                  ? `${answered} answered`
+                  : looked
+                    ? "Nothing matched"
+                    : "Not looked yet"}
         </span>
       </div>
 
       {notes.map((n) => (
         <div key={n.id} className="space-y-1.5 rounded-md border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-950">
           <p className="text-xs leading-relaxed text-neutral-800 dark:text-neutral-200">{n.text}</p>
-          <div className="flex items-center justify-between gap-2">
-            <span className={HINT}>{n.why ? `From your notes · ${n.why}` : "From your notes"}</span>
+          <div className="flex items-end justify-between gap-2">
+            <span className="flex flex-col gap-0.5">
+              <span className={HINT}>{n.why ? `From your notes · ${n.why}` : "From your notes"}</span>
+              {rest && n.usedIn !== undefined ? (
+                n.usedIn ? (
+                  <span className={HINT}>
+                    Used in {n.usedIn} {n.usedIn === 1 ? "article" : "articles"} before{n.lastUsedAt ? ` · last on ${restDate(n.lastUsedAt, lookedAt)}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-300">First time in an article</span>
+                )
+              ) : null}
+            </span>
             <button type="button" onClick={() => remove(n.id)} className={SMALL_BUTTON}>
               Remove
             </button>
@@ -927,6 +965,11 @@ function SeenBox({
           None of your brand&rsquo;s notes fits this question closely enough, so the article speaks from your team&rsquo;s answers
           below.
         </p>
+      ) : !notes.length && resting.length ? (
+        <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
+          The notes that fit this question were used recently, so they rest.{" "}
+          {questions.length ? "Answer a question below, or use one anyway." : "Use one anyway, or write what you’ve seen below."}
+        </p>
       ) : !notes.length ? (
         <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
           None of your brand&rsquo;s notes fits this question closely enough. Without one, the article is written as analysis and
@@ -934,12 +977,42 @@ function SeenBox({
         </p>
       ) : null}
 
+      {resting.length ? (
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setShowResting((v) => !v)}
+            aria-expanded={showResting}
+            className="text-xs text-amber-800 underline-offset-2 hover:underline dark:text-amber-300"
+          >
+            {resting.length} {resting.length === 1 ? "fits this question but is resting" : "fit this question but are resting"} · {showResting ? "Hide" : "Show"}
+          </button>
+          {showResting
+            ? resting.map((n) => (
+                <div key={n.id} className="space-y-1.5 rounded-md border border-dashed border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+                  <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">{n.text}</p>
+                  <div className="flex items-end justify-between gap-2">
+                    <span className="text-[11px] text-amber-900 dark:text-amber-200">{whyResting(n, lookedAt)}</span>
+                    <button type="button" onClick={() => use(n)} className={SMALL_BUTTON}>
+                      Use anyway
+                    </button>
+                  </div>
+                </div>
+              ))
+            : null}
+        </div>
+      ) : null}
+
       {questions.length ? (
         <div className="space-y-1.5">
           <div className={LABEL_TEXT}>
-            {notes.length ? "Your team's answers for this article" : "Answer any of these and the article can speak from experience"}
+            {rest ? "New for this article" : notes.length ? "Your team's answers for this article" : "Answer any of these and the article can speak from experience"}
           </div>
-          <p className={HINT}>Each question is kept on What we&rsquo;ve seen, linked to this article, answered or not.</p>
+          <p className={HINT}>
+            {rest
+              ? "Answer any of these and the article says something none of your others do. Each is kept on What we’ve seen, answered or not."
+              : "Each question is kept on What we’ve seen, linked to this article, answered or not."}
+          </p>
           {questions.map((q) => (
             <QuestionCard
               key={q.id}
@@ -1188,7 +1261,15 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
       </div>
 
       {controls.onFindSeen ? (
-        <SeenBox brief={brief} set={set} onFind={controls.onFindSeen} busy={busy === "seen"} answers={controls.answers} locked={locked} />
+        <SeenBox
+          brief={brief}
+          set={set}
+          onFind={controls.onFindSeen}
+          busy={busy === "seen"}
+          answers={controls.answers}
+          locked={locked}
+          rest={Boolean(controls.seenRest && controls.answers)}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">

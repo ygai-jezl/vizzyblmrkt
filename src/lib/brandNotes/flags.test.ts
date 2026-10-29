@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isBlogEditorialEnabled } from "@/lib/content/blog/flags";
-import { isBrandNotesChatEnabled, isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesQuestionsUiEnabled } from "./flags";
+import {
+  isBrandNotesChatEnabled,
+  isBrandNotesEnabled,
+  isBrandNotesQuestionsEnabled,
+  isBrandNotesQuestionsUiEnabled,
+  isBrandNotesRestEnabled,
+  isBrandNotesRestUiEnabled,
+} from "./flags";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -20,6 +27,8 @@ const SWITCHES = [
   "BRAND_NOTES_CHAT_ENABLED",
   "BRAND_NOTES_QUESTIONS_ENABLED",
   "NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED",
+  "BRAND_NOTES_REST_ENABLED",
+  "NEXT_PUBLIC_BRAND_NOTES_REST_ENABLED",
 ];
 
 describe("the switches for editorial articles and What we've seen", () => {
@@ -41,6 +50,19 @@ describe("the switches for editorial articles and What we've seen", () => {
     expect([isBrandNotesQuestionsEnabled(), isBrandNotesQuestionsUiEnabled()]).toEqual([true, true]);
     vi.stubEnv("BRAND_NOTES_QUESTIONS_ENABLED", "yes");
     expect(isBrandNotesQuestionsEnabled()).toBe(false);
+  });
+
+  it("resting notes need the open questions, on the server and in the browser", () => {
+    vi.stubEnv("BRAND_NOTES_REST_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_REST_ENABLED", "true");
+    vi.stubEnv("BRAND_NOTES_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_ENABLED", "true");
+    expect([isBrandNotesRestEnabled(), isBrandNotesRestUiEnabled()]).toEqual([false, false]);
+    vi.stubEnv("BRAND_NOTES_QUESTIONS_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED", "true");
+    expect([isBrandNotesRestEnabled(), isBrandNotesRestUiEnabled()]).toEqual([true, true]);
+    vi.stubEnv("BRAND_NOTES_REST_ENABLED", "yes");
+    expect(isBrandNotesRestEnabled()).toBe(false);
   });
 
   it("are listed off in the public apphosting.yaml, like every switch", () => {

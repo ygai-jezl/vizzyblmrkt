@@ -507,6 +507,36 @@ export async function keepArticleSeen(
   );
 }
 
+/** The notes an article holds by its brief: those it has, and its team's answers. */
+const heldBy = (brief: BlogBrief | null | undefined): string[] =>
+  brief?.seen ? [...brief.seen.notes.map((n) => n.id), ...(brief.seen.questions ?? []).filter(isAnswered).map((q) => q.id)] : [];
+
+/**
+ * A person changed an article's notes by hand (BRAND_NOTES_REST_ENABLED): a note they added (Use
+ * it, Use anyway) or a question they answered is held for the article even when it rests, and one
+ * they took out is let go. `after` null: the article is gone, and everything it held is let go.
+ * Never throws: a save stands even when this fails.
+ */
+export async function syncSeenHolds(
+  ctx: TenantContext,
+  args: { article: NoteArticle; before: BlogBrief | null | undefined; after: BlogBrief | null | undefined },
+  deps: NotesDeps = {},
+): Promise<void> {
+  if (!isBrandNotesRestEnabled()) return;
+  const was = new Set(heldBy(args.before));
+  const now = new Set(heldBy(args.after));
+  const added = [...now].filter((id) => !was.has(id));
+  const gone = [...was].filter((id) => !now.has(id));
+  try {
+    await Promise.all([
+      added.length ? holdNotes(ctx, added, args.article, { force: true }, deps) : null,
+      gone.length ? releaseHolds(ctx, gone, args.article.ref, deps) : null,
+    ]);
+  } catch (err) {
+    console.warn("[blog] keeping an article's notes held failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
+}
+
 /**
  * The live answers to an article's questions (BRAND_NOTES_QUESTIONS_ENABLED), copied onto its
  * brief: an answer changed on Brand › What we've seen wins, and a question removed there is

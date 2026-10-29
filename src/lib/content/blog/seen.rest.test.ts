@@ -5,7 +5,7 @@ import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types"
 import { BlogBriefSchema, type ContentPlan } from "@/lib/types/contentPlan";
 import type { NoteUse } from "@/lib/types/brandNote";
 import { createNote, getNote, markNotesUsed } from "@/lib/brandNotes/store";
-import { ADDED_BY_YOU, keepArticleSeen, matchSeen, type SeenDeps } from "./seen";
+import { ADDED_BY_YOU, keepArticleSeen, matchSeen, syncSeenHolds, type SeenDeps } from "./seen";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1" };
 const plan = { name: "Visibility", scope: { spark: "Weekly is enough for most teams.", topics: [], industryLens: "" } } as unknown as ContentPlan;
@@ -143,5 +143,43 @@ describe("an article's notes when notes rest after use", () => {
     expect((await matchSeen(A, { plan, brief: brief(), brandName: "Acme", article: P1 }, deps)).notes.map((n) => n.id)).toEqual([recent]);
     await markNotesUsed(A, [recent], P1.ref, deps);
     expect((await getNote(A, recent, deps))?.uses).toHaveLength(1);
+  });
+});
+
+describe("holds following what a person does to an article's notes", () => {
+  const seenWith = (notes: Array<{ id: string; text: string }>, questions: Array<{ id: string; question: string; answer: string }> = []) =>
+    brief({ seen: { notes: notes.map((n) => ({ ...n, why: ADDED_BY_YOU })), questions } });
+
+  it("holds a note a person added though it rests, lets go of one they took out, and everything when the article goes", async () => {
+    const { deps, make } = await setup();
+    const resting = await make("A client's share of voice jumped after a competitor's page went offline.", [{ ...P2, at: daysAgo(6), written: true }]);
+    const other = await make("A brand dropped out of answers for two weeks.");
+    const text = "x".repeat(20);
+
+    await syncSeenHolds(A, { article: P1, before: brief(), after: seenWith([{ id: resting, text }, { id: other, text }]) }, deps);
+    expect((await getNote(A, resting, deps))?.uses?.map((u) => [u.ref, u.written])).toEqual([[P2.ref, true], [P1.ref, false]]);
+    expect((await getNote(A, other, deps))?.uses?.map((u) => u.ref)).toEqual([P1.ref]);
+
+    await syncSeenHolds(A, { article: P1, before: seenWith([{ id: resting, text }, { id: other, text }]), after: seenWith([{ id: other, text }]) }, deps);
+    expect((await getNote(A, resting, deps))?.uses?.map((u) => u.ref)).toEqual([P2.ref]);
+
+    await syncSeenHolds(A, { article: P1, before: seenWith([{ id: other, text }]), after: null }, deps);
+    expect((await getNote(A, other, deps))?.uses).toEqual([]);
+  });
+
+  it("holds a question once its team answers it", async () => {
+    const { deps, make } = await setup();
+    const id = await make("Answered for this article in the team's own words.");
+    const q = { id, question: "What did daily checks cost you?", answer: "" };
+    await syncSeenHolds(A, { article: P1, before: seenWith([], [q]), after: seenWith([], [{ ...q, answer: "Two hours a week nobody read." }]) }, deps);
+    expect((await getNote(A, id, deps))?.uses?.map((u) => u.ref)).toEqual([P1.ref]);
+  });
+
+  it("does nothing with the switch off", async () => {
+    vi.stubEnv("BRAND_NOTES_REST_ENABLED", "");
+    const { deps, make } = await setup();
+    const id = await make("A brand dropped out of answers for two weeks.");
+    await syncSeenHolds(A, { article: P1, before: brief(), after: seenWith([{ id, text: "x".repeat(20) }]) }, deps);
+    expect((await getNote(A, id, deps))?.uses).toBeUndefined();
   });
 });

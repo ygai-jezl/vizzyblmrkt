@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, Sparkles, Trash2 } from "lucide-react";
 import type { WholePerson } from "@/lib/audience/wholePerson";
 import { INVITE_STAGE_LABEL } from "@/lib/invites/inviteStage";
-import { api } from "../connect/api";
+import { api, errorText } from "../connect/api";
 import { Banner, Button, Section } from "../connect/ui";
 import { Chip } from "../people/Chip";
 import { PersonView } from "../people/PersonView";
@@ -47,6 +47,8 @@ export function WholePersonView({
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
+  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [erasing, setErasing] = useState<"no" | "busy" | "queued">("no");
 
   const load = useCallback(async () => {
     const r = await api<{ person: WholePerson }>(`/api/admin/audience/everyone/${encodeURIComponent(personId)}`);
@@ -79,6 +81,23 @@ export function WholePersonView({
   }
 
   const p = state.person;
+  const eraseEverywhere = async () => {
+    const what = [
+      p.launches.length ? "their sign-ups on every launch" : null,
+      p.products.length ? "their user record in every product" : null,
+      "their journeys and all their email history",
+    ].filter(Boolean);
+    const ask = `Erase ${p.email ?? p.name ?? "this person"} everywhere? ${what.join(", ").replace(/^./, (c) => c.toUpperCase())} go. Their unsubscribe keeps holding, without their address. This can't be undone.`;
+    if (!window.confirm(ask)) return;
+    setErasing("busy");
+    const r = await api(`/api/admin/crm/contacts/${encodeURIComponent(p.id)}/erase`, { method: "POST" });
+    if (!r.ok) {
+      setErasing("no");
+      return setMsg({ tone: "err", text: errorText(r.data) });
+    }
+    setErasing("queued");
+    setMsg({ tone: "ok", text: "Erasing them everywhere. It finishes within a few minutes; then this page finds nobody." });
+  };
   const sources = [
     p.launches.length ? plural(p.launches.length, "sign-up") : null,
     p.products.length ? plural(p.products.length, "product user") : null,
@@ -126,8 +145,23 @@ export function WholePersonView({
               <Sparkles size={14} /> Ask Vizzy
             </Button>
           ) : null}
+          {canEdit ? (
+            <>
+              <a
+                href={`/api/admin/audience/everyone/${encodeURIComponent(p.id)}/export`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
+              >
+                <Download size={14} /> Export their data
+              </a>
+              <Button tone="danger" disabled={erasing !== "no"} onClick={() => void eraseEverywhere()}>
+                <Trash2 size={14} /> {erasing === "busy" ? "Erasing…" : erasing === "queued" ? "Erasing" : "Erase everywhere"}
+              </Button>
+            </>
+          ) : null}
         </div>
       </header>
+
+      {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
 
       {p.launches.length ? (
         <Section title="Launches">

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
@@ -86,5 +86,40 @@ describe("processContactEraseJob", () => {
     expect(db.raw("signups", "s2")).toBeUndefined();
     expect(db.raw("contacts", "ct_1")).toBeUndefined();
     expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+  });
+
+  describe("with the one view on (Erase everywhere)", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("erases their user in every product too, linked or found by address, and nobody else's", async () => {
+      vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+      vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+      const db = new FakeFirestore();
+      db.seed("contacts", "ct_1", {
+        tenantId: "ten_A",
+        email: "ada@example.test",
+        consentStatus: "verified_active",
+        companyId: null,
+        campaigns: [],
+        products: [{ connectionId: "pcn_1", productUserId: "pu_linked" }],
+      });
+      const user = (connectionId: string, email: string) => ({ tenantId: "ten_A", connectionId, email, emailNormalized: email, status: "active", firstSeenAt: "2026-09-01T00:00:00.000Z", lastSeenAt: "2026-09-01T00:00:00.000Z" });
+      db.seed("product_users", "pu_linked", user("pcn_1", "ada@example.test"));
+      db.seed("product_users", "pu_found", user("pcn_2", "ada@example.test"));
+      db.seed("product_users", "pu_bob", user("pcn_1", "bob@example.test"));
+      expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+      expect(db.raw("product_users", "pu_linked")).toMatchObject({ status: "deleted" });
+      expect(db.raw("product_users", "pu_found")).toMatchObject({ status: "deleted" });
+      expect(db.raw("product_users", "pu_bob")).toMatchObject({ status: "active", email: "bob@example.test" });
+      expect(db.raw("contacts", "ct_1")).toBeUndefined();
+    });
+
+    it("leaves product users alone while it's off", async () => {
+      const db = new FakeFirestore();
+      db.seed("contacts", "ct_1", { tenantId: "ten_A", email: "ada@example.test", companyId: null, campaigns: [], products: [{ connectionId: "pcn_1", productUserId: "pu_linked" }] });
+      db.seed("product_users", "pu_linked", { tenantId: "ten_A", connectionId: "pcn_1", email: "ada@example.test", emailNormalized: "ada@example.test", status: "active" });
+      expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+      expect(db.raw("product_users", "pu_linked")).toMatchObject({ status: "active" });
+    });
   });
 });

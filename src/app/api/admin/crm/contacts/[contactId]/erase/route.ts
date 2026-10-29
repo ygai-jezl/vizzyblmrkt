@@ -30,7 +30,9 @@ export async function POST(
   await enqueueEmailJob(ctx, {
     type: "contact_erase",
     campaignId: contact.campaignIds[0] ?? "manual",
-    dedupeKey: `erase:contact:${contactId}`,
+    // Per record, not per id: someone who comes back after an erase gets a new record (same
+    // id, new createdAt), and erasing them again must run again, not hit the old job.
+    dedupeKey: `erase:contact:${contactId}:${contact.createdAt}`,
     payload: { contactId },
   });
   return NextResponse.json({ ok: true, status: "queued" });

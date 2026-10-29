@@ -5,6 +5,7 @@ import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { Signup } from "@/lib/types/signup";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
+import { suppressionDocId } from "@/lib/email/suppression";
 import { deterministicContactId, domainFromEmail } from "@/lib/crm/identifiers";
 import { buildSearchTokens } from "@/lib/crm/searchTokens";
 import { contactFieldsFromSignup, linkFromSignup, recomputeContactStatus } from "@/lib/crm/contactService";
@@ -166,7 +167,13 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       : isEmail
         ? repo.productUsers.find({ where: [["emailNormalized", "==", key]], limit: 100 })
         : Promise.resolve([] as ProductUser[]),
-    isEmail ? repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }) : Promise.resolve([]),
+    // The brand-wide row by its id too: an erase elsewhere blanks the address on it, and it still stops every send.
+    isEmail
+      ? Promise.all([
+          repo.emailSuppressions.getById(suppressionDocId(ctx.tenantId, key)),
+          repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }),
+        ]).then(([byId, rows]) => (byId && !rows.some((r) => r.id === byId.id) ? [byId, ...rows] : rows))
+      : Promise.resolve([]),
   ]);
 
   // Sign-ups by key, plus any the contact links that the lookup missed (an address stored before

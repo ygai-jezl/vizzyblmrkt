@@ -4,6 +4,17 @@ import { TenantIsolationError } from "@/lib/tenant/errors";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailSuppressionReason } from "@/lib/types/emailSuppression";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
+import { isPersonLinksEnabled } from "@/lib/audience/flags";
+
+/**
+ * The person record keeps the address's opt-outs (AUDIENCE_PERSON_LINKS_ENABLED), so
+ * every change here re-syncs them. Loaded lazily: the person sync reads this module.
+ */
+async function personFollows(ctx: TenantContext, normalizedEmail: string, db?: FirestoreLike): Promise<void> {
+  if (!isPersonLinksEnabled()) return;
+  const { personAfterOptOut } = await import("@/lib/audience/personHooks");
+  await personAfterOptOut(ctx, normalizedEmail, { db });
+}
 
 /**
  * Tenant-wide email suppression: the send-time opt-out enforcement behind the
@@ -66,6 +77,7 @@ export async function suppressEmail(
     if (err instanceof TenantIsolationError) return;
     throw err;
   }
+  await personFollows(ctx, normalizedEmail, db);
 }
 
 /** Whether an address is currently suppressed for this tenant. */
@@ -110,6 +122,7 @@ export async function suppressEmailCategory(
     if (err instanceof TenantIsolationError) return; // already opted out of this category
     throw err;
   }
+  await personFollows(ctx, normalizedEmail, db);
 }
 
 /** Whether the address opted out of this category (or of everything). */
@@ -154,5 +167,6 @@ export async function liftUnsubscribe(
   const doc = await repo.getById(id);
   if (!doc || doc.reason !== "unsubscribe") return false;
   await repo.delete(id);
+  await personFollows(ctx, normalizeEmail(email), db);
   return true;
 }

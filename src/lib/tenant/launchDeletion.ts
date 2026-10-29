@@ -11,6 +11,7 @@ import { gcsAuditSink, type AuditObjectSink } from "./auditSink";
 import { TenantIsolationError } from "./errors";
 import { deleteLaunchKey } from "./launchKeys";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
+import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import type { FirestoreLike, TenantContext } from "./types";
 
 export interface DeleteLaunchResult {
@@ -104,6 +105,13 @@ export async function deleteLaunch(
 
   // Phase 2 — purge, then the OUTCOME record.
   try {
+    // Their person records list the launch until the lifecycle tick re-syncs them
+    // (AUDIENCE_PERSON_LINKS_ENABLED): flag them while the launch can still find them.
+    if (isPersonLinksEnabled()) {
+      await flagLaunchPeople(repo, campaignId).catch((err) => {
+        console.warn(`[launch-delete] flagging people failed tenant=${ctx.tenantId}:`, err instanceof Error ? err.message : "error");
+      });
+    }
     deleted.signups = await repo.signups.deleteWhere(where);
     deleted.broadcasts = await repo.broadcasts.deleteWhere(where);
     deleted.journeys = await repo.journeys.deleteWhere(where);
@@ -169,6 +177,23 @@ export async function deleteLaunch(
  * what `auditComplete: false` flags for reconciliation. The Firestore index copy
  * is strictly best-effort (tamperable, non-authoritative).
  */
+/** Flag every person on the launch for a re-sync, a page at a time. */
+async function flagLaunchPeople(repo: ReturnType<typeof forTenant>, campaignId: string): Promise<void> {
+  const PAGE = 200;
+  let after: string | null = null;
+  for (;;) {
+    const page = await repo.contacts.find({
+      where: [["campaignIds", "array-contains", campaignId]],
+      orderBy: [["createdAt", "desc"]],
+      limit: PAGE,
+      ...(after ? { startAfter: [after] } : {}),
+    });
+    await Promise.all(page.map((c) => repo.contacts.update(c.id, { needsSync: true })));
+    if (page.length < PAGE) return;
+    after = page[page.length - 1]!.createdAt;
+  }
+}
+
 async function emitOutcome(
   entry: LaunchDeletionAudit,
   db: FirestoreLike | undefined,

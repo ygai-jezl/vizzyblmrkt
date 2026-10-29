@@ -14,6 +14,20 @@ import { isPublicEmailProvider } from "@/lib/domains/registrableDomain";
 import { deterministicContactId, deterministicCompanyId, domainFromEmail } from "./identifiers";
 import { buildSearchTokens } from "./searchTokens";
 import { enqueueContactEnrich } from "./enrichmentQueue";
+import { isPersonLinksEnabled } from "@/lib/audience/flags";
+
+/**
+ * The person record follows each sign-up change (AUDIENCE_PERSON_LINKS_ENABLED): the write
+ * flags the contact, and the sync that follows rebuilds it and clears the flag. Loaded
+ * lazily: the person sync builds on this module.
+ */
+const owesSync = () => (isPersonLinksEnabled() ? { needsSync: true } : {});
+
+async function syncPersonAfter(ctx: TenantContext, signup: Signup, db?: FirestoreLike): Promise<void> {
+  if (!isPersonLinksEnabled()) return;
+  const { personAfterSignup } = await import("@/lib/audience/personHooks");
+  await personAfterSignup(ctx, signup, { db });
+}
 
 export interface UpsertContactResult {
   contact: Contact;
@@ -183,7 +197,7 @@ export async function upsertContactFromSignup(
   const id = deterministicContactId(ctx.tenantId, d.contactKey);
   const now = opts.now ?? new Date().toISOString();
   const link = linkFromSignup(signup);
-  const createData = newContactFields({ ...d, contactKey: d.contactKey }, signup, now);
+  const createData = { ...newContactFields({ ...d, contactKey: d.contactKey }, signup, now), ...owesSync() };
 
   try {
     const contact = await repo.contacts.create(id, createData as never);
@@ -249,6 +263,7 @@ export async function upsertContactFromSignup(
     enrichment: nextEnrichment,
     searchTokens: tokensFor({ firstName, lastName, email, emailDomain }),
     updatedAt: now,
+    ...owesSync(),
   };
 
   await repo.contacts.update(id, patch as never);
@@ -281,6 +296,7 @@ export async function recordSignupContact(
       db,
     );
   }
+  await syncPersonAfter(ctx, signup, db);
   return res;
 }
 
@@ -307,7 +323,10 @@ export async function recordSignupContactStatus(
   const repo = forTenant(ctx, opts.db);
   const id = deterministicContactId(ctx.tenantId, contactKey);
   const existing = await repo.contacts.getById(id);
-  if (!existing) return null;
+  if (!existing) {
+    await syncPersonAfter(ctx, signup, opts.db);
+    return null;
+  }
   // Defence in depth: deterministic ids are globally colliding — never touch a
   // contact that isn't this tenant's (getById already re-checks, belt-and-braces).
   if (existing.tenantId !== ctx.tenantId) return null;
@@ -324,7 +343,9 @@ export async function recordSignupContactStatus(
     totalReferred,
     status: recomputeContactStatus(campaigns),
     updatedAt: now,
+    ...owesSync(),
   };
   await repo.contacts.update(id, patch as never);
+  await syncPersonAfter(ctx, signup, opts.db);
   return { ...existing, ...patch } as Contact;
 }

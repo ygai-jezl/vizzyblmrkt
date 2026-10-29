@@ -65,3 +65,18 @@ export function noteRest(
   if (held) return { ...base, reason: "held", until: new Date(ends(held)).toISOString(), by: held };
   return { ...base, reason: null, until: null, by: null };
 }
+
+const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const DAY_MONTH_YEAR = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/**
+ * A use's date as people read it ("23 Oct"), with the year when it isn't the year of `ref` (when
+ * the notes were looked at, or the page drawn). The same on the server and in the browser.
+ */
+export function restDate(iso: string | null | undefined, ref?: string | null): string {
+  const t = Date.parse(iso ?? "");
+  if (Number.isNaN(t)) return "";
+  const r = Date.parse(ref ?? "");
+  const sameYear = !Number.isNaN(r) && new Date(t).getUTCFullYear() === new Date(r).getUTCFullYear();
+  return (sameYear ? DAY_MONTH : DAY_MONTH_YEAR).format(t);
+}

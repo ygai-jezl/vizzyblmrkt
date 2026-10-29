@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NoteUse } from "@/lib/types/brandNote";
-import { noteRest, usesOf } from "./rest";
+import { noteRest, restDate, usesOf } from "./rest";
 
 const NOW = new Date("2026-10-29T12:00:00.000Z");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
@@ -52,5 +52,14 @@ describe("whether a note rests", () => {
     expect(usesOf(n).map((u) => u.ref)).toEqual(["w/a", "w/b"]);
     expect(noteRest(n, null, NOW)).toMatchObject({ written: 2, last: { ref: "w/b" }, reason: "recent" });
     expect(usesOf({ uses: undefined })).toEqual([]);
+  });
+});
+
+describe("restDate", () => {
+  it("is day and month, with the year only when it isn't the reference's, and empty for no date", () => {
+    expect(restDate("2026-10-23T23:30:00.000Z", NOW.toISOString())).toBe("23 Oct");
+    expect(restDate("2025-12-02T09:00:00.000Z", NOW.toISOString())).toBe("2 Dec 2025");
+    expect(restDate("2026-10-23T09:00:00.000Z")).toBe("23 Oct 2026");
+    expect(restDate(null)).toBe("");
   });
 });

@@ -56,4 +56,43 @@ describe("What we've seen in the article's brief", () => {
     expect(out).toContain("Also save to your brand");
     expect(out).not.toContain("Each question is kept on What we");
   });
+
+  describe("with notes resting after use", () => {
+    const NOTE = { id: "bn_n1aaaaaaaa", text: "A brand dropped out of answers for two weeks.", why: "Linked to this article's subject", usedIn: 1, lastUsedAt: "2026-09-18T10:00:00.000Z" };
+    const FIRST = { ...NOTE, id: "bn_n2aaaaaaaa", text: "Teams that track every prompt act on a handful.", usedIn: 0, lastUsedAt: null };
+    const RESTING = [
+      { id: "bn_r1aaaaaaaa", text: "A rival's page went offline.", reason: "recent", byTitle: "Prompt tracking for agencies", byAt: "2026-10-23T09:00:00.000Z", until: "2026-11-22T09:00:00.000Z", usedIn: 1 },
+      { id: "bn_r2aaaaaaaa", text: "Daily swings were mostly noise.", reason: "used_up", usedIn: 3 },
+      { id: "bn_r3aaaaaaaa", text: "Local shops say AI answers don't matter.", reason: "held", byTitle: "Share of voice for local shops" },
+    ];
+    const OPEN = QUESTIONS.map((q) => ({ ...q, answer: "" }));
+
+    it("says how often each note was used, lists the resting ones with why, and asks new questions anyway", () => {
+      const out = html(controls(brief({ matchedAt: "2026-10-29T10:00:00.000Z", notes: [NOTE, FIRST], resting: RESTING, questions: OPEN }), { answers, seenRest: true }));
+      expect(out).toContain(">2 from your brand · 2 to answer<");
+      expect(out).toContain("Used in 1 article before · last on 18 Sept");
+      expect(out).toContain("First time in an article");
+      expect(out).toContain("3 fit this question but are resting · Hide");
+      expect(out).toContain("Used in “Prompt tracking for agencies” on 23 Oct · rests until 22 Nov");
+      expect(out).toContain("Used in 3 articles · goes in only when you add it");
+      expect(out).toContain("In the draft “Share of voice for local shops”, not written yet");
+      expect(out.match(/Use anyway/g)).toHaveLength(3);
+      expect(out).toContain("New for this article");
+      expect(out).toContain("Answer any of these and the article says something none of your others do.");
+    });
+
+    it("says so when every note that fits is resting", () => {
+      const out = html(controls(brief({ resting: RESTING.slice(0, 1), questions: OPEN }), { answers, seenRest: true }));
+      expect(out).toContain("The notes that fit this question were used recently, so they rest.");
+      expect(out).toContain(">2 to answer<");
+    });
+
+    it("shows none of it with the switch off", () => {
+      const out = html(controls(brief({ notes: [NOTE], resting: RESTING, questions: OPEN }), { answers }));
+      expect(out).not.toContain("resting");
+      expect(out).not.toContain("Used in 1 article");
+      expect(out).not.toContain("New for this article");
+      expect(out).toContain(">1 from your brand<");
+    });
+  });
 });

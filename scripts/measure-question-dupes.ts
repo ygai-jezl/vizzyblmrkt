@@ -1,5 +1,5 @@
 /**
- * measure-question-dupes.ts — how close in meaning (cosine, text-embedding-005, both sides
+ * measure-question-dupes.ts: how close in meaning (cosine, text-embedding-005, both sides
  * embedded as documents with QUESTION_TITLE) a new question for a brand's team comes to:
  *   - the same ask in other words (should count as a repeat),
  *   - a different ask on the same subject (should not),

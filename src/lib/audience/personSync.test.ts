@@ -166,6 +166,22 @@ describe("syncPerson", () => {
     expect(person(db, "ada@customer.test")).toBeUndefined();
   });
 
+  it("never copies a product's name onto a contact from a sign-up, and keeps a product-only person's name in step", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedSignup(db, "sig_1", { firstName: null, lastName: null });
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test", firstName: "Ada", lastName: "Product" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW });
+    expect(person(db, "ada@customer.test")).toMatchObject({ firstName: null, lastName: null });
+
+    const bea = seedUser(db, "bea", { firstName: "Bea" });
+    await syncPerson(ctx, "bea@customer.test", { db, nowMs: NOW });
+    expect(person(db, "bea@customer.test")!.firstName).toBe("Bea");
+    db.seed("product_users", bea.id, { ...db.raw("product_users", bea.id), firstName: "Beatrice" });
+    expect((await syncPerson(ctx, "bea@customer.test", { db, nowMs: NOW })).outcome).toBe("updated");
+    expect(person(db, "bea@customer.test")!.firstName).toBe("Beatrice");
+  });
+
   it("clears a sync someone owed", async () => {
     const db = new FakeFirestore();
     seedWorld(db);
@@ -219,6 +235,18 @@ describe("syncProductLink", () => {
     const later = await syncProductLink(ctx, c, user, { db, nowMs: T0 + 3 * DAY });
     expect(later).toMatchObject({ outcome: "updated", added: [`stage:${CONNECTION_ID}:onboarding`], removed: [`stage:${CONNECTION_ID}:new`] });
     expect((await syncProductLink(ctx, c, user, { db, nowMs: T0 + 8 * DAY }))?.added).toEqual([`stage:${CONNECTION_ID}:stuck`]);
+  });
+
+  it("rebuilds in full when a full rebuild is owed, rather than only swapping the product", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const user = seedUser(db, "fay");
+    await syncProductLink(ctx, await connection(db), user, { db, nowMs: NOW });
+    // A launch sign-up arrived and its sync failed: the record owes a rebuild.
+    seedSignup(db, "sig_fay", { email: "fay@customer.test" });
+    await markNeedsSync(ctx, "fay@customer.test", db);
+    await syncProductLink(ctx, await connection(db), user, { db, nowMs: NOW });
+    expect(person(db, "fay@customer.test")).toMatchObject({ needsSync: false, campaignIds: ["camp1"] });
   });
 
   it("does nothing for a sandbox", async () => {

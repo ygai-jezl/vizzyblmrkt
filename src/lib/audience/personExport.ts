@@ -76,8 +76,10 @@ const SIGNUP_SECRET = new Set(["verificationToken"]);
 
 /**
  * Everything YouGrow holds about one whole person (AUDIENCE_ONE_VIEW_ENABLED): their
- * person record, their sign-ups on every launch with those launches' emails, their
- * opt-outs, and each product user's own export. What "Erase everywhere" deletes.
+ * person record, their sign-ups on every launch with each one's emails, invite and
+ * waitlist journey progress, their opt-outs, and each product user's own export (the
+ * ones the record links and any with their address). What "Erase everywhere" deletes
+ * (src/lib/crm/eraseWorker.ts): a store added to one belongs in the other.
  */
 export async function exportWholePerson(
   ctx: TenantContext,
@@ -99,10 +101,16 @@ export async function exportWholePerson(
     address ? repo.emailSuppressions.find({ where: [["normalizedEmail", "==", address]], limit: EXPORT_LIMITS.optOuts }) : Promise.resolve([]),
   ]);
   const signups = new Map([...linked, ...byKey].filter((s): s is NonNullable<typeof s> => !!s).map((s) => [s.id, s]));
-  const launchEmails = (
-    await Promise.all([...signups.keys()].map((id) => repo.emailEvents.find({ where: [["signupId", "==", id]], limit: EXPORT_LIMITS.emailEngagement })))
-  ).flat();
-  const products = await Promise.all((contact.products ?? []).map((p) => exportPerson(ctx, p.productUserId, deps)));
+  const ids = [...signups.keys()];
+  const ofSignup = (id: string): WhereClause[] => [["signupId", "==", id]];
+  const [launchEmails, invites, waitlistJourneys, sameAddress] = await Promise.all([
+    Promise.all(ids.map((id) => repo.emailEvents.find({ where: ofSignup(id), limit: EXPORT_LIMITS.emailEngagement }))).then((r) => r.flat()),
+    Promise.all(ids.map((id) => repo.invites.find({ where: ofSignup(id), limit: EXPORT_LIMITS.journeys }))).then((r) => r.flat()),
+    Promise.all(ids.map((id) => repo.waitlistEnrolments.find({ where: ofSignup(id), limit: EXPORT_LIMITS.journeys }))).then((r) => r.flat()),
+    address ? repo.productUsers.find({ where: [["emailNormalized", "==", address]], limit: 100 }) : Promise.resolve([]),
+  ]);
+  const productUserIds = new Set([...(contact.products ?? []).map((p) => p.productUserId), ...sameAddress.filter((u) => u.status === "active").map((u) => u.id)]);
+  const products = await Promise.all([...productUserIds].map((id) => exportPerson(ctx, id, deps)));
   const productDocs = products.flatMap((r) => (r.found ? [r.document] : []));
   const complete = productDocs.every((d) => d.complete === true) && launchEmails.length < EXPORT_LIMITS.emailEngagement;
   const { searchTokens: _tokens, ...person } = plain(contact);
@@ -115,6 +123,8 @@ export async function exportWholePerson(
       person,
       signups: [...signups.values()].map((s) => Object.fromEntries(Object.entries(plain(s)).filter(([k]) => !SIGNUP_SECRET.has(k)))),
       launchEmails: launchEmails.map(plain),
+      invites: invites.map(plain),
+      waitlistJourneys: waitlistJourneys.map(plain),
       optOuts: optOuts.map(plain),
       products: productDocs,
     },

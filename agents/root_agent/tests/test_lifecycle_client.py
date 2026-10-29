@@ -254,6 +254,9 @@ def test_on_a_whole_persons_page_the_plan_goes_to_the_product_user_their_brief_i
     calls = _capture(monkeypatch, 200, {"ok": True, "id": "pp_pu_3f9a", "status": "draft"})
     assert lc.save_person_plan(state, "Connect their site", "One short email.", None, None)["status"] == "success"
     assert calls[0]["payload"]["scope"] == {"personId": "pu_3f9a"}
+    # Another person's page: the brief read on the first page never stands in for them.
+    state["personId"] = "ct_77aa"
+    assert lc.save_person_plan(state, "g", "a", None, None)["status"] == "needs_person"
 
 
 def test_a_brief_for_someone_who_only_joined_launches_says_so(monkeypatch):

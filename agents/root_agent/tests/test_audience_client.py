@@ -48,5 +48,7 @@ def test_errors_become_plain_messages(monkeypatch):
 def test_root_counts_the_audience_and_no_longer_promises_signup_actions():
     assert "get_audience_counts" in ROOT_SYSTEM_INSTRUCTION
     assert "answer only from its counts" in ROOT_SYSTEM_INSTRUCTION
+    # While the one view is off the tool says so, and Vizzy falls back to the Insights numbers.
+    assert "answer from `get_insights_summary` instead" in ROOT_SYSTEM_INSTRUCTION
     assert "review and action signups" not in ROOT_SYSTEM_INSTRUCTION
     assert "actioning signups" not in ROOT_SYSTEM_INSTRUCTION

@@ -52,7 +52,7 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
   const [companies, contacts, engaged, funnel] = await Promise.all([
     tab("companies", listCompanies(ctx, {})),
     oneView
-      ? Promise.resolve({ items: [], nextCursor: null })
+      ? Promise.resolve({ items: [] as Awaited<ReturnType<typeof listContacts>>["items"], nextCursor: null })
       : tab("contacts", listContacts(ctx, q ? { q } : launch ? { campaignId: launch.id } : signupsOnly)),
     tab("engaged", listEngagedContacts(ctx, {})),
     // Nav v2 phase 4: the growth path in numbers, for this launch or every launch.

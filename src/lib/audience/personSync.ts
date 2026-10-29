@@ -120,8 +120,13 @@ function statusOf(campaigns: readonly ContactCampaignLink[], products: readonly 
   return products.length ? "active" : recomputeContactStatus(campaigns);
 }
 
+/** The list's order for a person: unique, newest activity first when sorted descending. */
+export function sortKeyOf(activeAt: string, personId: string): string {
+  return `${activeAt}|${personId}`;
+}
+
 /** The patch that brings `current` in line with `next`, or null when it already is. */
-function patchFor(current: Contact, next: Derived, nowIso: string): Partial<Contact> | null {
+function patchFor(personId: string, current: Contact, next: Derived, nowIso: string): Partial<Contact> | null {
   const { campaigns, products, summary, optOuts } = next;
   const tagsChanged = (current.memberOf ?? []).join("\n") !== summary.memberOf.join("\n");
   const productsChanged = !sameProducts(current.products ?? [], products);
@@ -141,7 +146,7 @@ function patchFor(current: Contact, next: Derived, nowIso: string): Partial<Cont
     memberOf: summary.memberOf,
     reach: summary.reach,
     optOuts,
-    ...(summary.activeAt ? { activeAt: summary.activeAt } : {}),
+    ...(summary.activeAt ? { activeAt: summary.activeAt, sortKey: sortKeyOf(summary.activeAt, personId) } : {}),
     ...(tagsChanged || productsChanged || reachChanged ? { changedAt: nowIso } : {}),
     needsSync: false,
     updatedAt: nowIso,
@@ -218,13 +223,13 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       : productOnlyFields(key, users, firstUser, nowIso);
     return {
       ...base,
-      ...patchFor({ memberOf: [], needsSync: true } as unknown as Contact, next, nowIso),
+      ...patchFor(personId, { memberOf: [], needsSync: true } as unknown as Contact, next, nowIso),
       changedAt: nowIso,
     } as unknown as Omit<Contact, "id" | "tenantId">;
   };
 
   if (deps.dryRun) {
-    const patch = existing ? patchFor(existing, next, nowIso) : null;
+    const patch = existing ? patchFor(personId, existing, next, nowIso) : null;
     return {
       personId,
       outcome: !existing ? "created" : patch ? "updated" : "unchanged",
@@ -236,25 +241,19 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
   let patched = false;
   const { doc, created } = await repo.contacts.upsert(personId, create, (current) => {
     before = current.memberOf ?? [];
-    const patch = patchFor(current, next, nowIso);
-    patched = !!patch;
-    if (!patch) return null;
-    // Fill a name or address the record lacks from their product, never overwrite one.
-    if (firstUser && !current.firstName && !current.lastName && (firstUser.firstName || firstUser.lastName)) {
-      patch.firstName = firstUser.firstName ?? null;
-      patch.lastName = firstUser.lastName ?? null;
-    }
-    const email = current.email ?? users.find((u) => u.email)?.email ?? null;
-    if (email && !current.email) patch.email = email;
-    if (patch.firstName !== undefined || patch.email !== undefined) {
-      patch.searchTokens = buildSearchTokens([
-        patch.firstName ?? current.firstName,
-        patch.lastName ?? current.lastName,
-        email,
-        current.emailDomain ?? (email ? domainFromEmail(email) : null),
-      ]);
-    }
-    return patch as never;
+    // A person who only uses products is named as their product names them, kept in step. A
+    // contact from a sign-up keeps its own name and address: none is copied in from a product,
+    // so erasing them in the product leaves nothing of theirs behind here.
+    const productOnly = current.consentStatus === "none" && !(current.campaigns ?? []).length && campaigns.length === 0;
+    const who = productOnly && users.length ? productOnlyFields(key, users, firstUser, nowIso) : null;
+    const renamed =
+      who && (who.firstName !== (current.firstName ?? null) || who.lastName !== (current.lastName ?? null) || who.email !== (current.email ?? null))
+        ? { firstName: who.firstName, lastName: who.lastName, email: who.email, emailDomain: who.emailDomain, searchTokens: who.searchTokens }
+        : null;
+    const patch = patchFor(personId, current, next, nowIso);
+    patched = !!(patch || renamed);
+    if (!patch && !renamed) return null;
+    return { ...(patch ?? { updatedAt: nowIso }), ...(renamed ?? {}) } as never;
   });
   const changes = tagChanges(created ? [] : before, doc.memberOf ?? []);
   return { personId, outcome: created ? "created" : patched ? "updated" : "unchanged", ...changes };
@@ -312,14 +311,41 @@ export async function syncProductLink(
   }
   const nowIso = new Date(deps.nowMs ?? Date.now()).toISOString();
   let before: string[] = [];
+  let owed = false;
   const updated = await repo.contacts.claim(personId, (fresh) => {
+    // A full rebuild is owed (a sync failed, a launch went): this can't stand in for it.
+    if (fresh.needsSync) {
+      owed = true;
+      return null;
+    }
     const link = linkFromProductUser(user, connection, fresh.optOuts, deps.nowMs ?? Date.now());
     const products = (fresh.products ?? []).map((p) => (p.productUserId === user.id ? link : p));
     before = fresh.memberOf ?? [];
-    return patchFor(fresh, { campaigns: fresh.campaigns ?? [], products, summary: summarize(fresh.campaigns ?? [], products, fresh.optOuts), optOuts: fresh.optOuts }, nowIso) as never;
+    return patchFor(personId, fresh, { campaigns: fresh.campaigns ?? [], products, summary: summarize(fresh.campaigns ?? [], products, fresh.optOuts), optOuts: fresh.optOuts }, nowIso) as never;
   });
+  if (owed) return syncPerson(ctx, key, deps);
   if (!updated) return { personId, outcome: "unchanged", added: [], removed: [] };
   return { personId, outcome: "updated", ...tagChanges(before, updated.memberOf ?? []) };
+}
+
+/** Flag everyone with a tag for a full rebuild by the sweep (a product revoked, say), a page at a time. */
+export async function flagPeopleIn(ctx: TenantContext, tag: string, db?: FirestoreLike): Promise<number> {
+  const repo = forTenant(ctx, db).contacts;
+  const PAGE = 200;
+  let after: string | null = null;
+  let flagged = 0;
+  for (;;) {
+    const page: Contact[] = await repo.find({
+      where: [["memberOf", "array-contains", tag]],
+      orderBy: [["sortKey", "desc"]],
+      limit: PAGE,
+      ...(after ? { startAfter: [after] } : {}),
+    });
+    await Promise.all(page.map((c) => repo.update(c.id, { needsSync: true })));
+    flagged += page.length;
+    after = page.length === PAGE ? (page[page.length - 1]!.sortKey ?? null) : null;
+    if (!after) return flagged;
+  }
 }
 
 /** Mark a person as owed a sync, when there's a record to mark. Never throws. */
@@ -359,5 +385,7 @@ export async function syncProductLinkSafe(
   } catch (err) {
     warn("person product link", ctx, err);
     await markNeedsSync(ctx, personKeyOf(user), deps.db);
+    // The person they moved from, when their address changed: the sweep can't find them any other way.
+    if (deps.previousKey) await markNeedsSync(ctx, deps.previousKey, deps.db);
   }
 }

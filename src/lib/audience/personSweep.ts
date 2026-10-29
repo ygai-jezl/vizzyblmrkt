@@ -14,7 +14,8 @@ import { loadPeopleConnections, syncPerson, syncProductLink, type PeopleConnecti
 /** The daily check starts at this UTC hour, so stages are fresh before a European working day. */
 export const PEOPLE_SWEEP_HOUR_UTC = 5;
 const OWED_PAGE = 100;
-const PAGE = 200;
+/** Small pages, so a page started just before the deadline finishes soon after it. */
+const PAGE = 50;
 
 export interface PeopleSweepDeps {
   db?: FirestoreLike;

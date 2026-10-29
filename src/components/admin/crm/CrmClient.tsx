@@ -100,7 +100,7 @@ export function CrmClient({
         </button>
       </div>
       {tab === "people" ? (
-        <AudienceList />
+        <AudienceList initialQuery={initialQuery} initialLaunch={initialLaunch} />
       ) : tab === "contacts" ? (
         <ContactsView
           isAdmin={isAdmin}

@@ -114,7 +114,8 @@ export function ConnectionSettings({
       linkDomains: list,
       ...(INVITES && !sandbox ? { signupUrl: signupUrl.trim() || null } : {}),
       consentPolicy: { verifyCorporateDomain: verifyCorp, marketingBases: bases },
-      ...(showClocks ? { stageClocks: clocks } : {}),
+      // Only a change: new clocks restart today's check of this product's people.
+      ...(showClocks && JSON.stringify(clocks) !== JSON.stringify(clocksOf(connection.stageClocks)) ? { stageClocks: clocks } : {}),
     };
     if (!sandbox) {
       body.contextEndpoint = ctxUrl.trim() ? { url: ctxUrl.trim(), enabled: ctxOn, timeoutMs } : null;

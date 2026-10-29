@@ -12,6 +12,8 @@ import type { Contact } from "@/lib/types/contact";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { Signup } from "@/lib/types/signup";
 import { personIdOf } from "./personSync";
+import { sweepPeople } from "./personSweep";
+import { revokeProductConnection } from "@/lib/connect/adminApi";
 
 /**
  * Every write path keeps the person record up to date while AUDIENCE_PERSON_LINKS_ENABLED
@@ -82,14 +84,31 @@ describe("with the person links on", () => {
     expect(person(db, "ada@customer.test")).toMatchObject({ status: "deleted", memberOf: [] });
   });
 
-  it("follows an unsubscribe and its lifting", async () => {
+  it("follows an unsubscribe and its lifting, at the next sweep (webhooks bring them in batches)", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const tick = () => sweepPeople(ctx, { db, now: () => Date.parse("2026-09-21T03:00:00Z"), deadlineMs: Date.now() + 60_000 });
+    await recordSignupContact(ctx, {} as Campaign, signupDoc(db, "sig_1", { status: "verified_active", verified: true }), db);
+    await suppressEmail(system, { email: "Ada@customer.test", reason: "unsubscribe", source: "footer" }, db);
+    expect(person(db, "ada@customer.test")).toMatchObject({ reach: "yes", needsSync: true });
+    await tick();
+    expect(person(db, "ada@customer.test")).toMatchObject({ reach: "no", optOuts: { blocked: "unsubscribe" }, needsSync: false });
+    await liftUnsubscribe(system, "ada@customer.test", db);
+    await tick();
+    expect(person(db, "ada@customer.test")).toMatchObject({ reach: "yes", optOuts: { blocked: null } });
+  });
+
+  it("drops a revoked product from its people at the next sweep", async () => {
     const db = new FakeFirestore();
     seedWorld(db);
     await recordSignupContact(ctx, {} as Campaign, signupDoc(db, "sig_1", { status: "verified_active", verified: true }), db);
-    await suppressEmail(system, { email: "Ada@customer.test", reason: "unsubscribe", source: "footer" }, db);
-    expect(person(db, "ada@customer.test")).toMatchObject({ reach: "no", optOuts: { blocked: "unsubscribe" } });
-    await liftUnsubscribe(system, "ada@customer.test", db);
-    expect(person(db, "ada@customer.test")).toMatchObject({ reach: "yes", optOuts: { blocked: null } });
+    await patchUser(ctx, connectionOf(db), "ada", { email: "ada@customer.test" }, { db, nowMs: T0 });
+    await patchUser(ctx, connectionOf(db), "bea", { email: "bea@customer.test" }, { db, nowMs: T0 });
+    await revokeProductConnection({ ...ctx, role: "admin" }, CONNECTION_ID, db);
+    expect(person(db, "ada@customer.test")!.needsSync).toBe(true);
+    await sweepPeople(ctx, { db, now: () => T0, deadlineMs: Date.now() + 60_000 });
+    expect(person(db, "ada@customer.test")).toMatchObject({ products: [], memberOf: expect.arrayContaining(["launch:camp1"]) });
+    expect(person(db, "bea@customer.test")).toBeUndefined();
   });
 
   it("follows API v2: a write, a batch, an address change, an event and a delete", async () => {

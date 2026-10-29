@@ -105,14 +105,15 @@ export async function deleteLaunch(
 
   // Phase 2 — purge, then the OUTCOME record.
   try {
+    deleted.signups = await repo.signups.deleteWhere(where);
     // Their person records list the launch until the lifecycle tick re-syncs them
-    // (AUDIENCE_PERSON_LINKS_ENABLED): flag them while the launch can still find them.
+    // (AUDIENCE_PERSON_LINKS_ENABLED). Flagged after the sign-ups go, so a sync can't run in
+    // between and keep the link; the records still name the launch, so the query finds them.
     if (isPersonLinksEnabled()) {
       await flagLaunchPeople(repo, campaignId).catch((err) => {
         console.warn(`[launch-delete] flagging people failed tenant=${ctx.tenantId}:`, err instanceof Error ? err.message : "error");
       });
     }
-    deleted.signups = await repo.signups.deleteWhere(where);
     deleted.broadcasts = await repo.broadcasts.deleteWhere(where);
     deleted.journeys = await repo.journeys.deleteWhere(where);
     deleted.emailJobs = await repo.emailJobs.deleteWhere(where);

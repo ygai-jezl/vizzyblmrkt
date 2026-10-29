@@ -159,8 +159,10 @@ export const ContactSchema = z.object({
   /** The best reach across their sources, unless a brand-wide opt-out stops everything. */
   reach: z.enum(["yes", "limited", "no"]).optional(),
   optOuts: PersonOptOutsSchema.optional(),
-  /** When they were last active anywhere we can see (the list's order). */
+  /** When they were last active anywhere we can see. */
   activeAt: z.string().optional(),
+  /** The list's order: `activeAt|id`, unique, so a page never splits people who share a time. */
+  sortKey: z.string().optional(),
   /** When the tags, reach or a product's stage last changed: what segments will listen to. */
   changedAt: z.string().optional(),
   /** A write path owes this person a sync; the lifecycle tick drains these. */

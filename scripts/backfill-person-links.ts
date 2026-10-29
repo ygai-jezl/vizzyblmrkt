@@ -2,8 +2,13 @@
  * backfill-person-links.ts: build the person record for everyone a brand already has:
  * each contact (from launch sign-ups) and each user of a connected product, linked by
  * address (AUDIENCE_PERSON_LINKS_ENABLED). New writes keep the records up to date once
- * the switch is on; this covers everyone from before. Run it before turning the switch
- * on, and once more straight after, for the writes made in between.
+ * the switch is on; this covers everyone from before. Run it twice:
+ *
+ *   1. Before turning the switch on, with --contacts-only: it fills in the contacts your
+ *      launches already have (their tags, and the products they also use) and makes no new
+ *      record, so nothing new shows anywhere while the switch is off.
+ *   2. Straight after turning it on, without the flag: it adds everyone who only uses a
+ *      product, and catches the writes made in between.
  *
  * DRY RUN by default: it says how many people it would create, update, leave alone and
  * remove. Pass --apply to write. Safe to re-run: a person already right is left alone.
@@ -11,7 +16,7 @@
  *
  *   GOOGLE_CLOUD_PROJECT=<your-project> npx tsx scripts/backfill-person-links.ts
  *   GOOGLE_CLOUD_PROJECT=<your-project> npx tsx scripts/backfill-person-links.ts --apply
- * Optional:  --tenant <tenantId>
+ * Optional:  --tenant <tenantId>   --contacts-only
  *
  * Auth = Application Default Credentials (`gcloud auth application-default login`).
  * Pages contacts by (tenantId, createdAt DESC) and each product's users by
@@ -36,6 +41,8 @@ function flag(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 const ONLY_TENANT = flag("tenant");
+/** Only the contacts that exist already: no record is created for someone who only uses a product. */
+const CONTACTS_ONLY = process.argv.includes("--contacts-only");
 
 /**
  * Every row, newest first by `field`, without skipping rows that share a value: a full
@@ -73,7 +80,9 @@ async function main() {
     console.error("Set GOOGLE_CLOUD_PROJECT to the project whose Firestore to backfill.");
     process.exit(1);
   }
-  console.log(`[person-links] project=${project} mode=${APPLY ? "APPLY" : "dry-run"}${ONLY_TENANT ? ` tenant=${ONLY_TENANT}` : ""}`);
+  console.log(
+    `[person-links] project=${project} mode=${APPLY ? "APPLY" : "dry-run"}${CONTACTS_ONLY ? " contacts-only" : ""}${ONLY_TENANT ? ` tenant=${ONLY_TENANT}` : ""}`,
+  );
 
   const tenants = (await listAllTenants()).filter((t) => !ONLY_TENANT || t.id === ONLY_TENANT);
   const counts: Record<SyncOutcome | "failed", number> = { created: 0, updated: 0, unchanged: 0, deleted: 0, none: 0, failed: 0 };
@@ -96,7 +105,7 @@ async function main() {
     for await (const page of pages<Contact>((o) => repo.contacts.find(o), [], "createdAt", `${t.id} contacts`)) {
       for (const c of page) await sync(c.contactKey);
     }
-    for (const c of connections.values()) {
+    for (const c of CONTACTS_ONLY ? [] : connections.values()) {
       for await (const page of pages<ProductUser>((o) => repo.productUsers.find(o), [["connectionId", "==", c.id]], "lastSeenAt", `${t.id} ${c.id}`)) {
         for (const u of page) if (u.status === "active") await sync(personKeyOf(u));
       }

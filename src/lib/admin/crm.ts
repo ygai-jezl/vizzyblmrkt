@@ -5,6 +5,7 @@ import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import type { EngagedContact } from "@/lib/types/engagedContact";
 import { queryToken } from "@/lib/crm/searchTokens";
+import { isOnALaunch } from "@/lib/audience/personLinks";
 
 export const CRM_PAGE_SIZE = 50;
 
@@ -55,7 +56,9 @@ export async function listContacts(
     startAfter: params.cursor ? [params.cursor] : undefined,
     limit: limit + 1,
   });
-  return paginate(rows, limit, (c) => c.createdAt);
+  const page = paginate(rows, limit, (c) => c.createdAt);
+  // A search can't take a second array filter: people who only use a product are left out here.
+  return token && params.launchesOnly ? { ...page, items: page.items.filter(isOnALaunch) } : page;
 }
 
 export interface ListCompaniesParams {

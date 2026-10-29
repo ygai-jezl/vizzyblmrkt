@@ -234,9 +234,10 @@ def get_person(state: "dict | None", person_id: str) -> dict:
         # it also says whether a plan can be drafted for them.
         state["personBriefEnabled"] = True
         state["personPlansEnabled"] = bool(body.get("plans"))
-        # On a whole person's page the brief is about one of their product users: a plan is theirs.
-        if isinstance(body["brief"].get("personId"), str):
-            state["briefPersonId"] = body["brief"]["personId"]
+        # On a whole person's page (ct_) the brief is about one of their product users, and a
+        # plan is theirs: remember which, for that page only.
+        if str(resolved).startswith("ct_") and isinstance(body["brief"].get("personId"), str):
+            state["briefPersonIds"] = {**(state.get("briefPersonIds") or {}), str(resolved): body["brief"]["personId"]}
         return {"status": "success", "brief": body["brief"]}
     code = body.get("error") or f"http_{status_code}"
     if code in _PERSON_ERRORS:
@@ -420,7 +421,7 @@ def save_person_plan(
         }
     if str(resolved).startswith("ct_"):
         # A whole person (the one view): the plan belongs to the product user their brief is about.
-        resolved = (state or {}).get("briefPersonId") or ""
+        resolved = ((state or {}).get("briefPersonIds") or {}).get(str(resolved)) or ""
         if not resolved:
             return {"status": "needs_person", "message": "Let me read this person first (get_person_brief), then I can save their plan."}
     if not (goal or "").strip() or not (angle or "").strip():

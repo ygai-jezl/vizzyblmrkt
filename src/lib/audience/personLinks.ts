@@ -54,6 +54,14 @@ export function isLiveSignupLink(link: Pick<ContactCampaignLink, "status">): boo
   return link.status !== "deleted";
 }
 
+/**
+ * Whether a contact is on one of the brand's launches. With person records on, someone who
+ * only uses a product has a contact too, with no sign-up: they aren't on a waitlist.
+ */
+export function isOnALaunch(c: { status: string; campaigns?: ReadonlyArray<Pick<ContactCampaignLink, "status">> | null }): boolean {
+  return c.status !== "deleted" && (c.campaigns ?? []).some(isLiveSignupLink);
+}
+
 type LinkConnection = Pick<ProductConnection, "id" | "catalog" | "consentPolicy" | "stageClocks">;
 
 /** One product user as the person record holds them. */

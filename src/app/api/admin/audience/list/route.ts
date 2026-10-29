@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { oneViewAdmin } from "@/lib/audience/admin";
-import { isPeopleTag, listPeople } from "@/lib/audience/peopleList";
+import { isPeopleCursor, isPeopleTag, listPeople } from "@/lib/audience/peopleList";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const tag = url.searchParams.get("show") || "all";
   const cursor = url.searchParams.get("cursor");
-  if (!isPeopleTag(tag) || (cursor !== null && Number.isNaN(Date.parse(cursor)))) {
+  if (!isPeopleTag(tag) || (cursor !== null && !isPeopleCursor(cursor))) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400, headers: { "cache-control": "no-store" } });
   }
   const result = await listPeople(gate.ctx, {

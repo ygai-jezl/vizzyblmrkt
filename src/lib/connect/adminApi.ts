@@ -36,6 +36,7 @@ import { zodReason } from "./protocol";
 import { ENTITY_ID_RE } from "./v2/contract";
 import { isOwnOrVerifiedAddress } from "@/lib/lifecycle/policy";
 import { isOneViewEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
+import { personAfterProductRevoked } from "@/lib/audience/personHooks";
 
 /**
  * The Products admin API, as plain functions (status + body) so they're tested
@@ -248,7 +249,9 @@ export async function patchConnection(
     ...(p.consentPolicy ? { consentPolicy: p.consentPolicy } : {}),
     ...(p.defaults ? { defaults: p.defaults } : {}),
     // New clocks move people's stages today, not at tomorrow's check.
-    ...(p.stageClocks !== undefined ? { stageClocks: p.stageClocks, personSweep: null } : {}),
+    ...(p.stageClocks !== undefined && JSON.stringify(p.stageClocks) !== JSON.stringify(conn.stageClocks ?? null)
+      ? { stageClocks: p.stageClocks, personSweep: null }
+      : {}),
     updatedAt: new Date().toISOString(),
   };
   if (!p.catalog) {
@@ -366,6 +369,7 @@ export async function revokeProductConnection(ctx: TenantContext, id: string, db
   if (!conn) return fail(404, "not_found");
   await revokeConnection(ctx, id, db);
   invalidateConnectionCaches(conn.keyId, ctx.tenantId, id);
+  await personAfterProductRevoked(ctx, id, { db });
   return ok({ ok: true });
 }
 

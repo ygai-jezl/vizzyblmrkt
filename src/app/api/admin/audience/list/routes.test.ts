@@ -46,13 +46,15 @@ describe("GET /api/admin/audience/list", () => {
     expect((await GET(req("?show=everyone"))).status).toBe(400);
     expect((await GET(req("?show=launch:a%2Fb"))).status).toBe(400);
     expect((await GET(req("?cursor=yesterday"))).status).toBe(400);
+    expect((await GET(req("?cursor=2026-10-01T00:00:00.000Z"))).status).toBe(400);
     expect(list.listPeople).not.toHaveBeenCalled();
   });
 
   it("reads the group, can-email, search and cursor for the signed-in brand", async () => {
-    const res = await GET(req("?show=stage:pcn_1:stuck&email=1&q=ada&cursor=2026-10-01T00:00:00.000Z"));
+    const cursor = "2026-10-01T00:00:00.000Z|ct_1";
+    const res = await GET(req(`?show=stage:pcn_1:stuck&email=1&q=ada&cursor=${encodeURIComponent(cursor)}`));
     expect(res.status).toBe(200);
-    expect(list.listPeople).toHaveBeenCalledWith(admin, { tag: "stage:pcn_1:stuck", canEmail: true, q: "ada", cursor: "2026-10-01T00:00:00.000Z" });
+    expect(list.listPeople).toHaveBeenCalledWith(admin, { tag: "stage:pcn_1:stuck", canEmail: true, q: "ada", cursor });
     await GET(req());
     expect(list.listPeople).toHaveBeenLastCalledWith(admin, { tag: "all", canEmail: false, q: "", cursor: null });
   });

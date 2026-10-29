@@ -25,6 +25,12 @@ export function isPeopleTag(tag: string): boolean {
   return TAG.test(tag);
 }
 
+/** Whether a string can be a page cursor (a sort key: `activeAt|id`). */
+export function isPeopleCursor(cursor: string): boolean {
+  const [at, id, ...rest] = cursor.split("|");
+  return rest.length === 0 && !!at && !Number.isNaN(Date.parse(at)) && !!id && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+}
+
 export interface PeopleQuery {
   /** The group to show (a memberOf tag); "all" for everyone. */
   tag: string;
@@ -32,7 +38,7 @@ export interface PeopleQuery {
   canEmail: boolean;
   /** Search everyone by name, address or domain; the group and can-email don't apply. */
   q: string;
-  /** From the previous page. */
+  /** From the previous page: the last row's sort key. */
   cursor: string | null;
 }
 
@@ -100,20 +106,12 @@ export async function listPeople(
   const repo = forTenant(ctx, db);
   const where = whereOf(q);
   const [rows, total, names] = await Promise.all([
-    repo.contacts.find({ where, orderBy: [["activeAt", "desc"]], limit: PEOPLE_PAGE, ...(q.cursor ? { startAfter: [q.cursor] } : {}) }),
+    repo.contacts.find({ where, orderBy: [["sortKey", "desc"]], limit: PEOPLE_PAGE + 1, ...(q.cursor ? { startAfter: [q.cursor] } : {}) }),
     q.cursor ? Promise.resolve(null) : repo.contacts.count(where),
     sourceNames(ctx, db),
   ]);
-  // A full page holds back its trailing people who share the last activity time, so the next
-  // page (which starts after the cursor) has all of them.
-  let page = rows;
-  let nextCursor: string | null = null;
-  if (rows.length === PEOPLE_PAGE) {
-    const last = rows[rows.length - 1]!.activeAt;
-    const keep = rows.filter((r) => r.activeAt !== last);
-    page = keep.length ? keep : rows;
-    nextCursor = page[page.length - 1]!.activeAt ?? null;
-  }
+  const page = rows.slice(0, PEOPLE_PAGE);
+  const nextCursor = rows.length > PEOPLE_PAGE ? (page[page.length - 1]!.sortKey ?? null) : null;
   return { people: page.map((c) => rowOf(c, names)), nextCursor, total };
 }
 

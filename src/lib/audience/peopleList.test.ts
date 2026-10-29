@@ -78,8 +78,8 @@ describe("listPeople", () => {
     const db = new FakeFirestore();
     seedWorld(db);
     for (let i = 0; i < PEOPLE_PAGE + 5; i += 1) {
-      // Pairs share a sign-up time.
-      seedSignup(db, `s_${i}`, `p${i}@customer.test`, { createdAt: ISO(T0 + Math.floor(i / 2) * 1000) });
+      // Everyone shares one sign-up time, as a batch sent in one go does.
+      seedSignup(db, `s_${i}`, `p${i}@customer.test`, { createdAt: ISO(T0) });
       await syncPerson(ctx, `p${i}@customer.test`, { db, nowMs: T0 });
     }
     const first = await listPeople(ctx, q(), db);
@@ -115,5 +115,8 @@ describe("the Signups tab with person records on", () => {
     const rows = await listContacts(ctx, { launchesOnly: true }, db);
     expect(rows.items.map((c) => c.email).sort()).toEqual(["ada@customer.test", "bea@customer.test"]);
     expect((await listContacts(ctx, {}, db)).items).toHaveLength(3);
+    // A search can't take the tag filter too: it leaves them out itself.
+    expect((await listContacts(ctx, { q: "cal", launchesOnly: true }, db)).items).toEqual([]);
+    expect((await listContacts(ctx, { q: "cal" }, db)).items).toHaveLength(1);
   });
 });

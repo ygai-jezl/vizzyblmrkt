@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { personHref } from "@/lib/audience/paths";
@@ -48,15 +48,22 @@ const pill = (active: boolean) =>
       : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
   }`;
 
-export function AudienceList() {
+export function AudienceList({ initialQuery = "", initialLaunch = null }: {
+  /** A search the page arrived with (?q=, from ⌘K). */
+  initialQuery?: string;
+  /** A launch the page arrived with (?launch=, from a launch's Signups page). */
+  initialLaunch?: { id: string } | null;
+}) {
   const router = useRouter();
   const [filters, setFilters] = useState<PeopleFilters | null>(null);
   /** The group shown: a memberOf tag. Within a product, `product` is that product's id. */
-  const [show, setShow] = useState("all");
+  const [show, setShow] = useState(initialLaunch ? `launch:${initialLaunch.id}` : "all");
   const [product, setProduct] = useState<string | null>(null);
   const [canEmail, setCanEmail] = useState(false);
-  const [q, setQ] = useState("");
-  const [search, setSearch] = useState("");
+  const [q, setQ] = useState(initialQuery);
+  const [search, setSearch] = useState(initialQuery.trim());
+  /** Bumped whenever the group or search changes, so a page still loading for the old one is dropped. */
+  const generation = useRef(0);
   const [rows, setRows] = useState<PeopleRow[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -75,7 +82,9 @@ export function AudienceList() {
 
   useEffect(() => {
     let alive = true;
+    generation.current += 1;
     setRows(null);
+    setLoadingMore(false);
     void api<{ people: PeopleRow[]; nextCursor: string | null; total: number | null }>(listUrl({ show, canEmail, search }, null)).then((r) => {
       if (!alive) return;
       if (!r.ok) return setError(true);
@@ -89,11 +98,14 @@ export function AudienceList() {
   }, [show, canEmail, search]);
 
   async function more() {
-    if (!cursor) return;
+    if (!cursor || loadingMore) return;
+    const asked = generation.current;
     setLoadingMore(true);
     const r = await api<{ people: PeopleRow[]; nextCursor: string | null }>(listUrl({ show, canEmail, search }, cursor));
+    if (asked !== generation.current) return;
     setLoadingMore(false);
-    if (!r.ok) return setError(true);
+    // A page that didn't load leaves the rows already shown; the button stays to try again.
+    if (!r.ok) return;
     setRows((cur) => [...(cur ?? []), ...r.data.people]);
     setCursor(r.data.nextCursor);
   }
@@ -221,8 +233,8 @@ export function AudienceList() {
                             {l.name}
                           </Chip>
                         ))}
-                        {p.products.map((x) => (
-                          <Chip key={x.id} tone="blue">
+                        {p.products.map((x, i) => (
+                          <Chip key={`${x.id}:${i}`} tone="blue">
                             {x.name}
                           </Chip>
                         ))}
@@ -230,8 +242,8 @@ export function AudienceList() {
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
-                        {p.products.map((x) => (
-                          <span key={x.id} className="flex gap-1">
+                        {p.products.map((x, i) => (
+                          <span key={`${x.id}:${i}`} className="flex gap-1">
                             {x.stage === "member" ? null : (
                               <Chip tone={STAGE_TONE[x.stage]} title={multiProduct ? x.name : undefined}>
                                 {STAGE_LABEL[x.stage]}

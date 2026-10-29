@@ -23,6 +23,8 @@ describe("exportWholePerson", () => {
       createdAt: new Date(T0).toISOString(),
     });
     db.seed("email_events", "ev1", { tenantId: TENANT_ID, signupId: "s_ada", type: "open" });
+    db.seed("invites", "inv_1", { tenantId: TENANT_ID, signupId: "s_ada", campaignId: "camp1" });
+    db.seed("waitlist_enrolments", "enr_1", { tenantId: TENANT_ID, signupId: "s_ada", status: "active" });
     const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
     await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
 
@@ -36,8 +38,14 @@ describe("exportWholePerson", () => {
     expect(signups).toHaveLength(1);
     expect(signups[0]!.verificationToken).toBeUndefined();
     expect(doc.launchEmails).toHaveLength(1);
+    expect(doc.invites).toHaveLength(1);
+    expect(doc.waitlistJourneys).toHaveLength(1);
     expect(doc.products).toEqual([expect.objectContaining({ format: PERSON_EXPORT_FORMAT })]);
     expect(JSON.stringify(doc.products)).toContain(ada.id);
+    // A product user with their address that the record doesn't link yet is theirs too.
+    const other = seedUser(db, "ada-2", { connectionId: "pcn_other", email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    const again = await exportWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), { db, nowMs: T0 });
+    expect(JSON.stringify((again as { document: Record<string, unknown> }).document.products)).toContain(other.id);
     expect((await exportWholePerson({ ...ctx, tenantId: "ten_other" }, personIdOf(TENANT_ID, "ada@customer.test"), { db })).found).toBe(false);
   });
 });

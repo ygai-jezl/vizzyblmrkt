@@ -5,6 +5,7 @@ import { onboardingSummary, type OnboardingSummary } from "@/lib/connect/onboard
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductUser } from "@/lib/types/productUser";
 import { lastActiveAt, personReach, personStage, type PersonReach, type PersonStage } from "./personStage";
+import { isOnALaunch } from "./personLinks";
 
 /**
  * Audience → Product users with the person view on: everyone using your connected
@@ -62,7 +63,7 @@ export async function loadAudiencePeople(
     Promise.all(chunks.map((chunk) => repos.contacts.find({ where: [["contactKey", "in", chunk]] }).catch(() => []))),
     Promise.all(chunks.map((chunk) => repos.emailSuppressions.find({ where: [["normalizedEmail", "in", chunk]], limit: 2000 }))),
   ]);
-  const waitlist = new Set(contacts.flat().filter((c) => c.status !== "deleted").map((c) => c.contactKey));
+  const waitlist = new Set(contacts.flat().filter(isOnALaunch).map((c) => c.contactKey));
   const optOuts = new Map<string, EmailSuppression[]>();
   for (const o of suppressions.flat()) optOuts.set(o.normalizedEmail, [...(optOuts.get(o.normalizedEmail) ?? []), o]);
   const byId = new Map(connections.map((c) => [c.id, c]));

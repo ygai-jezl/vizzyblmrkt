@@ -9,6 +9,7 @@ import { Banner, Button, Field, Section, inputClass } from "./ui";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { useDeveloperDocs } from "@/components/developers/DocsAvailability";
+import { clocksOf } from "@/lib/audience/personStage";
 
 const PHASE3 = isNavV2Phase3Enabled();
 const INVITES = isInvitesUiEnabled();
@@ -19,10 +20,13 @@ const BASES = ["consent", "soft_opt_in", "corporate_subscriber"] as const;
 export function ConnectionSettings({
   connection,
   canEdit,
+  stageClocks = false,
   onSaved,
 }: {
   connection: PublicConnection;
   canEdit: boolean;
+  /** Show the New, Stuck and Quiet clocks (AUDIENCE_ONE_VIEW_ENABLED). */
+  stageClocks?: boolean;
   onSaved: () => void;
 }) {
   const router = useRouter();
@@ -41,6 +45,8 @@ export function ConnectionSettings({
   const [missingDomain, setMissingDomain] = useState<string | null>(null);
   const [verifyCorp, setVerifyCorp] = useState(connection.consentPolicy.verifyCorporateDomain);
   const [bases, setBases] = useState<string[]>(connection.consentPolicy.marketingBases);
+  const [clocks, setClocks] = useState(clocksOf(connection.stageClocks));
+  const showClocks = stageClocks && !sandbox;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [newSecret, setNewSecret] = useState<string | null>(null);
@@ -94,6 +100,9 @@ export function ConnectionSettings({
   }
 
   function save(extraDomain?: string) {
+    if (showClocks && clocks.newForDays >= clocks.stuckAfterDays) {
+      return setMsg({ tone: "err", text: "New has to end before Stuck starts: make New fewer days than Stuck." });
+    }
     const list = domains.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean);
     if (extraDomain && !list.includes(extraDomain)) {
       list.push(extraDomain);
@@ -105,6 +114,7 @@ export function ConnectionSettings({
       linkDomains: list,
       ...(INVITES && !sandbox ? { signupUrl: signupUrl.trim() || null } : {}),
       consentPolicy: { verifyCorporateDomain: verifyCorp, marketingBases: bases },
+      ...(showClocks ? { stageClocks: clocks } : {}),
     };
     if (!sandbox) {
       body.contextEndpoint = ctxUrl.trim() ? { url: ctxUrl.trim(), enabled: ctxOn, timeoutMs } : null;
@@ -241,6 +251,35 @@ export function ConnectionSettings({
           Treat corporate_subscriber on free-mail addresses (Gmail…) as no basis
         </label>
       </Section>
+
+      {showClocks ? (
+        <Section
+          title="How we read stages"
+          description="Audience puts each of this product's users in a stage with these clocks. Change them to fit how quickly people move through your product."
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(
+              [
+                ["newForDays", "New for", "New for the first {n} days after they sign up, while no onboarding step is done."],
+                ["stuckAfterDays", "Stuck after", "Stuck after {n} days on the same onboarding step."],
+                ["quietAfterDays", "Quiet after", "Quiet after {n} days without using your product (it needs the last_active_at date)."],
+              ] as const
+            ).map(([key, label, hint]) => (
+              <Field key={key} label={`${label} (days)`} hint={hint.replace("{n}", String(clocks[key]))}>
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  className={`${inputClass} w-24`}
+                  disabled={disabled}
+                  value={clocks[key]}
+                  onChange={(e) => setClocks((c) => ({ ...c, [key]: Math.min(90, Math.max(1, Math.round(Number(e.target.value)) || 1)) }))}
+                />
+              </Field>
+            ))}
+          </div>
+        </Section>
+      ) : null}
 
       {canEdit && connection.status !== "revoked" ? (
         <div className="flex justify-end">

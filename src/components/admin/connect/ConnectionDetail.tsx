@@ -34,6 +34,8 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
   const [dateFacts, setDateFacts] = useState(false);
   /** Each user opens their own page (AUDIENCE_PERSON_VIEW). */
   const [personView, setPersonView] = useState(false);
+  /** Stages are read with this product's own clocks (AUDIENCE_ONE_VIEW_ENABLED). */
+  const [stageClocks, setStageClocks] = useState(false);
   /** The Catalog tab has unsaved edits. */
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     const r = await api<{
       connection: PublicConnection;
       diagnostics: ConnectionDiagnostics | null;
-      features?: { entities?: boolean; catalogHistory?: boolean; dateFacts?: boolean; personView?: boolean };
+      features?: { entities?: boolean; catalogHistory?: boolean; dateFacts?: boolean; personView?: boolean; stageClocks?: boolean };
     }>(
       `/api/admin/connections/${connectionId}`,
     );
@@ -55,6 +57,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
     setCatalogHistory(Boolean(r.data.features?.catalogHistory));
     setDateFacts(Boolean(r.data.features?.dateFacts));
     setPersonView(Boolean(r.data.features?.personView));
+    setStageClocks(Boolean(r.data.features?.stageClocks));
     // ?tab=learn (etc.) opens a tab directly — e.g. from the setup wizard.
     const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
     const valid: Tab[] = ["setup", "sandbox", "events", "users", "test", "learn", "catalog", "guide", "settings"];
@@ -158,7 +161,7 @@ export function ConnectionDetail({ connectionId, canEdit }: { connectionId: stri
         />
       ) : null}
       {tab === "guide" ? <IntegrationGuide connection={connection} /> : null}
-      {tab === "settings" ? <ConnectionSettings connection={connection} canEdit={canEdit} onSaved={() => void load()} /> : null}
+      {tab === "settings" ? <ConnectionSettings connection={connection} canEdit={canEdit} stageClocks={stageClocks} onSaved={() => void load()} /> : null}
     </div>
   );
 }

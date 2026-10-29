@@ -77,7 +77,7 @@ export async function loadAudiencePeople(
         email: u.email ?? null,
         product: `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}`,
         onboarding: onboardingSummary(u, { onboardingSteps: c.catalog?.onboardingSteps ?? [], entityKinds: c.catalog?.entityKinds ?? [] }),
-        stage: personStage(u, c.catalog, nowMs),
+        stage: personStage(u, c.catalog, nowMs, c.stageClocks),
         reach: personReach(u, c.consentPolicy, (u.emailNormalized && optOuts.get(u.emailNormalized)) || []),
         signedUpAt: u.signedUpAt ?? u.firstSeenAt,
         lastSyncAt: u.lastSeenAt,

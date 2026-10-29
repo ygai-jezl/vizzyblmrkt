@@ -54,7 +54,7 @@ export function isLiveSignupLink(link: Pick<ContactCampaignLink, "status">): boo
   return link.status !== "deleted";
 }
 
-type LinkConnection = Pick<ProductConnection, "id" | "catalog" | "consentPolicy">;
+type LinkConnection = Pick<ProductConnection, "id" | "catalog" | "consentPolicy" | "stageClocks">;
 
 /** One product user as the person record holds them. */
 export function linkFromProductUser(
@@ -63,7 +63,7 @@ export function linkFromProductUser(
   optOuts: PersonOptOuts | undefined,
   nowMs: number,
 ): PersonProductLink {
-  const stage = personStage(user, connection.catalog, nowMs);
+  const stage = personStage(user, connection.catalog, nowMs, connection.stageClocks);
   const reach = personReach(user, connection.consentPolicy, optOutRows(optOuts));
   return {
     connectionId: connection.id,

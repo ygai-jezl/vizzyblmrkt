@@ -3,7 +3,7 @@ import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components
 import { V2_LIMITS } from "@/lib/connect/v2/contract";
 import { isDateFactsEnabled } from "@/lib/connect/v2/flags";
 import { isLifecycleDateStartEnabled } from "@/lib/lifecycle/flags";
-import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { ACTIVITY_FACT, QUIET_AFTER_DAYS } from "@/lib/audience/personStage";
 import { docsOrigin, SDK_DEFAULT_ORIGIN } from "@/lib/developers/flags";
@@ -297,7 +297,7 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
           {personView ? (
             <P>
               Name the date someone last used your product <C>{ACTIVITY_FACT}</C>, a date kept per person. Audience then
-              shows it as their <strong>Last active</strong> and marks them quiet once it is {QUIET_AFTER_DAYS} days old.
+              shows it as their <strong>Last active</strong> and marks them quiet once it is {QUIET_AFTER_DAYS} days old{isOneViewEnabled() ? " (each product can set its own number of days)" : ""}.
               Without it we only know when you last sent us their state, which says nothing about whether they came back.
             </P>
           ) : null}

@@ -221,7 +221,7 @@ export async function loadPersonRecord(ctx: TenantContext, personId: string, dep
       signedUpAt: user.signedUpAt ?? user.firstSeenAt,
       lastSyncAt: user.lastSeenAt,
       lastActiveAt: lastActiveAt(user, catalog),
-      stage: personStage(user, catalog, nowMs),
+      stage: personStage(user, catalog, nowMs, connection.stageClocks),
       reach: personReach(user, connection.consentPolicy, optOuts),
       categoryLabels,
       steps: progress.checklist.map((s) => ({ id: s.id, label: s.label, done: s.done, doneAt: s.done ? doneAt(s.id) : null })),

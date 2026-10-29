@@ -2,6 +2,7 @@ import type {
   ConnectionCatalog,
   ConsentPolicy,
   SandboxUser,
+  StageClocks,
 } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { ConnectionDiagnostics, ProductEvent } from "@/lib/types/productEvent";
@@ -27,6 +28,8 @@ export interface PublicConnection {
   /** The catalog's version: a save names the one it was edited from. */
   catalogRev: number;
   consentPolicy: ConsentPolicy;
+  /** The New, Stuck and Quiet clocks; absent = the defaults. */
+  stageClocks?: StageClocks | null;
   defaults: { timezone: string; locale: string };
   health: {
     lastEventAt?: string | null;
@@ -91,6 +94,7 @@ const MESSAGES: Record<string, string> = {
   catalog_changed: "The catalog was changed elsewhere since you opened it.",
   catalog_page_outdated: "This page is out of date.",
   date_facts_unavailable: "Date facts aren't switched on in this environment yet.",
+  stage_clocks_unavailable: "Stage clocks aren't switched on in this environment yet.",
   not_a_date_start: "This journey doesn't start when a date passes — publish it with that start first.",
   no_last_active_fact: "Add a date fact with the id last_active_at to this sandbox's catalog first (Catalog tab).",
   version_not_found: "That version is no longer kept.",

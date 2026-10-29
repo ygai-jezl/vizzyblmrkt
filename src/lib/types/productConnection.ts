@@ -159,6 +159,22 @@ export const ConsentPolicySchema = z.object({
 });
 export type ConsentPolicy = z.infer<typeof ConsentPolicySchema>;
 
+/**
+ * How the People list reads this product's stages (AUDIENCE_ONE_VIEW_ENABLED), in whole
+ * days. Absent = 2, 7 and 14, the clocks every product used before they were a setting.
+ */
+export const StageClocksSchema = z
+  .object({
+    /** Signed up this recently, with no onboarding step done yet: new. */
+    newForDays: z.number().int().min(1).max(90),
+    /** This long on one onboarding step: stuck. */
+    stuckAfterDays: z.number().int().min(1).max(90),
+    /** Not active for this long: quiet. */
+    quietAfterDays: z.number().int().min(1).max(90),
+  })
+  .refine((c) => c.newForDays < c.stuckAfterDays, { message: "new must be shorter than stuck", path: ["newForDays"] });
+export type StageClocks = z.infer<typeof StageClocksSchema>;
+
 export const ContextEndpointSchema = z.object({
   url: z.string().max(2000),
   /** Per pull. The default is 2 s: a cold start or a slow lookup falls back to stored state rather than holding up sends. */
@@ -258,6 +274,7 @@ export const ProductConnectionSchema = z.object({
    */
   catalogRev: z.number().int().nonnegative().optional(),
   consentPolicy: ConsentPolicySchema,
+  stageClocks: StageClocksSchema.nullable().optional(),
   defaults: z.object({
     timezone: z.string().max(64).default("Europe/London"),
     locale: z.string().max(16).default("en"),

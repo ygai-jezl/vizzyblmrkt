@@ -1,7 +1,8 @@
 /**
  * backfill-person-links.ts: build the person record for everyone a brand already has:
- * each contact (from launch sign-ups) and each user of a connected product, linked by
- * address (AUDIENCE_PERSON_LINKS_ENABLED). New writes keep the records up to date once
+ * each contact, each launch sign-up (including any that never got a contact, from before
+ * contacts existed or a write that failed) and each user of a connected product, linked
+ * by address (AUDIENCE_PERSON_LINKS_ENABLED). New writes keep the records up to date once
  * the switch is on; this covers everyone from before. Run it twice:
  *
  *   1. Before turning the switch on, with --contacts-only: it fills in the contacts your
@@ -19,8 +20,8 @@
  * Optional:  --tenant <tenantId>   --contacts-only
  *
  * Auth = Application Default Credentials (`gcloud auth application-default login`).
- * Pages contacts by (tenantId, createdAt DESC) and each product's users by
- * (tenantId, connectionId, lastSeenAt DESC), both existing indexes.
+ * Pages contacts and sign-ups by (tenantId, createdAt DESC) and each product's users by
+ * (tenantId, connectionId, lastSeenAt DESC), all existing indexes.
  */
 
 // Never touch a local emulator (a dev shell may export these).
@@ -31,7 +32,8 @@ import { forTenant, listAllTenants, type WhereClause } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Contact } from "@/lib/types/contact";
 import type { ProductUser } from "@/lib/types/productUser";
-import { loadPeopleConnections, personKeyOf, syncPerson, type SyncOutcome } from "@/lib/audience/personSync";
+import type { Signup } from "@/lib/types/signup";
+import { loadPeopleConnections, personKeyOf, signupPersonKey, syncPerson, type SyncOutcome } from "@/lib/audience/personSync";
 
 const PAGE = 300;
 const APPLY = process.argv.includes("--apply");
@@ -104,6 +106,15 @@ async function main() {
     };
     for await (const page of pages<Contact>((o) => repo.contacts.find(o), [], "createdAt", `${t.id} contacts`)) {
       for (const c of page) await sync(c.contactKey);
+    }
+    // Sign-ups with no contact yet: a sync makes theirs, as the sign-up route would have.
+    if (!CONTACTS_ONLY) {
+      for await (const page of pages<Signup>((o) => repo.signups.find(o), [], "createdAt", `${t.id} sign-ups`)) {
+        for (const s of page) {
+          const key = signupPersonKey(s);
+          if (key) await sync(key);
+        }
+      }
     }
     for (const c of CONTACTS_ONLY ? [] : connections.values()) {
       for await (const page of pages<ProductUser>((o) => repo.productUsers.find(o), [["connectionId", "==", c.id]], "lastSeenAt", `${t.id} ${c.id}`)) {

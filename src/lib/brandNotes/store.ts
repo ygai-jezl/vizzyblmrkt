@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, setBrandMapVectorStatus, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import {
@@ -11,8 +11,12 @@ import {
   type BrandNoteSource,
   type BrandNoteStatus,
   type NoteArticle,
+  NotesRestSchema,
+  type NoteUse,
+  type NotesRest,
 } from "@/lib/types/brandNote";
 import { suggestKind } from "./prompts";
+import { noteRest, usesOf } from "./rest";
 
 /**
  * What we've seen (BRAND_NOTES_ENABLED): the brand's own first-hand notes. Each note is one
@@ -132,16 +136,96 @@ export async function removeNote(ctx: TenantContext, id: string, deps: NotesDeps
   return { ok: true, value: null };
 }
 
-/** Record that an article used these notes (`<workspaceId>/<planId>`), each once, capped. */
-export async function markNotesUsed(ctx: TenantContext, ids: string[], article: string, deps: NotesDeps = {}): Promise<void> {
+/** The brand's rest setting (BRAND_NOTES_REST_ENABLED): the defaults when it has none, or it can't be read. */
+export async function readNotesRest(ctx: TenantContext, deps: NotesDeps = {}): Promise<NotesRest> {
+  const tenant = await getTenantById(ctx.tenantId, deps.db).catch(() => null);
+  return NotesRestSchema.parse(tenant?.brandNotesRest ?? {});
+}
+
+/** A note's uses with one for an article put in its place: one per article, newest last, capped. */
+function withUse(n: Pick<BrandNote, "uses">, use: NoteUse | null, ref: string): NoteUse[] {
+  return [...usesOf(n).filter((u) => u.ref !== ref), ...(use ? [use] : [])].slice(-BRAND_NOTE_LIMITS.MAX_USES);
+}
+
+/**
+ * Record that an article used these notes (`<workspaceId>/<planId>`), each once, capped. With
+ * `dated` (BRAND_NOTES_REST_ENABLED) the use is dated too: the time it was first written with the
+ * note, which a later check of the same article never moves; a draft's hold becomes that use.
+ */
+export async function markNotesUsed(
+  ctx: TenantContext,
+  ids: string[],
+  article: string,
+  deps: NotesDeps = {},
+  dated?: { title: string },
+): Promise<void> {
   const notes = notesOf(ctx, deps);
+  const at = nowIso(deps);
   await Promise.all(
     [...new Set(ids)].map((id) =>
       notes
         .claim(id, (n) => {
           const used = Array.isArray(n.usedBy) ? n.usedBy : [];
-          if (used.includes(article)) return null;
-          return { usedBy: [...used, article].slice(-BRAND_NOTE_LIMITS.MAX_USED_BY) };
+          const mine = dated ? usesOf(n).find((u) => u.ref === article) : undefined;
+          if (used.includes(article) && (!dated || mine?.written)) return null;
+          return {
+            ...(used.includes(article) ? {} : { usedBy: [...used, article].slice(-BRAND_NOTE_LIMITS.MAX_USED_BY) }),
+            ...(dated ? { uses: withUse(n, { ref: article, title: oneLine(dated.title).slice(0, BRAND_NOTE_LIMITS.MAX_ARTICLE_TITLE), at, written: true }, article) } : {}),
+          };
+        })
+        .catch(() => null),
+    ),
+  );
+}
+
+/**
+ * A draft takes these notes (BRAND_NOTES_REST_ENABLED): each kept note gets a hold for the
+ * article, dated now, unless it rests for that article (written recently, used up, or another
+ * draft took it first) and a person didn't choose it (`force`). One the article was already
+ * written with keeps its written use. Each claim reads the note fresh, so of two drafts taking the
+ * same note at once only one holds it. The ids the article holds, in the order asked.
+ */
+export async function holdNotes(
+  ctx: TenantContext,
+  ids: string[],
+  article: NoteArticle,
+  opts: { rest?: Partial<NotesRest> | null; force?: boolean } = {},
+  deps: NotesDeps = {},
+): Promise<string[]> {
+  const notes = notesOf(ctx, deps);
+  const now = (deps.now ?? (() => new Date()))();
+  const { ref, title } = asArticle(article);
+  const held = await Promise.all(
+    [...new Set(ids)].map(async (id) => {
+      let ok = false;
+      await notes
+        .claim(id, (n) => {
+          ok = false;
+          if (n.status !== "kept") return null;
+          if (usesOf(n).find((u) => u.ref === ref)?.written) {
+            ok = true;
+            return null;
+          }
+          if (!opts.force && noteRest(n, opts.rest, now, ref).reason) return null;
+          ok = true;
+          return { uses: withUse(n, { ref, title, at: now.toISOString(), written: false }, ref) };
+        })
+        .catch(() => null);
+      return ok ? id : null;
+    }),
+  );
+  return held.filter((id): id is string => id !== null);
+}
+
+/** An article's draft lets these notes go (BRAND_NOTES_REST_ENABLED): only its holds, never a use it was written with. */
+export async function releaseHolds(ctx: TenantContext, ids: string[], ref: string, deps: NotesDeps = {}): Promise<void> {
+  const notes = notesOf(ctx, deps);
+  await Promise.all(
+    [...new Set(ids)].map((id) =>
+      notes
+        .claim(id, (n) => {
+          const mine = usesOf(n).find((u) => u.ref === ref);
+          return mine && !mine.written ? { uses: withUse(n, null, ref) } : null;
         })
         .catch(() => null),
     ),
@@ -180,14 +264,23 @@ const asArticle = (a: NoteArticle): NoteArticle => ({
   title: oneLine(a.title).slice(0, BRAND_NOTE_LIMITS.MAX_ARTICLE_TITLE),
 });
 
-/** Embed open questions' questions in one call (best effort), each searched by whether it is answered. */
-async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: NotesDeps): Promise<void> {
+/** How a question is embedded, so a question about to be asked compares like for like with one kept. */
+export const QUESTION_TITLE = "A question for the team";
+
+/**
+ * Embed open questions' questions in one call (best effort), each searched by whether it is
+ * answered. Vectors already made for the same questions (`given`, by question) are used as they are.
+ */
+async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: NotesDeps, given?: Map<string, number[]>): Promise<void> {
   if (!notes.length) return;
   try {
-    const vectors = await (deps.embed ?? embedDocuments)(
-      notes.map((n) => ({ content: n.question ?? "", title: "A question for the team" })),
-      ctx.region,
-    );
+    const all = given && notes.every((n) => given.has(n.question ?? ""));
+    const vectors = all
+      ? notes.map((n) => given.get(n.question ?? "")!)
+      : await (deps.embed ?? embedDocuments)(
+          notes.map((n) => ({ content: n.question ?? "", title: QUESTION_TITLE })),
+          ctx.region,
+        );
     await Promise.all(
       notes.map((n, i) => {
         const v = vectors[i];
@@ -205,11 +298,13 @@ async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: Note
  */
 export async function askQuestions(
   ctx: TenantContext,
-  args: { questions: string[]; article: NoteArticle },
+  args: { questions: string[]; article: NoteArticle; /** Their vectors (QUESTION_TITLE), in the same order, when already made. */ vectors?: number[][] | null },
   deps: NotesDeps = {},
 ): Promise<BrandNote[]> {
   const notes = notesOf(ctx, deps);
-  const questions = [...new Set(args.questions.map((q) => oneLine(q).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION)).filter(Boolean))];
+  const clean = (q: string) => oneLine(q).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION);
+  const given = args.vectors?.length === args.questions.length ? new Map(args.questions.map((q, i) => [clean(q), args.vectors![i]!])) : undefined;
+  const questions = [...new Set(args.questions.map(clean).filter(Boolean))];
   if (!questions.length) return [];
   if ((await notes.count()) + questions.length > BRAND_NOTE_LIMITS.MAX_NOTES - QUESTION_HEADROOM) return [];
   const at = nowIso(deps);
@@ -234,7 +329,7 @@ export async function askQuestions(
       }),
     ),
   );
-  await embedQuestions(ctx, made, deps);
+  await embedQuestions(ctx, made, deps, given);
   return made;
 }
 
@@ -294,21 +389,43 @@ export async function answerQuestion(
   return { ok: true, value: updated };
 }
 
-/** Open questions close in meaning to a query vector, most similar first, leaving out some ids. */
+/**
+ * Questions close in meaning to a query vector, most similar first, leaving out some ids: open
+ * ones by default, or answered ones too (`statuses`).
+ */
 export async function nearestOpenQuestions(
   ctx: TenantContext,
   vector: number[],
-  opts: { limit: number; minSim?: number; exclude?: Iterable<string> },
+  opts: { limit: number; minSim?: number; exclude?: Iterable<string>; statuses?: Array<"asked" | "answered"> },
   deps: NotesDeps = {},
 ): Promise<Array<{ note: BrandNote; sim: number }>> {
   const exclude = new Set(opts.exclude ?? []);
-  const near = await nearestBrandMapRecords(
-    ctx,
-    { kind: "question", vector, limit: opts.limit + exclude.size, statuses: ["asked"], minSim: opts.minSim },
-    deps.vectors,
-  ).catch(() => []);
+  const statuses = opts.statuses ?? ["asked"];
+  const near = await nearestBrandMapRecords(ctx, { kind: "question", vector, limit: opts.limit + exclude.size, statuses, minSim: opts.minSim }, deps.vectors).catch(
+    () => [],
+  );
   const found = await Promise.all(near.filter((n) => !exclude.has(n.ref)).map(async (n) => ({ note: await getNote(ctx, n.ref, deps), sim: n.sim })));
-  return found.filter((n): n is { note: BrandNote; sim: number } => n.note?.status === "asked").slice(0, opts.limit);
+  const wanted = (n: BrandNote | null) =>
+    n?.source === "question" && ((n.status === "asked" && statuses.includes("asked")) || (n.status === "kept" && statuses.includes("answered")));
+  return found.filter((n): n is { note: BrandNote; sim: number } => wanted(n.note)).slice(0, opts.limit);
+}
+
+/**
+ * Whether What we've seen already holds something this close in meaning to a question about to
+ * be asked (its vector made with QUESTION_TITLE): a question asked or answered, at `questionSim`,
+ * or a kept note, at `noteSim`. False when the search can't run, so a question is never lost to it.
+ */
+export async function alreadyOnFile(
+  ctx: TenantContext,
+  vector: number[],
+  opts: { questionSim: number; noteSim: number },
+  deps: NotesDeps = {},
+): Promise<boolean> {
+  const [questions, notes] = await Promise.all([
+    nearestBrandMapRecords(ctx, { kind: "question", vector, limit: 1, statuses: ["asked", "answered"], minSim: opts.questionSim }, deps.vectors).catch(() => []),
+    nearestBrandMapRecords(ctx, { kind: "note", vector, limit: 1, statuses: ["kept"], minSim: opts.noteSim }, deps.vectors).catch(() => []),
+  ]);
+  return questions.length > 0 || notes.length > 0;
 }
 
 /** Notes by id, in the order asked; one that is gone (or another brand's) is left out. */

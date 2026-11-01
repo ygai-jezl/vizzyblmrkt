@@ -306,8 +306,26 @@ export const BlogSeenNoteSchema = z.object({
   why: z.string().max(160).default(""),
   /** The note names a customer or person who agreed to be named. */
   canName: z.boolean().default(false),
+  /** How many other articles were written with it, and when the last one was (BRAND_NOTES_REST_ENABLED). */
+  usedIn: z.number().int().min(0).max(50).optional(),
+  lastUsedAt: z.string().max(40).nullable().optional(),
 });
 export type BlogSeenNote = z.infer<typeof BlogSeenNoteSchema>;
+
+/**
+ * A note that fits the article but rests (BRAND_NOTES_REST_ENABLED): used in enough articles
+ * already, written into one recently, or held by another article's draft. Shown so a person can
+ * still add it; the match never does.
+ */
+export const BlogSeenRestingSchema = BlogSeenNoteSchema.extend({
+  reason: z.enum(["used_up", "recent", "held"]),
+  /** When it rests until, for "recent" and "held". */
+  until: z.string().max(40).nullable().default(null),
+  /** The article behind the reason (the last written with it, or the draft holding it), as it was called then, and when. */
+  byTitle: z.string().max(200).nullable().default(null),
+  byAt: z.string().max(40).nullable().default(null),
+});
+export type BlogSeenResting = z.infer<typeof BlogSeenRestingSchema>;
 
 /**
  * What the brand has seen, for one article (BRAND_NOTES_ENABLED): the notes that match its
@@ -334,6 +352,8 @@ export const BlogSeenSchema = z.object({
   notes: z.array(BlogSeenNoteSchema).max(6).default([]),
   /** Weaker matches: shown on request, never used unless a person adds one. */
   near: z.array(BlogSeenNoteSchema).max(5).default([]),
+  /** Notes that fit but rest (BRAND_NOTES_REST_ENABLED): shown on request, used only if a person adds one. */
+  resting: z.array(BlogSeenRestingSchema).max(5).optional(),
   /** Notes a person took out of this article: never put back by a later match. */
   removed: z.array(z.string().max(64)).max(50).default([]),
   /** What a person wrote for this article. */

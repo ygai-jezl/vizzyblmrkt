@@ -4,8 +4,8 @@ import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { isBrandNotesChatEnabled, isBrandNotesEnabled, isBrandNotesQuestionsEnabled } from "@/lib/brandNotes/flags";
-import { listNotes } from "@/lib/brandNotes/store";
+import { isBrandNotesChatEnabled, isBrandNotesEnabled, isBrandNotesQuestionsEnabled, isBrandNotesRestEnabled } from "@/lib/brandNotes/flags";
+import { listNotes, readNotesRest } from "@/lib/brandNotes/store";
 import { subjectsForNotes } from "@/lib/brandNotes/subjects";
 import type { BrandNote } from "@/lib/types/brandNote";
 import { BrandNotesPage } from "@/components/admin/brand-kit/BrandNotesPage";
@@ -20,12 +20,13 @@ export const dynamic = "force-dynamic";
 export default async function BrandNotesRoute() {
   const ctx = await requireAdminContext();
   if (!isBrandNotesEnabled()) notFound();
-  const [notes, subjects] = await Promise.all([
+  const [notes, subjects, rest] = await Promise.all([
     listNotes(ctx).catch((err): BrandNote[] => {
       console.error("[brand-notes] read failed", err);
       return [];
     }),
     subjectsForNotes(ctx).catch(() => null),
+    isBrandNotesRestEnabled() ? readNotesRest(ctx) : null,
   ]);
 
   return (
@@ -49,6 +50,7 @@ export default async function BrandNotesRoute() {
         canEdit={ctx.role === "admin"}
         chatOn={isBrandNotesChatEnabled()}
         questionsOn={isBrandNotesQuestionsEnabled()}
+        rest={rest ? { settings: rest, now: new Date().toISOString() } : null}
       />
     </div>
   );

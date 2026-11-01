@@ -12,6 +12,7 @@ import { BlogBriefSchema, ContentGraphSchema, ContentPlanStatus } from "@/lib/ty
 import { isBrandMapPagesEnabled } from "@/lib/brandMap/flags";
 import { articleAddressProblem } from "@/lib/content/blog/address";
 import { removePlanPageSoftly, syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
+import { syncSeenHolds } from "@/lib/content/blog/seen";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +83,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
   await updateContentPlan(ctx, workspaceId, planId, { ...rest, ...(address !== undefined ? { hubUrl: address } : {}) });
   const updated = await getContentPlan(ctx, workspaceId, planId);
   await syncPlanPageSoftly(ctx, { workspaceId, planId, plan: updated });
+  // Notes a person added to or took out of the article are held for it, or let go.
+  if (rest.blog !== undefined) {
+    await syncSeenHolds(ctx, { article: { ref: `${workspaceId}/${planId}`, title: updated?.name ?? plan.name }, before: plan.blog, after: updated?.blog });
+  }
   return NextResponse.json({ plan: updated });
 }
 
@@ -99,5 +104,6 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
   await removePlanPageSoftly(ctx, planId);
+  await syncSeenHolds(ctx, { article: { ref: `${workspaceId}/${planId}`, title: plan.name }, before: plan.blog, after: null });
   return NextResponse.json({ ok: true });
 }

@@ -14,7 +14,7 @@ import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
 import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blog/flags";
-import { isSeenOn, isSeenQuestionsOn } from "@/lib/content/blog/hubActions";
+import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
 import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
@@ -110,6 +110,7 @@ export default async function ContentPlanPage({
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
         seenQuestionsOn={isSeenQuestionsOn()}
+        seenRestOn={isSeenRestOn()}
       />
     </div>
   );

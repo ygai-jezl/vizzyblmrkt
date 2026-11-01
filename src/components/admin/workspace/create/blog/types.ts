@@ -57,6 +57,9 @@ export interface BlogHubControls {
    *  (BRAND_NOTES_QUESTIONS_ENABLED). Left out while that is off, and then the questions share
    *  one box, saved with the plan. */
   answers?: SeenAnswers;
+  /** Notes rest after use, and every article asks its team new questions
+   *  (BRAND_NOTES_REST_ENABLED, with answers). Left out while that is off. */
+  seenRest?: boolean;
   /** Articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED): the author's role and bio can be set. */
   editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */

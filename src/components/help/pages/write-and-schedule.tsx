@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBrandNotesQuestionsUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 import { isEditModeEnabled } from "@/lib/content/editor/flags";
@@ -104,8 +104,16 @@ export default function WriteAndScheduleHelp() {
           article&apos;s question; remove any that don&apos;t belong.{" "}
           {isBrandNotesQuestionsUiEnabled() ? (
             <>
-              When nothing fits, it asks your team up to three questions. Press <strong>+</strong> beside one to answer it in its
-              own box. The answer saves as you type: once it says <strong>Saved to What we&apos;ve seen</strong>, it is one of
+              {isBrandNotesRestUiEnabled() ? (
+                <>
+                  A note another article used lately rests: it is listed apart with the reason, and <strong>Use anyway</strong>{" "}
+                  adds it. Every article also asks your team three new questions, so each one can say something your other
+                  articles don&apos;t.
+                </>
+              ) : (
+                <>When nothing fits, it asks your team up to three questions.</>
+              )}{" "}
+              Press <strong>+</strong> beside one to answer it in its own box. The answer saves as you type: once it says <strong>Saved to What we&apos;ve seen</strong>, it is one of
               your team&apos;s notes. Every question is kept on What we&apos;ve seen too, answered or not, linked to the article,
               so another article that needs the same answer can ask it again.
             </>

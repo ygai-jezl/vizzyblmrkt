@@ -66,6 +66,35 @@ export function aiTellsIn(text: string): string[] {
   return AI_TELLS.filter((_, i) => TELL_RES[i]!.test(t));
 }
 
+/** A few characters either side of a match, on one line. */
+function around(text: string, at: number, len: number): string {
+  return text
+    .slice(Math.max(0, at - 12), at + len + 12)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Dashes used as punctuation (see NO_DASHES): an em or en dash, or a spaced hyphen, each with a
+ * few characters around it. A hyphen inside a word ("follow-up"), a range of numbers
+ * ("2024-2026", or any dash between two numbers) and a list item ("- item") are fine.
+ */
+export function dashesIn(text: string): string[] {
+  const out: string[] = [];
+  const digitsAround = (a: number, b: number) => /\d/.test(text[a] ?? "") && /\d/.test(text[b] ?? "");
+  for (const m of text.matchAll(/ ?[—–] ?/g)) {
+    const at = m.index ?? 0;
+    if (digitsAround(at - 1, at + m[0].length)) continue;
+    out.push(around(text, at, m[0].length));
+  }
+  for (const m of text.matchAll(/(?<=\S) - (?=\S)/g)) {
+    const at = m.index ?? 0;
+    if (digitsAround(at - 1, at + 3)) continue;
+    out.push(around(text, at, 3));
+  }
+  return out;
+}
+
 /**
  * Operational writing rules for MODULAR content — so generated blocks recombine
  * across channels without manual editing. Injected into the templatize/transform

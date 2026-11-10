@@ -13,3 +13,20 @@ export function isEditModeEnabled(): boolean {
 export function isEditModeEmailsEnabled(): boolean {
   return process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED === "true";
 }
+
+/**
+ * Client and server flag — Vizzy inside Edit mode: select text and ask for a change, or ask
+ * for edits across the piece. Changes are suggestions in the editor until Save. The server
+ * route reads it at runtime too.
+ */
+export function isEditModeVizzyEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED === "true";
+}
+
+/**
+ * Server flag — Vizzy learns each person's editing preferences (Agent Platform Memory Bank).
+ * Needs the Vizzy switch, and VIZZY_MEMORY_BANK_ID before it does anything.
+ */
+export function isEditModeVizzyLearningEnabled(): boolean {
+  return isEditModeVizzyEnabled() && process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED === "true";
+}

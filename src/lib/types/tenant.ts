@@ -722,6 +722,9 @@ export const TenantSchema = z.object({
   imageStyleSuggestion: ImageStyleSuggestionSchema.optional().catch(undefined),
   /** How often its notes go into articles by themselves (BRAND_NOTES_REST_ENABLED). Damaged reads as none: the defaults. */
   brandNotesRest: NotesRestSchema.optional().catch(undefined),
+  /** Features only some brands may use (GRANTED_ONLY_FEATURES) that this brand has; see
+   *  src/lib/plans/brandAccess.ts. Set by scripts/grant-feature.mjs until billing exists. */
+  grantedFeatures: z.array(z.string().max(64)).max(50).optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

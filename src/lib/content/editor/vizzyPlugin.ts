@@ -1,3 +1,4 @@
+import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { closeHistory, isHistoryTransaction } from "@tiptap/pm/history";
@@ -32,6 +33,8 @@ export interface VizzySuggestion {
   before: Slice;
   /** The words that were there, for "Show before". */
   beforePlain: string;
+  /** The words Vizzy wrote, as first written. */
+  afterPlain: string;
   beforeText: string;
   afterText: string;
   warnings: string[];
@@ -174,6 +177,7 @@ export function applyEditsTr(state: EditorState, edits: PlannedEdit[], info: App
     const since = tr.mapping.slice(n);
     const from = since.map(a, -1);
     const to = since.map(b, 1);
+    const afterPlain = tr.doc.textBetween(from, to, "\n", LEAF);
     added.push({
       id: makeId(),
       group: info.group,
@@ -184,6 +188,7 @@ export function applyEditsTr(state: EditorState, edits: PlannedEdit[], info: App
       to: e.content.size === 0 ? from : to,
       before,
       beforePlain,
+      afterPlain,
       beforeText: e.beforeText,
       afterText: e.afterText,
       warnings: e.warnings,
@@ -328,3 +333,11 @@ export function vizzyPlugin(): Plugin<VizzyState> {
     props: { decorations },
   });
 }
+
+/** The plugin as an editor extension, for Edit mode. */
+export const VizzySuggestions = Extension.create({
+  name: "vizzySuggestions",
+  addProseMirrorPlugins() {
+    return [vizzyPlugin()];
+  },
+});

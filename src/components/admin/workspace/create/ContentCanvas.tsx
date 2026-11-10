@@ -1194,6 +1194,7 @@ export function ContentCanvas({
             primaryLabel="Save"
             draftKey={`${planId}:${editNode.id}`}
             maxChars={CONTENT_PLAN_LIMITS.MAX_BODY_CHARS}
+            workspaceId={workspaceId}
             heroUrl={heroRef ? `/api/admin/workspace/${workspaceId}/asset/${heroRef}` : null}
             checks={
               citableBlog && isBlog

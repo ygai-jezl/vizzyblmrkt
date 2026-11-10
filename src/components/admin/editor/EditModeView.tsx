@@ -8,8 +8,13 @@ import { ADMIN_THEME_ROOT_ID } from "@/lib/theme";
 import { editorExtensions, isMarkdownFormat, type EditFormat } from "@/lib/content/editor/extensions";
 import { docLoss, docToMarkdown, markdownEditProblem, markdownToDoc, type DocLoss } from "@/lib/content/editor/markdownDoc";
 import { editorHtmlToEmail, emailEditProblem, emailToEditorHtml } from "@/lib/email/emailDoc";
+import { isEditModeVizzyEnabled } from "@/lib/content/editor/flags";
+import { VizzySuggestions, clearSuggestionsTr, keepSuggestionsTr, vizzyPending } from "@/lib/content/editor/vizzyPlugin";
 import { ArticleBoxWithView } from "./ArticleBoxView";
 import { EditorToolbar } from "./EditorToolbar";
+import { VizzyBubble } from "./vizzy/VizzyBubble";
+import { VizzyMark, VizzyPanel } from "./vizzy/VizzyPanel";
+import { useVizzyEdit } from "./vizzy/useVizzyEdit";
 
 /**
  * Edit mode: long content in a rich editor over the screen, styled the way readers see it.
@@ -39,6 +44,8 @@ export interface EditModeProps {
   checks?: (markdown: string) => ReactNode;
   /** Merge values an email can insert. */
   tokens?: readonly string[];
+  /** The workspace a hub belongs to, for Vizzy's brand voice. */
+  workspaceId?: string;
 }
 
 const RAW_LABEL: Record<EditFormat, string> = { blog: "Markdown", newsletter: "Markdown", email: "HTML" };
@@ -63,6 +70,17 @@ const ARTICLE_DOC =
     "[&_hr]:my-8 [&_hr]:border-neutral-200 dark:[&_hr]:border-neutral-800 " +
     // A box's node view (a React renderer element around the drawn box).
     "[&_.react-renderer]:mt-5 [&>.react-renderer:first-child]:mt-0";
+
+/** Vizzy's changes in the text: highlighted, with a small Keep, Undo, Show before bar. */
+const VIZZY_DOC =
+  " [&_.vizzy-suggestion]:bg-green-100 [&_.vizzy-suggestion]:shadow-[inset_0_-2px_0_#16a34a] dark:[&_.vizzy-suggestion]:bg-green-950" +
+  " [&_.vizzy-suggestion-block]:rounded-md [&_.vizzy-suggestion-block]:bg-green-50 [&_.vizzy-suggestion-block]:outline [&_.vizzy-suggestion-block]:outline-2 [&_.vizzy-suggestion-block]:outline-offset-4 [&_.vizzy-suggestion-block]:outline-green-600/40 dark:[&_.vizzy-suggestion-block]:bg-green-950/40" +
+  " [&_.vizzy-target]:bg-blue-100 dark:[&_.vizzy-target]:bg-blue-950" +
+  " [&_.vizzy-bar]:mx-1 [&_.vizzy-bar]:inline-flex [&_.vizzy-bar]:items-center [&_.vizzy-bar]:gap-1 [&_.vizzy-bar]:rounded-lg [&_.vizzy-bar]:border [&_.vizzy-bar]:border-neutral-200 [&_.vizzy-bar]:bg-white [&_.vizzy-bar]:px-1 [&_.vizzy-bar]:py-0.5 [&_.vizzy-bar]:align-middle [&_.vizzy-bar]:font-sans [&_.vizzy-bar]:text-xs [&_.vizzy-bar]:font-normal [&_.vizzy-bar]:not-italic [&_.vizzy-bar]:leading-5 [&_.vizzy-bar]:text-neutral-800 [&_.vizzy-bar]:shadow-sm dark:[&_.vizzy-bar]:border-neutral-700 dark:[&_.vizzy-bar]:bg-neutral-900 dark:[&_.vizzy-bar]:text-neutral-200" +
+  " [&_.vizzy-bar-label]:px-1 [&_.vizzy-bar-label]:text-neutral-600 dark:[&_.vizzy-bar-label]:text-neutral-400" +
+  " [&_.vizzy-bar-button]:rounded-md [&_.vizzy-bar-button]:border [&_.vizzy-bar-button]:border-neutral-300 [&_.vizzy-bar-button]:px-2 [&_.vizzy-bar-button]:no-underline dark:[&_.vizzy-bar-button]:border-neutral-600" +
+  " [&_.vizzy-bar-button-primary]:border-green-800 [&_.vizzy-bar-button-primary]:bg-green-800 [&_.vizzy-bar-button-primary]:font-semibold [&_.vizzy-bar-button-primary]:text-white" +
+  " [&_.vizzy-before]:mr-1 [&_.vizzy-before]:text-red-800 [&_.vizzy-before]:line-through dark:[&_.vizzy-before]:text-red-300";
 
 const DOC_CLASS: Record<EditFormat, string> = {
   blog: ARTICLE_DOC,
@@ -156,8 +174,9 @@ const SMALL_BUTTON =
   "rounded-md border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900";
 
 export function EditModeView(props: EditModeProps) {
-  const { format, kicker, title, value, primaryLabel, onSave, onClose, draftKey, maxChars, heroUrl, checks, tokens } = props;
+  const { format, kicker, title, value, primaryLabel, onSave, onClose, draftKey, maxChars, heroUrl, checks, tokens, workspaceId } = props;
   const markdown = isMarkdownFormat(format);
+  const vizzyOn = isEditModeVizzyEnabled();
   const blocked = useMemo(() => cantOpenReason(format, value), [format, value]);
 
   const [target, setTarget] = useState<HTMLElement | null>(null);
@@ -170,26 +189,41 @@ export function EditModeView(props: EditModeProps) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [railTab, setRailTab] = useState<"vizzy" | "checks">("checks");
+  const [pendingVizzy, setPendingVizzy] = useState<"save" | "view" | null>(null);
   const shown = useDeferredValue(raw);
   const root = useRef<HTMLDivElement>(null);
+  const vizzyInput = useRef<HTMLTextAreaElement>(null);
 
   const toContent = (text: string) => (markdown ? markdownToDoc(text, format) : emailToEditorHtml(text));
   const fromEditor = (ed: Editor) => (markdown ? docToMarkdown(ed.getJSON()) : editorHtmlToEmail(ed.getHTML()));
 
-  const extensions = useMemo(() => editorExtensions(format, ArticleBoxWithView), [format]);
+  const extensions = useMemo(
+    () => (vizzyOn ? [...editorExtensions(format, ArticleBoxWithView), VizzySuggestions] : editorExtensions(format, ArticleBoxWithView)),
+    [format, vizzyOn],
+  );
   const editor = useEditor({
     immediatelyRender: false,
     extensions,
     // The cursor starts in the text, so typing and Escape work at once.
     autofocus: blocked ? false : "start",
     content: blocked ? "" : toContent(value),
-    editorProps: { attributes: { class: DOC_CLASS[format], "aria-label": "Text" } },
+    editorProps: { attributes: { class: vizzyOn ? DOC_CLASS[format] + VIZZY_DOC : DOC_CLASS[format], "aria-label": "Text" } },
     onUpdate: ({ editor: ed }) => {
       setRaw(fromEditor(ed));
       setDirty(true);
       setPendingLoss(null);
     },
   });
+
+  const vizzy = useVizzyEdit({
+    editor: vizzyOn ? editor : null,
+    format,
+    workspaceId,
+    tokens,
+    getText: () => (editor ? fromEditor(editor) : raw),
+  });
+  const vizzyWaiting = vizzyOn && editor ? vizzyPending(editor.state).length : 0;
 
   // Portalled into the admin shell (it carries the light or dark theme), above everything else.
   useEffect(() => {
@@ -227,6 +261,8 @@ export function EditModeView(props: EditModeProps) {
       setView("raw");
       return false;
     }
+    // Vizzy's changes are marked in this text only: replacing it forgets them.
+    if (vizzyOn) editor.view.dispatch(clearSuggestionsTr(editor.state));
     editor.commands.setContent(toContent(text), false);
     setRawProblem(null);
     setView("rich");
@@ -243,18 +279,26 @@ export function EditModeView(props: EditModeProps) {
     else finish();
   }
 
-  async function save(force = false) {
+  async function save(force: { loss?: boolean; vizzy?: boolean } = {}) {
     setNote(null);
     setConfirmClose(false);
     if (!changed) {
       finish();
       return;
     }
+    if (vizzyOn && editor && view === "rich" && vizzyPending(editor.state).length) {
+      if (!force.vizzy) {
+        setPendingVizzy("save");
+        return;
+      }
+      editor.view.dispatch(keepSuggestionsTr(editor.state, undefined, "save"));
+    }
+    setPendingVizzy(null);
     if (raw.length > maxChars) {
       setNote(`This is ${count(raw.length)} characters, and the limit is ${count(maxChars)}. Shorten it to save.`);
       return;
     }
-    if (!force && markdown && view === "rich" && editor) {
+    if (!force.loss && markdown && view === "rich" && editor) {
       const loss = docLoss(editor.getJSON(), format);
       if (loss) {
         setPendingLoss(loss);
@@ -319,7 +363,10 @@ export function EditModeView(props: EditModeProps) {
           <button
             type="button"
             aria-pressed={view === "raw"}
-            onClick={() => setView("raw")}
+            onClick={() => {
+              if (view === "rich" && vizzyWaiting) setPendingVizzy("view");
+              else setView("raw");
+            }}
             className={`rounded-md px-3 py-1 text-sm ${view === "raw" ? "bg-white font-semibold shadow-sm dark:bg-neutral-800" : "text-neutral-600 dark:text-neutral-400"}`}
           >
             {RAW_LABEL[format]}
@@ -399,11 +446,44 @@ export function EditModeView(props: EditModeProps) {
             {pendingLoss ? (
               <Notice tone="warn">
                 <span>Some formatting in {where(pendingLoss)} can&apos;t be kept in Markdown, so it will be saved simpler.</span>
-                <button type="button" className={SMALL_BUTTON} onClick={() => void save(true)}>
+                <button type="button" className={SMALL_BUTTON} onClick={() => void save({ loss: true, vizzy: true })}>
                   {primaryLabel === "Save" ? "Save anyway" : "Done anyway"}
                 </button>
                 <button type="button" className={SMALL_BUTTON} onClick={() => setPendingLoss(null)}>
                   Keep editing
+                </button>
+              </Notice>
+            ) : null}
+            {pendingVizzy && vizzyWaiting ? (
+              <Notice tone="warn">
+                <span>
+                  {vizzyWaiting === 1 ? "One of Vizzy's changes isn't" : `${vizzyWaiting} of Vizzy's changes aren't`} kept or undone yet.{" "}
+                  {pendingVizzy === "save" ? `${primaryLabel} keeps them.` : `Switching to ${RAW_LABEL[format]} keeps them.`}
+                </span>
+                <button
+                  type="button"
+                  className={SMALL_BUTTON}
+                  onClick={() => {
+                    if (pendingVizzy === "save") {
+                      void save({ vizzy: true });
+                      return;
+                    }
+                    if (editor) editor.view.dispatch(keepSuggestionsTr(editor.state, undefined, "view"));
+                    setPendingVizzy(null);
+                    setView("raw");
+                  }}
+                >
+                  {pendingVizzy === "save" ? `Keep them and ${primaryLabel.toLowerCase()}` : "Keep them and switch"}
+                </button>
+                <button
+                  type="button"
+                  className={SMALL_BUTTON}
+                  onClick={() => {
+                    setPendingVizzy(null);
+                    setRailTab("vizzy");
+                  }}
+                >
+                  Review them
                 </button>
               </Notice>
             ) : null}
@@ -445,71 +525,118 @@ export function EditModeView(props: EditModeProps) {
                   </figure>
                 ) : null}
                 <EditorContent editor={editor} />
+                {vizzyOn && editor && view === "rich" ? (
+                  <VizzyBubble
+                    editor={editor}
+                    container={root.current}
+                    busy={vizzy.busy}
+                    onAsk={() => {
+                      if (!vizzy.captureTarget()) return;
+                      setRailTab("vizzy");
+                      window.setTimeout(() => vizzyInput.current?.focus(), 0);
+                    }}
+                    onQuick={(ask) => {
+                      if (!vizzy.captureTarget()) return;
+                      setRailTab("vizzy");
+                      void vizzy.ask(ask);
+                    }}
+                  />
+                ) : null}
               </article>
             )}
           </div>
 
-          <aside className="min-w-0 max-w-[360px] flex-[1_1_280px] space-y-4">
-            {checks ? (
-              <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <h2 className="text-sm font-semibold">Checks</h2>
-                  <span className="text-xs text-neutral-500">Update as you type</span>
-                </div>
-                {checks(shown)}
-              </section>
+          <aside className="min-w-0 max-w-[380px] flex-[1_1_300px] space-y-4">
+            {vizzyOn ? (
+              <span className="inline-flex gap-0.5 rounded-lg border border-neutral-200 bg-white p-0.5 dark:border-neutral-800 dark:bg-neutral-950">
+                <button
+                  type="button"
+                  aria-pressed={railTab === "vizzy"}
+                  onClick={() => setRailTab("vizzy")}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-sm ${railTab === "vizzy" ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900" : "text-neutral-600 dark:text-neutral-400"}`}
+                >
+                  <VizzyMark />
+                  Vizzy
+                  {vizzyWaiting ? (
+                    <span className="rounded-full bg-green-700 px-1.5 text-[11px] font-semibold text-white">{vizzyWaiting}</span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={railTab === "checks"}
+                  onClick={() => setRailTab("checks")}
+                  className={`rounded-md px-3 py-1 text-sm ${railTab === "checks" ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900" : "text-neutral-600 dark:text-neutral-400"}`}
+                >
+                  {checks ? "Checks" : "Details"}
+                </button>
+              </span>
             ) : null}
-            {outline.length ? (
-              <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                <h2 className="text-sm font-semibold">Outline</h2>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {outline.map((h) => (
-                    <li key={h.pos} style={{ paddingLeft: `${(h.level - 1) * 12}px` }}>
+            {vizzyOn && railTab === "vizzy" ? (
+              <VizzyPanel editor={editor} vizzy={vizzy} rich={view === "rich"} primaryLabel={primaryLabel} inputRef={vizzyInput} />
+            ) : (
+              <>
+              {checks ? (
+                <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <h2 className="text-sm font-semibold">Checks</h2>
+                    <span className="text-xs text-neutral-500">Update as you type</span>
+                  </div>
+                  {checks(shown)}
+                </section>
+              ) : null}
+              {outline.length ? (
+                <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                  <h2 className="text-sm font-semibold">Outline</h2>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {outline.map((h) => (
+                      <li key={h.pos} style={{ paddingLeft: `${(h.level - 1) * 12}px` }}>
+                        <button
+                          type="button"
+                          onClick={() => editor?.chain().focus().setTextSelection(h.pos).scrollIntoView().run()}
+                          className="text-left text-neutral-700 hover:underline dark:text-neutral-300"
+                        >
+                          {h.text}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              {tokens?.length && view === "rich" ? (
+                <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                  <h2 className="text-sm font-semibold">Merge values</h2>
+                  <p className="mt-1 text-xs text-neutral-500">Filled in for each person when it sends.</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {tokens.map((t) => (
                       <button
+                        key={t}
                         type="button"
-                        onClick={() => editor?.chain().focus().setTextSelection(h.pos).scrollIntoView().run()}
-                        className="text-left text-neutral-700 hover:underline dark:text-neutral-300"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => editor?.chain().focus().insertContent(t).run()}
+                        className="rounded border border-neutral-300 px-1.5 py-0.5 font-mono text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
                       >
-                        {h.text}
+                        {t}
                       </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-            {tokens?.length && view === "rich" ? (
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                <h2 className="text-sm font-semibold">Merge values</h2>
-                <p className="mt-1 text-xs text-neutral-500">Filled in for each person when it sends.</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {tokens.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => editor?.chain().focus().insertContent(t).run()}
-                      className="rounded border border-neutral-300 px-1.5 py-0.5 font-mono text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
-                    >
-                      {t}
-                    </button>
-                  ))}
+                <div className="flex justify-between gap-2 text-sm">
+                  <span className="font-semibold">Length</span>
+                  <span className={over ? "font-medium text-red-700 dark:text-red-400" : "text-neutral-600 dark:text-neutral-400"}>
+                    {count(raw.length)} of {count(maxChars)} characters
+                  </span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                  <div
+                    className={`h-1.5 ${over ? "bg-red-600" : "bg-blue-600"}`}
+                    style={{ width: `${Math.min(100, Math.round((raw.length / maxChars) * 100))}%` }}
+                  />
                 </div>
               </section>
-            ) : null}
-            <section className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
-              <div className="flex justify-between gap-2 text-sm">
-                <span className="font-semibold">Length</span>
-                <span className={over ? "font-medium text-red-700 dark:text-red-400" : "text-neutral-600 dark:text-neutral-400"}>
-                  {count(raw.length)} of {count(maxChars)} characters
-                </span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-                <div
-                  className={`h-1.5 ${over ? "bg-red-600" : "bg-blue-600"}`}
-                  style={{ width: `${Math.min(100, Math.round((raw.length / maxChars) * 100))}%` }}
-                />
-              </div>
-            </section>
+              </>
+            )}
           </aside>
         </div>
       </div>

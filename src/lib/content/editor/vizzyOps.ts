@@ -150,6 +150,12 @@ export function extractVizzyResult(reply: string, mode: "selection" | "whole"): 
   return { mode, ops, dropped, note };
 }
 
+/** A short quote of some words, for "nothing changed there" notes. */
+export function excerptOf(text: string): string {
+  const one = text.replace(/\s+/g, " ").trim();
+  return one.length > 60 ? `${one.slice(0, 57)}...` : one;
+}
+
 // ── what the route streams ───────────────────────────────────────────────────────────
 
 export interface VizzySuggestedOp {

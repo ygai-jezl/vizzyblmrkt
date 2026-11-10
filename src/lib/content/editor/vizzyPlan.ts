@@ -5,7 +5,7 @@ import { docLoss, inlineMarkdownToContent, markdownToDoc } from "./markdownDoc";
 import { isMarkdownFormat, type EditFormat } from "./extensions";
 import { ANCHOR_MISS, anchorText, findAnchor, findWords, matchCase, textblocksOf } from "./vizzyAnchor";
 import { changeProblems, hrefsIn } from "./vizzyChecks";
-import { VIZZY_LIMITS, type VizzySkipped, type VizzySuggestedOp } from "./vizzyOps";
+import { VIZZY_LIMITS, excerptOf, type VizzySkipped, type VizzySuggestedOp } from "./vizzyOps";
 import { plainBetween, type Serializer, type VizzyTarget } from "./vizzySelection";
 
 /**
@@ -147,11 +147,6 @@ export function planSelectionEdit(
   return loss ? { error: loss } : { edit };
 }
 
-function excerpt(text: string): string {
-  const one = text.replace(/\s+/g, " ").trim();
-  return one.length > 60 ? `${one.slice(0, 57)}...` : one;
-}
-
 /** Where new blocks go after the words: after their list item when the new blocks are items of
  *  the same kind of list, after their block inside a box or quotation, else after their
  *  top-level block. */
@@ -178,7 +173,7 @@ export function planWholeEdits(
   const blocks = textblocksOf(doc);
   const candidates: PlannedEdit[] = [];
   const skipped: VizzySkipped[] = [];
-  const skip = (words: string, reason: string) => skipped.push({ excerpt: excerpt(words), reason });
+  const skip = (words: string, reason: string) => skipped.push({ excerpt: excerptOf(words), reason });
   const code = doc.type.schema.marks.code;
   let docHrefs: string[] | null = null;
   const linksInDoc = () => (docHrefs ??= hrefsIn(format, ser.blocks(doc.content)));

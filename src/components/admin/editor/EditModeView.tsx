@@ -14,7 +14,9 @@ import { ArticleBoxWithView } from "./ArticleBoxView";
 import { EditorToolbar } from "./EditorToolbar";
 import { VizzyBubble } from "./vizzy/VizzyBubble";
 import { VizzyMark, VizzyPanel } from "./vizzy/VizzyPanel";
+import { VizzyMemories } from "./vizzy/VizzyMemories";
 import { useVizzyEdit } from "./vizzy/useVizzyEdit";
+import { useVizzyLearning } from "./vizzy/useVizzyLearning";
 
 /**
  * Edit mode: long content in a rich editor over the screen, styled the way readers see it.
@@ -224,6 +226,7 @@ export function EditModeView(props: EditModeProps) {
     getText: () => (editor ? fromEditor(editor) : raw),
   });
   const vizzyWaiting = vizzyOn && editor ? vizzyPending(editor.state).length : 0;
+  const learning = useVizzyLearning(vizzyOn);
 
   // Portalled into the admin shell (it carries the light or dark theme), above everything else.
   useEffect(() => {
@@ -271,6 +274,8 @@ export function EditModeView(props: EditModeProps) {
 
   function finish() {
     clearDraft(draftKey);
+    // What the person kept and undid, for Vizzy to learn from (when they let it).
+    if (vizzyOn) learning.send(vizzy.log.current);
     onClose();
   }
 
@@ -572,7 +577,14 @@ export function EditModeView(props: EditModeProps) {
               </span>
             ) : null}
             {vizzyOn && railTab === "vizzy" ? (
-              <VizzyPanel editor={editor} vizzy={vizzy} rich={view === "rich"} primaryLabel={primaryLabel} inputRef={vizzyInput} />
+              <VizzyPanel
+                editor={editor}
+                vizzy={vizzy}
+                rich={view === "rich"}
+                primaryLabel={primaryLabel}
+                inputRef={vizzyInput}
+                footer={<VizzyMemories learning={learning} />}
+              />
             ) : (
               <>
               {checks ? (

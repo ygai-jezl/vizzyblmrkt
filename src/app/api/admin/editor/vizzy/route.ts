@@ -9,6 +9,7 @@ import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { isEditModeVizzyEnabled } from "@/lib/content/editor/flags";
 import { VizzyRequestSchema, extractVizzyResult, replyBoundary, type VizzyEvent } from "@/lib/content/editor/vizzyOps";
 import { reviewSelection, reviewWhole, vizzyPrompt } from "@/lib/content/editor/vizzyPrompt";
+import { editPreferencesFor } from "@/lib/content/editor/vizzyLearningAccess";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 
 export const runtime = "nodejs";
@@ -68,8 +69,11 @@ export async function POST(req: Request) {
     if (!ws) return NextResponse.json({ error: "workspace_not_found" }, { status: 404 });
     workspaceVoice = ws.brandVoice;
   }
-  const brandVoice = await activeBrandVoiceText(ctx.tenantId, workspaceVoice);
-  const prompt = vizzyPrompt(body, { brandVoice });
+  const [brandVoice, preferences] = await Promise.all([
+    activeBrandVoiceText(ctx.tenantId, workspaceVoice),
+    editPreferencesFor(ctx),
+  ]);
+  const prompt = vizzyPrompt(body, { brandVoice, preferences });
 
   const deadline = AbortSignal.timeout(DEADLINE_MS[body.mode]);
   const signal = AbortSignal.any([req.signal, deadline]);

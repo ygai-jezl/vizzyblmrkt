@@ -6,6 +6,7 @@ import { TenantIsolationError } from "./errors";
 import { deriveFaviconUrl } from "./favicon";
 import {
   TenantSchema,
+  BrandVoiceSchema,
   EmailSenderConfigSchema,
   EmailStyleInputSchema,
   StoredEmailStyleSchema,
@@ -177,6 +178,33 @@ export async function setTenantBrandVoice(
       brandVoice: brandVoice === null ? FieldValue.delete() : { ...brandVoice, updatedAt: now },
       updatedAt: now,
     });
+}
+
+/**
+ * Add one rule to the brand voice's "Do" list, reading and writing in one transaction so a
+ * teammate's change made at the same moment isn't lost. "exists": it's already there; "full":
+ * the list holds 12 already; "missing": no such brand, or a voice that can't be read.
+ */
+export async function appendBrandVoiceRule(
+  id: string,
+  rule: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"added" | "exists" | "full" | "missing"> {
+  const text = rule.trim().slice(0, 300);
+  if (!text) return "missing";
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return "missing";
+    const voice = BrandVoiceSchema.safeParse(snap.data()?.brandVoice ?? {});
+    if (!voice.success) return "missing";
+    const dos = voice.data.dos ?? [];
+    if (dos.some((d) => d.trim().toLowerCase() === text.toLowerCase())) return "exists";
+    if (dos.length >= 12) return "full";
+    const now = new Date().toISOString();
+    tx.update(ref, { brandVoice: { ...voice.data, dos: [...dos, text], updatedAt: now }, updatedAt: now });
+    return "added";
+  });
 }
 
 /**

@@ -208,6 +208,30 @@ export async function appendBrandVoiceRule(
 }
 
 /**
+ * Give a brand a feature kept for granted brands (GRANTED_ONLY_FEATURES, see
+ * src/lib/plans/brandAccess.ts), or take it away. Returns the brand's granted features after the
+ * change, or null when there's no such brand. Used by scripts/grant-feature.ts until billing
+ * sets them.
+ */
+export async function setTenantFeatureGrant(
+  id: string,
+  feature: string,
+  granted: boolean,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<string[] | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const raw = snap.data()?.grantedFeatures;
+    const current = Array.isArray(raw) ? raw.filter((f): f is string => typeof f === "string") : [];
+    const next = granted ? [...new Set([...current, feature])] : current.filter((f) => f !== feature);
+    tx.update(ref, { grantedFeatures: next, updatedAt: new Date().toISOString() });
+    return next;
+  });
+}
+
+/**
  * Write the tenant's Email style (top-level `emailStyle`, like brandVoice), or remove it with
  * `null` ("Reset to default"). The input is parsed strictly here too, so nothing is stored that
  * the lenient read would drop; the header options' defaults (null = solid, "auto", a null header

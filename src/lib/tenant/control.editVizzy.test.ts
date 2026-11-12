@@ -40,3 +40,15 @@ describe("adding a rule to the brand voice", () => {
     expect(await appendBrandVoiceRule("ten_missing", "One more.", db)).toBe("missing");
   });
 });
+
+describe("granting a brand a feature", () => {
+  it("adds and removes it, once, and leaves other brands alone", async () => {
+    const db = seeded();
+    const { setTenantFeatureGrant } = await import("./control");
+    expect(await setTenantFeatureGrant("ten_A", "edit_vizzy_learning", true, db)).toEqual(["edit_vizzy_learning"]);
+    expect(await setTenantFeatureGrant("ten_A", "edit_vizzy_learning", true, db)).toEqual(["edit_vizzy_learning"]);
+    expect(db.raw("tenants", "ten_B")!.grantedFeatures).toBeUndefined();
+    expect(await setTenantFeatureGrant("ten_A", "edit_vizzy_learning", false, db)).toEqual([]);
+    expect(await setTenantFeatureGrant("ten_missing", "edit_vizzy_learning", true, db)).toBeNull();
+  });
+});

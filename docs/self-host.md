@@ -131,6 +131,15 @@ npm run selfhost -- --project <your-project-id> --apply addon:<name>
 Each add-on writes its settings into `apphosting.live.yaml` and turns its switches on.
 Roll out afterwards: `npm run selfhost -- --project <id> --apply rollout` (or push).
 
+**Vizzy in Edit mode.** `NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED` lets people select text in Edit
+mode and ask Vizzy to change it. It needs Gemini, which `addon:vizzy` sets up. For Vizzy to also
+learn how each person likes their edits, run `DRY_RUN=1 bash infra/agent/setup.sh memory <your-project-id>`
+to see what it does, then run it without `DRY_RUN`. It makes a Memory Bank and lets the app read and
+write only memories scoped to a brand. Put the id it prints in your settings as `VIZZY_MEMORY_BANK_ID`
+and set `EDIT_MODE_VIZZY_LEARNING_ENABLED` to `"true"`. Every brand gets it, and each person can switch
+it off. To keep it for some brands only, set `GRANTED_ONLY_FEATURES` to `edit_vizzy_learning` and grant
+brands with `scripts/grant-feature.ts`.
+
 **Email: test mode first.** With a provider set, waitlist emails send. Product journeys
 stay in test mode, sending nothing real, until you add `LIFECYCLE_MODE_CEILING` with the
 value `"live"` to your settings file. Journeys also need `EMAIL_DEFAULT_PRIVACY_URL`, which
@@ -221,3 +230,6 @@ to be framed (see `next.config.ts`).
 - Scheduled work: [Cloud Scheduler HTTP targets](https://cloud.google.com/scheduler/docs/schedule-run-cron-job)
 - Sign-in: [Google sign-in for the web](https://firebase.google.com/docs/auth/web/google-signin)
 - Costs: [budgets](https://cloud.google.com/billing/docs/how-to/budgets)
+- Vizzy's memory: [Memory Bank](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/memory-bank),
+  [scopes](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/memory-bank/fetch-memories),
+  [IAM conditions on scope](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/memory-bank/iam-conditions)

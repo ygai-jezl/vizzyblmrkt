@@ -84,6 +84,8 @@ env:
   #     LIFECYCLE_MODE_CEILING                                      test, shadow or live (unset: test)
   #     KNOWLEDGE_JOB_NAME, KNOWLEDGE_JOB_LOCATION                  knowledge-scraper, us-central1
   #     ROOT_AGENT_RESOURCE_ID, ROOT_AGENT_LOCATION                 your agent engine, us-central1
+  #     VIZZY_MEMORY_BANK_ID                                        infra/agent/setup.sh memory prints it
+  #     GRANTED_ONLY_FEATURES                                       features only for brands granted them
   #   Connections
   #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
   #     GITHUB_APP_CLIENT_SECRET, GITHUB_APP_PRIVATE_KEY            secrets
@@ -669,6 +671,19 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+  # Vizzy inside Edit mode: select text and ask for a change, or ask for edits across the
+  # piece (needs NEXT_PUBLIC_EDIT_MODE_ENABLED or NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED).
+  - variable: NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy learns each person's editing preferences in Agent Platform Memory Bank (needs
+  # NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED and VIZZY_MEMORY_BANK_ID).
+  - variable: EDIT_MODE_VIZZY_LEARNING_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
   # Newsletter hubs sent and previewed as formatted email, not as Markdown symbols.
   - variable: NEWSLETTER_MARKDOWN_EMAIL_ENABLED

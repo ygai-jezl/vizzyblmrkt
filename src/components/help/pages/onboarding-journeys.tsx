@@ -1,6 +1,6 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
+import { isEditModeEmailsEnabled, isEditModeVizzyEnabled } from "@/lib/content/editor/flags";
 
 export default function OnboardingJourneysHelp() {
   return (
@@ -65,6 +65,14 @@ export default function OnboardingJourneysHelp() {
           headings, bold, lists and links, and put in a token such as <code>{"{{user.first_name|there}}"}</code> from{" "}
           <strong>Merge values</strong> beside the text. Press <strong>Done</strong>, then <strong>Save draft</strong>. An email
           that has HTML Edit mode can&apos;t keep, such as an image or a table, opens as HTML with a note saying what it is.
+        </P>
+      ) : null}
+      {isEditModeEmailsEnabled() && isEditModeVizzyEnabled() ? (
+        <P>
+          The <strong>Vizzy</strong> tab in Edit mode changes an email&apos;s text the same way as an article&apos;s: select words
+          and ask, or ask with nothing selected for edits across the email. Vizzy keeps every merge value and{" "}
+          <code>{"{{block}}"}</code> line as it is, and nothing is saved until you press <strong>Done</strong>, then{" "}
+          <strong>Save draft</strong> (<Open href="/help/write-and-schedule#write">how Vizzy edits work</Open>).
         </P>
       ) : null}
 

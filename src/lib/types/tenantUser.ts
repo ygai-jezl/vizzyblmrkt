@@ -15,6 +15,8 @@ export const TenantUserSchema = z.object({
   tenantId: z.string(),
   role: TenantRole,
   joinedAt: z.string(),
+  /** This person has asked Vizzy not to learn from their edits in this brand. */
+  editLearningOff: z.boolean().optional().catch(undefined),
 });
 
 export type TenantUser = z.infer<typeof TenantUserSchema>;

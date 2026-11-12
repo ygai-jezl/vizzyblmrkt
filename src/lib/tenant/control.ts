@@ -6,6 +6,7 @@ import { TenantIsolationError } from "./errors";
 import { deriveFaviconUrl } from "./favicon";
 import {
   TenantSchema,
+  BrandVoiceSchema,
   EmailSenderConfigSchema,
   EmailStyleInputSchema,
   StoredEmailStyleSchema,
@@ -177,6 +178,57 @@ export async function setTenantBrandVoice(
       brandVoice: brandVoice === null ? FieldValue.delete() : { ...brandVoice, updatedAt: now },
       updatedAt: now,
     });
+}
+
+/**
+ * Add one rule to the brand voice's "Do" list, reading and writing in one transaction so a
+ * teammate's change made at the same moment isn't lost. "exists": it's already there; "full":
+ * the list holds 12 already; "missing": no such brand, or a voice that can't be read.
+ */
+export async function appendBrandVoiceRule(
+  id: string,
+  rule: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"added" | "exists" | "full" | "missing"> {
+  const text = rule.trim().slice(0, 300);
+  if (!text) return "missing";
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return "missing";
+    const voice = BrandVoiceSchema.safeParse(snap.data()?.brandVoice ?? {});
+    if (!voice.success) return "missing";
+    const dos = voice.data.dos ?? [];
+    if (dos.some((d) => d.trim().toLowerCase() === text.toLowerCase())) return "exists";
+    if (dos.length >= 12) return "full";
+    const now = new Date().toISOString();
+    tx.update(ref, { brandVoice: { ...voice.data, dos: [...dos, text], updatedAt: now }, updatedAt: now });
+    return "added";
+  });
+}
+
+/**
+ * Give a brand a feature kept for granted brands (GRANTED_ONLY_FEATURES, see
+ * src/lib/plans/brandAccess.ts), or take it away. Returns the brand's granted features after the
+ * change, or null when there's no such brand. Used by scripts/grant-feature.ts until billing
+ * sets them.
+ */
+export async function setTenantFeatureGrant(
+  id: string,
+  feature: string,
+  granted: boolean,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<string[] | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const raw = snap.data()?.grantedFeatures;
+    const current = Array.isArray(raw) ? raw.filter((f): f is string => typeof f === "string") : [];
+    const next = granted ? [...new Set([...current, feature])] : current.filter((f) => f !== feature);
+    tx.update(ref, { grantedFeatures: next, updatedAt: new Date().toISOString() });
+    return next;
+  });
 }
 
 /**

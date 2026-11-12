@@ -15,13 +15,18 @@ export function VizzyBubble({
   editor,
   container,
   busy,
+  hidden = false,
   onAsk,
   onQuick,
 }: {
   editor: Editor;
-  /** Where the bar is drawn: inside Edit mode, so it takes its theme and sits above it. */
-  container: HTMLElement | null;
+  /** Where the bar is drawn: inside Edit mode, which is a React portal. Drawn anywhere else
+   *  (document.body, tippy's default), React doesn't see its clicks. Read when it shows. */
+  container: () => HTMLElement | null;
   busy: boolean;
+  /** Kept mounted but not shown (while the ask box has the focus). Unmounting a shown menu
+   *  breaks React: tippy has moved its element. */
+  hidden?: boolean;
   onAsk: () => void;
   onQuick: (ask: string) => void;
 }) {
@@ -32,14 +37,18 @@ export function VizzyBubble({
     <BubbleMenu
       editor={editor}
       pluginKey="vizzyBubble"
-      tippyOptions={{ placement: "top", maxWidth: "none", appendTo: () => container ?? document.body, zIndex: 60 }}
-      shouldShow={({ editor: ed, state }) => {
-        if (busyRef.current || state.selection.empty || !ed.isEditable) return false;
+      tippyOptions={{ placement: "top", maxWidth: "none", appendTo: () => container() ?? document.body, zIndex: 60 }}
+      shouldShow={({ editor: ed, view, state }) => {
+        // Hidden while the person types in the Vizzy tab; its buttons don't take the focus.
+        if (busyRef.current || state.selection.empty || !ed.isEditable || !view.hasFocus()) return false;
         const { $from } = state.selection;
         return !$from.parent.type.spec.code;
       }}
     >
-      <div className="flex items-center gap-0.5 rounded-lg bg-neutral-900 p-1 shadow-lg dark:bg-neutral-100">
+      <div
+        aria-hidden={hidden || undefined}
+        className={`${hidden ? "hidden" : "flex"} items-center gap-0.5 rounded-lg bg-neutral-900 p-1 shadow-lg dark:bg-neutral-100`}
+      >
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}

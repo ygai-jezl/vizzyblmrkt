@@ -193,6 +193,7 @@ export function EditModeView(props: EditModeProps) {
   const [saving, setSaving] = useState(false);
   const [railTab, setRailTab] = useState<"vizzy" | "checks">("checks");
   const [pendingVizzy, setPendingVizzy] = useState<"save" | "view" | null>(null);
+  const [askFocused, setAskFocused] = useState(false);
   const shown = useDeferredValue(raw);
   const root = useRef<HTMLDivElement>(null);
   const vizzyInput = useRef<HTMLTextAreaElement>(null);
@@ -533,8 +534,9 @@ export function EditModeView(props: EditModeProps) {
                 {vizzyOn && editor && view === "rich" ? (
                   <VizzyBubble
                     editor={editor}
-                    container={root.current}
+                    container={() => root.current}
                     busy={vizzy.busy}
+                    hidden={askFocused}
                     onAsk={() => {
                       if (!vizzy.captureTarget()) return;
                       setRailTab("vizzy");
@@ -584,6 +586,7 @@ export function EditModeView(props: EditModeProps) {
                 primaryLabel={primaryLabel}
                 inputRef={vizzyInput}
                 footer={<VizzyMemories learning={learning} />}
+                onAskFocusChange={setAskFocused}
               />
             ) : (
               <>

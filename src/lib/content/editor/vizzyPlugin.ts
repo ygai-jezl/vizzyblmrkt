@@ -310,6 +310,9 @@ function decorations(state: EditorState): DecorationSet {
         return false;
       });
     }
+    // A selection's one change gets its bar in the text. Edits across the whole piece are many
+    // and small: they're highlighted, and kept or undone from the Vizzy tab.
+    if (s.requestKind !== "selection") continue;
     if (s.showBefore && s.beforePlain) {
       decos.push(Decoration.widget(s.from, () => beforeWords(s), { side: -1, key: `vizzy-before:${s.id}` }));
     }

@@ -143,6 +143,7 @@ export function VizzyPanel({
   primaryLabel,
   inputRef,
   footer,
+  onAskFocusChange,
 }: {
   editor: Editor | null;
   vizzy: Vizzy;
@@ -152,6 +153,8 @@ export function VizzyPanel({
   inputRef: RefObject<HTMLTextAreaElement>;
   /** What Vizzy remembers, when learning is on. */
   footer?: ReactNode;
+  /** The ask box took or lost the focus (the bubble over the text hides meanwhile). */
+  onAskFocusChange?: (focused: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
   const { target, busy } = vizzy;
@@ -218,7 +221,9 @@ export function VizzyPanel({
               onChange={(e) => setDraft(e.target.value)}
               onFocus={() => {
                 if (!target) vizzy.captureTarget();
+                onAskFocusChange?.(true);
               }}
+              onBlur={() => onAskFocusChange?.(false)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   // Escape here clears the ask; it doesn't close Edit mode.

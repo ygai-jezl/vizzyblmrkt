@@ -156,25 +156,55 @@ export async function generateTextWithDeadline(
 
 /**
  * Stream text token-by-token from a prompt. Yields incremental text chunks (the SDK's
- * `generateContentStream`). The ONLY streaming generation in the app — used by the eBook
- * studio to render a chapter as it's written. Yields nothing when Gemini is unconfigured
- * or the stream errors (callers fall back to the non-streaming `generateText`). Never
- * throws — the async generator just ends.
+ * `generateContentStream`). Used by the eBook studio to render a chapter as it's written,
+ * and by Vizzy in Edit mode. Yields nothing when Gemini is unconfigured or the stream errors
+ * (callers fall back to the non-streaming `generateText`). Never throws — the async generator
+ * just ends.
+ *
+ * `signal` stops the model's work as well as the stream (a closed page, a deadline). With a
+ * `thinkingBudget`, a model that won't take the setting is asked again without it, as
+ * `generateText` does. Without options the request is as it always was.
  */
-export async function* generateTextStream(prompt: string): AsyncGenerator<string> {
+export async function* generateTextStream(
+  prompt: string,
+  opts: { signal?: AbortSignal } & ThinkingOptions = {},
+): AsyncGenerator<string> {
   const ai = getClient();
   if (!ai) return;
-  try {
-    const stream = await ai.models.generateContentStream({
+  const open = (withBudget: boolean) => {
+    const config = {
+      ...(opts.signal ? { abortSignal: opts.signal } : {}),
+      ...(withBudget ? thinkingConfig(opts) : {}),
+    };
+    return ai.models.generateContentStream({
       model: TEXT_MODEL,
       contents: prompt,
+      ...(Object.keys(config).length ? { config } : {}),
     });
+  };
+  try {
+    let stream: Awaited<ReturnType<typeof open>>;
+    if (opts.thinkingBudget !== undefined) {
+      try {
+        stream = await open(true);
+      } catch (err) {
+        if (opts.signal?.aborted) return;
+        console.warn(
+          "[gemini] generateTextStream with a thinking budget failed; retrying without it:",
+          err instanceof Error ? err.message.slice(0, 200) : "error",
+        );
+        stream = await open(false);
+      }
+    } else {
+      stream = await open(false);
+    }
     for await (const chunk of stream) {
+      if (opts.signal?.aborted) return;
       const t = chunk.text;
       if (t) yield t;
     }
   } catch (err) {
-    console.warn("[gemini] generateTextStream failed:", err);
+    if (!opts.signal?.aborted) console.warn("[gemini] generateTextStream failed:", err);
   }
 }
 

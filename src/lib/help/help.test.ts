@@ -34,6 +34,8 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
+  process.env.NEXT_PUBLIC_EDIT_MODE_VIZZY_ENABLED = "true";
+  process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

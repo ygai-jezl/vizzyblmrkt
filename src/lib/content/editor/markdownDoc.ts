@@ -97,6 +97,11 @@ function blockJson(block: ArticleBlock, format: EditFormat): JSONContent {
   }
 }
 
+/** One line of inline Markdown (bold, italic, code, links) as an editor's inline content. */
+export function inlineMarkdownToContent(text: string, format: EditFormat): JSONContent[] {
+  return inlineJson(parseInline(text, linkCheck(format)), []);
+}
+
 /** An article's Markdown as an editor document. */
 export function markdownToDoc(markdown: string, format: EditFormat): JSONContent {
   const content = parseArticle(markdown).map((b) => blockJson(b, format));
@@ -323,6 +328,12 @@ function blocksMarkdown(nodes: JSONContent[] | undefined): string {
     .map(blockMarkdown)
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** An editor's inline content as one line of inline Markdown. Unlike a paragraph's, its start
+ *  isn't guarded: it sits inside a line. */
+export function contentToInlineMarkdown(nodes: JSONContent[] | undefined, inCell = false): string {
+  return inlineMarkdown(nodes, inCell);
 }
 
 /** An editor document as article Markdown. */

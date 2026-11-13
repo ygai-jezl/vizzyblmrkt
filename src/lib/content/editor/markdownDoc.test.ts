@@ -4,7 +4,14 @@ import { parseArticle } from "@/lib/content/blog/markdown";
 import { evaluateCitable } from "@/lib/content/blog/citable";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { editorExtensions } from "./extensions";
-import { docLoss, docToMarkdown, markdownEditProblem, markdownToDoc } from "./markdownDoc";
+import {
+  contentToInlineMarkdown,
+  docLoss,
+  docToMarkdown,
+  inlineMarkdownToContent,
+  markdownEditProblem,
+  markdownToDoc,
+} from "./markdownDoc";
 
 const CITABLE = `# What is AI search visibility monitoring?
 
@@ -331,5 +338,19 @@ describe("docLoss", () => {
       ],
     };
     expect(docLoss(doc, "blog")?.kind).toBe("table");
+  });
+});
+
+describe("one line of inline Markdown", () => {
+  it("round trips bold, italic, code and links", () => {
+    const line = "**Bold** and *italic* with [a link](/guide) and `code`, plus snake_case.";
+    const content = inlineMarkdownToContent(line, "blog");
+    expect(content.map((n) => n.text).join("")).toBe("Bold and italic with a link and code, plus snake_case.");
+    expect(contentToInlineMarkdown(content)).toBe(line);
+  });
+
+  it("drops a link a format doesn't keep, and leaves a line start unguarded", () => {
+    expect(contentToInlineMarkdown(inlineMarkdownToContent("[x](javascript:alert(1))", "blog"))).not.toContain("javascript");
+    expect(contentToInlineMarkdown(inlineMarkdownToContent("1. starts like a list", "blog"))).toBe("1. starts like a list");
   });
 });

@@ -1,0 +1,67 @@
+{
+  "displayName": "yougrow-editing-memory",
+  "description": "What Vizzy learns about how each person likes their writing edited in Edit mode. Scoped to one person in one brand.",
+  "contextSpec": {
+    "memoryBankConfig": {
+      "customizationConfigs": [
+        {
+          "scopeKeys": ["tenant_id", "user_id"],
+          "enableThirdPersonMemories": true,
+          "memoryTopics": [
+            {
+              "customMemoryTopic": {
+                "label": "editing_preferences",
+                "description": "How this person likes their writing edited: tone (plainer, warmer, more formal), length (short intros, short sentences), words and phrases they cut or keep adding, spelling (UK or US English), formatting (lists, headings, bold) and edits they keep undoing. Only lasting preferences seen in what they ask for and what they keep or undo. Never facts about the article's subject, products, prices, people, customers or the brand."
+              }
+            },
+            { "managedMemoryTopic": { "managedTopicEnum": "EXPLICIT_INSTRUCTIONS" } }
+          ],
+          "generateMemoriesExamples": [
+            {
+              "conversationSource": {
+                "events": [
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, on text I selected: \"make this shorter\". Vizzy took out \"and in today's busy world that is a costly mistake\". I kept the change." }] } },
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, on text I selected: \"shorter please\". Vizzy took out \"which, as many teams have found over the years,\". I kept the change." }] } }
+                ]
+              },
+              "generatedMemories": [{ "fact": "The user likes their writing cut down to short, plain sentences." }]
+            },
+            {
+              "conversationSource": {
+                "events": [
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, across the whole text: \"use UK spelling\". Vizzy changed \"organize\" to \"organise\", \"color\" to \"colour\". I kept the change." }] } }
+                ]
+              },
+              "generatedMemories": [{ "fact": "The user writes in UK English spelling." }]
+            },
+            {
+              "conversationSource": {
+                "events": [
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, on text I selected: \"make it more exciting\". Vizzy put in \"revolutionary\". I undid the change." }] } },
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, on text I selected: \"punchier\". Vizzy put in \"game changing\". I undid the change." }] } }
+                ]
+              },
+              "generatedMemories": [{ "fact": "The user doesn't want hype words such as \"revolutionary\" or \"game changing\" in their writing." }]
+            },
+            {
+              "conversationSource": {
+                "events": [
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, on text I selected: \"fix the typo\". Vizzy changed \"teh\" to \"the\". I kept the change." }] } },
+                  { "content": { "role": "user", "parts": [{ "text": "I asked Vizzy, on text I selected: \"change the price to 49\". Vizzy changed \"39\" to \"49\". I kept the change." }] } }
+                ]
+              },
+              "generatedMemories": []
+            }
+          ]
+        }
+      ],
+      "ttlConfig": {
+        "granularTtlConfig": {
+          "createTtl": "15552000s",
+          "generateCreatedTtl": "15552000s",
+          "generateUpdatedTtl": "15552000s"
+        }
+      }
+    }
+  }
+}

@@ -3,7 +3,7 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warnin
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
-import { isEditModeEnabled } from "@/lib/content/editor/flags";
+import { isEditModeEnabled, isEditModeVizzyEnabled, isEditModeVizzyLearningEnabled } from "@/lib/content/editor/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 
 export default function WriteAndScheduleHelp() {
@@ -82,6 +82,28 @@ export default function WriteAndScheduleHelp() {
           <strong>Save</strong> when you&apos;re done. What&apos;s saved is still Markdown, so <strong>Copy Markdown</strong>, the
           checks and Vizzy work as before, and <strong>Markdown</strong> at the top shows the text itself. Changes you
           haven&apos;t saved stay in this browser until you close the tab, and Edit mode offers them back when you open it again.
+        </P>
+      ) : null}
+      {isEditModeEnabled() && isEditModeVizzyEnabled() ? (
+        <P>
+          In Edit mode, the <strong>Vizzy</strong> tab beside <strong>Checks</strong> changes the text for you. Select some words
+          and press <strong>Ask Vizzy</strong>, or one of <strong>Shorter</strong>, <strong>Plainer</strong> and{" "}
+          <strong>Fix grammar</strong>, and say what you want, such as &quot;make this less salesy&quot;. With nothing selected,
+          Vizzy edits across the whole piece, such as &quot;use UK spelling&quot;. Each change shows in the text in green with{" "}
+          <strong>Keep</strong> and <strong>Undo</strong>, and <strong>Show before</strong> shows what was there. Typing inside a
+          change keeps it as yours. Nothing is saved until you press <strong>Save</strong>, which keeps any change you
+          haven&apos;t kept or undone. Vizzy follows your brand voice and keeps links and merge values as they are.
+        </P>
+      ) : null}
+      {isEditModeEnabled() && isEditModeVizzyLearningEnabled() ? (
+        <P>
+          Vizzy also learns how you like your edits from the changes you keep and undo, such as short intros or UK spelling, and
+          uses that next time. <strong>What Vizzy remembers about how you edit</strong> on the Vizzy tab lists it. Only you see
+          it, in this brand. <strong>Forget</strong> removes one, <strong>Forget everything</strong> removes them all, and
+          clearing <strong>Learn from my edits</strong> stops Vizzy learning from them or using them. To learn, Vizzy sends what
+          you asked and the words that changed, never the whole article, to Agent Platform Memory Bank in this copy of
+          YouGrow&apos;s Google Cloud project. Anything not used for 6 months is forgotten. An admin can press{" "}
+          <strong>Add to brand voice</strong> to make one a rule for the whole team in Brand kit.
         </P>
       ) : null}
       {isBlogAiSummaryUiEnabled() ? (
@@ -254,6 +276,37 @@ export default function WriteAndScheduleHelp() {
                   "Use a web address that starts with https://, a page on your site such as /pricing, or a section of the article such as #faq.",
                 ],
                 ["Shorten it to save.", "An article or a newsletter holds up to 20,000 characters. Cut it down, then save."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isEditModeEnabled() && isEditModeVizzyEnabled()
+            ? ([
+                [
+                  "Vizzy's version dropped",
+                  "Vizzy keeps every link and merge value, so a change that loses one isn't used. Ask again, or select less.",
+                ],
+                [
+                  "Those words appear more than once, so nothing changed there.",
+                  "Select the words you mean and ask again, so Vizzy knows which place to change.",
+                ],
+                ["The text changed while Vizzy was working. Ask again.", "You edited the selected text while Vizzy worked on it. Ask again."],
+                ["Vizzy took too long. Try a shorter piece or a narrower ask.", "Select a part of the text, or ask for one kind of change at a time."],
+                [
+                  "Vizzy has had a lot of requests from your brand. Try again in a minute.",
+                  "Your team has asked Vizzy a lot in the last minute or hour. Wait a little, then ask again.",
+                ],
+                ["Vizzy editing isn't included for this brand.", "Ask whoever runs your copy of YouGrow to turn it on for your brand."],
+                [
+                  "kept or undone yet.",
+                  "Some of Vizzy's changes are still marked in the text. Press Keep them to go on, or Review them to keep or undo each one.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isEditModeEnabled() && isEditModeVizzyLearningEnabled()
+            ? ([
+                [
+                  "Your brand voice already has 12 rules. Edit them in Brand kit first.",
+                  "Open Brand kit, remove or merge a rule under Do, then press Add to brand voice again.",
+                ],
               ] as Array<[string, string]>)
             : []),
           ...(isBrandNotesQuestionsUiEnabled()

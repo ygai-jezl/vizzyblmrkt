@@ -30,7 +30,9 @@ rules apply.
 
 ## Folders
 
-- `agent`: Vizzy's service account and the role that lets the app call it.
+- `agent`: Vizzy's service account and the role that lets the app call it. Optional, `setup.sh memory`:
+  the Memory Bank where Vizzy learns how each person edits, and a grant limited to memories scoped to
+  a brand (try `DRY_RUN=1` first).
 - `audit-log`: the write-once audit log bucket.
 - `bigquery-analytics`: Firestore to BigQuery export, datasets and views.
 - `billing-killswitch`: a Cloud Function that turns billing off past a budget cap.

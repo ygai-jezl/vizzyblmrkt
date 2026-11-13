@@ -1169,7 +1169,13 @@ export async function cancelScheduledPost(
   return false; // processing / done / already-published — too late to cancel
 }
 
-/** List a workspace's scheduled posts (newest scheduled first). */
+/**
+ * List a workspace's POSTS, earliest scheduled first. The queue also holds jobs ABOUT
+ * a post (an auto-plug comment, a performance fetch) that carry the parent's
+ * workspaceId and body; those are internal and never listed here, so every screen
+ * that shows posts (Distribute, the workspace home, the schedule GET) shows each
+ * post once and never offers Reschedule/Cancel on a follow-up job.
+ */
 export async function listScheduledPosts(
   ctx: TenantContext,
   workspaceId: string,
@@ -1177,7 +1183,10 @@ export async function listScheduledPosts(
   limit = 500,
 ): Promise<ScheduledPost[]> {
   const rows = await forTenant(ctx, db).scheduledPosts.find({
-    where: [["workspaceId", "==", workspaceId]],
+    where: [
+      ["workspaceId", "==", workspaceId],
+      ["jobKind", "==", "publish"],
+    ],
     limit,
   });
   // In-memory sort (equality-only query → no composite index needed).

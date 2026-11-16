@@ -119,6 +119,7 @@ export const KEPT_OFF = {
   CONTENT_CHAT_AUTHORING_ENABLED: { addon: "vizzy", why: "Vizzy drafting content plans needs the agent" },
   BRAND_MAP_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy's brand map suggestions need the agent" },
   BRAND_NOTES_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy adding brand notes needs the agent" },
+  COMPETITORS_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy reading your competitors needs the agent" },
   LIFECYCLE_PERSON_BRIEF: { addon: "vizzy", why: "Vizzy reading one person needs the agent" },
   LIFECYCLE_PERSON_PLANS: { addon: "vizzy", why: "a plan per person needs the agent" },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },

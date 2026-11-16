@@ -687,6 +687,34 @@ describe("listScheduledPosts", () => {
     const posts = await listScheduledPosts(ctx, WS, db);
     expect(posts.map((p) => p.id)).toEqual(["b", "a"]);
   });
+
+  it("lists each post once, never the follow-up jobs queued about it", async () => {
+    const db = new FakeFirestore();
+    const ctx = ctxFor();
+    const parent = `post:${WS}:${PLAN}:n1`;
+    seedPost(db, parent, {
+      nodeId: "n1",
+      status: "done",
+      publishedRef: { platform: "x", remoteId: "123", publishedAt: PAST },
+    });
+    // Both follow-ups carry the parent's workspace, node and body, and wait as "pending".
+    seedPost(db, `perf:${parent}`, {
+      nodeId: "n1",
+      jobKind: "performance_fetch",
+      dedupeKey: `perf:${parent}`,
+      sourceRemoteId: "123",
+      scheduledAt: FUTURE,
+    });
+    seedPost(db, `autoplug:${parent}`, {
+      nodeId: "n1",
+      jobKind: "auto_plug_comment",
+      dedupeKey: `autoplug:${parent}`,
+      sourceRemoteId: "123",
+      scheduledAt: FUTURE,
+    });
+    const posts = await listScheduledPosts(ctx, WS, db);
+    expect(posts.map((p) => p.id)).toEqual([parent]);
+  });
 });
 
 describe("setPostSpintax", () => {

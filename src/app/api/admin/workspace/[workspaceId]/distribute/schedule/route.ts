@@ -21,6 +21,7 @@ import { connectionProblem } from "@/lib/distribute/connectionCheck";
 import { isSocialPublishEnabled } from "@/lib/distribute/publishX";
 import { isOrderGuardsEnabled } from "@/lib/guards/flags";
 import { getTenantById } from "@/lib/tenant";
+import { isAiDraftKeptEnabled } from "@/lib/content/create/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -148,6 +149,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       // attach it at publish (LinkedIn).
       imageAssetRef: node.imageAssetRef ?? null,
       imageAltText: node.imagePrompt ?? null,
+      // Vizzy's draft and who scheduled it: Distribute shows what changed, and Vizzy learns
+      // from it once the post is published (CONTENT_AI_DRAFT_KEPT_ENABLED).
+      ...(isAiDraftKeptEnabled()
+        ? { aiBody: node.aiDraft?.body ?? null, scheduledBy: ctx.userId ?? null }
+        : {}),
       scheduledAt,
     });
     // Reflect the schedule back onto the source node so the canvas shows it.

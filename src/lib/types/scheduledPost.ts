@@ -61,6 +61,9 @@ export const PublishedRefSchema = z.object({
   remoteId: z.string().max(200).nullable().optional(),
   url: z.string().max(2000).nullable().optional(),
   publishedAt: z.string(),
+  /** LinkedIn: who the post went out as, an organization (company page) or a person URN.
+   *  Absent on X posts and on posts published before it was recorded. */
+  authorUrn: z.string().max(200).nullable().optional(),
 });
 export type PublishedRef = z.infer<typeof PublishedRefSchema>;
 
@@ -127,6 +130,12 @@ export const ScheduledPostSchema = z.object({
    *  connected member (personal); `urn:li:organization:{id}` = a Company Page the
    *  member administers (org posting via the CM connection). */
   linkedInAuthorUrn: z.string().max(200).nullable().optional(),
+  /** Vizzy's draft of this post (the node's `aiDraft`), copied at schedule so Distribute can show
+   *  what the person changed and Vizzy can learn from it. Null when none was kept. A
+   *  performance_fetch job carries its parent's, for post_performance. */
+  aiBody: z.string().max(MAX_BODY_CHARS).nullable().optional(),
+  /** The user id of the person who scheduled the post: whose drafts learn from their changes. */
+  scheduledBy: z.string().max(128).nullable().optional(),
   /** Set once at publish; the retry guard (mirrors EmailJob.emailSentAt). */
   publishedRef: PublishedRefSchema.nullable().optional(),
   lastError: z.string().nullable().optional(),

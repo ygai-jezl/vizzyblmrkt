@@ -14,6 +14,8 @@ import { scorePPS } from "@/lib/distribute/pps";
 import { ListView } from "./ListView";
 import { CalendarView } from "./CalendarView";
 import { SchedulableRow } from "./SchedulableRow";
+import { PostLearningPanel } from "./PostLearningPanel";
+import type { PostExtras } from "@/lib/distribute/postExtras";
 
 type View = "list" | "calendar";
 
@@ -31,11 +33,18 @@ export function DistributeClient({
   initialPlans,
   initialPosts,
   initialNewsletters = [],
+  extras = {},
+  learning = { available: false, on: false },
 }: {
   workspaceId: string;
   initialPlans: ContentPlan[];
   initialPosts: ScheduledPost[];
   initialNewsletters?: CalendarNewsletter[];
+  /** Each post's results and changes from Vizzy's draft, by post id (switched; empty when off). */
+  extras?: Record<string, PostExtras>;
+  /** Learning from post edits: available in this brand (the switch and what it needs), and on
+   *  for this person (their "Learn from my edits"). */
+  learning?: { available: boolean; on: boolean };
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>("list");
@@ -192,9 +201,13 @@ export function DistributeClient({
         )}
       </div>
 
+      {learning.available ? <PostLearningPanel /> : null}
+
       {view === "list" ? (
         <ListView
           posts={initialPosts}
+          extras={extras}
+          learningOn={learning.on}
           newsletters={initialNewsletters}
           onReschedule={reschedule}
           onCancel={cancel}
@@ -205,6 +218,8 @@ export function DistributeClient({
       ) : (
         <CalendarView
           posts={initialPosts}
+          extras={extras}
+          learningOn={learning.on}
           newsletters={initialNewsletters}
           onReschedule={reschedule}
           onCancel={cancel}

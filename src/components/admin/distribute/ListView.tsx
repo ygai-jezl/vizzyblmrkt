@@ -3,6 +3,7 @@
 import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { CalendarNewsletter } from "@/lib/distribute/uiModel";
 import { PostCard } from "./PostCard";
+import type { PostExtras } from "@/lib/distribute/postExtras";
 import { NewsletterChip } from "./NewsletterChip";
 
 /** Chronological list of scheduled posts + weekly newsletters (soonest first). */
@@ -14,8 +15,13 @@ export function ListView({
   onSetSpintax,
   onBuildCarousel,
   busy,
+  extras = {},
+  learningOn = false,
 }: {
   posts: ScheduledPost[];
+  /** Each post's results and changes from Vizzy's draft, by post id. */
+  extras?: Record<string, PostExtras>;
+  learningOn?: boolean;
   newsletters: CalendarNewsletter[];
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
@@ -48,6 +54,8 @@ export function ListView({
             onSetSpintax={onSetSpintax}
             onBuildCarousel={onBuildCarousel}
             busy={busy}
+            extras={extras[r.post.id]}
+            learningOn={learningOn}
           />
         ) : (
           <NewsletterChip key={r.key} item={r.nl!} />

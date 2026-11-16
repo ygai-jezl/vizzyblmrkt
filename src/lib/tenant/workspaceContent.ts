@@ -405,7 +405,8 @@ export async function getContentPlan(
  * a worker-written `posted`/`failed` (or a schedule's `scheduledAt`) to a stale value. So when a
  * `graph` is provided we re-read the current doc and overlay each existing node's distribution
  * fields (matched by id) onto the incoming graph before writing — making updateContentPlanNode the
- * single writer of those fields. */
+ * single writer of those fields. Vizzy's draft (`aiDraft`) is server-owned the same way: a Save
+ * keeps the stored one and can never set, change or clear it. */
 export async function updateContentPlan(
   ctx: TenantContext,
   workspaceId: string,
@@ -444,7 +445,13 @@ export async function updateContentPlan(
             (n) =>
               [
                 n.id,
-                { distributionStatus: n.distributionStatus ?? null, scheduledAt: n.scheduledAt ?? null, live: n.blog?.live, hero: n.blog?.hero },
+                {
+                  distributionStatus: n.distributionStatus ?? null,
+                  scheduledAt: n.scheduledAt ?? null,
+                  aiDraft: n.aiDraft ?? null,
+                  live: n.blog?.live,
+                  hero: n.blog?.hero,
+                },
               ] as const,
           ),
         )
@@ -453,6 +460,7 @@ export async function updateContentPlan(
           {
             distributionStatus: ContentNode["distributionStatus"];
             scheduledAt: ContentNode["scheduledAt"];
+            aiDraft: ContentNode["aiDraft"];
             live: BlogArticleLive | null | undefined;
             hero: BlogHero | undefined;
           }
@@ -461,13 +469,23 @@ export async function updateContentPlan(
       ...incoming,
       nodes: incoming.nodes.map((n) => {
         const keep = owned.get(n.id);
-        if (!keep) return n;
-        const { live, hero, ...distribution } = keep;
-        return withStoredBlog({ ...n, ...distribution }, { live, hero });
+        // Vizzy's draft is only ever the stored one: a Save can't set, change or clear it.
+        if (!keep) return withoutAiDraft(n);
+        const { live, hero, aiDraft, ...distribution } = keep;
+        const merged = withoutAiDraft({ ...n, ...distribution });
+        return withStoredBlog(aiDraft ? { ...merged, aiDraft } : merged, { live, hero });
       }),
     };
     tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
   });
+}
+
+/** The node without an `aiDraft` (written only by fillPlanNode, never by a canvas Save). */
+function withoutAiDraft<N extends { aiDraft?: unknown }>(node: N): N {
+  if (!("aiDraft" in node)) return node;
+  const { aiDraft: _drop, ...rest } = node;
+  void _drop;
+  return rest as N;
 }
 
 /**
@@ -529,6 +547,7 @@ export async function updateContentPlanNode(
       | "imageFormatInputs"
       | "imageChart"
       | "blog"
+      | "aiDraft"
     >
   >,
   // Injectable so the Distribute worker (which threads its own FirestoreLike through, a

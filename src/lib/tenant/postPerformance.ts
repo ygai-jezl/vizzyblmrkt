@@ -34,6 +34,8 @@ export interface PostPerformanceBase {
   publishedAt?: string | null;
   format?: string | null;
   body?: string;
+  /** Vizzy's draft before the person's changes, when one was kept. */
+  aiBody?: string | null;
   hashtags?: string[];
   /** Holdout cohort stamped at capture (from the node id) so injected−holdout lift is readable. */
   injectionCohort?: "injected" | "holdout";
@@ -211,4 +213,29 @@ export async function readPostPerformance(
   if (!snap.exists) return null;
   const parsed = PostPerformanceSchema.safeParse({ ...snap.data(), id: snap.id });
   return parsed.success ? parsed.data : null;
+}
+
+/** How many records one batch read looks up at most (one Distribute page's published posts). */
+const MANY_LIMIT = 100;
+
+/**
+ * Several posts' records by id (the Distribute cards), keyed by id. Ids are built on the
+ * server from ctx (`postPerformanceDocId`); a record stamped with another tenant is left out
+ * anyway, so a wrong id can never show another brand's numbers.
+ */
+export async function readPostPerformanceMany(
+  ctx: TenantContext,
+  ids: readonly string[],
+  db?: FirestoreLike,
+): Promise<Map<string, PostPerformance>> {
+  const col = regionalDb(ctx, db).collection(POST_PERFORMANCE);
+  const unique = [...new Set(ids)].slice(0, MANY_LIMIT);
+  const snaps = await Promise.all(unique.map((id) => col.doc(id).get()));
+  const out = new Map<string, PostPerformance>();
+  for (const snap of snaps) {
+    if (!snap.exists) continue;
+    const parsed = PostPerformanceSchema.safeParse({ ...snap.data(), id: snap.id });
+    if (parsed.success && parsed.data.tenantId === ctx.tenantId) out.set(parsed.data.id, parsed.data);
+  }
+  return out;
 }

@@ -5,6 +5,10 @@ import { listContentPlans } from "@/lib/tenant/workspaceContent";
 import { listScheduledPosts } from "@/lib/distribute/scheduler";
 import { toCalendarNewsletters } from "@/lib/distribute/uiModel";
 import { DistributeClient } from "@/components/admin/distribute/DistributeClient";
+import { isPostResultsEnabled } from "@/lib/distribute/flags";
+import { postLearningFor } from "@/lib/distribute/learnFromPostEdit";
+import { isAiDraftKeptEnabled } from "@/lib/content/create/flags";
+import { loadPostExtras } from "@/lib/distribute/postExtras";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +31,12 @@ export default async function DistributePage({
     forTenant(ctx).broadcasts.find({ where: [["sourceWorkspaceId", "==", workspaceId]] }),
   ]);
   const newsletters = toCalendarNewsletters(broadcasts);
+  // Results and Vizzy's draft on each card (each behind its switch; empty when both are off).
+  const extrasOpts = { results: isPostResultsEnabled(), drafts: isAiDraftKeptEnabled() };
+  const [extras, learning] = await Promise.all([
+    extrasOpts.results || extrasOpts.drafts ? loadPostExtras(ctx, posts, extrasOpts).catch(() => ({})) : {},
+    postLearningFor(ctx),
+  ]);
 
   return (
     <DistributeClient
@@ -34,6 +44,8 @@ export default async function DistributePage({
       initialPlans={plans}
       initialPosts={posts}
       initialNewsletters={newsletters}
+      extras={extras}
+      learning={learning}
     />
   );
 }

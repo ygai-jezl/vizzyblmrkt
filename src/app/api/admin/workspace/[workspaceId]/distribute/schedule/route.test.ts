@@ -81,4 +81,17 @@ describe("POST /api/admin/workspace/[workspaceId]/distribute/schedule", () => {
     vi.stubEnv("DISTRIBUTE_SOCIAL_ENABLED", "false");
     expect((await POST(req({}), params)).status).toBe(200);
   });
+
+  it("copies Vizzy's draft and who scheduled it only with CONTENT_AI_DRAFT_KEPT_ENABLED", async () => {
+    const lastInput = () => (scheduler.schedulePost.mock.calls.at(-1) as unknown[] | undefined)?.[1];
+    vi.stubEnv("ORDER_GUARDS_ENABLED", "false");
+    const withDraft = { graph: { nodes: [{ ...planWith("x").graph.nodes[0], aiDraft: { body: "Vizzy's", at: later } }] } };
+    content.getContentPlan.mockResolvedValue(withDraft);
+    expect((await POST(req({}), params)).status).toBe(200);
+    expect(lastInput()).not.toHaveProperty("aiBody");
+    expect(lastInput()).not.toHaveProperty("scheduledBy");
+    vi.stubEnv("CONTENT_AI_DRAFT_KEPT_ENABLED", "true");
+    expect((await POST(req({}), params)).status).toBe(200);
+    expect(lastInput()).toMatchObject({ aiBody: "Vizzy's", scheduledBy: "usr_admin" });
+  });
 });

@@ -11,6 +11,9 @@ import { PreviewToggle } from "./preview/PreviewToggle";
 import { SpintaxToggle } from "./SpintaxToggle";
 import { CarouselToggle } from "./CarouselToggle";
 import { LinkedInAuthorSelect } from "./LinkedInAuthorSelect";
+import { PostResults } from "./PostResults";
+import { DraftChanges } from "./DraftChanges";
+import type { PostExtras } from "@/lib/distribute/postExtras";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
@@ -33,8 +36,14 @@ export function PostCard({
   onSetSpintax,
   onBuildCarousel,
   busy,
+  extras,
+  learningOn = false,
 }: {
   post: ScheduledPost;
+  /** Results and changes from Vizzy's draft (each behind its switch; absent when off). */
+  extras?: PostExtras;
+  /** Vizzy learns from this person's post edits. */
+  learningOn?: boolean;
   onReschedule: (post: ScheduledPost, iso: string, linkedInAuthorUrn?: string | null) => void;
   onCancel: (post: ScheduledPost) => void;
   onSetSpintax: (post: ScheduledPost, source: string) => void;
@@ -94,6 +103,18 @@ export function PostCard({
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
           ⚠ image not attached — posted text-only ({post.lastError.replace(/^li_image:/, "")})
         </p>
+      ) : null}
+
+      {extras?.draft ? (
+        <div className="mt-2">
+          <DraftChanges draft={extras.draft} published={Boolean(post.publishedRef)} learningOn={learningOn} />
+        </div>
+      ) : null}
+
+      {extras?.result ? (
+        <div className="mt-2">
+          <PostResults result={extras.result} />
+        </div>
       ) : null}
 
       <div className="mt-2">

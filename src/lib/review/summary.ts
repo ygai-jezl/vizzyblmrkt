@@ -16,7 +16,12 @@ import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
 import { isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
-import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
+import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
+import { isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { listCompetitors, unseenChanges } from "@/lib/competitors/store";
+import { PROBLEM_TEXT } from "@/lib/competitors/view";
+import { brandCanUse } from "@/lib/plans/brandAccess";
+import type { Competitor, CompetitorChange } from "@/lib/types/competitor";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -28,7 +33,15 @@ import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
  * so the sidebar count caches that part — see countReview.
  */
 
-export type ReviewKind = "ai_line" | "repo_results" | "agent_draft" | "brand_map" | "content_hub" | "failed_post" | "connection";
+export type ReviewKind =
+  | "ai_line"
+  | "repo_results"
+  | "agent_draft"
+  | "brand_map"
+  | "content_hub"
+  | "failed_post"
+  | "connection"
+  | "competitor_news";
 
 export interface ReviewItem {
   id: string;
@@ -38,6 +51,8 @@ export interface ReviewItem {
   href: string;
   /** The link's verb, e.g. "Review" or "Connect". */
   action: string;
+  /** A second button beside the link: mark one competitor's changes seen (admins only). */
+  markSeen?: { competitorId: string };
 }
 
 export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: string }> = {
@@ -69,10 +84,14 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "Connection problems",
     description: "Your product's context endpoint keeps failing, so personal lines fall back to the standard version.",
   },
+  competitor_news: {
+    title: "What your competitors changed",
+    description: "New posts on their news pages and changes to their sites since you last looked. Open one to read it, or mark it seen.",
+  },
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "agent_draft", "repo_results", "brand_map", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "agent_draft", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -195,7 +214,7 @@ export function contentHubItem(
   };
 }
 
-const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", article: "your articles", vizzy: "Vizzy" };
+const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", article: "your articles", vizzy: "Vizzy", competitors: "Competitors" };
 
 /**
  * Suggestions waiting on the brand map: one row, however many (BRAND_MAP_ENABLED). With the
@@ -205,7 +224,7 @@ export function brandMapItem(map: Pick<BrandMap, "suggestions"> | null, proposal
   const waiting = map ? suggestionsWaiting(map) : [];
   const n = waiting.length + proposals;
   if (!map || n === 0) return null;
-  const from = (["research", "article", "vizzy"] as const).filter((f) => waiting.some((s) => s.from === f)).map((f) => FROM[f]);
+  const from = (["research", "article", "vizzy", "competitors"] as const).filter((f) => waiting.some((s) => s.from === f)).map((f) => FROM[f]);
   const said = from.length > 1 ? `${from.slice(0, -1).join(", ")} and ${from.at(-1)}` : (from[0] ?? "");
   if (proposals) {
     return {
@@ -225,6 +244,39 @@ export function brandMapItem(map: Pick<BrandMap, "suggestions"> | null, proposal
     href: BRAND_KIT_MAP_ROUTE,
     action: "Review",
   };
+}
+
+/**
+ * A competitor with changes nobody has marked seen (COMPETITORS_ENABLED): one row per competitor,
+ * its newest change first. A competitor that needs a person is a row of its own.
+ */
+export function competitorItems(competitors: Array<Pick<Competitor, "id" | "name" | "status" | "problem">>, unseen: Array<Pick<CompetitorChange, "competitorId" | "headline" | "at">>): ReviewItem[] {
+  const items: ReviewItem[] = [];
+  for (const c of competitors) {
+    const href = `${BRAND_KIT_COMPETITORS_ROUTE}/${c.id}`;
+    if (c.status === "needs_you") {
+      items.push({
+        id: `cmp_needs:${c.id}`,
+        kind: "competitor_news",
+        title: `${c.name} needs you`,
+        detail: c.problem ? PROBLEM_TEXT[c.problem] : "We couldn't carry on watching this site without you.",
+        href,
+        action: "Open",
+      });
+    }
+    const mine = unseen.filter((u) => u.competitorId === c.id).sort((a, b) => b.at.localeCompare(a.at));
+    if (!mine.length) continue;
+    items.push({
+      id: `cmp:${c.id}`,
+      kind: "competitor_news",
+      title: `${c.name}: ${mine[0]!.headline}`,
+      detail: mine.length > 1 ? `And ${mine.length - 1} more change${mine.length === 2 ? "" : "s"} since you last looked` : "Since you last looked",
+      href,
+      action: "Open",
+      markSeen: { competitorId: c.id },
+    });
+  }
+  return items;
 }
 
 const CHANNEL: Record<string, string> = {
@@ -315,7 +367,8 @@ export async function loadReview(
 ): Promise<Review> {
   const repos = forTenant(ctx, db);
   const invites = isInvitesUiEnabled() && isInvitesEnabled();
-  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves, brandMap, brandMapProposals] = await Promise.all([
+  const competitorsOn = isCompetitorsEnabled() && (await soft("competitors access", brandCanUse(ctx, "competitors"), false));
+  const [aiLines, connections, agentJourneys, launchJourneys, campaigns, workspaces, failedPosts, agentWaves, brandMap, brandMapProposals, competitors, competitorNews] = await Promise.all([
     opts.lifecycle ? soft("ai lines", countWaitingApprovals(ctx, db), 0) : 0,
     opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : [],
     opts.lifecycle || isWaitlistEngineUiEnabled()
@@ -350,6 +403,8 @@ export async function loadReview(
       : [],
     isBrandMapEnabled() ? soft("brand map", readBrandMap(ctx, db).then((r) => (r.state === "ok" ? r.map : null)), null) : null,
     isBrandMapScaleEnabled() ? soft("brand map proposals", proposalsWaiting(ctx, { db }), 0) : 0,
+    competitorsOn ? soft("competitors", listCompetitors(ctx, { db }), [] as Competitor[]) : ([] as Competitor[]),
+    competitorsOn ? soft("competitor changes", unseenChanges(ctx, { db }), [] as CompetitorChange[]) : ([] as CompetitorChange[]),
   ]);
 
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
@@ -370,6 +425,7 @@ export async function loadReview(
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
+    ...competitorItems(competitors, competitorNews),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 
@@ -393,6 +449,11 @@ export async function countReview(
   const total = review.aiLines + review.items.length;
   countCache.set(ctx.tenantId, { at: now, total });
   return total;
+}
+
+/** Forget one brand's cached count, after something that changes it (a change marked seen). */
+export function forgetReviewCount(tenantId: string): void {
+  countCache.delete(tenantId);
 }
 
 /** Test hook: forget cached counts. */

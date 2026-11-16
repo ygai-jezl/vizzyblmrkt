@@ -16,6 +16,7 @@ const FROM: Record<BrandMapSuggestion["from"], string> = {
   research: "From research",
   article: "From an article",
   vizzy: "From Vizzy",
+  competitors: "From Competitors",
 };
 
 export function BrandMapSuggestions({

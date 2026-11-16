@@ -8,6 +8,7 @@ import {
   parseCitedFacts,
   parseResearch,
   readPageMeta,
+  readPostMeta,
   researchBlogBrief,
   sourcesBacking,
   sourcesToList,
@@ -175,6 +176,14 @@ describe("blog research", () => {
     expect(readPageMeta(`<meta property="og:title" content="Don't guess: measure">`).title).toBe("Don't guess: measure");
     // A date from the future is not a published year.
     expect(readPageMeta('<meta name="date" content="2099-01-01">', new Date("2026-10-07")).year).toBeNull();
+  });
+
+  it("reads a post's title, description and published day (Competitors)", () => {
+    const html = `<head><title>A new clinic in Leeds</title><meta name="description" content="We open in Leeds in December.">
+      <meta property="article:published_time" content="2026-11-14T08:00:00Z"></head>`;
+    expect(readPostMeta(html, new Date("2026-11-16"))).toEqual({ title: "A new clinic in Leeds", description: "We open in Leeds in December.", publishedAt: "2026-11-14" });
+    expect(readPostMeta('<time datetime="2026-11-02">2 Nov</time>', new Date("2026-11-16")).publishedAt).toBe("2026-11-02");
+    expect(readPostMeta('<meta name="date" content="2099-01-01">', new Date("2026-11-16")).publishedAt).toBeNull();
   });
 
   it("builds the brief: questions, live link targets, and sources checked on the page", async () => {

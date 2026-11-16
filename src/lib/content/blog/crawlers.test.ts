@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_CRAWLERS, blockedCrawlers, crawlerLabel, parseRobots } from "./crawlers";
+import { AI_CRAWLERS, allowedFor, blockedCrawlers, crawlerLabel, parseRobots, robotsSitemaps } from "./crawlers";
 
 const all = AI_CRAWLERS.map((c) => c.agent);
 
@@ -66,5 +66,21 @@ describe("which AI crawlers a robots.txt keeps out", () => {
     expect(crawlerLabel("GPTBot")).toBe("GPTBot (ChatGPT)");
     expect(crawlerLabel("googlebot")).toBe("Googlebot (Google Search and AI Overviews)");
     expect(crawlerLabel("SomeOtherBot")).toBe("SomeOtherBot");
+  });
+});
+
+describe("robots.txt for Competitors", () => {
+  const robots = "User-agent: *\nDisallow: /private\n\nUser-agent: yougrowbot\nDisallow: /news/drafts\n\nSitemap: https://acme.example/sitemap_index.xml\nsitemap: https://acme.example/news-sitemap.xml # news\nSitemap: ftp://acme.example/x.xml\nSitemap: https://acme.example/sitemap_index.xml\n";
+
+  it("lists the Sitemap lines, http(s) only, each once, and leaves parseRobots as it was", () => {
+    expect(robotsSitemaps(robots)).toEqual(["https://acme.example/sitemap_index.xml", "https://acme.example/news-sitemap.xml"]);
+    expect(parseRobots(robots).map((g) => g.agents)).toEqual([["*"], ["yougrowbot"]]);
+  });
+
+  it("follows a crawler's own group when it is named, else everyone's", () => {
+    expect(allowedFor(robots, "yougrowbot", "/news/drafts/x")).toBe(false);
+    expect(allowedFor(robots, "yougrowbot", "/private")).toBe(true);
+    expect(allowedFor(robots, "someotherbot", "/private")).toBe(false);
+    expect(allowedFor("", "yougrowbot", "/anything")).toBe(true);
   });
 });

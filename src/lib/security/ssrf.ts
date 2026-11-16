@@ -220,6 +220,35 @@ export async function readTextCapped(res: Response, maxBytes: number): Promise<s
 }
 
 /**
+ * Read a response body as raw bytes up to `maxBytes`, and say whether it was cut there. For a
+ * caller that can use the start of a big body but must know it is not the whole of it (a
+ * competitor's sitemap read as a baseline). Never buffers more than `maxBytes`.
+ */
+export async function readBytesUpTo(res: Response, maxBytes: number): Promise<{ bytes: Buffer; truncated: boolean }> {
+  if (!res.body) return { bytes: Buffer.alloc(0), truncated: false };
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    if (total + value.byteLength > maxBytes) {
+      chunks.push(Buffer.from(value.subarray(0, maxBytes - total)));
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+      return { bytes: Buffer.concat(chunks), truncated: true };
+    }
+    total += value.byteLength;
+    chunks.push(Buffer.from(value));
+  }
+  return { bytes: Buffer.concat(chunks), truncated: false };
+}
+
+/**
  * Read a response body as raw bytes, ABORTING and returning null once `maxBytes` is exceeded
  * (so an oversized image never fully buffers). Used to pull favicon/og-image bytes for a
  * vision pass. Returns null on empty/oversized bodies.

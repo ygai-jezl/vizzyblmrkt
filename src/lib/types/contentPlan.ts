@@ -544,6 +544,13 @@ export const ContentNodeSchema = z.object({
   /** Distribute lifecycle badge (scheduled → posting → posted/failed); null until scheduled.
    *  Server-owned: written by the schedule route + Distribute worker, never by canvas editing. */
   distributionStatus: ContentDistributionStatus.nullable().optional(),
+  /** What Vizzy last wrote for this LinkedIn or X post (Write or Regenerate), kept when a person
+   *  edits `body` so Distribute can show what changed (CONTENT_AI_DRAFT_KEPT_ENABLED).
+   *  Server-owned: written only by fillPlanNode; a canvas Save keeps the stored value. */
+  aiDraft: z
+    .object({ body: z.string().max(MAX_BODY_CHARS), at: z.string().max(40) })
+    .nullable()
+    .optional(),
   warnings: z.array(z.string()).default([]),
   // ── Email-sequence fields (only on `email`/`wait`/`condition` nodes; null/[]
   //    elsewhere so hub-and-spoke plans are unaffected). ──

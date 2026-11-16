@@ -4,6 +4,8 @@ import type { Workspace } from "@/lib/types/workspace";
 import { getContentPlan, getTemplate, updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { activeBrandVoiceText } from "./activeBrandVoice";
 import { generateNode } from "./generateNode";
+import { aiDraftFor } from "./aiDraft";
+import { postEditPreferencesFor } from "@/lib/distribute/learnFromPostEdit";
 import { askOfPlan, loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 
@@ -23,6 +25,8 @@ export interface FillDeps {
   quick?: boolean;
   /** The saved brand map (tests inject one); read only for a blog hub, with its flag on. */
   loadMap?: MapDeps["loadMap"];
+  /** How the person edits Vizzy's posts (tests inject a stub); read only for LinkedIn and X. */
+  preferences?: typeof postEditPreferencesFor;
 }
 
 type WorkspaceBits = Pick<Workspace, "id" | "brandVoice" | "audience"> & Partial<Pick<Workspace, "name">>;
@@ -48,9 +52,11 @@ export async function fillPlanNode(
 
   // A blog hub is written from the brand map when there is one (null otherwise: as before).
   const blogHub = node.type === "hub" && node.channel === "blog";
-  const [brandVoice, brandMap] = await Promise.all([
+  const [brandVoice, brandMap, editPreferences] = await Promise.all([
     activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
     blogHub ? loadArticleMap(ctx, { db: deps.db, loadMap: deps.loadMap }, { ask: askOfPlan(plan) }) : Promise.resolve(null),
+    // Empty unless learning from post edits is on and this is a LinkedIn or X post.
+    (deps.preferences ?? postEditPreferencesFor)(ctx, node.channel),
   ]);
   const patch = await (deps.generate ?? generateNode)({
     ctx,
@@ -63,7 +69,10 @@ export async function fillPlanNode(
     brandName: ws.name ?? null,
     quick: deps.quick,
     ...(brandMap ? { brandMap } : {}),
+    ...(editPreferences.length ? { editPreferences } : {}),
   });
+
+  const aiDraft = aiDraftFor(node, patch, new Date().toISOString());
 
   // The persist re-validates the merged node via ContentNodeSchema.parse (throwing):
   // a schema-invalid patch is a 422, not an uncaught 500.
@@ -88,6 +97,8 @@ export async function fillPlanNode(
         ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
         // A blog hub written to the CITABLE structure carries its meta + check findings.
         ...(patch.blog !== undefined ? { blog: patch.blog } : {}),
+        // Vizzy's draft of a LinkedIn or X post, kept beside the text a person will edit.
+        ...(aiDraft ? { aiDraft } : {}),
       },
       deps.db,
     );

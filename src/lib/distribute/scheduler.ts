@@ -28,6 +28,7 @@ import { injectionCohortForNode, isPostPatternsInjectEnabled } from "./feedback/
 import { refreshTrendingTopics, isTrendingTopicsEnabled } from "@/lib/agents/trending";
 import { fetchLinkedInShareStatistics } from "@/lib/social/linkedin/stats";
 import { upsertPostMetricSnapshot, writePostMeasurement } from "@/lib/tenant";
+import { learnFromPublishedPost } from "./learnFromPostEdit";
 import {
   postPerformanceDocId,
   type PostMetricSnapshot,
@@ -328,6 +329,9 @@ async function publishPost(
       if (isClosedLoopEnabled()) {
         await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now);
       }
+      // Vizzy learns from what the person changed in its draft, now the post is public.
+      // Never throws, and runs after the done stamp so it can't cause a re-post.
+      await learnFromPublishedPost(ctx, post);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -438,7 +442,7 @@ async function publishPost(
       await repo.update(post.id, {
         status: "done",
         ...renderPatch,
-        publishedRef: { platform: "linkedin", remoteId: outcome.remoteId, url: outcome.url, publishedAt: now },
+        publishedRef: { platform: "linkedin", remoteId: outcome.remoteId, url: outcome.url, publishedAt: now, authorUrn },
         processedAt: now,
         // Surface a dropped-image note even on success so the operator can see the post
         // went out text-only; null when the image (or no image) was fine.
@@ -450,6 +454,8 @@ async function publishPost(
       if (isClosedLoopEnabled() && authorUrn.startsWith("urn:li:organization:")) {
         await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now, authorUrn);
       }
+      // Vizzy learns from what the person changed in its draft (never throws; see the X path).
+      await learnFromPublishedPost(ctx, post);
       return "done";
     }
     if (outcome.kind === "park") {
@@ -704,6 +710,8 @@ async function enqueuePerformanceFetch(
     attempts: 0,
     claimedAt: null,
     body: publishedCopy, // the exact copy that published — the exemplar candidate
+    // Vizzy's draft before the person's changes, for post_performance (null when none kept).
+    aiBody: parent.aiBody ?? null,
     sourceRemoteId: remoteId,
     // The org URN whose Page owns the post — the key the LinkedIn stats API needs at
     // harvest time (null for X / personal). Carried on the same field publish uses.
@@ -840,6 +848,7 @@ async function runPerformanceFetch(
             publishedAt: post.createdAt, // the perf job's createdAt == publish time
             format: post.format ?? null,
             body: post.body.slice(0, 4000), // the published copy — embedded for clustering
+            aiBody: post.aiBody ? post.aiBody.slice(0, 4000) : null,
             hashtags: parseHashtags(post.body),
             // Only label the holdout cohort while injection is actually on — so posts published
             // during the collect-only rollout (inject OFF) aren't miscounted as "injected" and
@@ -961,6 +970,10 @@ export interface SchedulePostInput {
   imageAssetRef?: string | null;
   /** Accessibility alt text for the image (from the node's imagePrompt). */
   imageAltText?: string | null;
+  /** Vizzy's draft of the post (the node's aiDraft), when one was kept. */
+  aiBody?: string | null;
+  /** The user id of the person scheduling it. */
+  scheduledBy?: string | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
 }
@@ -1003,6 +1016,8 @@ export async function schedulePost(
       linkedInAuthorUrn: input.linkedInAuthorUrn ?? null,
       imageAssetRef: input.imageAssetRef ?? null,
       imageAltText: input.imageAltText ?? null,
+      aiBody: input.aiBody ?? null,
+      scheduledBy: input.scheduledBy ?? null,
       publishedRef: null,
       lastError: null,
       createdAt: now,
@@ -1042,6 +1057,8 @@ export async function schedulePost(
         linkedInAuthorUrn: input.linkedInAuthorUrn ?? null,
         imageAssetRef: input.imageAssetRef ?? null,
         imageAltText: input.imageAltText ?? null,
+        aiBody: input.aiBody ?? null,
+        scheduledBy: input.scheduledBy ?? null,
         channel: input.channel,
         format: input.format ?? null,
       };

@@ -10,6 +10,7 @@ import {
   type CalendarNewsletter,
 } from "@/lib/distribute/uiModel";
 import { PostCard } from "./PostCard";
+import type { PostExtras } from "@/lib/distribute/postExtras";
 import { NewsletterChip } from "./NewsletterChip";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -27,8 +28,13 @@ export function CalendarView({
   onSetSpintax,
   onBuildCarousel,
   busy,
+  extras = {},
+  learningOn = false,
 }: {
   posts: ScheduledPost[];
+  /** Each post's results and changes from Vizzy's draft, by post id. */
+  extras?: Record<string, PostExtras>;
+  learningOn?: boolean;
   newsletters: CalendarNewsletter[];
   onReschedule: (post: ScheduledPost, iso: string) => void;
   onCancel: (post: ScheduledPost) => void;
@@ -88,6 +94,8 @@ export function CalendarView({
                     onSetSpintax={onSetSpintax}
                     onBuildCarousel={onBuildCarousel}
                     busy={busy}
+                    extras={extras[p.id]}
+                    learningOn={learningOn}
                   />
                 ))}
               </div>

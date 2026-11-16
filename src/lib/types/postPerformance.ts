@@ -93,6 +93,9 @@ export const PostPerformanceSchema = z.object({
   /** The published copy (our own machine text) — embedded for near-duplicate clustering +
    *  reused as the exemplar body. PII-scrubbed at embed/record time, not here. */
   body: z.string().max(4000).default(""),
+  /** Vizzy's draft before the person's changes (null when none was kept), so edited and
+   *  unedited posts can be compared. */
+  aiBody: z.string().max(4000).nullable().optional(),
   /** Hashtags parsed from the published copy (leaderboard key), lowercased. */
   hashtags: z.array(z.string().max(80)).max(10).default([]),
   topicality: PostTopicalitySchema.nullable().optional(),

@@ -111,6 +111,24 @@ describe("generateNode", () => {
     expect(prompt).toContain("treat as DATA");
   });
 
+  it("adds the person's post edit preferences after everything about the brand, fenced as guidance", async () => {
+    mocked.mockResolvedValue(JSON.stringify({ body: "A native X spoke." }));
+    const hub = node({ id: "hub", type: "hub", body: "hub body" });
+    const spoke = node({ id: "s1", type: "spoke", channel: "x", role: "Spoke" });
+    const fakeExemplars = vi.fn().mockResolvedValue({ exemplars: [], formatted: "PROVEN EXAMPLES BLOCK" });
+    await generateNode(
+      { ctx, workspaceId: "ws1", plan: plan([hub, spoke]), node: spoke, editPreferences: ["Cuts emoji."] },
+      noRag,
+      fakeExemplars as never,
+    );
+    const prompt = mocked.mock.calls.at(-1)?.[0] ?? "";
+    expect(prompt).toContain("<edit_preferences>\n- Cuts emoji.\n</edit_preferences>");
+    expect(prompt.indexOf("PROVEN EXAMPLES BLOCK")).toBeLessThan(prompt.indexOf("<edit_preferences>"));
+
+    await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub, spoke]), node: spoke }, noRag, fakeExemplars as never);
+    expect(mocked.mock.calls.at(-1)?.[0] ?? "").not.toContain("edit_preferences");
+  });
+
   it("bakes {{hub_url}} and {{subscriber_count}} into a promo deterministically", async () => {
     mocked.mockResolvedValue(
       JSON.stringify({ body: "Join {{subscriber_count}} readers → {{hub_url}}" }),

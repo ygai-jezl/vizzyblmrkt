@@ -695,6 +695,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Keep Vizzy's draft of a LinkedIn or X post when a person edits it, so Distribute shows
+  # what changed before posting.
+  - variable: CONTENT_AI_DRAFT_KEPT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The eBook studio and on brand social post images.
   - variable: CREATE_EBOOK_ENABLED
     value: "false"
@@ -743,6 +749,18 @@ env:
   # Learning from post results: past winners as examples, the hashtag leaderboard, post
   # patterns learned and then used, and trending topics.
   - variable: DISTRIBUTE_CLOSED_LOOP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Each published LinkedIn page or X post shows its numbers on its Distribute card (needs
+  # DISTRIBUTE_CLOSED_LOOP_ENABLED).
+  - variable: DISTRIBUTE_POST_RESULTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy learns how each person edits its LinkedIn and X posts and uses it in their next
+  # drafts (needs CONTENT_AI_DRAFT_KEPT_ENABLED and EDIT_MODE_VIZZY_LEARNING_ENABLED).
+  - variable: DISTRIBUTE_LEARN_FROM_EDITS_ENABLED
     value: "false"
     availability:
       - RUNTIME

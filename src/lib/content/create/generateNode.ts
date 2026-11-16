@@ -27,6 +27,7 @@ import {
   type ContextRetrievalRequest,
 } from "@/lib/agents/knowledgeRetrieval";
 import { retrieveExemplars } from "@/lib/distribute/feedback/retrieveExemplars";
+import { postPreferencesSection } from "@/lib/distribute/learnFromPostEdit";
 import { retrievePostPatterns } from "@/lib/distribute/feedback/patterns";
 import { buildTrendingBlock } from "@/lib/agents/trending";
 import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
@@ -73,6 +74,9 @@ export interface GenerateNodeInput {
   quick?: boolean;
   /** A blog hub's brand map (CREATE_BLOG_BRAND_MAP_ENABLED); null/absent = written as before. */
   brandMap?: ArticleMap | null;
+  /** How the person edits Vizzy's LinkedIn and X posts (DISTRIBUTE_LEARN_FROM_EDITS_ENABLED);
+   *  empty/absent = written as before. */
+  editPreferences?: readonly string[];
 }
 
 export interface GeneratedNodePatch {
@@ -430,8 +434,11 @@ export async function generateNode(
       skeleton: useSkeleton ? skeleton : "(none)",
       knowledge_context: knowledgeContext,
       proof_assets: proofBlock,
-      // Directive first (abstract rules), then trending (topicality), then instance exemplars.
-      exemplars: [patternsBlock, trendingBlock, exemplarsBlock].filter(Boolean).join("\n\n"),
+      // Directive first (abstract rules), then trending (topicality), then instance exemplars,
+      // then how this person edits Vizzy's posts (after everything about the brand).
+      exemplars: [patternsBlock, trendingBlock, exemplarsBlock, postPreferencesSection(input.editPreferences ?? [])]
+        .filter(Boolean)
+        .join("\n\n"),
     });
     prompt = composePrompt({
       identity: brandVoiceSection(input.brandVoice),

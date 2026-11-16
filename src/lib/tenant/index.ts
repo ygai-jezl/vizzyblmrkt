@@ -50,6 +50,7 @@ export {
   writePostMeasurement,
   writePostReward,
   readPostPerformance,
+  readPostPerformanceMany,
   listSettledForReward,
   listBaselineCohort,
   listScoredForChannel,

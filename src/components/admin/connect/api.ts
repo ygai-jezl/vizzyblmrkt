@@ -146,6 +146,17 @@ const MESSAGES: Record<string, string> = {
   step_done: "That part of the research has already run. Start again to run it again.",
   lookup_disabled: "Looking up identifiers isn't switched on in this environment. You can paste a link instead.",
   lookup_unavailable: "Wikidata didn't answer. Try again, or paste a link instead.",
+  // Competitors
+  competitors_disabled: "Competitors isn't switched on in this environment.",
+  not_included: "Competitors isn't included for this brand.",
+  website_required: "Type their website first.",
+  website_invalid: "That isn't a website address we can read. Try one like acme.example.",
+  website_not_https: "We can only read sites that use https.",
+  already_watching: "You're already watching this site.",
+  too_many: "You can watch up to 10 competitors. Stop watching one to add another.",
+  not_on_their_site: "That page isn't on their site.",
+  not_watching: "This competitor isn't being watched right now. Resume it or try again first.",
+  names_full: "Your brand map has no room for another name. Remove one there first.",
   // Lifecycle journeys
   connection_not_found: "That product connection doesn't exist.",
   connection_unavailable: "The journey's product connection is revoked.",

@@ -3,6 +3,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type ReviewKind } from "@/lib/review/summary";
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
+import { MarkSeenButton } from "./MarkSeenButton";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, grouped by what
@@ -44,8 +45,8 @@ export async function ReviewHub() {
 
       {total === 0 ? (
         <p className="rounded-xl border border-dashed border-shell-line p-8 text-center text-sm text-shell-muted">
-          Nothing needs you right now. AI lines, Vizzy&rsquo;s drafts, failed posts, repo results and connection problems
-          land here.
+          Nothing needs you right now. AI lines, Vizzy&rsquo;s drafts, failed posts, repo results, connection problems and
+          what your competitors changed land here.
         </p>
       ) : null}
 
@@ -75,6 +76,7 @@ export async function ReviewHub() {
                       <p className="text-sm font-medium">{item.title}</p>
                       <p className="truncate text-xs text-shell-muted">{item.detail}</p>
                     </div>
+                    {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
                     <Link
                       href={item.href}
                       className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"

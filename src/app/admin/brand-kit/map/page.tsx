@@ -21,6 +21,9 @@ import { computeCoverage } from "@/lib/content/blog/coverage";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import { isMapSaved } from "@/lib/types/brandMap";
 import { isGeminiConfigured } from "@/lib/agents/gemini";
+import { isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { listCompetitors } from "@/lib/competitors/store";
+import { brandCanUse } from "@/lib/plans/brandAccess";
 import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
 import { BrandMapTabs } from "@/components/admin/brand-kit/BrandMapTabs";
@@ -72,6 +75,13 @@ export default async function BrandMapPage() {
   const coverage = pagesOn && !scale && map && isMapSaved(map) ? computeCoverage(map, pages) : null;
   const programmes = writeNextOn ? workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name })) : null;
   const root = tenant?.rootDomain?.trim();
+  // Competitors: the ones watched, for Monitor and Monitoring on the alternatives.
+  const competitors =
+    isCompetitorsEnabled() && (await brandCanUse(ctx, "competitors").catch(() => false))
+      ? await listCompetitors(ctx)
+          .then((list) => list.map((c) => ({ id: c.id, name: c.name })))
+          .catch(() => [])
+      : null;
 
   const tabs = (
     <BrandMapTabs
@@ -90,6 +100,7 @@ export default async function BrandMapPage() {
           programmes={programmes}
           scale={scale}
           recordsDecided={Boolean(map?.recordsDecidedAt)}
+          competitors={competitors}
         />
       }
       editorLabel={scale ? "Who you are" : undefined}

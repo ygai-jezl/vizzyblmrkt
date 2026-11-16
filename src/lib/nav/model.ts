@@ -216,6 +216,7 @@ const BRAND_KIT_PAGES: Record<string, string> = {
   logos: "Logos",
   map: "Brand map",
   notes: "What we've seen",
+  competitors: "Competitors",
   steering: "Content Steering",
   voice: "Brand voice",
 };
@@ -330,6 +331,10 @@ export function breadcrumbsFor(
       if (p3 && id === "images") return [{ label: "Content", href: "/admin/workspace" }, { label: "Library" }];
       if (p3 && id === "steering") return [{ label: "Insights", href: "/admin/analytics" }, { label: "What's working" }];
       if (p3 && id === "guidelines") return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Guidelines" }];
+      // One competitor: never its name (these labels are also what Vizzy is told about the page).
+      if (id === "competitors" && rest[0]) {
+        return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Competitors", href: "/admin/brand-kit/competitors" }, { label: "Competitor" }];
+      }
       return id
         ? [{ label: "Brand", href: "/admin/brand-kit" }, { label: BRAND_KIT_PAGES[id] ?? titleCase(id) }]
         : [{ label: "Brand" }];

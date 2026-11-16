@@ -1,10 +1,12 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
 
 export default function YourBrandHelp() {
   const imageStyle = isBrandImageStyleUiEnabled();
+  const competitors = isCompetitorsUiEnabled();
   return (
     <article>
       <H1>Your brand</H1>
@@ -233,6 +235,46 @@ export default function YourBrandHelp() {
         </>
       ) : null}
 
+      {competitors ? (
+        <>
+          <H2 id="competitors">Watch your competitors</H2>
+          <P>
+            Competitors watches the businesses you compete with. We read a competitor&apos;s sitemap, the list of pages a site
+            publishes for search engines, and learn how their site is built: its sections, what its pages are about, and the
+            pages worth knowing about, such as prices, locations or comparisons. Then we check their news or blog page every
+            week for new posts, and their whole sitemap every month for pages they added or removed.
+          </P>
+          <Steps>
+            <li>
+              Open <Open href="/admin/brand-kit/competitors">Brand › Competitors</Open>.
+            </li>
+            <li>
+              Type their website under <strong>Their website</strong>. Check the <strong>Name</strong>, then press{" "}
+              <strong>Monitor</strong>.
+            </li>
+            <li>
+              Wait while it reads their site. It shows how far it has got, and it carries on if you leave the page.
+            </li>
+            <li>
+              Press <strong>Open</strong> to see <strong>How their site is built</strong>, their <strong>News page</strong> and,
+              later, <strong>What changed</strong>.
+            </li>
+          </Steps>
+          <P>
+            The name goes on your brand map as an alternative, beside the ones you have. If you haven&apos;t saved your brand map
+            yet, it waits there under Suggestions instead. On the brand map, an alternative you watch says{" "}
+            <strong>Monitoring</strong>, and one you don&apos;t has a <strong>Monitor</strong> button next to{" "}
+            <strong>Find</strong>.
+          </P>
+          <P>
+            New posts and site changes show on the competitor&apos;s card and in <Open href="/admin/approvals">Review</Open>, until
+            someone presses <strong>Mark seen</strong>. You can watch up to 10 competitors. We read only public pages, and we
+            don&apos;t read a page their robots.txt asks robots to leave alone. If we can&apos;t find their sitemap or news page,
+            paste it on the competitor&apos;s page.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="check">Check it worked</H2>
       <Checks>
         <li>
@@ -261,6 +303,13 @@ export default function YourBrandHelp() {
           ["Couldn’t find colours from that source", "Try another source, or add colours by hand with + Add colour."],
           ["That PDF is too large (max 14MB).", "Upload a smaller copy of the PDF, or fill in the fields by hand."],
           ["Extraction failed", "Press Re-extract, try another PDF, or fill in the fields by hand."],
+          ...(competitors
+            ? ([
+                ["You're already watching this site.", "Open it from Brand › Competitors instead of adding it again."],
+                ["We couldn't find a sitemap for this site.", "Paste their sitemap or their news page on the competitor's page, under Settings or News page."],
+                ["You can watch up to 10 competitors.", "Stop watching one under its Settings, then add the new one."],
+              ] as [string, string][])
+            : []),
           ...(imageStyle
             ? ([
                 ["is built from screens of your product", "Press Add screenshots, or Make it without a screenshot, or pick another style."],

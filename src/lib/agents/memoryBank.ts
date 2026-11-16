@@ -118,11 +118,22 @@ export async function learnFromEdits(
   entries: readonly LearnEntry[],
   io: MemoryBankIo = defaultIo(),
 ): Promise<void> {
-  if (!entries.length) return;
+  await learnFromEventTexts(ctx, entries.map(learningEventText), io);
+}
+
+/** Learn from lines already written in the person's own voice (Edit mode's, or a post edit's).
+ *  Same scope and request as learnFromEdits. */
+export async function learnFromEventTexts(
+  ctx: Pick<TenantContext, "tenantId" | "userId">,
+  texts: readonly string[],
+  io: MemoryBankIo = defaultIo(),
+): Promise<void> {
+  const lines = texts.map((t) => t.trim()).filter(Boolean);
+  if (!lines.length) return;
   await call(io, "POST", "/memories:generate", {
     scope: memoryScope(ctx),
     directContentsSource: {
-      events: entries.map((e) => ({ content: { role: "user", parts: [{ text: learningEventText(e) }] } })),
+      events: lines.map((text) => ({ content: { role: "user", parts: [{ text }] } })),
     },
   });
 }

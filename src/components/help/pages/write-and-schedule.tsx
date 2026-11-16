@@ -4,6 +4,8 @@ import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotes
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 import { isEditModeEnabled, isEditModeVizzyEnabled, isEditModeVizzyLearningEnabled } from "@/lib/content/editor/flags";
+import { isAiDraftKeptEnabled } from "@/lib/content/create/flags";
+import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distribute/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 
 export default function WriteAndScheduleHelp() {
@@ -173,6 +175,29 @@ export default function WriteAndScheduleHelp() {
         </li>
       </Steps>
       <P>Only LinkedIn and X posts go out for you. Other items are marked done at their time, so publish those yourself.</P>
+      {isAiDraftKeptEnabled() ? (
+        <P>
+          When you change a LinkedIn or X post Vizzy wrote, its card says how many words you changed. Press{" "}
+          <strong>Show changes</strong> to see them: words you took out are struck through and words you put in are highlighted.
+        </P>
+      ) : null}
+      {isLearnFromPostEditsEnabled() ? (
+        <P>
+          Vizzy also learns how you edit its LinkedIn and X posts, such as cutting emoji or starting with a question, and uses
+          that in your next drafts. Once a post you changed is published, Vizzy sends the words you changed, never the whole
+          post, to Agent Platform Memory Bank in this copy of YouGrow&apos;s Google Cloud project. <strong>What Vizzy remembers
+          about how you edit</strong> on the Calendar lists what it learned, the same list as in Edit mode. Only you see it, in
+          this brand, and clearing <strong>Learn from my edits</strong> stops it.
+        </P>
+      ) : null}
+      {isPostResultsEnabled() ? (
+        <P>
+          Two days after a LinkedIn company page or X post goes out, its card shows <strong>Results</strong>: impressions or
+          views, reactions or likes, comments, reposts and, on LinkedIn, clicks. YouGrow reads them again each day until the
+          post is a week old, then says how it did against your usual. Posts with at least 200 impressions and 5 actions that
+          beat your usual become examples Vizzy follows when it drafts. Posts from a personal LinkedIn profile have no results.
+        </P>
+      ) : null}
 
       <H2 id="newsletter">Send the weekly newsletter</H2>
       <P>
@@ -221,6 +246,9 @@ export default function WriteAndScheduleHelp() {
           live posting.
         </li>
         <li>The newsletter shows on the Calendar.</li>
+        {isPostResultsEnabled() ? (
+          <li>Two days after a LinkedIn company page or X post went out, its card shows Results with its numbers.</li>
+        ) : null}
         <li>
           On <Open href="/admin">Home</Open>, &quot;Schedule your first post&quot; and &quot;Send a newsletter to your
           waitlist&quot; are ticked.
@@ -247,6 +275,26 @@ export default function WriteAndScheduleHelp() {
             "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
           ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
+          ...(isPostResultsEnabled()
+            ? ([
+                [
+                  "Too few views to learn from",
+                  "The post's numbers still show. Vizzy only learns from posts with at least 200 impressions and 5 actions.",
+                ],
+                [
+                  "No results for posts from a personal profile.",
+                  "Results are read for company page posts. Choose your page in Post as when you schedule.",
+                ],
+                [
+                  "Reconnect it in Settings › Integrations so your next posts get results.",
+                  "Reconnect the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
+                ],
+                [
+                  "wouldn't give this post's numbers, so YouGrow stopped reading them.",
+                  "The post may have been deleted, or the account lost access to it. The numbers read before that still show.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
           ...(isBlogAiSummaryUiEnabled()
             ? ([
                 ["Approve the article to get its Summarize with AI links.", "Read the article and press Approve."],

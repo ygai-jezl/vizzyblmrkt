@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Sora } from "next/font/google";
+import localFont from "next/font/local";
 import {
   CalendarClock,
   BookOpen,
@@ -46,11 +46,13 @@ import {
 } from "@/lib/site/flags";
 import { siteMetadata } from "@/lib/site/metadata";
 
-// Self-hosted display face (no external runtime request) for headings; body keeps
-// the system stack. Scoped to this page via the CSS variable on the root wrapper.
-const display = Sora({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
+// Display face for headings (Sora, Latin, variable weight), kept in the repo with its OFL
+// licence so a build never fetches from Google Fonts: next/font/google crashes when Google
+// returns a font address without a file extension (see src/components/site/fonts.ts).
+// Body keeps the system stack. Scoped to this page via the CSS variable on the root wrapper.
+const display = localFont({
+  src: "../components/marketing/fonts/sora-latin.woff2",
+  weight: "100 800",
   variable: "--font-display",
   display: "swap",
 });

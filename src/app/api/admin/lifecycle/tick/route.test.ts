@@ -9,6 +9,8 @@ const waitlist = vi.hoisted(() => ({ runWaitlistTick: vi.fn(async () => null) })
 vi.mock("@/lib/lifecycle/waitlist/tick", () => waitlist);
 const competitors = vi.hoisted(() => ({ runCompetitorChecks: vi.fn(async () => ({ tenants: 1, advanced: 1, failed: 0, scanned: true })) }));
 vi.mock("@/lib/competitors/tick", () => competitors);
+const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenants: 1, queued: 2, read: 1, failed: 0, skipped: 0 })) }));
+vi.mock("@/lib/competitors/articleTick", () => articles);
 
 const { POST } = await import("./route");
 
@@ -52,5 +54,28 @@ describe("the lifecycle tick with Competitors", () => {
     const res = await POST(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
     expect(res.status).toBe(404);
     expect(competitors.runCompetitorChecks).not.toHaveBeenCalled();
+    expect(articles.runArticleReads).not.toHaveBeenCalled();
+  });
+
+  it("reads competitor articles beside the checks only with their switch on, within their own time", async () => {
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    await POST(machine());
+    expect(articles.runArticleReads).not.toHaveBeenCalled();
+
+    vi.stubEnv("COMPETITOR_ARTICLES_ENABLED", "true");
+    const before = Date.now();
+    const res = await POST(machine());
+    expect(await res.json()).toMatchObject({ competitors: { advanced: 1 }, competitorArticles: { read: 1 } });
+    const [{ deadlineMs }] = articles.runArticleReads.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(40_000 + 50);
+  });
+
+  it("never fails the scheduler's call when the article reads fail", async () => {
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    vi.stubEnv("COMPETITOR_ARTICLES_ENABLED", "true");
+    articles.runArticleReads.mockRejectedValueOnce(new Error("boom"));
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, competitors: { advanced: 1 } });
   });
 });

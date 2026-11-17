@@ -150,6 +150,11 @@ Each brand can watch up to 10 competitors. To keep it for some brands only, add 
 bot screen that turns away readers on cloud servers like yours. With `COMPETITORS_GOOGLE_READER_ENABLED`
 the app reads such a site's news through Gemini's URL reader instead, which costs a model call on
 every weekly check. Without it, the competitor's page says the site can't be read.
+`COMPETITOR_ARTICLES_ENABLED` reads each competitor article in full (what it covers, who it is for, the
+stats, links and calls to action it uses), with one Gemini call per article and at most 200 a month
+per brand; add `competitor_articles` to `GRANTED_ONLY_FEATURES` to keep it for some brands.
+`COMPETITOR_ARTICLES_PLANNING_ENABLED` then feeds what they wrote into the brand map, Suggest an angle,
+blog research and the writer.
 
 **Email: test mode first.** With a provider set, waitlist emails send. Product journeys
 stay in test mode, sending nothing real, until you add `LIFECYCLE_MODE_CEILING` with the

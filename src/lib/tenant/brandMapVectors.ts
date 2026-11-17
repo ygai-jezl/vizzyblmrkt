@@ -17,9 +17,10 @@ export const BRAND_MAP_VECTORS = "brand_map_vectors" as const;
 /**
  * `note`: one of the brand's first-hand notes (What we've seen, BRAND_NOTES_ENABLED). `question`:
  * the question an open question asks (BRAND_NOTES_QUESTIONS_ENABLED), apart from the notes so
- * questions never crowd them out of a search.
+ * questions never crowd them out of a search. `competitor_article`: what one competitor article
+ * covers (COMPETITOR_ARTICLES_ENABLED), so planning can ask what competitors wrote near a question.
  */
-export type BrandMapVectorKind = "subject" | "situation" | "note" | "question";
+export type BrandMapVectorKind = "subject" | "situation" | "note" | "question" | "competitor_article";
 
 /** At most this many neighbours per search (Firestore allows 1,000; nothing here needs more). */
 export const MAX_NEAREST = 50;

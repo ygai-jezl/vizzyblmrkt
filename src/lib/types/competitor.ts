@@ -38,6 +38,12 @@ export const COMPETITOR_LIMITS = {
   MAX_SAMPLE_PATHS: 50,
   /** Failed checks in a row before a competitor needs a person. */
   FAILURES_BEFORE_NEEDS_YOU: 3,
+  /** Older articles read when a competitor's articles are first read (COMPETITOR_ARTICLES_ENABLED). */
+  ARTICLE_BACKFILL: 20,
+  /** Articles one brand may have read in a calendar month (each is a Gemini call). */
+  ARTICLE_READS_PER_MONTH: 200,
+  /** Tries at one article before it counts as failed. */
+  ARTICLE_ATTEMPTS: 2,
 } as const;
 
 export const COMPETITOR_CADENCE = {
@@ -218,6 +224,8 @@ export interface Competitor {
   reader?: CompetitorReader;
   googleFind?: GoogleFind | null;
   googlePending?: GooglePendingPost[] | null;
+  /** When the article lane last queued this competitor's posts (only that lane writes it). */
+  articlesScannedAt?: string | null;
   nextPostsCheckAt: string | null;
   nextSiteCheckAt: string | null;
   lastPostsCheckAt: string | null;
@@ -276,6 +284,116 @@ export interface CompetitorChange {
   removed: { count: number; sections: ChangedSection[] };
   /** Stored as null until someone marks it seen, so "unseen" is an equality query. */
   seenAt: string | null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Their articles (COMPETITOR_ARTICLES_ENABLED): one record per post we read in full, in
+// `competitor_articles`, with the same id as its post. Findings and short quotes only, never the
+// article's text. Links and addresses always come from our own reading of the page.
+// ---------------------------------------------------------------------------------------------
+
+export const ARTICLE_STATUSES = ["queued", "reading", "read", "failed", "skipped"] as const;
+export type ArticleStatus = (typeof ARTICLE_STATUSES)[number];
+
+/** Why an article wasn't read (shown on the page). */
+export const ARTICLE_PROBLEMS = ["blocked", "turned_away", "unreachable", "not_an_article", "no_answer", "removed"] as const;
+export type ArticleProblem = (typeof ARTICLE_PROBLEMS)[number];
+
+export const ARTICLE_FORMATS = ["how_to", "list", "comparison", "case_study", "research", "opinion", "news", "guide", "glossary", "template", "other"] as const;
+export type ArticleFormat = (typeof ARTICLE_FORMATS)[number];
+
+export const ARTICLE_STAGES = ["awareness", "consideration", "decision", "retention"] as const;
+export type ArticleStage = (typeof ARTICLE_STAGES)[number];
+
+export const ARTICLE_LINK_ROLES = ["in_text", "ask", "related", "author", "source", "other"] as const;
+export type ArticleLinkRole = (typeof ARTICLE_LINK_ROLES)[number];
+
+export const ARTICLE_ASK_KINDS = ["demo", "trial", "sign_up", "contact_sales", "download", "newsletter", "webinar", "pricing", "other"] as const;
+export type ArticleAskKind = (typeof ARTICLE_ASK_KINDS)[number];
+
+export const ARTICLE_ASK_PLACES = ["top", "inline", "end"] as const;
+export type ArticleAskPlace = (typeof ARTICLE_ASK_PLACES)[number];
+
+/** Who wrote it and when, from the page's own markup. */
+export interface ArticleTrust {
+  author: string | null;
+  authorUrl: string | null;
+  /** ISO day. */
+  publishedAt: string | null;
+  updatedAt: string | null;
+  /** schema.org types the page declares, e.g. BlogPosting, Person, FAQPage. */
+  schemaTypes: string[];
+}
+
+/** A number the article uses as evidence. `quote` was found, word for word, in the article. */
+export interface ArticleStat {
+  figure: string;
+  about: string;
+  quote: string;
+  /** From the competitor's own data or customers. Never used as a fact in our drafts. */
+  theirOwn: boolean;
+  /** The outside page that backs it, when the article links one. */
+  source: { url: string; domain: string } | null;
+}
+
+export interface ArticleLinkRead {
+  url: string;
+  anchor: string;
+  role: ArticleLinkRole;
+  internal: boolean;
+}
+
+export interface ArticleCta {
+  kind: ArticleAskKind;
+  placement: ArticleAskPlace;
+  url: string;
+  text: string;
+}
+
+export interface CompetitorArticle {
+  /** The same as its post's id. */
+  id: string;
+  tenantId: string;
+  competitorId: string;
+  /** Copied from the post, so trimming old posts never leaves an article without them. */
+  url: string;
+  title: string;
+  publishedAt: string | null;
+  status: ArticleStatus;
+  problem: ArticleProblem | null;
+  attempts: number;
+  /** While a lane reads it: no other run takes it until this passes. */
+  leaseUntil: string | null;
+  leaseId: string | null;
+  queuedAt: string;
+  readAt: string | null;
+  /** "2026-11": counts reads against the brand's monthly cap (an equality query). */
+  readMonth: string | null;
+  /** Read from the page itself, or through Google for a site that turns us away (no stats, links or asks then). */
+  readBy: CompetitorReader | null;
+  /** The version of the reader that wrote these findings. */
+  version: number;
+  summary: string;
+  question: string;
+  angle: string;
+  /** The article's subject in a few words, when nothing on the brand map fits. */
+  newTopic: string | null;
+  format: ArticleFormat | null;
+  stage: ArticleStage | null;
+  /** Ids on the brand's own map. */
+  subjectIds: string[];
+  situationIds: string[];
+  audienceIds: string[];
+  reader: { roles: string[]; companies: string; pains: string[] };
+  words: number;
+  headings: string[];
+  stats: ArticleStat[];
+  sources: Array<{ url: string; domain: string; anchor: string }>;
+  links: ArticleLinkRead[];
+  asks: ArticleCta[];
+  trust: ArticleTrust;
+  /** Your names found in the text, other competitors it names, and their own products it pushes. */
+  mentions: { you: string[]; others: string[]; products: string[] };
 }
 
 const Name = z

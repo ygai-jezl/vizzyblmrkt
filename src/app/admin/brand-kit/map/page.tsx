@@ -21,7 +21,7 @@ import { computeCoverage } from "@/lib/content/blog/coverage";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import { isMapSaved } from "@/lib/types/brandMap";
 import { isGeminiConfigured } from "@/lib/agents/gemini";
-import { isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { isCompetitorArticlesPlanningEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
 import { listCompetitors } from "@/lib/competitors/store";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
@@ -83,6 +83,10 @@ export default async function BrandMapPage() {
           .catch(() => [])
       : null;
 
+  // What competitors wrote, on each subject's panel.
+  const competitorArticles =
+    competitors !== null && isCompetitorArticlesPlanningEnabled() && (await brandCanUse(ctx, "competitor_articles").catch(() => false));
+
   const tabs = (
     <BrandMapTabs
       editor={
@@ -125,7 +129,7 @@ export default async function BrandMapPage() {
                     },
                   ]
                 : []),
-              { id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} /> },
+              { id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} competitorArticles={competitorArticles} /> },
               ...(isBrandMapImportEnabled() ? [{ id: "research", label: "Your research", node: <BrandMapImport canEdit={ctx.role === "admin"} programmes={programmes} /> }] : []),
             ]
           : []

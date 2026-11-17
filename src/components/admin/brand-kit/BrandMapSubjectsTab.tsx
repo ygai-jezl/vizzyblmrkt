@@ -1,5 +1,6 @@
 "use client";
 
+import { SubjectCompetitors } from "./SubjectCompetitors";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BrandMapGroup, BrandMapQuestionRecord, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
 import type { Coverage, SubjectCoverage } from "@/lib/content/blog/coverage";
@@ -43,8 +44,11 @@ export function BrandMapSubjectsTab({
   canEdit,
   programmes,
   ungroupedTotals: ungroupedAtLoad,
+  competitorArticles = false,
 }: {
   canEdit: boolean;
+  /** Show what competitors wrote on each subject (COMPETITOR_ARTICLES_PLANNING_ENABLED). */
+  competitorArticles?: boolean;
   /** The programmes an open question can be written in; null = not offered. */
   programmes: Array<{ id: string; name: string }> | null;
   ungroupedTotals: Partial<GroupTotals> | null;
@@ -429,6 +433,7 @@ export function BrandMapSubjectsTab({
               act={act}
               decide={decide}
               onGone={() => setOpenId(null)}
+              competitorArticles={competitorArticles}
             />
           ) : (
             <p className="text-xs text-neutral-500">Choose a subject to see its questions and what your pages answer.</p>
@@ -449,7 +454,9 @@ function SubjectDetail({
   act,
   decide,
   onGone,
+  competitorArticles,
 }: {
+  competitorArticles: boolean;
   read: SubjectRead;
   groups: BrandMapGroup[];
   canEdit: boolean;
@@ -638,6 +645,8 @@ function SubjectDetail({
           ))}
         </section>
       ) : null}
+
+      {competitorArticles ? <SubjectCompetitors subjectId={subject.id} /> : null}
 
       {canEdit ? (
         <div className="space-y-1.5 border-t border-neutral-100 pt-2 dark:border-neutral-800">

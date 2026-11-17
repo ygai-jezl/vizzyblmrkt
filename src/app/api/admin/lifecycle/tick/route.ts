@@ -7,7 +7,8 @@ import { drainLifecycleTenant, runLifecycleTick } from "@/lib/lifecycle/runner";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { runWaitlistTick } from "@/lib/lifecycle/waitlist/tick";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
-import { isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { runArticleReads } from "@/lib/competitors/articleTick";
 import { runCompetitorChecks } from "@/lib/competitors/tick";
 
 export const runtime = "nodejs";
@@ -29,6 +30,8 @@ export const dynamic = "force-dynamic";
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
+/** Competitor articles (COMPETITOR_ARTICLES_ENABLED) are read beside the checks: up to 3 reads of about 30s each. */
+const ARTICLES_BUDGET_MS = 40_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -46,14 +49,31 @@ export async function POST(req: Request) {
   if (machine) {
     const result = journeys ? await runLifecycleTick({}, { product, waitlist }) : {};
     let competitorChecks = null;
+    let articleReads = null;
     if (competitors) {
-      try {
-        competitorChecks = await runCompetitorChecks({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS) });
-      } catch (err) {
-        console.warn(`[competitors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-      }
+      // The checks and the article reads run side by side, each within its own budget.
+      const [checks, reads] = await Promise.all([
+        runCompetitorChecks({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS) }).catch((err: unknown) => {
+          console.warn(`[competitors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+          return null;
+        }),
+        isCompetitorArticlesEnabled()
+          ? runArticleReads({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + ARTICLES_BUDGET_MS) }).catch((err: unknown) => {
+              console.warn(`[competitors] article reads failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+              return null;
+            })
+          : Promise.resolve(null),
+      ]);
+      competitorChecks = checks;
+      articleReads = reads;
     }
-    return NextResponse.json({ ok: true, mode: "all_tenants", ...result, ...(competitors ? { competitors: competitorChecks } : {}) });
+    return NextResponse.json({
+      ok: true,
+      mode: "all_tenants",
+      ...result,
+      ...(competitors ? { competitors: competitorChecks } : {}),
+      ...(articleReads ? { competitorArticles: articleReads } : {}),
+    });
   }
 
   const blocked = sameOriginGuard(req);

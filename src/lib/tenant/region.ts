@@ -56,6 +56,25 @@ export const REGION_CONFIGS: Record<Region, RegionConfig> = {
 };
 
 /**
+ * Brand search keeps its index in a separate Firestore ENTERPRISE database per region (text
+ * search needs that edition; the app's own databases stay Standard). Same locations as the
+ * region's main database: search@nam5, search-eu@eur3, search-asia@asia-southeast1. Created by
+ * `npm run selfhost -- --apply addon:search`.
+ */
+export const SEARCH_DATABASE_IDS: Record<Region, string> = {
+  us: "search",
+  eu: "search-eu",
+  asia: "search-asia",
+};
+
+/** The search database for a region. Throws for an unknown region, like databaseIdForRegion. */
+export function searchDatabaseIdForRegion(region: Region): string {
+  const id = SEARCH_DATABASE_IDS[region];
+  if (!id) throw new Error(`No search database configured for region '${region}'`);
+  return id;
+}
+
+/**
  * Resolve a region to its Firestore database id. Throws — never silently
  * defaults — because defaulting would write a tenant's data into the wrong
  * region's database and break residency invisibly.

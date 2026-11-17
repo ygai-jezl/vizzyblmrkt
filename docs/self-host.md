@@ -126,7 +126,14 @@ npm run selfhost -- --project <your-project-id> --apply addon:<name>
 | `addon:linkedin`, `addon:x` | Posting to LinkedIn or X | You create the app on their developer site; then automated, asking for its keys in your terminal |
 | `addon:regions` | EU and Asia databases, for workspaces whose data must stay there | Automated. Each database bills on its own |
 | `addon:bigquery` | Analytics breakdowns from BigQuery | Automated. The extensions deploy may ask you to accept their permissions |
+| `addon:search` | Search that finds what a brand wrote by its words and its meaning, for people and Vizzy | Automated. Makes a Firestore Enterprise database per region you use, which bills by data read and written. Needs the `gcloud beta` component. Fill it afterwards with `npx tsx scripts/search-backfill.ts` |
 | `addon:recaptcha` | reCAPTCHA on waitlist sign-ups | Automated |
+
+**Reranking search results.** `SEARCH_RERANK_ENABLED` reorders a US brand's search results with
+Google's Ranking API (it runs only in the US and global locations, so EU and Asia brands keep the
+merged order). Turn on the Discovery Engine API (`gcloud services enable discoveryengine.googleapis.com`),
+give the App Hosting runtime service account a role with `discoveryengine.rankingConfigs.rank`, then
+set the switch to `"true"`. Without it, or if a call fails, search keeps its merged order.
 
 Each add-on writes its settings into `apphosting.live.yaml` and turns its switches on.
 Roll out afterwards: `npm run selfhost -- --project <id> --apply rollout` (or push).

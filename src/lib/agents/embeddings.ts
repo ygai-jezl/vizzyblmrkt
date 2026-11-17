@@ -283,6 +283,81 @@ export async function embedDocuments(
 }
 
 /**
+ * Brand search embeds with gemini-embedding-001 everywhere (multilingual; Google's top text
+ * model), at 768 numbers, scaled to unit length so the index can use DOT_PRODUCT. Every stored
+ * vector records SEARCH_EMBEDDING_TAG, so a later model change can find what to embed again.
+ * The laptop path (a Gemini API key) uses the same model, so its vectors share the space.
+ */
+export const SEARCH_EMBEDDING_MODEL = "gemini-embedding-001" as const;
+export const SEARCH_EMBEDDING_DIM = 768;
+export const SEARCH_EMBEDDING_TAG = `${SEARCH_EMBEDDING_MODEL}@${SEARCH_EMBEDDING_DIM}`;
+/** gemini-embedding-001 on Vertex takes one text per request; this many requests run at once. */
+const SEARCH_EMBED_CONCURRENCY = 4;
+
+const _vertexGenai = new Map<string, GoogleGenAI>();
+function vertexGenai(location: string): GoogleGenAI {
+  let c = _vertexGenai.get(location);
+  if (!c) {
+    c = new GoogleGenAI({ vertexai: true, project: process.env.GOOGLE_CLOUD_PROJECT, location });
+    _vertexGenai.set(location, c);
+  }
+  return c;
+}
+
+/**
+ * Embed texts for brand search, in the brand's region (one request per text on Vertex). One
+ * vector per input, in order; a slot is null when that text failed or nothing can embed, so the
+ * caller stores the text without a vector (words still find it) and tries again later.
+ */
+export async function embedForSearch(
+  items: Array<{ content: string; title?: string }>,
+  region: Region,
+  taskType: EmbeddingTaskType,
+): Promise<Array<number[] | null>> {
+  const out: Array<number[] | null> = items.map(() => null);
+  const backend = embeddingBackend();
+  if (!backend || !items.length) return out;
+  if (backend === "gemini-api") {
+    const wanted = items.map((it, i) => ({ i, content: it.content.trim(), title: it.title })).filter((it) => it.content);
+    try {
+      const vectors = await embedWithGeminiApi(wanted, taskType);
+      wanted.forEach((it, k) => (out[it.i] = vectors[k] ?? null));
+    } catch (err) {
+      console.warn("[embeddings] embedForSearch failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+    return out;
+  }
+  const client = vertexGenai(embeddingLocation(region));
+  let next = 0;
+  let failures = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      const item = items[i];
+      const content = item?.content.trim();
+      if (!item || !content) continue;
+      try {
+        const res = await client.models.embedContent({
+          model: SEARCH_EMBEDDING_MODEL,
+          contents: content,
+          config: {
+            taskType,
+            outputDimensionality: SEARCH_EMBEDDING_DIM,
+            ...(taskType === "RETRIEVAL_DOCUMENT" && item.title ? { title: item.title } : {}),
+          },
+        });
+        const values = res.embeddings?.[0]?.values;
+        out[i] = Array.isArray(values) && values.length === SEARCH_EMBEDDING_DIM ? normalizeVector(values) : null;
+      } catch (err) {
+        if (failures++ === 0) console.warn("[embeddings] embedForSearch failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SEARCH_EMBED_CONCURRENCY, items.length) }, worker));
+  return out;
+}
+
+/**
  * Embed a single query for nearest-neighbour retrieval. Uses RETRIEVAL_QUERY, or
  * CODE_RETRIEVAL_QUERY when the query targets code (its corpus side is still
  * RETRIEVAL_DOCUMENT). Returns null on missing config / any error so the caller

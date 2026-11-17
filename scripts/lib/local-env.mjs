@@ -119,6 +119,7 @@ export function readLocalSettings() {
 export const SWITCHES_KEPT_OFF = {
   RECAPTCHA_ENABLED: "needs a real reCAPTCHA Enterprise key and project; with it on, every waitlist sign-up is refused",
   EDIT_MODE_VIZZY_LEARNING_ENABLED: "needs Agent Platform Memory Bank in a real Google Cloud project; the emulators have none",
+  SEARCH_RERANK_ENABLED: "needs Google's Ranking API in a real Google Cloud project; local search keeps the merged order",
 };
 
 export function featureSwitchNames() {

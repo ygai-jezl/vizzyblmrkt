@@ -157,7 +157,7 @@ export async function updateCompetitor(ctx: TenantContext, id: string, patch: Co
     if (!url) return { ok: false, status: 400, error: "not_on_their_site" };
     next.news = { url, feedUrl: null, chosenBy: "manual", baselineAt: null, checkedAt: null };
     next.nextPostsCheckAt = now;
-    if (c.problem === "no_news_page" || c.problem === "news_unreachable" || c.problem === "blocked") next.problem = null;
+    if (c.problem === "no_news_page" || c.problem === "news_unreachable" || c.problem === "blocked" || c.problem === "turned_away") next.problem = null;
     if (c.status === "needs_you") Object.assign(next, { status: "watching", stage: null, failures: 0, problem: null });
   }
   if (patch.sitemapUrl !== undefined) {
@@ -186,7 +186,8 @@ export async function retryCompetitor(ctx: TenantContext, id: string, deps: Stor
   const now = nowOf(deps).toISOString();
   const next: Partial<Competitor> = c.sitemap || c.news
     ? { status: "watching", stage: null, problem: null, failures: 0, nextPostsCheckAt: c.news ? now : null, nextSiteCheckAt: c.sitemap ? now : null, updatedAt: now }
-    : { status: "finding", stage: "plain", problem: null, failures: 0, updatedAt: now };
+    : // From the start, reading it ourselves first: a site that turned us away may let us in now.
+      { status: "finding", stage: "plain", problem: null, failures: 0, reader: "direct", googleFind: null, googlePending: null, updatedAt: now };
   await repoOf(ctx, deps).competitors.update(id, next);
   return { ok: true, value: { ...c, ...next } };
 }

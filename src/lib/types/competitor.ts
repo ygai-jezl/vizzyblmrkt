@@ -59,6 +59,7 @@ export const COMPETITOR_PROBLEMS = [
   "news_unreachable",
   "read_failed",
   "blocked",
+  "turned_away",
 ] as const;
 export type CompetitorProblem = (typeof COMPETITOR_PROBLEMS)[number];
 
@@ -66,6 +67,30 @@ export type CompetitorProblem = (typeof COMPETITOR_PROBLEMS)[number];
 export type SitemapFoundBy = "robots" | "common" | "search" | "manual";
 /** How its news page was chosen. */
 export type NewsChosenBy = "analysis" | "path" | "search" | "manual";
+/**
+ * How we read the site: ourselves, or through Google (Gemini's URL reader) when the site turns
+ * automated readers like ours away. Through Google we watch the news only: links come from their
+ * sitemap files, never from a web page, and there is no whole site baseline.
+ */
+export type CompetitorReader = "direct" | "google";
+
+/** Finding a turned away site's news through Google, one file a step. */
+export interface GoogleFind {
+  /** Sitemap files still to read through Google, in order. */
+  queue: string[];
+  /** Their robots.txt has been read (through Google) and its sitemaps queued. */
+  robotsRead: boolean;
+  /** Their robots.txt, cut short, so every file we queue is one it lets us read. Null: none read. */
+  robots: string | null;
+  /** Files read so far (a cap, so a site of endless indexes ends). */
+  reads: number;
+}
+
+/** A new post seen in a check through Google, waiting for its title. */
+export interface GooglePendingPost {
+  url: string;
+  publishedAt: string | null;
+}
 
 export interface SitemapFile {
   url: string;
@@ -160,6 +185,8 @@ export interface CompetitorNews {
   url: string;
   feedUrl: string | null;
   chosenBy: NewsChosenBy;
+  /** Through Google: the sitemap file that lists their posts (read weekly instead of the page). */
+  sitemapUrl?: string | null;
   /** When the first read was kept as the baseline (null: not read yet). */
   baselineAt: string | null;
   checkedAt: string | null;
@@ -187,6 +214,10 @@ export interface Competitor {
   /** The site changed enough this month to put words to its shape again. */
   relabel: boolean;
   news: CompetitorNews | null;
+  /** Missing on competitors added before there was a choice: "direct". */
+  reader?: CompetitorReader;
+  googleFind?: GoogleFind | null;
+  googlePending?: GooglePendingPost[] | null;
   nextPostsCheckAt: string | null;
   nextSiteCheckAt: string | null;
   lastPostsCheckAt: string | null;

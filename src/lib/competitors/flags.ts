@@ -19,3 +19,12 @@ export function isCompetitorsUiEnabled(): boolean {
 export function isCompetitorsChatEnabled(): boolean {
   return isCompetitorsEnabled() && process.env.COMPETITORS_CHAT_ENABLED === "true";
 }
+
+/**
+ * Read a site that turns automated readers away (a bot screen in front of it) through Google
+ * instead: Gemini's URL reader fetches their robots.txt and sitemap files from Google's side. News
+ * only, and it costs model calls on every check. Off: such a site says it can't be read.
+ */
+export function isCompetitorsGoogleReaderEnabled(): boolean {
+  return isCompetitorsEnabled() && process.env.COMPETITORS_GOOGLE_READER_ENABLED === "true";
+}

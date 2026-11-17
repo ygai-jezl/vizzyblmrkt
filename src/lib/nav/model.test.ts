@@ -142,6 +142,9 @@ describe("breadcrumbsFor", () => {
     expect(labels("/admin/analytics")).toEqual(["Insights"]);
     expect(labels("/admin/account")).toEqual(["Settings", "Domains"]);
     expect(labels("/admin/brand-kit/steering")).toEqual(["Brand", "Content Steering"]);
+    expect(labels("/admin/brand-kit/competitors")).toEqual(["Brand", "Competitors"]);
+    expect(labels("/admin/brand-kit/competitors/cmp_abc12345")).toEqual(["Brand", "Competitors", "Competitor"]);
+    expect(breadcrumbsFor("/admin/brand-kit/competitors/cmp_abc12345", names)[1]?.href).toBe("/admin/brand-kit/competitors");
     expect(labels("/admin/lifecycle/lcj_1")).toEqual(["Journeys", "Journey"]);
   });
 

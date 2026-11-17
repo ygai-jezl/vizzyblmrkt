@@ -608,6 +608,21 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Competitors: watch another business's site (its sitemap monthly, its news page weekly),
+  # and Vizzy reading what changed (needs the first). Fetches their public pages and uses Gemini.
+  - variable: COMPETITORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_COMPETITORS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: COMPETITORS_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

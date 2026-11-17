@@ -74,7 +74,7 @@ export const RecordStatus = z.enum(["decided", "proposed", "dismissed"]);
 export type RecordStatus = z.infer<typeof RecordStatus>;
 
 /** Where a record came from. */
-export const RecordFrom = z.enum(["person", "move", "research", "situations", "import", "article", "vizzy"]);
+export const RecordFrom = z.enum(["person", "move", "research", "situations", "import", "article", "vizzy", "competitors"]);
 export type RecordFrom = z.infer<typeof RecordFrom>;
 
 /** What every record carries besides its own fields. `rev` moves on each edit, for conflicts. */

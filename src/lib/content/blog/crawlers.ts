@@ -133,6 +133,31 @@ function mayRead(rules: Rule[], path: string): boolean {
   return best ? best.allow : true;
 }
 
+/**
+ * May the crawler named `agent` (its product token, such as "yougrowbot") read `path`? Its own
+ * group's rules when it is named, else everyone's. Used by Competitors before it reads a page.
+ */
+export function allowedFor(robotsTxt: string, agent: string, path = "/"): boolean {
+  const at = path.startsWith("/") ? path.slice(0, 2000) : "/";
+  return mayRead(rulesFor(parseRobots(robotsTxt), agent), at);
+}
+
+const MAX_SITEMAP_LINES = 50;
+
+/** The sitemaps a robots.txt names on its `Sitemap:` lines, in order, each once (http and https only). */
+export function robotsSitemaps(robotsTxt: string): string[] {
+  const out: string[] = [];
+  for (const raw of (robotsTxt ?? "").split(/\r?\n/)) {
+    const hash = raw.indexOf("#");
+    const line = (hash === -1 ? raw : raw.slice(0, hash)).trim();
+    const m = /^sitemap\s*:\s*(\S+)/i.exec(line);
+    if (!m?.[1] || !/^https?:\/\//i.test(m[1]) || out.includes(m[1])) continue;
+    out.push(m[1].slice(0, 2000));
+    if (out.length >= MAX_SITEMAP_LINES) break;
+  }
+  return out;
+}
+
 /** The AI crawlers this robots.txt keeps away from `path` ("/" = the site's front door). */
 export function blockedCrawlers(robotsTxt: string, path = "/"): string[] {
   const groups = parseRobots(robotsTxt);

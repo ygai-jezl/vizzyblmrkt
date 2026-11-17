@@ -140,6 +140,14 @@ and set `EDIT_MODE_VIZZY_LEARNING_ENABLED` to `"true"`. Every brand gets it, and
 it off. To keep it for some brands only, set `GRANTED_ONLY_FEATURES` to `edit_vizzy_learning` and grant
 brands with `scripts/grant-feature.ts`.
 
+**Competitors.** `COMPETITORS_ENABLED` and `NEXT_PUBLIC_COMPETITORS_ENABLED` add Brand › Competitors:
+a person types a competitor's website and presses Monitor, and the app reads that site's sitemap, then
+checks its news page every week and its sitemap every month. That means your copy fetches other
+businesses' public pages (it obeys their robots.txt and names itself `YouGrowBot`) and calls Gemini
+to describe what it finds. The checks ride the lifecycle tick, so they need its Cloud Scheduler job.
+Each brand can watch up to 10 competitors. To keep it for some brands only, add `competitors` to
+`GRANTED_ONLY_FEATURES` and grant brands with `scripts/grant-feature.ts`.
+
 **Email: test mode first.** With a provider set, waitlist emails send. Product journeys
 stay in test mode, sending nothing real, until you add `LIFECYCLE_MODE_CEILING` with the
 value `"live"` to your settings file. Journeys also need `EMAIL_DEFAULT_PRIVACY_URL`, which

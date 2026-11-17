@@ -17,6 +17,9 @@ const WRITE_ON_THEIR_OWN = [
   "lifecycle.insight_line",
   "lifecycle.email_copy",
   "content.image_alt_text",
+  "competitors.analyse_site",
+  "competitors.summarise_posts",
+  "competitors.summarise_site_changes",
 ];
 
 describe("no dashes in our copy", () => {

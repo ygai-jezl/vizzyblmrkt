@@ -49,6 +49,7 @@ import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
 import type { BrandAuthor } from "@/lib/types/brandAuthor";
 import type { BrandNote } from "@/lib/types/brandNote";
 import type { SiteKey } from "@/lib/types/siteKey";
+import type { Competitor, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -416,6 +417,11 @@ export interface TenantRepositories {
   brandNotes: TenantCollection<BrandNote>;
   /** A launch's site key, one per launch by launch id (src/lib/waitlist/siteKeys.ts). */
   siteKeys: TenantCollection<SiteKey>;
+  /** Competitors a brand watches (src/lib/competitors/store.ts), with their sitemap's pages, posts and changes. */
+  competitors: TenantCollection<Competitor>;
+  competitorPages: TenantCollection<CompetitorPagesChunk>;
+  competitorPosts: TenantCollection<CompetitorPost>;
+  competitorChanges: TenantCollection<CompetitorChange>;
 }
 
 /**
@@ -539,5 +545,11 @@ export function forTenant(
     // A launch's site key (a sealed secret, no end-user PII) sits with its launch → regional DB.
     // The control-plane `launch_keys` lookup lives in src/lib/tenant/launchKeys.ts.
     siteKeys: new TenantCollection<SiteKey>(regionalDb, "launch_site_keys", t),
+    // What a brand learns about its competitors (their public pages, no end-user PII) sits with
+    // the content it informs → regional DB, like the brand map.
+    competitors: new TenantCollection<Competitor>(regionalDb, "competitors", t),
+    competitorPages: new TenantCollection<CompetitorPagesChunk>(regionalDb, "competitor_pages", t),
+    competitorPosts: new TenantCollection<CompetitorPost>(regionalDb, "competitor_posts", t),
+    competitorChanges: new TenantCollection<CompetitorChange>(regionalDb, "competitor_changes", t),
   };
 }

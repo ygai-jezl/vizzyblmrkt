@@ -7,10 +7,12 @@ import {
   agentInviteWaveItem,
   agentContentPlanItem,
   brandMapItem,
+  competitorItems,
   connectionItem,
   contentHubItem,
   countReview,
   failedPostItem,
+  forgetReviewCount,
   loadReview,
   repoResultsItem,
   resetReviewCountCache,
@@ -262,5 +264,53 @@ describe("the brand map's row, with the map at any size", () => {
     // "Audits" is a proposal on the records now (1): counted there, not on the list as well.
     expect(brandMapItem(map, 1)).toMatchObject({ title: "2 waiting on your brand map", detail: "From Vizzy, and new subjects and questions" });
     vi.unstubAllEnvs();
+  });
+});
+
+describe("what competitors changed, in Review", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("one row per competitor with unseen changes, newest first, and one for a competitor that needs you", () => {
+    const items = competitorItems(
+      [
+        { id: "cmp_a00000001", name: "Acme Dental", status: "watching", problem: null },
+        { id: "cmp_b00000001", name: "Brightsmile", status: "needs_you", problem: "no_sitemap" },
+        { id: "cmp_c00000001", name: "Quiet Co", status: "watching", problem: null },
+      ],
+      [
+        { competitorId: "cmp_a00000001", headline: "18 pages added under /locations/", at: "2026-11-01T00:00:00Z" },
+        { competitorId: "cmp_a00000001", headline: "3 new posts on implants", at: "2026-11-09T00:00:00Z" },
+      ],
+    );
+    expect(items).toEqual([
+      {
+        id: "cmp:cmp_a00000001",
+        kind: "competitor_news",
+        title: "Acme Dental: 3 new posts on implants",
+        detail: "And 1 more change since you last looked",
+        href: "/admin/brand-kit/competitors/cmp_a00000001",
+        action: "Open",
+        markSeen: { competitorId: "cmp_a00000001" },
+      },
+      expect.objectContaining({ id: "cmp_needs:cmp_b00000001", title: "Brightsmile needs you", href: "/admin/brand-kit/competitors/cmp_b00000001" }),
+    ]);
+  });
+
+  it("are loaded only with the switch on, and Mark seen can clear the cached count", async () => {
+    const db = new FakeFirestore();
+    db.seed("competitors", "cmp_a00000001", { tenantId: "ten_A", name: "Acme Dental", status: "watching", problem: null, createdAt: "2026-11-01T00:00:00Z" });
+    db.seed("competitor_changes", "cc_1", { tenantId: "ten_A", competitorId: "cmp_a00000001", headline: "3 new posts", at: "2026-11-09T00:00:00Z", seenAt: null });
+    db.seed("competitor_changes", "cc_2", { tenantId: "ten_B", competitorId: "cmp_b", headline: "Not ours", at: "2026-11-09T00:00:00Z", seenAt: null });
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    const r = await loadReview(ctx, { lifecycle: false, includeContent: false }, db);
+    expect(r.items.map((i) => i.title)).toEqual(["Acme Dental: 3 new posts"]);
+
+    resetReviewCountCache();
+    expect(await countReview(ctx, { lifecycle: false, now: 1_000 }, db)).toBe(1);
+    db.seed("competitor_changes", "cc_1", { tenantId: "ten_A", competitorId: "cmp_a00000001", headline: "3 new posts", at: "2026-11-09T00:00:00Z", seenAt: "2026-11-10T00:00:00Z" });
+    expect(await countReview(ctx, { lifecycle: false, now: 2_000 }, db)).toBe(1); // cached
+    forgetReviewCount("ten_A");
+    expect(await countReview(ctx, { lifecycle: false, now: 3_000 }, db)).toBe(0);
   });
 });

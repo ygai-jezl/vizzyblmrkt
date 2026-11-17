@@ -331,6 +331,22 @@ export function readPageMeta(html: string, now = new Date()): Pick<FetchedPage, 
   return { title, siteName: metaContent(html, "og:site_name").slice(0, 120), year };
 }
 
+/** A post's title, description and published date (ISO day), read from its own markup. */
+export function readPostMeta(html: string, now = new Date()): { title: string; description: string; publishedAt: string | null } {
+  const { title } = readPageMeta(html, now);
+  const description = (metaContent(html, "og:description") || metaContent(html, "description")).slice(0, 400);
+  const dated =
+    metaContent(html, "article:published_time") ||
+    metaContent(html, "datePublished") ||
+    /"datePublished"\s*:\s*"(\d{4}-\d{2}-\d{2})/i.exec(html)?.[1] ||
+    /<time[^>]+datetime=["'](\d{4}-\d{2}-\d{2})/i.exec(html)?.[1] ||
+    metaContent(html, "date") ||
+    "";
+  const day = /^(\d{4}-\d{2}-\d{2})/.exec(dated)?.[1] ?? null;
+  const ok = day !== null && !Number.isNaN(Date.parse(day)) && Date.parse(day) <= now.getTime() + 86_400_000;
+  return { title, description, publishedAt: ok ? day : null };
+}
+
 export async function fetchSourcePage(url: string): Promise<FetchedPage | null> {
   try {
     const res = await safeFetch(

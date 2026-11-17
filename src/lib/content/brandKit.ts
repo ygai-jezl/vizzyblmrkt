@@ -136,6 +136,8 @@ export const BRAND_KIT_SCREENSHOTS_ROUTE = "/admin/brand-kit/screenshots";
 export const BRAND_KIT_MAP_ROUTE = "/admin/brand-kit/map";
 /** Brand › What we've seen (gated by BRAND_NOTES_ENABLED, see src/lib/brandNotes/flags.ts). */
 export const BRAND_KIT_NOTES_ROUTE = "/admin/brand-kit/notes";
+/** Brand › Competitors (gated by COMPETITORS_ENABLED, see src/lib/competitors/flags.ts). */
+export const BRAND_KIT_COMPETITORS_ROUTE = "/admin/brand-kit/competitors";
 
 /**
  * The DERIVED URL for an image asset's bytes, served through the authenticated

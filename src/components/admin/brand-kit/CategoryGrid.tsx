@@ -18,6 +18,7 @@ import {
   Paintbrush,
   MonitorSmartphone,
   Plus,
+  Binoculars,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -34,6 +35,7 @@ import {
   BRAND_KIT_SCREENSHOTS_ROUTE,
   BRAND_KIT_MAP_ROUTE,
   BRAND_KIT_NOTES_ROUTE,
+  BRAND_KIT_COMPETITORS_ROUTE,
   isBrandVoiceUiEnabled,
   isBrandKitLogosUiEnabled,
   isContentSteeringUiEnabled,
@@ -44,6 +46,7 @@ import {
 import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
+import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 
 interface Category {
@@ -99,6 +102,7 @@ const CATEGORIES: Category[] = [
   // Hidden (not "Soon") while the Brand map flag is off.
   ...(isBrandMapUiEnabled() ? [{ key: "brand-map", label: "Brand map", icon: MapIcon, href: BRAND_KIT_MAP_ROUTE }] : []),
   ...(isBrandNotesUiEnabled() ? [{ key: "notes", label: "What we've seen", icon: NotebookPen, href: BRAND_KIT_NOTES_ROUTE }] : []),
+  ...(isCompetitorsUiEnabled() ? [{ key: "competitors", label: "Competitors", icon: Binoculars, href: BRAND_KIT_COMPETITORS_ROUTE }] : []),
   { key: "images", label: "Images", icon: Images, href: BRAND_KIT_IMAGES_ROUTE },
   {
     key: "content-steering",

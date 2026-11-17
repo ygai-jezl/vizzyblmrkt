@@ -23,7 +23,7 @@ import { readerOf, wasRead, type GoogleDeps } from "./google";
  * and what its links do. Nothing it says is taken on trust:
  *
  * - links are named by number, and every address comes from our own reading of the page;
- * - a stat is kept only when its sentence is found, word for word, in the article;
+ * - a stat is kept only when it is a measured result and its sentence is found, word for word, in the article;
  * - brand map ids must be ones we offered;
  * - your names and other competitors' names are found in the text by code, not by the model.
  *
@@ -31,8 +31,16 @@ import { readerOf, wasRead, type GoogleDeps } from "./google";
  * text of ours to check a quote, a link or an ask against.
  */
 
-/** Bumped when what a read records changes, so older records can be told apart. */
-export const READER_VERSION = 1;
+/**
+ * Bumped when what a read records changes. An article read by an older version is read again when
+ * nothing new is waiting (see articleTick.ts). 2: stats are measured results only.
+ */
+export const READER_VERSION = { direct: 2, google: 1 } as const;
+
+/** Whether an article was read by an older reader than today's, so reading it again would change it. */
+export function readByOlderReader(a: Pick<CompetitorArticle, "status" | "readBy" | "version">): boolean {
+  return a.status === "read" && (a.version ?? 0) < READER_VERSION[a.readBy ?? "direct"];
+}
 /** Reading needs little thinking, and none keeps a read inside its time (6 to 9 seconds measured). */
 const THINKING = 0;
 /**
@@ -127,7 +135,26 @@ const Raw = z.object({
   ctas: List.optional(),
   productsPushed: z.array(z.string()).catch([]).optional(),
 });
-const Stat = z.object({ figure: z.string(), about: Text, quote: z.string(), theirOwn: z.boolean().catch(false), sourceLink: z.number().int().catch(0).optional() });
+/** What a number in an article is. Only a result is evidence; the rest are named so the model has somewhere to put them. */
+const STAT_KINDS = ["result", "setup", "setting", "price", "date", "example"] as const;
+const Stat = z.object({
+  figure: z.string(),
+  about: Text,
+  quote: z.string(),
+  kind: z.enum(STAT_KINDS),
+  theirOwn: z.boolean().catch(false),
+  sourceLink: z.number().int().catch(0).optional(),
+});
+
+const MONTHS = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|june?|july?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/i;
+/** "May" is a month only beside a number ("May 2026", "8 May"), not in "may rise". */
+const MAY = /\bmay\s+\d|\d(st|nd|rd|th)?\s+may\b/i;
+
+/** A figure that is a date ("June 30, 2026", "2026-11"), whatever the model called it. */
+export function isDateFigure(figure: string): boolean {
+  return MONTHS.test(figure) || MAY.test(figure) || /\b(19|20)\d\d-\d\d\b/.test(figure);
+}
+
 const LinkRole = z.object({ n: z.number().int(), role: z.enum(ARTICLE_LINK_ROLES) });
 const Cta = z.object({ n: z.number().int(), kind: z.enum(ARTICLE_ASK_KINDS), placement: z.enum(ARTICLE_ASK_PLACES) });
 
@@ -237,7 +264,8 @@ export function checkFindings(raw: unknown, page: ArticlePage | null, cand: Read
   const stats: ArticleStat[] = [];
   for (const item of r.stats ?? []) {
     const s = Stat.safeParse(item);
-    if (!s.success || !quoteFound(hay, s.data.quote, s.data.figure)) continue;
+    // Only a measured result counts as a stat: not a date, a test's set up, a setting, a price or an example.
+    if (!s.success || s.data.kind !== "result" || isDateFigure(s.data.figure) || !quoteFound(hay, s.data.quote, s.data.figure)) continue;
     const link = s.data.sourceLink ? byN.get(s.data.sourceLink) : undefined;
     const source = link && !link.internal ? { url: link.url, domain: domainOf(link.url) } : null;
     stats.push({

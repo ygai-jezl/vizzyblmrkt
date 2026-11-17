@@ -37,7 +37,7 @@ const ANSWER = {
   stage: "consideration",
   subjectIds: ["sub_signups"],
   reader: { roles: ["Shop owners"], companies: "Small shops", pains: ["Flat sign ups"] },
-  stats: [{ figure: "3x", about: "Sign ups", quote: "Sign ups rose 3x in a month for our customers.", theirOwn: true, sourceLink: 0 }],
+  stats: [{ figure: "3x", about: "Sign ups", quote: "Sign ups rose 3x in a month for our customers.", kind: "result", theirOwn: true, sourceLink: 0 }],
   links: [{ n: 1, role: "ask" }],
   ctas: [{ n: 1, kind: "demo", placement: "end" }],
   productsPushed: [],
@@ -133,7 +133,7 @@ describe("runArticleReads", () => {
     expect(one).toMatchObject({
       readBy: "direct",
       readMonth: "2026-11",
-      version: 1,
+      version: 2,
       subjectIds: ["sub_signups"],
       format: "case_study",
       asks: [{ kind: "demo", url: `${W}/demo` }],
@@ -219,5 +219,61 @@ describe("runArticleReads", () => {
     await tick({ readWithGoogle });
     expect((await listArticles(A, id2, deps))[0]).toMatchObject({ status: "read", readBy: "google", format: "case_study", stats: [], links: [], asks: [] });
     expect(deps.generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("reading again what an older reader read", () => {
+  const older = async (id: string, title: string, over: Partial<CompetitorArticle> = {}) => {
+    const a = (await listArticles(A, id, deps)).find((x) => x.title === title)!;
+    await forTenant(A, db).competitorArticles.update(a.id, {
+      version: 1,
+      summary: "What the older reader said.",
+      stats: [{ figure: "512 tokens", about: "A setting", quote: "x", theirOwn: true, source: null }],
+      ...over,
+    });
+    return a.id;
+  };
+  const one = async (id: string) => (await forTenant(A, db).competitorArticles.getById(id))!;
+
+  it("reads it again only when nothing new is waiting, and keeps only results this time", async () => {
+    const id = await competitor(4);
+    await tick();
+    const old = await older(id, "Post 4");
+    // Post 1 is still waiting, so it goes first.
+    expect(await tick()).toMatchObject({ read: 1, refreshed: 0 });
+    expect((await one(old)).version).toBe(1);
+    expect(await tick()).toMatchObject({ read: 0, refreshed: 1 });
+    expect(await one(old)).toMatchObject({ status: "read", version: 2, summary: ANSWER.summary, stats: [{ figure: "3x" }], leaseId: null });
+    expect(await tick()).toMatchObject({ read: 0, refreshed: 0 });
+  });
+
+  it("keeps what the older reader found when reading again finds nothing, and doesn't try it again", async () => {
+    const id = await competitor(2);
+    await tick();
+    const silent = await older(id, "Post 2");
+    const gone = await older(id, "Post 1");
+    web.delete(`${W}/blog/post-1`);
+    deps.generate.mockResolvedValue(null);
+    await tick();
+    for (const x of [silent, gone]) expect(await one(x)).toMatchObject({ status: "read", version: 2, problem: null, summary: "What the older reader said.", stats: [{ figure: "512 tokens" }] });
+    const calls = deps.generate.mock.calls.length;
+    expect(await tick()).toMatchObject({ refreshed: 0, failed: 0 });
+    expect(deps.generate.mock.calls.length).toBe(calls);
+  });
+
+  it("keeps 50 of the month's reads for new posts, and leaves reads through Google alone", async () => {
+    const id = await competitor(2);
+    await tick();
+    const old = await older(id, "Post 2");
+    const google = await older(id, "Post 1", { readBy: "google" });
+    const repo = forTenant(A, db).competitorArticles;
+    // Read this month for a competitor that is no longer watched, by an older reader too: never read again.
+    for (let i = 0; i < 148; i++) await repo.create(`old_${i}`, { competitorId: "cmp_gone", readMonth: "2026-11", status: "read", readBy: "direct", version: 1, queuedAt: "2026-11-01T00:00:00.000Z" } as never);
+    expect(await tick()).toMatchObject({ refreshed: 0 });
+    expect((await one(old)).version).toBe(1);
+    await repo.delete("old_0");
+    expect(await tick()).toMatchObject({ refreshed: 1 });
+    expect((await one(old)).version).toBe(2);
+    expect((await one(google)).version).toBe(1);
   });
 });

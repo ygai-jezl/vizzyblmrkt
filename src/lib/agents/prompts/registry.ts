@@ -1956,7 +1956,7 @@ Reply with nothing else. Leave out a page you could not read.`,
   },
   "competitors.read_article": {
     id: "competitors.read_article",
-    version: 1,
+    version: 2,
     description:
       "Competitor articles: record what one competitor article covers, who it is for, the stats it uses and what its links do. Links by number only; code checks every quote and number.",
     template: `You read one article a competitor published and record what it does, as data, for a business that competes with them.
@@ -1989,7 +1989,8 @@ Return ONLY minified JSON with these keys:
 - stage: the reader's stage, one of awareness, consideration, decision, retention.
 - subjectIds, situationIds, audienceIds: ids from the lists above.
 - reader: {"roles": the job roles it is written for, "companies": the kind of company, "pains": the problems it names}.
-- stats: every number used as evidence, each {"figure","about","quote","theirOwn","sourceLink"}. quote is the sentence that holds the number, copied exactly. theirOwn is true when the number comes from the competitor's own data or customers. sourceLink is the number of the link that backs it, or 0.
+- stats: each number the article reports as a measured result or finding (a share, rate, change, count found or survey answer), each {"figure","about","quote","kind","theirOwn","sourceLink"} with kind "result". quote is the sentence that holds the number, copied exactly. theirOwn is true when the number comes from the competitor's own data or customers. sourceLink is the number of the link that backs it, or 0.
+- otherNumbers: every other number in the article, each {"figure","kind"} with no quote. kind is one of setup (how a test or study was run, such as its sample size or how long it ran), setting (a product limit, setting or spec), price (a price, plan or offer), date (a date or timeframe), example (a made up or hypothetical example). Only a result is evidence.
 - links: each link's role, {"n","role"}: in_text (part of the argument), ask (asks the reader to act), related (other posts offered beside it), author, source (backs a claim), other.
 - ctas: the links that ask the reader to act, {"n","kind","placement"}. kind is one of demo, trial, sign_up, contact_sales, download, newsletter, webinar, pricing, other. placement is top, inline or end.
 - productsPushed: the competitor's own products or features the article promotes.

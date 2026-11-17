@@ -31,6 +31,8 @@ import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
+import { isSearchUiEnabled } from "@/lib/search/flags";
+import { BrandSearchResults } from "@/components/admin/search/BrandSearchResults";
 import { useThemePortalContainer } from "./AdminThemeRoot";
 import { useShell } from "./ShellProvider";
 
@@ -66,6 +68,7 @@ const lifecycle = isLifecycleUiEnabled();
 const PHASE3 = isNavV2Phase3Enabled();
 const INVITES = isInvitesUiEnabled();
 const GUIDE = isSetupGuideEnabled();
+const SEARCH = isSearchUiEnabled();
 const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3 }).flatMap((s) => s.items);
 
 const ITEM =
@@ -145,7 +148,7 @@ export function CommandPalette({
         <Command.Input
           value={query}
           onValueChange={setQuery}
-          placeholder="Jump to, create, or ask Vizzy…"
+          placeholder={SEARCH ? "Search what you wrote, jump to, or ask Vizzy…" : "Jump to, create, or ask Vizzy…"}
           className="h-12 min-w-0 flex-1 bg-transparent text-sm text-shell-ink outline-none placeholder:text-shell-faint"
         />
         <kbd className="rounded border border-shell-line px-1.5 font-mono text-[10.5px] text-shell-muted">esc</kbd>
@@ -177,6 +180,17 @@ export function CommandPalette({
               <span className="truncate">Search people for “{q}”</span>
             </Command.Item>
           </Command.Group>
+        ) : null}
+
+        {SEARCH && q ? (
+          <BrandSearchResults
+            query={q}
+            onOpen={(url) => {
+              if (url.startsWith("/")) return go(url);
+              close();
+              window.open(url, "_blank", "noopener");
+            }}
+          />
         ) : null}
 
         <Command.Group heading="Go to">

@@ -2,6 +2,8 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { AccountSettings } from "@/components/admin/AccountSettings";
+import { SearchSettingsCard } from "@/components/admin/search/SearchSettingsCard";
+import { isSearchUiEnabled } from "@/lib/search/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,17 @@ const REGION: Record<string, string> = { us: "United States", eu: "Europe", asia
  */
 export default async function AccountSettingsPage() {
   const ctx = await requireAdminContext();
-  if (!isNavV2Phase3Enabled()) return <AccountSettings />;
+  const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} /> : null;
+  if (!isNavV2Phase3Enabled()) {
+    return search ? (
+      <div className="space-y-6">
+        <AccountSettings />
+        {search}
+      </div>
+    ) : (
+      <AccountSettings />
+    );
+  }
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const rows: Array<[string, string]> = [
     ["Brand", tenant?.tenantName ?? ctx.tenantId],
@@ -36,6 +48,7 @@ export default async function AccountSettingsPage() {
         </dl>
       </section>
       <AccountSettings />
+      {search}
     </div>
   );
 }

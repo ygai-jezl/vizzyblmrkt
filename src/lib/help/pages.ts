@@ -1,5 +1,6 @@
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isOneViewEnabled } from "@/lib/audience/flags";
+import { isSearchUiEnabled } from "@/lib/search/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -22,7 +23,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search";
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -61,6 +62,7 @@ export const HELP_PAGES: HelpPage[] = [
   page("programmes-and-knowledge", "Programmes and knowledge", "grow", "Start a content programme and give it your website and documents to write from."),
   page("brand-map", "Brand map", "grow", "Set the names and subjects every blog article is written from."),
   page("write-and-schedule", "Write and schedule", "grow", "Write posts, articles and newsletters with Vizzy, then schedule and send them."),
+  page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
   page(
     "your-audience",
@@ -81,6 +83,7 @@ export const HELP_PAGES: HelpPage[] = [
 export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "site_signups") return isSiteSignupsEnabled();
   if (p.onlyWhen === "audience_one_view") return isOneViewEnabled();
+  if (p.onlyWhen === "search") return isSearchUiEnabled();
   return true;
 }
 

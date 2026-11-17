@@ -283,6 +283,22 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Email data kept whole: a record per email sent and a short id as Mandrill metadata (Mandrill
+  # drops metadata over 250 bytes, and with it the email's opens, clicks and bounces); a brand tag
+  # on verification, offboarding and site confirmation emails so their bounces suppress; and every
+  # open, click and bounce detail on the send record.
+  - variable: EMAIL_SEND_RECORDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_TRANSACTIONAL_TENANT_TAG_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_ENGAGEMENT_DETAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Date facts, and journeys that start when a date passes (needs date facts).
   - variable: CONNECT_DATE_FACTS
     value: "false"

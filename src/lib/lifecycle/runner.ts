@@ -18,6 +18,7 @@ import { effectiveBasis } from "@/lib/connect/profile";
 import type { ProductContext } from "@/lib/connect/protocol";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressedFor } from "@/lib/email/suppression";
+import { sendMetadata } from "@/lib/email/sends";
 import { lifecycleUnsubscribeLinks, resolvePrivacyUrl } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { enrolmentSendMetadata } from "@/lib/email/mandrillWebhook";
@@ -648,16 +649,20 @@ async function deliver(
           // older form is 240 for a seven-letter brand id, and is dropped whole once it's over).
           metadata: recorded
             ? enrolmentSendMetadata({ tenantId: ctx.tenantId, enrolmentId: s.enrolment.id, nodeId: d.nodeId, variantId: item.id })
-            : {
-                tenantId: ctx.tenantId,
-                journeyId: journey.id,
-                nodeId: d.nodeId,
-                signupId: user.id,
-                variantId: item.id,
-                campaignId: "",
-                recipientKind: "product_user",
-                connectionId: connection.id,
-              },
+            : await sendMetadata(
+                ctx,
+                {
+                  tenantId: ctx.tenantId,
+                  journeyId: journey.id,
+                  nodeId: d.nodeId,
+                  signupId: user.id,
+                  variantId: item.id,
+                  campaignId: "",
+                  recipientKind: "product_user",
+                  connectionId: connection.id,
+                },
+                "lifecycle",
+              ),
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
   }).catch(

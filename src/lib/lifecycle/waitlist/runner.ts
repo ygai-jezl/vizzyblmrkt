@@ -15,6 +15,7 @@ import {
 } from "@/lib/types/lifecycle";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
 import { isSuppressed } from "@/lib/email/suppression";
+import { sendMetadata } from "@/lib/email/sends";
 import { journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { recordEmailEvent } from "@/lib/email/events";
 import { resolveSender } from "@/lib/email/sender";
@@ -319,15 +320,20 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
       ? { tags: ["lifecycle-shadow"] }
       : {
           tags: ["journey", `node-${d.nodeId}`],
-          metadata: {
-            tenantId: ctx.tenantId,
-            campaignId: campaign.id,
-            journeyId: journey.id,
-            nodeId: d.nodeId,
-            signupId: signup.id,
-            variantId: d.item.id,
-            recipientKind: "signup",
-          },
+          // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s}: a canvas node's id alone takes this form past Mandrill's 250 bytes.
+          metadata: await sendMetadata(
+            ctx,
+            {
+              tenantId: ctx.tenantId,
+              campaignId: campaign.id,
+              journeyId: journey.id,
+              nodeId: d.nodeId,
+              signupId: signup.id,
+              variantId: d.item.id,
+              recipientKind: "signup",
+            },
+            "waitlist_v2",
+          ),
         }),
   }).catch(
     // sendEmail doesn't throw; if it ever does, the message may have gone out.

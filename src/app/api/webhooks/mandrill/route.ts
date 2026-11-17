@@ -12,6 +12,7 @@ import {
 } from "@/lib/email/mandrillWebhook";
 import { attributionOfEnrolmentSend } from "@/lib/lifecycle/sendAttribution";
 import { recordEmailEvent } from "@/lib/email/events";
+import { attributionOfSend, readSendRef, readTenantTag } from "@/lib/email/sends";
 import { suppressEmail } from "@/lib/email/suppression";
 import { notifyProductOfSuppression } from "@/lib/connect/suppressed";
 import { isSuppressionWebhookEnabled } from "@/lib/connect/v2/flags";
@@ -63,15 +64,19 @@ export async function POST(req: Request) {
   // Events in a batch usually share a tenant; cache the region lookup.
   const regionCache = new Map<string, Region | null>();
   const enrolmentSends = new Map<string, EventMetadata | null>();
+  const sendRecords = new Map<string, EventMetadata | null>();
   let recorded = 0;
   let skipped = 0;
 
   for (const ev of events) {
     const type = mapMandrillEventType(ev.event);
-    // A product journey's email names its enrolment; every other email carries its own attribution.
-    const ref = readEnrolmentSendRef(ev);
-    const direct = ref ? null : readEventMetadata(ev);
-    const tenantId = ref?.tenantId ?? direct?.tenantId;
+    // An email names its send record ({t, s}), or its enrolment (a product journey's), or carries its
+    // own attribution (the older long form), or only its brand ({t}: a bounce still suppresses).
+    const sendRef = readSendRef(ev);
+    const ref = sendRef ? null : readEnrolmentSendRef(ev);
+    const direct = sendRef || ref ? null : readEventMetadata(ev);
+    const tenantOnly = sendRef || ref || direct ? "" : readTenantTag(ev);
+    const tenantId = sendRef?.tenantId ?? ref?.tenantId ?? direct?.tenantId ?? (tenantOnly || undefined);
     if (!type || !tenantId) {
       skipped += 1;
       continue;
@@ -94,12 +99,17 @@ export async function POST(req: Request) {
       source: "system",
     };
     // Null: the enrolment has gone (the person was erased), so there is nobody to put the event against.
-    const meta = ref
-      ? await attributionOfEnrolmentSend(ctx, ref, { cache: enrolmentSends }).catch((err) => {
-          console.error("[mandrill-webhook] failed to read the enrolment", err);
+    const meta = sendRef
+      ? await attributionOfSend(ctx, sendRef.sendId, { cache: sendRecords }).catch((err) => {
+          console.error("[mandrill-webhook] failed to read the send record", err);
           return null;
         })
-      : direct;
+      : ref
+        ? await attributionOfEnrolmentSend(ctx, ref, { cache: enrolmentSends }).catch((err) => {
+            console.error("[mandrill-webhook] failed to read the enrolment", err);
+            return null;
+          })
+        : direct;
     // An email that couldn't say which step it was is still someone's: its bounce or complaint counts below.
     if (!meta?.nodeId) {
       skipped += 1;

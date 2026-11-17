@@ -15,6 +15,7 @@ import type { Broadcast } from "@/lib/types/broadcast";
 import type { Journey } from "@/lib/types/journey";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { EmailEvent } from "@/lib/types/emailEvent";
+import type { EmailSend } from "@/lib/types/emailSend";
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
@@ -330,6 +331,9 @@ export interface TenantRepositories {
   emailJobs: TenantCollection<EmailJob>;
   /** Per-recipient engagement events (opens/clicks/...) from Mandrill webhooks. */
   emailEvents: TenantCollection<EmailEvent>;
+  /** One record per email sent: its attribution (from a short Mandrill id) and, with
+   *  EMAIL_ENGAGEMENT_DETAIL_ENABLED, every open, click and bounce detail. Personal data. */
+  emailSends: TenantCollection<EmailSend>;
   /** Tenant-wide unsubscribe / spam / hard-bounce opt-outs (send-time suppression). */
   emailSuppressions: TenantCollection<EmailSuppression>;
   /** Unified CRM: person records + company intelligence. Email history is read
@@ -462,6 +466,7 @@ export function forTenant(
     journeys: new TenantCollection<Journey>(regionalDb, "journeys", t),
     emailJobs: new TenantCollection<EmailJob>(regionalDb, "email_jobs", t),
     emailEvents: new TenantCollection<EmailEvent>(regionalDb, "email_events", t),
+    emailSends: new TenantCollection<EmailSend>(regionalDb, "email_sends", t),
     // Opt-outs are keyed by email (marketing PII) → regional DB, like signups.
     emailSuppressions: new TenantCollection<EmailSuppression>(
       regionalDb,

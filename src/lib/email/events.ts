@@ -26,14 +26,21 @@ export interface RecordEventInput {
   url?: string | null;
 }
 
-/** Build the deterministic dedupe id (= the document id). */
-export function emailEventId(
-  input: Pick<RecordEventInput, "journeyId" | "nodeId" | "signupId" | "variantId" | "type" | "enrolmentId">,
+/** What every event of one email shares: the event id without its type (and the send record's key). */
+export function emailEventKeyBase(
+  input: Pick<RecordEventInput, "journeyId" | "nodeId" | "signupId" | "variantId" | "enrolmentId">,
 ): string {
   // An email that names its enrolment keeps its own rows: the same step sent again on a later
   // entry isn't a repeat of the first. Emails sent before that (and waitlist emails) keep the old key.
   const entry = input.enrolmentId ? `:${input.enrolmentId}` : "";
-  return `evt:${input.journeyId}:${input.nodeId}:${input.signupId}:${input.variantId}${entry}:${input.type}`;
+  return `evt:${input.journeyId}:${input.nodeId}:${input.signupId}:${input.variantId}${entry}`;
+}
+
+/** Build the deterministic dedupe id (= the document id). */
+export function emailEventId(
+  input: Pick<RecordEventInput, "journeyId" | "nodeId" | "signupId" | "variantId" | "type" | "enrolmentId">,
+): string {
+  return `${emailEventKeyBase(input)}:${input.type}`;
 }
 
 export async function recordEmailEvent(

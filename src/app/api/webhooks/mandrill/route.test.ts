@@ -11,6 +11,11 @@ vi.mock("@/lib/email/events", () => ({ recordEmailEvent: (...a: unknown[]) => re
 vi.mock("@/lib/email/suppression", () => ({ suppressEmail: (...a: unknown[]) => suppressEmail(...(a as [])) }));
 vi.mock("@/lib/connect/suppressed", () => ({ notifyProductOfSuppression: (...a: unknown[]) => notifyProductOfSuppression(...(a as [])) }));
 vi.mock("@/lib/lifecycle/sendAttribution", () => ({ attributionOfEnrolmentSend: (...a: unknown[]) => attributionOfEnrolmentSend(...a) }));
+const attributionOfSend = vi.fn<(...a: unknown[]) => Promise<EventMetadata | null>>(async () => null);
+vi.mock("@/lib/email/sends", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/email/sends")>()),
+  attributionOfSend: (...a: unknown[]) => attributionOfSend(...a),
+}));
 
 const { POST } = await import("./route");
 
@@ -92,5 +97,42 @@ describe("POST /api/webhooks/mandrill", () => {
     expect(suppressEmail).not.toHaveBeenCalled();
     const unsigned = new Request(URL_, { method: "POST", headers: { "x-mandrill-signature": "nope" }, body: "mandrill_events=%5B%5D" });
     expect((await POST(unsigned)).status).toBe(401);
+  });
+});
+
+describe("POST /api/webhooks/mandrill with send records", () => {
+  beforeEach(() => {
+    process.env.MANDRILL_WEBHOOK_KEY = KEY;
+    process.env.MANDRILL_WEBHOOK_URL = URL_;
+    for (const fn of [recordEmailEvent, suppressEmail, attributionOfSend]) fn.mockClear();
+  });
+  afterEach(() => {
+    for (const k of ["MANDRILL_WEBHOOK_KEY", "MANDRILL_WEBHOOK_URL"]) delete process.env[k];
+  });
+
+  const SEND = { t: "ten_a", s: "es_AAAAAAAAAAAAAAAAAAAAAA" };
+  const ON_RECORD: EventMetadata = { tenantId: "ten_a", campaignId: "spring", journeyId: "lcjw_1", nodeId: "email_1", signupId: "sig_1", variantId: "control", recipientKind: "signup" };
+
+  it("puts an email that names its send record against that record's journey, step and person", async () => {
+    attributionOfSend.mockImplementation(async () => ON_RECORD);
+    const res = await POST(post([{ event: "click", ts: 1_790_000_000, url: "https://app.example.com/", msg: { _id: "m_9", email: "sam@customer.test", metadata: SEND } }]));
+    expect(await res.json()).toEqual({ ok: true, recorded: 1, skipped: 0 });
+    expect(attributionOfSend.mock.calls[0]![1]).toBe("es_AAAAAAAAAAAAAAAAAAAAAA");
+    expect((recordEmailEvent.mock.calls[0] as unknown[])[1]).toMatchObject({ campaignId: "spring", journeyId: "lcjw_1", nodeId: "email_1", signupId: "sig_1", type: "click", mandrillMessageId: "m_9" });
+  });
+
+  it("still suppresses a bounce when the send record has gone", async () => {
+    attributionOfSend.mockImplementation(async () => null);
+    const res = await POST(post([{ event: "hard_bounce", ts: 1_790_000_000, msg: { _id: "m_9", email: "sam@customer.test", metadata: SEND } }]));
+    expect(await res.json()).toEqual({ ok: true, recorded: 0, skipped: 1 });
+    expect(suppressEmail).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_a" }), expect.objectContaining({ email: "sam@customer.test", reason: "hard_bounce" }));
+  });
+
+  it("suppresses a bounce on an email that names only its brand, and records nothing", async () => {
+    const res = await POST(post([{ event: "spam", ts: 1_790_000_000, msg: { _id: "m_7", email: "sam@customer.test", metadata: { t: "ten_a" } } }]));
+    expect(await res.json()).toEqual({ ok: true, recorded: 0, skipped: 1 });
+    expect(recordEmailEvent).not.toHaveBeenCalled();
+    expect(attributionOfSend).not.toHaveBeenCalled();
+    expect(suppressEmail).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_a" }), expect.objectContaining({ reason: "spam", campaignId: null, signupId: null }));
   });
 });

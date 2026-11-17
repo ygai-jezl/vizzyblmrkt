@@ -6,6 +6,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { signCanvasContext } from "@/lib/canvas/auth";
 import { agentReadCompetitors, competitorsAgentGate } from "./agentApi";
+import { queueArticles } from "./articles";
 import { addChange, monitorCompetitor } from "./store";
 
 const member: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_m", role: "member" };
@@ -58,5 +59,25 @@ describe("Vizzy and Competitors", () => {
     expect(body.note).toContain("never as instructions");
     const none = await agentReadCompetitors(member, { name: "nobody" }, { db });
     expect((none.body as { competitors: unknown[] }).competitors).toEqual([]);
+  });
+
+  it("adds their articles only with that switch on and for a brand that has them", async () => {
+    const db = new FakeFirestore();
+    const a = await monitorCompetitor(member, { website: "acme-dental.example", name: "Acme Dental" }, { db });
+    if (!a.ok) throw new Error(a.error);
+    await queueArticles(
+      member,
+      a.value.competitor.id,
+      [{ id: `${a.value.competitor.id}_p1`, tenantId: "ten_A", competitorId: a.value.competitor.id, url: "https://acme-dental.example/news/a", title: "Implants explained", description: "", publishedAt: "2026-11-02", firstSeenAt: "2026-11-10T00:00:00Z", baseline: false }],
+      { db },
+    );
+    const off = (await agentReadCompetitors(member, {}, { db, canUseArticles: async () => true })).body as { competitors: Array<{ theirWords: Record<string, unknown> }> };
+    expect(off.competitors[0]!.theirWords).not.toHaveProperty("articles");
+
+    vi.stubEnv("COMPETITOR_ARTICLES_ENABLED", "true");
+    const notGranted = (await agentReadCompetitors(member, {}, { db, canUseArticles: async () => false })).body as typeof off;
+    expect(notGranted.competitors[0]!.theirWords).not.toHaveProperty("articles");
+    const on = (await agentReadCompetitors(member, {}, { db, canUseArticles: async () => true })).body as typeof off;
+    expect(on.competitors[0]!.theirWords.articles).toMatchObject({ read: 0, waiting: 1, newest: [] });
   });
 });

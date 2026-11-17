@@ -122,9 +122,53 @@ export const KEPT_OFF = {
   COMPETITORS_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy reading your competitors needs the agent" },
   LIFECYCLE_PERSON_BRIEF: { addon: "vizzy", why: "Vizzy reading one person needs the agent" },
   LIFECYCLE_PERSON_PLANS: { addon: "vizzy", why: "a plan per person needs the agent" },
+  SEARCH_INDEX_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
+  SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
+  SEARCH_RERANK_ENABLED: { addon: "search", why: "reorders US brands' results with Google's Ranking API" },
+  NEXT_PUBLIC_SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
+  VIZZY_SEARCH_ENABLED: { addon: "search", why: "Vizzy searching the brand needs the search databases and the agent" },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
 };
+
+/**
+ * Brand search (addon:search): a Firestore ENTERPRISE database per region, next to the region's
+ * own database (text search needs that edition). `location: null` means "where (default) is".
+ * Must match SEARCH_DATABASE_IDS in src/lib/tenant/region.ts.
+ */
+export const SEARCH_DATABASES = [
+  { region: "us", database: "search", location: null, needs: "(default)" },
+  { region: "eu", database: "search-eu", location: "eur3", needs: "signups-eu" },
+  { region: "asia", database: "search-asia", location: "asia-southeast1", needs: "signups-asia" },
+];
+export const SEARCH_COLLECTION_GROUP = "search_docs";
+/** Must match SEARCH_EMBEDDING_DIM in src/lib/agents/embeddings.ts. */
+export const SEARCH_VECTOR_DIM = 768;
+const TEXT_SPEC = '{"text-spec":{"index-specs":[{"index-type":"tokenized","match-type":"match-globally"}]}}';
+
+/**
+ * The gcloud arguments that create a search database and its two indexes. Enterprise turns
+ * Firestore access off and MongoDB access on unless told otherwise, and `update` can't change
+ * either, so both are set here. Text indexes are `gcloud beta` only; a text index and a vector
+ * index can't share one definition.
+ */
+export function searchDatabaseArgs(project, database, location) {
+  return {
+    create: ["firestore", "databases", "create", `--database=${database}`, `--location=${location}`, "--edition=enterprise", "--enable-firestore-data-access", "--no-enable-mongodb-compatible-data-access", `--project=${project}`],
+    textIndex: [
+      "beta", "firestore", "indexes", "composite", "create", `--database=${database}`, `--collection-group=${SEARCH_COLLECTION_GROUP}`, "--query-scope=COLLECTION",
+      `--field-config=field-path=title,search-config=${TEXT_SPEC}`,
+      `--field-config=field-path=text,search-config=${TEXT_SPEC}`,
+      "--search-index-options=text-language=en,text-language-override-field-path=lang",
+      `--project=${project}`, "--async",
+    ],
+    vectorIndex: [
+      "firestore", "indexes", "composite", "create", `--database=${database}`, `--collection-group=${SEARCH_COLLECTION_GROUP}`, "--query-scope=COLLECTION",
+      `--field-config=field-path=embedding,vector-config={"dimension":"${SEARCH_VECTOR_DIM}","flat":"{}"}`,
+      `--project=${project}`, "--async",
+    ],
+  };
+}
 
 /** The switches an add-on turns on. LinkedIn also turns on the posting switches marked "x". */
 export function switchesForAddon(addon) {

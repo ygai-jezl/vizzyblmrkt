@@ -54,10 +54,14 @@ import {
   RUNTIME_ROLES,
   SCHEDULER_JOBS,
   SCHEDULER_LOCATION,
+  SEARCH_COLLECTION_GROUP,
+  SEARCH_DATABASES,
+  SEARCH_VECTOR_DIM,
   WEB_API_KEY_SECRET,
   WEB_APP_NAME,
   assetBucketName,
   runtimeServiceAccount,
+  searchDatabaseArgs,
   signingKeyName,
   switchesForAddon,
 } from "./spec.mjs";
@@ -217,6 +221,29 @@ function storageLocationFor(firestoreLocation) {
 
 function firestoreDb(ctx, database = "(default)") {
   return memo(ctx, `db:${database}`, () => gcloudJson(["firestore", "databases", "describe", `--database=${database}`, `--project=${ctx.project}`]));
+}
+
+/** The search databases this project needs: one per region whose own database exists, where it is. */
+function searchDatabasesFor(ctx) {
+  return SEARCH_DATABASES.filter((s) => firestoreDb(ctx, s.needs).ok).map((s) => ({
+    ...s,
+    location: s.location ?? firestoreDb(ctx, "(default)").data?.locationId ?? DEFAULT_FIRESTORE_LOCATION,
+  }));
+}
+
+/** A search database that exists, is Enterprise and lets the Firestore API in. */
+function searchDbReady(ctx, database) {
+  const r = firestoreDb(ctx, database);
+  return Boolean(r.ok && r.data?.databaseEdition === "ENTERPRISE" && r.data?.firestoreDataAccessMode === "DATA_ACCESS_MODE_ENABLED");
+}
+
+/** Which of the two search indexes a search database already has. */
+function searchIndexesPresent(ctx, database) {
+  const r = gcloudJson(["beta", "firestore", "indexes", "composite", "list", `--database=${database}`, `--project=${ctx.project}`]);
+  const list = r.ok && Array.isArray(r.data) ? r.data : [];
+  const onGroup = list.filter((i) => String(i.name ?? "").includes(`/collectionGroups/${SEARCH_COLLECTION_GROUP}/`));
+  const has = (pred) => onGroup.some((i) => (i.fields ?? []).some(pred));
+  return { text: has((f) => f.searchConfig), vector: has((f) => f.vectorConfig) };
 }
 
 // ---------------------------------------------------------------------------
@@ -987,6 +1014,50 @@ export const ADDONS = [
         show: `bash infra/lifecycle/setup.sh ttl ${ctx.project}`,
       });
       return code === 0 ? ok() : fail("Turning on the TTL policies failed (see above).");
+    },
+  },
+  {
+    id: "addon:search",
+    title: "Brand search: find what a brand wrote by words and meaning",
+    how: "automated; uses gcloud beta for the text indexes",
+    check(ctx) {
+      const wanted = searchDatabasesFor(ctx);
+      const missing = wanted.filter((s) => !searchDbReady(ctx, s.database));
+      if (missing.length) return todo(`missing: ${missing.map((s) => s.database).join(", ")}`);
+      return envValue(ctx, "SEARCH_INDEX_ENABLED") === "true" ? done(wanted.map((s) => s.database).join(", ")) : todo("databases ready; switches off");
+    },
+    changes: (ctx) => {
+      const wanted = searchDatabasesFor(ctx);
+      return [
+        `Create Firestore Enterprise databases ${wanted.map((s) => `${s.database} (${s.location})`).join(", ")}: each bills on its own, by data read and written, and its location is permanent`,
+        `Create a words index (title, text) and a meaning index (embedding, ${SEARCH_VECTOR_DIM} numbers) on ${SEARCH_COLLECTION_GROUP} in each`,
+        `Turn on ${switchesForAddon("search").length} search switches in apphosting.${ctx.envName}.yaml (SEARCH_RERANK_ENABLED only matters for US brands)`,
+        "Fill the index for every brand afterwards: npx tsx scripts/search-backfill.ts (a dry run first)",
+      ];
+    },
+    async apply(ctx) {
+      for (const s of searchDatabasesFor(ctx)) {
+        const args = searchDatabaseArgs(ctx.project, s.database, s.location);
+        const existing = firestoreDb(ctx, s.database);
+        if (existing.ok && !searchDbReady(ctx, s.database)) {
+          return fail(`${s.database} exists but isn't an Enterprise database with Firestore access on. Delete it (it holds only the index) and run this again.`);
+        }
+        if (!existing.ok) {
+          const code = await runLive(ctx, "gcloud", args.create);
+          if (code !== 0) return fail(`Creating ${s.database} failed (see above).`);
+        }
+        const present = searchIndexesPresent(ctx, s.database);
+        if (!present.text) {
+          const code = await runLive(ctx, "gcloud", args.textIndex);
+          if (code !== 0) return fail(`Creating the words index on ${s.database} failed (see above). It needs the gcloud beta component: gcloud components install beta`);
+        }
+        if (!present.vector) {
+          const code = await runLive(ctx, "gcloud", args.vectorIndex);
+          if (code !== 0) return fail(`Creating the meaning index on ${s.database} failed (see above).`);
+        }
+      }
+      ctx.say("  The indexes build in the background (a few minutes). Search finds nothing until they are ready.");
+      return setForAddon(ctx, "search", []);
     },
   },
   {

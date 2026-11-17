@@ -26,6 +26,7 @@ import {
   updateCompetitor,
   type Result,
 } from "./store";
+import { articlesForDetail, type CoverageDeps } from "./coverage";
 import { detailOf, summaryOf } from "./view";
 
 /**
@@ -55,7 +56,7 @@ export const CHECK_LIMIT = { prefix: "competitors_check", burstLimit: 2, hourlyL
 /** Work done in one request while a person waits. */
 const ADVANCE_MS = 20_000;
 
-export type ApiDeps = StepDeps & { limit?: typeof isRateLimited };
+export type ApiDeps = StepDeps & CoverageDeps & { limit?: typeof isRateLimited };
 
 const noStore = { "cache-control": "no-store" };
 
@@ -79,8 +80,13 @@ async function listView(ctx: TenantContext, deps: ApiDeps) {
 async function detailView(ctx: TenantContext, id: string, deps: ApiDeps) {
   const c = await getCompetitor(ctx, id, deps);
   if (!c) return null;
-  const [changes, posts, mapped] = await Promise.all([listChanges(ctx, id, deps), listPosts(ctx, id, deps), onBrandMap(ctx, [c], deps)]);
-  return detailOf(c, changes, posts, mapped.has(c.id));
+  const [changes, posts, mapped, articles] = await Promise.all([
+    listChanges(ctx, id, deps),
+    listPosts(ctx, id, deps),
+    onBrandMap(ctx, [c], deps),
+    articlesForDetail(ctx, id, deps).catch(() => null),
+  ]);
+  return detailOf(c, changes, posts, mapped.has(c.id), articles);
 }
 
 export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}): Promise<Response> {

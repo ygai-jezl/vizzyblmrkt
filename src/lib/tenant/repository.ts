@@ -49,7 +49,7 @@ import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
 import type { BrandAuthor } from "@/lib/types/brandAuthor";
 import type { BrandNote } from "@/lib/types/brandNote";
 import type { SiteKey } from "@/lib/types/siteKey";
-import type { Competitor, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
+import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -422,6 +422,8 @@ export interface TenantRepositories {
   competitorPages: TenantCollection<CompetitorPagesChunk>;
   competitorPosts: TenantCollection<CompetitorPost>;
   competitorChanges: TenantCollection<CompetitorChange>;
+  /** Their articles read in full (COMPETITOR_ARTICLES_ENABLED): findings and short quotes, never the text. */
+  competitorArticles: TenantCollection<CompetitorArticle>;
 }
 
 /**
@@ -551,5 +553,6 @@ export function forTenant(
     competitorPages: new TenantCollection<CompetitorPagesChunk>(regionalDb, "competitor_pages", t),
     competitorPosts: new TenantCollection<CompetitorPost>(regionalDb, "competitor_posts", t),
     competitorChanges: new TenantCollection<CompetitorChange>(regionalDb, "competitor_changes", t),
+    competitorArticles: new TenantCollection<CompetitorArticle>(regionalDb, "competitor_articles", t),
   };
 }

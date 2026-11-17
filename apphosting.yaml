@@ -629,6 +629,19 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Read each competitor article in full: what it covers, who it is for, its stats, links and
+  # asks. A Gemini call per article, 200 a month per brand at most (needs COMPETITORS_ENABLED;
+  # per brand: the competitor_articles feature).
+  - variable: COMPETITOR_ARTICLES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # What competitors wrote feeds the brand map, Suggest an angle, blog research and the writer
+  # (needs COMPETITOR_ARTICLES_ENABLED).
+  - variable: COMPETITOR_ARTICLES_PLANNING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

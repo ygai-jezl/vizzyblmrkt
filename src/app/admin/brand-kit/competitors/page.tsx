@@ -2,9 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
-import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
+import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
-import { isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
 import { listCompetitors, onBrandMap, unseenChanges } from "@/lib/competitors/store";
 import { summaryOf } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
@@ -31,6 +31,7 @@ export default async function CompetitorsRoute({ searchParams }: { searchParams:
         return [];
       })
     : [];
+  const coverage = included && isCompetitorArticlesEnabled() && (await brandCanUse(ctx, "competitor_articles"));
   const prefill = ((await searchParams).name ?? "").replace(/[\r\n]/g, " ").trim().slice(0, COMPETITOR_LIMITS.MAX_NAME);
 
   return (
@@ -47,6 +48,11 @@ export default async function CompetitorsRoute({ searchParams }: { searchParams:
           Watch the businesses you compete with. We learn how their website is built, then tell you when they publish
           something new or change their site.
         </p>
+        {coverage ? (
+          <Link href={`${BRAND_KIT_COMPETITORS_ROUTE}/coverage`} className="mt-2 inline-block text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+            What they write about
+          </Link>
+        ) : null}
       </div>
       {included ? (
         <CompetitorsPage initial={list} canEdit={ctx.role === "admin"} prefillName={prefill} />

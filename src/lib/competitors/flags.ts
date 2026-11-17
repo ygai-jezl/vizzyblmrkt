@@ -28,3 +28,13 @@ export function isCompetitorsChatEnabled(): boolean {
 export function isCompetitorsGoogleReaderEnabled(): boolean {
   return isCompetitorsEnabled() && process.env.COMPETITORS_GOOGLE_READER_ENABLED === "true";
 }
+
+/** Read each competitor article in full and keep what it covers (needs COMPETITORS_ENABLED). */
+export function isCompetitorArticlesEnabled(): boolean {
+  return isCompetitorsEnabled() && process.env.COMPETITOR_ARTICLES_ENABLED === "true";
+}
+
+/** What competitors wrote feeds the brand map, Suggest an angle, research and the writer (needs COMPETITOR_ARTICLES_ENABLED). */
+export function isCompetitorArticlesPlanningEnabled(): boolean {
+  return isCompetitorArticlesEnabled() && process.env.COMPETITOR_ARTICLES_PLANNING_ENABLED === "true";
+}

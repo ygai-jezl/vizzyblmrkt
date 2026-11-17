@@ -5,6 +5,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { isCompetitorsEnabled } from "@/lib/competitors/flags";
 import { getCompetitor, listChanges, listPosts, onBrandMap } from "@/lib/competitors/store";
+import { articlesForDetail } from "@/lib/competitors/coverage";
 import { detailOf } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { CompetitorDetail } from "@/components/admin/brand-kit/CompetitorDetail";
@@ -18,7 +19,12 @@ export default async function CompetitorRoute({ params }: { params: Promise<{ co
   const { competitorId } = await params;
   const c = await getCompetitor(ctx, competitorId);
   if (!c) notFound();
-  const [changes, posts, mapped] = await Promise.all([listChanges(ctx, c.id), listPosts(ctx, c.id), onBrandMap(ctx, [c])]);
+  const [changes, posts, mapped, articles] = await Promise.all([
+    listChanges(ctx, c.id),
+    listPosts(ctx, c.id),
+    onBrandMap(ctx, [c]),
+    articlesForDetail(ctx, c.id).catch(() => null),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -28,7 +34,7 @@ export default async function CompetitorRoute({ params }: { params: Promise<{ co
       >
         <ChevronLeft size={14} /> Competitors
       </Link>
-      <CompetitorDetail initial={detailOf(c, changes, posts, mapped.has(c.id))} canEdit={ctx.role === "admin"} />
+      <CompetitorDetail initial={detailOf(c, changes, posts, mapped.has(c.id), articles)} canEdit={ctx.role === "admin"} />
     </div>
   );
 }

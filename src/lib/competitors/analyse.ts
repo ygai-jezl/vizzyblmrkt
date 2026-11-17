@@ -25,7 +25,7 @@ export interface AnalyseDeps {
 const THINKING = 1024;
 
 /** Someone else's text, inside our <site_text> fence: it can't close the fence early. */
-function fenced(text: string): string {
+export function fenced(text: string): string {
   return stripFenceDelimiters(text);
 }
 

@@ -6,15 +6,16 @@ import { api, errorText } from "@/components/admin/connect/api";
 import { Badge, Banner, Button, Field, Section, Tabs, inputClass } from "@/components/admin/connect/ui";
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { COMPETITOR_LIMITS, type ChangedSection, type CompetitorChange } from "@/lib/types/competitor";
-import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, type CompetitorDetail as Detail } from "@/lib/competitors/view";
+import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, formatLabel, type CompetitorDetail as Detail } from "@/lib/competitors/view";
 import { BRAND_MAP_NOTE, shortDate, statsLine } from "./CompetitorsPage";
+import { CompetitorArticles } from "./CompetitorArticles";
 
 /**
  * Brand › Competitors › one competitor: what changed (newest first), how their site is built,
  * their news page, and its settings. Members read; admins change, check and stop watching.
  */
 
-type Tab = "changes" | "site" | "news" | "settings";
+type Tab = "changes" | "site" | "articles" | "news" | "settings";
 
 const SETTING_UP = new Set(["finding", "reading", "analysing"]);
 
@@ -61,7 +62,7 @@ function Sections({ title, side, website }: { title: string; side: { count: numb
   );
 }
 
-function Change({ change, website }: { change: CompetitorChange; website: string }) {
+function Change({ change, website, formats }: { change: CompetitorChange; website: string; formats: Map<string, string> }) {
   return (
     <li className="space-y-2 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -89,6 +90,7 @@ function Change({ change, website }: { change: CompetitorChange; website: string
                 {p.title || p.url}
               </a>
               {p.publishedAt ? <span className="text-xs text-neutral-500"> · {shortDate(p.publishedAt)}</span> : null}
+              {formats.get(p.url) ? <span className="text-xs text-neutral-500"> · {formats.get(p.url)}</span> : null}
             </li>
           ))}
         </ul>
@@ -135,6 +137,8 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
   const [confirmStop, setConfirmStop] = useState(false);
 
   const base = `/api/admin/brand-kit/competitors/${c.id}`;
+  // A post read in full shows its format beside it in What changed.
+  const formats = new Map((c.articles ?? []).flatMap((x) => (x.status === "read" && x.format ? [[x.url, formatLabel(x.format)] as const] : [])));
 
   async function run(label: string, path: string, init: RequestInit, after?: (data: Record<string, unknown>) => void) {
     setBusy(label);
@@ -214,6 +218,7 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
         tabs={[
           { id: "changes", label: unseen ? `What changed · ${unseen}` : "What changed" },
           { id: "site", label: "How their site is built" },
+          ...(c.articles ? [{ id: "articles" as const, label: "What they write" }] : []),
           { id: "news", label: "News page" },
           ...(canEdit ? [{ id: "settings" as const, label: "Settings" }] : []),
         ]}
@@ -242,7 +247,7 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
           {c.changes.length ? (
             <ul className="space-y-3">
               {c.changes.map((ch) => (
-                <Change key={ch.id} change={ch} website={c.website} />
+                <Change key={ch.id} change={ch} website={c.website} formats={formats} />
               ))}
             </ul>
           ) : (
@@ -252,6 +257,10 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
             </p>
           )}
         </div>
+      ) : null}
+
+      {tab === "articles" && c.articles && c.articleTotals ? (
+        <CompetitorArticles articles={c.articles} totals={c.articleTotals} subjectNames={c.subjectNames} />
       ) : null}
 
       {tab === "site" ? (

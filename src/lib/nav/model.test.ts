@@ -144,6 +144,7 @@ describe("breadcrumbsFor", () => {
     expect(labels("/admin/brand-kit/steering")).toEqual(["Brand", "Content Steering"]);
     expect(labels("/admin/brand-kit/competitors")).toEqual(["Brand", "Competitors"]);
     expect(labels("/admin/brand-kit/competitors/cmp_abc12345")).toEqual(["Brand", "Competitors", "Competitor"]);
+    expect(labels("/admin/brand-kit/competitors/coverage")).toEqual(["Brand", "Competitors", "What they write about"]);
     expect(breadcrumbsFor("/admin/brand-kit/competitors/cmp_abc12345", names)[1]?.href).toBe("/admin/brand-kit/competitors");
     expect(labels("/admin/lifecycle/lcj_1")).toEqual(["Journeys", "Journey"]);
   });

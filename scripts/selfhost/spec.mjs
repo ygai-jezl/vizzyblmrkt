@@ -124,7 +124,7 @@ export const KEPT_OFF = {
   LIFECYCLE_PERSON_PLANS: { addon: "vizzy", why: "a plan per person needs the agent" },
   SEARCH_INDEX_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
   SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
-  SEARCH_RERANK_ENABLED: { addon: "search", why: "reorders US brands' results with Google's Ranking API" },
+  SEARCH_RERANK_ENABLED: { addon: null, why: "reorders US brands' results with Google's Ranking API; needs the Discovery Engine API and discoveryengine.rankingConfigs.rank for the runtime service account" },
   NEXT_PUBLIC_SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
   VIZZY_SEARCH_ENABLED: { addon: "search", why: "Vizzy searching the brand needs the search databases and the agent" },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },

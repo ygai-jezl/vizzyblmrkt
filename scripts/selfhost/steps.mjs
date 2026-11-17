@@ -1031,7 +1031,7 @@ export const ADDONS = [
       return [
         `Create Firestore Enterprise databases ${wanted.map((s) => `${s.database} (${s.location})`).join(", ")}: each bills on its own, by data read and written, and its location is permanent`,
         `Create a words index (title, text) and a meaning index (embedding, ${SEARCH_VECTOR_DIM} numbers) on ${SEARCH_COLLECTION_GROUP} in each`,
-        `Turn on ${switchesForAddon("search").length} search switches in apphosting.${ctx.envName}.yaml (SEARCH_RERANK_ENABLED only matters for US brands)`,
+        `Turn on ${switchesForAddon("search").length} search switches in apphosting.${ctx.envName}.yaml (reranking stays off; docs/self-host.md says how to turn it on)`,
         "Fill the index for every brand afterwards: npx tsx scripts/search-backfill.ts (a dry run first)",
       ];
     },

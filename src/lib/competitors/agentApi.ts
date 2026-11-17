@@ -3,7 +3,7 @@ import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { TenantContext } from "@/lib/tenant/types";
 import { isCompetitorsChatEnabled } from "./flags";
 import { listChanges, listCompetitors, type StoreDeps } from "./store";
-import { PROBLEM_TEXT, STATUS_LABEL } from "./view";
+import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL } from "./view";
 
 /**
  * What Vizzy may do with Competitors (COMPETITORS_CHAT_ENABLED): read the competitors a brand
@@ -45,6 +45,7 @@ export async function agentReadCompetitors(ctx: TenantContext, opts: { name?: st
         site: c.site,
         status: STATUS_LABEL[c.status],
         ...(c.problem ? { problem: PROBLEM_TEXT[c.problem] } : {}),
+        ...(c.reader === "google" ? { readThroughGoogle: GOOGLE_NOTE } : {}),
         pages: c.sitemap?.pages ?? null,
         newsPage: c.news?.url ?? null,
         postsPerMonth: a?.stats.newsPerMonth ?? null,

@@ -52,6 +52,7 @@ function statusText(c: CompetitorSummary): string {
 /** One line of numbers: pages, sections, how often they post. */
 export function statsLine(c: CompetitorSummary): string {
   const parts: string[] = [];
+  if (c.readThroughGoogle) parts.push("news only, read through Google");
   if (c.pages != null) parts.push(`${c.truncated ? "first " : ""}${c.pages.toLocaleString()} page${c.pages === 1 ? "" : "s"}`);
   if (c.sections) parts.push(`${c.sections} section${c.sections === 1 ? "" : "s"}`);
   if (c.newsPerMonth != null) parts.push(c.newsPerMonth >= 1 ? `about ${Math.round(c.newsPerMonth)} posts a month` : "fewer than 1 post a month");

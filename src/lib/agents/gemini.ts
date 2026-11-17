@@ -406,6 +406,62 @@ export async function generateGroundedText(
   }
 }
 
+export interface UrlRetrieval {
+  url: string;
+  /** "URL_RETRIEVAL_STATUS_SUCCESS" when Google could read it; anything else means it couldn't. */
+  status: string;
+}
+
+export interface UrlReadResult {
+  text: string;
+  /** Each address Google tried to read for the answer, and whether it could. */
+  retrieved: UrlRetrieval[];
+  model: string;
+}
+
+/**
+ * Answer with Gemini's URL context tool: Google reads the addresses named in the prompt (from its
+ * index first, then live, obeying robots.txt) and the model answers from what it read. Returns
+ * which addresses Google could read, so a caller trusts only answers about pages that were
+ * actually read. Null when Gemini is unconfigured, times out or errors. With a `thinkingBudget`, a
+ * model that won't take the setting is asked again without it while there is time. Never logs the
+ * prompt.
+ */
+export async function readUrlsWithGoogle(
+  prompt: string,
+  opts: { timeoutMs?: number } & ThinkingOptions = {},
+): Promise<UrlReadResult | null> {
+  const ai = getClient();
+  if (!ai) return null;
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? 30_000);
+  const deadline = new Promise<never>((_, reject) => {
+    signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
+  });
+  // The race's loser may reject after the call has settled; that is not an error.
+  deadline.catch(() => undefined);
+  const ask = (capped: boolean) =>
+    Promise.race([
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: { tools: [{ urlContext: {} }], abortSignal: signal, ...(capped ? thinkingConfig(opts) : {}) },
+      }),
+      deadline,
+    ]);
+  try {
+    const res = await ask(opts.thinkingBudget !== undefined).catch((err: unknown) => {
+      if (opts.thinkingBudget === undefined || signal.aborted) throw err;
+      return ask(false);
+    });
+    const meta = res.candidates?.[0]?.urlContextMetadata?.urlMetadata ?? [];
+    const retrieved = meta.map((m) => ({ url: m.retrievedUrl ?? "", status: String(m.urlRetrievalStatus ?? "") }));
+    return { text: res.text ?? "", retrieved, model: TEXT_MODEL };
+  } catch (err) {
+    console.warn("[gemini] readUrlsWithGoogle failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+    return null;
+  }
+}
+
 export interface GeneratedImage {
   bytes: Buffer;
   mimeType: string;

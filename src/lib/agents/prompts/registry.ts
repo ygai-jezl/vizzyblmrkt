@@ -1922,6 +1922,38 @@ Rules:
 - Never use these words or phrases, which readers now take as signs of AI writing: ${AI_TELLS.map((t) => `"${t}"`).join(", ")}.
 - ${NO_DASHES}`,
   },
+  "competitors.read_robots": {
+    id: "competitors.read_robots",
+    version: 1,
+    description: "Competitors: copy a turned away site's robots.txt through Google's URL reader, word for word (code applies its rules).",
+    template: `Read [[url]] with the URL context tool.
+
+Reply with the file's text exactly as it is, line for line, and nothing else: no introduction, no code fences, no notes.
+If you could not read it, reply with exactly: CANNOT_READ`,
+  },
+  "competitors.read_sitemap": {
+    id: "competitors.read_sitemap",
+    version: 1,
+    description: "Competitors: copy the entries of a turned away site's sitemap file through Google's URL reader (code checks every address).",
+    template: `Read [[url]] with the URL context tool. It is an XML sitemap file.
+
+First line: KIND: index if it lists other sitemap files (<sitemap> entries), or KIND: urlset if it lists pages (<url> entries).
+Then one line per entry, newest <lastmod> first, at most [[max]] lines: the <loc> value, a tab, then the entry's <lastmod> value (nothing after the tab when it has none).
+
+Copy every value exactly as written in the file. Never add, guess, shorten or rebuild an address. Reply with nothing else: no introduction, no code fences, no notes.
+If you could not read the file, reply with exactly: CANNOT_READ`,
+  },
+  "competitors.read_posts": {
+    id: "competitors.read_posts",
+    version: 1,
+    description: "Competitors: the titles and dates of new posts on a turned away site, through Google's URL reader (code keeps only the addresses it asked about).",
+    template: `Read each of these pages with the URL context tool:
+[[urls]]
+
+For each page you could read, reply with one line: the page's address exactly as listed above, a tab, the post's title as the page shows it, a tab, the date it was published as YYYY-MM-DD (nothing after the tab when the page shows no date).
+
+Reply with nothing else. Leave out a page you could not read.`,
+  },
 };
 
 export function getPrompt(id: string): PromptTemplate {

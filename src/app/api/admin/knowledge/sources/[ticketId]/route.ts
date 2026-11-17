@@ -4,6 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, deleteOwnerKnowledge, setKnowledgeTags } from "@/lib/tenant";
 import { isCiteSource, isCiteSourcesEnabled, isWebSource, withCiteTag } from "@/lib/knowledge/cite";
+import { removeInBackground } from "@/lib/search/indexer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,5 +68,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     ticketId,
   });
   await forTenant(ctx).ingestionTickets.delete(ticketId);
+  // Its text leaves brand search too (off: nothing; the scheduled check would catch it anyway).
+  removeInBackground(ctx, "knowledge", ticketId);
   return NextResponse.json({ ok: true, deletedChunks });
 }

@@ -51,6 +51,9 @@ export class MemorySearchIndex {
         for (let n = list.length; n < previousChunks; n++) chunks().delete(key(manifest.sourceKey, n));
         manifests().set(manifest.sourceKey, { ...manifest });
       },
+      async putManifest(manifest) {
+        manifests().set(manifest.sourceKey, { ...manifest });
+      },
       async removeSource(sourceKey) {
         const m = manifests().get(sourceKey);
         for (let n = 0; n < (m?.chunks ?? 0); n++) chunks().delete(key(sourceKey, n));

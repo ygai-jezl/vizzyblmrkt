@@ -46,6 +46,22 @@ export interface SearchSource {
   url?: string;
   /** BCP-47 language of the text. Default "en". */
   lang?: string;
+  /**
+   * Already in pieces (a knowledge source's chunks): each part becomes one chunk with its own
+   * title and link, and `body` is ignored.
+   */
+  parts?: Array<{ title?: string; text: string; url?: string }>;
+}
+
+/**
+ * What the scheduled check sees of a record before reading it in full: a version that changes
+ * when the record does. Unchanged version, nothing read or embedded.
+ */
+export interface SearchStub {
+  kind: SearchKind;
+  ref: string;
+  version: string;
+  load(): Promise<SearchSource | null>;
 }
 
 /** One stored chunk (brands/{tenantId}/search_docs/{id}). */
@@ -76,6 +92,8 @@ export interface SearchManifest {
   /** False when some chunk has no embedding yet; the scheduled check tries again. */
   embedded: boolean;
   indexedAt: string;
+  /** The SearchStub version it was indexed at, when the scheduled check indexed it. */
+  version?: string;
 }
 
 /** A chunk a search found, in rank order. */
@@ -96,6 +114,8 @@ export interface SearchStore {
   listManifests(): Promise<SearchManifest[]>;
   /** Replace a record's chunks (and drop chunks past the new count), then its manifest. */
   putSource(manifest: SearchManifest, chunks: SearchChunkDoc[], previousChunks: number): Promise<void>;
+  /** Rewrite only a manifest (its version moved but the text didn't). */
+  putManifest(manifest: SearchManifest): Promise<void>;
   removeSource(sourceKey: string): Promise<void>;
   /** Text search. `query` is already in the words query syntax (see wordsQueries). */
   words(query: string, opts: { limit: number; kinds?: SearchKind[]; lang?: string }): Promise<RankedChunk[]>;

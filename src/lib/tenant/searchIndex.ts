@@ -106,6 +106,7 @@ function manifestFrom(data: Record<string, unknown> | undefined): SearchManifest
     chunks: typeof data.chunks === "number" ? data.chunks : 0,
     embedded: data.embedded === true,
     indexedAt: String(data.indexedAt ?? ""),
+    ...(typeof data.version === "string" ? { version: data.version } : {}),
   };
 }
 
@@ -162,6 +163,10 @@ export function searchStoreFor(ctx: Pick<TenantContext, "tenantId" | "region">):
         for (let n = chunks.length; n < previousChunks; n++) batch.delete(docs().doc(searchChunkId(manifest.sourceKey, n)));
         await batch.commit();
       }
+      await sources().doc(searchManifestId(manifest.sourceKey)).set({ ...manifest, tenantId });
+    },
+
+    async putManifest(manifest) {
       await sources().doc(searchManifestId(manifest.sourceKey)).set({ ...manifest, tenantId });
     },
 

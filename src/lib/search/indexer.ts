@@ -24,7 +24,16 @@ export interface IndexDeps {
   /** Whether the brand may use search, when the caller already knows (a sweep over many records). */
   granted?: boolean;
   now?: () => Date;
+  /** The record's manifest, when the caller already read it (null: not indexed yet). */
+  prev?: SearchManifest | null;
+  /** The SearchStub version being indexed, kept on the manifest for the next check. */
+  version?: string;
 }
+
+/** Longest text kept from one part (a knowledge chunk is already sized for embedding). */
+const MAX_PART_CHARS = 4000;
+/** Most parts one record keeps (a very large knowledge source). */
+export const MAX_PARTS_PER_SOURCE = 3000;
 
 async function allowed(ctx: Ctx, deps: IndexDeps): Promise<IndexOutcome | null> {
   if (!isSearchIndexEnabled()) return "off";
@@ -40,39 +49,60 @@ export async function indexSource(ctx: Ctx, source: SearchSource, deps: IndexDep
   try {
     const store = deps.store ?? searchStoreFor(ctx);
     const title = (source.title ?? "").trim().slice(0, 500);
-    const chunks = chunkText(toPlainText(source.body ?? "", source.format));
-    if (!chunks.length && title) chunks.push(title);
-    const prev = await store.getManifest(sourceKey);
-    if (!chunks.length) {
+    const url = source.url ?? "";
+    const pieces: Array<{ title: string; text: string; url: string }> = source.parts
+      ? source.parts
+          .slice(0, MAX_PARTS_PER_SOURCE)
+          .map((p) => ({ title: (p.title ?? title).trim().slice(0, 500), text: toPlainText(p.text).slice(0, MAX_PART_CHARS), url: p.url ?? url }))
+          .filter((p) => p.text)
+      : chunkText(toPlainText(source.body ?? "", source.format)).map((text) => ({ title, text, url }));
+    if (!pieces.length && title) pieces.push({ title, text: title, url });
+    const prev = deps.prev !== undefined ? deps.prev : await store.getManifest(sourceKey);
+    if (!pieces.length) {
       if (prev) await store.removeSource(sourceKey);
       return "removed";
     }
-    const url = source.url ?? "";
     const lang = (source.lang ?? "en").trim().toLowerCase() || "en";
-    const hash = contentHash(SEARCH_EMBEDDING_TAG, title, url, lang, chunks);
-    if (prev && prev.hash === hash && prev.embedded) return "unchanged";
+    const hash = contentHash(
+      SEARCH_EMBEDDING_TAG,
+      lang,
+      pieces.map((p) => `${p.title}\u0002${p.url}\u0002${p.text}`),
+    );
+    if (prev && prev.hash === hash && prev.embedded) {
+      if (deps.version && prev.version !== deps.version) await store.putManifest({ ...prev, version: deps.version });
+      return "unchanged";
+    }
 
     const vectors = await (deps.embed ?? embedForSearch)(
-      chunks.map((content) => ({ content, title: title || undefined })),
+      pieces.map((p) => ({ content: p.text, title: p.title || undefined })),
       ctx.region,
       "RETRIEVAL_DOCUMENT",
     );
     const now = (deps.now ?? (() => new Date()))().toISOString();
-    const docs: SearchChunkDoc[] = chunks.map((text, chunk) => ({
+    const docs: SearchChunkDoc[] = pieces.map((p, chunk) => ({
       tenantId: ctx.tenantId,
       kind: source.kind,
       ref: source.ref,
       sourceKey,
       chunk,
-      title,
-      text,
-      url,
+      title: p.title,
+      text: p.text,
+      url: p.url,
       lang,
       updatedAt: now,
       ...(vectors[chunk] ? { embedding: vectors[chunk] as number[], embeddingModel: SEARCH_EMBEDDING_TAG } : {}),
     }));
     const embedded = docs.every((d) => d.embedding);
-    const manifest: SearchManifest = { sourceKey, kind: source.kind, ref: source.ref, hash, chunks: docs.length, embedded, indexedAt: now };
+    const manifest: SearchManifest = {
+      sourceKey,
+      kind: source.kind,
+      ref: source.ref,
+      hash,
+      chunks: docs.length,
+      embedded,
+      indexedAt: now,
+      ...(deps.version ? { version: deps.version } : {}),
+    };
     await store.putSource(manifest, docs, prev?.chunks ?? 0);
     return embedded ? "indexed" : "indexed_without_vectors";
   } catch (err) {

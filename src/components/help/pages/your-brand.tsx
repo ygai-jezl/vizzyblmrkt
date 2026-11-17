@@ -282,9 +282,14 @@ export default function YourBrandHelp() {
           <P>
             When this copy of YouGrow reads their articles, a competitor&apos;s page has a <strong>What they write</strong> tab. We
             read each new post in full, and the newest 20 from before you started watching. Open an article to see what it covers
-            and its angle, who it is written for, each number it uses with the sentence it came from, the sites it cites, what it
-            asks the reader to do and which of their own pages it sends readers to. We keep what we found and short quotes, never
-            the article itself, and read up to 200 articles a month for your brand.
+            and its angle, who it is written for, each result it reports in numbers with the sentence it came from, the sites it
+            cites, what it asks the reader to do and which of their own pages it sends readers to. Dates, prices, product settings
+            and made up examples don&apos;t count as results. We keep what we found and short quotes, never the article itself,
+            and read up to 200 articles a month for your brand.
+          </P>
+          <P>
+            When we improve how articles are read, the ones already read are read again while no new post is waiting, keeping 50
+            of the month&apos;s reads for new posts. If reading one again finds nothing, it keeps what we found before.
           </P>
           <P>
             <strong>What they write about</strong>, on <Open href="/admin/brand-kit/competitors">Brand › Competitors</Open>,

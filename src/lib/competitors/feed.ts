@@ -106,6 +106,8 @@ export function newsPrefix(newsUrl: string): string {
 
 /** Page 2 of a list, a tag or a category is the list again, not a post. */
 const NOT_A_POST = /\/(page|tag|tags|category|categories|author|authors|topic|topics|archive|archives)(\/|$)|[?&]page=/i;
+/** A date archive: a path that ends in a year, a month or a day ("/blog/2026/11/13"), not a post under one. */
+const DATE_ARCHIVE = /\/(19|20)\d{2}(\/\d{1,2}){0,2}\/?$/;
 
 /**
  * Is `url` a post of this news page? On the same site, under the news page's path and deeper
@@ -122,6 +124,7 @@ export function isPostOf(url: string, newsUrl: string, site: string): boolean {
   } catch {
     return false;
   }
+  if (DATE_ARCHIVE.test(path)) return false;
   const prefix = newsPrefix(newsUrl);
   if (prefix) return path.startsWith(`${prefix}/`) && path.length > prefix.length + 1;
   const depth = path.split("/").filter(Boolean).length;

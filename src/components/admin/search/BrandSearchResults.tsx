@@ -61,7 +61,7 @@ export function BrandSearchResults({ query, onOpen }: { query: string; onOpen: (
     };
   }, [q]);
 
-  const hits = state.status === "done" ? state.answer.hits : [];
+  const hits = useMemo(() => (state.status === "done" ? state.answer.hits : []), [state]);
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const h of hits) m.set(groupOf(h.kind), (m.get(groupOf(h.kind)) ?? 0) + 1);

@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { BRAND_MAP_LIMITS, type BrandMap, type BrandMapDecided, type BrandMapLink, type BrandMapSuggestion } from "@/lib/types/brandMap";
 import { normalizeUrl } from "@/lib/content/blog/brief";
-import { applyChanges } from "@/lib/brandMap/changes";
+import { applyChanges, fold } from "@/lib/brandMap/changes";
+import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { api, errorText } from "@/components/admin/connect/api";
 import { Banner, Button } from "@/components/admin/connect/ui";
 import { BrandMapIdentity } from "./BrandMapIdentity";
@@ -320,22 +322,44 @@ export function BrandMapEditor(props: BrandMapPageProps) {
             onChange={(names) => setForm({ ...form, names })}
             issues={issues}
             disabled={!editable}
-            find={(n, i) =>
-              editable && n.kind !== "audience" && n.kind !== "use_case" ? (
-                <BrandMapLookup
-                  name={n.name}
-                  kind={n.kind}
-                  canLookup={props.canLookup}
-                  disabled={busy}
-                  onUse={(links) =>
-                    setForm((f) => ({
-                      ...f,
-                      names: f.names.map((x, j) => (j === i ? { ...x, sameAs: addLinks(x.sameAs, links, BRAND_MAP_LIMITS.nameSameAs) } : x)),
-                    }))
-                  }
-                />
-              ) : null
-            }
+            find={(n, i) => {
+              const find =
+                editable && n.kind !== "audience" && n.kind !== "use_case" ? (
+                  <BrandMapLookup
+                    name={n.name}
+                    kind={n.kind}
+                    canLookup={props.canLookup}
+                    disabled={busy}
+                    onUse={(links) =>
+                      setForm((f) => ({
+                        ...f,
+                        names: f.names.map((x, j) => (j === i ? { ...x, sameAs: addLinks(x.sameAs, links, BRAND_MAP_LIMITS.nameSameAs) } : x)),
+                      }))
+                    }
+                  />
+                ) : null;
+              if (n.kind !== "alternative" || !props.competitors || !n.name.trim()) return find;
+              const spellings = new Set([n.name, ...n.aliases].map(fold));
+              const watched = props.competitors.find((c) => spellings.has(fold(c.name)));
+              const monitor = watched ? (
+                <Link href={`${BRAND_KIT_COMPETITORS_ROUTE}/${watched.id}`} className="rounded-md px-2 py-0.5 text-xs text-green-700 hover:underline dark:text-green-400">
+                  Monitoring
+                </Link>
+              ) : editable ? (
+                <Link
+                  href={`${BRAND_KIT_COMPETITORS_ROUTE}?name=${encodeURIComponent(n.name)}`}
+                  className="rounded-md border border-neutral-300 px-2 py-0.5 text-xs font-medium hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+                >
+                  Monitor
+                </Link>
+              ) : null;
+              return (
+                <span className="inline-flex items-center gap-1.5">
+                  {find}
+                  {monitor}
+                </span>
+              );
+            }}
           />
         </div>
         <div className="min-w-0 space-y-5">

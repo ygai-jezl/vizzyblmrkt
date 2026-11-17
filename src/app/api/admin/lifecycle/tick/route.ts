@@ -7,6 +7,8 @@ import { drainLifecycleTenant, runLifecycleTick } from "@/lib/lifecycle/runner";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { runWaitlistTick } from "@/lib/lifecycle/waitlist/tick";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
+import { isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { runCompetitorChecks } from "@/lib/competitors/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,19 +22,38 @@ export const dynamic = "force-dynamic";
  * (engine move) while WAITLIST_ENGINE_ENABLED is on, and the person record sweep
  * while AUDIENCE_PERSON_LINKS_ENABLED is on. With all three off the scheduler gets
  * a no-op 200 (so it doesn't alarm on a dark deploy) and everyone else a 404.
+ *
+ * Competitors' weekly and monthly checks (COMPETITORS_ENABLED) ride the scheduler's call
+ * too, after the journeys, with what is left of the request's time: never past 105s from
+ * its start (the scheduler gives up at 120s). A signed-in admin's call never runs them.
  */
+const SCHEDULER_LIMIT_MS = 105_000;
+const COMPETITORS_BUDGET_MS = 25_000;
+
 export async function POST(req: Request) {
+  const started = Date.now();
   const machine = workerSecretMatches(req.headers.get("x-worker-secret"), process.env.LIFECYCLE_WORKER_SECRET);
   const product = isLifecycleEnabled();
   const waitlist = isWaitlistEngineEnabled();
-  if (!product && !waitlist && !isPersonLinksEnabled()) {
+  const people = isPersonLinksEnabled();
+  const competitors = isCompetitorsEnabled();
+  const journeys = product || waitlist || people;
+  if (!journeys && !(machine && competitors)) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   if (machine) {
-    const result = await runLifecycleTick({}, { product, waitlist });
-    return NextResponse.json({ ok: true, mode: "all_tenants", ...result });
+    const result = journeys ? await runLifecycleTick({}, { product, waitlist }) : {};
+    let competitorChecks = null;
+    if (competitors) {
+      try {
+        competitorChecks = await runCompetitorChecks({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS) });
+      } catch (err) {
+        console.warn(`[competitors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
+    }
+    return NextResponse.json({ ok: true, mode: "all_tenants", ...result, ...(competitors ? { competitors: competitorChecks } : {}) });
   }
 
   const blocked = sameOriginGuard(req);

@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
+import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 
 export default function BrandMapHelp() {
   return (
@@ -62,6 +63,12 @@ export default function BrandMapHelp() {
           Check <strong>Names you use</strong>: your products, alternatives and audiences, each linked to its page on your
           site.
         </li>
+        {isCompetitorsUiEnabled() ? (
+          <li>
+            To watch an alternative&apos;s website, press <strong>Monitor</strong> beside it. See{" "}
+            <Open href="/help/your-brand#competitors">Watch your competitors</Open>.
+          </li>
+        ) : null}
         <li>
           Under <strong>Suggestions</strong>, untick anything wrong. Press <strong>Add ticked</strong>, then{" "}
           <strong>Dismiss the rest</strong>.

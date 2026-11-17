@@ -16,7 +16,7 @@ import {
   type BrandMapSuggestionFrom,
 } from "@/lib/types/brandMap";
 import { normalizeUrl } from "@/lib/content/blog/brief";
-import { changeKey, isSatisfied, newId } from "./changes";
+import { applyChange, changeKey, findName, fold, isSatisfied, newId } from "./changes";
 import { checkDecided, type MapIssue } from "./checks";
 import { isBrandMapEnabled, isBrandMapScaleEnabled } from "./flags";
 
@@ -242,6 +242,105 @@ export async function saveBrandMap(
     if (err instanceof TooLarge) return { ok: false, status: 413, error: "map_too_large" };
     throw err;
   }
+}
+
+export interface AddedName {
+  /** The name's id on the map (null when it waits as a suggestion). */
+  nameId: string | null;
+  /** Added now, already there (by name or another spelling), or filed as a suggestion. */
+  how: "added" | "already" | "suggested";
+}
+
+/**
+ * Add a competitor's name to the map's alternatives (Competitors' Monitor, COMPETITORS_ENABLED).
+ * A person pressed Monitor, so the name is decided: it is added straight away and `rev` moves, so
+ * a person with the map open gets the usual 409 on their next save instead of losing it. A name
+ * already on the map (by any spelling) is only linked. Nothing on the map is changed or removed.
+ *
+ * A map nobody has saved yet is left unsaved: adding to it would mark it saved, so articles would
+ * start using it and Home's setup step would tick. The name waits as a suggestion instead.
+ * Refused when the brand map is off (503), doesn't read (409), is full (409 `names_full`), or the
+ * name clashes with the map (400 `invalid_map`: it is the brand's own name, or a term to avoid).
+ */
+export async function addBrandMapName(
+  ctx: TenantContext,
+  input: { name: string; reason?: string },
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
+): Promise<MapResult<AddedName>> {
+  if (!isBrandMapEnabled()) return { ok: false, status: 503, error: "brand_map_disabled" };
+  const name = input.name.trim().slice(0, LIMITS.nameText);
+  if (!name) return { ok: false, status: 400, error: "invalid_input" };
+  const read = await readBrandMap(ctx, deps.db);
+  if (read.state === "unreadable") return { ok: false, status: 409, error: "map_unreadable" };
+  if (read.state === "ok" && fold(read.map.identity.name) === fold(name)) {
+    return { ok: false, status: 400, error: "invalid_map", issues: [{ path: "names", message: `“${name}” is your own brand's name` }] };
+  }
+  if (read.state === "ok") {
+    const found = findName(read.map, name);
+    if (found) return { ok: true, value: { nameId: found.id, how: "already" } };
+  }
+  if (read.state === "none" || !isMapSaved(read.map)) {
+    const filed = await fileBrandMapSuggestions(
+      ctx,
+      { from: "competitors", items: [{ change: { type: "add_name", name, kind: "alternative", aliases: [] }, reason: input.reason ?? "You monitor this competitor", evidence: "asked" }] },
+      deps,
+    );
+    if (!filed.ok) return filed;
+    return { ok: true, value: { nameId: null, how: "suggested" } };
+  }
+
+  const now = iso(deps.nowMs);
+  const by = ctx.email ?? ctx.userId ?? null;
+  const out: { value: AddedName | null; fail: MapResult<AddedName> | null } = { value: null, fail: null };
+  try {
+    await forTenant(ctx, deps.db).brandMaps.upsert(
+      brandMapDocId(ctx.tenantId),
+      () => {
+        // Deleted since we read it: nothing to add to. Leave it absent.
+        throw new Unreadable();
+      },
+      (current) => {
+        const map = parseBrandMap(current);
+        if (!map) throw new Unreadable();
+        const already = findName(map, name);
+        if (already) {
+          out.value = { nameId: already.id, how: "already" };
+          return null;
+        }
+        const before = decidedOf(map);
+        const applied = applyChange(before, { type: "add_name", name, kind: "alternative", aliases: [] });
+        if (applied.issue) {
+          out.fail = { ok: false, status: 409, error: "names_full" };
+          return null;
+        }
+        // Only problems the new name brings: whatever the map already had is the person's to fix.
+        const had = new Set(checkDecided(before, { ownSites: [] }).map((i) => `${i.path}|${i.message}`));
+        const fresh = checkDecided(applied.decided, { ownSites: [] }).filter((i) => !had.has(`${i.path}|${i.message}`));
+        if (fresh.length) {
+          out.fail = { ok: false, status: 400, error: "invalid_map", issues: fresh };
+          return null;
+        }
+        const added = findName(applied.decided, name);
+        out.value = { nameId: added?.id ?? null, how: "added" };
+        const patch = {
+          names: applied.decided.names,
+          rev: map.rev + 1,
+          suggestions: map.suggestions.filter((s) => !isSatisfied(applied.decided, s.change)),
+          decidedAt: now,
+          decidedBy: by,
+          updatedAt: now,
+        };
+        if (sizeOf({ ...map, ...patch }) > LIMITS.bytes) throw new TooLarge();
+        return patch;
+      },
+    );
+  } catch (err) {
+    if (err instanceof Unreadable) return { ok: false, status: 409, error: "map_unreadable" };
+    if (err instanceof TooLarge) return { ok: false, status: 413, error: "map_too_large" };
+    throw err;
+  }
+  if (out.fail) return out.fail;
+  return out.value ? { ok: true, value: out.value } : { ok: false, status: 409, error: "map_unreadable" };
 }
 
 /** One suggestion to file. */

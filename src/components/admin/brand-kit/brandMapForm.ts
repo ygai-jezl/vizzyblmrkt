@@ -43,6 +43,11 @@ export interface BrandMapPageProps {
   scale?: boolean;
   /** A person decided one of the map's records, so it counts as saved even before this page was. */
   recordsDecided?: boolean;
+  /**
+   * Competitors (COMPETITORS_ENABLED, and the brand has it): the ones watched, so an alternative
+   * shows Monitor beside Find, or Monitoring when it is watched (matched by name). Null = not shown.
+   */
+  competitors?: Array<{ id: string; name: string }> | null;
 }
 
 export interface MapIssue {

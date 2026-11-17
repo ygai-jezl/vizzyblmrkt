@@ -1,5 +1,5 @@
 import { forTenant } from "@/lib/tenant";
-import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
+import { brandMapRecords, type BrandMapRecordStore } from "@/lib/tenant/brandMapRecords";
 import { readKnowledgeChunkTexts } from "@/lib/tenant/knowledge";
 import { getTenantById } from "@/lib/tenant/registry";
 import { listContentPlans, listIdeaItems, listTemplates } from "@/lib/tenant/workspaceContent";
@@ -256,21 +256,7 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
     return src ? [stubOf(src)] : [];
   });
   // Open questions come from the brand map and from the notes, so both are read together.
-  await read(["subject", "question", "situation", "note"], async () => {
-    const records = brandMapRecords(ctx);
-    const out: SearchStub[] = [];
-    for (const [kind, rk] of [["subject", "sub"], ["question", "q"], ["situation", "sit"]] as const) {
-      for (const r of await records.pageAll(rk)) {
-        const src = brandMapSource(kind, r);
-        if (src) out.push(stubOf(src));
-      }
-    }
-    for (const n of await listNotes(ctx)) {
-      const src = noteSource(n);
-      if (src) out.push(stubOf(src));
-    }
-    return out;
-  });
+  await read(["subject", "question", "situation", "note"], async () => brandMapStubs(brandMapRecords(ctx), await listNotes(ctx)));
   await read(["research"], async () => (await listImports(ctx)).map(importSource).filter((x): x is SearchSource => x !== null).map(stubOf));
   await read(["competitor"], async () => {
     const [competitors, articles] = await Promise.all([listCompetitors(ctx), listReadArticles(ctx)]);
@@ -289,6 +275,26 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
   await read(["knowledge"], async () => (await repo.ingestionTickets.find({ limit: 500 })).filter(isReadTicket).map((t) => knowledgeStub(ctx, t)));
   const complete = new Set([...readOk].filter((k) => !failed.has(k)));
   return { stubs, complete };
+}
+
+/**
+ * The brand map's records on the map, and the notes and open questions. Reads only decided
+ * records: that is all search keeps, and the brand-and-status query has an index on all three
+ * record kinds (questions have none for the brand alone sorted by ref).
+ */
+export async function brandMapStubs(records: Pick<BrandMapRecordStore, "pageAll">, notes: BrandNote[]): Promise<SearchStub[]> {
+  const out: SearchStub[] = [];
+  for (const [kind, rk] of [["subject", "sub"], ["question", "q"], ["situation", "sit"]] as const) {
+    for (const r of await records.pageAll(rk, { where: [["status", "==", "decided"]] })) {
+      const src = brandMapSource(kind, r);
+      if (src) out.push(stubOf(src));
+    }
+  }
+  for (const n of notes) {
+    const src = noteSource(n);
+    if (src) out.push(stubOf(src));
+  }
+  return out;
 }
 
 function isReadTicket(t: IngestionTicket): boolean {

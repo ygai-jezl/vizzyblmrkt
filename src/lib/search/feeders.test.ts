@@ -3,7 +3,7 @@ import type { BrandNote } from "@/lib/types/brandNote";
 import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
-import { brandKitSource, brandMapSource, broadcastSource, competitorSources, contentPlanSources, lifecycleSources, noteSource, stubOf } from "./feeders";
+import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, lifecycleSources, noteSource, stubOf } from "./feeders";
 
 const node = (over: Record<string, unknown>) => ({ id: "n", type: "spoke", channel: "linkedin", role: "Post", position: { x: 0, y: 0 }, body: "", status: "generated", placeholderValues: {}, warnings: [], ...over });
 
@@ -98,5 +98,21 @@ describe("stubOf", () => {
     expect(a.version).not.toBe(b.version);
     expect(stubOf({ kind: "idea", ref: "i1", title: "T", body: "one" }).version).toBe(a.version);
     expect((await a.load())?.body).toBe("one");
+  });
+});
+
+describe("brandMapStubs", () => {
+  it("asks only for decided records, with the index every record kind has", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const records = {
+      pageAll: async (kind: string, opts?: unknown) => {
+        calls.push([kind, opts]);
+        return kind === "q" ? [{ id: "x", tenantId: "t", ref: "q1", text: "When do people repot?", status: "decided" }] : [];
+      },
+    };
+    const stubs = await brandMapStubs(records as never, []);
+    expect(calls.map(([k]) => k)).toEqual(["sub", "q", "sit"]);
+    for (const [, opts] of calls) expect(opts).toEqual({ where: [["status", "==", "decided"]] });
+    expect(stubs.map((s) => `${s.kind}:${s.ref}`)).toEqual(["question:q1"]);
   });
 });

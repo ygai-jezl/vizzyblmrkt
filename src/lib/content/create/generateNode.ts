@@ -1,3 +1,4 @@
+import { anglesBlock, competitorContext } from "@/lib/competitors/planning";
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
@@ -179,6 +180,7 @@ export async function generateNode(
   retrieve: RetrieveFn = retrieveSemanticKnowledgeContext,
   retrieveExemplarsFn: RetrieveExemplarsFn = retrieveExemplars,
   draftBlog: DraftBlogFn = draftBlogArticle,
+  competitors: typeof competitorContext = competitorContext,
 ): Promise<GeneratedNodePatch> {
   const { ctx, workspaceId, plan, node } = input;
   const hubNode = plan.graph.nodes.find((n) => n.type === "hub");
@@ -232,7 +234,13 @@ export async function generateNode(
     bypassEnabledFlag: true,
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   };
-  const rag = await retrieve(req).catch(() => null);
+  const [rag, theirs] = await Promise.all([
+    retrieve(req).catch(() => null),
+    // An article's angles already taken by competitors (COMPETITOR_ARTICLES_PLANNING_ENABLED): blog hubs only.
+    citableBlog
+      ? competitors(ctx, { subjectId: brief.subjectId ?? null, text: brief.primaryQuestion.trim() || plan.scope.spark || plan.name }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
   const knowledgeContext = rag?.formatted ?? "";
   const proofBlock = fenceProof(plan.knowledge.proofAssets ?? []);
 
@@ -250,6 +258,7 @@ export async function generateNode(
       audience: input.audience,
       quick: input.quick,
       map: input.brandMap ?? null,
+      competitorAngles: anglesBlock(theirs),
     }).catch(() => null);
     if (!drafted) {
       return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };

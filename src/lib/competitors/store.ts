@@ -14,6 +14,7 @@ import {
   type CompetitorPost,
   type MonitorInput,
 } from "@/lib/types/competitor";
+import { removeArticles } from "./articles";
 import { chunkLines, line, onSite, pagesFromChunks, type BaselinePage } from "./sitemap";
 
 /**
@@ -211,6 +212,7 @@ export async function removeCompetitor(ctx: TenantContext, id: string, deps: Sto
   await repo.competitorPages.deleteWhere([["competitorId", "==", id]]);
   await repo.competitorPosts.deleteWhere([["competitorId", "==", id]]);
   await repo.competitorChanges.deleteWhere([["competitorId", "==", id]]);
+  await removeArticles(ctx, id, deps);
   await repo.competitors.delete(id);
   return { ok: true, value: null };
 }

@@ -333,7 +333,8 @@ export function breadcrumbsFor(
       if (p3 && id === "guidelines") return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Guidelines" }];
       // One competitor: never its name (these labels are also what Vizzy is told about the page).
       if (id === "competitors" && rest[0]) {
-        return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Competitors", href: "/admin/brand-kit/competitors" }, { label: "Competitor" }];
+        const leaf = rest[0] === "coverage" ? "What they write about" : "Competitor";
+        return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Competitors", href: "/admin/brand-kit/competitors" }, { label: leaf }];
       }
       return id
         ? [{ label: "Brand", href: "/admin/brand-kit" }, { label: BRAND_KIT_PAGES[id] ?? titleCase(id) }]

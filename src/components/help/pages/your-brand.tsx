@@ -278,6 +278,28 @@ export default function YourBrandHelp() {
             we check their posts every week, and there are no monthly site checks because we can&apos;t see the rest of their
             site. Otherwise the competitor&apos;s page says we couldn&apos;t read it.
           </P>
+          <H2 id="competitor-articles">See what they write</H2>
+          <P>
+            When this copy of YouGrow reads their articles, a competitor&apos;s page has a <strong>What they write</strong> tab. We
+            read each new post in full, and the newest 20 from before you started watching. Open an article to see what it covers
+            and its angle, who it is written for, each number it uses with the sentence it came from, the sites it cites, what it
+            asks the reader to do and which of their own pages it sends readers to. We keep what we found and short quotes, never
+            the article itself, and read up to 200 articles a month for your brand.
+          </P>
+          <P>
+            <strong>What they write about</strong>, on <Open href="/admin/brand-kit/competitors">Brand › Competitors</Open>,
+            puts your brand map&apos;s subjects beside how many articles each competitor wrote on them in the last 90 days, and how
+            many of each subject&apos;s questions you have answered, drafted or planned. Each subject says what that means:{" "}
+            <strong>Gap</strong> when they write about it and you don&apos;t yet, <strong>Open</strong> when nobody does,{" "}
+            <strong>Crowded</strong> when a new angle would stand out, or <strong>You lead</strong>. Subjects they write about
+            that your map doesn&apos;t have are listed below, and an admin can press <strong>Suggest for my map</strong> to add them
+            to your brand map&apos;s Suggestions.
+          </P>
+          <P>
+            Suggest an angle, blog research and the writer also read what competitors wrote on a subject, so a new article takes a
+            different angle. A competitor&apos;s own numbers are never used as facts in your articles: only an outside source&apos;s
+            number, checked again at its source.
+          </P>
         </>
       ) : null}
 

@@ -4,7 +4,6 @@ import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types"
 import type { CompetitorArticle, CompetitorPost } from "@/lib/types/competitor";
 import {
   ARTICLE_LEASE_MS,
-  articleTotals,
   articlesOnSubject,
   articlesToRead,
   claimArticle,
@@ -18,6 +17,7 @@ import {
   removeArticles,
   type ArticleStoreDeps,
 } from "./articles";
+import { articleTotals } from "./view";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 const B: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };

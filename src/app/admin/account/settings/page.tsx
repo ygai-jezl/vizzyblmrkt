@@ -47,8 +47,8 @@ export default async function AccountSettingsPage() {
           ))}
         </dl>
       </section>
-      <AccountSettings />
       {search}
+      <AccountSettings />
     </div>
   );
 }

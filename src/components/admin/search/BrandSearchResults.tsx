@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Command } from "cmdk";
+import { Command, defaultFilter } from "cmdk";
 import { FileText } from "lucide-react";
 import { KIND_GROUPS, KIND_LABEL, MATCH_LABEL, groupOf } from "@/lib/search/labels";
 import type { SearchKind } from "@/lib/search/types";
@@ -22,6 +22,19 @@ interface Answer {
 }
 
 type State = { status: "idle" } | { status: "loading" } | { status: "done"; answer: Answer } | { status: "message"; text: string };
+
+/** Row values this group uses: "found <rank> …". */
+const FOUND = /^found (\d+) /;
+
+/**
+ * The palette's filter: rows from search keep the server's order and always show (the server
+ * already decided they match); every other row is scored by cmdk's own filter, as before.
+ */
+export function paletteFilter(value: string, search: string, keywords?: string[]): number {
+  const m = FOUND.exec(value);
+  if (m) return 1 - Number(m[1]) / 1000;
+  return defaultFilter(value, search, keywords);
+}
 
 const ITEM =
   "flex cursor-pointer items-start gap-2.5 rounded-md px-3 py-2 text-sm text-shell-ink data-[selected=true]:bg-shell-active";
@@ -71,19 +84,20 @@ export function BrandSearchResults({ query, onOpen }: { query: string; onOpen: (
 
   if (state.status === "idle") return null;
   return (
-    <Command.Group heading="Found in what you wrote">
+    // forceMount: the palette's own filter would hide a group whose rows don't contain the typed text.
+    <Command.Group heading="Found in what you wrote" forceMount>
       {state.status === "loading" ? (
-        <Command.Item value={`search loading ${q}`} forceMount disabled className="px-3 py-2 text-sm text-shell-muted">
+        <Command.Item value="found 0 loading" forceMount disabled className="px-3 py-2 text-sm text-shell-muted">
           Searching…
         </Command.Item>
       ) : null}
       {state.status === "message" ? (
-        <Command.Item value={`search message ${q}`} forceMount disabled className="px-3 py-2 text-sm text-shell-muted">
+        <Command.Item value="found 0 message" forceMount disabled className="px-3 py-2 text-sm text-shell-muted">
           {state.text}
         </Command.Item>
       ) : null}
       {state.status === "done" && !hits.length ? (
-        <Command.Item value={`search none ${q}`} forceMount disabled className="px-3 py-2 text-sm text-shell-muted">
+        <Command.Item value="found 0 none" forceMount disabled className="px-3 py-2 text-sm text-shell-muted">
           Nothing you wrote matches yet.
         </Command.Item>
       ) : null}
@@ -103,8 +117,14 @@ export function BrandSearchResults({ query, onOpen }: { query: string; onOpen: (
           ))}
         </div>
       ) : null}
+      {state.status === "done" && hits.length ? (
+        <p className="px-3 pb-1 pt-0.5 text-[11px] text-shell-faint">
+          {shown.length} shown. {state.answer.meaning ? "Words and meaning merged" : "Words only for now"}
+          {state.answer.reranked ? ", then reranked." : "."}
+        </p>
+      ) : null}
       {shown.map((h, i) => (
-        <Command.Item key={h.sourceKey} value={`search ${q} ${i} ${h.sourceKey}`} forceMount onSelect={() => onOpen(h.url)} className={ITEM}>
+        <Command.Item key={h.sourceKey} value={`found ${i} ${h.sourceKey}`} forceMount onSelect={() => onOpen(h.url)} className={ITEM}>
           <FileText size={16} aria-hidden className="mt-0.5 shrink-0 text-shell-muted" />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
@@ -118,12 +138,6 @@ export function BrandSearchResults({ query, onOpen }: { query: string; onOpen: (
           </span>
         </Command.Item>
       ))}
-      {state.status === "done" && hits.length ? (
-        <p className="px-3 pb-1 pt-1.5 text-[11px] text-shell-faint">
-          {shown.length} shown. {state.answer.meaning ? "Words and meaning merged" : "Words only for now"}
-          {state.answer.reranked ? ", then reranked." : "."}
-        </p>
-      ) : null}
     </Command.Group>
   );
 }

@@ -32,7 +32,7 @@ import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
 import { isSearchUiEnabled } from "@/lib/search/flags";
-import { BrandSearchResults } from "@/components/admin/search/BrandSearchResults";
+import { BrandSearchResults, paletteFilter } from "@/components/admin/search/BrandSearchResults";
 import { useThemePortalContainer } from "./AdminThemeRoot";
 import { useShell } from "./ShellProvider";
 
@@ -134,6 +134,8 @@ export function CommandPalette({
       open={open}
       onOpenChange={(next) => (next ? shell.setPaletteOpen(true) : close())}
       label="Search or jump to"
+      // Search rows keep the server's order; everything else is filtered as before.
+      filter={SEARCH ? paletteFilter : undefined}
       container={container ?? undefined}
       overlayClassName="fixed inset-0 z-50 bg-black/40"
       contentClassName="fixed left-1/2 top-[12vh] z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-xl border border-shell-line bg-shell-raised text-shell-ink shadow-2xl"
@@ -154,10 +156,12 @@ export function CommandPalette({
         <kbd className="rounded border border-shell-line px-1.5 font-mono text-[10.5px] text-shell-muted">esc</kbd>
       </div>
       <Command.List className="max-h-[60vh] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-shell-muted">
-        <Command.Empty className="px-3 py-6 text-center text-sm text-shell-muted">No matches.</Command.Empty>
+        {/* While search shows what you wrote, "No matches." would sit beside its results. */}
+        {SEARCH && q ? null : <Command.Empty className="px-3 py-6 text-center text-sm text-shell-muted">No matches.</Command.Empty>}
 
         {q ? (
-          <Command.Group heading="Ask or search">
+          // forceMount: without it the filter hid this group (and Ask Vizzy) when nothing else matched.
+          <Command.Group heading="Ask or search" forceMount>
             <Command.Item
               value={`ask ${q}`}
               forceMount

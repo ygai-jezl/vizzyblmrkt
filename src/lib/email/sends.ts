@@ -3,7 +3,7 @@ import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { EmailSend, EmailSendEngine } from "@/lib/types/emailSend";
 import { emailEventKeyBase } from "./events";
-import { isEmailSendRecordsEnabled } from "./flags";
+import { isEmailSendRecordsEnabled, isTransactionalTenantTagEnabled } from "./flags";
 import type { EventMetadata, MandrillEvent } from "./mandrillWebhook";
 
 /**
@@ -61,9 +61,13 @@ export async function sendMetadata(
   }
 }
 
-/** Metadata that names only the brand: enough for a bounce or a complaint to suppress the address. */
-export function tenantTagMetadata(tenantId: string): Record<string, string> {
-  return { t: tenantId };
+/**
+ * For a transactional email (verification, offboarding, site confirmation): its brand as Mandrill
+ * metadata, so a hard bounce or a complaint suppresses the address (EMAIL_TRANSACTIONAL_TENANT_TAG_ENABLED).
+ * Spread into the message. Off: nothing, as before.
+ */
+export function transactionalTag(tenantId: string): { metadata?: Record<string, string> } {
+  return isTransactionalTenantTagEnabled() && tenantId ? { metadata: { t: tenantId } } : {};
 }
 
 /** Read {t, s} metadata, or null when the message carries another form (or none). */

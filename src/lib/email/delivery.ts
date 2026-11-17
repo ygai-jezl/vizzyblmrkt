@@ -5,7 +5,7 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
-import { sendMetadata } from "@/lib/email/sends";
+import { sendMetadata, transactionalTag } from "@/lib/email/sends";
 import { resolveEmailStyle, resolveTransactionalEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { isEmailStyleTransactionalEnabled } from "@/lib/email/flags";
 import {
@@ -544,6 +544,7 @@ async function processLifecycleJob(
     fromEmail: sender.fromEmail,
     fromName: sender.fromName,
     replyTo: sender.replyTo,
+    ...transactionalTag(ctx.tenantId),
   });
   // "log" provider (dev/tests) counts as success, like the journey send. An
   // AMBIGUOUS result may have gone out, so it is treated as sent — never retried.

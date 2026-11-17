@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { METADATA_LIMIT_BYTES, fitMetadata, metadataBytes, type MandrillEvent } from "./mandrillWebhook";
-import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, sendMetadata } from "./sends";
+import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, sendMetadata, transactionalTag } from "./sends";
 
 // Made-up brand and people. The longest ids the app makes: tenant `ten_` + 40, launch slugs of 60,
 // canvas node `email_<uuid>`, signup/enrolment/product user `xxx_` + 40.
@@ -102,5 +102,15 @@ describe("reading the forms back", () => {
   it("keeps the brand when metadata would be over the limit, so bounces still suppress", () => {
     expect(fitMetadata({ t: "ten_a", s: "es_x" })).toEqual({ t: "ten_a", s: "es_x" });
     expect(fitMetadata(longWaitlist)).toEqual({ t: LONGEST_TENANT });
+  });
+});
+
+describe("transactionalTag", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("adds the brand only while its switch is on", () => {
+    expect(transactionalTag("ten_a")).toEqual({});
+    vi.stubEnv("EMAIL_TRANSACTIONAL_TENANT_TAG_ENABLED", "true");
+    expect(transactionalTag("ten_a")).toEqual({ metadata: { t: "ten_a" } });
+    expect(transactionalTag("")).toEqual({});
   });
 });

@@ -102,6 +102,20 @@ describe("addSiteSignup", () => {
     expect(siteKeyView((await forTenant(ctx, w.db).siteKeys.getById("news"))!, NOW).weekSignups).toBe(1);
   });
 
+  it("names its brand to Mandrill only with the transactional tag switch on, so a bounce suppresses", async () => {
+    const off = await world();
+    await off.add({ email: "sam@example.com" });
+    expect(off.sent[0]!.metadata).toBeUndefined();
+    vi.stubEnv("EMAIL_TRANSACTIONAL_TENANT_TAG_ENABLED", "true");
+    try {
+      const on = await world();
+      await on.add({ email: "sam@example.com" });
+      expect(on.sent[0]!.metadata).toEqual({ t: "ten_A" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("confirms by email even when the launch doesn't ask for it", async () => {
     const w = await world({ usesSignupVerification: false });
     await w.add({ email: "sam@example.com" });

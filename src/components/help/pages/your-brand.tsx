@@ -272,6 +272,12 @@ export default function YourBrandHelp() {
             don&apos;t read a page their robots.txt asks robots to leave alone. If we can&apos;t find their sitemap or news page,
             paste it on the competitor&apos;s page.
           </P>
+          <P>
+            Some sites put a screen in front of them that turns away automated readers like ours. When this copy of YouGrow
+            allows it, we read their news through Google instead: the card says <strong>news only, read through Google</strong>,
+            we check their posts every week, and there are no monthly site checks because we can&apos;t see the rest of their
+            site. Otherwise the competitor&apos;s page says we couldn&apos;t read it.
+          </P>
         </>
       ) : null}
 
@@ -308,6 +314,10 @@ export default function YourBrandHelp() {
                 ["You're already watching this site.", "Open it from Brand › Competitors instead of adding it again."],
                 ["We couldn't find a sitemap for this site.", "Paste their sitemap or their news page on the competitor's page, under Settings or News page."],
                 ["You can watch up to 10 competitors.", "Stop watching one under its Settings, then add the new one."],
+                [
+                  "Their site turns away automated readers like ours, so we couldn't read it.",
+                  "Press Try again another day, as some sites let us in later. If it still says this, watch a different competitor.",
+                ],
               ] as [string, string][])
             : []),
           ...(imageStyle

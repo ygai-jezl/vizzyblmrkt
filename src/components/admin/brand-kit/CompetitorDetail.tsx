@@ -6,7 +6,7 @@ import { api, errorText } from "@/components/admin/connect/api";
 import { Badge, Banner, Button, Field, Section, Tabs, inputClass } from "@/components/admin/connect/ui";
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { COMPETITOR_LIMITS, type ChangedSection, type CompetitorChange } from "@/lib/types/competitor";
-import { PROBLEM_TEXT, STATUS_LABEL, type CompetitorDetail as Detail } from "@/lib/competitors/view";
+import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, type CompetitorDetail as Detail } from "@/lib/competitors/view";
 import { BRAND_MAP_NOTE, shortDate, statsLine } from "./CompetitorsPage";
 
 /**
@@ -198,6 +198,7 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
       </div>
 
       {c.problem ? <Banner tone={c.status === "needs_you" ? "err" : "info"}>{PROBLEM_TEXT[c.problem]}</Banner> : null}
+      {c.readThroughGoogle && !c.problem && c.status === "watching" ? <Banner tone="info">{GOOGLE_NOTE}</Banner> : null}
       {c.status === "needs_you" && canEdit ? (
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy !== null} onClick={() => void action("retry", "retry")}>
@@ -327,7 +328,11 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
           </div>
         ) : (
           <p className="rounded-lg border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
-            {SETTING_UP.has(c.status) ? "We're still reading their site. This fills in when we're done." : "We haven't read a sitemap for this site."}
+            {SETTING_UP.has(c.status)
+              ? "We're still reading their site. This fills in when we're done."
+              : c.readThroughGoogle
+                ? "We can't see their whole site, because it turns away automated readers like ours. We watch their news through Google instead."
+                : "We haven't read a sitemap for this site."}
           </p>
         )
       ) : null}
@@ -344,7 +349,7 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
                   {c.newsUrl}
                 </a>
                 <span className="block text-xs text-neutral-500">
-                  {c.feed ? "Read from its feed." : "Read from the page itself."}
+                  {c.readThroughGoogle ? "Read through Google, from the sitemap file that lists their posts." : c.feed ? "Read from its feed." : "Read from the page itself."}
                   {c.nextPostsCheckAt ? ` Next check ${shortDate(c.nextPostsCheckAt)}.` : ""}
                 </span>
               </p>

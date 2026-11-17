@@ -20,6 +20,8 @@ export interface CompetitorSummary {
   newsPerMonth: number | null;
   newsUrl: string | null;
   feed: boolean;
+  /** Their site turns automated readers away, so we read their news through Google (news only). */
+  readThroughGoogle: boolean;
   /** The newest change nobody has marked seen, and how many there are. */
   latest: { headline: string; at: string } | null;
   unseen: number;
@@ -60,6 +62,7 @@ export function summaryOf(c: Competitor, changes: CompetitorChange[], onBrandMap
     newsPerMonth: c.analysis?.stats.newsPerMonth ?? null,
     newsUrl: c.news?.url ?? null,
     feed: Boolean(c.news?.feedUrl),
+    readThroughGoogle: c.reader === "google",
     latest: unseen[0] ? { headline: unseen[0].headline, at: unseen[0].at } : null,
     unseen: unseen.length,
     nextCheckAt: c.status === "watching" ? earliest(c.news ? c.nextPostsCheckAt : null, c.sitemap ? c.nextSiteCheckAt : null) : null,
@@ -101,4 +104,9 @@ export const PROBLEM_TEXT: Record<CompetitorProblem, string> = {
   news_unreachable: "We couldn't read their news page. We'll try again tomorrow, or paste a different page below.",
   read_failed: "We couldn't read their sitemap this month. We'll try again tomorrow.",
   blocked: "Their robots.txt asks robots not to read their news page, so we don't check it.",
+  turned_away: "Their site turns away automated readers like ours, so we couldn't read it. Try again later, or watch a different competitor.",
 };
+
+/** A competitor we read through Google, because its site turns automated readers away. */
+export const GOOGLE_NOTE =
+  "Their site turns away automated readers like ours, so we read their news through Google. We can't see their whole site, so there are no monthly site checks.";

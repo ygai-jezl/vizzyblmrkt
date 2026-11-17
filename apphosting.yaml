@@ -623,6 +623,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Read a competitor whose bot screen turns our reader away through Google instead (Gemini's
+  # URL reader): their news only, a model call on every check (needs COMPETITORS_ENABLED).
+  - variable: COMPETITORS_GOOGLE_READER_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

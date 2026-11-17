@@ -146,7 +146,10 @@ checks its news page every week and its sitemap every month. That means your cop
 businesses' public pages (it obeys their robots.txt and names itself `YouGrowBot`) and calls Gemini
 to describe what it finds. The checks ride the lifecycle tick, so they need its Cloud Scheduler job.
 Each brand can watch up to 10 competitors. To keep it for some brands only, add `competitors` to
-`GRANTED_ONLY_FEATURES` and grant brands with `scripts/grant-feature.ts`.
+`GRANTED_ONLY_FEATURES` and grant brands with `scripts/grant-feature.ts`. Some sites sit behind a
+bot screen that turns away readers on cloud servers like yours. With `COMPETITORS_GOOGLE_READER_ENABLED`
+the app reads such a site's news through Gemini's URL reader instead, which costs a model call on
+every weekly check. Without it, the competitor's page says the site can't be read.
 
 **Email: test mode first.** With a provider set, waitlist emails send. Product journeys
 stay in test mode, sending nothing real, until you add `LIFECYCLE_MODE_CEILING` with the

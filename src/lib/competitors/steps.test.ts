@@ -218,3 +218,119 @@ describe("two brands watching the same site", () => {
     expect(await forTenant(ctx, db).competitors.getById(b.id)).toBeNull();
   });
 });
+
+describe("a site whose bot screen turns us away", () => {
+  const B = "https://blocked.example";
+  const OK = "URL_RETRIEVAL_STATUS_SUCCESS";
+  // SiteGround's challenge, for every address we ask ourselves.
+  const challenge: Page = { status: 202, body: `<html><head><meta http-equiv="refresh" content="0;/.well-known/sgcaptcha/?r=%2F"></head></html>`, type: "text/html" };
+  let google: Map<string, string>;
+  let titles: Map<string, string>;
+  let readWithGoogle: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    for (const p of ["/robots.txt", "/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml", "/wp-sitemap.xml", "/blog", "/blog/feed/"]) web.set(`${B}${p}`, challenge);
+    // What Google can read: like otterly.ai, their main sitemap isn't one of them, their blog's are.
+    google = new Map([
+      [`${B}/robots.txt`, "User-agent: *\nAllow: /\nDisallow: /private/\nSitemap: https://www.blocked.example/sitemap.xml"],
+      [`${B}/blog/sitemap_index.xml`, `KIND: index\nhttp://blocked.example/blog/category-sitemap.xml\nhttp://blocked.example/blog/post-sitemap.xml\nhttps://elsewhere.example/blog/post-sitemap.xml`],
+      [
+        `${B}/blog/post-sitemap.xml`,
+        [
+          "KIND: urlset",
+          `${B}/blog/\t2026-11-13`,
+          `${B}/blog/one\t2026-11-12T10:00:00+00:00`,
+          `${B}/blog/two\t2026-11-10`,
+          `${B}/blog/three\t2026-11-01`,
+          `${B}/blog/2026/11/13\t2026-11-13`,
+          "https://elsewhere.example/blog/four\t2026-11-11",
+        ].join("\n"),
+      ],
+    ]);
+    titles = new Map();
+    readWithGoogle = vi.fn(async (prompt: string) => {
+      if (prompt.includes("Read each of these pages")) {
+        const asked = [...prompt.matchAll(/^https:\/\/\S+$/gm)].map((m) => m[0]);
+        const lines = asked.filter((u) => titles.has(u)).map((u) => `${u}\t${titles.get(u)}\t2026-11-16`);
+        lines.push(`${B}/blog/made-up\tA post nobody asked about\t2026-11-16`);
+        return { text: lines.join("\n"), retrieved: asked.map((url) => ({ url, status: titles.has(url) ? OK : "URL_RETRIEVAL_STATUS_ERROR" })), model: "m" };
+      }
+      const url = /Read (\S+) with the URL context tool/.exec(prompt)?.[1] ?? "";
+      const text = google.get(url);
+      return text ? { text, retrieved: [{ url, status: OK }], model: "m" } : { text: "CANNOT_READ", retrieved: [{ url, status: "URL_RETRIEVAL_STATUS_ERROR" }], model: "m" };
+    });
+    deps.readWithGoogle = readWithGoogle as unknown as StepDeps["readWithGoogle"];
+    deps.grounded = vi.fn(async () => ({ text: `SITEMAP: NONE\nNEWS: ${B}/blog` }));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function monitorBlocked(): Promise<Competitor> {
+    const r = await monitorCompetitor(ctx, { website: "blocked.example", name: "Blocked" }, { db });
+    if (!r.ok) throw new Error(r.error);
+    return (await advanceCompetitor(ctx, r.value.competitor.id, far(), deps))!;
+  }
+
+  it("says so plainly when Google may not read for us, without a web search", async () => {
+    const c = await monitorBlocked();
+    expect(c).toMatchObject({ status: "needs_you", problem: "turned_away", news: null, sitemap: null });
+    expect(deps.grounded).not.toHaveBeenCalled();
+    expect(readWithGoogle).not.toHaveBeenCalled();
+  });
+
+  it("reads their news through Google from their posts' sitemap file: news only, never links from a web page", async () => {
+    vi.stubEnv("COMPETITORS_GOOGLE_READER_ENABLED", "true");
+    const c = await monitorBlocked();
+    expect(c).toMatchObject({ status: "watching", reader: "google", problem: null, sitemap: null, nextSiteCheckAt: null, googleFind: null });
+    expect(c.news).toMatchObject({ url: `${B}/blog`, sitemapUrl: `${B}/blog/post-sitemap.xml` });
+    expect(Date.parse(c.nextPostsCheckAt!) - Date.now()).toBeGreaterThan(6 * 86_400_000);
+    // The baseline: its posts, not the blog page itself, a date archive or another site's page.
+    const posts = await listPosts(ctx, c.id, { db });
+    expect(posts.map((p) => p.url).sort()).toEqual([`${B}/blog/one`, `${B}/blog/three`, `${B}/blog/two`]);
+    expect(posts.every((p) => p.baseline)).toBe(true);
+    expect(await listChanges(ctx, c.id, { db })).toEqual([]);
+    const asked = readWithGoogle.mock.calls.map(([p]) => String(p));
+    // Their robots.txt first; never their blog page (a model lists made-up links from a page) or their categories.
+    expect(asked[0]).toContain(`Read ${B}/robots.txt`);
+    expect(asked.some((p) => p.includes(`Read ${B}/blog with`))).toBe(false);
+    expect(asked.some((p) => p.includes("category-sitemap"))).toBe(false);
+
+    // A week on, one new post: found through Google, titled from the post itself.
+    google.set(`${B}/blog/post-sitemap.xml`, `KIND: urlset\n${B}/blog/four-new\t2026-11-17\n${B}/blog/one\t2026-11-12\n${B}/blog/ancient\t2024-01-01`);
+    titles.set(`${B}/blog/four-new`, "Four new things about whitening");
+    await forTenant(ctx, db).competitors.update(c.id, { nextPostsCheckAt: new Date(Date.now() - 1000).toISOString() });
+    const after = await advanceCompetitor(ctx, c.id, far(), deps);
+    expect(after).toMatchObject({ status: "watching", googlePending: null, problem: null });
+    const changes = await listChanges(ctx, c.id, { db });
+    expect(changes).toHaveLength(1);
+    // An old post that wasn't in the baseline isn't news, and a made-up address is never kept.
+    expect(changes[0]!.posts).toEqual([{ url: `${B}/blog/four-new`, title: "Four new things about whitening", publishedAt: "2026-11-17" }]);
+    expect((await listPosts(ctx, c.id, { db })).map((p) => p.url)).not.toContain(`${B}/blog/made-up`);
+  });
+
+  it("asks a person when Google can't read their sitemaps either", async () => {
+    vi.stubEnv("COMPETITORS_GOOGLE_READER_ENABLED", "true");
+    google = new Map();
+    const c = await monitorBlocked();
+    expect(c).toMatchObject({ status: "needs_you", problem: "turned_away", reader: "google", googleFind: null });
+  });
+
+  it("starts again a competitor an older version left watching nothing", async () => {
+    const r = await monitorCompetitor(ctx, { website: "acme-dental.example", name: "Acme Dental" }, { db });
+    if (!r.ok) throw new Error(r.error);
+    await forTenant(ctx, db).competitors.update(r.value.competitor.id, { status: "watching", stage: null, problem: "no_news_page", sitemap: null, news: null });
+    const c = await advanceCompetitor(ctx, r.value.competitor.id, far(), deps);
+    expect(c).toMatchObject({ status: "watching", problem: null });
+    expect(c!.sitemap?.pages).toBe(8);
+  });
+
+  it("never leaves a competitor watching when it has no sitemap and a news page that lists nothing", async () => {
+    web = new Map<string, Page>([
+      [`${W}/robots.txt`, { body: "User-agent: *\nAllow: /\n", type: "text/plain" }],
+      [`${W}/news`, { body: "<html><body><p>Coming soon.</p></body></html>", type: "text/html" }],
+    ]);
+    deps.grounded = vi.fn(async () => ({ text: `SITEMAP: NONE\nNEWS: ${W}/news` }));
+    const c = await watched();
+    expect(c).toMatchObject({ status: "needs_you", problem: "no_sitemap", news: null });
+  });
+});

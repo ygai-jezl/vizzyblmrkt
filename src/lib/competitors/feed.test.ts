@@ -52,4 +52,12 @@ describe("posts on a listing page", () => {
     expect(isPostOf("https://acme-dental.example/my-first-post", "https://acme-dental.example/", SITE)).toBe(true);
     expect(isPostOf("https://acme-dental.example/a/b/c", "https://acme-dental.example/", SITE)).toBe(false);
   });
+
+  it("doesn't count a date archive as a post, but does count a post under a date", () => {
+    for (const archive of ["/news/2026", "/news/2026/11", "/news/2026/11/13", "/news/2026/11/13/"]) {
+      expect(isPostOf(`https://www.acme-dental.example${archive}`, NEWS, SITE), archive).toBe(false);
+    }
+    expect(isPostOf("https://www.acme-dental.example/news/2026/11/13/leeds-clinic", NEWS, SITE)).toBe(true);
+    expect(isPostOf("https://www.acme-dental.example/news/1234", NEWS, SITE)).toBe(true);
+  });
 });

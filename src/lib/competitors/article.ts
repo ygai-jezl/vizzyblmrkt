@@ -7,6 +7,7 @@
  */
 import { parse, type HTMLElement, type Node } from "node-html-parser";
 import { readPostMeta } from "@/lib/content/blog/research";
+import type { ArticleTrust } from "@/lib/types/competitor";
 import { onSite } from "./sitemap";
 
 /** Fewer words than this and the page isn't an article we can learn from (a stub, a gate). */
@@ -25,16 +26,6 @@ export interface ArticleLink {
   internal: boolean;
   /** Inside a sidebar, menu, footer or a related posts block, not the argument itself. */
   inAside: boolean;
-}
-
-export interface ArticleTrust {
-  author: string | null;
-  authorUrl: string | null;
-  /** ISO day. */
-  publishedAt: string | null;
-  updatedAt: string | null;
-  /** schema.org types the page declares, e.g. BlogPosting, Person, FAQPage. */
-  schemaTypes: string[];
 }
 
 export interface ArticlePage {

@@ -20,6 +20,8 @@ const WRITE_ON_THEIR_OWN = [
   "competitors.analyse_site",
   "competitors.summarise_posts",
   "competitors.summarise_site_changes",
+  "competitors.read_article",
+  "competitors.read_article_google",
 ];
 
 describe("no dashes in our copy", () => {

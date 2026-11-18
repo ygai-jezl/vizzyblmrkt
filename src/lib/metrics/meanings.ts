@@ -9,7 +9,7 @@ export interface Meaning {
   name: string;
   definition: string;
   grain: string;
-  unit: "count" | "ratio" | "percent" | "date";
+  unit: "count" | "ratio" | "percent" | "date" | "rank";
   source: string;
   caveat?: string;
 }
@@ -161,6 +161,28 @@ export const MEANINGS = {
   },
   publishedAt: { name: "Published", definition: "When the post went out.", grain: "one post", unit: "date", source: "the post's publish record" },
   posts: { name: "Posts", definition: "Posts published in the period with numbers read.", grain: "one post", unit: "count", source: "the post statistics records" },
+  googlePosition: {
+    name: "Google position",
+    definition: "Where the brand's own page ranks in Google's results for the question, 1 being the top. Null when none of its pages is in the top 10.",
+    grain: "one question in one market, on the day it was looked up",
+    unit: "rank",
+    source: "Google results, through DataForSEO",
+    caveat: "One look on one day in one country and language. Results move, so read it as a sign, not a measure.",
+  },
+  peopleAlsoAsk: {
+    name: "People also ask",
+    definition: "How many People also ask questions Google showed for the question.",
+    grain: "one question in one market",
+    unit: "count",
+    source: "Google results, through DataForSEO",
+  },
+  aiOverviewSources: {
+    name: "AI Overview sources",
+    definition: "How many pages Google's AI Overview cited for the question. 0 when Google showed no AI Overview.",
+    grain: "one question in one market",
+    unit: "count",
+    source: "Google results, through DataForSEO",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

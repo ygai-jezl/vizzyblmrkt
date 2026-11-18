@@ -176,10 +176,13 @@ export async function getCampaignStatus(
 
 export interface CampaignReport {
   emails_sent: number;
-  opens: { open_rate: number };
-  clicks: { click_rate: number };
+  opens: { open_rate: number; opens_total?: number; unique_opens?: number; last_open?: string };
+  clicks: { click_rate: number; clicks_total?: number; unique_clicks?: number; last_click?: string };
   /** Top-level unique unsubscribe count from the MailChimp report. */
   unsubscribed: number;
+  bounces?: { hard_bounces?: number; soft_bounces?: number; syntax_errors?: number };
+  abuse_reports?: number;
+  forwards?: { forwards_count?: number };
 }
 
 export async function getCampaignReport(

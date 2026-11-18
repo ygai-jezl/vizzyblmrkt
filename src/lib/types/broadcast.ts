@@ -24,6 +24,18 @@ export const BroadcastStatsSchema = z.object({
   clickRate: z.number().optional(),
   /** Unique unsubscribes for this broadcast (count, not a rate). */
   unsubscribed: z.number().int().nonnegative().optional(),
+  /** MAILCHIMP_REPORT_DETAIL_ENABLED: the rest of MailChimp's report. */
+  uniqueOpens: z.number().int().nonnegative().optional(),
+  totalOpens: z.number().int().nonnegative().optional(),
+  uniqueClicks: z.number().int().nonnegative().optional(),
+  totalClicks: z.number().int().nonnegative().optional(),
+  hardBounces: z.number().int().nonnegative().optional(),
+  softBounces: z.number().int().nonnegative().optional(),
+  complaints: z.number().int().nonnegative().optional(),
+  forwards: z.number().int().nonnegative().optional(),
+  lastOpenAt: z.string().nullable().optional(),
+  lastClickAt: z.string().nullable().optional(),
+  syncedAt: z.string().optional(),
 });
 export type BroadcastStats = z.infer<typeof BroadcastStatsSchema>;
 
@@ -41,6 +53,8 @@ export const BroadcastSchema = z.object({
   /** Set once the MailChimp campaign is created, for report lookups. */
   mailchimpCampaignId: z.string().nullable().optional(),
   stats: BroadcastStatsSchema.nullable().optional(),
+  /** MAILCHIMP_REPORT_DETAIL_ENABLED: each sync's report, kept (the latest 30), so the numbers have a history. */
+  statsHistory: z.array(BroadcastStatsSchema).max(30).optional(),
   agentMeta: AgentMetaSchema.optional(),
   /** Surfaced to the operator when status === "failed". */
   lastError: z.string().nullable().optional(),

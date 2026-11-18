@@ -401,6 +401,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Keep all of MailChimp's broadcast report (opens and clicks in total, bounces, complaints,
+  # forwards) with a history, synced daily for 14 days then weekly until 90 days.
+  - variable: MAILCHIMP_REPORT_DETAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Brand kit ==
   # The brand kit, its logos, colours, fonts, icons and graphics, and using them as

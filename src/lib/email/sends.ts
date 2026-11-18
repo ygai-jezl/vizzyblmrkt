@@ -109,3 +109,45 @@ export async function attributionOfSend(
   opts.cache?.set(sendId, meta);
   return meta;
 }
+
+/** Totals over a group of send records (EMAIL_ENGAGEMENT_DETAIL_ENABLED keeps what they count). */
+export interface SendTotals {
+  sends: number;
+  totalOpens: number;
+  totalClicks: number;
+  hardBounces: number;
+  softBounces: number;
+  deferrals: number;
+  complaints: number;
+  unsubscribes: number;
+}
+
+/** Most send records one summary reads. */
+export const SEND_SUMMARY_MAX = 5000;
+
+/**
+ * Totals over the brand's send records for one journey or one launch (or all of them), reading at
+ * most SEND_SUMMARY_MAX. Equality filters only. `complete` is false when there may be more.
+ */
+export async function summariseEmailSends(
+  ctx: TenantContext,
+  filter: { journeyId?: string; campaignId?: string },
+  db?: FirestoreLike,
+): Promise<{ totals: SendTotals; complete: boolean }> {
+  const where: Array<[string, "==", string]> = [];
+  if (filter.journeyId) where.push(["journeyId", "==", filter.journeyId]);
+  if (filter.campaignId) where.push(["campaignId", "==", filter.campaignId]);
+  const rows = await forTenant(ctx, db).emailSends.find({ where, limit: SEND_SUMMARY_MAX });
+  const totals: SendTotals = { sends: 0, totalOpens: 0, totalClicks: 0, hardBounces: 0, softBounces: 0, deferrals: 0, complaints: 0, unsubscribes: 0 };
+  for (const r of rows) {
+    totals.sends += 1;
+    totals.totalOpens += r.opens?.count ?? 0;
+    totals.totalClicks += r.clicks?.count ?? 0;
+    if (r.bounce?.kind === "hard") totals.hardBounces += 1;
+    if (r.bounce?.kind === "soft") totals.softBounces += 1;
+    totals.deferrals += r.deferrals?.count ?? 0;
+    if (r.spamAt) totals.complaints += 1;
+    if (r.unsubAt) totals.unsubscribes += 1;
+  }
+  return { totals, complete: rows.length < SEND_SUMMARY_MAX };
+}

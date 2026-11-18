@@ -241,3 +241,31 @@ export async function readPostPerformanceMany(
   }
   return out;
 }
+
+/**
+ * A brand's post records on one channel published since `sinceIso`, newest first, at most `limit`.
+ * Uses the (tenantId, channel, rewardStatus, publishedAt) index with every status. Defence in depth:
+ * a row must still be this brand's.
+ */
+export async function listPostPerformance(
+  ctx: TenantContext,
+  opts: { channel: string; sinceIso: string; limit: number },
+  db?: FirestoreLike,
+): Promise<PostPerformance[]> {
+  const snap = await regionalDb(ctx, db)
+    .collection(POST_PERFORMANCE)
+    .where("tenantId", "==", ctx.tenantId)
+    .where("channel", "==", opts.channel)
+    .where("rewardStatus", "in", ["collecting", "settled", "scored", "late"])
+    .where("publishedAt", ">=", opts.sinceIso)
+    .orderBy("publishedAt", "asc")
+    .limit(Math.max(1, Math.min(opts.limit, 500)))
+    .get();
+  const out: PostPerformance[] = [];
+  for (const d of snap.docs) {
+    const parsed = PostPerformanceSchema.safeParse({ id: d.id, ...d.data() });
+    if (parsed.success && parsed.data.tenantId === ctx.tenantId) out.push(parsed.data);
+  }
+  return out.reverse();
+}
+

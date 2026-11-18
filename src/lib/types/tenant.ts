@@ -1,3 +1,4 @@
+import { SearchMarketSchema } from "./brandSignal";
 import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
@@ -728,6 +729,9 @@ export const TenantSchema = z.object({
   /** This brand's own monthly caps, by feature (src/lib/plans/limits.ts). A feature left out uses
    *  the copy's cap. Set by `scripts/grant-feature.ts --limit` until billing exists. */
   featureLimits: z.record(z.string().max(64), z.number().int().min(0).max(100_000)).optional().catch(undefined),
+  /** Where this brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED, src/lib/signals).
+   *  Unset: United States, English. A search market, NOT data residency (that is `region`). */
+  searchMarket: SearchMarketSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

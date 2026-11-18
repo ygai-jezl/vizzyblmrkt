@@ -114,7 +114,8 @@ describe("checkFindings", () => {
 
   it("knows an article an older reader read", () => {
     expect(readByOlderReader({ status: "read", readBy: "direct", version: 1 })).toBe(true);
-    expect(readByOlderReader({ status: "read", readBy: "direct", version: 2 })).toBe(false);
+    expect(readByOlderReader({ status: "read", readBy: "direct", version: 2 })).toBe(true);
+    expect(readByOlderReader({ status: "read", readBy: "direct", version: 3 })).toBe(false);
     expect(readByOlderReader({ status: "read", readBy: "google", version: 1 })).toBe(false);
     expect(readByOlderReader({ status: "queued", readBy: null, version: 0 })).toBe(false);
   });
@@ -142,6 +143,42 @@ describe("checkFindings", () => {
       { kind: "demo", placement: "end", url: "https://rival.test/demo", text: "Book a demo" },
       { kind: "trial", placement: "top", url: "https://rival.test/start", text: "Try it free" },
     ]);
+  });
+
+  it("cites only pages that back a claim: not a link that only names someone, a file host, or a plain link", () => {
+    const more = {
+      ...PAGE,
+      text: `${PAGE.text}\nBacked by Example Ventures [L6]. Get the deck [L7]. See the vendor [L8]. A trend [L9] says 9% grew.`,
+      links: [
+        ...PAGE.links,
+        { n: 6, url: "https://ventures.example.com/", anchor: "Example Ventures", internal: false, inAside: false },
+        { n: 7, url: "https://1.fs1.hubspotusercontent-na1.net/deck.pdf", anchor: "Get the deck", internal: false, inAside: false },
+        { n: 8, url: "https://vendor.example.net/", anchor: "the vendor", internal: false, inAside: false },
+        { n: 9, url: "https://trends.example.org/2026", anchor: "A trend", internal: false, inAside: false },
+      ],
+    };
+    const g = checkFindings(
+      {
+        ...ANSWER,
+        links: [...ANSWER.links, { n: 6, role: "mention" }, { n: 7, role: "source" }, { n: 8, role: "in_text" }, { n: 9, role: "in_text" }],
+        stats: [...ANSWER.stats, { figure: "9%", about: "Grew", quote: "A trend [L9] says 9% grew.", kind: "result", theirOwn: false, sourceLink: 9 }],
+      },
+      more,
+      CAND,
+    )!;
+    expect(g.sources.map((s) => s.domain)).toEqual(["research.example.org", "trends.example.org"]);
+    expect(g.links.find((l) => l.url === "https://ventures.example.com/")?.role).toBe("mention");
+  });
+
+  it("keeps a link that asks for nothing we can name as a plain link, not an ask", () => {
+    const more = { ...PAGE, links: [...PAGE.links, { n: 5, url: "https://rival.test/features/volumes", anchor: "Prompt Volumes", internal: true, inAside: false }] };
+    const g = checkFindings({ ...ANSWER, links: [...ANSWER.links, { n: 5, role: "ask" }], ctas: [...ANSWER.ctas, { n: 5, kind: "other", placement: "inline" }] }, more, CAND)!;
+    expect(g.asks.map((a) => a.kind)).toEqual(["demo"]);
+    expect(g.links.find((l) => l.url === "https://rival.test/features/volumes")?.role).toBe("in_text");
+  });
+
+  it("knows a page that only lists other posts", () => {
+    expect(checkFindings({ ...ANSWER, format: "listing" }, PAGE, CAND)!.format).toBe("listing");
   });
 
   it("finds your names and other competitors' by code", () => {

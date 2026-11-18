@@ -4,6 +4,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { listArticles } from "./articles";
 import { isCompetitorArticlesEnabled, isCompetitorsChatEnabled } from "./flags";
 import { listChanges, listCompetitors, type StoreDeps } from "./store";
+import { cleanTitle } from "./titles";
 import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, articleTotals, askLabel, formatLabel, stageLabel } from "./view";
 
 /**
@@ -52,7 +53,8 @@ export async function agentReadCompetitors(
         withArticles ? listArticles(ctx, c.id, deps).catch(() => []) : Promise.resolve(null),
       ]);
       const a = c.analysis;
-      const totals = articles ? articleTotals(articles) : null;
+      const totals = articles ? articleTotals(articles, a?.sections ?? []) : null;
+      const names = [c.name, c.site];
       return {
         name: c.name,
         site: c.site,
@@ -74,7 +76,7 @@ export async function agentReadCompetitors(
             headline: ch.headline,
             summary: ch.summary,
             topics: ch.topics,
-            posts: ch.posts.slice(0, 5).map((p) => p.title || p.url),
+            posts: ch.posts.slice(0, 5).map((p) => cleanTitle(p.title, names) || p.url),
             seen: ch.seenAt !== null,
           })),
           ...(articles && totals
@@ -85,14 +87,14 @@ export async function agentReadCompetitors(
                   formats: totals.formats.map((f) => `${formatLabel(f.key)} ${f.count}`),
                   writtenFor: totals.roles.map((r) => r.key),
                   asks: totals.asks.map((x) => `${askLabel(x.key)} ${x.count}`),
-                  pagesTheyPush: totals.pushed.map((p) => p.key),
+                  pagesTheyPush: totals.pushed.map((p) => `${p.name} (${p.key})`),
                   sitesTheyCite: totals.cited.map((x) => x.key),
                   stats: totals.stats,
                   newest: articles
                     .filter((x) => x.status === "read")
                     .slice(0, MAX_ARTICLES)
                     .map((x) => ({
-                      title: x.title,
+                      title: cleanTitle(x.title, names),
                       url: x.url,
                       published: x.publishedAt,
                       format: x.format ? formatLabel(x.format) : null,
@@ -101,7 +103,7 @@ export async function agentReadCompetitors(
                       angle: x.angle,
                       writtenFor: x.reader.roles,
                       stats: x.stats.map((st) => ({ figure: st.figure, about: st.about, from: st.source?.domain ?? (st.theirOwn ? "their own data" : null) })),
-                      asks: x.asks.map((k) => askLabel(k.kind)),
+                      asks: x.asks.filter((k) => k.kind !== "other").map((k) => askLabel(k.kind)),
                       namesYou: x.mentions.you.length > 0,
                     })),
                 },

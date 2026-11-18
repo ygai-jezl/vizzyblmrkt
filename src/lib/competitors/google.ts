@@ -2,6 +2,7 @@ import { readUrlsWithGoogle, type UrlReadResult } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import { asHttps, onSite } from "./sitemap";
+import { cleanTitle } from "./titles";
 
 /**
  * Reading a site that turns automated readers like ours away, through Google instead: Gemini's
@@ -156,8 +157,7 @@ export async function googleReadPosts(urls: string[], timeoutMs: number, deps: G
 
 /** "Whitening myths | Acme Dental" → "Whitening myths": a page title's short site name after a bar goes. */
 export function withoutSiteName(title: string): string {
-  const at = title.lastIndexOf(" | ");
-  return at > 0 && title.length - at - 3 <= 40 ? title.slice(0, at).trim() : title;
+  return cleanTitle(title);
 }
 
 /** A title from the address alone, for a post Google couldn't read: "/blog/opening-hours/" → "Opening hours". */

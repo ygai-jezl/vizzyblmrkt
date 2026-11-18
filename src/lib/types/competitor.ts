@@ -296,16 +296,18 @@ export const ARTICLE_STATUSES = ["queued", "reading", "read", "failed", "skipped
 export type ArticleStatus = (typeof ARTICLE_STATUSES)[number];
 
 /** Why an article wasn't read (shown on the page). */
-export const ARTICLE_PROBLEMS = ["blocked", "turned_away", "unreachable", "not_an_article", "no_answer", "removed"] as const;
+export const ARTICLE_PROBLEMS = ["blocked", "turned_away", "unreachable", "not_an_article", "listing", "no_answer", "removed"] as const;
 export type ArticleProblem = (typeof ARTICLE_PROBLEMS)[number];
 
-export const ARTICLE_FORMATS = ["how_to", "list", "comparison", "case_study", "research", "opinion", "news", "guide", "glossary", "template", "other"] as const;
+/** `listing` is a page that lists other posts (a category or tag page): it is never kept as an article. */
+export const ARTICLE_FORMATS = ["how_to", "list", "comparison", "case_study", "research", "opinion", "news", "guide", "glossary", "template", "listing", "other"] as const;
 export type ArticleFormat = (typeof ARTICLE_FORMATS)[number];
 
 export const ARTICLE_STAGES = ["awareness", "consideration", "decision", "retention"] as const;
 export type ArticleStage = (typeof ARTICLE_STAGES)[number];
 
-export const ARTICLE_LINK_ROLES = ["in_text", "ask", "related", "author", "source", "other"] as const;
+/** `source` backs a claim; `mention` only names a company, partner, investor, customer, person or product. */
+export const ARTICLE_LINK_ROLES = ["in_text", "ask", "related", "author", "source", "mention", "other"] as const;
 export type ArticleLinkRole = (typeof ARTICLE_LINK_ROLES)[number];
 
 export const ARTICLE_ASK_KINDS = ["demo", "trial", "sign_up", "contact_sales", "download", "newsletter", "webinar", "pricing", "other"] as const;

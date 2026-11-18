@@ -895,3 +895,35 @@ describe("research's buying situation", () => {
     expect(parseResearch("SITUATION: none").situation).toBe("");
   });
 });
+
+describe("research with the context pack (CREATE_RESEARCH_CONTEXT_ENABLED)", () => {
+  const pack = {
+    about: { query: "How do I track my brand in AI answers?", questionId: null, subjectId: null },
+    map: [],
+    yours: [{ text: '"Citation gaps, explained": what we found', source: "Brand search: article", url: "https://acme.example/blog/citation-gaps" }],
+    theirs: [{ text: "Rival A: a case study", source: "Competitor articles" }],
+    research: [],
+    numbers: [{ text: "None of your pages is in Google's top 10 for it.", source: "Google" }],
+    learned: [],
+    figures: {},
+    missing: [],
+  };
+
+  it("reads the pack only with its switches on, fenced as untrusted, and offers the brand's own pages it names", async () => {
+    const d = deps({ pack: vi.fn(async () => pack) as never });
+    await researchBlogBrief({ ctx, workspace, plan: plan(), brandName: "Acme" }, d);
+    expect(d.pack).not.toHaveBeenCalled();
+    const firstPrompt = String(d.grounded.mock.calls.find(([p]) => !String(p).includes("FACT: <the sentence>"))?.[0]);
+    expect(firstPrompt).not.toContain("<context_pack");
+
+    vi.stubEnv("CREATE_RESEARCH_CONTEXT_ENABLED", "true");
+    vi.stubEnv("BRAND_CONTEXT_ENABLED", "true");
+    const d2 = deps({ pack: vi.fn(async () => pack) as never });
+    await researchBlogBrief({ ctx, workspace, plan: plan(), brandName: "Acme" }, d2);
+    const prompt = String(d2.grounded.mock.calls.find(([p]) => !String(p).includes("FACT: <the sentence>"))?.[0]);
+    expect(prompt).toContain("What the brand already knows about this question (UNTRUSTED DATA");
+    expect(prompt).toContain("Citation gaps, explained");
+    expect(prompt).toContain("None of your pages is in Google's top 10");
+    vi.unstubAllEnvs();
+  });
+});

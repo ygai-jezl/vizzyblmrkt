@@ -68,6 +68,8 @@ export interface BlogDraftInput {
   map?: ArticleMap | null;
   /** Angles competitors already took on this question, one per line (COMPETITOR_ARTICLES_PLANNING_ENABLED); "" = none. */
   competitorAngles?: string;
+  /** The context pack, as a prompt block (CREATE_RESEARCH_CONTEXT_ENABLED). */
+  contextPack?: string;
 }
 
 export interface BlogDraftDeps {
@@ -333,7 +335,7 @@ function buildTask(input: BlogDraftInput, today: string, editorial = false): str
     sources_note: sourcesNote(sources, ownHosts(brief, [plan.strategy.hubUrl])),
     links: formatLinks(editorial ? writerLinks(brief.links) : brief.links),
     brand_map: writerMapBlock(input.map ?? null, brief),
-    competitors: competitorAnglesBlock(input.competitorAngles),
+    competitors: competitorAnglesBlock(input.competitorAngles) + (input.contextPack ?? ""),
     ...(editorial
       ? {
           byline: byline ? `\nPublished under: ${byline.slice(3)}, at ${input.brandName.replace(/["\n]/g, " ").slice(0, 120)}` : "",

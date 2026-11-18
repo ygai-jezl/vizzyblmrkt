@@ -1,4 +1,7 @@
 import { anglesBlock, competitorContext } from "@/lib/competitors/planning";
+import { contextPack, packPromptBlock } from "@/lib/brandContext/pack";
+import { isBrandContextEnabled } from "@/lib/brandContext/flags";
+import { isResearchContextEnabled } from "@/lib/autopilot/flags";
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
@@ -234,11 +237,15 @@ export async function generateNode(
     bypassEnabledFlag: true,
     ...(scopedTopic ? { filter: { topic: scopedTopic } } : {}),
   };
-  const [rag, theirs] = await Promise.all([
+  const [rag, theirs, pack] = await Promise.all([
     retrieve(req).catch(() => null),
     // An article's angles already taken by competitors (COMPETITOR_ARTICLES_PLANNING_ENABLED): blog hubs only.
     citableBlog
       ? competitors(ctx, { subjectId: brief.subjectId ?? null, text: brief.primaryQuestion.trim() || plan.scope.spark || plan.name }).catch(() => null)
+      : Promise.resolve(null),
+    // What the brand already knows about the question (CREATE_RESEARCH_CONTEXT_ENABLED): blog hubs only.
+    citableBlog && isResearchContextEnabled() && isBrandContextEnabled()
+      ? contextPack(ctx, { questionId: brief.primaryRef ?? null, subjectId: brief.subjectId ?? null, text: brief.primaryQuestion.trim() || plan.scope.spark || plan.name }).catch(() => null)
       : Promise.resolve(null),
   ]);
   const knowledgeContext = rag?.formatted ?? "";
@@ -259,6 +266,7 @@ export async function generateNode(
       quick: input.quick,
       map: input.brandMap ?? null,
       competitorAngles: anglesBlock(theirs),
+      contextPack: packPromptBlock(pack, "writer"),
     }).catch(() => null);
     if (!drafted) {
       return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };

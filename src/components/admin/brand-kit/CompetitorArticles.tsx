@@ -54,6 +54,14 @@ const pathOf = (url: string) => {
   }
 };
 
+/** "Jul 2025 to Oct 2026", or one month when they are the same. */
+function spanOf(span: { from: string | null; to: string | null }): string | null {
+  const month = (d: string) => new Date(`${d.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+  if (!span.from || !span.to) return null;
+  const [from, to] = [month(span.from), month(span.to)];
+  return from === to ? from : `${from} to ${to}`;
+}
+
 function Article({ a, subjectNames }: { a: ArticleView; subjectNames: Record<string, string> }) {
   const onMap = a.subjectIds.map((id) => subjectNames[id]).filter(Boolean);
   const theirOwn = a.stats.filter((s) => s.theirOwn).length;
@@ -151,6 +159,18 @@ function Article({ a, subjectNames }: { a: ArticleView; subjectNames: Record<str
                 ) : (
                   <p className="text-neutral-500">No outside sources.</p>
                 )}
+                {a.mentionLinks.length ? (
+                  <p className="mt-1 text-neutral-500">
+                    Also links to{" "}
+                    {a.mentionLinks.map((m, i) => (
+                      <span key={m.url}>
+                        {i ? ", " : ""}
+                        <Out href={m.url}>{m.anchor || m.url}</Out>
+                      </span>
+                    ))}
+                    , without citing them.
+                  </p>
+                ) : null}
               </Part>
               <Part title="What it asks and where it sends readers">
                 {a.asks.length || a.pushes.length ? (
@@ -200,19 +220,38 @@ export function CompetitorArticles({ articles, totals, subjectNames }: { article
   }
   const list = (rows: Array<{ key: string; count: number }>, word: (k: string) => string = (k) => k) =>
     rows.length ? rows.map((r) => `${word(r.key)} ${r.count}`).join(" · ") : "None yet";
+  const span = spanOf(totals.span);
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label={`${totals.read} read${totals.waiting ? `, ${totals.waiting} waiting` : ""}`}>{list(totals.formats, formatLabel)}</Tile>
-        <Tile label="Written for">{totals.roles.length ? totals.roles.map((r) => r.key).join(", ") : "None yet"}</Tile>
+        <Tile label={`${totals.read} read${span ? ` · published ${span}` : ""}${totals.waiting ? `, ${totals.waiting} waiting` : ""}`}>{list(totals.formats, formatLabel)}</Tile>
+        <Tile label="Written for">
+          {list(totals.roles)}
+          {totals.companies.length ? <span className="block font-normal text-neutral-500">At {totals.companies.map((c) => c.key).join(", ")}</span> : null}
+        </Tile>
         <Tile label="They ask for">{list(totals.asks, askLabel)}</Tile>
-        <Tile label="Pages they send readers to most">{totals.pushed.length ? totals.pushed.map((p) => p.key).join(" · ") : "None yet"}</Tile>
+        <Tile label="Pages they send readers to most">
+          {totals.pushed.length ? (
+            <ul className="space-y-0.5">
+              {totals.pushed.map((p) => (
+                <li key={p.key} title={p.key}>
+                  {p.name}
+                  <span className="font-normal text-neutral-500">
+                    {p.section ? ` · ${p.section}` : ""} · {p.count}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            "None yet"
+          )}
+        </Tile>
       </div>
       <p className="text-xs text-neutral-500">
         {totals.stats.total
-          ? `${totals.stats.total} stats across these articles, ${totals.stats.theirOwn} from their own data.`
+          ? `${totals.stats.total} stat${totals.stats.total === 1 ? "" : "s"} across these articles, ${totals.stats.theirOwn} from their own data.`
           : "No stats used as evidence yet."}
-        {totals.cited.length ? ` They cite ${totals.cited.map((c) => c.key).join(", ")}.` : " They cite no outside sources."}
+        {totals.cited.length ? ` They cite ${list(totals.cited)}.` : " They cite no outside sources."}
       </p>
       {totals.readThroughGoogle ? <Banner tone="info">{GOOGLE_ARTICLE_NOTE}</Banner> : null}
       <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">

@@ -17,6 +17,7 @@ import {
 import { fenced, tidy, type AnalyseDeps } from "./analyse";
 import type { ArticlePage } from "./article";
 import { readerOf, wasRead, type GoogleDeps } from "./google";
+import { domainOf, isFileHost } from "./hosts";
 
 /**
  * Gemini reads one competitor article and says what it covers, who it is for, the numbers it uses
@@ -33,9 +34,11 @@ import { readerOf, wasRead, type GoogleDeps } from "./google";
 
 /**
  * Bumped when what a read records changes. An article read by an older version is read again when
- * nothing new is waiting (see articleTick.ts). 2: stats are measured results only.
+ * nothing new is waiting (see articleTick.ts). 2: stats are measured results only. 3: a link that only
+ * names a company is a mention, not a source; a page that lists posts is skipped; a link asking for
+ * nothing we name is a plain link, not an ask.
  */
-export const READER_VERSION = { direct: 2, google: 1 } as const;
+export const READER_VERSION = { direct: 3, google: 1 } as const;
 
 /** Whether an article was read by an older reader than today's, so reading it again would change it. */
 export function readByOlderReader(a: Pick<CompetitorArticle, "status" | "readBy" | "version">): boolean {
@@ -208,14 +211,6 @@ function placementOf(text: string, n: number): ArticleCta["placement"] {
   return share < 0.15 ? "top" : share > 0.8 ? "end" : "inline";
 }
 
-const domainOf = (url: string) => {
-  try {
-    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-};
-
 function pick<T extends string>(raw: string | undefined, allowed: readonly T[]): T | null {
   return allowed.includes(raw as T) ? (raw as T) : null;
 }
@@ -292,9 +287,15 @@ export function checkFindings(raw: unknown, page: ArticlePage | null, cand: Read
   const kinds = new Map<number, ArticleCta["kind"]>();
   for (const item of r.ctas ?? []) {
     const c = Cta.safeParse(item);
-    if (c.success && byN.has(c.data.n)) kinds.set(c.data.n, c.data.kind);
+    if (c.success && byN.has(c.data.n) && c.data.kind !== "other") kinds.set(c.data.n, c.data.kind);
   }
-  for (const [n, role] of roles) if (role === "ask" && !kinds.has(n)) kinds.set(n, askKindOf(byN.get(n)!) ?? "other");
+  // A link called an ask that asks for nothing we can name is one of their pages in the text, not an ask.
+  for (const [n, role] of roles) {
+    if (role !== "ask" || kinds.has(n)) continue;
+    const kind = askKindOf(byN.get(n)!);
+    if (kind) kinds.set(n, kind);
+    else roles.set(n, "in_text");
+  }
   for (const [n, kind] of [...kinds].sort((a, b) => a[0] - b[0])) {
     const link = byN.get(n)!;
     if (askUrls.has(link.url) || asks.length >= MAX.ASKS) continue;
@@ -309,9 +310,12 @@ export function checkFindings(raw: unknown, page: ArticlePage | null, cand: Read
     role: askUrls.has(l.url) ? "ask" : (roles.get(l.n) ?? (l.inAside ? "related" : "in_text")),
   }));
 
+  // Who they cite: outside pages that back a claim, and any a kept stat points to. A link that only
+  // names a company (an investor, a partner) is a mention, and a file host names nobody.
+  const backing = new Set(stats.flatMap((s) => (s.source ? [s.source.url] : [])));
   const seen = new Set<string>();
   const sources = links
-    .filter((l) => !l.internal && (l.role === "source" || l.role === "in_text" || l.role === "other"))
+    .filter((l) => !l.internal && !isFileHost(l.url) && (l.role === "source" || backing.has(l.url)))
     .filter((l) => (seen.has(l.url) ? false : (seen.add(l.url), true)))
     .slice(0, MAX.SOURCES)
     .map((l) => ({ url: l.url, domain: domainOf(l.url), anchor: l.anchor }));

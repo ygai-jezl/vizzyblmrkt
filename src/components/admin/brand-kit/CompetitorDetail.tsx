@@ -6,7 +6,7 @@ import { api, errorText } from "@/components/admin/connect/api";
 import { Badge, Banner, Button, Field, Section, Tabs, inputClass } from "@/components/admin/connect/ui";
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { COMPETITOR_LIMITS, type ChangedSection, type CompetitorChange } from "@/lib/types/competitor";
-import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, formatLabel, type CompetitorDetail as Detail } from "@/lib/competitors/view";
+import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, changeSummaryOf, formatLabel, type ArticleView, type CompetitorDetail as Detail } from "@/lib/competitors/view";
 import { BRAND_MAP_NOTE, shortDate, statsLine } from "./CompetitorsPage";
 import { CompetitorArticles } from "./CompetitorArticles";
 
@@ -62,7 +62,8 @@ function Sections({ title, side, website }: { title: string; side: { count: numb
   );
 }
 
-function Change({ change, website, formats }: { change: CompetitorChange; website: string; formats: Map<string, string> }) {
+function Change({ change, website, formats, read }: { change: CompetitorChange; website: string; formats: Map<string, string>; read: Map<string, ArticleView> }) {
+  const summary = change.posts.length ? changeSummaryOf(change.posts, read) : null;
   return (
     <li className="space-y-2 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -75,6 +76,11 @@ function Change({ change, website, formats }: { change: CompetitorChange; websit
         </span>
       </div>
       {change.summary ? <p className="text-sm text-neutral-700 dark:text-neutral-300">{change.summary}</p> : null}
+      {summary ? (
+        <p className="text-sm text-neutral-700 dark:text-neutral-300">
+          <span className="font-medium">Read in full:</span> {summary}
+        </p>
+      ) : null}
       {change.topics.length ? (
         <div className="flex flex-wrap gap-1">
           {change.topics.map((t) => (
@@ -139,6 +145,8 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
   const base = `/api/admin/brand-kit/competitors/${c.id}`;
   // A post read in full shows its format beside it in What changed.
   const formats = new Map((c.articles ?? []).flatMap((x) => (x.status === "read" && x.format ? [[x.url, formatLabel(x.format)] as const] : [])));
+  // What the articles behind a change's posts are, for its one line.
+  const read = new Map((c.articles ?? []).map((x) => [x.url, x] as const));
 
   async function run(label: string, path: string, init: RequestInit, after?: (data: Record<string, unknown>) => void) {
     setBusy(label);
@@ -247,7 +255,7 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
           {c.changes.length ? (
             <ul className="space-y-3">
               {c.changes.map((ch) => (
-                <Change key={ch.id} change={ch} website={c.website} formats={formats} />
+                <Change key={ch.id} change={ch} website={c.website} formats={formats} read={read} />
               ))}
             </ul>
           ) : (

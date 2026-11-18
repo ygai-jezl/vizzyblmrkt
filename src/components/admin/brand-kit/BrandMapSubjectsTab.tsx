@@ -1,6 +1,8 @@
 "use client";
 
 import { SubjectCompetitors } from "./SubjectCompetitors";
+import { FLAG_TEXT } from "./CompetitorCoverage";
+import type { CoverageFlag } from "@/lib/competitors/coverage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BrandMapGroup, BrandMapQuestionRecord, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
 import type { Coverage, SubjectCoverage } from "@/lib/content/blog/coverage";
@@ -69,6 +71,19 @@ export function BrandMapSubjectsTab({
   const [sorting, setSorting] = useState<string | null>(null);
   // A few hundred rows at a time: a group of thousands stays quick to scroll.
   const [rows, setRows] = useState(PAGE_ROWS);
+  // How much competitors wrote on each subject in the last 90 days (COMPETITOR_ARTICLES_PLANNING_ENABLED).
+  const [theirs, setTheirs] = useState<Record<string, { they: number; flag: CoverageFlag }>>({});
+
+  useEffect(() => {
+    if (!competitorArticles) return;
+    let live = true;
+    void api<{ subjects?: Record<string, { they: number; flag: CoverageFlag }> }>("/api/admin/brand-kit/competitors/coverage", { method: "GET" }).then((r) => {
+      if (live && r.ok && r.data.subjects) setTheirs(r.data.subjects);
+    });
+    return () => {
+      live = false;
+    };
+  }, [competitorArticles]);
 
   const loadGroups = useCallback(async () => {
     const r = await api<{ groups?: BrandMapGroup[]; ungrouped?: Partial<GroupTotals> | null }>(`${MAP}/groups`);
@@ -390,6 +405,11 @@ export function BrandMapSubjectsTab({
                     </span>
                     {s.counts.answered} of {s.counts.questions} answered
                   </span>
+                  {theirs[s.id] ? (
+                    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${FLAG_TEXT[theirs[s.id]!.flag].tone}`} title="Their articles on it in the last 90 days">
+                      Competitors {theirs[s.id]!.they} · {FLAG_TEXT[theirs[s.id]!.flag].label}
+                    </span>
+                  ) : null}
                   {view.kind === "all" ? <span className="text-[11px] text-neutral-500">{groupName(s.groupId)}</span> : null}
                   {s.suggestedGroupId && view.kind !== "suggested" ? (
                     <span className="text-[11px] text-neutral-500">Suggested group: {groupName(s.suggestedGroupId)}</span>
@@ -646,7 +666,13 @@ function SubjectDetail({
         </section>
       ) : null}
 
-      {competitorArticles ? <SubjectCompetitors subjectId={subject.id} /> : null}
+      {competitorArticles ? (
+        <SubjectCompetitors
+          subjectId={subject.id}
+          questions={decided.map((q) => ({ id: q.id, text: q.text, open: (states.get(q.id)?.state ?? "open") === "open" }))}
+          programmes={programmes}
+        />
+      ) : null}
 
       {canEdit ? (
         <div className="space-y-1.5 border-t border-neutral-100 pt-2 dark:border-neutral-800">

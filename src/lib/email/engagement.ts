@@ -113,6 +113,9 @@ export function applyEngagement(
       case "reject":
         out.reject = { reason: str(ev.msg?.reject && typeof ev.msg.reject === "object" ? (ev.msg.reject as { reason?: unknown }).reason : ev.msg?.state, 80), at };
         break;
+      case "delivered":
+        out.deliveredAt = current.deliveredAt ?? at;
+        break;
       case "deferral": {
         const d = out.deferrals ?? current.deferrals ?? { count: 0, lastAt: at };
         out.deferrals = { count: d.count + 1, lastAt: at > d.lastAt ? at : d.lastAt };

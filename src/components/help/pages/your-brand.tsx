@@ -284,8 +284,16 @@ export default function YourBrandHelp() {
             read each new post in full, and the newest 20 from before you started watching. Open an article to see what it covers
             and its angle, who it is written for, each result it reports in numbers with the sentence it came from, the sites it
             cites, what it asks the reader to do and which of their own pages it sends readers to. Dates, prices, product settings
-            and made up examples don&apos;t count as results. We keep what we found and short quotes, never the article itself,
-            and read up to 200 articles a month for your brand.
+            and made up examples don&apos;t count as results. A link that only names a company, such as an investor or a partner,
+            shows under <strong>Also links to</strong> and doesn&apos;t count as a site they cite. A page that only lists other
+            posts, such as a category page, is skipped. We keep what we found and short quotes, never the article itself, and read
+            up to 200 articles a month for your brand.
+          </P>
+          <P>
+            The tab&apos;s totals say when the articles read were published, who they are written for, what they ask for, and the
+            pages they send readers to most, named by their own link words and the part of their site each sits in. On{" "}
+            <strong>What changed</strong>, a card for new posts adds what they were once we have read them, for example &quot;2
+            case studies, for SEO leads. Both ask for a free trial.&quot;
           </P>
           <P>
             When we improve how articles are read, the ones already read are read again while no new post is waiting, keeping 50
@@ -298,7 +306,15 @@ export default function YourBrandHelp() {
             <strong>Gap</strong> when they write about it and you don&apos;t yet, <strong>Open</strong> when nobody does,{" "}
             <strong>Crowded</strong> when a new angle would stand out, or <strong>You lead</strong>. Subjects they write about
             that your map doesn&apos;t have are listed below, and an admin can press <strong>Suggest for my map</strong> to add them
-            to your brand map&apos;s Suggestions.
+            to your brand map&apos;s Suggestions. On a big brand map it lists the subjects they write about, then the open subjects
+            with the most questions.
+          </P>
+          <P>
+            On <Open href="/admin/brand-kit/map">Brand › Brand map</Open>, each subject in the Subjects list shows how many
+            articles competitors wrote on it and what that means, and a subject&apos;s <strong>Competitors on this</strong> box
+            shows who wrote on it, the angles they took and what <strong>Nobody has</strong>: your questions none of their articles
+            answer, and kinds of article nobody has written on it. <strong>Suggest an angle</strong> opens Write this next on the
+            best of those questions, with an angle that steers away from theirs.
           </P>
           <P>
             Suggest an angle, blog research and the writer also read what competitors wrote on a subject, so a new article takes a

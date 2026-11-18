@@ -78,7 +78,9 @@ export default function BrandMapHelp() {
         </li>
         <li>
           Open <strong>Subjects</strong>. New subjects from research wait under <strong>Proposed</strong>. Press{" "}
-          <strong>Add</strong> or <strong>Dismiss</strong> on each. Changes on this tab save straight away.
+          <strong>Add</strong> or <strong>Dismiss</strong> on each. Changes on this tab save straight away. When you watch
+          competitors and read their articles, a subject they wrote on shows how many articles and what that means, such as{" "}
+          <strong>Gap</strong> when they write about it and you don&apos;t yet.
         </li>
       </Steps>
 

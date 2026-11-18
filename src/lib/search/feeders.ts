@@ -8,6 +8,10 @@ import { listNotes } from "@/lib/brandNotes/store";
 import { listImports } from "@/lib/brandMap/imports";
 import { listCompetitors } from "@/lib/competitors/store";
 import { listReadArticles } from "@/lib/competitors/articles";
+import { isBrandSignalsEnabled } from "@/lib/signals/flags";
+import { marketLabel } from "@/lib/signals/markets";
+import { readySignals } from "@/lib/signals/store";
+import type { BrandSignal } from "@/lib/types/brandSignal";
 import { listLifecycleJourneys } from "@/lib/lifecycle/service";
 import { listRepoAnalyses } from "@/lib/connect/repoAnalysis";
 import type { Broadcast } from "@/lib/types/broadcast";
@@ -171,6 +175,24 @@ export function importSource(imp: BrandMapImport): SearchSource | null {
   return items.length ? { kind: "research", ref: imp.id, title: imp.fileName, body: items.join("\n\n"), url: "/admin/brand-kit/map" } : null;
 }
 
+/**
+ * What Google showed for one of the brand's questions (BRAND_SIGNALS_ENABLED): People also ask,
+ * also searched, related searches and the pages its AI Overview cited. Outside text, kept as the
+ * brand's research, like a PDF import.
+ */
+export function signalSource(sig: BrandSignal): SearchSource | null {
+  if (sig.status !== "ready" || !sig.results) return null;
+  const r = sig.results;
+  const body = lines(
+    `${marketLabel(sig.market)}, ${(sig.readyAt ?? "").slice(0, 10)}`,
+    r.paa.length ? `People also ask:\n${r.paa.map((p) => `- ${p.question}`).join("\n")}` : "",
+    r.alsoSearched.length ? `Also searched: ${r.alsoSearched.join("; ")}` : "",
+    r.related.length ? `Related searches: ${r.related.join("; ")}` : "",
+    r.aiOverview?.cites.length ? `Google's AI Overview cites: ${r.aiOverview.cites.map((c) => c.title || c.domain).join("; ")}` : "",
+  );
+  return { kind: "research", ref: `serp:${sig.id}`, title: `Google: ${sig.about.query}`, body, url: "/admin/brand-kit/map" };
+}
+
 /** A competitor's site summary, and what each of its articles covers (never their quotes or authors). */
 export function competitorSources(c: Competitor, articles: CompetitorArticle[]): SearchSource[] {
   const url = `/admin/brand-kit/competitors/${c.id}`;
@@ -257,7 +279,11 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
   });
   // Open questions come from the brand map and from the notes, so both are read together.
   await read(["subject", "question", "situation", "note"], async () => brandMapStubs(brandMapRecords(ctx), await listNotes(ctx)));
-  await read(["research"], async () => (await listImports(ctx)).map(importSource).filter((x): x is SearchSource => x !== null).map(stubOf));
+  await read(["research"], async () => {
+    const imports = (await listImports(ctx)).map(importSource);
+    const google = isBrandSignalsEnabled() ? (await readySignals(ctx, 1000)).map(signalSource) : [];
+    return [...imports, ...google].filter((x): x is SearchSource => x !== null).map(stubOf);
+  });
   await read(["competitor"], async () => {
     const [competitors, articles] = await Promise.all([listCompetitors(ctx), listReadArticles(ctx)]);
     return competitors.flatMap((c) => competitorSources(c, articles)).map(stubOf);

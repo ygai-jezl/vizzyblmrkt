@@ -44,6 +44,7 @@ export async function processContactEraseJob(
   let signupsDeleted = 0;
   for (const sid of signupIds) {
     messagesDeleted += await repo.emailEvents.deleteWhere([["signupId", "==", sid]]);
+    messagesDeleted += await repo.emailSends.deleteWhere([["signupId", "==", sid]]);
     // Their invites into a connected product (nav v2 phase 4) go too, and their
     // progress through waitlist journeys on the lifecycle engine (engine move).
     await repo.invites.deleteWhere([["signupId", "==", sid]]);

@@ -126,6 +126,15 @@ export const ScheduledPostSchema = z.object({
   /** Phase 4: for an `auto_plug_comment` job — the parent tweet's remote id whose
    *  metrics are polled and under which the promo comment is posted. */
   sourceRemoteId: z.string().max(200).nullable().optional(),
+  /** For an `auto_plug_comment` job (POST_METRICS_DETAIL_ENABLED): the parent's numbers at each
+   *  poll (12h to 72h), before its first stats poll at 48h. Capped. */
+  earlyMetrics: z
+    .array(z.object({ at: z.string(), ageHours: z.number().nonnegative(), raw: z.record(z.string(), z.number()) }))
+    .max(12)
+    .optional(),
+  /** A `performance_fetch` job made by scripts/backfill-post-results.ts for an old post: its
+   *  measurement is kept as "late", out of reward baselines. */
+  backfill: z.boolean().optional(),
   /** Phase 6a: for a LinkedIn post — the author to publish as. Absent/null = the
    *  connected member (personal); `urn:li:organization:{id}` = a Company Page the
    *  member administers (org posting via the CM connection). */

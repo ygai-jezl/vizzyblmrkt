@@ -7,6 +7,7 @@ import {
   TenantNotFoundError,
 } from "@/lib/tenant";
 import { resolveSender } from "@/lib/email/sender";
+import { transactionalTag } from "@/lib/email/sends";
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl, appendTenantParam } from "@/lib/http/tenantParam";
 import {
@@ -157,6 +158,7 @@ export async function POST(
         fromEmail: sender.fromEmail,
         fromName: sender.fromName,
         replyTo: sender.replyTo,
+        ...transactionalTag(ctx.tenantId),
       });
       emailSent = r.sent;
     } catch (err) {

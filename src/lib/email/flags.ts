@@ -106,3 +106,32 @@ export function isNewsletterMarkdownEmailEnabled(): boolean {
 export function isNewsletterMarkdownEmailUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED === "true";
 }
+
+/**
+ * Server flag: a record per email sent (`email_sends`), and the email carries only its brand and
+ * that record's id as Mandrill metadata ({t, s}, under 90 bytes at the longest ids). Mandrill
+ * throws away metadata over 250 bytes, and with it every open, click, bounce and complaint of
+ * that email; the long form could go over. Off: the metadata is built as before. The webhook
+ * reads every form whatever this is.
+ */
+export function isEmailSendRecordsEnabled(): boolean {
+  return process.env.EMAIL_SEND_RECORDS_ENABLED === "true";
+}
+
+/**
+ * Server flag: verification, offboarding and site confirmation emails carry their brand ({t}),
+ * so a hard bounce or a complaint on them suppresses the address like any other. Off: they carry
+ * no metadata, as before, and their bounces are skipped.
+ */
+export function isTransactionalTenantTagEnabled(): boolean {
+  return process.env.EMAIL_TRANSACTIONAL_TENANT_TAG_ENABLED === "true";
+}
+
+/**
+ * Server flag: every open, click and bounce detail is kept on the email's send record (counts,
+ * first and last times, the links clicked, the device, bounce and deferral detail), beside the
+ * first open and first click rows kept today. Off: only those first rows, as before.
+ */
+export function isEmailEngagementDetailEnabled(): boolean {
+  return process.env.EMAIL_ENGAGEMENT_DETAIL_ENABLED === "true";
+}

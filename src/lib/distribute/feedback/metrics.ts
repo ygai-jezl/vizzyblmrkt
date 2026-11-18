@@ -1,4 +1,5 @@
 import type { XPublicMetrics } from "@/lib/social/x/client";
+import { isPostMetricsDetailEnabled } from "@/lib/distribute/flags";
 import type { LinkedInShareMetrics } from "@/lib/social/linkedin/stats";
 import type { MetricRaw, PostMeasurement, PostMetricSnapshot } from "@/lib/types/postPerformance";
 
@@ -35,6 +36,7 @@ export function xToCommon(m: XPublicMetrics): MetricRaw {
     likes: m.likes,
     comments: m.replies,
     shares: m.reposts + m.quotes,
+    ...(isPostMetricsDetailEnabled() ? { reposts: m.reposts, quotes: m.quotes, bookmarks: m.bookmarks ?? 0 } : {}),
   };
 }
 
@@ -46,6 +48,7 @@ export function linkedinToCommon(m: LinkedInShareMetrics): MetricRaw {
     likes: m.likes,
     comments: m.comments,
     shares: m.shares,
+    ...(isPostMetricsDetailEnabled() ? { engagement: m.engagement } : {}),
   };
 }
 

@@ -58,6 +58,17 @@ export interface ParsedXActivity {
  *  Real Account Activity deliveries are tiny; this only bites a hostile payload. */
 export const MAX_EVENTS_PER_BATCH = 500;
 
+/**
+ * X_WEBHOOK_ALL_EVENTS_ENABLED: a large delivery is no longer cut at 500. Every event up to this
+ * ceiling (still a DoS guard) is kept, and events past MAX_EVENTS_PER_BATCH are kept without their
+ * text, so the cut no longer loses the counts and no extra people's words are stored.
+ */
+export const MAX_EVENTS_ALL = 10_000;
+
+export function isXWebhookAllEventsEnabled(): boolean {
+  return process.env.X_WEBHOOK_ALL_EVENTS_ENABLED === "true";
+}
+
 /** Injective 2-part key for events with no id of their own (likes/quotes): a
  *  length prefix pins where the first component ends, so no `:` collision is
  *  possible even for non-numeric ids (X ids are numeric, but this is reused). */
@@ -105,8 +116,10 @@ export function parseXActivity(rawBody: string, nowIso: string): ParsedXActivity
   const forUserId = str(payload.for_user_id) ?? null;
   const events: ParsedXEvent[] = [];
   const self = forUserId; // drop our own activity
+  const all = isXWebhookAllEventsEnabled();
   const push = (e: ParsedXEvent) => {
     if (events.length < MAX_EVENTS_PER_BATCH) events.push(e);
+    else if (all && events.length < MAX_EVENTS_ALL) events.push({ ...e, text: undefined });
   };
 
   // Tweets: reply / quote / repost / mention.
@@ -187,5 +200,5 @@ export function parseXActivity(rawBody: string, nowIso: string): ParsedXActivity
     });
   }
 
-  return { forUserId, events, truncated: events.length >= MAX_EVENTS_PER_BATCH };
+  return { forUserId, events, truncated: events.length >= (all ? MAX_EVENTS_ALL : MAX_EVENTS_PER_BATCH) };
 }

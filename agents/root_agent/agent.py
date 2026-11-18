@@ -38,6 +38,7 @@ from .tools.brand_map import get_brand_map, suggest_brand_map
 from .tools.brand_notes import get_brand_notes, suggest_brand_notes
 from .tools.competitors import get_competitors
 from .tools.search import search_brand
+from .tools.results import get_email_results, get_post_results
 from .tools.setup_help import get_setup_status, read_help_page
 
 root_agent = LlmAgent(
@@ -61,6 +62,7 @@ root_agent = LlmAgent(
     # accepts; get_brand_notes/suggest_brand_notes read What we've seen and file suggested
     # notes in the person's own words; get_competitors reads Brand › Competitors (read only);
     # search_brand searches everything the brand wrote, by words and meaning (read only);
+    # get_email_results/get_post_results read how emails and posts did, each number explained;
     # get_setup_status/read_help_page answer "what should I set up first?"
     # and "how do I…?" from the brand's setup progress and the help pages. More
     # marketing FunctionTools land alongside them.
@@ -80,6 +82,8 @@ root_agent = LlmAgent(
         suggest_brand_notes,
         get_competitors,
         search_brand,
+        get_email_results,
+        get_post_results,
         get_setup_status,
         read_help_page,
     ],

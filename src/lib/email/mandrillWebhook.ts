@@ -119,6 +119,16 @@ export function metadataBytes(metadata: Record<string, string>): number {
   return JSON.stringify(metadata).replace(/[\u0080-\uffff]/g, "\\u0000").length;
 }
 
+/**
+ * Last line of defence before the provider: metadata over Mandrill's limit is replaced by the
+ * brand alone, so at least bounces and complaints still come back. Null when nothing can be kept.
+ */
+export function fitMetadata(metadata: Record<string, string>): Record<string, string> | null {
+  if (metadataBytes(metadata) <= METADATA_LIMIT_BYTES) return metadata;
+  const t = metadata.t || metadata.tenantId;
+  return t && metadataBytes({ t }) <= METADATA_LIMIT_BYTES ? { t } : null;
+}
+
 /** A product journey's email, named by its enrolment alone. */
 export interface EnrolmentSendRef {
   tenantId: string;

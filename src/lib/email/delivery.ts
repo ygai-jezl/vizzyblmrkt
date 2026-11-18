@@ -5,6 +5,7 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Journey, JourneyGraph, JourneyNode } from "@/lib/types/journey";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
+import { sendMetadata, transactionalTag } from "@/lib/email/sends";
 import { resolveEmailStyle, resolveTransactionalEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { isEmailStyleTransactionalEnabled } from "@/lib/email/flags";
 import {
@@ -543,6 +544,7 @@ async function processLifecycleJob(
     fromEmail: sender.fromEmail,
     fromName: sender.fromName,
     replyTo: sender.replyTo,
+    ...transactionalTag(ctx.tenantId),
   });
   // "log" provider (dev/tests) counts as success, like the journey send. An
   // AMBIGUOUS result may have gone out, so it is treated as sent — never retried.
@@ -699,14 +701,19 @@ async function processJourneyStepJob(
       track: { opens: true, clicks: true },
       // Echoed back verbatim on Mandrill open/click webhooks — attributes the
       // event to this step + recipient + A/B arm with no database lookup.
-      metadata: {
-        tenantId: ctx.tenantId,
-        campaignId: journey.campaignId,
-        journeyId: journey.id,
-        nodeId: node.id,
-        signupId: signup.id,
-        variantId,
-      },
+      // With EMAIL_SEND_RECORDS_ENABLED, a send record and a short {t, s} instead (Mandrill drops metadata over 250 bytes).
+      metadata: await sendMetadata(
+        ctx,
+        {
+          tenantId: ctx.tenantId,
+          campaignId: journey.campaignId,
+          journeyId: journey.id,
+          nodeId: node.id,
+          signupId: signup.id,
+          variantId,
+        },
+        "waitlist",
+      ),
       tags: ["journey", `node-${node.id}`],
     });
     // "log" provider (dev, no key) counts as success so the chain still advances.

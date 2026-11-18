@@ -24,7 +24,7 @@ function plain<T extends object>(doc: T): Record<string, unknown> {
 export const PERSON_EXPORT_FORMAT = "yougrow.person";
 
 /** The most rows of each kind one export reads. A section that reaches its limit is named in `truncated`. */
-const EXPORT_LIMITS = { productEvents: 2000, journeys: 200, emailEngagement: 5000, aiLines: 200, optOuts: 200, plans: 10 } as const;
+const EXPORT_LIMITS = { productEvents: 2000, journeys: 200, emailEngagement: 5000, emailSends: 5000, aiLines: 200, optOuts: 200, plans: 10 } as const;
 type Section = keyof typeof EXPORT_LIMITS;
 
 export async function exportPerson(
@@ -38,15 +38,16 @@ export async function exportPerson(
   if (!user || user.status !== "active") return { found: false };
   const limit = (section: Section) => deps.limits?.[section] ?? EXPORT_LIMITS[section];
   const mine = { where: [["productUserId", "==", user.id]] as WhereClause[] };
-  const [productEvents, journeys, emailEngagement, aiLines, optOuts, plans] = await Promise.all([
+  const [productEvents, journeys, emailEngagement, emailSends, aiLines, optOuts, plans] = await Promise.all([
     repo.productEvents.find({ ...mine, limit: limit("productEvents") }),
     repo.lifecycleEnrolments.find({ ...mine, limit: limit("journeys") }),
     repo.emailEvents.find({ where: [["signupId", "==", user.id]], limit: limit("emailEngagement") }),
+    repo.emailSends.find({ where: [["signupId", "==", user.id]], limit: limit("emailSends") }),
     repo.lifecycleDrafts.find({ ...mine, limit: limit("aiLines") }),
     user.emailNormalized ? repo.emailSuppressions.find({ where: [["normalizedEmail", "==", user.emailNormalized]], limit: limit("optOuts") }) : Promise.resolve([]),
     repo.personPlans.find({ ...mine, limit: limit("plans") }),
   ]);
-  const sections = { productEvents, journeys, emailEngagement, aiLines, optOuts, plans };
+  const sections = { productEvents, journeys, emailEngagement, emailSends, aiLines, optOuts, plans };
   // A section that came back full may have more behind it: the file says so, never passes for the whole.
   const truncated = (Object.keys(sections) as Section[]).filter((name) => sections[name].length >= limit(name));
   return {
@@ -62,6 +63,7 @@ export async function exportPerson(
       productEvents: productEvents.map(plain),
       journeys: journeys.map(plain),
       emailEngagement: emailEngagement.map(plain),
+      emailSends: emailSends.map(plain),
       aiLines: aiLines.map(plain),
       optOuts: optOuts.map(plain),
       plans: plans.map(plain),
@@ -103,8 +105,9 @@ export async function exportWholePerson(
   const signups = new Map([...linked, ...byKey].filter((s): s is NonNullable<typeof s> => !!s).map((s) => [s.id, s]));
   const ids = [...signups.keys()];
   const ofSignup = (id: string): WhereClause[] => [["signupId", "==", id]];
-  const [launchEmails, invites, waitlistJourneys, sameAddress] = await Promise.all([
+  const [launchEmails, launchEmailSends, invites, waitlistJourneys, sameAddress] = await Promise.all([
     Promise.all(ids.map((id) => repo.emailEvents.find({ where: ofSignup(id), limit: EXPORT_LIMITS.emailEngagement }))).then((r) => r.flat()),
+    Promise.all(ids.map((id) => repo.emailSends.find({ where: ofSignup(id), limit: EXPORT_LIMITS.emailSends }))).then((r) => r.flat()),
     Promise.all(ids.map((id) => repo.invites.find({ where: ofSignup(id), limit: EXPORT_LIMITS.journeys }))).then((r) => r.flat()),
     Promise.all(ids.map((id) => repo.waitlistEnrolments.find({ where: ofSignup(id), limit: EXPORT_LIMITS.journeys }))).then((r) => r.flat()),
     address ? repo.productUsers.find({ where: [["emailNormalized", "==", address]], limit: 100 }) : Promise.resolve([]),
@@ -112,7 +115,8 @@ export async function exportWholePerson(
   const productUserIds = new Set([...(contact.products ?? []).map((p) => p.productUserId), ...sameAddress.filter((u) => u.status === "active").map((u) => u.id)]);
   const products = await Promise.all([...productUserIds].map((id) => exportPerson(ctx, id, deps)));
   const productDocs = products.flatMap((r) => (r.found ? [r.document] : []));
-  const complete = productDocs.every((d) => d.complete === true) && launchEmails.length < EXPORT_LIMITS.emailEngagement;
+  const complete =
+    productDocs.every((d) => d.complete === true) && launchEmails.length < EXPORT_LIMITS.emailEngagement && launchEmailSends.length < EXPORT_LIMITS.emailSends;
   const { searchTokens: _tokens, ...person } = plain(contact);
   return {
     found: true,
@@ -123,6 +127,7 @@ export async function exportWholePerson(
       person,
       signups: [...signups.values()].map((s) => Object.fromEntries(Object.entries(plain(s)).filter(([k]) => !SIGNUP_SECRET.has(k)))),
       launchEmails: launchEmails.map(plain),
+      launchEmailSends: launchEmailSends.map(plain),
       invites: invites.map(plain),
       waitlistJourneys: waitlistJourneys.map(plain),
       optOuts: optOuts.map(plain),

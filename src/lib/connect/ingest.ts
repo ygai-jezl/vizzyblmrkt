@@ -1,4 +1,5 @@
 import { forTenant, type TenantContext } from "@/lib/tenant";
+import { countProductEvents, isProductEventDaysEnabled } from "@/lib/metrics/dailyCounts";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ConnectionDiagnostics } from "@/lib/types/productEvent";
@@ -44,6 +45,11 @@ export async function recordDiagnostics(
   const unchanged = seen.summary.unchanged ?? 0;
   if (seen.observedEvents.size === 0 && seen.observedTraits.size === 0 && seen.summary.rejected.length === 0 && unchanged === 0) {
     return;
+  }
+  // PRODUCT_EVENT_DAYS_ENABLED: the batch's accepted events by name, added to the connection's day,
+  // so the counts outlive the events' own 90-day TTL. Best effort: never fails the ingest.
+  if (isProductEventDaysEnabled() && seen.observedEvents.size) {
+    await countProductEvents(ctx, connection.id, Object.fromEntries(seen.observedEvents), { db, nowMs: Date.parse(seen.now) || Date.now() }).catch(() => undefined);
   }
   const merge = (cur: Omit<ConnectionDiagnostics, "id" | "tenantId">) => {
     const events = { ...cur.observedEvents };

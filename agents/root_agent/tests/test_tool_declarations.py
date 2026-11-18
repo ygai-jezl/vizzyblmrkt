@@ -19,6 +19,7 @@ from root_agent_pkg.tools.brand_map import get_brand_map, suggest_brand_map  # n
 from root_agent_pkg.tools.brand_notes import get_brand_notes, suggest_brand_notes  # noqa: E402
 from root_agent_pkg.tools.competitors import get_competitors  # noqa: E402
 from root_agent_pkg.tools.search import search_brand  # noqa: E402
+from root_agent_pkg.tools.results import get_email_results, get_post_results  # noqa: E402
 from root_agent_pkg.tools.email_style import get_email_style, suggest_email_style  # noqa: E402
 from root_agent_pkg.tools.image_style import get_image_style, suggest_image_style  # noqa: E402
 from root_agent_pkg.tools.insights_summary import get_insights_summary  # noqa: E402
@@ -43,6 +44,8 @@ TOOLS = [
     suggest_brand_notes,
     get_competitors,
     search_brand,
+    get_email_results,
+    get_post_results,
     get_setup_status,
     read_help_page,
 ]

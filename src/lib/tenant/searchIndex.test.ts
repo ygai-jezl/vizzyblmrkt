@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brandRoot, searchChunkId, searchManifestId } from "./searchIndex";
+import { brandRoot, resultId, searchChunkId, searchManifestId } from "./searchIndex";
 import { SEARCH_DATABASE_IDS, searchDatabaseIdForRegion } from "./region";
 
 describe("brand search paths", () => {
@@ -24,3 +24,16 @@ describe("brand search paths", () => {
     expect(new Set(Object.values(SEARCH_DATABASE_IDS)).size).toBe(3);
   });
 });
+
+describe("resultId", () => {
+  it("gives every projected result its own id, from its record and chunk", () => {
+    expect(resultId({ id: "c_1" }, undefined, {})).toBe("c_1");
+    expect(resultId(undefined, "c_2", {})).toBe("c_2");
+    const a = resultId(undefined, undefined, { sourceKey: "situation:sit_1", chunk: 0 });
+    const b = resultId(undefined, undefined, { sourceKey: "situation:sit_2", chunk: 0 });
+    const c = resultId(undefined, undefined, { sourceKey: "situation:sit_1", chunk: 1 });
+    expect(new Set([a, b, c]).size).toBe(3);
+    expect(resultId(undefined, undefined, {})).toBe("");
+  });
+});
+

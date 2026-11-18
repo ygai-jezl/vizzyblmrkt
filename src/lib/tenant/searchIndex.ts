@@ -78,8 +78,21 @@ function pipelineOf(db: Firestore): PipelineSource {
   return (db as unknown as { pipeline(): PipelineSource }).pipeline();
 }
 
+/**
+ * A pipeline result's id. After the select() stage a result is a projection with no document
+ * reference, so the id comes from what the chunk is: its record and its chunk number, which is
+ * unique within a brand. (Without it every result had the id "" and a search kept only one.)
+ */
+export function resultId(ref: { id?: string } | undefined, id: string | undefined, data: Record<string, unknown> | undefined): string {
+  if (ref?.id) return ref.id;
+  if (id) return id;
+  return data && typeof data.sourceKey === "string" ? `${data.sourceKey}#${typeof data.chunk === "number" ? data.chunk : 0}` : "";
+}
+
 function rankedFromResult(r: PipelineResult, tenantId: string): RankedChunk | null {
-  return rankedFrom(r.ref?.id ?? r.id ?? "", r.data(), tenantId);
+  const data = r.data();
+  const id = resultId(r.ref, r.id, data);
+  return id ? rankedFrom(id, data, tenantId) : null;
 }
 
 function rankedFrom(id: string, data: Record<string, unknown> | undefined, tenantId: string): RankedChunk | null {

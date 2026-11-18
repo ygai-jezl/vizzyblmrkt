@@ -291,6 +291,43 @@ export async function listPosts(ctx: TenantContext, competitorId: string, deps: 
   return rows.sort((a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt) || (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
 }
 
+/**
+ * Newest first: posts with a date before those without, newest date first; then where they sat on
+ * their news page (top first); then the ones we saw most recently.
+ */
+export function newestFirst(a: Pick<CompetitorPost, "publishedAt" | "rank" | "firstSeenAt">, b: Pick<CompetitorPost, "publishedAt" | "rank" | "firstSeenAt">): number {
+  if (Boolean(a.publishedAt) !== Boolean(b.publishedAt)) return a.publishedAt ? -1 : 1;
+  const byDate = (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "");
+  if (byDate) return byDate;
+  const ra = a.rank ?? Number.MAX_SAFE_INTEGER;
+  const rb = b.rank ?? Number.MAX_SAFE_INTEGER;
+  return ra - rb || b.firstSeenAt.localeCompare(a.firstSeenAt);
+}
+
+/**
+ * Fill in the date (and place on the page) of stored posts that have none, from their news page's
+ * cards. A post that already has a date is left alone. Returns how many were changed.
+ */
+export async function datePosts(
+  ctx: TenantContext,
+  competitorId: string,
+  cards: Array<{ url: string; publishedAt: string | null; rank: number }>,
+  deps: StoreDeps = {},
+): Promise<number> {
+  const byUrl = new Map(cards.map((c) => [normalizeUrl(c.url) || c.url, c]));
+  const repo = repoOf(ctx, deps).competitorPosts;
+  const todo = (await listPosts(ctx, competitorId, deps)).filter((p) => !p.publishedAt && byUrl.has(normalizeUrl(p.url) || p.url));
+  for (let i = 0; i < todo.length; i += 20) {
+    await Promise.all(
+      todo.slice(i, i + 20).map((p) => {
+        const card = byUrl.get(normalizeUrl(p.url) || p.url)!;
+        return repo.update(p.id, { publishedAt: card.publishedAt, rank: card.rank });
+      }),
+    );
+  }
+  return todo.length;
+}
+
 export async function savePosts(ctx: TenantContext, competitorId: string, posts: Array<Omit<CompetitorPost, "id" | "tenantId" | "competitorId">>, deps: StoreDeps = {}): Promise<void> {
   const repo = repoOf(ctx, deps).competitorPosts;
   for (const p of posts) {

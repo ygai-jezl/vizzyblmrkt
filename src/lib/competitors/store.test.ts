@@ -7,6 +7,10 @@ import { COMPETITOR_LIMITS } from "@/lib/types/competitor";
 import {
   addChange,
   addToBrandMap,
+  datePosts,
+  listPosts,
+  newestFirst,
+  savePosts,
   checkNow,
   listChanges,
   markSeen,
@@ -193,5 +197,54 @@ describe("what changed", () => {
     expect(await listChanges(ctx, id, { db })).toEqual([]);
     const read = await readBrandMap(ctx, db);
     expect(read.state === "ok" && read.map.names.map((n) => n.name)).toEqual(["Acme Dental"]);
+  });
+});
+
+describe("posts without dates", () => {
+  const post = (url: string, over: { publishedAt?: string | null; rank?: number | null; firstSeenAt?: string } = {}) => ({
+    url,
+    title: "",
+    description: "",
+    publishedAt: over.publishedAt ?? null,
+    firstSeenAt: over.firstSeenAt ?? "2026-11-17T12:00:00.000Z",
+    baseline: true,
+    ...(over.rank !== undefined ? { rank: over.rank } : {}),
+  });
+
+  it("orders dated posts newest first, then by place on the page, then by when we saw them", () => {
+    const list = [
+      post("https://rival.test/blog/undated-low", { rank: 9 }),
+      post("https://rival.test/blog/old", { publishedAt: "2025-07-01" }),
+      post("https://rival.test/blog/undated-top", { rank: 0 }),
+      post("https://rival.test/blog/new", { publishedAt: "2026-11-13" }),
+      post("https://rival.test/blog/unranked-recent", { firstSeenAt: "2026-11-18T00:00:00.000Z" }),
+      post("https://rival.test/blog/unranked"),
+    ];
+    expect([...list].sort(newestFirst).map((p) => p.url.split("/").pop())).toEqual(["new", "old", "undated-top", "undated-low", "unranked-recent", "unranked"]);
+  });
+
+  it("fills in the date and place of stored posts that have none, and leaves dated ones and other brands alone", async () => {
+    await savePosts(ctx, "cmp_rival0001", [post("https://rival.test/blog/a"), post("https://rival.test/blog/b", { publishedAt: "2026-01-01" }), post("https://rival.test/blog/c")], { db });
+    await savePosts(other, "cmp_theirs001", [post("https://rival.test/blog/a")], { db });
+    const n = await datePosts(
+      ctx,
+      "cmp_rival0001",
+      [
+        { url: "https://rival.test/blog/a", publishedAt: "2026-11-13", rank: 1 },
+        { url: "https://rival.test/blog/b", publishedAt: "2026-11-12", rank: 2 },
+        { url: "https://rival.test/blog/c", publishedAt: null, rank: 3 },
+        { url: "https://rival.test/blog/not-stored", publishedAt: "2026-11-18", rank: 0 },
+      ],
+      { db },
+    );
+    expect(n).toBe(2);
+    const byUrl = new Map((await listPosts(ctx, "cmp_rival0001", { db })).map((p) => [p.url.split("/").pop(), p]));
+    expect(byUrl.get("a")).toMatchObject({ publishedAt: "2026-11-13", rank: 1 });
+    expect(byUrl.get("b")).toMatchObject({ publishedAt: "2026-01-01" });
+    expect(byUrl.get("c")).toMatchObject({ publishedAt: null, rank: 3 });
+    expect(byUrl.has("not-stored")).toBe(false);
+    // Another brand's posts can't be reached through this brand.
+    expect(await datePosts(ctx, "cmp_theirs001", [{ url: "https://rival.test/blog/a", publishedAt: "2026-11-13", rank: 1 }], { db })).toBe(0);
+    expect((await listPosts(other, "cmp_theirs001", { db }))[0]).toMatchObject({ publishedAt: null });
   });
 });

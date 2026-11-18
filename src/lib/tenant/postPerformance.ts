@@ -102,11 +102,13 @@ export async function writePostMeasurement(
   id: string,
   measurement: PostMeasurement,
   db?: FirestoreLike,
+  opts: { late?: boolean } = {},
 ): Promise<void> {
+  // A backfilled old post is "late": its numbers are kept, but it stays out of reward baselines.
   await regionalDb(ctx, db)
     .collection(POST_PERFORMANCE)
     .doc(id)
-    .update({ measurement, rewardStatus: "settled", updatedAt: measurement.windowClosedAt });
+    .update({ measurement, rewardStatus: opts.late ? "late" : "settled", updatedAt: measurement.windowClosedAt });
 }
 
 /** Store the reward + cluster assignment (P2 reconciliation pass). */

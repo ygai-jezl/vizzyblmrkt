@@ -131,6 +131,8 @@ export interface XPublicMetrics {
   reposts: number;
   quotes: number;
   impressions: number;
+  /** X returns it with the rest; kept with POST_METRICS_DETAIL_ENABLED. */
+  bookmarks?: number;
 }
 export type XMetricsResult =
   | { ok: true; metrics: XPublicMetrics }
@@ -186,6 +188,7 @@ export async function fetchXPublicMetrics(
         reposts: pm.retweet_count ?? 0,
         quotes: pm.quote_count ?? 0,
         impressions: pm.impression_count ?? 0,
+        bookmarks: pm.bookmark_count ?? 0,
       },
     };
   } finally {

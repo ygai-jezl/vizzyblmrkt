@@ -843,6 +843,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Keep every post number: X reposts, quotes and bookmarks apart, LinkedIn's engagement rate,
+  # and the numbers auto-plug polls before the first stats poll (scripts/backfill-post-results.ts
+  # gets stats for posts published before the loop was on).
+  - variable: POST_METRICS_DETAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: HASHTAG_LEADERBOARD_ENABLED
     value: "false"
     availability:

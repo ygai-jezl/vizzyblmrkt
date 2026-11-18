@@ -12,6 +12,8 @@ import { runArticleReads } from "@/lib/competitors/articleTick";
 import { runCompetitorChecks } from "@/lib/competitors/tick";
 import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { runSearchSweeps } from "@/lib/search/sweep";
+import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
+import { runSignals } from "@/lib/signals/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +31,8 @@ export const dynamic = "force-dynamic";
  * Competitors' weekly and monthly checks (COMPETITORS_ENABLED) ride the scheduler's call
  * too, after the journeys, with what is left of the request's time: never past 105s from
  * its start (the scheduler gives up at 120s). A signed-in admin's call never runs them.
- * Brand search's check (SEARCH_INDEX_ENABLED) rides it the same way, about every 10 minutes.
+ * Brand search's check (SEARCH_INDEX_ENABLED) rides it the same way, about every 10 minutes, and
+ * so does collecting finished Google lookups (SIGNALS_DATAFORSEO_ENABLED).
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -37,6 +40,8 @@ const COMPETITORS_BUDGET_MS = 25_000;
 const ARTICLES_BUDGET_MS = 40_000;
 /** Brand search's check runs beside them, within its own budget. */
 const SEARCH_BUDGET_MS = 30_000;
+/** Google lookups (SIGNALS_DATAFORSEO_ENABLED) finished by DataForSEO are collected beside them too. */
+const SIGNALS_BUDGET_MS = 25_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -46,8 +51,9 @@ export async function POST(req: Request) {
   const people = isPersonLinksEnabled();
   const competitors = isCompetitorsEnabled();
   const search = isSearchIndexEnabled();
+  const signals = isSignalsDataForSeoEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search))) {
+  if (!journeys && !(machine && (competitors || search || signals))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -59,6 +65,12 @@ export async function POST(req: Request) {
     const searchSweep = search
       ? runSearchSweeps({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SEARCH_BUDGET_MS) }).catch((err: unknown) => {
           console.warn(`[search] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+          return null;
+        })
+      : Promise.resolve(null);
+    const signalCollect = signals
+      ? runSignals({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SIGNALS_BUDGET_MS) }).catch((err: unknown) => {
+          console.warn(`[signals] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
           return null;
         })
       : Promise.resolve(null);
@@ -80,6 +92,7 @@ export async function POST(req: Request) {
       articleReads = reads;
     }
     const searchResult = await searchSweep;
+    const signalResult = await signalCollect;
     return NextResponse.json({
       ok: true,
       mode: "all_tenants",
@@ -87,6 +100,7 @@ export async function POST(req: Request) {
       ...(competitors ? { competitors: competitorChecks } : {}),
       ...(articleReads ? { competitorArticles: articleReads } : {}),
       ...(searchResult?.scanned ? { search: searchResult } : {}),
+      ...(signalResult?.tenants ? { signals: signalResult } : {}),
     });
   }
 

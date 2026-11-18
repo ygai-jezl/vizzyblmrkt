@@ -10,6 +10,7 @@ import { removeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import { listAllTenants } from "@/lib/tenant/registry";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { BrandMap } from "@/lib/types/brandMap";
+import { monthlyLimit } from "@/lib/plans/limits";
 import { COMPETITOR_LIMITS as LIMITS, type ArticleProblem, type Competitor, type CompetitorArticle } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
 import { MIN_ARTICLE_WORDS, readArticlePage } from "./article";
@@ -267,14 +268,15 @@ export async function runArticleReads(opts: { deadlineMs: number }, deps: Articl
       }
       if (reads.length >= READS_PER_TICK) continue;
       const month = await readsThisMonth(ctx, deps);
-      if (month >= LIMITS.ARTICLE_READS_PER_MONTH) continue;
+      const cap = monthlyLimit(t, "competitor_articles");
+      if (month >= cap) continue;
 
       // Only competitors still watched: a paused one's articles wait.
       const watching = new Map(competitors.filter((c) => c.status === "watching").map((c) => [c.id, c]));
       const watched = (a: CompetitorArticle) => watching.has(a.competitorId);
       const waiting = (await articlesToRead(ctx, READS_PER_TICK * 3, deps)).filter(watched);
       // Nothing new waiting: a spare slot reads again what an older reader read, short of the cap.
-      const refresh = !waiting.length && month < LIMITS.ARTICLE_READS_PER_MONTH - REFRESH_RESERVE;
+      const refresh = !waiting.length && month < cap - REFRESH_RESERVE;
       const next = refresh ? await articlesToRefresh(ctx, READS_PER_TICK * 3, watched, deps) : waiting;
       for (const a of next) {
         if (reads.length >= READS_PER_TICK || opts.deadlineMs - clock() < MIN_LEFT_MS) break;

@@ -1,3 +1,4 @@
+import { SearchMarketSchema } from "./brandSignal";
 import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
@@ -723,8 +724,14 @@ export const TenantSchema = z.object({
   /** How often its notes go into articles by themselves (BRAND_NOTES_REST_ENABLED). Damaged reads as none: the defaults. */
   brandNotesRest: NotesRestSchema.optional().catch(undefined),
   /** Features only some brands may use (GRANTED_ONLY_FEATURES) that this brand has; see
-   *  src/lib/plans/brandAccess.ts. Set by scripts/grant-feature.mjs until billing exists. */
+   *  src/lib/plans/brandAccess.ts. Set by scripts/grant-feature.ts until billing exists. */
   grantedFeatures: z.array(z.string().max(64)).max(50).optional().catch(undefined),
+  /** This brand's own monthly caps, by feature (src/lib/plans/limits.ts). A feature left out uses
+   *  the copy's cap. Set by `scripts/grant-feature.ts --limit` until billing exists. */
+  featureLimits: z.record(z.string().max(64), z.number().int().min(0).max(100_000)).optional().catch(undefined),
+  /** Where this brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED, src/lib/signals).
+   *  Unset: United States, English. A search market, NOT data residency (that is `region`). */
+  searchMarket: SearchMarketSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

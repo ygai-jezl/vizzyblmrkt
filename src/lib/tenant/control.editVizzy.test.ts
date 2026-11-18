@@ -52,3 +52,15 @@ describe("granting a brand a feature", () => {
     expect(await setTenantFeatureGrant("ten_missing", "edit_vizzy_learning", true, db)).toBeNull();
   });
 });
+
+describe("a brand's own monthly cap", () => {
+  it("sets and clears it, and leaves other brands alone", async () => {
+    const db = seeded();
+    const { setTenantFeatureLimit } = await import("./control");
+    expect(await setTenantFeatureLimit("ten_A", "next_up", 150, db)).toEqual({ next_up: 150 });
+    expect(await setTenantFeatureLimit("ten_A", "competitor_articles", 0, db)).toEqual({ next_up: 150, competitor_articles: 0 });
+    expect(db.raw("tenants", "ten_B")!.featureLimits).toBeUndefined();
+    expect(await setTenantFeatureLimit("ten_A", "next_up", null, db)).toEqual({ competitor_articles: 0 });
+    expect(await setTenantFeatureLimit("ten_missing", "next_up", 5, db)).toBeNull();
+  });
+});

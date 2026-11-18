@@ -11,6 +11,8 @@ const competitors = vi.hoisted(() => ({ runCompetitorChecks: vi.fn(async () => (
 vi.mock("@/lib/competitors/tick", () => competitors);
 const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenants: 1, queued: 2, read: 1, failed: 0, skipped: 0 })) }));
 vi.mock("@/lib/competitors/articleTick", () => articles);
+const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1, ready: 2, failed: 0, waiting: 1 })) }));
+vi.mock("@/lib/signals/tick", () => signals);
 
 const { POST } = await import("./route");
 
@@ -77,5 +79,24 @@ describe("the lifecycle tick with Competitors", () => {
     const res = await POST(machine());
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, competitors: { advanced: 1 } });
+  });
+
+  it("collects finished Google lookups only with their switches on, within their own time, and never fails the call", async () => {
+    vi.stubEnv("BRAND_SIGNALS_ENABLED", "true");
+    let res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+    expect(signals.runSignals).not.toHaveBeenCalled();
+
+    vi.stubEnv("SIGNALS_DATAFORSEO_ENABLED", "true");
+    const before = Date.now();
+    res = await POST(machine());
+    expect(await res.json()).toMatchObject({ ok: true, mode: "all_tenants", signals: { ready: 2 } });
+    const [{ deadlineMs }] = signals.runSignals.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(25_000 + 50);
+
+    signals.runSignals.mockRejectedValueOnce(new Error("down"));
+    res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty("signals");
   });
 });

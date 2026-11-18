@@ -2,7 +2,9 @@ import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
 import { forTenant } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
-import { COMPETITOR_LIMITS as LIMITS, type CompetitorArticle, type CompetitorPost } from "@/lib/types/competitor";
+import { brandMonthlyLimit } from "@/lib/plans/limits";
+import type { CompetitorArticle, CompetitorPost } from "@/lib/types/competitor";
+import type { Tenant } from "@/lib/types/tenant";
 import { readByOlderReader } from "./articleRead";
 
 /**
@@ -22,6 +24,8 @@ export interface ArticleStoreDeps {
   embed?: typeof embedDocuments;
   query?: typeof embedQuery;
   vectors?: KnowledgeCollectionLike;
+  /** Reads the brand record for its cap (src/lib/plans/limits.ts). */
+  loadTenant?: (id: string) => Promise<Tenant | null>;
 }
 
 /** How long one read may hold an article before another run may take it. */
@@ -146,13 +150,14 @@ export async function finishArticle(
   return repoOf(ctx, deps).claim(id, (cur) => (cur.status === "reading" && cur.leaseId === leaseId ? { ...patch, leaseId: null, leaseUntil: null } : null));
 }
 
-/** Reads this calendar month (each was a Gemini call), against the brand's cap. */
+/** Reads this calendar month (each was a Gemini call), against the brand's cap (src/lib/plans/limits.ts). */
 export async function readsThisMonth(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<number> {
   return repoOf(ctx, deps).count([["readMonth", "==", monthOf(nowOf(deps))]]);
 }
 
 export async function monthlyCapReached(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<boolean> {
-  return (await readsThisMonth(ctx, deps)) >= LIMITS.ARTICLE_READS_PER_MONTH;
+  const cap = await brandMonthlyLimit(ctx, "competitor_articles", deps.loadTenant);
+  return (await readsThisMonth(ctx, deps)) >= cap;
 }
 
 /** One competitor's articles, newest first. */

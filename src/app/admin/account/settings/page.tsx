@@ -4,6 +4,8 @@ import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { AccountSettings } from "@/components/admin/AccountSettings";
 import { SearchSettingsCard } from "@/components/admin/search/SearchSettingsCard";
 import { isSearchUiEnabled } from "@/lib/search/flags";
+import { GoogleMarketCard } from "@/components/admin/signals/GoogleMarketCard";
+import { isBrandSignalsEnabled } from "@/lib/signals/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +19,13 @@ const REGION: Record<string, string> = { us: "United States", eu: "Europe", asia
 export default async function AccountSettingsPage() {
   const ctx = await requireAdminContext();
   const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} /> : null;
+  const market = isBrandSignalsEnabled() ? <GoogleMarketCard isAdmin={ctx.role === "admin"} /> : null;
   if (!isNavV2Phase3Enabled()) {
-    return search ? (
+    return search || market ? (
       <div className="space-y-6">
         <AccountSettings />
         {search}
+        {market}
       </div>
     ) : (
       <AccountSettings />
@@ -48,6 +52,7 @@ export default async function AccountSettingsPage() {
         </dl>
       </section>
       {search}
+      {market}
       <AccountSettings />
     </div>
   );

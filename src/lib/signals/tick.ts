@@ -5,7 +5,8 @@ import type { Tenant } from "@/lib/types/tenant";
 import { collectSignal, ownHostsOf, type CollectDeps } from "./collect";
 import { dataForSeoConfigured } from "./dataforseo";
 import { isSignalsDataForSeoEnabled } from "./flags";
-import { dueSignals } from "./store";
+import { judgeSignal } from "./judge";
+import { dueSignals, getSignal, saveJudgement } from "./store";
 
 /**
  * The signals lane of the lifecycle tick (every 2 minutes): collect the Google lookups DataForSEO
@@ -16,6 +17,7 @@ import { dueSignals } from "./store";
 export interface SignalTickDeps extends CollectDeps {
   listTenants?: () => Promise<Tenant[]>;
   clock?: () => number;
+  judge?: typeof judgeSignal;
 }
 
 export interface SignalTickResult {
@@ -29,6 +31,8 @@ export interface SignalTickResult {
 const COLLECTS_PER_TICK = 10;
 /** One collect may take this long (a DataForSEO call has a 20 second timeout). */
 const MIN_LEFT_MS = 22_000;
+/** Judging what came back may take this long (the judge's Gemini call has a 15 second timeout). */
+const JUDGE_LEFT_MS = 17_000;
 const TICK_MS = 120_000;
 
 export async function runSignals(opts: { deadlineMs: number }, deps: SignalTickDeps = {}): Promise<SignalTickResult> {
@@ -51,7 +55,16 @@ export async function runSignals(opts: { deadlineMs: number }, deps: SignalTickD
         if (collected >= COLLECTS_PER_TICK || opts.deadlineMs - clock() < MIN_LEFT_MS) break;
         collected += 1;
         const got = await collectSignal(ctx, s, own, { ...deps, now: () => new Date(clock()) });
-        if (got === "ready") result.ready += 1;
+        if (got === "ready") {
+          result.ready += 1;
+          // Judge it now when there is time, so brand search and later runs get only what fits;
+          // otherwise the page judges it when someone opens it.
+          if (opts.deadlineMs - clock() >= JUDGE_LEFT_MS) {
+            const fresh = await getSignal(ctx, s.id, deps);
+            const verdicts = fresh ? await (deps.judge ?? judgeSignal)(ctx, fresh, deps).catch(() => null) : null;
+            if (fresh && verdicts) await saveJudgement(ctx, fresh.id, verdicts, deps);
+          }
+        }
         else if (got === "failed") result.failed += 1;
         else if (got === "not_yet") result.waiting += 1;
       }

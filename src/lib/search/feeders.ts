@@ -176,18 +176,21 @@ export function importSource(imp: BrandMapImport): SearchSource | null {
 }
 
 /**
- * What Google showed for one of the brand's questions (BRAND_SIGNALS_ENABLED): People also ask,
- * also searched, related searches and the pages its AI Overview cited. Outside text, kept as the
- * brand's research, like a PDF import.
+ * What Google showed for one of the brand's questions (BRAND_SIGNALS_ENABLED), as the brand's
+ * research, like a PDF import: only what the judge (src/lib/signals/judge.ts) found on the brand's
+ * topics, this article's or another's, never what it dropped as off topic. Before it is judged,
+ * only the question, its market and the pages Google's AI Overview cited.
  */
 export function signalSource(sig: BrandSignal): SearchSource | null {
   if (sig.status !== "ready" || !sig.results) return null;
   const r = sig.results;
+  const kept = (sig.judged?.items ?? []).filter((i) => i.verdict !== "drop");
+  const asks = kept.filter((i) => i.kind === "paa").map((i) => i.text);
+  const also = kept.filter((i) => i.kind === "also").map((i) => i.text);
   const body = lines(
     `${marketLabel(sig.market)}, ${(sig.readyAt ?? "").slice(0, 10)}`,
-    r.paa.length ? `People also ask:\n${r.paa.map((p) => `- ${p.question}`).join("\n")}` : "",
-    r.alsoSearched.length ? `Also searched: ${r.alsoSearched.join("; ")}` : "",
-    r.related.length ? `Related searches: ${r.related.join("; ")}` : "",
+    asks.length ? `People also ask:\n${asks.map((q) => `- ${q}`).join("\n")}` : "",
+    also.length ? `Also searched: ${also.join("; ")}` : "",
     r.aiOverview?.cites.length ? `Google's AI Overview cites: ${r.aiOverview.cites.map((c) => c.title || c.domain).join("; ")}` : "",
   );
   return { kind: "research", ref: `serp:${sig.id}`, title: `Google: ${sig.about.query}`, body, url: "/admin/brand-kit/map" };

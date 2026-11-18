@@ -22,8 +22,12 @@ const NOT_READY = new Set([40601, 40602]);
 
 /** Results kept: the first page. */
 export const TOP = 10;
-/** People also ask questions opened (each click shows more questions, at a small extra cost). */
-export const PAA_CLICK_DEPTH = 2;
+/**
+ * People also ask questions opened, one level (each click shows more questions, at a small extra
+ * cost). Two levels drifted far from the question (a lookup about Search Console ended on Gemini
+ * the star sign), and the judge (judge.ts) checks what is left.
+ */
+export const PAA_CLICK_DEPTH = 1;
 
 export type DataForSeoFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -163,11 +167,36 @@ function wordsOf(items: unknown[], max: number): string[] {
   return out;
 }
 
+/** Google's own host (google.com, google.co.uk), which a wrapped result link points at instead of the site. */
+const isGoogleHost = (host: string) => /(^|\.)google\.[a-z.]+$/.test(host);
+
+/** The site in a result's breadcrumb ("https://www.reddit.com › r › ChatGPT"), or "". */
+function breadcrumbHost(crumb: string): string {
+  const first = crumb.split(/\s+›\s+|\s+>\s+/)[0]?.trim() ?? "";
+  if (!first) return "";
+  return hostOf(/^https?:\/\//.test(first) ? first : `https://${first}`);
+}
+
+/**
+ * Where a result really leads. Google now wraps result links (google.com/goto?url=...), so the
+ * address and domain can name Google itself: then the breadcrumb names the site, and the address
+ * is the site's home when the real one can't be read.
+ */
+function siteOf(it: Item): { domain: string; url: string } | null {
+  const url = unwrapGoogleUrl(str(it.url, 2000));
+  const host = hostOf(url);
+  const named = str(it.domain, 200).toLowerCase().replace(/^www\./, "");
+  if (url && host && !isGoogleHost(host)) return { domain: named && !isGoogleHost(named) ? named : host, url };
+  const crumb = breadcrumbHost(str(it.breadcrumb, 300));
+  const site = [named, crumb].find((h) => h && !isGoogleHost(h));
+  if (site) return { domain: site, url: `https://${site}` };
+  return null;
+}
+
 function citeOf(ref: Item): SerpCite | null {
-  const url = unwrapGoogleUrl(str(ref.url, 2000));
-  if (!/^https?:\/\//.test(url)) return null;
-  const domain = (str(ref.domain, 200) || hostOf(url)).replace(/^www\./, "");
-  return { domain, url, title: str(ref.title, 200) || str(ref.source, 200) };
+  const site = siteOf(ref);
+  if (!site) return null;
+  return { domain: site.domain, url: site.url, title: str(ref.title, 200) || str(ref.source, 200) };
 }
 
 /**
@@ -186,10 +215,10 @@ export function parseSerp(raw: unknown, ownHosts: string[]): { numbers: SerpNumb
   for (const it of items) {
     const type = str(it.type, 60);
     if (type === "organic" && top.length < TOP) {
-      const url = str(it.url, 2000);
-      if (!/^https?:\/\//.test(url)) continue;
+      const site = siteOf(it);
+      if (!site) continue;
       const position = typeof it.rank_group === "number" ? it.rank_group : top.length + 1;
-      top.push({ position, domain: (str(it.domain, 200) || hostOf(url)).replace(/^www\./, ""), url, title: str(it.title, 200) });
+      top.push({ position, domain: site.domain, url: site.url, title: str(it.title, 200) });
     } else if (type === "people_also_ask") {
       for (const el of arr(it.items).map(obj)) {
         const question = str(el?.title, 300);

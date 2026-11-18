@@ -7,6 +7,7 @@ import type { DataForSeoFetch } from "./dataforseo";
 import { FIRST_LOOK_MS } from "./store";
 import { envelope, SERP_RESULT } from "./testing/serpFixture";
 import { boxLines, mergeIntoBox } from "./view";
+import type { BrandSignal, SerpJudgement } from "@/lib/types/brandSignal";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", role: "member" };
 const B: TenantContext = { tenantId: "ten_B", region: "us", source: "idtoken", role: "admin" };
@@ -29,6 +30,12 @@ function setup(t: Partial<Tenant> = {}) {
     loadTenant: async (id) => ({ id, region: "us", allowedOrigins: [], ...t }) as unknown as Tenant,
     ownHosts: ["brand.example.com"],
     rateLimited: async () => false,
+    // The judge keeps the first question, sends the second to another article, drops the rest.
+    judge: vi.fn(async (_ctx: TenantContext, sig: BrandSignal): Promise<SerpJudgement> => ({
+      at: "2026-11-18T12:00:20.000Z",
+      version: 1,
+      items: (sig.results?.paa ?? []).map((p, i: number) => ({ text: p.question, kind: "paa" as const, verdict: i === 0 ? "use" : i === 1 ? "other" : "drop", reason: i === 0 ? "the article's own topic" : "off topic" })),
+    })),
   };
   return { deps, fetch, clock };
 }
@@ -77,8 +84,25 @@ describe("Get from Google", () => {
     expect(await readLookup(A, id, deps)).toMatchObject({ status: 200, body: { signal: { status: "posted" } } });
     clock.t += FIRST_LOOK_MS;
     const read = await readLookup(A, id, deps);
-    expect(read).toMatchObject({ status: 200, body: { signal: { status: "ready", numbers: { googlePosition: 3 } } } });
-    expect((read.body as { signal: { lines: string[] } }).signal.lines[0]).toBe("How does ChatGPT choose which sources to cite?");
+    expect(read).toMatchObject({ status: 200, body: { signal: { status: "ready", judged: true, numbers: { googlePosition: 3 } } } });
+    const view = (read.body as { signal: { lines: string[]; leftOut: Array<{ verdict: string }> } }).signal;
+    expect(view.lines).toEqual(["How does ChatGPT choose which sources to cite?"]);
+    expect(view.leftOut.map((l) => l.verdict)).toEqual(["other", "drop"]);
+    // Judged once: reading it again keeps the stored verdicts.
+    await readLookup(A, id, deps);
+    expect(deps.judge).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds nothing until the judge has checked the results, and tries it again next time", async () => {
+    const { deps, clock } = setup();
+    deps.judge = vi.fn(async () => null);
+    const started = await startLookup(A, { query: "How do I get cited by AI answers?" }, deps);
+    const id = (started.body as { signal: { id: string } }).signal.id;
+    clock.t += FIRST_LOOK_MS;
+    expect(await readLookup(A, id, deps)).toMatchObject({ status: 200, body: { signal: { status: "ready", judged: false, lines: [] } } });
+    expect(deps.judge).toHaveBeenCalledTimes(1);
+    await readLookup(A, id, deps);
+    expect(deps.judge).toHaveBeenCalledTimes(2);
   });
 
   it("never shows another brand's lookup, and checks the id", async () => {
@@ -120,16 +144,15 @@ describe("the Google market", () => {
 });
 
 describe("filling the box", () => {
-  it("adds questions and the other lines, once each, after what someone typed", () => {
-    const lines = boxLines({
-      top: [],
-      paa: [{ question: "How does it choose?", url: null, domain: null }],
-      alsoSearched: ["a", "b"],
-      related: ["c"],
-      aiOverview: { cites: [{ domain: "x.test", url: "https://x.test/1", title: "" }, { domain: "x.test", url: "https://x.test/2", title: "" }] },
-    });
-    expect(lines).toEqual(["How does it choose?", "Also searched: a; b", "Related searches: c", "Google's AI Overview cites: x.test"]);
-    expect(mergeIntoBox("From a sales call: is it safe?\n", lines)).toEqual({ text: `From a sales call: is it safe?\n\n${lines.join("\n")}`, added: 4 });
+  it("adds only what the judge kept, questions first, once each, after what someone typed", () => {
+    const lines = boxLines([
+      { text: "How does it choose?", kind: "paa", verdict: "use", reason: "" },
+      { text: "a", kind: "also", verdict: "use", reason: "" },
+      { text: "b", kind: "also", verdict: "use", reason: "" },
+      { text: "c", kind: "also", verdict: "use", reason: "" },
+    ]);
+    expect(lines).toEqual(["How does it choose?", "Also searched: a; b; c"]);
+    expect(mergeIntoBox("From a sales call: is it safe?\n", lines)).toEqual({ text: `From a sales call: is it safe?\n\n${lines.join("\n")}`, added: 2 });
     expect(mergeIntoBox("how does it choose?", ["How does it choose?"])).toEqual({ text: "how does it choose?", added: 0 });
     expect(mergeIntoBox("", ["One", "Two"])).toEqual({ text: "One\nTwo", added: 2 });
     expect(mergeIntoBox("x".repeat(5995), ["A long line"]).added).toBe(0);

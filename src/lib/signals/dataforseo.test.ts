@@ -25,7 +25,7 @@ describe("the DataForSEO client", () => {
     expect(url).toBe("https://api.dataforseo.com/v3/serp/google/organic/task_post");
     expect((init.headers as Record<string, string>).authorization).toBe(`Basic ${Buffer.from(`${ENV.DATAFORSEO_USERNAME}:${ENV.DATAFORSEO_PASSWORD}`).toString("base64")}`);
     expect(JSON.parse(String(init.body))).toEqual([
-      expect.objectContaining({ keyword: "How do I get cited by AI answers?", location_code: 2826, language_code: "en", depth: 10, people_also_ask_click_depth: 2, priority: 2, tag: "sig_1" }),
+      expect.objectContaining({ keyword: "How do I get cited by AI answers?", location_code: 2826, language_code: "en", depth: 10, people_also_ask_click_depth: 1, priority: 2, tag: "sig_1" }),
     ]);
   });
 
@@ -107,5 +107,23 @@ describe("reading Google's results", () => {
     expect(isOwnHost("notbrand.example.com", ["brand.example.com"])).toBe(false);
     expect(unwrapGoogleUrl("https://www.google.co.uk/url?q=https://a.test/x")).toBe("https://a.test/x");
     expect(unwrapGoogleUrl("https://a.test/url?q=https://b.test")).toBe("https://a.test/url?q=https://b.test");
+  });
+
+  it("reads the site from the breadcrumb when Google wraps a result's link in its own", () => {
+    const wrapped = {
+      items: [
+        { type: "organic", rank_group: 1, domain: "google.com", url: "https://google.com/goto?url=CAESgQEBxCJF13wdM0J", breadcrumb: "https://www.rival-a.test › blog › cited", title: "Cited" },
+        { type: "organic", rank_group: 2, url: "https://google.com/goto?url=CAESiAEBxCJF1", breadcrumb: "blog.brand.example.com › guide", title: "Ours" },
+        { type: "organic", rank_group: 3, url: "https://google.com/goto?url=CAESuQEB", title: "No way to tell" },
+        { type: "ai_overview", references: [{ domain: "www.google.com", url: "https://google.com/goto?url=CAES", source: "A forum", breadcrumb: "forum.test" }] },
+      ],
+    };
+    const read = parseSerp(wrapped, ["brand.example.com"]);
+    expect(read.results.top).toEqual([
+      { position: 1, domain: "rival-a.test", url: "https://rival-a.test", title: "Cited" },
+      { position: 2, domain: "blog.brand.example.com", url: "https://blog.brand.example.com", title: "Ours" },
+    ]);
+    expect(read.numbers.googlePosition).toBe(2);
+    expect(read.results.aiOverview?.cites).toEqual([{ domain: "forum.test", url: "https://forum.test", title: "A forum" }]);
   });
 });

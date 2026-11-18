@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { mergeIntoBox, type SignalView } from "@/lib/signals/view";
 
 /**
- * "Get from Google" beside the brief's What buyers ask box (SIGNALS_DATAFORSEO_ENABLED, and the
- * brand's next_up feature). Looks the article's question up on Google through DataForSEO and adds
- * People also ask, also searched, related searches and who Google's AI Overview cites to the box.
- * It only ever adds lines; what someone typed stays. Hidden when the brand can't use it.
+ * "Get from Google" beside What buyers ask, in the Create wizard and the blog brief
+ * (SIGNALS_DATAFORSEO_ENABLED, and the brand's next_up feature). Looks the article's question up on
+ * Google through DataForSEO; the judge (src/lib/signals/judge.ts) keeps what fits this article, and
+ * only that is added: People also ask and what else people search for. What it left out is listed
+ * with why. It only ever adds lines; what someone typed stays. Hidden when the brand can't use it.
  */
 
 const BUTTON =
@@ -52,6 +53,7 @@ export function GetFromGoogle({
   const [status, setStatus] = useState<Status | null>(null);
   const [state, setState] = useState<"idle" | "asking" | "waiting">("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [leftOut, setLeftOut] = useState<SignalView["leftOut"]>([]);
   // A lookup can take minutes: by then the box (and the brief) may have changed, so read the latest.
   const currentRef = useRef(current);
   currentRef.current = current;
@@ -75,14 +77,20 @@ export function GetFromGoogle({
   if (!status) return null;
 
   const fill = (signal: SignalView) => {
+    if (!signal.judged) {
+      setMessage("Google's results couldn't be checked for this article just now. Try again in a minute; it won't count twice.");
+      return;
+    }
     const { text, added } = mergeIntoBox(currentRef.current, signal.lines);
     if (added) onAddRef.current(text);
+    setLeftOut(signal.leftOut);
+    const out = signal.leftOut.length ? ` Left out ${signal.leftOut.length} that didn't fit.` : "";
     setMessage(
       added
-        ? `Added ${added} line${added === 1 ? "" : "s"} from ${signal.market}.`
+        ? `Added ${added} line${added === 1 ? "" : "s"} from ${signal.market}.${out}`
         : signal.lines.length
-          ? "Everything Google showed is already in the box."
-          : "Google showed no questions for this one. Try wording it the way a buyer would ask.",
+          ? `Everything that fits is already in the box.${out}`
+          : `Nothing Google showed fits this article.${out} Try wording the question the way a buyer would ask it.`,
     );
   };
 
@@ -102,6 +110,7 @@ export function GetFromGoogle({
 
   const ask = async () => {
     setMessage(null);
+    setLeftOut([]);
     setState("asking");
     try {
       const res = await fetch("/api/admin/signals/serp", {
@@ -132,8 +141,21 @@ export function GetFromGoogle({
         {state === "asking" ? "Asking Google…" : state === "waiting" ? "Waiting for Google…" : "Get from Google"}
       </button>
       <span className={HINT} aria-live="polite">
-        {message ?? `Adds People also ask and what else people search, from ${status.market}. ${status.used} of ${status.limit} lookups used this month.`}
+        {message ?? `Adds the questions from ${status.market} that fit this article. ${status.used} of ${status.limit} lookups used this month.`}
       </span>
+      {leftOut.length ? (
+        <details className={`w-full ${HINT}`}>
+          <summary className="cursor-pointer">What was left out, and why</summary>
+          <ul className="mt-1 space-y-0.5">
+            {leftOut.map((i) => (
+              <li key={i.text}>
+                &ldquo;{i.text}&rdquo;: {i.verdict === "other" ? "for another article" : "left out"}
+                {i.reason ? `, ${i.reason}` : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }

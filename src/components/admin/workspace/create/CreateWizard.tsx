@@ -12,6 +12,7 @@ import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentObjective, ContentPlan, SequenceType } from "@/lib/types/contentPlan";
 import type { WriteNext } from "@/lib/content/blog/articleMap";
 import { MapSubjectSearch, type SubjectPick } from "@/components/admin/brand-kit/MapSubjectSearch";
+import { GetFromGoogle } from "@/components/admin/signals/GetFromGoogle";
 
 /**
  * Create intake wizard — 4 short steps (Strategy / Scope / Knowledge / Topology) +
@@ -673,6 +674,13 @@ export function CreateWizard({
                       rows={3}
                       maxLength={6000}
                       className={INPUT}
+                    />
+                    <GetFromGoogle
+                      query={linkedQuestion?.text || blogQuestion}
+                      questionId={linkedQuestion?.id ?? null}
+                      subjectId={subject && subject !== NO_SUBJECT ? subject : null}
+                      current={blogBuyerQuestions}
+                      onAdd={setBlogBuyerQuestions}
                     />
                   </Field>
                 </>

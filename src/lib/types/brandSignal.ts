@@ -66,6 +66,25 @@ export interface SerpNumbers {
   aiOverviewCitesYou: boolean | null;
 }
 
+/** What the judge (src/lib/signals/judge.ts) made of one thing Google showed. */
+export type FoundVerdict = "use" | "other" | "drop";
+
+export interface JudgedItem {
+  text: string;
+  /** A People also ask question, or a "people also search for" phrase. */
+  kind: "paa" | "also";
+  /** use: fits this question's article. other: fits another article. drop: off topic or a repeat. */
+  verdict: FoundVerdict;
+  reason: string;
+}
+
+/** The judge's verdicts, kept with the lookup so it never judges the same results twice. */
+export interface SerpJudgement {
+  at: string;
+  version: number;
+  items: JudgedItem[];
+}
+
 export interface BrandSignal {
   id: string;
   tenantId: string;
@@ -90,6 +109,8 @@ export interface BrandSignal {
   results: SerpFindings | null;
   /** Why it failed, as a short code ("timeout", "dataforseo_40501"). Never a credential. */
   error: string | null;
+  /** What fits the question, judged once the results are in (absent until then). */
+  judged?: SerpJudgement | null;
   attempts: number;
   leaseId: string | null;
   leaseUntil: string | null;

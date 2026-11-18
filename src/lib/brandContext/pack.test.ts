@@ -145,7 +145,7 @@ describe("the context pack", () => {
     expect(pack.numbers.map((l) => l.text)).toEqual([
       "None of your pages is in Google's top 10 for it.",
       "Google's AI Overview cites 2 pages, none of them yours: rival-a.test, forum.test.",
-      "People also ask: Is share of voice a KPI?.",
+      "People also ask: not checked for fit yet.",
       "Top results: rival-a.test.",
     ]);
     expect(pack.numbers[0]!.source).toBe("Google, through DataForSEO (Google United Kingdom, English, 2026-11-18)");

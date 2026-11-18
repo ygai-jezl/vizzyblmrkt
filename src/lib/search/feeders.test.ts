@@ -3,7 +3,8 @@ import type { BrandNote } from "@/lib/types/brandNote";
 import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
-import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, lifecycleSources, noteSource, stubOf } from "./feeders";
+import type { BrandSignal } from "@/lib/types/brandSignal";
+import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, lifecycleSources, noteSource, signalSource, stubOf } from "./feeders";
 
 const node = (over: Record<string, unknown>) => ({ id: "n", type: "spoke", channel: "linkedin", role: "Post", position: { x: 0, y: 0 }, body: "", status: "generated", placeholderValues: {}, warnings: [], ...over });
 
@@ -114,5 +115,36 @@ describe("brandMapStubs", () => {
     expect(calls.map(([k]) => k)).toEqual(["sub", "q", "sit"]);
     for (const [, opts] of calls) expect(opts).toEqual({ where: [["status", "==", "decided"]] });
     expect(stubs.map((s) => `${s.kind}:${s.ref}`)).toEqual(["question:q1"]);
+  });
+});
+
+describe("signalSource", () => {
+  const sig = {
+    id: "sig_1",
+    status: "ready",
+    readyAt: "2026-11-18T12:00:00.000Z",
+    about: { query: "How do I get cited by AI answers?", questionId: "q_1", subjectId: null },
+    market: { country: "GB", language: "en" },
+    results: {
+      top: [{ position: 1, domain: "rival-a.test", url: "https://rival-a.test/x", title: "X" }],
+      paa: [{ question: "How does ChatGPT choose sources?", url: null, domain: null }],
+      alsoSearched: ["get cited step by step"],
+      related: ["chatgpt sources"],
+      aiOverview: { cites: [{ domain: "forum.test", url: "https://forum.test/t/1", title: "A thread" }] },
+    },
+  } as unknown as BrandSignal;
+
+  it("keeps what Google showed for a question as research, with the market and date", () => {
+    const src = signalSource(sig)!;
+    expect(src).toMatchObject({ kind: "research", ref: "serp:sig_1", title: "Google: How do I get cited by AI answers?" });
+    expect(src.body).toContain("Google United Kingdom, English, 2026-11-18");
+    expect(src.body).toContain("- How does ChatGPT choose sources?");
+    expect(src.body).toContain("Also searched: get cited step by step");
+    expect(src.body).toContain("Related searches: chatgpt sources");
+    expect(src.body).toContain("Google's AI Overview cites: A thread");
+  });
+
+  it("leaves out a lookup that isn't ready", () => {
+    expect(signalSource({ ...sig, status: "posted", results: null })).toBeNull();
   });
 });

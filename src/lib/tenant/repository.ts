@@ -52,6 +52,7 @@ import type { BrandAuthor } from "@/lib/types/brandAuthor";
 import type { BrandNote } from "@/lib/types/brandNote";
 import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
+import type { BrandSignal } from "@/lib/types/brandSignal";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -433,6 +434,8 @@ export interface TenantRepositories {
   competitorChanges: TenantCollection<CompetitorChange>;
   /** Their articles read in full (COMPETITOR_ARTICLES_ENABLED): findings and short quotes, never the text. */
   competitorArticles: TenantCollection<CompetitorArticle>;
+  /** Outside numbers about the brand (BRAND_SIGNALS_ENABLED): Google's results per question (src/lib/signals). */
+  brandSignals: TenantCollection<BrandSignal>;
 }
 
 /**
@@ -566,5 +569,8 @@ export function forTenant(
     competitorPosts: new TenantCollection<CompetitorPost>(regionalDb, "competitor_posts", t),
     competitorChanges: new TenantCollection<CompetitorChange>(regionalDb, "competitor_changes", t),
     competitorArticles: new TenantCollection<CompetitorArticle>(regionalDb, "competitor_articles", t),
+    // Public search results for the brand's questions (no end-user PII) sit with the content they
+    // inform → regional DB, like competitors and the brand map.
+    brandSignals: new TenantCollection<BrandSignal>(regionalDb, "brand_signals", t),
   };
 }

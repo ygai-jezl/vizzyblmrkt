@@ -193,6 +193,15 @@ describe("runArticleReads", () => {
     expect(await tick()).toMatchObject({ queued: 2, read: 0 });
   });
 
+  it("stops at the brand's own cap when it has one (src/lib/plans/limits.ts)", async () => {
+    vi.stubEnv("COMPETITOR_ARTICLES_ENABLED", "true");
+    await competitor(2);
+    const repo = forTenant(A, db).competitorArticles;
+    await repo.create("old_0", { competitorId: "cmp_gone", readMonth: "2026-11", status: "read" } as never);
+    const capped = { ...tenant("ten_A", ["competitors", "competitor_articles"]), featureLimits: { competitor_articles: 1 } };
+    expect(await tick({ listTenants: async () => [capped] })).toMatchObject({ queued: 2, read: 0 });
+  });
+
   it("starts no read without enough time left, and leaves a paused competitor's articles waiting", async () => {
     await competitor(2);
     expect(await tick({}, NOW + 20_000)).toMatchObject({ tenants: 0, read: 0 });

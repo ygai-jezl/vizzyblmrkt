@@ -1,3 +1,4 @@
+import type { Tenant } from "@/lib/types/tenant";
 import { describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
@@ -80,7 +81,10 @@ describe("the article queue", () => {
       await finishArticle(A, id, "l", { status: "read", readMonth: id.endsWith("1") ? "2026-11" : "2026-10" }, d);
     }
     expect(await readsThisMonth(A, d)).toBe(1);
-    expect(await monthlyCapReached(A, d)).toBe(false);
+    expect(await monthlyCapReached(A, { ...d, loadTenant: async () => null })).toBe(false);
+    // The brand's own cap (src/lib/plans/limits.ts) is what counts.
+    const own = { featureLimits: { competitor_articles: 1 } } as unknown as Tenant;
+    expect(await monthlyCapReached(A, { ...d, loadTenant: async () => own })).toBe(true);
   });
 
   it("removes a competitor's articles and their vectors, and a read in progress then saves nothing", async () => {

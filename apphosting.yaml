@@ -86,6 +86,8 @@ env:
   #     ROOT_AGENT_RESOURCE_ID, ROOT_AGENT_LOCATION                 your agent engine, us-central1
   #     VIZZY_MEMORY_BANK_ID                                        infra/agent/setup.sh memory prints it
   #     GRANTED_ONLY_FEATURES                                       features only for brands granted them
+  #     FEATURE_MONTHLY_LIMITS                                      next_up=100,competitor_articles=200
+  #     DATAFORSEO_USERNAME, DATAFORSEO_PASSWORD                    secrets, with SIGNALS_DATAFORSEO_ENABLED
   #   Connections
   #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
   #     GITHUB_APP_CLIENT_SECRET, GITHUB_APP_PRIVATE_KEY            secrets
@@ -696,6 +698,25 @@ env:
   # Vizzy reads how emails and posts did (get_email_results, get_post_results), each number
   # with its meaning (src/lib/metrics/meanings.ts). Aggregates only; needs a redeployed agent.
   - variable: RESULTS_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Brand signals: outside numbers about a brand kept for planning (src/lib/signals), their
+  # scheduled collecting, and the Search market setting.
+  - variable: BRAND_SIGNALS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google's results for a question through DataForSEO, and the "Get from Google" button (needs
+  # BRAND_SIGNALS_ENABLED and the DATAFORSEO_* secrets; per brand: the next_up feature).
+  - variable: SIGNALS_DATAFORSEO_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The context pack: what a brand knows about one question (its brand map, brand search,
+  # competitor articles, Google's results) gathered in one place, and Vizzy's get_brand_context
+  # (needs a redeployed agent).
+  - variable: BRAND_CONTEXT_ENABLED
     value: "false"
     availability:
       - RUNTIME

@@ -40,8 +40,6 @@ export const COMPETITOR_LIMITS = {
   FAILURES_BEFORE_NEEDS_YOU: 3,
   /** Older articles read when a competitor's articles are first read (COMPETITOR_ARTICLES_ENABLED). */
   ARTICLE_BACKFILL: 20,
-  /** Articles one brand may have read in a calendar month (each is a Gemini call). */
-  ARTICLE_READS_PER_MONTH: 200,
   /** Tries at one article before it counts as failed. */
   ARTICLE_ATTEMPTS: 2,
 } as const;

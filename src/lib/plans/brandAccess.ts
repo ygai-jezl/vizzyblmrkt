@@ -11,7 +11,7 @@ import type { Tenant } from "@/lib/types/tenant";
  * a listed feature when its record's `grantedFeatures` includes it. Empty or unset: every brand
  * may use every feature (a self-hosted copy's default).
  */
-export const METERED_FEATURES = ["edit_vizzy", "edit_vizzy_learning", "competitors", "competitor_articles", "brand_search"] as const;
+export const METERED_FEATURES = ["edit_vizzy", "edit_vizzy_learning", "competitors", "competitor_articles", "brand_search", "next_up"] as const;
 export type MeteredFeature = (typeof METERED_FEATURES)[number];
 
 /** The features this deployment keeps for granted brands. */

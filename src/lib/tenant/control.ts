@@ -232,6 +232,33 @@ export async function setTenantFeatureGrant(
 }
 
 /**
+ * Set a brand's own monthly cap for a feature (src/lib/plans/limits.ts), or with `null` go back
+ * to the copy's cap. Returns the brand's own caps after the change, or null when there's no such
+ * brand. Used by scripts/grant-feature.ts until billing sets them.
+ */
+export async function setTenantFeatureLimit(
+  id: string,
+  feature: string,
+  limit: number | null,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<Record<string, number> | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const raw = snap.data()?.featureLimits;
+    const current: Record<string, number> = {};
+    if (raw && typeof raw === "object") {
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (typeof v === "number") current[k] = v;
+    }
+    if (limit === null) delete current[feature];
+    else current[feature] = limit;
+    tx.update(ref, { featureLimits: current, updatedAt: new Date().toISOString() });
+    return current;
+  });
+}
+
+/**
  * Write the tenant's Email style (top-level `emailStyle`, like brandVoice), or remove it with
  * `null` ("Reset to default"). The input is parsed strictly here too, so nothing is stored that
  * the lenient read would drop; the header options' defaults (null = solid, "auto", a null header

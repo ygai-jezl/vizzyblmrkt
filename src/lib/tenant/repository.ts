@@ -16,6 +16,7 @@ import type { Journey } from "@/lib/types/journey";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { EmailEvent } from "@/lib/types/emailEvent";
 import type { EmailSend } from "@/lib/types/emailSend";
+import type { ProductEventDay, WidgetViewDay } from "@/lib/types/dailyCounts";
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
@@ -334,6 +335,10 @@ export interface TenantRepositories {
   /** One record per email sent: its attribution (from a short Mandrill id) and, with
    *  EMAIL_ENGAGEMENT_DETAIL_ENABLED, every open, click and bounce detail. Personal data. */
   emailSends: TenantCollection<EmailSend>;
+  /** Widget views per launch per day, sharded, kept forever (WIDGET_VIEW_COUNTS_ENABLED). No person. */
+  widgetViewDays: TenantCollection<WidgetViewDay>;
+  /** Accepted product events per connection per day by name, sharded, kept after the events' TTL (PRODUCT_EVENT_DAYS_ENABLED). */
+  productEventDays: TenantCollection<ProductEventDay>;
   /** Tenant-wide unsubscribe / spam / hard-bounce opt-outs (send-time suppression). */
   emailSuppressions: TenantCollection<EmailSuppression>;
   /** Unified CRM: person records + company intelligence. Email history is read
@@ -467,6 +472,8 @@ export function forTenant(
     emailJobs: new TenantCollection<EmailJob>(regionalDb, "email_jobs", t),
     emailEvents: new TenantCollection<EmailEvent>(regionalDb, "email_events", t),
     emailSends: new TenantCollection<EmailSend>(regionalDb, "email_sends", t),
+    widgetViewDays: new TenantCollection<WidgetViewDay>(regionalDb, "widget_view_days", t),
+    productEventDays: new TenantCollection<ProductEventDay>(regionalDb, "product_event_days", t),
     // Opt-outs are keyed by email (marketing PII) → regional DB, like signups.
     emailSuppressions: new TenantCollection<EmailSuppression>(
       regionalDb,

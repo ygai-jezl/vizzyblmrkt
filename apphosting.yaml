@@ -898,6 +898,23 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Widget views counted per launch per day in Firestore, kept whether or not BigQuery is on
+  # (the public one lets the embed send its beacon; it is fixed at build time).
+  - variable: WIDGET_VIEW_COUNTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_WIDGET_VIEW_COUNTS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Accepted product events (API v2) counted per connection per day by name, kept after the
+  # events' own 90-day TTL. Counts only, no person.
+  - variable: PRODUCT_EVENT_DAYS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The dataset in each region, as named in extensions/.
   - variable: BQ_DATASET_US
     value: waitlist_us

@@ -713,6 +713,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The context pack: what a brand knows about one question (its brand map, brand search,
+  # competitor articles, Google's results) gathered in one place, and Vizzy's get_brand_context
+  # (needs a redeployed agent).
+  - variable: BRAND_CONTEXT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

@@ -281,7 +281,8 @@ export default function YourBrandHelp() {
           <H2 id="competitor-articles">See what they write</H2>
           <P>
             When this copy of YouGrow reads their articles, a competitor&apos;s page has a <strong>What they write</strong> tab. We
-            read each new post in full, and the newest 20 from before you started watching. Open an article to see what it covers
+            read each new post in full, and the newest 20 from before you started watching. When their site gives no dates, we take
+            each post&apos;s date from their news page, so the newest are read first. Open an article to see what it covers
             and its angle, who it is written for, each result it reports in numbers with the sentence it came from, the sites it
             cites, what it asks the reader to do and which of their own pages it sends readers to. Dates, prices, product settings
             and made up examples don&apos;t count as results. A link that only names a company, such as an investor or a partner,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { feedLinkFromHtml, isPostOf, listingLinks, parseFeed } from "./feed";
+import { dayFromText, feedLinkFromHtml, isPostOf, listingCards, listingLinks, parseFeed } from "./feed";
 
 const SITE = "acme-dental.example";
 const NEWS = "https://www.acme-dental.example/news/";
@@ -59,5 +59,76 @@ describe("posts on a listing page", () => {
     }
     expect(isPostOf("https://www.acme-dental.example/news/2026/11/13/leeds-clinic", NEWS, SITE)).toBe(true);
     expect(isPostOf("https://www.acme-dental.example/news/1234", NEWS, SITE)).toBe(true);
+  });
+});
+
+describe("the date on a post's card", () => {
+  const NOW = new Date("2026-11-18T12:00:00Z");
+
+  it("reads a day, a month by name and a year in either order, or a plain ISO day", () => {
+    expect(dayFromText("18 Nov, 2026 / Research", NOW)).toBe("2026-11-18");
+    expect(dayFromText("Posted 13th November 2026", NOW)).toBe("2026-11-13");
+    expect(dayFromText("Nov 3, 2026", NOW)).toBe("2026-11-03");
+    expect(dayFromText("September 9th 2026", NOW)).toBe("2026-09-09");
+    expect(dayFromText("9 Sept 2026", NOW)).toBe("2026-09-09");
+    expect(dayFromText("Updated 2026-10-01T09:00", NOW)).toBe("2026-10-01");
+    expect(dayFromText("May 4, 2026: why we may switch", NOW)).toBe("2026-05-04");
+  });
+
+  it("takes the first date when there are two", () => {
+    expect(dayFromText("12 Nov, 2026 · first published 1 Jan 2025", NOW)).toBe("2026-11-12");
+  });
+
+  it("reads nothing from an all number date, an impossible one, one in the future, or none", () => {
+    expect(dayFromText("11/12/2026", NOW)).toBeNull();
+    expect(dayFromText("31 Feb 2026", NOW)).toBeNull();
+    expect(dayFromText("1 Dec 2026", NOW)).toBeNull();
+    expect(dayFromText("Black Friday in AI Search 2026", NOW)).toBeNull();
+    expect(dayFromText("", NOW)).toBeNull();
+  });
+});
+
+describe("cards on a listing page", () => {
+  const NOW = new Date("2026-11-18T12:00:00Z");
+
+  it("dates each post from its own card, in page order, with the page's own links left out", () => {
+    const html = `
+      <nav><a href="/news/">All</a><a href="/news/insights">Insights</a></nav>
+      <a href="/news/b2b-buyers"><img alt=""><p>18 Nov, 2026 / Research</p><h3>The B2B buyer journey</h3></a>
+      <a href="/news/black-friday"><p>13 Nov, 2026 / Research</p><h3>Black Friday in AI Search 2026</h3></a>
+      <a href="/news/black-friday">Read more</a>`;
+    expect(listingCards(html, NEWS, NEWS, SITE, NOW)).toEqual([
+      { url: "https://www.acme-dental.example/news/insights", publishedAt: null, rank: 0 },
+      { url: "https://www.acme-dental.example/news/b2b-buyers", publishedAt: "2026-11-18", rank: 1 },
+      { url: "https://www.acme-dental.example/news/black-friday", publishedAt: "2026-11-13", rank: 2 },
+    ]);
+  });
+
+  it("finds a date beside the link in the same card, never in the card next to it", () => {
+    const html = `
+      <ul>
+        <li><article><time datetime="2026-11-10">10 November</time><h2><a href="/news/one">One</a></h2><a href="/tag/x">tag</a></article></li>
+        <li><article><h2><a href="/news/two">Two</a></h2></article></li>
+        <li><article><span>Oct 2, 2026</span><h2><a href="/news/three">Three</a></h2></article></li>
+      </ul>`;
+    expect(listingCards(html, NEWS, NEWS, SITE, NOW).map((c) => [c.url.split("/").pop(), c.publishedAt])).toEqual([
+      ["one", "2026-11-10"],
+      ["two", null],
+      ["three", "2026-10-02"],
+    ]);
+  });
+
+  it("keeps the order of a page that shows no dates", () => {
+    const html = `<a href="/news/c">C</a><a href="/news/a">A</a><a href="/news/b">B</a>`;
+    expect(listingCards(html, NEWS, NEWS, SITE, NOW).map((c) => [c.url.split("/").pop(), c.rank, c.publishedAt])).toEqual([
+      ["c", 0, null],
+      ["a", 1, null],
+      ["b", 2, null],
+    ]);
+  });
+
+  it("finds the same posts as the links on the page", () => {
+    const html = `<a href="/news/a">A</a><a href="https://elsewhere.example/news/x">X</a><a href="/news/a#top">A again</a><a href="/about">About</a><a href="/news/b">B</a>`;
+    expect(listingCards(html, NEWS, NEWS, SITE, NOW).map((c) => c.url)).toEqual(listingLinks(html, NEWS, NEWS, SITE));
   });
 });

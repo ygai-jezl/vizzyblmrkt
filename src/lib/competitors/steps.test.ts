@@ -324,6 +324,19 @@ describe("a site whose bot screen turns us away", () => {
     expect(c!.sitemap?.pages).toBe(8);
   });
 
+  it("keeps the date on each card of a news page with no feed, and its place for one with none", async () => {
+    web.delete(`${W}/news/feed/`);
+    web.set(`${W}/news`, {
+      body: `<html><body><a href="/news/c"><p>2 Nov, 2026</p><h3>Opening hours</h3></a><a href="/news/b"><h3>Whitening myths</h3></a><a href="/news/a"><p>1 Oct, 2026</p><h3>Implants</h3></a></body></html>`,
+      type: "text/html",
+    });
+    const c = await watched();
+    const posts = new Map((await listPosts(ctx, c.id, { db })).map((p) => [p.url.split("/").pop(), p]));
+    expect(posts.get("c")).toMatchObject({ publishedAt: "2026-11-02", rank: 0, baseline: true });
+    expect(posts.get("b")).toMatchObject({ publishedAt: null, rank: 1 });
+    expect(posts.get("a")).toMatchObject({ publishedAt: "2026-10-01", rank: 2 });
+  });
+
   it("never leaves a competitor watching when it has no sitemap and a news page that lists nothing", async () => {
     web = new Map<string, Page>([
       [`${W}/robots.txt`, { body: "User-agent: *\nAllow: /\n", type: "text/plain" }],

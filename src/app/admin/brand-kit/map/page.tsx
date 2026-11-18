@@ -27,7 +27,7 @@ import { brandCanUse } from "@/lib/plans/brandAccess";
 import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
 import { AutopilotPanel } from "@/components/admin/autopilot/AutopilotPanel";
-import { isNextUpEnabled } from "@/lib/autopilot/flags";
+import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 import { BrandMapTabs } from "@/components/admin/brand-kit/BrandMapTabs";
 import { BrandMapContentMap } from "@/components/admin/brand-kit/BrandMapContentMap";
 import { BrandMapContentMapLevels } from "@/components/admin/brand-kit/BrandMapContentMapLevels";
@@ -170,7 +170,7 @@ export default async function BrandMapPage() {
         <h1 className="mt-1 text-lg font-semibold">Brand map</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">One set of names and subjects. Every article is written from it.</p>
       </div>
-      {nextUp ? <AutopilotPanel isAdmin={ctx.role === "admin"} programmes={programmes} /> : null}
+      {nextUp ? <AutopilotPanel isAdmin={ctx.role === "admin"} programmes={programmes} autopilot={isAutopilotEnabled()} /> : null}
       {scale ? (
         // The first time an admin opens the page, whichever tab shows, the subjects move into their records;
         // until a read of the brand's pages and a count has run to the end, it starts again.

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { WriteNext } from "@/components/admin/brand-kit/BrandMapCoverage";
 import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
-import { FoundTrays } from "./FoundTrays";
+import { FoundTrays, type RunView } from "./FoundTrays";
+import { AutopilotSettingsCard } from "./AutopilotSettingsCard";
 
 /**
  * Brand › Brand map, above the tabs (BRAND_MAP_NEXT_UP_ENABLED and the brand's next_up feature):
@@ -142,14 +143,19 @@ function NextUpCard({
   programmes: Array<{ id: string; name: string }> | null;
 }) {
   const [current, setCurrent] = useState<NextUpDoc | null | undefined>(undefined);
+  const [ready, setReady] = useState<(RunView & { question: { questionId: string; text: string; subjectId: string; subjectName: string } }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let gone = false;
     void fetch("/api/admin/brand-kit/autopilot/next-up")
-      .then((r) => (r.ok ? (r.json() as Promise<{ nextUp: NextUpDoc | null }>) : null))
-      .then((d) => !gone && setCurrent(d ? d.nextUp : null))
+      .then((r) => (r.ok ? (r.json() as Promise<{ nextUp: NextUpDoc | null; ready?: typeof ready }>) : null))
+      .then((d) => {
+        if (gone) return;
+        setCurrent(d ? d.nextUp : null);
+        setReady(d?.ready ?? null);
+      })
       .catch(() => !gone && setCurrent(null));
     return () => {
       gone = true;
@@ -205,6 +211,20 @@ function NextUpCard({
         <p className={`mb-2 ${HINT}`} aria-live="polite">
           {message}
         </p>
+      ) : null}
+      {ready ? (
+        <div className="mb-3 space-y-2 rounded-md border border-blue-400 p-3 dark:border-blue-500">
+          <p className="text-sm">
+            <b className="font-medium">Ready to write:</b> &ldquo;{ready.question.text}&rdquo;
+            <span className={`block ${HINT}`}>Autopilot found and sorted what buyers ask. Check the trays, then write it.</span>
+          </p>
+          <FoundTrays
+            pick={{ questionId: ready.question.questionId, question: ready.question.text, subjectId: ready.question.subjectId, subjectName: ready.question.subjectName, because: "", chips: [], from: "code" }}
+            isAdmin={isAdmin}
+            programmes={programmes}
+            initialRun={ready}
+          />
+        </div>
       ) : null}
       {!current ? (
         <p className={HINT}>Next up picks the three articles worth writing next from your brand map, with why.</p>
@@ -278,15 +298,19 @@ export function AutopilotPanel({
   isAdmin,
   programmes,
   children,
+  autopilot = false,
 }: {
   isAdmin: boolean;
   programmes: Array<{ id: string; name: string }> | null;
-  /** More cards under Next up (the settings). */
+  /** More cards under Next up. */
   children?: ReactNode;
+  /** Show the Autopilot settings (CREATE_ARTICLE_AUTOPILOT_ENABLED). */
+  autopilot?: boolean;
 }) {
   return (
     <div className="space-y-3">
       <NextUpCard isAdmin={isAdmin} programmes={programmes} />
+      {autopilot ? <AutopilotSettingsCard isAdmin={isAdmin} /> : null}
       {children}
       <LearnedList isAdmin={isAdmin} />
     </div>

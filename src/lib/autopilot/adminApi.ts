@@ -1,13 +1,20 @@
 import { z } from "zod";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { TenantContext } from "@/lib/tenant/types";
-import { isNextUpEnabled } from "./flags";
+import { isAutopilotEnabled, isNextUpEnabled } from "./flags";
 import { addLearned, clearLearned, learnedLine, listLearned, removeLearned, type LearnedDeps } from "./learned";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { dropPick, pickNextUp, readNextUp, type PickDeps } from "@/lib/nextUp/pick";
 import type { AutopilotRun } from "@/lib/types/autopilot";
 import { advanceRun, type AdvanceDeps } from "./advance";
-import { createRun, freshRunId, getRun, updateTrays } from "./runs";
+import { createRun, draftsThisMonth, freshRunId, getRun, recentRuns, updateTrays } from "./runs";
+import { forTenant, getTenantById } from "@/lib/tenant";
+import { setTenantAutopilot } from "@/lib/tenant/control";
+import { tenantMayUse } from "@/lib/plans/brandAccess";
+import { monthlyLimit } from "@/lib/plans/limits";
+import { lookupsThisMonth } from "@/lib/signals/store";
+import { AutopilotSettingsSchema } from "@/lib/types/autopilot";
+import type { Tenant } from "@/lib/types/tenant";
 import { fileSuggestions } from "@/lib/brandMap/filing";
 
 /**
@@ -63,7 +70,13 @@ export interface NextUpAdminDeps extends AutopilotAdminDeps, Pick<PickDeps, "gen
 export async function readNextUpApi(ctx: TenantContext, deps: NextUpAdminDeps = {}): Promise<ApiResult> {
   const blocked = await nextUpGate(ctx, deps);
   if (blocked) return blocked;
-  return { status: 200, body: { nextUp: await readNextUp(ctx, deps) } };
+  // The newest question a scheduled run sorted and left ready to write (Suggest mode, last 14 days).
+  const ready = isAutopilotEnabled()
+    ? (await recentRuns(ctx, 10, deps).catch(() => []))
+        .filter((r) => r.trigger === "schedule" && r.step === "sorted" && r.question && Date.now() - Date.parse(r.updatedAt) < 14 * 86_400_000)
+        .map(runView)[0] ?? null
+    : null;
+  return { status: 200, body: { nextUp: await readNextUp(ctx, deps), ready } };
 }
 
 /** Choose again now (members may: picking costs one model call, and it is rate limited). */
@@ -215,4 +228,60 @@ export async function suggestOthers(ctx: TenantContext, id: string, raw: unknown
   );
   if (!filed.ok) return { status: 409, body: { error: "map_unavailable" } };
   return { status: 200, body: { filed: filed.value.filed.length, skipped: filed.value.skipped } };
+}
+
+// ---- Settings --------------------------------------------------------------------------------------
+
+export interface SettingsDeps extends NextUpAdminDeps {
+  loadTenant?: (id: string) => Promise<Tenant | null>;
+  save?: typeof setTenantAutopilot;
+  listProgrammes?: (ctx: TenantContext) => Promise<Array<{ id: string; name: string }>>;
+  drafts?: (ctx: TenantContext) => Promise<number>;
+  lookups?: (ctx: TenantContext) => Promise<number>;
+}
+
+const programmesOf = async (ctx: TenantContext, deps: SettingsDeps) =>
+  deps.listProgrammes
+    ? deps.listProgrammes(ctx)
+    : (await forTenant(ctx, deps.db).workspaces.find({ limit: 200 })).filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }));
+
+/** The brand's autopilot settings, what it may do, and this month's use. */
+export async function readAutopilotSettings(ctx: TenantContext, deps: SettingsDeps = {}): Promise<ApiResult> {
+  if (!isAutopilotEnabled()) return { status: 503, body: { error: "unavailable" } };
+  const blocked = await nextUpGate(ctx, deps);
+  if (blocked) return blocked;
+  const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
+  const settings = AutopilotSettingsSchema.parse(tenant?.autopilot ?? {});
+  const [programmes, drafts, lookups] = await Promise.all([
+    programmesOf(ctx, deps).catch(() => []),
+    (deps.drafts ?? ((c) => draftsThisMonth(c, deps)))(ctx).catch(() => 0),
+    (deps.lookups ?? ((c) => lookupsThisMonth(c, deps)))(ctx).catch(() => 0),
+  ]);
+  return {
+    status: 200,
+    body: {
+      settings,
+      canDraft: tenantMayUse(tenant, "article_autopilot"),
+      programmes,
+      month: { lookups, lookupLimit: monthlyLimit(tenant, "next_up"), drafts, draftLimit: monthlyLimit(tenant, "article_autopilot") },
+    },
+  };
+}
+
+/** Admins change the settings. Draft needs the brand's article_autopilot feature, and a programme. */
+export async function saveAutopilotSettings(ctx: TenantContext, raw: unknown, deps: SettingsDeps = {}): Promise<ApiResult> {
+  if (!isAutopilotEnabled()) return { status: 503, body: { error: "unavailable" } };
+  const blocked = await nextUpGate(ctx, deps);
+  if (blocked) return blocked;
+  if (ctx.role !== "admin") return { status: 403, body: { error: "forbidden" } };
+  const parsed = AutopilotSettingsSchema.safeParse(raw);
+  if (!parsed.success) return { status: 400, body: { error: "invalid_input" } };
+  const settings = parsed.data;
+  const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
+  if (settings.mode === "draft" && !tenantMayUse(tenant, "article_autopilot")) return { status: 403, body: { error: "not_included" } };
+  const programmes = await programmesOf(ctx, deps).catch(() => []);
+  if (settings.workspaceId && !programmes.some((p) => p.id === settings.workspaceId)) return { status: 400, body: { error: "invalid_input" } };
+  if (settings.mode === "draft" && !settings.workspaceId && programmes.length !== 1) return { status: 400, body: { error: "programme_required" } };
+  const ok = await (deps.save ?? setTenantAutopilot)(ctx.tenantId, settings);
+  return ok ? { status: 200, body: { settings } } : { status: 404, body: { error: "not_found" } };
 }

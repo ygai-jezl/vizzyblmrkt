@@ -139,3 +139,9 @@ export async function updateTrays(ctx: TenantContext, id: string, trays: NonNull
   const at = nowOf(deps).toISOString();
   return repoOf(ctx, deps).claim(id, (cur) => (cur.trays ? { trays, updatedAt: at } : null));
 }
+
+/** Note the plan a run is about to make, before making it, while this run holds the lease. */
+export async function notePlan(ctx: TenantContext, run: { id: string; leaseId: string }, planId: string, workspaceId: string, deps: RunDeps = {}): Promise<boolean> {
+  const got = await repoOf(ctx, deps).claim(run.id, (cur) => (cur.leaseId === run.leaseId ? { planId, workspaceId, updatedAt: nowOf(deps).toISOString() } : null));
+  return Boolean(got);
+}

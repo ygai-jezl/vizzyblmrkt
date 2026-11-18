@@ -20,7 +20,7 @@ export type ArchitectResult = { ok: true; graph: ContentGraph } | { ok: false; s
 
 export async function runArchitect(
   ctx: TenantContext,
-  args: { workspace: Pick<Workspace, "id" | "brandVoice" | "audience">; plan: ContentPlan },
+  args: { workspace: Pick<Workspace, "id" | "brandVoice" | "audience">; plan: ContentPlan; /** An unattended run's deadline for the model call. */ deadlineMs?: number },
 ): Promise<ArchitectResult> {
   const { workspace: ws, plan } = args;
   const templates = async () =>
@@ -86,6 +86,7 @@ export async function runArchitect(
       brandVoice,
       audience: ws.audience ?? null,
       templates: await templates(),
+      ...(args.deadlineMs ? { deadlineMs: args.deadlineMs } : {}),
     }),
   };
 }

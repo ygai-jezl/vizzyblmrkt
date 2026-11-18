@@ -12,6 +12,8 @@ import { claimRun, finishStep, MAX_ATTEMPTS, type RunDeps, type StepPatch } from
 export interface AdvanceDeps extends FindDeps, RunDeps {
   /** More steps (the draft steps, registered by the run lane). */
   steps?: Partial<Record<RunStep, StepFn>>;
+  /** Called when a step ends the run without finishing (failed, stopped): lets go of its plan. */
+  onEnded?: (ctx: TenantContext, run: AutopilotRun) => Promise<void>;
 }
 
 export type StepFn = (ctx: TenantContext, run: AutopilotRun, opts: { deadlineMs: number }, deps: AdvanceDeps) => Promise<StepPatch>;
@@ -49,5 +51,7 @@ export async function advanceRun(ctx: TenantContext, id: string, opts: { deadlin
   if (patch.error && !patch.step) {
     patch = run.attempts >= MAX_ATTEMPTS ? { ...patch, step: "failed" } : { ...patch, nextAt: new Date(now + RETRY_MS).toISOString() };
   }
-  return finishStep(ctx, run, patch, deps);
+  const after = await finishStep(ctx, run, patch, deps);
+  if (after && (after.step === "failed" || after.step === "stopped")) await deps.onEnded?.(ctx, after).catch(() => undefined);
+  return after;
 }

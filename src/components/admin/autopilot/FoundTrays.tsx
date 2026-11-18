@@ -11,7 +11,7 @@ import type { NextUpPick, TrayItem, Trays } from "@/lib/types/autopilot";
  * Create wizard with the first tray as What buyers ask.
  */
 
-interface RunView {
+export interface RunView {
   id: string;
   step: string;
   trays: Trays | null;
@@ -65,8 +65,19 @@ function WriteLink({ pick, runId, programmes }: { pick: NextUpPick; runId: strin
   );
 }
 
-export function FoundTrays({ pick, isAdmin, programmes }: { pick: NextUpPick; isAdmin: boolean; programmes: Array<{ id: string; name: string }> | null }) {
-  const [run, setRun] = useState<RunView | null>(null);
+export function FoundTrays({
+  pick,
+  isAdmin,
+  programmes,
+  initialRun = null,
+}: {
+  pick: NextUpPick;
+  isAdmin: boolean;
+  programmes: Array<{ id: string; name: string }> | null;
+  /** A run already sorted (by autopilot, in Suggest mode). */
+  initialRun?: RunView | null;
+}) {
+  const [run, setRun] = useState<RunView | null>(initialRun);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [filed, setFiled] = useState<string | null>(null);

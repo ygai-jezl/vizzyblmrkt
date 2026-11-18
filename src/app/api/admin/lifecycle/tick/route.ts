@@ -14,6 +14,8 @@ import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { runSearchSweeps } from "@/lib/search/sweep";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { runSignals } from "@/lib/signals/tick";
+import { isAutopilotEnabled } from "@/lib/autopilot/flags";
+import { runAutopilot } from "@/lib/autopilot/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +44,8 @@ const ARTICLES_BUDGET_MS = 40_000;
 const SEARCH_BUDGET_MS = 30_000;
 /** Google lookups (SIGNALS_DATAFORSEO_ENABLED) finished by DataForSEO are collected beside them too. */
 const SIGNALS_BUDGET_MS = 25_000;
+/** The article autopilot (CREATE_ARTICLE_AUTOPILOT_ENABLED): one step of a run can take over a minute. */
+const AUTOPILOT_BUDGET_MS = 90_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -52,8 +56,9 @@ export async function POST(req: Request) {
   const competitors = isCompetitorsEnabled();
   const search = isSearchIndexEnabled();
   const signals = isSignalsDataForSeoEnabled();
+  const autopilot = isAutopilotEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -71,6 +76,12 @@ export async function POST(req: Request) {
     const signalCollect = signals
       ? runSignals({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SIGNALS_BUDGET_MS) }).catch((err: unknown) => {
           console.warn(`[signals] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+          return null;
+        })
+      : Promise.resolve(null);
+    const autopilotRun = autopilot
+      ? runAutopilot({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AUTOPILOT_BUDGET_MS) }).catch((err: unknown) => {
+          console.warn(`[autopilot] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
           return null;
         })
       : Promise.resolve(null);
@@ -93,6 +104,7 @@ export async function POST(req: Request) {
     }
     const searchResult = await searchSweep;
     const signalResult = await signalCollect;
+    const autopilotResult = await autopilotRun;
     return NextResponse.json({
       ok: true,
       mode: "all_tenants",
@@ -101,6 +113,7 @@ export async function POST(req: Request) {
       ...(articleReads ? { competitorArticles: articleReads } : {}),
       ...(searchResult?.scanned ? { search: searchResult } : {}),
       ...(signalResult?.tenants ? { signals: signalResult } : {}),
+      ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),
     });
   }
 

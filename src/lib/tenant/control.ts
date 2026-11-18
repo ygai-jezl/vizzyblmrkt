@@ -258,6 +258,21 @@ export async function setTenantFeatureLimit(
   });
 }
 
+/** Save the brand's article autopilot settings (CREATE_ARTICLE_AUTOPILOT_ENABLED). The caller parses them. */
+export async function setTenantAutopilot(
+  id: string,
+  settings: Record<string, unknown>,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    tx.update(ref, { autopilot: settings, updatedAt: new Date().toISOString() });
+    return true;
+  });
+}
+
 /**
  * Set where a brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED), or with `null`
  * go back to the default (United States, English). The caller checks the market is one we list.

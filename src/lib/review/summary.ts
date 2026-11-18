@@ -1,4 +1,7 @@
 import { forTenant } from "@/lib/tenant";
+import { isAutopilotEnabled } from "@/lib/autopilot/flags";
+import { recentRuns } from "@/lib/autopilot/runs";
+import type { AutopilotRun } from "@/lib/types/autopilot";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
 import { countWaitingApprovals } from "@/lib/lifecycle/approvals";
@@ -41,7 +44,8 @@ export type ReviewKind =
   | "content_hub"
   | "failed_post"
   | "connection"
-  | "competitor_news";
+  | "competitor_news"
+  | "next_article";
 
 export interface ReviewItem {
   id: string;
@@ -88,10 +92,14 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "What your competitors changed",
     description: "New posts on their news pages and changes to their sites since you last looked. Open one to read it, or mark it seen.",
   },
+  next_article: {
+    title: "Your next article",
+    description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
+  },
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "agent_draft", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "next_article", "agent_draft", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -348,13 +356,69 @@ async function soft<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+const RUN_FAILED: Record<string, string> = {
+  no_programme: "Choose the programme it writes into, in Autopilot on Brand › Brand map.",
+  nothing_to_pick: "Every question on your brand map is answered or planned.",
+  judge_failed: "Sorting what buyers ask didn't finish. It tries again next time.",
+  research_failed: "Research didn't finish. It tries again next time.",
+  write_failed: "Writing didn't finish. It tries again next time.",
+  architect_failed: "Planning the workflow didn't finish. It tries again next time.",
+};
+
+/**
+ * The article autopilot's rows (CREATE_ARTICLE_AUTOPILOT_ENABLED), from the brand's recent runs: the
+ * newest question sorted and ready to write (Suggest mode), questions a draft asks the team, and
+ * the newest run that couldn't finish. The drafts themselves show as Vizzy's drafts, once done.
+ */
+export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): ReviewItem[] {
+  const recent = runs.filter((r) => nowMs - Date.parse(r.updatedAt) < 14 * 86_400_000).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const out: ReviewItem[] = [];
+  const ready = recent.find((r) => r.trigger === "schedule" && r.mode === "suggest" && r.step === "sorted" && r.question);
+  if (ready) {
+    out.push({
+      id: `next_article:${ready.id}`,
+      kind: "next_article",
+      title: `Next article ready to write: “${ready.question!.text}”`,
+      detail: `${ready.trays?.use.length ?? 0} questions buyers ask go in it. Open Next up to sort them and write it.`,
+      href: "/admin/brand-kit/map",
+      action: "Review",
+    });
+  }
+  for (const r of recent.filter((x) => x.mode === "draft" && x.step === "done" && x.askedIds.length && x.planId && x.workspaceId).slice(0, 3)) {
+    out.push({
+      id: `next_article_asks:${r.id}`,
+      kind: "next_article",
+      title: `${r.askedIds.length} question${r.askedIds.length === 1 ? "" : "s"} for your next article`,
+      detail: `For “${r.question?.text ?? r.planId}”: answers from your team make the draft speak from experience.`,
+      href: `/admin/workspace/${r.workspaceId}/create/${r.planId}`,
+      action: "Open",
+    });
+  }
+  const failed = recent.find((r) => r.trigger === "schedule" && r.step === "failed");
+  if (failed) {
+    out.push({
+      id: `next_article_failed:${failed.id}`,
+      kind: "next_article",
+      title: `Autopilot couldn't finish${failed.question ? `: “${failed.question.text}”` : ""}`,
+      detail: RUN_FAILED[failed.error ?? ""] ?? "It tries again with the next run.",
+      href: "/admin/brand-kit/map",
+      action: "Open",
+    });
+  }
+  return out;
+}
+
 /** Content hubs waiting for approval — a read of recent plans in each workspace. */
 export async function loadContentHubItems(ctx: TenantContext, workspaces: Array<{ id: string; name: string }>) {
   const perWorkspace = await Promise.all(
     workspaces.slice(0, 20).map(async (ws) => {
       const plans = await soft(`plans in ${ws.id}`, listContentPlans(ctx, ws.id, 100), [] as ContentPlan[]);
-      // A plan Vizzy drafted shows once, as its draft (which says to approve the hub).
-      return plans.map((p) => agentContentPlanItem(ws, p) ?? contentHubItem(ws, p)).filter((i): i is ReviewItem => !!i);
+      // A plan Vizzy drafted shows once, as its draft (which says to approve the hub). One the
+      // article autopilot is still writing shows only once it is done.
+      return plans
+        .filter((p) => p.autopilot?.state !== "working")
+        .map((p) => agentContentPlanItem(ws, p) ?? contentHubItem(ws, p))
+        .filter((i): i is ReviewItem => !!i);
     }),
   );
   return perWorkspace.flat();
@@ -407,6 +471,7 @@ export async function loadReview(
     competitorsOn ? soft("competitor changes", unseenChanges(ctx, { db }), [] as CompetitorChange[]) : ([] as CompetitorChange[]),
   ]);
 
+  const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 20, { db }), [] as AutopilotRun[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -426,6 +491,7 @@ export async function loadReview(
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),
+    ...nextArticleItems(autopilotRuns),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

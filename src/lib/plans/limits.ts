@@ -13,7 +13,7 @@ import type { Tenant } from "@/lib/types/tenant";
  *
  * A cap of 0 stops the feature for that brand without taking the grant away.
  */
-export const LIMITED_FEATURES = ["next_up", "competitor_articles"] as const;
+export const LIMITED_FEATURES = ["next_up", "competitor_articles", "article_autopilot"] as const;
 export type LimitedFeature = (typeof LIMITED_FEATURES)[number];
 
 export const DEFAULT_MONTHLY_LIMITS: Record<LimitedFeature, number> = {
@@ -21,6 +21,8 @@ export const DEFAULT_MONTHLY_LIMITS: Record<LimitedFeature, number> = {
   next_up: 100,
   /** Competitor articles read by Gemini. */
   competitor_articles: 200,
+  /** Workflows the article autopilot drafts (counted when the plan is made). */
+  article_autopilot: 8,
 };
 
 /** The most a cap may be set to, so a typo can't open the tap. */

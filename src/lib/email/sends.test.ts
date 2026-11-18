@@ -114,3 +114,17 @@ describe("transactionalTag", () => {
     expect(transactionalTag("")).toEqual({});
   });
 });
+
+describe("summariseEmailSends", () => {
+  it("counts delivered emails beside opens, clicks and bounces", async () => {
+    const { summariseEmailSends } = await import("./sends");
+    const { forTenant } = await import("@/lib/tenant");
+    const db = new FakeFirestore() as unknown as FirestoreLike;
+    const repo = forTenant({ tenantId: "ten_a", region: "us", source: "system" }, db).emailSends;
+    const base = { engine: "waitlist", campaignId: "c", journeyId: "j", nodeId: "n", variantId: "control", createdAt: "x", updatedAt: "x" };
+    await repo.create("es_1", { ...base, signupId: "s1", deliveredAt: "2026-11-18T00:00:00Z", opens: { count: 3, firstAt: "", lastAt: "", mobile: 0, desktop: 0, clients: {} } } as never);
+    await repo.create("es_2", { ...base, signupId: "s2", bounce: { kind: "hard", description: "", diag: "", at: "" } } as never);
+    const { totals } = await summariseEmailSends({ tenantId: "ten_a", region: "us", source: "system" }, { journeyId: "j" }, db);
+    expect(totals).toMatchObject({ sends: 2, delivered: 1, totalOpens: 3, hardBounces: 1 });
+  });
+});

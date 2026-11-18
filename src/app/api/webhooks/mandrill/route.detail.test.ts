@@ -65,6 +65,12 @@ describe("the webhook keeps every open, click and bounce detail", () => {
     expect(s?.clicks).toMatchObject({ count: 1, links: [{ url: "https://acme.test/pricing", count: 1 }] });
   });
 
+  it("keeps a delivery on the send without recording an event type for it", async () => {
+    const res = await POST(post([{ event: "delivered", ts: 1_790_000_000, msg: { _id: "m_1", email: "sam@customer.test", metadata: LONG } }]));
+    expect(await res.json()).toEqual({ ok: true, recorded: 0, skipped: 1 });
+    expect((await read())?.deliveredAt).toBe(new Date(1_790_000_000_000).toISOString());
+  });
+
   it("keeps a deferral on the send without recording an event type for it", async () => {
     const res = await POST(post([{ event: "deferral", ts: 1_790_000_000, msg: { _id: "m_1", email: "sam@customer.test", metadata: LONG } }]));
     expect(await res.json()).toEqual({ ok: true, recorded: 0, skipped: 1 });

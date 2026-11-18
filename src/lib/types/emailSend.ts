@@ -14,6 +14,8 @@ export interface EmailEngagement {
   bounce?: { kind: "hard" | "soft"; description: string; diag: string; at: string };
   reject?: { reason: string; at: string };
   deferrals?: { count: number; lastAt: string };
+  /** When the receiving server accepted it (Mandrill's delivered event). */
+  deliveredAt?: string;
   spamAt?: string;
   unsubAt?: string;
   /** The last few events counted, so a batch Mandrill sends again counts nothing twice. */

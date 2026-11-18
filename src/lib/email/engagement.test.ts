@@ -59,6 +59,13 @@ describe("applyEngagement", () => {
     expect(soft.bounce).toBeUndefined();
   });
 
+  it("keeps when the email was first delivered", () => {
+    const a = applyEngagement({}, [{ event: "delivered", ts: T, msg: {} }])!;
+    expect(a.deliveredAt).toBe(new Date(T * 1000).toISOString());
+    const again = applyEngagement(a, [{ event: "delivered", ts: T + 99, msg: {} }])!;
+    expect(again.deliveredAt).toBe(new Date(T * 1000).toISOString());
+  });
+
   it("keeps deferrals, rejections, complaints and unsubscribes", () => {
     const a = applyEngagement({}, [
       { event: "deferral", ts: T, msg: {} },

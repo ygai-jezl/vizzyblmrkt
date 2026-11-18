@@ -113,6 +113,7 @@ export async function attributionOfSend(
 /** Totals over a group of send records (EMAIL_ENGAGEMENT_DETAIL_ENABLED keeps what they count). */
 export interface SendTotals {
   sends: number;
+  delivered: number;
   totalOpens: number;
   totalClicks: number;
   hardBounces: number;
@@ -138,9 +139,10 @@ export async function summariseEmailSends(
   if (filter.journeyId) where.push(["journeyId", "==", filter.journeyId]);
   if (filter.campaignId) where.push(["campaignId", "==", filter.campaignId]);
   const rows = await forTenant(ctx, db).emailSends.find({ where, limit: SEND_SUMMARY_MAX });
-  const totals: SendTotals = { sends: 0, totalOpens: 0, totalClicks: 0, hardBounces: 0, softBounces: 0, deferrals: 0, complaints: 0, unsubscribes: 0 };
+  const totals: SendTotals = { sends: 0, delivered: 0, totalOpens: 0, totalClicks: 0, hardBounces: 0, softBounces: 0, deferrals: 0, complaints: 0, unsubscribes: 0 };
   for (const r of rows) {
     totals.sends += 1;
+    if (r.deliveredAt) totals.delivered += 1;
     totals.totalOpens += r.opens?.count ?? 0;
     totals.totalClicks += r.clicks?.count ?? 0;
     if (r.bounce?.kind === "hard") totals.hardBounces += 1;

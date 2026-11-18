@@ -83,9 +83,9 @@ export async function POST(req: Request) {
     const direct = sendRef || ref ? null : readEventMetadata(ev);
     const tenantOnly = sendRef || ref || direct ? "" : readTenantTag(ev);
     const tenantId = sendRef?.tenantId ?? ref?.tenantId ?? direct?.tenantId ?? (tenantOnly || undefined);
-    // A deferral isn't an event type of its own: it is only kept on the email's send record.
-    const deferral = !type && ev.event === "deferral" && detail;
-    if ((!type && !deferral) || !tenantId) {
+    // A deferral or a delivery isn't an event type of its own: it is only kept on the email's send record.
+    const sendOnly = !type && (ev.event === "deferral" || ev.event === "delivered") && detail;
+    if ((!type && !sendOnly) || !tenantId) {
       skipped += 1;
       continue;
     }

@@ -133,7 +133,7 @@ describe("runArticleReads", () => {
     expect(one).toMatchObject({
       readBy: "direct",
       readMonth: "2026-11",
-      version: 2,
+      version: 3,
       subjectIds: ["sub_signups"],
       format: "case_study",
       asks: [{ kind: "demo", url: `${W}/demo` }],
@@ -243,8 +243,20 @@ describe("reading again what an older reader read", () => {
     expect(await tick()).toMatchObject({ read: 1, refreshed: 0 });
     expect((await one(old)).version).toBe(1);
     expect(await tick()).toMatchObject({ read: 0, refreshed: 1 });
-    expect(await one(old)).toMatchObject({ status: "read", version: 2, summary: ANSWER.summary, stats: [{ figure: "3x" }], leaseId: null });
+    expect(await one(old)).toMatchObject({ status: "read", version: 3, summary: ANSWER.summary, stats: [{ figure: "3x" }], leaseId: null });
     expect(await tick()).toMatchObject({ read: 0, refreshed: 0 });
+  });
+
+  it("skips a page that only lists other posts, also when reading it again, and saves titles without the site's name", async () => {
+    const id = await competitor(2);
+    await tick();
+    const listing = await older(id, "Post 2");
+    const named = await older(id, "Post 1", { title: "Post 1 | Rival" });
+    deps.generate.mockImplementation(async (prompt: string) => JSON.stringify(prompt.includes("Post 2") ? { ...ANSWER, format: "listing" } : ANSWER));
+    expect(await tick()).toMatchObject({ refreshed: 1, skipped: 1 });
+    expect(await one(listing)).toMatchObject({ status: "skipped", problem: "listing", version: 3, leaseId: null });
+    expect(await one(named)).toMatchObject({ status: "read", title: "Post 1", version: 3 });
+    expect(await tick()).toMatchObject({ refreshed: 0, skipped: 0 });
   });
 
   it("keeps what the older reader found when reading again finds nothing, and doesn't try it again", async () => {
@@ -255,7 +267,7 @@ describe("reading again what an older reader read", () => {
     web.delete(`${W}/blog/post-1`);
     deps.generate.mockResolvedValue(null);
     await tick();
-    for (const x of [silent, gone]) expect(await one(x)).toMatchObject({ status: "read", version: 2, problem: null, summary: "What the older reader said.", stats: [{ figure: "512 tokens" }] });
+    for (const x of [silent, gone]) expect(await one(x)).toMatchObject({ status: "read", version: 3, problem: null, summary: "What the older reader said.", stats: [{ figure: "512 tokens" }] });
     const calls = deps.generate.mock.calls.length;
     expect(await tick()).toMatchObject({ refreshed: 0, failed: 0 });
     expect(deps.generate.mock.calls.length).toBe(calls);
@@ -273,7 +285,7 @@ describe("reading again what an older reader read", () => {
     expect((await one(old)).version).toBe(1);
     await repo.delete("old_0");
     expect(await tick()).toMatchObject({ refreshed: 1 });
-    expect((await one(old)).version).toBe(2);
+    expect((await one(old)).version).toBe(3);
     expect((await one(google)).version).toBe(1);
   });
 });

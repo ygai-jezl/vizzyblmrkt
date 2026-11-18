@@ -6,6 +6,7 @@ import { decidedBrandMap } from "@/lib/brandMap/store";
 import { projectArticleMap, type ArticleMap } from "@/lib/content/blog/articleMap";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import { forTenant } from "@/lib/tenant";
+import { removeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import { listAllTenants } from "@/lib/tenant/registry";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { BrandMap } from "@/lib/types/brandMap";
@@ -27,6 +28,7 @@ import {
 import { fetchHtml, mayFetch, robotsFor, type FetchDeps } from "./fetch";
 import { isCompetitorArticlesEnabled, isCompetitorsGoogleReaderEnabled } from "./flags";
 import { listPosts } from "./store";
+import { cleanTitle } from "./titles";
 
 /**
  * The article lane (COMPETITOR_ARTICLES_ENABLED). It rides the lifecycle tick beside the
@@ -161,13 +163,22 @@ export async function readOneArticle(
   const saved = (patch: Partial<CompetitorArticle> & { readBy: "direct" | "google" }) =>
     finishArticle(ctx, a.id, leaseId, { status: "read", problem: null, readAt: now.toISOString(), readMonth: monthOf(now), version: READER_VERSION[patch.readBy], ...patch }, deps);
   const stop = (patch: Partial<CompetitorArticle>, outcome: Outcome) => unread(ctx, a, leaseId, patch, outcome, refresh, deps);
+  // A page that only lists other posts (a category or tag page) is no article: skipped, also on a
+  // read again, and its meaning leaves the brand map's vectors.
+  const listing = async (readBy: "direct" | "google") => {
+    await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "listing", readMonth: monthOf(now), version: READER_VERSION[readBy] }, deps);
+    if (refresh) await removeBrandMapVector(ctx, "competitor_article", a.id, deps.db).catch(() => undefined);
+    return "skipped" as const;
+  };
+  const title = (t: string) => cleanTitle(t, [c.name, c.site]);
 
   if (c.reader === "google") {
     if (!isCompetitorsGoogleReaderEnabled() || (!deps.readWithGoogle && !isGeminiConfigured())) return stop({ status: "failed", problem: "turned_away" }, "failed");
     const cand = await candidatesFor(ctx, c, brandName, a.title, deps);
     const found = await readArticleWithGoogle(a.url, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()) }, deps);
     if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
-    const done = await saved({ readBy: "google", ...found });
+    if (found.format === "listing") return listing("google");
+    const done = await saved({ readBy: "google", title: title(a.title), ...found });
     if (done) await embedArticle(ctx, done, deps);
     return done ? "read" : "failed";
   }
@@ -190,9 +201,10 @@ export async function readOneArticle(
   const cand = await candidatesFor(ctx, c, brandName, [page.title, page.description, ...page.headings].join("\n"), deps);
   const found = await readArticle(page, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()) }, deps);
   if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
+  if (found.format === "listing") return listing("direct");
   const done = await saved({
     readBy: "direct",
-    title: a.title || page.title,
+    title: title(a.title || page.title),
     publishedAt: a.publishedAt ?? page.trust.publishedAt,
     words: page.words,
     headings: page.headings,

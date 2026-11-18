@@ -642,6 +642,35 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Brand search: one index per brand that finds what it wrote by words and by meaning, in its
+  # own Firestore Enterprise database per region (npm run selfhost -- --apply addon:search).
+  # Embeds with Gemini. Per brand: the brand_search feature. Keep the index (write on save, the
+  # scheduled check, the backfill script).
+  - variable: SEARCH_INDEX_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The search API (needs SEARCH_INDEX_ENABLED).
+  - variable: SEARCH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Reorder results with Google's Ranking API, for US brands only (needs SEARCH_ENABLED).
+  - variable: SEARCH_RERANK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The Search panel (Ctrl K) and the Search card in Settings.
+  - variable: NEXT_PUBLIC_SEARCH_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy's search_brand tool (needs SEARCH_ENABLED and a redeployed agent).
+  - variable: VIZZY_SEARCH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

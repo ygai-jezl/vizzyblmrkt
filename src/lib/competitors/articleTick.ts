@@ -15,12 +15,13 @@ import { MIN_ARTICLE_WORDS, readArticlePage } from "./article";
 import { candidatesFrom, readArticle, readArticleWithGoogle, READER_VERSION, type ReadCandidates, type ReadDeps } from "./articleRead";
 import {
   articlesToRead,
+  articlesToRefresh,
   claimArticle,
   embedArticle,
   finishArticle,
-  monthlyCapReached,
   monthOf,
   queueArticles,
+  readsThisMonth,
   type ArticleStoreDeps,
 } from "./articles";
 import { fetchHtml, mayFetch, robotsFor, type FetchDeps } from "./fetch";
@@ -36,6 +37,10 @@ import { listPosts } from "./store";
  * posts first seen since. Then it reads up to 3 queued articles across brands, side by side, each
  * under a lease. A brand stops at its monthly cap. A read starts only with enough time left to
  * finish, so a busy tick reads nothing rather than leaving a read half done.
+ *
+ * When nothing is waiting for a brand, a spare slot reads again an article an older reader read
+ * (READER_VERSION), while the brand keeps REFRESH_RESERVE of its month's reads for new posts. A
+ * read again that finds nothing keeps what the older reader found.
  */
 
 export interface ArticleTickDeps extends ReadDeps, ArticleStoreDeps, FetchDeps {
@@ -52,6 +57,8 @@ export interface ArticleTickResult {
   read: number;
   failed: number;
   skipped: number;
+  /** Articles an older reader read, read again. */
+  refreshed: number;
 }
 
 /** Reads started in one tick, across brands. */
@@ -63,6 +70,8 @@ const READ_MS = 30_000;
 /** Kept back from a read's time for checking and saving. */
 const SAVE_MS = 3_000;
 const TICK_MS = 120_000;
+/** Reads a month kept for new posts: reading older articles again stops this far short of the cap. */
+const REFRESH_RESERVE = 50;
 
 /** The brand map, as one article sees it: the subjects and situations near it on a moved map, else all of it. */
 async function mapFor(ctx: TenantContext, text: string, deps: ArticleTickDeps): Promise<ArticleMap | null> {
@@ -96,19 +105,42 @@ async function queueFor(ctx: TenantContext, c: Competitor, nowIso: string, deps:
   return added;
 }
 
-type Outcome = "read" | "failed" | "skipped" | "again";
+type Outcome = "read" | "failed" | "skipped" | "again" | "kept";
+
+/**
+ * Close a read that saved nothing. A first read records why; a read again keeps what the older
+ * reader found and is marked current, so it isn't tried again.
+ */
+async function unread(
+  ctx: TenantContext,
+  a: CompetitorArticle,
+  leaseId: string,
+  patch: Partial<CompetitorArticle>,
+  outcome: Outcome,
+  refresh: boolean,
+  deps: ArticleTickDeps,
+): Promise<Outcome> {
+  if (refresh) {
+    await finishArticle(ctx, a.id, leaseId, { status: "read", version: READER_VERSION[a.readBy ?? "direct"] }, deps);
+    return "kept";
+  }
+  await finishArticle(ctx, a.id, leaseId, patch, deps);
+  return outcome;
+}
 
 /** After a read that found nothing: once more later, else failed. A model call counts against the month. */
-async function notRead(ctx: TenantContext, a: CompetitorArticle, leaseId: string, problem: ArticleProblem, modelCalled: boolean, deps: ArticleTickDeps): Promise<Outcome> {
+async function notRead(
+  ctx: TenantContext,
+  a: CompetitorArticle,
+  leaseId: string,
+  problem: ArticleProblem,
+  modelCalled: boolean,
+  refresh: boolean,
+  deps: ArticleTickDeps,
+): Promise<Outcome> {
   const last = a.attempts >= LIMITS.ARTICLE_ATTEMPTS;
-  await finishArticle(
-    ctx,
-    a.id,
-    leaseId,
-    { status: last ? "failed" : "queued", problem, ...(modelCalled ? { readMonth: monthOf(new Date((deps.clock ?? Date.now)())) } : {}) },
-    deps,
-  );
-  return last ? "failed" : "again";
+  const patch = { status: last ? ("failed" as const) : ("queued" as const), problem, ...(modelCalled ? { readMonth: monthOf(new Date((deps.clock ?? Date.now)())) } : {}) };
+  return unread(ctx, a, leaseId, patch, last ? "failed" : "again", refresh, deps);
 }
 
 /** Read one claimed article and save what it found. */
@@ -120,21 +152,21 @@ export async function readOneArticle(
   brandName: string,
   deadlineMs: number,
   deps: ArticleTickDeps = {},
+  opts: { refresh?: boolean } = {},
 ): Promise<Outcome> {
   const clock = deps.clock ?? Date.now;
   const now = new Date(clock());
+  const refresh = Boolean(opts.refresh);
   const timeLeft = () => deadlineMs - clock() - SAVE_MS;
-  const saved = (patch: Partial<CompetitorArticle>) =>
-    finishArticle(ctx, a.id, leaseId, { status: "read", problem: null, readAt: now.toISOString(), readMonth: monthOf(now), version: READER_VERSION, ...patch }, deps);
+  const saved = (patch: Partial<CompetitorArticle> & { readBy: "direct" | "google" }) =>
+    finishArticle(ctx, a.id, leaseId, { status: "read", problem: null, readAt: now.toISOString(), readMonth: monthOf(now), version: READER_VERSION[patch.readBy], ...patch }, deps);
+  const stop = (patch: Partial<CompetitorArticle>, outcome: Outcome) => unread(ctx, a, leaseId, patch, outcome, refresh, deps);
 
   if (c.reader === "google") {
-    if (!isCompetitorsGoogleReaderEnabled() || (!deps.readWithGoogle && !isGeminiConfigured())) {
-      await finishArticle(ctx, a.id, leaseId, { status: "failed", problem: "turned_away" }, deps);
-      return "failed";
-    }
+    if (!isCompetitorsGoogleReaderEnabled() || (!deps.readWithGoogle && !isGeminiConfigured())) return stop({ status: "failed", problem: "turned_away" }, "failed");
     const cand = await candidatesFor(ctx, c, brandName, a.title, deps);
     const found = await readArticleWithGoogle(a.url, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()) }, deps);
-    if (!found) return notRead(ctx, a, leaseId, "no_answer", true, deps);
+    if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
     const done = await saved({ readBy: "google", ...found });
     if (done) await embedArticle(ctx, done, deps);
     return done ? "read" : "failed";
@@ -144,30 +176,20 @@ export async function readOneArticle(
   try {
     origin = new URL(a.url).origin;
   } catch {
-    await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "unreachable" }, deps);
-    return "skipped";
+    return stop({ status: "skipped", problem: "unreachable" }, "skipped");
   }
   const robots = await robotsFor(origin, deps);
-  if (!mayFetch(robots, a.url)) {
-    await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "blocked" }, deps);
-    return "skipped";
-  }
+  if (!mayFetch(robots, a.url)) return stop({ status: "skipped", problem: "blocked" }, "skipped");
   const got = await fetchHtml(a.url, deps);
   if (!got.ok) {
-    if (got.reason === "not_found") {
-      await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "removed" }, deps);
-      return "skipped";
-    }
-    return notRead(ctx, a, leaseId, got.reason === "turned_away" ? "turned_away" : "unreachable", false, deps);
+    if (got.reason === "not_found") return stop({ status: "skipped", problem: "removed" }, "skipped");
+    return notRead(ctx, a, leaseId, got.reason === "turned_away" ? "turned_away" : "unreachable", false, refresh, deps);
   }
   const page = readArticlePage(got.text, got.url, c.site, now);
-  if (page.words < MIN_ARTICLE_WORDS) {
-    await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "not_an_article", words: page.words }, deps);
-    return "skipped";
-  }
+  if (page.words < MIN_ARTICLE_WORDS) return stop({ status: "skipped", problem: "not_an_article", words: page.words }, "skipped");
   const cand = await candidatesFor(ctx, c, brandName, [page.title, page.description, ...page.headings].join("\n"), deps);
   const found = await readArticle(page, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()) }, deps);
-  if (!found) return notRead(ctx, a, leaseId, "no_answer", true, deps);
+  if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
   const done = await saved({
     readBy: "direct",
     title: a.title || page.title,
@@ -182,7 +204,7 @@ export async function readOneArticle(
 }
 
 export async function runArticleReads(opts: { deadlineMs: number }, deps: ArticleTickDeps = {}): Promise<ArticleTickResult> {
-  const result: ArticleTickResult = { tenants: 0, queued: 0, read: 0, failed: 0, skipped: 0 };
+  const result: ArticleTickResult = { tenants: 0, queued: 0, read: 0, failed: 0, skipped: 0, refreshed: 0 };
   if (!isCompetitorArticlesEnabled()) return result;
   const clock = deps.clock ?? Date.now;
   const tenants = (await (deps.listTenants ?? listAllTenants)()).filter((t) => tenantMayUse(t, "competitors") && tenantMayUse(t, "competitor_articles"));
@@ -199,21 +221,27 @@ export async function runArticleReads(opts: { deadlineMs: number }, deps: Articl
       result.tenants += 1;
       const nowIso = new Date(clock()).toISOString();
       for (const c of competitors) result.queued += await queueFor(ctx, c, nowIso, deps);
-      if (reads.length >= READS_PER_TICK || (await monthlyCapReached(ctx, deps))) continue;
+      if (reads.length >= READS_PER_TICK) continue;
+      const month = await readsThisMonth(ctx, deps);
+      if (month >= LIMITS.ARTICLE_READS_PER_MONTH) continue;
 
       // Only competitors still watched: a paused one's articles wait.
       const watching = new Map(competitors.filter((c) => c.status === "watching").map((c) => [c.id, c]));
-      const waiting = (await articlesToRead(ctx, READS_PER_TICK * 3, deps)).filter((a) => watching.has(a.competitorId));
-      for (const a of waiting) {
+      const watched = (a: CompetitorArticle) => watching.has(a.competitorId);
+      const waiting = (await articlesToRead(ctx, READS_PER_TICK * 3, deps)).filter(watched);
+      // Nothing new waiting: a spare slot reads again what an older reader read, short of the cap.
+      const refresh = !waiting.length && month < LIMITS.ARTICLE_READS_PER_MONTH - REFRESH_RESERVE;
+      const next = refresh ? await articlesToRefresh(ctx, READS_PER_TICK * 3, watched, deps) : waiting;
+      for (const a of next) {
         if (reads.length >= READS_PER_TICK || opts.deadlineMs - clock() < MIN_LEFT_MS) break;
         const leaseId = randomUUID();
-        const mine = await claimArticle(ctx, a.id, leaseId, deps);
+        const mine = await claimArticle(ctx, a.id, leaseId, deps, { refresh });
         if (!mine) continue;
         const deadline = Math.min(opts.deadlineMs, clock() + READ_MS);
         reads.push(
-          readOneArticle(ctx, watching.get(a.competitorId)!, mine, leaseId, t.tenantName, deadline, deps)
+          readOneArticle(ctx, watching.get(a.competitorId)!, mine, leaseId, t.tenantName, deadline, deps, { refresh })
             .then((outcome) => {
-              if (outcome === "read") result.read += 1;
+              if (outcome === "read") result[refresh ? "refreshed" : "read"] += 1;
               else if (outcome === "skipped") result.skipped += 1;
               else if (outcome === "failed") result.failed += 1;
             })

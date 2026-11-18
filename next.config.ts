@@ -8,7 +8,8 @@ const nextConfig: NextConfig = {
   // tries to bundle its native/transitive deps.
   // wawoff2 unpacks WOFF2 brand fonts for the image renderer; its Emscripten build expects to be
   // loaded by Node as is.
-  serverExternalPackages: ["firebase-admin", "@google-cloud/bigquery", "wawoff2"],
+  // @google-cloud/firestore (9.x, pipelines) is the brand search index's own client.
+  serverExternalPackages: ["firebase-admin", "@google-cloud/firestore", "@google-cloud/bigquery", "wawoff2"],
   // The image renderer reads the bundled open-licence fonts from disk; make sure every server
   // bundle carries them.
   outputFileTracingIncludes: { "/**": ["./public/email-fonts/*.woff"] },

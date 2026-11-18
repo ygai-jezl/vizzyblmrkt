@@ -3,6 +3,7 @@ import { forTenant } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import { COMPETITOR_LIMITS as LIMITS, type CompetitorArticle, type CompetitorPost } from "@/lib/types/competitor";
+import { readByOlderReader } from "./articleRead";
 
 /**
  * Their articles, stored (COMPETITOR_ARTICLES_ENABLED). One record per post we read, with the
@@ -103,12 +104,34 @@ export async function articlesToRead(ctx: TenantContext, limit: number, deps: Ar
   return [...waiting, ...stuck].sort(newest).slice(0, limit);
 }
 
-/** Take an article to read. Null when another run has it, or it was read or removed meanwhile. */
-export async function claimArticle(ctx: TenantContext, id: string, leaseId: string, deps: ArticleStoreDeps = {}): Promise<CompetitorArticle | null> {
+/** Articles an older reader read, newest first, of the competitors `keep` allows: read again when nothing new is waiting. */
+export async function articlesToRefresh(
+  ctx: TenantContext,
+  limit: number,
+  keep: (a: CompetitorArticle) => boolean,
+  deps: ArticleStoreDeps = {},
+): Promise<CompetitorArticle[]> {
+  const read = await repoOf(ctx, deps).find({ where: [["status", "==", "read"]], limit: 300 });
+  return read.filter((a) => keep(a) && readByOlderReader(a)).sort(newest).slice(0, limit);
+}
+
+/**
+ * Take an article to read. Null when another run has it, or it was read or removed meanwhile.
+ * `refresh` takes an article an older reader read instead; reading it again isn't a new attempt.
+ */
+export async function claimArticle(
+  ctx: TenantContext,
+  id: string,
+  leaseId: string,
+  deps: ArticleStoreDeps = {},
+  opts: { refresh?: boolean } = {},
+): Promise<CompetitorArticle | null> {
   const nowMs = nowOf(deps).getTime();
   return repoOf(ctx, deps).claim(id, (cur) => {
+    const lease = { status: "reading" as const, leaseId, leaseUntil: new Date(nowMs + ARTICLE_LEASE_MS).toISOString() };
+    if (opts.refresh) return readByOlderReader(cur) ? lease : null;
     const free = cur.status === "queued" || (cur.status === "reading" && (!cur.leaseUntil || Date.parse(cur.leaseUntil) <= nowMs));
-    return free ? { status: "reading", leaseId, leaseUntil: new Date(nowMs + ARTICLE_LEASE_MS).toISOString(), attempts: cur.attempts + 1 } : null;
+    return free ? { ...lease, attempts: cur.attempts + 1 } : null;
   });
 }
 

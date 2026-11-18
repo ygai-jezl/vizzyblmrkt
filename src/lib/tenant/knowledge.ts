@@ -131,6 +131,52 @@ export async function listKnowledgeChunks(
   return rows;
 }
 
+/** One knowledge chunk's text, for brand search: no embedding, no counts. */
+export interface KnowledgeChunkText {
+  id: string;
+  title: string;
+  heading: string | null;
+  content: string;
+  sourceUri: string;
+  chunkIndex: number;
+}
+
+/**
+ * Every chunk of one source, a page at a time in document-id order, reading only the text
+ * fields (never the embedding), up to `max`. For brand search's scheduled check. CALLER MUST
+ * have verified ownership first (the check reads the brand's own tickets).
+ */
+export async function readKnowledgeChunkTexts(
+  ctx: TenantContext,
+  ownerKind: KnowledgeOwnerKind,
+  ownerId: string,
+  opts: { ticketId: string; max: number },
+): Promise<KnowledgeChunkText[]> {
+  const PAGE = 400;
+  const base = rawChunksCollection(ctx, ownerKind, ownerId)
+    .where("ticketId", "==", opts.ticketId)
+    .select("title", "heading", "content", "sourceUri", "chunkIndex");
+  const out: KnowledgeChunkText[] = [];
+  let last: QueryDocumentSnapshot | null = null;
+  while (out.length < opts.max) {
+    const snap: QuerySnapshot = await (last ? base.startAfter(last) : base).limit(Math.min(PAGE, opts.max - out.length)).get();
+    for (const d of snap.docs) {
+      const x = d.data();
+      out.push({
+        id: d.id,
+        title: typeof x.title === "string" ? x.title : "",
+        heading: typeof x.heading === "string" ? x.heading : null,
+        content: typeof x.content === "string" ? x.content : "",
+        sourceUri: typeof x.sourceUri === "string" ? x.sourceUri : "",
+        chunkIndex: typeof x.chunkIndex === "number" ? x.chunkIndex : 0,
+      });
+    }
+    if (snap.size < PAGE) break;
+    last = snap.docs[snap.docs.length - 1] ?? null;
+  }
+  return out.sort((a, b) => a.sourceUri.localeCompare(b.sourceUri) || a.chunkIndex - b.chunkIndex);
+}
+
 export interface KnowledgePage {
   /** The page's URL (a crawled page) or the file's blob URL (a repo file). */
   sourceUri: string;

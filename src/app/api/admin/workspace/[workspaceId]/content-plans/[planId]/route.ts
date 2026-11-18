@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
+import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
@@ -62,6 +64,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   }
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // The article autopilot is writing it: nothing saves over the run until it ends or a person takes over.
+  if (autopilotHolds(plan)) return NextResponse.json(AUTOPILOT_RUNNING, { status: 409 });
 
   const parsed = SaveSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -88,6 +92,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   if (rest.blog !== undefined) {
     await syncSeenHolds(ctx, { article: { ref: `${workspaceId}/${planId}`, title: updated?.name ?? plan.name }, before: plan.blog, after: updated?.blog });
   }
+  // An autopilot draft's notes count as used once a person approves it.
+  await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
   indexPlanAfterSave(ctx, updated);
   return NextResponse.json({ plan: updated });
 }

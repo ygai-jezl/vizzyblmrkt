@@ -1,6 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection, fencedContext } from "@/lib/agents/prompts/compose";
-import { generateText } from "@/lib/agents/gemini";
+import { generateText, generateTextWithDeadline } from "@/lib/agents/gemini";
 import { withoutSources } from "@/lib/agents/knowledgeRetrieval";
 import {
   BlogArticleMetaSchema,
@@ -64,6 +64,11 @@ export interface BlogDraftInput {
   audience?: string | null;
   /** One pass only — the caller has a deadline. */
   quick?: boolean;
+  /**
+   * A time (ms since epoch) every model call must finish by, so an unattended run can't outlive
+   * its turn. The second pass runs only when there is time for it. Unset: as before.
+   */
+  deadlineMs?: number;
   /** The brand map the article is written from (CREATE_BLOG_BRAND_MAP_ENABLED); null = none, as before. */
   map?: ArticleMap | null;
   /** Angles competitors already took on this question, one per line (COMPETITOR_ARTICLES_PLANNING_ENABLED); "" = none. */
@@ -395,9 +400,17 @@ function badness(c: Checked): number {
   return c.meta.unsupportedFigures.length * 1000 + c.meta.removedLinks.length * 100 + (100 - c.report.score);
 }
 
+/** Kept back from a deadline for checking and saving. */
+const SAVE_MS = 5_000;
+
 export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDeps = {}): Promise<BlogDraft | null> {
-  const generate = deps.generate ?? generateText;
   const clock = deps.now ?? (() => new Date());
+  const deadline = input.deadlineMs;
+  const generate: typeof generateText =
+    deps.generate ??
+    (deadline
+      ? (prompt, opts) => generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, deadline - Date.now() - SAVE_MS), thinkingBudget: opts?.thinkingBudget })
+      : generateText);
   const started = clock().getTime();
   const today = clock().toISOString().slice(0, 10);
   const { plan, brief } = input;
@@ -434,7 +447,10 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
   if (best.meta.removedLinks.length) {
     gaps.unshift("You linked to pages that are not on the two lists. Use only the listed URLs, copied exactly.");
   }
-  if (gaps.length && !input.quick && clock().getTime() - started < REPAIR_WINDOW_MS) {
+  const firstPassMs = clock().getTime() - started;
+  // With a deadline, a second pass only when it fits (it takes about as long as the first).
+  const timeForRepair = !deadline || deadline - clock().getTime() > firstPassMs + SAVE_MS;
+  if (gaps.length && !input.quick && firstPassMs < REPAIR_WINDOW_MS && timeForRepair) {
     const repair = renderPrompt("content.blog_repair", {
       draft_task: task,
       gaps: gaps.map((g) => `- ${g}`).join("\n"),

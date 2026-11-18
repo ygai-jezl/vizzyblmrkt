@@ -1,6 +1,6 @@
 import { retrieveSemanticKnowledgeContext, type ContextRetrievalRequest } from "@/lib/agents/knowledgeRetrieval";
 import { getTenantById } from "@/lib/tenant";
-import type { TenantContext } from "@/lib/tenant/types";
+import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import type { BlogBrief, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
@@ -108,7 +108,14 @@ export type BlogCheckOutcome = { ok: true; node: ContentNode; corrected: number;
 /** Fact-check a blog hub's copy against the brand's material, apply the corrections and save. */
 export async function checkPlanBlogFacts(
   ctx: TenantContext,
-  args: { workspace: WorkspaceBits; plan: ContentPlan; nodeId: string; timeoutMs?: number },
+  args: {
+    workspace: WorkspaceBits;
+    plan: ContentPlan;
+    nodeId: string;
+    timeoutMs?: number;
+    /** False for an autopilot draft: its notes count as used only once a person approves it (keepApprovedSeen). */
+    keepSeen?: boolean;
+  },
   deps: FactCheckDeps & MapDeps & { retrieve?: typeof retrieveSemanticKnowledgeContext } = {},
 ): Promise<BlogCheckOutcome> {
   const { workspace, plan } = args;
@@ -180,7 +187,7 @@ export async function checkPlanBlogFacts(
   // The article is written: its author's details are kept for their next one, the notes it
   // was written with say so, and what a person wrote for it joins the brand's notes.
   await rememberAuthor(ctx, brief, deps.db);
-  if (isBrandNotesEnabled()) {
+  if (isBrandNotesEnabled() && args.keepSeen !== false) {
     const title = isSeenRestOn() ? plan.name.trim() || brief.primaryQuestion : undefined;
     await keepArticleSeen(ctx, { article: `${workspace.id}/${plan.id}`, brief, used: result.meta.style === "editorial", title }, { db: deps.db }).catch((err) =>
       console.error("[blog] keeping the article's notes failed", err),
@@ -238,4 +245,25 @@ export async function matchPlanSeen(
   );
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: { ...brief, seen } }, deps.db);
   return { ok: true, seen };
+}
+
+/**
+ * An autopilot draft's notes, kept once a person approves its hub (the plan save route): until then
+ * a draft nobody wanted never uses up the brand's notes or starts their rest.
+ */
+export async function keepApprovedSeen(
+  ctx: TenantContext,
+  args: { workspaceId: string; before: ContentPlan; after: ContentPlan | null },
+  deps: { db?: FirestoreLike } = {},
+): Promise<boolean> {
+  const { before, after } = args;
+  if (!after?.autopilot || !after.blog || !isBrandNotesEnabled()) return false;
+  const was = before.graph.nodes.find((n) => n.type === "hub")?.status;
+  const hub = after.graph.nodes.find((n) => n.type === "hub");
+  if (!hub || hub.status !== "approved" || was === "approved") return false;
+  const title = isSeenRestOn() ? after.name.trim() || after.blog.primaryQuestion : undefined;
+  await keepArticleSeen(ctx, { article: `${args.workspaceId}/${after.id}`, brief: after.blog, used: hub.blog?.style === "editorial", title }, { db: deps.db }).catch((err) =>
+    console.error("[blog] keeping an approved draft's notes failed", err),
+  );
+  return true;
 }

@@ -5,7 +5,7 @@ import { isResearchContextEnabled } from "@/lib/autopilot/flags";
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, generateTextWithDeadline } from "@/lib/agents/gemini";
 import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
@@ -76,6 +76,8 @@ export interface GenerateNodeInput {
   brandName?: string | null;
   /** One writing pass only — the caller has a deadline (Vizzy's request must return). */
   quick?: boolean;
+  /** A time every model call must finish by (an unattended autopilot run). */
+  deadlineMs?: number;
   /** A blog hub's brand map (CREATE_BLOG_BRAND_MAP_ENABLED); null/absent = written as before. */
   brandMap?: ArticleMap | null;
   /** How the person edits Vizzy's LinkedIn and X posts (DISTRIBUTE_LEARN_FROM_EDITS_ENABLED);
@@ -264,6 +266,7 @@ export async function generateNode(
       brandVoice: input.brandVoice,
       audience: input.audience,
       quick: input.quick,
+      deadlineMs: input.deadlineMs,
       map: input.brandMap ?? null,
       competitorAngles: anglesBlock(theirs),
       contextPack: packPromptBlock(pack, "writer"),
@@ -465,7 +468,9 @@ export async function generateNode(
     });
   }
 
-  const raw = await generateText(prompt);
+  const raw = input.deadlineMs
+    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now() - 3_000) })
+    : await generateText(prompt);
   const drafted = coerceBody(raw);
   if (!drafted) {
     return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };

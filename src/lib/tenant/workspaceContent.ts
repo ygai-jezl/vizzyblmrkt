@@ -346,8 +346,14 @@ export async function createContentPlan(
   workspaceId: string,
   input: CreateContentPlanInput,
   db?: FirestoreLike,
+  /** A fixed id (an autopilot run's): created only if absent, so a retried step finds the first. */
+  opts: { id?: string } = {},
 ): Promise<ContentPlan> {
-  const id = randomUUID();
+  if (opts.id) {
+    const existing = await getContentPlan(ctx, workspaceId, opts.id, db);
+    if (existing) return existing;
+  }
+  const id = opts.id ?? randomUUID();
   const now = new Date().toISOString();
   const plan = ContentPlanSchema.parse({
     ...input,
@@ -412,7 +418,7 @@ export async function updateContentPlan(
   workspaceId: string,
   planId: string,
   patch: Partial<
-    Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft" | "authoredBy" | "agentRevision" | "agentBrief" | "blog">
+    Pick<ContentPlan, "name" | "status" | "graph" | "ebookDraft" | "authoredBy" | "agentRevision" | "agentBrief" | "blog" | "autopilot">
   > & {
     /** The plan's hub URL (an article's address), written alone so the rest of its strategy stays. */
     hubUrl?: string | null;

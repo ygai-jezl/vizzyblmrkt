@@ -52,4 +52,14 @@ describe("the plan route and the article's held notes", () => {
     expect((await DELETE(req("DELETE"), params)).status).toBe(401);
     expect(seen.syncSeenHolds).not.toHaveBeenCalled();
   });
+
+  it("refuses a save while the article autopilot is writing the plan", async () => {
+    content.getContentPlan.mockReset();
+    content.getContentPlan.mockResolvedValue({ id: "p1", name: "Autopilot's", blog: AFTER, autopilot: { runId: "run_x", state: "working", at: "" } });
+    const res = await PUT(req("PUT", { name: "Mine now" }), params);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "autopilot_running" });
+    expect(content.updateContentPlan).not.toHaveBeenCalled();
+  });
 });
+

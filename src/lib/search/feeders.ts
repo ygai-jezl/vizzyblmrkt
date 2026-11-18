@@ -12,6 +12,9 @@ import { isBrandSignalsEnabled } from "@/lib/signals/flags";
 import { marketLabel } from "@/lib/signals/markets";
 import { readySignals } from "@/lib/signals/store";
 import type { BrandSignal } from "@/lib/types/brandSignal";
+import type { LearnedEntry } from "@/lib/types/autopilot";
+import { isAutopilotLearningEnabled } from "@/lib/autopilot/flags";
+import { learnedLine, listLearned } from "@/lib/autopilot/learned";
 import { listLifecycleJourneys } from "@/lib/lifecycle/service";
 import { listRepoAnalyses } from "@/lib/connect/repoAnalysis";
 import type { Broadcast } from "@/lib/types/broadcast";
@@ -196,6 +199,11 @@ export function signalSource(sig: BrandSignal): SearchSource | null {
   return { kind: "research", ref: `serp:${sig.id}`, title: `Google: ${sig.about.query}`, body, url: "/admin/brand-kit/map" };
 }
 
+/** One thing the autopilot learned from the brand's people (CREATE_AUTOPILOT_LEARNING_ENABLED). */
+export function learnedSource(e: LearnedEntry): SearchSource {
+  return { kind: "learned", ref: e.id, title: learnedLine(e).slice(0, 160), body: lines(learnedLine(e), e.at.slice(0, 10)), url: "/admin/brand-kit/map" };
+}
+
 /** A competitor's site summary, and what each of its articles covers (never their quotes or authors). */
 export function competitorSources(c: Competitor, articles: CompetitorArticle[]): SearchSource[] {
   const url = `/admin/brand-kit/competitors/${c.id}`;
@@ -287,6 +295,7 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
     const google = isBrandSignalsEnabled() ? (await readySignals(ctx, 1000)).map(signalSource) : [];
     return [...imports, ...google].filter((x): x is SearchSource => x !== null).map(stubOf);
   });
+  await read(["learned"], async () => (isAutopilotLearningEnabled() ? (await listLearned(ctx)).map((e) => stubOf(learnedSource(e))) : []));
   await read(["competitor"], async () => {
     const [competitors, articles] = await Promise.all([listCompetitors(ctx), listReadArticles(ctx)]);
     return competitors.flatMap((c) => competitorSources(c, articles)).map(stubOf);

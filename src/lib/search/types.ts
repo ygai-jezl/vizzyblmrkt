@@ -26,6 +26,7 @@ export const SEARCH_KINDS = [
   "competitor",
   "repo_map",
   "image",
+  "learned",
 ] as const;
 export type SearchKind = (typeof SEARCH_KINDS)[number];
 

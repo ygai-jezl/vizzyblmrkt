@@ -720,6 +720,28 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Next up: the brand's three best next articles (Brand › Brand map), finding and sorting what
+  # buyers ask for one, and Vizzy's get_next_up (needs a redeployed agent). Per brand: next_up.
+  - variable: BRAND_MAP_NEXT_UP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Blog research and the writer read the context pack (needs BRAND_CONTEXT_ENABLED), manual runs too.
+  - variable: CREATE_RESEARCH_CONTEXT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The article autopilot: scheduled runs that pick, sort and (Draft mode) write the full workflow,
+  # which waits in Review, never published (needs BRAND_MAP_NEXT_UP_ENABLED). Per brand: article_autopilot.
+  - variable: CREATE_ARTICLE_AUTOPILOT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The Learned list feeds picking and the judge (needs BRAND_MAP_NEXT_UP_ENABLED).
+  - variable: CREATE_AUTOPILOT_LEARNING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the

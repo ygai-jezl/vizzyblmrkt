@@ -18,6 +18,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
+import { learnedLines } from "@/lib/autopilot/learned";
 
 /**
  * The context pack (BRAND_CONTEXT_ENABLED): everything the brand knows about one question,
@@ -266,6 +267,9 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
     }
   }
   if (!flags && !theirs && !uncovered) missing.push("Competitor articles aren't on for this brand.");
+
+  // Learned: what the brand's people skipped, moved or added back before (CREATE_AUTOPILOT_LEARNING_ENABLED).
+  pack.learned = (await learnedLines(ctx, { text: query, limit: PART_MAX }, { db: deps.db }).catch(() => [] as string[])).map((text) => ({ text, source: "Learned list" }));
 
   // Numbers.
   const nums = numberLines(signal);

@@ -4,7 +4,8 @@ import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { BrandSignal } from "@/lib/types/brandSignal";
-import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, lifecycleSources, noteSource, signalSource, stubOf } from "./feeders";
+import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, learnedSource, lifecycleSources, noteSource, signalSource, stubOf } from "./feeders";
+import type { LearnedEntry } from "@/lib/types/autopilot";
 
 const node = (over: Record<string, unknown>) => ({ id: "n", type: "spoke", channel: "linkedin", role: "Post", position: { x: 0, y: 0 }, body: "", status: "generated", placeholderValues: {}, warnings: [], ...over });
 
@@ -162,5 +163,13 @@ describe("signalSource", () => {
 
   it("leaves out a lookup that isn't ready", () => {
     expect(signalSource({ ...sig, status: "posted", results: null })).toBeNull();
+  });
+});
+
+describe("learnedSource", () => {
+  it("keeps one thing learned as its own line, with its date", () => {
+    const e = { id: "lrn_1", kind: "left_out", text: "How do you seduce a Gemini?", reason: "the star sign", from: "autopilot", at: "2026-11-18T12:00:00.000Z" } as LearnedEntry;
+    expect(learnedSource(e)).toMatchObject({ kind: "learned", ref: "lrn_1", title: 'Left out as not for this brand: "How do you seduce a Gemini?", the star sign' });
+    expect(learnedSource(e).body).toContain("2026-11-18");
   });
 });

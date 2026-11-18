@@ -153,8 +153,9 @@ export default function WriteAndScheduleHelp() {
         <>
           <H2 id="get-from-google">Get from Google</H2>
           <P>
-            In a blog hub&apos;s <strong>Brief</strong>, <strong>Get from Google</strong> under <strong>What buyers ask</strong>{" "}
-            looks the article&apos;s question up on Google for you and adds what Google shows for it: People also ask, what
+            <strong>Get from Google</strong> under <strong>What buyers ask</strong>, when you create a blog and later in the
+            blog hub&apos;s <strong>Brief</strong>, looks the article&apos;s question up on Google for you and adds what Google
+            shows for it: People also ask, what
             else people search for, related searches, and the sites Google&apos;s AI Overview cites. It only adds lines, so
             what you typed stays. Research reads them as leads, like anything else you paste there. Delete any that
             don&apos;t fit the article.

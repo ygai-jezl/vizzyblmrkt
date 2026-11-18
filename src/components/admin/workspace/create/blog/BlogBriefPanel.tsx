@@ -28,6 +28,7 @@ import { BRAND_KIT_NOTES_ROUTE } from "@/lib/content/brandKit";
 import { BRAND_NOTE_LIMITS } from "@/lib/types/brandNote";
 import { restDate } from "@/lib/brandNotes/rest";
 import type { AnswerSave, SeenAnswers } from "./useSeenAnswers";
+import { GetFromGoogle } from "@/components/admin/signals/GetFromGoogle";
 
 /**
  * The blog hub's brief, editable: the question the article answers, what buyers ask, and
@@ -1258,6 +1259,14 @@ export function BlogBriefPanel({ controls, disabled }: { controls: BlogHubContro
           Paste anything you know buyers ask — sales calls, support tickets, search data. Used as leads, never
           copied.
         </p>
+        <GetFromGoogle
+          query={linked?.question.text || brief.primaryQuestion}
+          questionId={brief.primaryRef ?? null}
+          subjectId={linked?.subject.id ?? brief.subjectId ?? null}
+          current={brief.buyerQuestions}
+          onAdd={(text) => set({ buyerQuestions: text })}
+          disabled={locked}
+        />
       </div>
 
       {controls.onFindSeen ? (

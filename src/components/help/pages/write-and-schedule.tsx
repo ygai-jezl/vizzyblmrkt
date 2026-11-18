@@ -7,6 +7,7 @@ import { isEditModeEnabled, isEditModeVizzyEnabled, isEditModeVizzyLearningEnabl
 import { isAiDraftKeptEnabled } from "@/lib/content/create/flags";
 import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distribute/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
+import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -148,6 +149,24 @@ export default function WriteAndScheduleHelp() {
           end.
         </P>
       ) : null}
+      {isSignalsDataForSeoEnabled() ? (
+        <>
+          <H2 id="get-from-google">Get from Google</H2>
+          <P>
+            In a blog hub&apos;s <strong>Brief</strong>, <strong>Get from Google</strong> under <strong>What buyers ask</strong>{" "}
+            looks the article&apos;s question up on Google for you and adds what Google shows for it: People also ask, what
+            else people search for, related searches, and the sites Google&apos;s AI Overview cites. It only adds lines, so
+            what you typed stays. Research reads them as leads, like anything else you paste there. Delete any that
+            don&apos;t fit the article.
+          </P>
+          <P>
+            It searches your brand&apos;s Google market: an admin picks the country and language under{" "}
+            <strong>Google market</strong> in <Open href="/admin/account/settings">Settings › General</Open> (United States,
+            English until then). An answer usually comes within a minute. A question looked up in the last 90 days is used
+            again without counting. Each brand has a number of lookups a month, shown under the button.
+          </P>
+        </>
+      ) : null}
       <P>
         You can also ask Vizzy. Press <strong>Ask Vizzy</strong> in the sidebar and say what you want, such as &quot;Draft a
         LinkedIn series about our launch&quot;. Vizzy only drafts. You approve, schedule and publish.
@@ -275,6 +294,19 @@ export default function WriteAndScheduleHelp() {
             "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
           ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
+          ...(isSignalsDataForSeoEnabled()
+            ? ([
+                [
+                  "This brand has used all its Google lookups for this month.",
+                  "Questions looked up in the last 90 days still fill in. New ones can wait for next month, or ask whoever runs your copy of YouGrow for more.",
+                ],
+                [
+                  "Google lookups aren't set up on this copy of YouGrow yet.",
+                  "Whoever runs your copy of YouGrow adds a DataForSEO login. Until then, paste what Google shows by hand.",
+                ],
+                ["Google couldn't be asked just now. Try again in a few minutes.", "Try again later. A lookup that never arrived doesn't count."],
+              ] as Array<[string, string]>)
+            : []),
           ...(isPostResultsEnabled()
             ? ([
                 [

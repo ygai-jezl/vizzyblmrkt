@@ -259,6 +259,28 @@ export async function setTenantFeatureLimit(
 }
 
 /**
+ * Set where a brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED), or with `null`
+ * go back to the default (United States, English). The caller checks the market is one we list.
+ */
+export async function setTenantSearchMarket(
+  id: string,
+  market: { country: string; language: string } | null,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    tx.update(ref, {
+      // null reads as "not chosen" (TenantSchema's searchMarket falls back to undefined).
+      searchMarket: market ? { country: market.country.toUpperCase(), language: market.language } : null,
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  });
+}
+
+/**
  * Write the tenant's Email style (top-level `emailStyle`, like brandVoice), or remove it with
  * `null` ("Reset to default"). The input is parsed strictly here too, so nothing is stored that
  * the lenient read would drop; the header options' defaults (null = solid, "auto", a null header

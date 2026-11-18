@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getTenantById } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Region } from "@/lib/types/tenant";
 import {
@@ -9,10 +9,14 @@ import {
   readEventMetadata,
   readEnrolmentSendRef,
   type EventMetadata,
+  type MandrillEvent,
 } from "@/lib/email/mandrillWebhook";
 import { attributionOfEnrolmentSend } from "@/lib/lifecycle/sendAttribution";
 import { recordEmailEvent } from "@/lib/email/events";
-import { attributionOfSend, readSendRef, readTenantTag } from "@/lib/email/sends";
+import { attributionOfSend, readSendRef, readTenantTag, sendIdOf } from "@/lib/email/sends";
+import { applyEngagement } from "@/lib/email/engagement";
+import { emailEventKeyBase } from "@/lib/email/events";
+import { isEmailEngagementDetailEnabled } from "@/lib/email/flags";
 import { suppressEmail } from "@/lib/email/suppression";
 import { notifyProductOfSuppression } from "@/lib/connect/suppressed";
 import { isSuppressionWebhookEnabled } from "@/lib/connect/v2/flags";
@@ -65,6 +69,8 @@ export async function POST(req: Request) {
   const regionCache = new Map<string, Region | null>();
   const enrolmentSends = new Map<string, EventMetadata | null>();
   const sendRecords = new Map<string, EventMetadata | null>();
+  const detail = isEmailEngagementDetailEnabled();
+  const detailGroups = new Map<string, { ctx: TenantContext; meta: EventMetadata; events: MandrillEvent[] }>();
   let recorded = 0;
   let skipped = 0;
 
@@ -77,7 +83,9 @@ export async function POST(req: Request) {
     const direct = sendRef || ref ? null : readEventMetadata(ev);
     const tenantOnly = sendRef || ref || direct ? "" : readTenantTag(ev);
     const tenantId = sendRef?.tenantId ?? ref?.tenantId ?? direct?.tenantId ?? (tenantOnly || undefined);
-    if (!type || !tenantId) {
+    // A deferral isn't an event type of its own: it is only kept on the email's send record.
+    const deferral = !type && ev.event === "deferral" && detail;
+    if ((!type && !deferral) || !tenantId) {
       skipped += 1;
       continue;
     }
@@ -110,6 +118,18 @@ export async function POST(req: Request) {
             return null;
           })
         : direct;
+    // Everything that happened to the email, gathered per send and written once after the batch.
+    if (detail && meta?.nodeId) {
+      const key = `${tenantId}|${sendIdOf(tenantId, emailEventKeyBase(meta))}`;
+      const group = detailGroups.get(key) ?? { ctx, meta, events: [] };
+      group.events.push(ev);
+      detailGroups.set(key, group);
+    }
+    if (!type) {
+      skipped += 1;
+      continue;
+    }
+
     // An email that couldn't say which step it was is still someone's: its bounce or complaint counts below.
     if (!meta?.nodeId) {
       skipped += 1;
@@ -167,6 +187,40 @@ export async function POST(req: Request) {
       } catch (err) {
         console.error("[mandrill-webhook] failed to suppress", err);
       }
+    }
+  }
+
+  // Every open, click and bounce detail on each email's send record, one write per email. Best effort:
+  // the first-event rows above are already kept, so a failure here never fails the batch.
+  for (const [key, g] of detailGroups) {
+    const id = key.slice(key.indexOf("|") + 1);
+    try {
+      const nowIso = new Date().toISOString();
+      await forTenant(g.ctx).emailSends.upsert(
+        id,
+        () =>
+          ({
+            engine: "earlier",
+            campaignId: g.meta.campaignId,
+            journeyId: g.meta.journeyId,
+            nodeId: g.meta.nodeId,
+            signupId: g.meta.signupId,
+            variantId: g.meta.variantId,
+            ...(g.meta.recipientKind ? { recipientKind: g.meta.recipientKind } : {}),
+            ...(g.meta.connectionId ? { connectionId: g.meta.connectionId } : {}),
+            ...(g.meta.enrolmentId ? { enrolmentId: g.meta.enrolmentId } : {}),
+            mandrillMessageId: null,
+            ...(applyEngagement({}, g.events, nowIso) ?? {}),
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          }) as never,
+        (current) => {
+          const patch = applyEngagement(current, g.events, nowIso);
+          return patch ? ({ ...patch, updatedAt: nowIso } as never) : null;
+        },
+      );
+    } catch (err) {
+      console.error("[mandrill-webhook] failed to keep the email's detail", err instanceof Error ? err.message.slice(0, 160) : "error");
     }
   }
 

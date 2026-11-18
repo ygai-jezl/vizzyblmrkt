@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CompetitorArticle } from "@/lib/types/competitor";
-import { coverageFrom, flagOf, type OurSubject } from "./coverage";
+import { coverageFrom, flagOf, subjectFlagsFrom, type OurSubject } from "./coverage";
 import { articleViewOf, detailOf } from "./view";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -73,9 +73,24 @@ describe("coverageFrom", () => {
     expect(v.notOnMap).toEqual([{ topic: "Shop apps", count: 2, competitors: ["Rival", "Shopkeep"] }]);
   });
 
-  it("shows only subjects they wrote about on a big map", () => {
-    const v = coverageFrom(articles, competitors, subjects, { nowMs: NOW, allSubjects: false });
-    expect(v.rows.map((r) => r.name)).toEqual(["Forms", "Ads", "SEO"]);
+  it("shows the subjects they wrote about on a big map, then the open ones with the most questions", () => {
+    const big = new Map<string, OurSubject>([
+      ...subjects,
+      ["sub_refunds", { name: "Refunds", you: 0, questions: 5 }],
+      ["sub_mine", { name: "Mine only", you: 2, questions: 9 }],
+    ]);
+    big.set("sub_open", { name: "Pricing pages", you: 0, questions: 2 });
+    const v = coverageFrom(articles, competitors, big, { nowMs: NOW, allSubjects: false });
+    expect(v.rows.map((r) => r.name)).toEqual(["Forms", "Ads", "SEO", "Refunds", "Pricing pages"]);
+    expect(v.rows.slice(3).every((r) => r.flag === "open")).toBe(true);
+  });
+
+  it("gives each subject they wrote about its count and what it means, for the subject list", () => {
+    expect(subjectFlagsFrom(articles, competitors, subjects, NOW)).toEqual({
+      sub_forms: expect.objectContaining({ flag: "gap" }),
+      sub_ads: expect.objectContaining({ they: expect.any(Number) }),
+      sub_seo: expect.objectContaining({ they: expect.any(Number) }),
+    });
   });
 });
 

@@ -203,6 +203,28 @@ export async function embedArticle(
   }
 }
 
+/**
+ * Which of these questions no competitor article is near in meaning (their ids, in order). Null when
+ * meaning can't be checked for one of them: nothing is called uncovered by mistake.
+ */
+export async function questionsNobodyCovers(
+  ctx: TenantContext,
+  questions: Array<{ id: string; text: string }>,
+  minSim: number,
+  deps: ArticleStoreDeps = {},
+): Promise<string[] | null> {
+  const checked = await Promise.all(
+    questions.map(async (q) => {
+      const vector = await (deps.query ?? embedQuery)(q.text.slice(0, 2000), ctx.region).catch(() => null);
+      if (!vector) return null;
+      const near = await nearestBrandMapRecords(ctx, { kind: "competitor_article", vector, limit: 1, statuses: ["kept"], minSim }, deps.vectors).catch(() => null);
+      return near ? { id: q.id, covered: near.length > 0 } : null;
+    }),
+  );
+  if (checked.some((c) => c === null)) return null;
+  return checked.flatMap((c) => (c && !c.covered ? [c.id] : []));
+}
+
 /** Competitor articles nearest some text in meaning, most similar first; [] when embeddings are down. */
 export async function nearestCompetitorArticles(
   ctx: TenantContext,

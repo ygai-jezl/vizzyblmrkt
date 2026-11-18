@@ -4,7 +4,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import type { CompetitorArticle } from "@/lib/types/competitor";
 import { anglesBlock, competitorContext, questionsBlock, statsBlock } from "./planning";
-import { subjectCompetitorsOf, subjectCompetitorsFromRequest, suggestTopicsFromRequest } from "./planningApi";
+import { subjectCompetitorsOf, subjectCompetitorsFromRequest, subjectFlagsFromRequest, suggestTopicsFromRequest } from "./planningApi";
 import { monitorCompetitor } from "./store";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
@@ -84,14 +84,64 @@ describe("competitorContext", () => {
 describe("planning API", () => {
   it("shows a subject's competitors, angles, outside numbers and the formats nobody used", async () => {
     const list = await forTenant(A, db).competitorArticles.find({});
-    const v = subjectCompetitorsOf(list.filter((a) => a.subjectIds.includes("sub_forms")), new Map([[rival, "Rival"]]));
+    const v = subjectCompetitorsOf(list.filter((a) => a.subjectIds.includes("sub_forms")), new Map([[rival, { name: "Rival", site: "rival.test" }]]));
     expect(v).toMatchObject({
       total: 1,
       competitors: [{ name: "Rival", count: 1, formats: ["Case study"], asks: ["Book a demo"] }],
       angles: [{ competitor: "Rival", angle: "Angle a1" }],
       stats: [{ figure: "2%", domain: "research.example.org" }],
-      nobodyHas: ["Research", "How to", "Comparison", "Guide"],
+      nobodyHas: ["research", "a how to", "a comparison", "a guide"],
     });
+  });
+
+  it("takes one angle from each competitor first, and titles without the site's name", () => {
+    const mk = (id: string, competitorId: string, title = `Post ${id}`) => ({ ...article(id, competitorId, { title }), id, tenantId: "ten_A" }) as CompetitorArticle;
+    const names = new Map([
+      [rival, { name: "Rival", site: "rival.test" }],
+      ["cmp_other001", { name: "Other", site: "other.test" }],
+    ]);
+    const v = subjectCompetitorsOf([mk("r1", rival, "Post r1 | Rival"), mk("r2", rival), mk("r3", rival), mk("o1", "cmp_other001")], names);
+    expect(v.angles.map((a) => a.competitor)).toEqual(["Rival", "Other", "Rival", "Rival"]);
+    expect(v.competitors.find((c) => c.name === "Rival")?.latest.title).toBe("Post r1");
+  });
+
+  it("names the subject's questions none of their articles answer, and says when to suggest an angle", async () => {
+    process.env.CREATE_SUGGEST_ANGLE_ENABLED = "true";
+    // Only a question whose meaning points one way finds an article near it.
+    const byMeaning: KnowledgeCollectionLike = {
+      where: () => byMeaning,
+      findNearest: (opts: { queryVector: number[] }) => ({
+        get: async () => {
+          const rows = opts.queryVector[0]! > 0.5 ? [{ tenantId: "ten_A", kind: "competitor_article", ref: "a1", status: "kept", _distance: 0.1 }] : [];
+          return { empty: !rows.length, size: rows.length, docs: rows.map((r, i) => ({ id: `v${i}`, data: () => r })) };
+        },
+      }),
+    } as unknown as KnowledgeCollectionLike;
+    const questions = async () => [
+      { id: "q1", text: "Covered by them?", status: "decided" },
+      { id: "q2", text: "Nobody answers this?", status: "decided" },
+      { id: "q3", text: "Only proposed?", status: "proposed" },
+    ];
+    const base = { db, canUse: async () => true, questions, vectors: byMeaning };
+    const res = await subjectCompetitorsFromRequest(A, "sub_forms", { ...base, query: async (t: string) => (t.startsWith("Covered") ? [1, 0] : [0, 1]) });
+    expect((await res.json()).competitors).toMatchObject({ total: 1, uncovered: ["q2"], suggestAngle: true });
+    // Meaning can't be checked: nothing is called uncovered by mistake.
+    const down = await subjectCompetitorsFromRequest(A, "sub_forms", { ...base, query: async () => null });
+    expect((await down.json()).competitors).toMatchObject({ uncovered: [] });
+    delete process.env.CREATE_SUGGEST_ANGLE_ENABLED;
+    const off = await subjectCompetitorsFromRequest(A, "sub_forms", { ...base, query: async () => [0, 1] });
+    expect((await off.json()).competitors).toMatchObject({ uncovered: ["q1", "q2"], suggestAngle: false });
+  });
+
+  it("gives the subject list each subject's count only when the brand has it", async () => {
+    const now = () => new Date("2026-11-17T12:00:00Z");
+    delete process.env.COMPETITOR_ARTICLES_PLANNING_ENABLED;
+    expect((await subjectFlagsFromRequest(A, { db, now, canUse: async () => true })).status).toBe(503);
+    process.env.COMPETITOR_ARTICLES_PLANNING_ENABLED = "true";
+    expect((await subjectFlagsFromRequest(A, { db, now, canUse: async () => false })).status).toBe(403);
+    const ok = await subjectFlagsFromRequest(A, { db, now, canUse: async () => true });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ subjects: {} });
   });
 
   it("answers off, not included and bad input plainly", async () => {

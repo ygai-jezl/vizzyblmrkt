@@ -134,6 +134,10 @@ describe("changeSummaryOf", () => {
     expect(changeSummaryOf(posts(1, 2, 3, 4), read)).toBe("2 case studies and 1 how to, for SEO leads. 2 of 3 ask for a free trial. 1 more still to read.");
   });
 
+  it("says one of them asks", () => {
+    expect(changeSummaryOf(posts(2, 3), read)).toBe("1 case study and 1 how to, for marketers. 1 of 2 asks for a demo.");
+  });
+
   it("is null until one of them is read", () => {
     expect(changeSummaryOf(posts(4, 5), read)).toBeNull();
   });

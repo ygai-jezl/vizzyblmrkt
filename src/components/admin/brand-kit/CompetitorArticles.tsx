@@ -249,7 +249,7 @@ export function CompetitorArticles({ articles, totals, subjectNames }: { article
       </div>
       <p className="text-xs text-neutral-500">
         {totals.stats.total
-          ? `${totals.stats.total} stats across these articles, ${totals.stats.theirOwn} from their own data.`
+          ? `${totals.stats.total} stat${totals.stats.total === 1 ? "" : "s"} across these articles, ${totals.stats.theirOwn} from their own data.`
           : "No stats used as evidence yet."}
         {totals.cited.length ? ` They cite ${list(totals.cited)}.` : " They cite no outside sources."}
       </p>

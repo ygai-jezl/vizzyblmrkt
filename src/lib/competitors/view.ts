@@ -417,7 +417,8 @@ export function changeSummaryOf(posts: Array<{ url: string }>, articles: Map<str
   const ask = tally(got.flatMap((a) => [...new Set(a.asks.filter(namedAsk).map((x) => x.kind))]), 1)[0];
   if (ask) {
     const words = ASK_WORDS[ask.key as ArticleAskKind];
-    const who = ask.count < got.length ? `${ask.count} of ${got.length} ask` : got.length === 1 ? "It asks" : got.length === 2 ? "Both ask" : "All ask";
+    const who =
+      ask.count < got.length ? `${ask.count} of ${got.length} ask${ask.count === 1 ? "s" : ""}` : got.length === 1 ? "It asks" : got.length === 2 ? "Both ask" : "All ask";
     parts.push(`${who} for ${words}.`);
   }
   const left = posts.length - got.length;

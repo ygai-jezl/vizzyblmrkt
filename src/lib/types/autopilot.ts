@@ -77,3 +77,77 @@ export interface NextUpDoc {
   at: string;
   by: "person" | "schedule";
 }
+
+// ---- Runs (autopilot_runs) -------------------------------------------------------------------------
+
+/** One thing found for a question, sorted into a tray. */
+export interface TrayItem {
+  text: string;
+  /** paa: People also ask. also: people also search for. theirs: a question a competitor article answers. */
+  kind: "paa" | "also" | "theirs";
+  reason: string;
+  /** For "Another subject": the subject it fits (a name on the map, or a new one). */
+  subject: string | null;
+  /** The brand's own closest page, when one is close. */
+  you: string | null;
+  /** The competitor that answers it, when one does. */
+  them: string | null;
+}
+
+export interface Trays {
+  use: TrayItem[];
+  other: TrayItem[];
+  drop: TrayItem[];
+}
+
+export type RunMode = "find" | "suggest" | "draft";
+export type RunStep =
+  | "pick"
+  | "find"
+  | "waiting"
+  | "sort"
+  | "sorted"
+  | "create"
+  | "seen"
+  | "write"
+  | "check"
+  | "nodes"
+  | "done"
+  | "failed"
+  | "stopped";
+
+export const FINISHED_STEPS: ReadonlySet<RunStep> = new Set(["sorted", "done", "failed", "stopped"]);
+
+export interface AutopilotRun {
+  id: string;
+  tenantId: string;
+  mode: RunMode;
+  trigger: "person" | "schedule";
+  step: RunStep;
+  /** Until finished. Lets "the brand's active run" be one equality query. */
+  active: boolean;
+  question: { questionId: string; text: string; subjectId: string; subjectName: string } | null;
+  signalId: string | null;
+  /** Why Google wasn't asked or didn't answer, when it wasn't or didn't ("monthly_limit", "not_set_up"). */
+  googleSkipped: string | null;
+  trays: Trays | null;
+  workspaceId: string | null;
+  planId: string | null;
+  /** Nodes still to write after the hub (teaser, promo, posts). */
+  nodesLeft: string[];
+  /** The hub body as written, to tell whether a person has changed it since. */
+  hubHash: string | null;
+  /** Questions What we've seen asked the team for this article. */
+  askedIds: string[];
+  /** "2026-11": the month a draft counts against the cap. */
+  month: string;
+  /** Not advanced before this. */
+  nextAt: string;
+  leaseId: string | null;
+  leaseUntil: string | null;
+  attempts: number;
+  error: string | null;
+  by: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

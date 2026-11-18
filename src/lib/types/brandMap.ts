@@ -42,7 +42,7 @@ export const BRAND_MAP_LIMITS = {
   aliasText: 60,
   nameSameAs: 3,
   /** Waiting suggestions per source; the oldest of that source goes first. */
-  suggestions: { research: 100, article: 40, vizzy: 30, competitors: 20 },
+  suggestions: { research: 100, article: 40, vizzy: 30, competitors: 20, autopilot: 30 },
   reason: 200,
   dismissed: 300,
   researchNotes: 5,
@@ -184,7 +184,7 @@ export const BrandMapChangeSchema = z.discriminatedUnion("type", [
 ]);
 export type BrandMapChange = z.infer<typeof BrandMapChangeSchema>;
 
-export const BrandMapSuggestionFrom = z.enum(["research", "article", "vizzy", "competitors"]);
+export const BrandMapSuggestionFrom = z.enum(["research", "article", "vizzy", "competitors", "autopilot"]);
 export type BrandMapSuggestionFrom = z.infer<typeof BrandMapSuggestionFrom>;
 
 export const BrandMapSuggestionSchema = z.object({

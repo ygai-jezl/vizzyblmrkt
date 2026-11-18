@@ -53,7 +53,7 @@ import type { BrandNote } from "@/lib/types/brandNote";
 import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 import type { BrandSignal } from "@/lib/types/brandSignal";
-import type { LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
+import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -441,6 +441,8 @@ export interface TenantRepositories {
   autopilotLearned: TenantCollection<LearnedEntry>;
   /** Next up: the brand's three best next articles, one doc per brand (src/lib/nextUp). */
   nextUp: TenantCollection<NextUpDoc>;
+  /** Autopilot runs: one question found, sorted and (Draft mode) written (src/lib/autopilot/runs.ts). */
+  autopilotRuns: TenantCollection<AutopilotRun>;
 }
 
 /**
@@ -580,5 +582,6 @@ export function forTenant(
     // What the brand's people kept, skipped and moved while planning: brand content → regional DB.
     autopilotLearned: new TenantCollection<LearnedEntry>(regionalDb, "autopilot_learned", t),
     nextUp: new TenantCollection<NextUpDoc>(regionalDb, "next_up", t),
+    autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
   };
 }

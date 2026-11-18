@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { WriteNext } from "@/components/admin/brand-kit/BrandMapCoverage";
 import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
+import { FoundTrays } from "./FoundTrays";
 
 /**
  * Brand › Brand map, above the tabs (BRAND_MAP_NEXT_UP_ENABLED and the brand's next_up feature):
@@ -136,11 +137,9 @@ function NotOnMap({ topics, isAdmin }: { topics: NextUpDoc["notOnMap"]; isAdmin:
 function NextUpCard({
   isAdmin,
   programmes,
-  pickActions,
 }: {
   isAdmin: boolean;
   programmes: Array<{ id: string; name: string }> | null;
-  pickActions?: (pick: NextUpPick) => ReactNode;
 }) {
   const [current, setCurrent] = useState<NextUpDoc | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -215,7 +214,7 @@ function NextUpCard({
             <ol className="space-y-2">
               {current.picks.map((p, i) => (
                 <Pick key={p.questionId} pick={p} top={i === 0} programmes={programmes} onSkip={(r) => skip(p, r)}>
-                  {pickActions?.(p)}
+                  <FoundTrays pick={p} isAdmin={isAdmin} programmes={programmes} />
                 </Pick>
               ))}
             </ol>

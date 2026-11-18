@@ -71,11 +71,13 @@ export type FoundVerdict = "use" | "other" | "drop";
 
 export interface JudgedItem {
   text: string;
-  /** A People also ask question, or a "people also search for" phrase. */
-  kind: "paa" | "also";
+  /** A People also ask question, a "people also search for" phrase, or a question a competitor article answers. */
+  kind: "paa" | "also" | "theirs";
   /** use: fits this question's article. other: fits another article. drop: off topic or a repeat. */
   verdict: FoundVerdict;
   reason: string;
+  /** For "other": the subject it fits, a name on the brand map or a new one. */
+  subject?: string | null;
 }
 
 /** The judge's verdicts, kept with the lookup so it never judges the same results twice. */

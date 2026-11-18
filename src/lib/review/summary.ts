@@ -214,7 +214,7 @@ export function contentHubItem(
   };
 }
 
-const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", article: "your articles", vizzy: "Vizzy", competitors: "Competitors" };
+const FROM: Record<BrandMapSuggestionFrom, string> = { research: "research", article: "your articles", vizzy: "Vizzy", competitors: "Competitors", autopilot: "Next up" };
 
 /**
  * Suggestions waiting on the brand map: one row, however many (BRAND_MAP_ENABLED). With the

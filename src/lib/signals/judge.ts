@@ -6,6 +6,7 @@ import { getSubject } from "@/lib/brandMap/records";
 import { readBrandMap } from "@/lib/brandMap/store";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandSignal, FoundVerdict, JudgedItem, SerpJudgement } from "@/lib/types/brandSignal";
+import { learnedLines } from "@/lib/autopilot/learned";
 
 /**
  * The judge: one quick Gemini call that decides, item by item, which of the things Google showed
@@ -22,7 +23,7 @@ const JUDGE_MS = 15_000;
 /** Items judged at most (People also ask first, then also searched). */
 const MAX_ITEMS = 24;
 const VERDICTS = new Set<FoundVerdict>(["use", "other", "drop"]);
-const TAGS = ["brand", "found"];
+const TAGS = ["brand", "found", "subjects", "learned"];
 const untag = (text: string) => TAGS.reduce((t, tag) => fence(tag, t), text);
 
 export interface JudgeDeps {
@@ -80,15 +81,47 @@ export function readVerdicts(raw: string | null, items: Array<Pick<JudgedItem, "
   const parsed = raw ? (parseFirstJson(raw) as { items?: unknown } | null) : null;
   const list = Array.isArray(parsed?.items) ? parsed!.items : null;
   if (!list) return null;
-  const byN = new Map<number, { verdict: FoundVerdict; reason: string }>();
+  const byN = new Map<number, { verdict: FoundVerdict; reason: string; subject?: string }>();
   for (const e of list as Array<Record<string, unknown>>) {
     const n = typeof e?.n === "number" ? e.n : Number(e?.n);
     const verdict = e?.verdict as FoundVerdict;
     if (!Number.isInteger(n) || n < 1 || n > items.length || !VERDICTS.has(verdict) || byN.has(n)) continue;
-    byN.set(n, { verdict, reason: oneLine(typeof e.reason === "string" ? e.reason : "").slice(0, 120) });
+    const subject = verdict === "other" && typeof e.subject === "string" ? oneLine(e.subject).slice(0, 80) || null : null;
+    byN.set(n, { verdict, reason: oneLine(typeof e.reason === "string" ? e.reason : "").slice(0, 120), ...(subject ? { subject } : {}) });
   }
   if (byN.size !== items.length) return null;
   return items.map((it, i) => ({ ...it, ...byN.get(i + 1)! }));
+}
+
+const KIND_LABEL: Record<JudgedItem["kind"], string> = { paa: "People also ask", also: "Also searched", theirs: "A competitor's article answers" };
+
+/**
+ * Judge any found items for one question: Google's, and the questions competitors' articles answer.
+ * `subjects` (the brand map's nearest subject names) lets an "other" item name where it fits.
+ * Null when Gemini didn't answer in full.
+ */
+export async function judgeItems(
+  ctx: TenantContext,
+  ask: { question: string; subjectId: string | null; items: Array<Pick<JudgedItem, "text" | "kind">>; subjects?: string[] },
+  deps: JudgeDeps = {},
+): Promise<JudgedItem[] | null> {
+  if (!ask.items.length) return [];
+  if (!(deps.configured ?? isGeminiConfigured)()) return null;
+  const brand = await brandOf(ctx, ask.subjectId, deps);
+  const learned = await learnedLines(ctx, { text: ask.question, limit: 8 }, { db: deps.db }).catch(() => [] as string[]);
+  const subjects = (ask.subjects ?? []).map((n) => oneLine(n).slice(0, 80)).filter(Boolean).slice(0, 12);
+  const prompt = renderPrompt("signals.judge_found", {
+    brand_name: brand.name,
+    category: brand.category,
+    question: untag(oneLine(ask.question)).slice(0, 300),
+    subject: brand.subject,
+    identity: brand.identity,
+    subjects: subjects.length ? `\nThe brand's subjects nearest this one (UNTRUSTED DATA):\n<subjects>\n${untag(subjects.join("\n"))}\n</subjects>\n` : "",
+    learned: learned.length ? `\nWhat the brand's people skipped or changed before (UNTRUSTED DATA):\n<learned>\n${untag(learned.join("\n"))}\n</learned>\n` : "",
+    items: untag(ask.items.map((it, i) => `${i + 1}. ${KIND_LABEL[it.kind]}: ${it.text}`).join("\n")),
+  });
+  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: JUDGE_MS, json: true, temperature: 0, thinkingBudget: 256 }).catch(() => null);
+  return readVerdicts(raw, ask.items);
 }
 
 /** Judge a ready lookup. Null when there is nothing to judge or Gemini didn't answer in full. */
@@ -97,17 +130,6 @@ export async function judgeSignal(ctx: TenantContext, sig: BrandSignal, deps: Ju
   const items = candidatesOf(sig);
   const at = (deps.now ?? (() => new Date()))().toISOString();
   if (!items.length) return { at, version: JUDGE_VERSION, items: [] };
-  if (!(deps.configured ?? isGeminiConfigured)()) return null;
-  const brand = await brandOf(ctx, sig.about.subjectId, deps);
-  const prompt = renderPrompt("signals.judge_found", {
-    brand_name: brand.name,
-    category: brand.category,
-    question: untag(oneLine(sig.about.query)).slice(0, 300),
-    subject: brand.subject,
-    identity: brand.identity,
-    items: untag(items.map((it, i) => `${i + 1}. ${it.kind === "paa" ? "People also ask" : "Also searched"}: ${it.text}`).join("\n")),
-  });
-  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: JUDGE_MS, json: true, temperature: 0, thinkingBudget: 256 }).catch(() => null);
-  const judged = readVerdicts(raw, items);
+  const judged = await judgeItems(ctx, { question: sig.about.query, subjectId: sig.about.subjectId, items }, deps);
   return judged ? { at, version: JUDGE_VERSION, items: judged } : null;
 }

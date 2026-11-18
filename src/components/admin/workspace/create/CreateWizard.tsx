@@ -56,6 +56,7 @@ export function CreateWizard({
   prefill = null,
   situations: situationsOn = false,
   prefillSituation = null,
+  prefillAsks = null,
   suggestAngle = false,
   onCreated,
   onCancel,
@@ -69,6 +70,8 @@ export function CreateWizard({
   subjectSearch?: boolean;
   /** "Write this next": a blog article that answers this map question. */
   prefill?: WriteNext | null;
+  /** What buyers ask, from Next up's sort. */
+  prefillAsks?: string | null;
   /** Buying situations are on: a blog article can be for one. */
   situations?: boolean;
   /** "Write this next" from a buying situation: the article is for it. */
@@ -100,7 +103,7 @@ export function CreateWizard({
   const [isEbook, setIsEbook] = useState(false);
   const [industryLens, setIndustryLens] = useState("");
   const [blogQuestion, setBlogQuestion] = useState(prefill?.question ?? "");
-  const [blogBuyerQuestions, setBlogBuyerQuestions] = useState("");
+  const [blogBuyerQuestions, setBlogBuyerQuestions] = useState(prefillAsks ?? "");
   // The brand map subject: "" = research picks one, NO_SUBJECT = none of them. And the map
   // question the article answers ("Write this next"), kept while it is on that subject.
   const [subject, setSubject] = useState(prefill?.subjectId ?? "");

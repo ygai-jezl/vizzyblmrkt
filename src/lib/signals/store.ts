@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { textKey } from "@/lib/content/blog/brief";
 import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import type { BrandSignal, SerpFindings, SerpNumbers, SignalMarket } from "@/lib/types/brandSignal";
+import type { BrandSignal, SerpFindings, SerpJudgement, SerpNumbers, SignalMarket } from "@/lib/types/brandSignal";
 
 /**
  * The signals store (BRAND_SIGNALS_ENABLED): `brand_signals`, one record per question and market.
@@ -88,6 +88,7 @@ export async function recordPosted(ctx: TenantContext, p: PostedLookup, deps: Si
     cost: p.cost,
     numbers: null,
     results: null,
+    judged: null,
     error: null,
     attempts: 0,
     leaseId: null,
@@ -159,4 +160,11 @@ export async function finishSignal(
 export async function readySignals(ctx: TenantContext, limit: number, deps: SignalStoreDeps = {}): Promise<BrandSignal[]> {
   const rows = await repoOf(ctx, deps).find({ where: [["status", "==", "ready"]], limit: Math.min(limit, 1000) });
   return rows.sort((a, b) => (b.readyAt ?? "").localeCompare(a.readyAt ?? ""));
+}
+
+/** Keep the judge's verdicts on a ready lookup, unless a newer judge already gave them. */
+export async function saveJudgement(ctx: TenantContext, id: string, judged: SerpJudgement, deps: SignalStoreDeps = {}): Promise<BrandSignal | null> {
+  return repoOf(ctx, deps).claim(id, (cur) =>
+    cur.status === "ready" && !(cur.judged && cur.judged.version >= judged.version) ? { judged, updatedAt: nowOf(deps).toISOString() } : null,
+  );
 }

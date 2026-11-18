@@ -1,9 +1,9 @@
-import type { BrandSignal, SerpFindings } from "@/lib/types/brandSignal";
+import type { BrandSignal, JudgedItem, SerpFindings } from "@/lib/types/brandSignal";
 import { marketLabel } from "./markets";
 
 /**
- * What a page sees of a lookup: what Google showed and the lines "Get from Google" adds to the
- * brief's What buyers ask box. Never the task id, the cost or the brand.
+ * What a page sees of a lookup: what Google showed, what the judge kept for the article, and the
+ * lines "Get from Google" adds to What buyers ask. Never the task id, the cost or the brand.
  */
 export interface SignalView {
   id: string;
@@ -13,30 +13,42 @@ export interface SignalView {
   readyAt: string | null;
   numbers: BrandSignal["numbers"];
   results: SerpFindings | null;
+  /** Whether the judge has checked the results. Nothing is added until it has. */
+  judged: boolean;
   lines: string[];
+  /** What the judge left out, and why. */
+  leftOut: Array<Pick<JudgedItem, "text" | "verdict" | "reason">>;
   error: string | null;
 }
 
-/** The lines for the box: each People also ask question, then also searched, related, and who the AI Overview cites. */
-export function boxLines(r: SerpFindings | null): string[] {
-  if (!r) return [];
-  const out = r.paa.map((p) => p.question);
-  if (r.alsoSearched.length) out.push(`Also searched: ${r.alsoSearched.join("; ")}`);
-  if (r.related.length) out.push(`Related searches: ${r.related.join("; ")}`);
-  if (r.aiOverview?.cites.length) out.push(`Google's AI Overview cites: ${[...new Set(r.aiOverview.cites.map((c) => c.domain))].join(", ")}`);
+/** The items to use, and the ones left out with why. Without a judgement, nothing is used. Pure (the browser loads this file). */
+export function splitJudged(sig: Pick<BrandSignal, "judged">): { use: JudgedItem[]; leftOut: JudgedItem[] } {
+  const items = sig.judged?.items ?? [];
+  return { use: items.filter((i) => i.verdict === "use"), leftOut: items.filter((i) => i.verdict !== "use") };
+}
+
+/** The lines for the box: each question the judge kept, then the kept "people also search for" on one line. */
+export function boxLines(use: JudgedItem[]): string[] {
+  const out = use.filter((i) => i.kind === "paa").map((i) => i.text);
+  const also = use.filter((i) => i.kind === "also").map((i) => i.text);
+  if (also.length) out.push(`Also searched: ${also.join("; ")}`);
   return out;
 }
 
 export function signalView(s: BrandSignal): SignalView {
+  const ready = s.status === "ready";
+  const { use, leftOut } = splitJudged(s);
   return {
     id: s.id,
     status: s.status,
     query: s.about.query,
     market: marketLabel(s.market),
     readyAt: s.readyAt,
-    numbers: s.status === "ready" ? s.numbers : null,
-    results: s.status === "ready" ? s.results : null,
-    lines: s.status === "ready" ? boxLines(s.results) : [],
+    numbers: ready ? s.numbers : null,
+    results: ready ? s.results : null,
+    judged: ready && Boolean(s.judged),
+    lines: ready ? boxLines(use) : [],
+    leftOut: ready ? leftOut.map(({ text, verdict, reason }) => ({ text, verdict, reason })) : [],
     error: s.status === "failed" ? s.error : null,
   };
 }

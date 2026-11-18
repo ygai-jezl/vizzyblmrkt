@@ -43,3 +43,37 @@ export const AutopilotSettingsSchema = z.object({
   channels: z.array(z.enum(AUTOPILOT_CHANNELS)).max(3).default(["linkedin", "x"]),
 });
 export type AutopilotSettings = z.infer<typeof AutopilotSettingsSchema>;
+
+// ---- Next up (next_up, one doc per brand) ----------------------------------------------------------
+
+export interface NextUpChip {
+  /** map: the brand map. you: the brand's own content. them: competitors. num: Google's numbers. */
+  kind: "map" | "you" | "them" | "num";
+  label: string;
+  text: string;
+}
+
+export interface NextUpPick {
+  questionId: string;
+  question: string;
+  subjectId: string;
+  subjectName: string;
+  /** Why now, in a sentence or two, from that question's own facts only. */
+  because: string;
+  chips: NextUpChip[];
+  /** gemini: chosen and explained by the model. code: filled in by code when the model gave too few. */
+  from: "gemini" | "code";
+}
+
+export interface NextUpDoc {
+  id: string;
+  tenantId: string;
+  picks: NextUpPick[];
+  /** Topics competitors write about that the brand map lacks. */
+  notOnMap: Array<{ topic: string; count: number; competitors: string[] }>;
+  /** What picking couldn't see (no brand search, no competitors, no Google lookups). */
+  missing: string[];
+  candidates: number;
+  at: string;
+  by: "person" | "schedule";
+}

@@ -1,4 +1,5 @@
 import { SearchMarketSchema } from "./brandSignal";
+import { AutopilotSettingsSchema } from "./autopilot";
 import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
@@ -732,6 +733,9 @@ export const TenantSchema = z.object({
   /** Where this brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED, src/lib/signals).
    *  Unset: United States, English. A search market, NOT data residency (that is `region`). */
   searchMarket: SearchMarketSchema.optional().catch(undefined),
+  /** The next article autopilot's settings (CREATE_ARTICLE_AUTOPILOT_ENABLED, src/lib/autopilot).
+   *  Unset: off. A damaged value reads as off. */
+  autopilot: AutopilotSettingsSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

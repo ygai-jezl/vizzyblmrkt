@@ -1,4 +1,5 @@
 import { forTenant, getTenantById, listAllTenants, TenantIsolationError } from "@/lib/tenant";
+import { isPostMetricsDetailEnabled } from "./flags";
 import { updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Region, Tenant } from "@/lib/types/tenant";
@@ -637,6 +638,13 @@ async function runAutoPlugComment(
     await repo.update(post.id, { status: "failed", processedAt: now, lastError: `autoplug_metrics:${metrics.reason}` });
     return "parked";
   }
+  // Keep what this poll saw (POST_METRICS_DETAIL_ENABLED): the parent's first numbers, before its
+  // first stats poll at 48h. Best effort: a failed write never stops the auto-plug.
+  if (isPostMetricsDetailEnabled()) {
+    const ageHours = Math.max(0, (nowMs - Date.parse(post.createdAt)) / 3_600_000);
+    const early = [...(post.earlyMetrics ?? []), { at: now, ageHours: Number.isFinite(ageHours) ? Math.round(ageHours * 10) / 10 : 0, raw: { ...metrics.metrics } }].slice(-12);
+    await repo.update(post.id, { earlyMetrics: early } as never).catch(() => undefined);
+  }
   if (!thresholdCrossed(metrics.metrics, post.autoPlug)) {
     // MULTI-POLL: not crossed yet → re-arm for another poll within the window; a
     // late-blooming post still fires. Once the window elapses it completes without
@@ -687,16 +695,18 @@ async function runAutoPlugComment(
  * engagement and — if it crossed the high-performer bar — records it as an exemplar.
  * UPSERT (re-targets on re-publish), carrying the ACTUAL published copy.
  */
-async function enqueuePerformanceFetch(
+export async function enqueuePerformanceFetch(
   repo: ReturnType<typeof forTenant>["scheduledPosts"],
   parent: ScheduledPost,
   remoteId: string,
   publishedCopy: string,
   now: string,
   authorUrn?: string | null,
+  /** scripts/backfill-post-results.ts: an old post's job, polled at `scheduledAt`, its age counted from publish. */
+  backfill?: { publishedAt: string; scheduledAt: string },
 ): Promise<void> {
   const id = `perf:${parent.dedupeKey}`;
-  const scheduledAt = new Date(Date.parse(now) + PERFORMANCE_FETCH_DELAY_MS).toISOString();
+  const scheduledAt = backfill?.scheduledAt ?? new Date(Date.parse(now) + PERFORMANCE_FETCH_DELAY_MS).toISOString();
   const fields = {
     workspaceId: parent.workspaceId,
     contentPlanId: parent.contentPlanId,
@@ -722,7 +732,29 @@ async function enqueuePerformanceFetch(
   };
   const existing = await repo.getById(id);
   if (existing) await repo.update(id, fields as never);
-  else await repo.create(id, { ...fields, createdAt: now } as never);
+  // A perf job's createdAt is the publish time: the poll counts the post's age from it.
+  else await repo.create(id, { ...fields, ...(backfill ? { backfill: true } : {}), createdAt: backfill?.publishedAt ?? now } as never);
+}
+
+/** A LinkedIn company page's post stats go back about a year; older ones are skipped. */
+export const BACKFILL_LINKEDIN_MAX_AGE_MS = 330 * 24 * 60 * 60 * 1000;
+
+/**
+ * Which published posts a backfill should queue a stats job for: X posts and LinkedIn company-page
+ * posts with a remote id and no stats job yet, LinkedIn ones under about 11 months old. Pure.
+ */
+export function backfillCandidates(posts: ScheduledPost[], hasJob: (id: string) => boolean, nowMs: number): ScheduledPost[] {
+  return posts.filter((p) => {
+    if ((p.jobKind ?? "publish") !== "publish" || p.status !== "done") return false;
+    const ref = p.publishedRef;
+    if (!ref?.remoteId || ref.platform === "manual") return false;
+    if (hasJob(`perf:${p.dedupeKey}`)) return false;
+    if (p.channel === "x") return true;
+    if (p.channel !== "linkedin") return false;
+    const author = ref.authorUrn ?? p.linkedInAuthorUrn ?? "";
+    if (!author.startsWith("urn:li:organization:")) return false; // personal posts: no stats API
+    return nowMs - Date.parse(ref.publishedAt) < BACKFILL_LINKEDIN_MAX_AGE_MS;
+  });
 }
 
 /** Outcome of a per-channel metrics poll, normalized to the common MetricRaw shape. */
@@ -888,7 +920,7 @@ async function runPerformanceFetch(
   const measurement = snapshots.length ? computeMeasurement(snapshots, now) : null;
   if (measurement) {
     try {
-      await writePostMeasurement(ctx, ppId, measurement, db);
+      await writePostMeasurement(ctx, ppId, measurement, db, { late: post.backfill === true });
     } catch (err) {
       console.warn(
         "[runPerformanceFetch] measurement write failed:",

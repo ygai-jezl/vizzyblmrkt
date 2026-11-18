@@ -4,6 +4,7 @@ import type { EmailJob } from "@/lib/types/emailJob";
 import type { Invite } from "@/lib/types/invite";
 import { sendEmail } from "@/lib/email";
 import { resolveSender } from "@/lib/email/sender";
+import { sendMetadata } from "@/lib/email/sends";
 import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { emailLinkOrigin, journeyFooterValues, unsubscribeLinks } from "@/lib/email/footer";
 import { isSuppressed } from "@/lib/email/suppression";
@@ -121,14 +122,11 @@ export async function processInviteJob(
     replyTo: sender.replyTo,
     ...(unsub.apiUrl ? { listUnsubscribe: { url: unsub.apiUrl, oneClick: true } } : {}),
     track: { opens: true, clicks: true },
-    metadata: {
-      tenantId: ctx.tenantId,
-      campaignId: campaign.id,
-      journeyId,
-      nodeId: wave.id,
-      signupId: signup.id,
-      variantId: "control",
-    },
+    metadata: await sendMetadata(
+      ctx,
+      { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
+      "invite",
+    ),
     tags: ["invite", `wave-${wave.id}`],
   });
   // The log provider (dev, no key) counts as sent. An AMBIGUOUS result may have

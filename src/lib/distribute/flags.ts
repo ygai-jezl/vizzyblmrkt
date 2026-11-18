@@ -31,3 +31,12 @@ export function isLearnFromPostEditsEnabled(): boolean {
     process.env.DISTRIBUTE_LEARN_FROM_EDITS_ENABLED === "true"
   );
 }
+
+/**
+ * Keep every post number the platforms give: X reposts, quotes and bookmarks apart (they are
+ * summed into shares for the reward, which doesn't change), LinkedIn's own engagement rate, and
+ * the numbers auto-plug polls before the first stats poll. Off: only what was kept before.
+ */
+export function isPostMetricsDetailEnabled(): boolean {
+  return process.env.POST_METRICS_DETAIL_ENABLED === "true";
+}

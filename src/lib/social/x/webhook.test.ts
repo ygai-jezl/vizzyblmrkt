@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { xCrcResponse, verifyXWebhookSignature, parseXActivity, MAX_EVENTS_PER_BATCH } from "./webhook";
 
@@ -79,6 +79,25 @@ describe("parseXActivity", () => {
     const { events, truncated } = parseXActivity(JSON.stringify({ for_user_id: "ME", follow_events }), NOW);
     expect(events).toHaveLength(MAX_EVENTS_PER_BATCH);
     expect(truncated).toBe(true);
+  });
+
+  it("keeps every event up to the higher ceiling with the switch on, past 500 without their words", () => {
+    vi.stubEnv("X_WEBHOOK_ALL_EVENTS_ENABLED", "true");
+    try {
+      const tweet_create_events = Array.from({ length: MAX_EVENTS_PER_BATCH + 20 }, (_, i) => ({
+        id_str: `t${i}`,
+        text: `reply number ${i}`,
+        in_reply_to_status_id_str: "P1",
+        user: { id_str: `u${i}`, screen_name: `fan${i}` },
+      }));
+      const { events, truncated } = parseXActivity(JSON.stringify({ for_user_id: "ME", tweet_create_events }), NOW);
+      expect(events).toHaveLength(MAX_EVENTS_PER_BATCH + 20);
+      expect(truncated).toBe(false);
+      expect(events[0]!.text).toBe("reply number 0");
+      expect(events[MAX_EVENTS_PER_BATCH]!.text).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("does not read Object.prototype for a __proto__ DM sender", () => {

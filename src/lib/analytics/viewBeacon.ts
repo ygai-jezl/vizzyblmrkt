@@ -15,7 +15,8 @@
  * attribution we want, without the framed doc needing to read the parent's URL.
  */
 export function sendViewBeacon(campaignId: string): void {
-  if (process.env.NEXT_PUBLIC_ANALYTICS_BQ_ENABLED !== "true") return;
+  // Sent when BigQuery keeps views, or when daily view counts are kept (either public switch).
+  if (process.env.NEXT_PUBLIC_ANALYTICS_BQ_ENABLED !== "true" && process.env.NEXT_PUBLIC_WIDGET_VIEW_COUNTS_ENABLED !== "true") return;
   if (typeof window === "undefined" || typeof document === "undefined") return;
   try {
     const sp = new URLSearchParams(window.location.search);

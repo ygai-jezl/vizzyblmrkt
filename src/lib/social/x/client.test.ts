@@ -187,7 +187,7 @@ describe("fetchXPublicMetrics", () => {
       },
     ]);
     const r = await fetchXPublicMetrics("P1", "tok", { fetch: fn });
-    expect(r).toEqual({ ok: true, metrics: { likes: 50, replies: 12, reposts: 7, quotes: 3, impressions: 900 } });
+    expect(r).toEqual({ ok: true, metrics: { likes: 50, replies: 12, reposts: 7, quotes: 3, impressions: 900, bookmarks: 0 } });
     expect(calls[0]!.url).toContain("ids=P1");
     expect(calls[0]!.url).toContain("tweet.fields=public_metrics");
   });

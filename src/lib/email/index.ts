@@ -1,5 +1,6 @@
 import { carriesWebFonts } from "./emailFonts";
-import { METADATA_LIMIT_BYTES, metadataBytes } from "./mandrillWebhook";
+import { METADATA_LIMIT_BYTES, fitMetadata, metadataBytes } from "./mandrillWebhook";
+import { isEmailSendRecordsEnabled } from "./flags";
 
 /**
  * Minimal transactional email abstraction. Provider precedence: MailChimp
@@ -112,8 +113,11 @@ async function sendViaMandrill(
   }
   // Mandrill drops metadata that is over its limit, and that email's opens, clicks, bounces
   // and complaints can then never find their way back: make it loud. (Sizes only, no content.)
-  if (msg.metadata && metadataBytes(msg.metadata) > METADATA_LIMIT_BYTES) {
-    console.error(`[email] metadata is ${metadataBytes(msg.metadata)} bytes, over Mandrill's ${METADATA_LIMIT_BYTES}: this email's events can't be attributed`);
+  let metadata = msg.metadata;
+  if (metadata && metadataBytes(metadata) > METADATA_LIMIT_BYTES) {
+    console.error(`[email] metadata is ${metadataBytes(metadata)} bytes, over Mandrill's ${METADATA_LIMIT_BYTES}: this email's events can't be attributed`);
+    // With send records on, keep at least the brand, so a bounce or a complaint still suppresses.
+    if (isEmailSendRecordsEnabled()) metadata = fitMetadata(metadata) ?? undefined;
   }
   let res: Response;
   try {
@@ -133,7 +137,7 @@ async function sendViaMandrill(
           ...(typeof msg.track?.opens === "boolean" ? { track_opens: msg.track.opens } : {}),
           ...(typeof msg.track?.clicks === "boolean" ? { track_clicks: msg.track.clicks } : {}),
           ...(msg.subaccount ? { subaccount: msg.subaccount } : {}),
-          ...(msg.metadata ? { metadata: msg.metadata } : {}),
+          ...(metadata ? { metadata } : {}),
           ...(msg.tags && msg.tags.length ? { tags: msg.tags } : {}),
           ...(carriesWebFonts(msg.html) ? { inline_css: false } : {}),
         },

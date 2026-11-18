@@ -23,6 +23,11 @@ export const MetricRawSchema = z.object({
   likes: z.number().nonnegative().default(0),
   comments: z.number().nonnegative().default(0),
   shares: z.number().nonnegative().default(0),
+  /** POST_METRICS_DETAIL_ENABLED: what `shares` is made of on X, and bookmarks; LinkedIn's own rate. */
+  reposts: z.number().nonnegative().nullable().optional(),
+  quotes: z.number().nonnegative().nullable().optional(),
+  bookmarks: z.number().nonnegative().nullable().optional(),
+  engagement: z.number().nonnegative().nullable().optional(),
 });
 export type MetricRaw = z.infer<typeof MetricRawSchema>;
 
@@ -102,7 +107,8 @@ export const PostPerformanceSchema = z.object({
   snapshots: z.array(PostMetricSnapshotSchema).max(MAX_SNAPSHOTS).default([]),
   measurement: PostMeasurementSchema.nullable().optional(),
   /** Reward lifecycle — the reconciliation pass queries `settled` and advances to `scored`. */
-  rewardStatus: z.enum(["collecting", "settled", "scored"]).default("collecting"),
+  /** "late": settled from a backfill of an old post, kept out of reward baselines. */
+  rewardStatus: z.enum(["collecting", "settled", "scored", "late"]).default("collecting"),
   reward: PostRewardSchema.nullable().optional(),
   clusterId: z.string().max(120).nullable().optional(),
   injectionCohort: z.enum(["injected", "holdout"]).nullable().optional(),

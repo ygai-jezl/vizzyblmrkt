@@ -6,6 +6,7 @@ import type { Signup } from "@/lib/types/signup";
 import type { SiteKey } from "@/lib/types/siteKey";
 import type { Tenant } from "@/lib/types/tenant";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
+import { transactionalTag } from "@/lib/email/sends";
 import { verificationEmail } from "@/lib/email/templates";
 import { resolveSender } from "@/lib/email/sender";
 import { resolveTransactionalEmailStyle } from "@/lib/email/resolveEmailStyle";
@@ -91,7 +92,7 @@ async function sendConfirmation(
   }
   const sender = resolveSender(tenant, campaign);
   try {
-    const r = await (deps.send ?? sendEmail)({ ...message, fromEmail: sender.fromEmail, fromName: sender.fromName, replyTo: sender.replyTo });
+    const r = await (deps.send ?? sendEmail)({ ...message, fromEmail: sender.fromEmail, fromName: sender.fromName, replyTo: sender.replyTo, ...transactionalTag(ctx.tenantId) });
     return wasSent(r);
   } catch (err) {
     console.warn(`[site-signups] confirmation failed for ${campaign.id}:`, err);

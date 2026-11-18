@@ -2,6 +2,7 @@ import { resolveTenantForRequest, forTenant } from "@/lib/tenant";
 import { originFromHeaders } from "@/lib/http/origin";
 import { tenantParamFromUrl } from "@/lib/http/tenantParam";
 import { analyticsBqEnabled, recordWidgetView } from "@/lib/analytics/bigquery";
+import { countWidgetView, isWidgetViewCountsEnabled } from "@/lib/metrics/dailyCounts";
 import {
   ViewBeaconSchema,
   VIEW_LIMITS,
@@ -39,7 +40,9 @@ function noContent(): Response {
 export async function POST(req: Request): Promise<Response> {
   // Pipeline off → inert. (The client beacon is also tree-shaken off when the
   // public flag is unset, so this is just defense in depth.)
-  if (!analyticsBqEnabled()) return noContent();
+  const bq = analyticsBqEnabled();
+  const counts = isWidgetViewCountsEnabled();
+  if (!bq && !counts) return noContent();
 
   // Drop obvious bots before doing ANY work (tenant lookup, parse, DB, BQ).
   if (classifyUa(req.headers.get("user-agent")) === "bot") return noContent();
@@ -94,7 +97,11 @@ export async function POST(req: Request): Promise<Response> {
   // Build the PII-free row and write it. Awaited (the browser never reads this
   // response, so there is no latency cost) but best-effort — recordWidgetView
   // swallows its own errors and returns false rather than throwing.
-  const row = buildWidgetViewRow(parsed.data, req.headers, ctx.tenantId, campaignId);
-  await recordWidgetView(ctx, row);
+  if (bq) {
+    const row = buildWidgetViewRow(parsed.data, req.headers, ctx.tenantId, campaignId);
+    await recordWidgetView(ctx, row);
+  }
+  // WIDGET_VIEW_COUNTS_ENABLED: a daily count kept whether or not BigQuery is on. Best effort.
+  if (counts) await countWidgetView(ctx, campaignId).catch(() => undefined);
   return noContent();
 }

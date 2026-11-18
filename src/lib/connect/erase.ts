@@ -46,6 +46,7 @@ export async function eraseProductUserHistory(
   await repo.productEvents.deleteWhere([["productUserId", "==", productUserId]]);
   await repo.lifecycleEnrolments.deleteWhere([["productUserId", "==", productUserId]]);
   await repo.emailEvents.deleteWhere([["signupId", "==", productUserId]]);
+  await repo.emailSends.deleteWhere([["signupId", "==", productUserId]]);
   await repo.lifecycleDrafts.deleteWhere([["productUserId", "==", productUserId]]);
   // Their plan (LIFECYCLE_PERSON_PLANS): words about one person's situation.
   await repo.personPlans.deleteWhere([["productUserId", "==", productUserId]]);

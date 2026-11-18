@@ -283,6 +283,22 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Email data kept whole: a record per email sent and a short id as Mandrill metadata (Mandrill
+  # drops metadata over 250 bytes, and with it the email's opens, clicks and bounces); a brand tag
+  # on verification, offboarding and site confirmation emails so their bounces suppress; and every
+  # open, click and bounce detail on the send record.
+  - variable: EMAIL_SEND_RECORDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_TRANSACTIONAL_TENANT_TAG_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: EMAIL_ENGAGEMENT_DETAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Date facts, and journeys that start when a date passes (needs date facts).
   - variable: CONNECT_DATE_FACTS
     value: "false"
@@ -382,6 +398,12 @@ env:
   # your environment file references); off, it is stored as saved. Reads understand
   # both. scripts/seal-mailchimp-keys.ts seals keys saved before.
   - variable: MAILCHIMP_KEY_SEALED_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Keep all of MailChimp's broadcast report (opens and clicks in total, bounces, complaints,
+  # forwards) with a history, synced daily for 14 days then weekly until 90 days.
+  - variable: MAILCHIMP_REPORT_DETAIL_ENABLED
     value: "false"
     availability:
       - RUNTIME
@@ -671,6 +693,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy reads how emails and posts did (get_email_results, get_post_results), each number
+  # with its meaning (src/lib/metrics/meanings.ts). Aggregates only; needs a redeployed agent.
+  - variable: RESULTS_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Create ==
   # Researched blog hubs, cite sources, articles written from the brand map, the
@@ -827,6 +855,19 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Keep every post number: X reposts, quotes and bookmarks apart, LinkedIn's engagement rate,
+  # and the numbers auto-plug polls before the first stats poll (scripts/backfill-post-results.ts
+  # gets stats for posts published before the loop was on).
+  - variable: POST_METRICS_DETAIL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Keep every event of a large X webhook delivery (up to 10,000; past 500 without their text)
+  # instead of cutting it at 500.
+  - variable: X_WEBHOOK_ALL_EVENTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: HASHTAG_LEADERBOARD_ENABLED
     value: "false"
     availability:
@@ -856,6 +897,23 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+  # Widget views counted per launch per day in Firestore, kept whether or not BigQuery is on
+  # (the public one lets the embed send its beacon; it is fixed at build time).
+  - variable: WIDGET_VIEW_COUNTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_WIDGET_VIEW_COUNTS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Accepted product events (API v2) counted per connection per day by name, kept after the
+  # events' own 90-day TTL. Counts only, no person.
+  - variable: PRODUCT_EVENT_DAYS_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
   # The dataset in each region, as named in extensions/.
   - variable: BQ_DATASET_US

@@ -226,6 +226,8 @@ export interface Competitor {
   googlePending?: GooglePendingPost[] | null;
   /** When the article lane last queued this competitor's posts (only that lane writes it). */
   articlesScannedAt?: string | null;
+  /** When the article lane dated posts stored without dates from their news page (once). Only the lane writes it. */
+  postsDatedAt?: string | null;
   nextPostsCheckAt: string | null;
   nextSiteCheckAt: string | null;
   lastPostsCheckAt: string | null;
@@ -258,6 +260,8 @@ export interface CompetitorPost {
   publishedAt: string | null;
   firstSeenAt: string;
   baseline: boolean;
+  /** Where it sat on their news page when we first saw it (0 = top): the order to go by when it has no date. */
+  rank?: number | null;
 }
 
 export interface ChangedSection {

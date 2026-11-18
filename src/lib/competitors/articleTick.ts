@@ -27,7 +27,8 @@ import {
 } from "./articles";
 import { fetchHtml, mayFetch, robotsFor, type FetchDeps } from "./fetch";
 import { isCompetitorArticlesEnabled, isCompetitorsGoogleReaderEnabled } from "./flags";
-import { listPosts } from "./store";
+import { listingCards } from "./feed";
+import { datePosts, listPosts, newestFirst } from "./store";
 import { cleanTitle } from "./titles";
 
 /**
@@ -98,13 +99,41 @@ async function queueFor(ctx: TenantContext, c: Competitor, nowIso: string, deps:
   const since = c.articlesScannedAt ?? null;
   if (since && checked <= since) return 0;
   const posts = (await listPosts(ctx, c.id, deps)).filter((p) => p.url);
-  const pick = since
-    ? posts.filter((p) => p.firstSeenAt > since)
-    : [...posts].sort((a, b) => (b.publishedAt ?? b.firstSeenAt).localeCompare(a.publishedAt ?? a.firstSeenAt)).slice(0, LIMITS.ARTICLE_BACKFILL);
+  const pick = since ? posts.filter((p) => p.firstSeenAt > since) : [...posts].sort(newestFirst).slice(0, LIMITS.ARTICLE_BACKFILL);
   const added = await queueArticles(ctx, c.id, pick, deps);
   // Only the lane writes this field: the step machine's writes never touch it.
   await forTenant(ctx, deps.db).competitors.update(c.id, { articlesScannedAt: nowIso });
   return added;
+}
+
+/**
+ * Once per competitor, after its first pick: when most of its stored posts have no date (a sitemap
+ * without dates), date them from its news page's cards and queue its newest posts, so the first
+ * pick's arbitrary order is put right. Marked done whatever happens, so it never runs twice.
+ */
+async function datePostsOnce(ctx: TenantContext, c: Competitor, nowIso: string, deps: ArticleTickDeps): Promise<number> {
+  if (c.status !== "watching" || c.postsDatedAt || !c.articlesScannedAt) return 0;
+  const done = () => forTenant(ctx, deps.db).competitors.update(c.id, { postsDatedAt: nowIso });
+  const posts = (await listPosts(ctx, c.id, deps)).filter((p) => p.url);
+  const undated = posts.filter((p) => !p.publishedAt).length;
+  if (c.reader === "google" || !c.news?.url || !posts.length || undated * 2 < posts.length) {
+    await done();
+    return 0;
+  }
+  let dated = 0;
+  try {
+    const robots = await robotsFor(new URL(c.news.url).origin, deps);
+    if (mayFetch(robots, c.news.url)) {
+      const page = await fetchHtml(c.news.url, deps);
+      if (page.ok) dated = await datePosts(ctx, c.id, listingCards(page.text, c.news.url, c.news.url, c.site, new Date((deps.clock ?? Date.now)())), deps);
+    }
+  } catch (err) {
+    console.warn("[competitors] dating posts failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
+  await done();
+  if (!dated) return 0;
+  const newest = (await listPosts(ctx, c.id, deps)).filter((p) => p.url).sort(newestFirst).slice(0, LIMITS.ARTICLE_BACKFILL);
+  return queueArticles(ctx, c.id, newest, deps);
 }
 
 type Outcome = "read" | "failed" | "skipped" | "again" | "kept";
@@ -232,7 +261,10 @@ export async function runArticleReads(opts: { deadlineMs: number }, deps: Articl
       const competitors = await forTenant(ctx, deps.db).competitors.find({ limit: LIMITS.MAX_PER_BRAND * 2 });
       result.tenants += 1;
       const nowIso = new Date(clock()).toISOString();
-      for (const c of competitors) result.queued += await queueFor(ctx, c, nowIso, deps);
+      for (const c of competitors) {
+        result.queued += await queueFor(ctx, c, nowIso, deps);
+        if (opts.deadlineMs - clock() >= MIN_LEFT_MS) result.queued += await datePostsOnce(ctx, c, nowIso, deps);
+      }
       if (reads.length >= READS_PER_TICK) continue;
       const month = await readsThisMonth(ctx, deps);
       if (month >= LIMITS.ARTICLE_READS_PER_MONTH) continue;

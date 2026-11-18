@@ -19,7 +19,7 @@ import {
 } from "@/lib/types/competitor";
 import { labelSite, plainAnalysis, searchForSite, summarisePosts, summariseSiteChange, type AnalyseDeps } from "./analyse";
 import { diffBaselines, worthReanalysing } from "./diff";
-import { feedLinkFromHtml, isPostOf, listingLinks, parseFeed, type FeedItem } from "./feed";
+import { feedLinkFromHtml, isPostOf, listingCards, parseFeed, type FeedItem } from "./feed";
 import { fetchFeed, fetchHtml, fetchSitemapFile, mayFetch, robotsFor, ROBOTS_TOKEN, type FetchDeps } from "./fetch";
 import { isCompetitorsGoogleReaderEnabled } from "./flags";
 import {
@@ -657,8 +657,11 @@ async function gatherPosts(c: Competitor, news: CompetitorNews, deps: StepDeps):
     }
   }
   if (!html && !turnedAway) await readPage();
-  const links = html ? listingLinks(html, news.url, news.url, c.site) : [];
-  if (links.length) return { items: links.map((url) => ({ url, title: "", publishedAt: null })), feedUrl: null, reached, blocked: false, turnedAway: false };
+  // Each post with the date on its card, and its place on the page for one that shows none.
+  const cards = html ? listingCards(html, news.url, news.url, c.site, new Date(clockOf(deps)())) : [];
+  if (cards.length) {
+    return { items: cards.map((card) => ({ url: card.url, title: "", publishedAt: card.publishedAt, rank: card.rank })), feedUrl: null, reached, blocked: false, turnedAway: false };
+  }
 
   // A page drawn by script lists nothing we can read: the sitemap file that holds its posts may.
   const file = c.sitemap?.files.find((f) => /post|blog|news|article/i.test(f));
@@ -719,6 +722,7 @@ async function keepPosts(ctx: TenantContext, c: Competitor, items: Array<FeedIte
     publishedAt: i.publishedAt,
     firstSeenAt: at,
     baseline,
+    ...(i.rank !== undefined && i.rank !== null ? { rank: i.rank } : {}),
   }));
   await savePosts(ctx, c.id, rows, deps);
 }

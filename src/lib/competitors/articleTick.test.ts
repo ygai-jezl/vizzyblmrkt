@@ -7,7 +7,7 @@ import type { CompetitorArticle } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
 import { listArticles } from "./articles";
 import { runArticleReads, type ArticleTickDeps } from "./articleTick";
-import { monitorCompetitor, savePosts } from "./store";
+import { listPosts, monitorCompetitor, savePosts } from "./store";
 
 /**
  * The article lane against a made-up competitor: its posts are queued (the newest 20 first), read
@@ -287,5 +287,65 @@ describe("reading again what an older reader read", () => {
     expect(await tick()).toMatchObject({ refreshed: 1 });
     expect((await one(old)).version).toBe(3);
     expect((await one(google)).version).toBe(1);
+  });
+});
+
+describe("dating posts stored without dates", () => {
+  /** A competitor whose stored posts have no dates (a sitemap without them), its first pick already made. */
+  async function undated(posts: number): Promise<string> {
+    const id = await competitor(posts);
+    const repo = forTenant(A, db).competitorPosts;
+    for (const p of await listPosts(A, id, { db })) await repo.update(p.id, { publishedAt: null });
+    await tick();
+    return id;
+  }
+  /** Their news page, newest first, a date on every card: post N was published on N October. */
+  const listing = (posts: number) =>
+    `<html><body><a href="/blog/category">Category</a>${Array.from({ length: posts }, (_, i) => posts - i)
+      .map((n) => `<a href="/blog/post-${n}"><p>${n} Oct, 2026</p><h3>Post ${n}</h3></a>`)
+      .join("")}</body></html>`;
+  const fetched = () => {
+    const urls: string[] = [];
+    const base = deps.fetch!;
+    deps.fetch = (async (url: string, init?: RequestInit) => {
+      urls.push(url);
+      return base(url, init as never);
+    }) as unknown as ArticleTickDeps["fetch"];
+    return urls;
+  };
+  const one = async (id: string) => (await forTenant(A, db).competitors.getById(id))!;
+
+  it("dates them from the news page once, then queues the newest", async () => {
+    const id = await undated(25);
+    web.set(`${W}/blog`, { body: listing(25) });
+    const urls = fetched();
+    await tick();
+    expect(urls.filter((u) => u === `${W}/blog`)).toHaveLength(1);
+    const posts = await listPosts(A, id, { db });
+    expect(posts.find((p) => p.url.endsWith("/post-25"))).toMatchObject({ publishedAt: "2026-10-25", rank: 0 });
+    expect(posts.every((p) => p.publishedAt)).toBe(true);
+    expect((await one(id)).postsDatedAt).toBeTruthy();
+    // Posts 6 to 25 are the newest 20: each is now queued or read.
+    const queued = new Set((await listArticles(A, id, deps)).map((a) => a.url));
+    for (let n = 6; n <= 25; n++) expect(queued.has(`${W}/blog/post-${n}`)).toBe(true);
+    // Never again.
+    await tick();
+    expect(urls.filter((u) => u === `${W}/blog`)).toHaveLength(1);
+  });
+
+  it("only marks a competitor whose posts have dates, or whose news page can't be read", async () => {
+    const dated = await competitor(3);
+    await tick();
+    const urls = fetched();
+    await tick();
+    expect((await one(dated)).postsDatedAt).toBeTruthy();
+    expect(urls.filter((u) => u === `${W}/blog`)).toHaveLength(0);
+
+    db = new FakeFirestore();
+    deps.db = db;
+    const gone = await undated(3);
+    await tick();
+    expect((await one(gone)).postsDatedAt).toBeTruthy();
+    expect((await listPosts(A, gone, { db })).every((p) => p.publishedAt === null)).toBe(true);
   });
 });

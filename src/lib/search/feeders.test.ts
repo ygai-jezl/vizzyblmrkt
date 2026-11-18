@@ -132,16 +132,32 @@ describe("signalSource", () => {
       related: ["chatgpt sources"],
       aiOverview: { cites: [{ domain: "forum.test", url: "https://forum.test/t/1", title: "A thread" }] },
     },
+    judged: {
+      at: "2026-11-18T12:00:20.000Z",
+      version: 1,
+      items: [
+        { text: "How does ChatGPT choose sources?", kind: "paa", verdict: "use", reason: "" },
+        { text: "How do you seduce a Gemini?", kind: "paa", verdict: "drop", reason: "the star sign" },
+        { text: "get cited step by step", kind: "also", verdict: "other", reason: "" },
+      ],
+    },
   } as unknown as BrandSignal;
 
-  it("keeps what Google showed for a question as research, with the market and date", () => {
+  it("keeps what the judge found on the brand's topics as research, with the market and date", () => {
     const src = signalSource(sig)!;
     expect(src).toMatchObject({ kind: "research", ref: "serp:sig_1", title: "Google: How do I get cited by AI answers?" });
     expect(src.body).toContain("Google United Kingdom, English, 2026-11-18");
     expect(src.body).toContain("- How does ChatGPT choose sources?");
     expect(src.body).toContain("Also searched: get cited step by step");
-    expect(src.body).toContain("Related searches: chatgpt sources");
+    expect(src.body).not.toContain("seduce");
+    expect(src.body).not.toContain("Related searches");
     expect(src.body).toContain("Google's AI Overview cites: A thread");
+  });
+
+  it("keeps only the question, market and cited pages until the judge has checked it", () => {
+    const body = signalSource({ ...sig, judged: null })!.body;
+    expect(body).not.toContain("How does ChatGPT choose sources?");
+    expect(body).toContain("Google's AI Overview cites: A thread");
   });
 
   it("leaves out a lookup that isn't ready", () => {

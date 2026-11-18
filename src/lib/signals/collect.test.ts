@@ -116,8 +116,10 @@ describe("the signals tick", () => {
     expect(await runSignals({ deadlineMs: clock.t + 60_000 }, { ...deps, listTenants, clock: () => clock.t })).toEqual({ tenants: 0, ready: 0, failed: 0, waiting: 0 });
     expect(listTenants).not.toHaveBeenCalled();
     vi.stubEnv("SIGNALS_DATAFORSEO_ENABLED", "true");
-    expect(await runSignals({ deadlineMs: clock.t + 60_000 }, { ...deps, listTenants, clock: () => clock.t })).toEqual({ tenants: 1, ready: 1, failed: 0, waiting: 0 });
-    expect(await getSignal(A, s.id, deps)).toMatchObject({ status: "ready" });
+    const judge = vi.fn(async () => ({ at: "2026-11-18T12:00:20.000Z", version: 1, items: [{ text: "How?", kind: "paa" as const, verdict: "use" as const, reason: "fits" }] }));
+    expect(await runSignals({ deadlineMs: clock.t + 60_000 }, { ...deps, listTenants, clock: () => clock.t, judge })).toEqual({ tenants: 1, ready: 1, failed: 0, waiting: 0 });
+    expect(await getSignal(A, s.id, deps)).toMatchObject({ status: "ready", judged: { items: [{ verdict: "use" }] } });
+    expect(judge).toHaveBeenCalledTimes(1);
   });
 
   it("starts no collect without enough time left, and skips brands without the feature", async () => {

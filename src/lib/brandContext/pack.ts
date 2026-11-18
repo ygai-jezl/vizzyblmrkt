@@ -188,7 +188,12 @@ function numberLines(sig: BrandSignal | null): { lines: PackLine[]; figures: Con
         : "Google showed no AI Overview for it.",
       source: src,
     },
-    { text: `People also ask: ${sig.results.paa.slice(0, 4).map((p) => p.question).join(" / ") || "none shown"}.`, source: src },
+    {
+      text: sig.judged
+        ? `People also ask, fitting this article: ${sig.judged.items.filter((i) => i.verdict === "use" && i.kind === "paa").slice(0, 4).map((i) => i.text).join(" / ") || "none"}.`
+        : "People also ask: not checked for fit yet.",
+      source: src,
+    },
   ];
   if (sig.results.top.length) lines.push({ text: `Top results: ${sig.results.top.slice(0, 3).map((r) => r.domain).join(", ")}.`, source: src });
   return { lines, figures: { googlePosition: n.googlePosition, peopleAlsoAsk: n.peopleAlsoAsk, aiOverviewSources: n.aiOverviewSources } };

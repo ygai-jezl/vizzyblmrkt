@@ -11,8 +11,10 @@ import { collectSignal, lookUpQuestion, ownHostsOf, type CollectDeps } from "./c
 import { dataForSeoConfigured } from "./dataforseo";
 import { isBrandSignalsEnabled, isSignalsDataForSeoEnabled } from "./flags";
 import { brandMarket, DEFAULT_MARKET, isKnownMarket, LANGUAGES, marketLabel, MARKETS } from "./markets";
-import { getSignal, lookupsThisMonth } from "./store";
+import { JUDGE_VERSION, judgeSignal, type JudgeDeps } from "./judge";
+import { getSignal, lookupsThisMonth, saveJudgement } from "./store";
 import { signalView } from "./view";
+import type { BrandSignal } from "@/lib/types/brandSignal";
 
 /**
  * The admin APIs behind "Get from Google" (the brief's What buyers ask box) and Settings ›
@@ -22,8 +24,17 @@ import { signalView } from "./view";
 
 export type ApiResult = { status: number; body: unknown };
 
-export interface AdminDeps extends CollectDeps {
+export interface AdminDeps extends CollectDeps, Pick<JudgeDeps, "generate" | "configured"> {
   rateLimited?: (subject: string) => Promise<boolean>;
+  judge?: typeof judgeSignal;
+}
+
+/** A ready lookup with the judge's verdicts: judged now if it hasn't been, and kept. */
+async function judged(ctx: TenantContext, sig: BrandSignal, deps: AdminDeps): Promise<BrandSignal> {
+  if (sig.status !== "ready" || (sig.judged && sig.judged.version >= JUDGE_VERSION)) return sig;
+  const verdicts = await (deps.judge ?? judgeSignal)(ctx, sig, deps).catch(() => null);
+  if (!verdicts) return sig;
+  return (await saveJudgement(ctx, sig.id, verdicts, deps)) ?? { ...sig, judged: verdicts };
 }
 
 const loadOf = (deps: AdminDeps) => deps.loadTenant ?? getTenantById;
@@ -79,7 +90,7 @@ export async function startLookup(ctx: TenantContext, raw: unknown, deps: AdminD
     if (got.detail) console.warn(`[signals] lookup for ${ctx.tenantId} failed: ${got.detail}`);
     return { status: got.status, body: { error: got.error } };
   }
-  return { status: 200, body: { reused: got.reused, signal: signalView(got.signal) } };
+  return { status: 200, body: { reused: got.reused, signal: signalView(await judged(ctx, got.signal, deps)) } };
 }
 
 const SIGNAL_ID = /^sig_[a-f0-9]{24}$/;
@@ -96,7 +107,7 @@ export async function readLookup(ctx: TenantContext, id: string, deps: AdminDeps
     await collectSignal(ctx, signal, await ownHostsOf(ctx, tenant, deps), deps);
     signal = (await getSignal(ctx, id, deps)) ?? signal;
   }
-  return { status: 200, body: { signal: signalView(signal) } };
+  return { status: 200, body: { signal: signalView(await judged(ctx, signal, deps)) } };
 }
 
 /** The brand's Google market and the choices. */

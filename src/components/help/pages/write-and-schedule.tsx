@@ -154,11 +154,11 @@ export default function WriteAndScheduleHelp() {
           <H2 id="get-from-google">Get from Google</H2>
           <P>
             <strong>Get from Google</strong> under <strong>What buyers ask</strong>, when you create a blog and later in the
-            blog hub&apos;s <strong>Brief</strong>, looks the article&apos;s question up on Google for you and adds what Google
-            shows for it: People also ask, what
-            else people search for, related searches, and the sites Google&apos;s AI Overview cites. It only adds lines, so
-            what you typed stays. Research reads them as leads, like anything else you paste there. Delete any that
-            don&apos;t fit the article.
+            blog hub&apos;s <strong>Brief</strong>, looks the article&apos;s question up on Google for you. Gemini checks each
+            thing Google shows (People also ask, and what else people search for) against the article and your brand map,
+            and only what fits is added. Under the button, <strong>What was left out, and why</strong> lists the rest: off
+            topic, or for another article. It only adds lines, so what you typed stays. Research reads them as leads, like
+            anything else you paste there.
           </P>
           <P>
             It searches your brand&apos;s Google market: an admin picks the country and language under{" "}
@@ -306,6 +306,10 @@ export default function WriteAndScheduleHelp() {
                   "Whoever runs your copy of YouGrow adds a DataForSEO login. Until then, paste what Google shows by hand.",
                 ],
                 ["Google couldn't be asked just now. Try again in a few minutes.", "Try again later. A lookup that never arrived doesn't count."],
+                [
+                  "Google's results couldn't be checked for this article just now.",
+                  "Nothing was added unchecked. Press Get from Google again in a minute: the results are kept, so it doesn't count twice.",
+                ],
               ] as Array<[string, string]>)
             : []),
           ...(isPostResultsEnabled()

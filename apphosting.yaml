@@ -862,6 +862,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Keep every event of a large X webhook delivery (up to 10,000; past 500 without their text)
+  # instead of cutting it at 500.
+  - variable: X_WEBHOOK_ALL_EVENTS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: HASHTAG_LEADERBOARD_ENABLED
     value: "false"
     availability:

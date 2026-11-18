@@ -33,6 +33,7 @@ export function CreatePanel({
   prefill = null,
   situations = false,
   prefillSituation = null,
+  prefillAsks = null,
   suggestAngle = false,
 }: {
   workspaceId: string;
@@ -49,6 +50,8 @@ export function CreatePanel({
   prefillSituation?: { id: string; text: string } | null;
   /** "Write this next": start the wizard from a map question. */
   prefill?: WriteNext | null;
+  /** What buyers ask, from Next up's sort. */
+  prefillAsks?: string | null;
   /** "Suggest an angle" is on: the Spark can be suggested (and is, from "Write this next"). */
   suggestAngle?: boolean;
 }) {
@@ -95,6 +98,7 @@ export function CreatePanel({
           subjects={subjects}
           subjectSearch={subjectSearch}
           prefill={prefill}
+          prefillAsks={prefillAsks}
           situations={situations}
           prefillSituation={prefillSituation}
           suggestAngle={suggestAngle}

@@ -1,4 +1,5 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
+import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 
 export default function ReviewAndApprovalsHelp() {
@@ -51,6 +52,12 @@ export default function ReviewAndApprovalsHelp() {
         <li>
           <strong>Brand map suggestions</strong> and <strong>Content waiting for approval</strong>.
         </li>
+        {isAutopilotEnabled() ? (
+          <li>
+            <strong>Your next article</strong>: a question autopilot sorted and left ready to write, questions a draft asks
+            your team, and a run that couldn&apos;t finish (<Open href="/help/brand-map#autopilot">Autopilot</Open>).
+          </li>
+        ) : null}
       </UL>
 
       <H2 id="drafts">Check Vizzy&apos;s drafts</H2>

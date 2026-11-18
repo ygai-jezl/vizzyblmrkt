@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, isRateLimited } from "@/lib/tenant";
@@ -31,6 +32,8 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!ws) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // The article autopilot is writing it: nothing saves over the run until it ends or a person takes over.
+  if (autopilotHolds(plan)) return NextResponse.json(AUTOPILOT_RUNNING, { status: 409 });
   if (await isRateLimited(`tenant:${ctx.tenantId}`, RESEARCH_LIMIT)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }

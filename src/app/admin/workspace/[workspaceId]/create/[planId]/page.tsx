@@ -13,6 +13,8 @@ import { isEmailStyleEnabled } from "@/lib/email/flags";
 import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas";
+import { AutopilotBanner } from "@/components/admin/autopilot/AutopilotBanner";
+import { autopilotHolds } from "@/lib/autopilot/planLock";
 import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blog/flags";
 import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
@@ -95,6 +97,7 @@ export default async function ContentPlanPage({
       >
         ← All workflows
       </Link>
+      {autopilotHolds(plan) ? <AutopilotBanner workspaceId={workspaceId} planId={plan.id} /> : null}
       <ContentCanvas
         // Remount only when Vizzy saves a new version (nav v2 phase 4), never on the operator's own saves.
         key={plan.agentRevision ?? 0}

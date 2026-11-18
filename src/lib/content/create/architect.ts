@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, generateTextWithDeadline } from "@/lib/agents/gemini";
 import { isChannel, channelBlueprint } from "@/lib/content/channels";
 import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
 import { isBlockType } from "@/lib/content/blocks";
@@ -75,6 +75,8 @@ export interface ArchitectInput {
   audience?: string | null;
   /** Workspace templates to auto-select skeletons from (operator can override later). */
   templates?: TemplateRef[];
+  /** A time (ms since epoch) the model call must finish by; past it, the fixed graph is used. Unattended runs set it. */
+  deadlineMs?: number;
 }
 
 export interface ArchitectGraph {
@@ -195,7 +197,9 @@ async function callArchitect(input: ArchitectInput): Promise<ArchitectResult> {
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt);
+  const raw = input.deadlineMs
+    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now()) })
+    : await generateText(prompt);
   const j = raw ? parseFirstJson(raw) : null;
   if (!j || typeof j !== "object") return { nodes: [], angles: [] };
   const obj = j as Record<string, unknown>;

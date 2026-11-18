@@ -1,7 +1,8 @@
-import { H1, H2, Lead, P } from "@/components/developers/Doc";
+import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
+import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 
 export default function BrandMapHelp() {
   return (
@@ -132,6 +133,60 @@ export default function BrandMapHelp() {
         have a programme.
       </P>
 
+      {isNextUpEnabled() ? (
+        <>
+          <H2 id="next-up">Next up</H2>
+          <P>
+            At the top of <Open href="/admin/brand-kit/map">Brand › Brand map</Open>, <strong>Next up</strong> shows the
+            three articles worth writing next, chosen from your map&apos;s open questions. Each says why now, with the facts
+            behind it: how far along its subject is, what you already made, what competitors wrote, and what Google shows.
+            Press <strong>Choose again</strong> for a fresh look.
+          </P>
+          <Steps>
+            <li>
+              <strong>Find what they ask</strong> looks the question up on Google and reads the questions your
+              competitors&apos; articles answer. Gemini sorts them into <strong>In this article</strong>,{" "}
+              <strong>Another subject</strong> and <strong>Not for us</strong>, each with why.
+            </li>
+            <li>Move anything to the tray it belongs in. Autopilot learns from it.</li>
+            <li>
+              <strong>Write it</strong> starts the article with the first tray as What buyers ask.
+            </li>
+          </Steps>
+          <P>
+            <strong>Not now</strong> takes a pick off the list for 30 days; say why and it learns that too. When
+            competitors write about something your map doesn&apos;t have, <strong>Suggest it</strong> adds it to your map&apos;s
+            suggestions. <strong>What autopilot learned</strong> lists what your team skipped, moved and added back; admins
+            can remove any of it.
+          </P>
+        </>
+      ) : null}
+
+      {isAutopilotEnabled() ? (
+        <>
+          <H2 id="autopilot">Autopilot</H2>
+          <P>
+            <strong>Autopilot</strong> under Next up runs it for you, once a week on the day you choose:
+          </P>
+          <UL>
+            <li>
+              <strong>Suggest</strong> picks the next article and sorts what buyers ask, then waits. It shows in{" "}
+              <Open href="/admin/approvals">Review</Open> as &quot;Next article ready to write&quot;.
+            </li>
+            <li>
+              <strong>Draft</strong> also writes the whole workflow: the article, its teaser, its promo and a post for each
+              channel you tick. It waits in Review as one of Vizzy&apos;s drafts. Nothing is ever scheduled or published.
+            </li>
+          </UL>
+          <P>
+            Choose the programme drafts go into and add your focus right now, in your own words. The card shows this
+            month&apos;s Google lookups and drafts against the brand&apos;s limits. A draft&apos;s notes from What we&apos;ve seen count
+            as used only once you approve it, and its questions for your team show in Review. When everyone has answered and
+            nobody has changed the article, it is rewritten with the answers.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="check">Check it worked</H2>
       <Checks>
         <li>The line above the map reads &quot;All changes saved.&quot;</li>
@@ -151,6 +206,18 @@ export default function BrandMapHelp() {
             "Set your Primary domain in Settings › Sending, or add your website to a programme's Knowledge. Then research again.",
           ],
           ["Not saved yet: articles are written without it until you save.", "Press Save brand map."],
+          ...(isNextUpEnabled()
+            ? ([
+                ["Next up was chosen a moment ago. Try again in a few minutes.", "Wait a few minutes, then press Choose again."],
+                ["Every question on your brand map is answered or planned. Add questions to choose from.", "Add questions to a subject, or accept suggested ones."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isAutopilotEnabled()
+            ? ([
+                ["Draft isn't part of this brand's plan. Suggest is.", "Choose Suggest, or ask whoever runs your copy of YouGrow about Draft."],
+                ["Choose the programme drafts go into.", "Pick a programme under Drafts go into, then Save."],
+              ] as Array<[string, string]>)
+            : []),
           [
             "None of your programmes has crawled your site yet, so no subject or name has a home page.",
             "Add your website as Website (crawl) in a programme's Knowledge. When it shows done, press Research again.",

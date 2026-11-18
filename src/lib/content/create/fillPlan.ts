@@ -23,6 +23,8 @@ export interface FillDeps {
   generate?: typeof generateNode;
   /** One writing pass per piece — the caller has a deadline (Vizzy's request must return). */
   quick?: boolean;
+  /** A time every model call must finish by (an unattended autopilot run). */
+  deadlineMs?: number;
   /** The saved brand map (tests inject one); read only for a blog hub, with its flag on. */
   loadMap?: MapDeps["loadMap"];
   /** How the person edits Vizzy's posts (tests inject a stub); read only for LinkedIn and X. */
@@ -68,6 +70,7 @@ export async function fillPlanNode(
     skeletonBody,
     brandName: ws.name ?? null,
     quick: deps.quick,
+    deadlineMs: deps.deadlineMs,
     ...(brandMap ? { brandMap } : {}),
     ...(editPreferences.length ? { editPreferences } : {}),
   });

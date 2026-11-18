@@ -8,6 +8,7 @@ import { isAiDraftKeptEnabled } from "@/lib/content/create/flags";
 import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distribute/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
+import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -147,6 +148,13 @@ export default function WriteAndScheduleHelp() {
           )}{" "}
           Under <strong>Publisher</strong>, add the author&apos;s role and a short bio for the byline and the author box at the
           end.
+        </P>
+      ) : null}
+      {isAutopilotEnabled() ? (
+        <P>
+          A workflow the autopilot is writing says <strong>Autopilot is writing this workflow</strong> at the top. Edits
+          don&apos;t save until it finishes; press <strong>Take over</strong> to stop it and carry on yourself (
+          <Open href="/help/brand-map#autopilot">Autopilot</Open>).
         </P>
       ) : null}
       {isSignalsDataForSeoEnabled() ? (

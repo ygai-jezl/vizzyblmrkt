@@ -40,6 +40,8 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SEARCH_ENABLED = "true";
   process.env.BRAND_SIGNALS_ENABLED = "true";
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
+  process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
+  process.env.CREATE_ARTICLE_AUTOPILOT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

@@ -7,6 +7,7 @@ import { advanceRun, STEP_MS } from "./advance";
 import { DRAFT_STEP_MS, DRAFT_STEPS, releasePlan, type DraftDeps } from "./draftSteps";
 import { isAutopilotEnabled } from "./flags";
 import { activeRuns, createRun, getRun, scheduledRunId } from "./runs";
+import { takeAnswers } from "./answers";
 
 /**
  * The autopilot lane of the lifecycle tick (every 2 minutes, CREATE_ARTICLE_AUTOPILOT_ENABLED). On
@@ -74,6 +75,8 @@ export async function runAutopilot(opts: { deadlineMs: number }, deps: Autopilot
     try {
       result.tenants += 1;
       if (await startRun(ctx, t, new Date(clock()), deps)) result.started += 1;
+      // Team answers to a draft's questions: the draft goes round again, or Review says they're in.
+      await takeAnswers(ctx, { db: deps.db, now: () => new Date(clock()) }).catch(() => 0);
       for (const run of await activeRuns(ctx, deps)) {
         if (result.advanced >= STEPS_PER_TICK) break;
         const needs = STEP_MS[run.step] ?? DRAFT_STEP_MS[run.step] ?? DEFAULT_STEP_MS;

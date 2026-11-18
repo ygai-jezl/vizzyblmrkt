@@ -137,8 +137,10 @@ export interface AutopilotRun {
   nodesLeft: string[];
   /** The hub body as written, to tell whether a person has changed it since. */
   hubHash: string | null;
-  /** Questions What we've seen asked the team for this article. */
+  /** Questions What we've seen asked the team for this article, still to be answered. */
   askedIds: string[];
+  /** The team answered after the draft was changed by hand: the person presses Look again. */
+  answersIn?: boolean;
   /** "2026-11": the month a draft counts against the cap. */
   month: string;
   /** Not advanced before this. */

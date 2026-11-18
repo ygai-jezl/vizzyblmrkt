@@ -394,6 +394,16 @@ export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): Revi
       action: "Open",
     });
   }
+  for (const r of recent.filter((x) => x.mode === "draft" && x.answersIn && x.planId && x.workspaceId).slice(0, 3)) {
+    out.push({
+      id: `next_article_answers:${r.id}`,
+      kind: "next_article",
+      title: `Your team's answers are in for “${r.question?.text ?? r.planId}”`,
+      detail: "The draft was changed since autopilot wrote it, so it wasn't rewritten. Press Look again in its Brief to use the answers.",
+      href: `/admin/workspace/${r.workspaceId}/create/${r.planId}`,
+      action: "Open",
+    });
+  }
   const failed = recent.find((r) => r.trigger === "schedule" && r.step === "failed");
   if (failed) {
     out.push({

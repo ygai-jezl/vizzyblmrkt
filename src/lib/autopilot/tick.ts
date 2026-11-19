@@ -43,12 +43,18 @@ export function isoWeek(d: Date): string {
 /** 1 (Monday) to 7 (Sunday), in UTC. */
 export const isoWeekday = (d: Date) => d.getUTCDay() || 7;
 
-/** Start this week's next run for a brand when it's the day, none is going, and the week isn't done. */
+/**
+ * Start this week's next run for a brand: the first on its chosen day, the rest one after another,
+ * carrying on through the rest of the week when they don't all fit that day. Never two at once.
+ */
 async function startRun(ctx: TenantContext, t: Tenant, now: Date, deps: AutopilotTickDeps): Promise<boolean> {
   const settings = AutopilotSettingsSchema.parse(t.autopilot ?? {});
-  if (settings.mode === "off" || isoWeekday(now) !== settings.weekday) return false;
+  const today = isoWeekday(now);
+  if (settings.mode === "off" || today < settings.weekday) return false;
   if ((await activeRuns(ctx, deps)).some((r) => r.trigger === "schedule")) return false;
   const week = isoWeek(now);
+  // After the chosen day, only a week that already started carries on (turning it on late waits for next week).
+  if (today !== settings.weekday && !(await getRun(ctx, scheduledRunId(t.id, week, 0), deps))) return false;
   for (let slot = 0; slot < settings.perWeek; slot += 1) {
     const id = scheduledRunId(t.id, week, slot);
     if (await getRun(ctx, id, deps)) continue;

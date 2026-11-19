@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import { FINISHED_STEPS, type AutopilotRun, type RunMode, type RunStep } from "@/lib/types/autopilot";
+import { FINISHED_STEPS, MAX_PER_WEEK, type AutopilotRun, type RunMode, type RunStep } from "@/lib/types/autopilot";
 
 /**
  * Autopilot runs (`autopilot_runs`): one question found, sorted and, in Draft mode, written. A run
@@ -83,10 +83,41 @@ export async function activeRuns(ctx: TenantContext, deps: RunDeps = {}): Promis
   return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** The brand's recent runs, newest first. */
+/** The brand's recent runs (this month and last), newest first. */
 export async function recentRuns(ctx: TenantContext, limit = 20, deps: RunDeps = {}): Promise<AutopilotRun[]> {
-  const rows = await repoOf(ctx, deps).find({ limit: 200 });
-  return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  const now = nowOf(deps);
+  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const repo = repoOf(ctx, deps);
+  // One equality each (beside the brand), so no index, and never an unordered cut of every run.
+  const [these, before] = await Promise.all([
+    repo.find({ where: [["month", "==", monthOf(now)]], limit: 500 }),
+    repo.find({ where: [["month", "==", monthOf(last)]], limit: 500 }),
+  ]);
+  return [...these, ...before].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+}
+
+/** How long a question a run took stays out of Next up's picks. */
+export const HOLD_DAYS = 30;
+/** How long a sorted, unwritten question shows as ready to write. */
+export const READY_DAYS = 7;
+
+/**
+ * Questions runs have taken lately: going, sorted, written or stopped in the last 30 days (not
+ * failed), so a brand running several a week never gets the same question twice.
+ */
+export async function heldQuestionIds(ctx: TenantContext, deps: RunDeps = {}): Promise<string[]> {
+  const since = nowOf(deps).getTime() - HOLD_DAYS * 86_400_000;
+  const [recent, going] = await Promise.all([recentRuns(ctx, 1000, deps), activeRuns(ctx, deps)]);
+  const held = [...going, ...recent.filter((r) => r.step !== "failed" && Date.parse(r.createdAt) >= since)];
+  return [...new Set(held.flatMap((r) => (r.question ? [r.question.questionId] : [])))];
+}
+
+/** Scheduled runs sorted and waiting for a person to write them (Suggest, or Draft past its cap), newest first. */
+export function readyToWrite(runs: AutopilotRun[], nowMs: number, limit = MAX_PER_WEEK): AutopilotRun[] {
+  return runs
+    .filter((r) => r.trigger === "schedule" && r.step === "sorted" && r.question && nowMs - Date.parse(r.updatedAt) < READY_DAYS * 86_400_000)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, limit);
 }
 
 /** Drafts written this month (counted when the plan is made), against the article_autopilot cap. */

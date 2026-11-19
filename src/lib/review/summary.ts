@@ -1,7 +1,7 @@
 import { forTenant } from "@/lib/tenant";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { recentRuns } from "@/lib/autopilot/runs";
-import type { AutopilotRun } from "@/lib/types/autopilot";
+import { readyToWrite, recentRuns } from "@/lib/autopilot/runs";
+import { MAX_PER_WEEK, type AutopilotRun } from "@/lib/types/autopilot";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { listContentPlans } from "@/lib/tenant/workspaceContent";
 import { countWaitingApprovals } from "@/lib/lifecycle/approvals";
@@ -373,18 +373,21 @@ const RUN_FAILED: Record<string, string> = {
 export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): ReviewItem[] {
   const recent = runs.filter((r) => nowMs - Date.parse(r.updatedAt) < 14 * 86_400_000).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const out: ReviewItem[] = [];
-  const ready = recent.find((r) => r.trigger === "schedule" && r.mode === "suggest" && r.step === "sorted" && r.question);
-  if (ready) {
+  // Every question sorted and waiting to be written (several a week), Draft runs past their cap too.
+  for (const ready of readyToWrite(runs, nowMs)) {
     out.push({
       id: `next_article:${ready.id}`,
       kind: "next_article",
       title: `Next article ready to write: “${ready.question!.text}”`,
-      detail: `${ready.trays?.use.length ?? 0} questions buyers ask go in it. Open Next up to sort them and write it.`,
+      detail:
+        ready.error === "monthly_limit"
+          ? "This month's drafts are used up, so autopilot found and sorted it for you to write. Open Next up to write it."
+          : `${ready.trays?.use.length ?? 0} questions buyers ask go in it. Open Next up to sort them and write it.`,
       href: "/admin/brand-kit/map",
       action: "Review",
     });
   }
-  for (const r of recent.filter((x) => x.mode === "draft" && x.step === "done" && x.askedIds.length && x.planId && x.workspaceId).slice(0, 3)) {
+  for (const r of recent.filter((x) => x.mode === "draft" && x.step === "done" && x.askedIds.length && x.planId && x.workspaceId).slice(0, MAX_PER_WEEK)) {
     out.push({
       id: `next_article_asks:${r.id}`,
       kind: "next_article",
@@ -394,7 +397,7 @@ export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): Revi
       action: "Open",
     });
   }
-  for (const r of recent.filter((x) => x.mode === "draft" && x.answersIn && x.planId && x.workspaceId).slice(0, 3)) {
+  for (const r of recent.filter((x) => x.mode === "draft" && x.answersIn && x.planId && x.workspaceId).slice(0, MAX_PER_WEEK)) {
     out.push({
       id: `next_article_answers:${r.id}`,
       kind: "next_article",
@@ -481,7 +484,7 @@ export async function loadReview(
     competitorsOn ? soft("competitor changes", unseenChanges(ctx, { db }), [] as CompetitorChange[]) : ([] as CompetitorChange[]),
   ]);
 
-  const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 20, { db }), [] as AutopilotRun[]) : [];
+  const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),

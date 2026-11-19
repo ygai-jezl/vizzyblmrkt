@@ -15,7 +15,7 @@ import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { Tenant } from "@/lib/types/tenant";
 import type { Workspace } from "@/lib/types/workspace";
 import type { AdvanceDeps, StepFn } from "./advance";
-import { activeRuns, draftsThisMonth, notePlan, type StepPatch } from "./runs";
+import { draftsThisMonth, heldQuestionIds, notePlan, type StepPatch } from "./runs";
 
 /**
  * The run's own steps, past find and sort: picking the question (a scheduled run), then in Draft
@@ -66,7 +66,8 @@ const stopped = (x: unknown): x is StepPatch => Boolean(x && typeof x === "objec
 /** A scheduled run takes Next up's best pick no other run has (choosing again when Next up is old). */
 export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   if (run.question) return { step: "find" };
-  const others = (await activeRuns(ctx, deps)).filter((r) => r.id !== run.id && r.question).map((r) => r.question!.questionId);
+  // Every question a run took lately (going, sorted or written), so several runs a week never repeat one.
+  const others = await heldQuestionIds(ctx, deps);
   let doc = await readNextUp(ctx, deps);
   const now = (deps.now ?? (() => new Date()))().getTime();
   if (!doc || !doc.picks.some((p) => !others.includes(p.questionId)) || now - Date.parse(doc.at) > STALE_PICKS_MS) {

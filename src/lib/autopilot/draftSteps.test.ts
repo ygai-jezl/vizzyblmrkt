@@ -35,7 +35,7 @@ vi.mock("@/lib/content/create/fillPlan", async () => {
 
 const { advanceRun } = await import("./advance");
 const { DRAFT_STEPS, releasePlan } = await import("./draftSteps");
-const { createRun, getRun } = await import("./runs");
+const { createRun, getRun, heldQuestionIds, readyToWrite, recentRuns } = await import("./runs");
 const { takeOver } = await import("./takeOver");
 const { getContentPlan, listContentPlans, updateContentPlan } = await import("@/lib/tenant/workspaceContent");
 const { forTenant } = await import("@/lib/tenant");
@@ -146,16 +146,53 @@ describe("the autopilot lane", () => {
     expect(isoWeek(new Date("2027-01-01T09:00:00.000Z"))).toBe("2026-W53");
   });
 
-  it("starts one run on the brand's day, never a second while one is going, and nothing when it's off", async () => {
+  it("starts the week's runs from the brand's day, one at a time, carrying on through the week, and nothing when it's off", async () => {
     const { deps, clock } = setup();
     const tenant = { id: "ten_A", region: "us", grantedFeatures: [], autopilot: { mode: "suggest", weekday: 1, perWeek: 2, channels: [] } };
+    const tick = () => runAutopilot({ deadlineMs: Date.now() + 100_000 }, { ...deps, listTenants: async () => [tenant as never], clock: () => clock.t });
     // A Monday; a picker with nothing to pick stops the run, which is fine here.
-    const got = await runAutopilot({ deadlineMs: Date.now() + 100_000 }, { ...deps, listTenants: async () => [tenant as never], clock: () => clock.t });
-    expect(got.started).toBe(1);
+    expect((await tick()).started).toBe(1);
+    // Tuesday: the week's second run, which didn't fit on Monday.
     clock.t += 24 * 3_600_000;
-    expect((await runAutopilot({ deadlineMs: Date.now() + 100_000 }, { ...deps, listTenants: async () => [tenant as never], clock: () => clock.t })).started).toBe(0);
+    expect((await tick()).started).toBe(1);
+    // Wednesday: the week's two are done.
+    clock.t += 24 * 3_600_000;
+    expect((await tick()).started).toBe(0);
     vi.stubEnv("CREATE_ARTICLE_AUTOPILOT_ENABLED", "false");
     expect(await runAutopilot({ deadlineMs: Date.now() + 100_000 }, { ...deps, listTenants: async () => [tenant as never], clock: () => clock.t })).toEqual({ tenants: 0, started: 0, advanced: 0 });
+  });
+});
+
+describe("the autopilot lane, turned on late", () => {
+  it("waits for the brand's day next week instead of starting after it", async () => {
+    const { deps, clock } = setup();
+    clock.t = Date.parse("2026-11-18T09:00:00.000Z"); // a Wednesday
+    const tenant = { id: "ten_A", region: "us", grantedFeatures: [], autopilot: { mode: "suggest", weekday: 1, perWeek: 10, channels: [] } };
+    expect((await runAutopilot({ deadlineMs: Date.now() + 100_000 }, { ...deps, listTenants: async () => [tenant as never], clock: () => clock.t })).started).toBe(0);
+  });
+});
+
+describe("several runs a week", () => {
+  it("never take a question another run had lately, and every sorted one is ready to write", async () => {
+    const { deps } = setup();
+    const at = "2026-11-16T09:00:00.000Z";
+    const q = (n: number) => ({ ...Q, questionId: `q_aaaaaaa${n}`, text: `Question ${n}?` });
+    await createRun(A, { id: "run_a1", mode: "suggest", trigger: "schedule", step: "sorted", question: q(1) }, deps);
+    await createRun(A, { id: "run_a2", mode: "draft", trigger: "schedule", step: "done", question: q(2) }, deps);
+    await createRun(A, { id: "run_a3", mode: "suggest", trigger: "schedule", step: "failed", question: q(3) }, deps);
+    await createRun(A, { id: "run_a4", mode: "draft", trigger: "schedule", step: "sorted", question: q(4) }, deps);
+    expect((await heldQuestionIds(A, deps)).sort()).toEqual(["q_aaaaaaa1", "q_aaaaaaa2", "q_aaaaaaa4"]);
+    const runs = await recentRuns(A, 20, deps);
+    expect(readyToWrite(runs, Date.parse(at)).map((r) => r.id).sort()).toEqual(["run_a1", "run_a4"]);
+    expect(readyToWrite(runs, Date.parse(at) + 8 * 86_400_000)).toEqual([]);
+  });
+
+  it("reads runs from this month and last, not an unordered cut", async () => {
+    const { deps, clock } = setup();
+    await createRun(A, { id: "run_oct", mode: "suggest", trigger: "schedule", step: "sorted", question: Q }, { ...deps, now: () => new Date("2026-10-30T09:00:00.000Z") });
+    await createRun(A, { id: "run_sep", mode: "suggest", trigger: "schedule", step: "sorted", question: Q }, { ...deps, now: () => new Date("2026-09-30T09:00:00.000Z") });
+    await createRun(A, { id: "run_nov", mode: "suggest", trigger: "schedule", step: "sorted", question: Q }, deps);
+    expect((await recentRuns(A, 20, { db: deps.db, now: () => new Date(clock.t) })).map((r) => r.id)).toEqual(["run_nov", "run_oct"]);
   });
 });
 
@@ -178,5 +215,14 @@ describe("Review rows", () => {
     ]);
     expect(items[1]!.href).toBe("/admin/workspace/ws1/create/ap_x");
     expect(nextArticleItems([{ ...(base as object), mode: "suggest", step: "sorted" } as never], now + 30 * 86_400_000)).toEqual([]);
+    const two = nextArticleItems(
+      [
+        { ...(base as object), mode: "suggest", step: "sorted" } as never,
+        { ...(base as object), id: "run_4", mode: "draft", step: "sorted", error: "monthly_limit", question: { ...Q, text: "Another one?" } } as never,
+      ],
+      now,
+    );
+    expect(two.map((i) => i.title)).toEqual(["Next article ready to write: “How do I get cited by AI answers?”", "Next article ready to write: “Another one?”"]);
+    expect(two[1]!.detail).toMatch(/drafts are used up/);
   });
 });

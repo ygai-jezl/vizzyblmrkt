@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AutopilotSettings } from "@/lib/types/autopilot";
+import { MAX_PER_WEEK, type AutopilotSettings } from "@/lib/types/autopilot";
 
 /**
  * Autopilot on Brand › Brand map (CREATE_ARTICLE_AUTOPILOT_ENABLED): whether it runs (Off, Suggest,
@@ -120,7 +120,7 @@ export function AutopilotSettingsCard({ isAdmin }: { isAdmin: boolean }) {
           <label className={LABEL}>
             Articles a week
             <select value={draft.perWeek} disabled={locked} onChange={(e) => set({ perWeek: Number(e.target.value) })} className={FIELD}>
-              {[1, 2, 3].map((n) => (
+              {Array.from({ length: MAX_PER_WEEK }, (_, i) => i + 1).map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
@@ -163,6 +163,12 @@ export function AutopilotSettingsCard({ isAdmin }: { isAdmin: boolean }) {
             </label>
           ))}
         </fieldset>
+        {draft.mode === "draft" && draft.perWeek * 4 > data.month.draftLimit ? (
+          <p className={HINT}>
+            At {draft.perWeek} a week, this brand reaches its {data.month.draftLimit} drafts a month. After that, runs find and sort the
+            article for you to write instead.
+          </p>
+        ) : null}
         <p className={HINT}>It reads your brand map, what you made (brand search), what competitors wrote and Google. Nothing is ever published: drafts wait in Review.</p>
         {isAdmin ? (
           <button

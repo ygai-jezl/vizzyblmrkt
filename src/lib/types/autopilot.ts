@@ -29,13 +29,16 @@ export const LEARNED_LIMITS = { TEXT: 300, REASON: 200, LIST: 200 } as const;
 // ---- Settings (tenant.autopilot) -------------------------------------------------------------------
 
 export const AUTOPILOT_CHANNELS = ["linkedin", "x", "instagram"] as const;
+/** The most articles a week a brand can ask for. */
+export const MAX_PER_WEEK = 10;
 
 export const AutopilotSettingsSchema = z.object({
   /** off: nothing runs. suggest: picks and sorts, then waits for a person. draft: writes the full workflow, which waits in Review. */
   mode: z.enum(["off", "suggest", "draft"]).default("off"),
   /** 1 (Monday) to 7 (Sunday). */
   weekday: z.number().int().min(1).max(7).default(1),
-  perWeek: z.number().int().min(1).max(3).default(1),
+  /** Articles a week: runs start on `weekday`, one at a time, and any that don't fit carry on through the week. */
+  perWeek: z.number().int().min(1).max(MAX_PER_WEEK).default(1),
   /** What the brand wants more of right now, in its words. */
   focus: z.string().trim().max(200).default(""),
   /** The programme drafts go into. */

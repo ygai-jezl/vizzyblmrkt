@@ -7,7 +7,7 @@ import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { dropPick, pickNextUp, readNextUp, type PickDeps } from "@/lib/nextUp/pick";
 import type { AutopilotRun } from "@/lib/types/autopilot";
 import { advanceRun, type AdvanceDeps } from "./advance";
-import { createRun, draftsThisMonth, freshRunId, getRun, recentRuns, updateTrays } from "./runs";
+import { createRun, draftsThisMonth, freshRunId, getRun, heldQuestionIds, readyToWrite, recentRuns, updateTrays } from "./runs";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { setTenantAutopilot } from "@/lib/tenant/control";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
@@ -70,13 +70,9 @@ export interface NextUpAdminDeps extends AutopilotAdminDeps, Pick<PickDeps, "gen
 export async function readNextUpApi(ctx: TenantContext, deps: NextUpAdminDeps = {}): Promise<ApiResult> {
   const blocked = await nextUpGate(ctx, deps);
   if (blocked) return blocked;
-  // The newest question a scheduled run sorted and left ready to write (Suggest mode, last 14 days).
-  const ready = isAutopilotEnabled()
-    ? (await recentRuns(ctx, 10, deps).catch(() => []))
-        .filter((r) => r.trigger === "schedule" && r.step === "sorted" && r.question && Date.now() - Date.parse(r.updatedAt) < 14 * 86_400_000)
-        .map(runView)[0] ?? null
-    : null;
-  return { status: 200, body: { nextUp: await readNextUp(ctx, deps), ready } };
+  // Questions scheduled runs sorted and left ready to write (last 7 days), newest first. `ready` is the newest.
+  const readyAll = isAutopilotEnabled() ? readyToWrite(await recentRuns(ctx, 100, deps).catch(() => []), Date.now()).map(runView) : [];
+  return { status: 200, body: { nextUp: await readNextUp(ctx, deps), ready: readyAll[0] ?? null, readyAll } };
 }
 
 /** Choose again now (members may: picking costs one model call, and it is rate limited). */
@@ -85,7 +81,7 @@ export async function refreshNextUp(ctx: TenantContext, deps: NextUpAdminDeps = 
   if (blocked) return blocked;
   const limited = deps.rateLimited ?? ((s: string) => isRateLimited(s, REFRESH_LIMIT));
   if (await limited(`tenant:${ctx.tenantId}`)) return { status: 429, body: { error: "rate_limited" } };
-  const got = await pickNextUp(ctx, { by: "person", deadlineMs: Date.now() + REFRESH_MS }, deps);
+  const got = await pickNextUp(ctx, { by: "person", deadlineMs: Date.now() + REFRESH_MS }, { activeQuestionIds: (c) => heldQuestionIds(c, deps), ...deps });
   if (!got.ok) return { status: got.error === "out_of_time" ? 503 : 409, body: { error: got.error } };
   return { status: 200, body: { nextUp: got.doc } };
 }

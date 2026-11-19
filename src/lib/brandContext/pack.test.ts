@@ -9,7 +9,7 @@ import { ensureMoved } from "@/lib/brandMap/move";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import type { SearchHit, SearchOutcome } from "@/lib/search/query";
 import { claimSignal, finishSignal, FIRST_LOOK_MS, recordPosted } from "@/lib/signals/store";
-import { contextPack, packText, PART_MAX, type PackDeps } from "./pack";
+import { contextPack, packOwnUrls, packPromptBlock, packText, PART_MAX, type PackDeps } from "./pack";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const NOW = Date.parse("2026-11-18T10:00:00.000Z");
@@ -170,5 +170,34 @@ describe("the context pack", () => {
     expect(text.match(/<\/context_pack>/g)).toHaveLength(1);
     expect(text).toContain("Where it sits on the brand map:");
     expect(text).toContain("Not known: This question hasn't been looked up on Google yet.");
+  });
+});
+
+describe("the pack as a prompt block", () => {
+  const pack = {
+    about: { query: "Q?", questionId: null, subjectId: null },
+    map: [{ text: "Subject: S.", source: "Brand map" }],
+    yours: [
+      { text: "Our page", source: "Brand search: site page", url: "https://acme.example/a" },
+      { text: "Our draft", source: "Brand search: article", url: "/admin/workspace/ws/plans/p" },
+    ],
+    theirs: [],
+    research: [],
+    numbers: [{ text: "Your page ranks 14 on Google for it.", source: "Google" }],
+    learned: [{ text: "Skipped as a next article: \"X\"", source: "Learned list" }],
+    figures: {},
+    missing: [],
+  };
+
+  it("gives the writer no numbers, and research everything", () => {
+    expect(packPromptBlock(pack, "writer")).not.toContain("ranks 14");
+    expect(packPromptBlock(pack, "writer")).toContain("Never use a number from this block");
+    expect(packPromptBlock(pack, "writer")).toContain("Skipped as a next article");
+    expect(packPromptBlock(pack, "research")).toContain("ranks 14");
+    expect(packPromptBlock(null, "research")).toBe("");
+  });
+
+  it("offers only the brand's public pages as links", () => {
+    expect(packOwnUrls(pack)).toEqual(["https://acme.example/a"]);
   });
 });

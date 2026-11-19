@@ -13,6 +13,8 @@ const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenan
 vi.mock("@/lib/competitors/articleTick", () => articles);
 const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1, ready: 2, failed: 0, waiting: 1 })) }));
 vi.mock("@/lib/signals/tick", () => signals);
+const autopilot = vi.hoisted(() => ({ runAutopilot: vi.fn(async () => ({ tenants: 1, started: 1, advanced: 2 })) }));
+vi.mock("@/lib/autopilot/tick", () => autopilot);
 
 const { POST } = await import("./route");
 
@@ -99,4 +101,17 @@ describe("the lifecycle tick with Competitors", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).not.toHaveProperty("signals");
   });
+
+  it("runs the article autopilot only with its switches on, within its own time", async () => {
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    let res = await POST(machine());
+    expect(autopilot.runAutopilot).not.toHaveBeenCalled();
+    vi.stubEnv("CREATE_ARTICLE_AUTOPILOT_ENABLED", "true");
+    const before = Date.now();
+    res = await POST(machine());
+    expect(await res.json()).toMatchObject({ ok: true, autopilot: { advanced: 2 } });
+    const [{ deadlineMs }] = autopilot.runAutopilot.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(90_000 + 50);
+  });
 });
+

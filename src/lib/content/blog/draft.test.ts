@@ -138,6 +138,15 @@ describe("the blog writer", () => {
     expect(d!.warnings).toEqual(["unsupported_figures", "unlisted_links_removed", "citable_gaps"]);
   });
 
+  it("skips the second pass when a deadline leaves no time for it (an unattended run)", async () => {
+    const thin = "# What is AI search visibility monitoring?\n\n" + "A ramble with no structure at all. ".repeat(30);
+    const generate = vi.fn().mockResolvedValueOnce(answer(thin)).mockResolvedValueOnce(SAMPLE_ARTICLE);
+    const deadlineMs = Date.parse("2026-10-07T09:00:00.000Z") + 4_000;
+    const d = await draftBlogArticle(input({ deadlineMs }), { generate, now: clock(1000) });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(d).not.toBeNull();
+  });
+
   it("gives a draft that misses the structure one second pass, and keeps the better one", async () => {
     const thin = "# What is AI search visibility monitoring?\n\n" + "A ramble with no structure at all. ".repeat(30);
     const generate = vi.fn().mockResolvedValueOnce(answer(thin)).mockResolvedValueOnce(SAMPLE_ARTICLE);

@@ -5,6 +5,8 @@ import { listContentPlans } from "@/lib/tenant/workspaceContent";
 import { CreatePanel } from "@/components/admin/workspace/create/CreatePanel";
 import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { loadArticleMap } from "@/lib/content/blog/mapActions";
+import { isNextUpEnabled } from "@/lib/autopilot/flags";
+import { getRun } from "@/lib/autopilot/runs";
 import { writeNextFrom } from "@/lib/content/blog/articleMap";
 import { isBrandMapPagesEnabled, isBrandMapSituationsEnabled } from "@/lib/brandMap/flags";
 import { isSuggestAngleEnabled } from "@/lib/content/create/flags";
@@ -18,11 +20,11 @@ export default async function CreatePage({
 }: {
   params: Promise<{ workspaceId: string }>;
   /** `?question=q_…`: "Write this next" from the brand map (`&situation=sit_…`: from a buying situation). */
-  searchParams: Promise<{ question?: string | string[]; situation?: string | string[] }>;
+  searchParams: Promise<{ question?: string | string[]; situation?: string | string[]; run?: string | string[] }>;
 }) {
   const ctx = await requireAdminContext();
   const { workspaceId } = await params;
-  const { question, situation } = await searchParams;
+  const { question, situation, run } = await searchParams;
   const situations = isBrandMapSituationsEnabled();
   const ws = await forTenant(ctx).workspaces.getById(workspaceId);
   if (!ws) notFound();
@@ -49,6 +51,12 @@ export default async function CreatePage({
   sources.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   // "Write this next": the wizard starts from the map question, while it is still on the map.
   const prefill = map && isBrandMapPagesEnabled() && typeof question === "string" ? writeNextFrom(map, question) : null;
+  // From Next up's sort: what goes in the article, as What buyers ask (only the run's own question).
+  const sorted = prefill && typeof run === "string" && /^run_[a-f0-9]{24}$/.test(run) && isNextUpEnabled() ? await getRun(ctx, run).catch(() => null) : null;
+  const prefillAsks =
+    sorted?.trays && sorted.question?.questionId === prefill?.questionId
+      ? sorted.trays.use.map((i) => (i.kind === "also" ? `Also searched: ${i.text}` : i.text)).join("\n")
+      : null;
 
   return (
     <CreatePanel
@@ -59,6 +67,7 @@ export default async function CreatePage({
       subjects={(map?.subjects ?? []).map((s) => ({ id: s.id, name: s.name, questions: s.questions.map((q) => ({ id: q.id, text: q.text })) }))}
       subjectSearch={Boolean(map?.atScale)}
       prefill={prefill}
+      prefillAsks={prefillAsks}
       situations={situations && Boolean(map?.atScale)}
       prefillSituation={prefill && map?.situation ? { id: map.situation.id, text: map.situation.text } : null}
       suggestAngle={isSuggestAngleEnabled()}

@@ -683,6 +683,15 @@ export const ContentPlanSchema = z.object({
   agentRevision: z.number().int().nonnegative().optional(),
   /** What the operator asked Vizzy for, kept for the record. */
   agentBrief: z.string().max(4000).optional(),
+  /**
+   * The article autopilot is writing this plan (CREATE_ARTICLE_AUTOPILOT_ENABLED). While "working",
+   * the plan's edit routes answer 409 so a canvas can't save over the run (or the run over a
+   * person); "Take over" stops the run. Written by the server only.
+   */
+  autopilot: z
+    .object({ runId: z.string().max(64), state: z.enum(["working", "done", "stopped"]), at: z.string().max(40) })
+    .nullable()
+    .optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -121,14 +121,14 @@ export interface GenerateHeroImageInput {
   brandVoice?: string | null;
   /**
    * The image style (BRAND_IMAGE_STYLE_ENABLED): written into the brief, and the image is made
-   * with the brand image model (Nano Banana) instead of Imagen. Absent = exactly as before.
+   * with the brand image model (Nano Banana lite) instead of the hero model. Absent = exactly as before.
    */
   direction?: ArtDirection | null;
 }
 
 /** Why an image couldn't be produced — surfaced verbatim to the operator. */
 export type HeroImageFailure =
-  | "image_model_unavailable" // Imagen unconfigured or errored
+  | "image_model_unavailable" // image model unconfigured or errored
   | "no_asset_bucket" // EMAIL_ASSET_BUCKET not set
   | "store_failed"; // upload to the bucket threw
 

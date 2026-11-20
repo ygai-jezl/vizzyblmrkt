@@ -108,6 +108,10 @@ export const KEPT_OFF = {
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },
+  CONNECTOR_REVOKE_X_ENABLED: {
+    addon: null,
+    why: "Disconnect may end another brand's X access when two brands share one X account; turn it on after checking that",
+  },
   DISTRIBUTE_SOCIAL_ENABLED: { addon: "x", why: "needs an X or LinkedIn app (addon:x or addon:linkedin)" },
   DISTRIBUTE_CAROUSEL_ENABLED: { addon: "linkedin", why: "posts carousels to LinkedIn" },
   DISTRIBUTE_CLOSED_LOOP_ENABLED: { addon: "x", why: "learns from posted results (needs X or LinkedIn)" },

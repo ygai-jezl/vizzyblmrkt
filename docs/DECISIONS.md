@@ -78,6 +78,11 @@ Switches:
   Both are "false" in `apphosting.yaml`, and turning one off again is a config change.
   Revoke runs after the local delete, best effort, with an 8 second timeout, so a failed
   or slow provider still disconnects.
+- **A new self-hosted copy.** `npm run selfhost` turns on every switch except its
+  `KEPT_OFF` list (`scripts/selfhost/spec.mjs`), and that list holds
+  `CONNECTOR_REVOKE_X_ENABLED` with no add-on that turns it on. So a new copy revokes at
+  GitLab and on classic GitHub, which end only that brand's token, but not at X until
+  its owner runs the two-brand check (`docs/self-host.md`).
 - **Revoke policy** (`src/lib/integrations/revoke.ts`, `src/lib/social/revoke.ts`):
   - GitLab: yes, with the refresh token when there is one.
   - The single classic GitHub token: yes, through the one token endpoint, never

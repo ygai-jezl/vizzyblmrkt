@@ -232,7 +232,9 @@ export type RecordWriteResult<C extends RecordCollection> =
  * With `agentAction`, the action is read with the record and passed to the plan, and its move is
  * planned before any write, so a confirm commits the record, its events and the decision together.
  * A move that can't happen rejects with "agent_action_not_found", "agent_action_wrong_state" or
- * "agent_action_changed" and writes nothing.
+ * "agent_action_changed" and writes nothing. A null plan then counts as an empty patch, so the
+ * decision is never dropped: it is recorded with the record left as it is (outcome updated, with
+ * the action), or rejected with "not_found" when there is no record.
  */
 export async function writeRecordWithEvents<C extends RecordCollection>(
   ctx: TenantContext,
@@ -264,7 +266,8 @@ export async function writeRecordWithEvents<C extends RecordCollection>(
         if (!planned.ok) return { outcome: "rejected", reason: `agent_action_${planned.error}` };
         move = planned;
       }
-      const p = plan(current, action) as RecordPlan<RecordCollection>;
+      // A decision to record makes a null plan an empty patch (see above).
+      const p = (plan(current, action) ?? (move ? { patch: {}, events: [] } : null)) as RecordPlan<RecordCollection>;
       if (!p) return { outcome: "unchanged", doc: current };
       if ("reject" in p) return { outcome: "rejected", reason: p.reject };
       const events = p.events ?? [];

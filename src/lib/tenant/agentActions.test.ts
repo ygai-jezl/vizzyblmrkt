@@ -262,6 +262,23 @@ describe("the transaction helpers inside a caller's transaction", () => {
       reason: "agent_action_not_found",
     });
   });
+
+  it("writeRecordWithEvents records the decision when the plan has nothing to change, and rejects it with no record", async () => {
+    const { fake, db, id } = await proposed();
+    const decide = { id, transition: { to: "acted" as const, by: MEMBER, at: LATER } };
+    expect(await writeRecordWithEvents(ctx, "contacts", ADA, () => null, { db, agentAction: decide })).toEqual({ outcome: "rejected", reason: "not_found" });
+    expect(fake.raw("agent_actions", id)).toMatchObject({ state: "proposed" });
+
+    fake.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.com", plan: "pro" });
+    const writes = fake.writeCountFor("contacts", ADA);
+    // The suggested value is already in place: the plan changes nothing, and the decision still counts.
+    const out = await writeRecordWithEvents(ctx, "contacts", ADA, () => null, { db, agentAction: decide });
+    expect(out).toMatchObject({ outcome: "updated", doc: { plan: "pro" }, events: [{ kind: "agent.approved" }, { kind: "agent.acted" }], agentAction: { state: "acted" } });
+    expect(fake.raw("agent_actions", id)).toMatchObject({ state: "acted" });
+    expect(fake.writeCountFor("contacts", ADA)).toBe(writes);
+    // Without an action, a null plan is still unchanged.
+    expect(await writeRecordWithEvents(ctx, "contacts", ADA, () => null, { db })).toMatchObject({ outcome: "unchanged" });
+  });
 });
 
 describe("expireAgentActions", () => {

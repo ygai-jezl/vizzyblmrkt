@@ -144,6 +144,21 @@ describe("processPersonRepointJob", () => {
 
     const none = world();
     expect(await processPersonRepointJob(ctx, { ...(await none.job()), payload: {} }, none.db, { now: () => T })).toBe("drop");
+    expect(none.db.raw("person_moves", "mv_1")?.repoint).toBe("pending");
+  });
+
+  it("marks the moves of a user who can't be a person any more dropped, so the tick stops queueing them", async () => {
+    for (const change of ["erased", "revoked", "gone", "no product"] as const) {
+      const w = world();
+      if (change === "erased") w.db.seed("product_users", "pu_1", { tenantId: "ten_demo", connectionId: "pcn_1", status: "deleted" });
+      if (change === "revoked") w.db.seed("product_connections", "pcn_1", { tenantId: "ten_demo", kind: "custom", status: "revoked" });
+      if (change === "gone") w.db.cols.get("product_users")!.delete("pu_1");
+      if (change === "no product") w.db.cols.get("product_connections")!.delete("pcn_1");
+      expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T, pageSize: 1 }), change).toBe("drop");
+      expect(w.db.raw("person_moves", "mv_1"), change).toMatchObject({ repoint: "dropped", personId: ADA, fromPersonId: OLD, kind: "record.merged" });
+      // Someone else's move is theirs to settle.
+      expect(w.db.raw("person_moves", "mv_2")?.repoint, change).toBe("pending");
+    }
   });
 
   it("never reaches another brand's product user", async () => {
@@ -151,6 +166,7 @@ describe("processPersonRepointJob", () => {
     expect(await processPersonRepointJob({ ...ctx, tenantId: "ten_other" }, await w.job(), w.db, { now: () => T })).toBe("drop");
     expect(w.db.raw("product_events", "product_events_theirs")?.personId).toBe(OLD);
     expect(w.people("product_events")).toEqual([OLD, OLD, OLD]);
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("pending");
   });
 });
 

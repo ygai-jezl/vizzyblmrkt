@@ -3,6 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ProductUser } from "@/lib/types/productUser";
 import { personIdOf } from "@/lib/audience/personSync";
+import { processEmailJobs } from "@/lib/email/delivery";
 import { moveId, ontologyAfterProductWrites, REPAIR_AFTER_MS, repairPendingMoves, repointJobKey } from "./moves";
 import { personIdForAddress } from "./personRef";
 import type { ContactPersonId } from "./person";
@@ -158,6 +159,62 @@ describe("repairPendingMoves", () => {
     const db = new FakeFirestore();
     seedMove(db, "mv_old");
     expect(await repairPendingMoves(ctx, { db, now: NOW })).toEqual({ requeued: 0 });
+    expect(db.dump("email_jobs")).toHaveLength(0);
+  });
+
+  it("pages through pending moves, so ones whose jobs are still queued never hide one whose job was lost", async () => {
+    const db = new FakeFirestore();
+    // More than a page of moves whose jobs are still queued, all sorting before the lost one.
+    for (let i = 10; i < 70; i += 1) {
+      seedMove(db, `mv_a${i}`, { productUserId: `pu_q${i}` });
+      db.seed("email_jobs", repointJobKey("ten_demo", `pu_q${i}`, ADA), { tenantId: "ten_demo", type: "person_repoint", status: "pending", payload: { productUserId: `pu_q${i}` } });
+    }
+    seedMove(db, "mv_z", { productUserId: "pu_lost" });
+    expect(await repairPendingMoves(ctx, { db, now: NOW, pageSize: 25 })).toEqual({ requeued: 1 });
+    expect(db.raw("email_jobs", repointJobKey("ten_demo", "pu_lost", ADA))).toMatchObject({ type: "person_repoint", payload: { productUserId: "pu_lost" } });
+  });
+
+  /** A product user with one move pending since before the repair window, as the tick finds them. */
+  function stuck(connectionStatus: "active" | "revoked") {
+    const db = new FakeFirestore();
+    db.seed("product_connections", "pcn_1", { tenantId: "ten_demo", kind: "custom", status: connectionStatus });
+    db.seed("product_users", "pu_1", { tenantId: "ten_demo", connectionId: "pcn_1", status: "active", emailNormalized: "ada@example.com" });
+    seedMove(db, "mv_old");
+    return db;
+  }
+  const drain = (db: FakeFirestore) => processEmailJobs(ctx, 10, db, { deadlineAt: Date.now() + 60_000 });
+
+  it("stops queueing a move once its job finds the product revoked: the job marks it dropped", async () => {
+    const db = stuck("revoked");
+    expect(await repairPendingMoves(ctx, { db, now: NOW })).toEqual({ requeued: 1 });
+    await drain(db);
+    expect(db.raw("person_moves", "mv_old")?.repoint).toBe("dropped");
+    expect(db.dump("email_jobs")).toHaveLength(0);
+    // The next ticks find nothing pending, so the job is never made again.
+    for (let tick = 0; tick < 2; tick += 1) {
+      expect(await repairPendingMoves(ctx, { db, now: NOW })).toEqual({ requeued: 0 });
+      await drain(db);
+    }
+    expect(db.dump("email_jobs")).toHaveLength(0);
+  });
+
+  it("queues a job again after it failed three times, and the move ends done", async () => {
+    const db = stuck("active");
+    expect(await repairPendingMoves(ctx, { db, now: NOW })).toEqual({ requeued: 1 });
+    const read = db.collection.bind(db);
+    const outage = vi.spyOn(db, "collection").mockImplementation((name: string) => {
+      if (name === "product_users") throw new Error("unavailable");
+      return read(name);
+    });
+    for (let attempt = 0; attempt < 3; attempt += 1) expect(await drain(db)).toMatchObject({ failed: 1 });
+    // Not parked as failed: its key would block the repair for good.
+    expect(db.dump("email_jobs")).toHaveLength(0);
+    expect(db.raw("person_moves", "mv_old")?.repoint).toBe("pending");
+    outage.mockRestore();
+
+    expect(await repairPendingMoves(ctx, { db, now: NOW })).toEqual({ requeued: 1 });
+    expect(await drain(db)).toMatchObject({ done: 1, failed: 0 });
+    expect(db.raw("person_moves", "mv_old")?.repoint).toBe("done");
     expect(db.dump("email_jobs")).toHaveLength(0);
   });
 });

@@ -86,7 +86,8 @@ const HOLD_MS = 30 * 60_000;
 
 /**
  * Drain due jobs from the queue. Idempotent + best-effort: a failed job retries
- * up to MAX_ATTEMPTS, then parks as "failed". Designed to be kicked inline after
+ * up to MAX_ATTEMPTS, then parks as "failed" (a person repoint is deleted instead,
+ * for the lifecycle tick to queue again). Designed to be kicked inline after
  * enqueue (immediate sends) AND on a schedule (Cloud Scheduler) for future
  * journey steps. Safe under overlapping drains: each job is claimed in a
  * transaction, so exactly one drain processes it (see the claim below).
@@ -255,11 +256,17 @@ export async function processEmailJobs(
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       const exhausted = attempts >= MAX_ATTEMPTS;
-      await forTenant(ctx, db).emailJobs.update(job.id, {
-        status: exhausted ? "failed" : "pending",
-        lastError: msg,
-        processedAt: exhausted ? new Date().toISOString() : null,
-      });
+      if (exhausted && job.type === "person_repoint") {
+        // Self correcting: its move stays pending in person_moves and the lifecycle tick queues it
+        // again. Parked as failed, its key would block that for good and keep the product user id.
+        await forTenant(ctx, db).emailJobs.delete(job.id);
+      } else {
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: exhausted ? "failed" : "pending",
+          lastError: msg,
+          processedAt: exhausted ? new Date().toISOString() : null,
+        });
+      }
       if (exhausted && job.type === "invite") await markInviteFailed(ctx, job, msg, db);
       if (exhausted && job.type === "broadcast") {
         const bid = String(job.payload.broadcastId ?? "");

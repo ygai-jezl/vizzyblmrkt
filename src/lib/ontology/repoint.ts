@@ -14,8 +14,10 @@ import { personIdForProductUser } from "./personRef";
  * It works in slices (20 seconds by default, well under the delivery lease) with a cursor saved on
  * the job, and answers "again" to be put back in the queue; the next run resumes from the cursor
  * while the person is still the same. When it is done it marks the user's pending moves done and
- * answers "drop", so the job is deleted and no id outlives the work. Switch off: "drop", writing
- * nothing.
+ * answers "drop", so the job is deleted and no id outlives the work. When the user can no longer
+ * be a person (erased, gone, or their product revoked or missing) it marks their pending moves
+ * dropped and answers "drop", so the lifecycle tick stops queueing them. Switch off: "drop",
+ * writing nothing.
  *
  * After the five stores it walks the event history and agent actions (by the repository keys in
  * HISTORY_STORES, never a collection name): first their rows naming the product user, then, for
@@ -90,8 +92,29 @@ export async function processPersonRepointJob(
   const started = now();
   const repo = forTenant(ctx, db);
 
+  /**
+   * Settle every pending move of theirs: done once their rows are with their person, dropped when
+   * they can't be (they are no longer a person). Either way the tick stops queueing the job again.
+   */
+  const settleMoves = async (to: "done" | "dropped"): Promise<"drop"> => {
+    let cursor: string | null = null;
+    for (;;) {
+      const page = await repo.personMoves.updateWhere(
+        [
+          ["productUserId", "==", productUserId],
+          ["repoint", "==", "pending"],
+        ],
+        () => ({ repoint: to }),
+        { startAfter: cursor, limit: pageSize },
+      );
+      cursor = page.last;
+      if (!page.more) break;
+    }
+    return "drop";
+  };
+
   const user0 = await repo.productUsers.getById(productUserId);
-  if (!user0 || user0.status !== "active") return "drop";
+  if (!user0 || user0.status !== "active") return settleMoves("dropped");
   const connection = await repo.productConnections.getById(user0.connectionId);
   /** Their person now, or null when they're gone or no longer a person (a revoked product). */
   const currentTarget = async (): Promise<ContactPersonId | null> => {
@@ -99,7 +122,7 @@ export async function processPersonRepointJob(
     return user ? personIdForProductUser(ctx.tenantId, user, connection) : null;
   };
   let target = personIdForProductUser(ctx.tenantId, user0, connection);
-  if (!target) return "drop";
+  if (!target) return settleMoves("dropped");
 
   /**
    * The walk for a target: the five stores, the history stores by the product user, then the
@@ -143,7 +166,7 @@ export async function processPersonRepointJob(
     if (index >= steps.length) {
       // The end: if they moved again meanwhile, start over for the new person.
       const fresh = await currentTarget();
-      if (!fresh) return "drop";
+      if (!fresh) return settleMoves("dropped");
       if (fresh !== target) {
         target = fresh;
         steps = await stepsFor(target);
@@ -152,20 +175,7 @@ export async function processPersonRepointJob(
         continue;
       }
       // Every pending move of theirs is now carried out.
-      let cursor: string | null = null;
-      for (;;) {
-        const page = await repo.personMoves.updateWhere(
-          [
-            ["productUserId", "==", productUserId],
-            ["repoint", "==", "pending"],
-          ],
-          () => ({ repoint: "done" as const }),
-          { startAfter: cursor, limit: pageSize },
-        );
-        cursor = page.last;
-        if (!page.more) break;
-      }
-      return "drop";
+      return settleMoves("done");
     }
     if (now() - started >= sliceMs) {
       const step = steps[index]!;
@@ -175,7 +185,7 @@ export async function processPersonRepointJob(
     }
     // Before each page: still the same person? If not, the newest one wins and the walk starts over.
     const fresh = await currentTarget();
-    if (!fresh) return "drop";
+    if (!fresh) return settleMoves("dropped");
     if (fresh !== target) {
       target = fresh;
       steps = await stepsFor(target);

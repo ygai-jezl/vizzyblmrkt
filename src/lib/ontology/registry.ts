@@ -737,14 +737,14 @@ export const ONTOLOGY: readonly OntologyType[] = [
     status: "built",
     home: "brand",
     personal: "people",
-    stores: [regional("person_moves", "pending until the job has moved their rows, then done; the event fields never change")],
+    stores: [regional("person_moves", "pending until the job has moved their rows, then done, or dropped when the product user can no longer be a person (erased, or their product revoked); the event fields never change")],
     links: [
       { to: "product_user", via: "productUserId", many: false },
       { to: "person", via: "personId and fromPersonId", many: false },
       { to: "product", via: "connectionId", many: false },
     ],
     events: ["record.merged", "record.repointed"],
-    states: ["pending", "done"],
+    states: ["pending", "done", "dropped"],
     personFields: [
       { field: "personId", stampedAtWrite: true },
       { field: "fromPersonId", stampedAtWrite: true },

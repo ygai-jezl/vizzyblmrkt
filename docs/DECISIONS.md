@@ -110,7 +110,8 @@ Owner decisions (2026-11-19 and 2026-11-20):
   leaves a product user with another person, the move is kept in the new regional store
   `person_moves`: `record.merged` when a `pu:` person gains an address, `record.repointed` when
   an address changes or is removed. One move per write (`mv_` from the write's message id), ids
-  only, and only its `repoint` marker changes, from pending to done.
+  only, and only its `repoint` marker changes, from pending to done, or to dropped when the
+  product user can no longer be a person (erased, or their product revoked).
   - A `person_repoint` job on the email queue (`pr_` per product user and target person) moves
     the rows. It works out the person when it runs, so the newest one wins whatever order jobs
     run in, and checks again before each page and at the end. It works in 20 second slices with
@@ -118,9 +119,11 @@ Owner decisions (2026-11-19 and 2026-11-20):
     itself. It walks the five stamped stores by product user or sign-up, then the event history
     and agent actions: by the product user, and by the person rows were filed under for a merge
     or a from-person whose record is gone.
-  - The lifecycle tick queues again any move pending for over 15 minutes. Switch off: the job
-    drops without writing, and no move or job is made. `person_moves` is erased and exported
-    with the product user and with either person.
+  - The lifecycle tick queues again any move pending for over 15 minutes, paging through the
+    brand's pending moves by document id. A job that fails three times is deleted rather than
+    parked as failed, so its key never blocks that. Switch off: the job drops without writing,
+    and no move or job is made. `person_moves` is erased and exported with the product user and
+    with either person.
 - **The event store and agent actions (0e).** Two new collections in the brand's regional
   database, through `forTenant`: `ontology_events` (append only) and `agent_actions` (one
   record per agent suggestion), as decisions 12 and 22 chose. Regional because the rows are

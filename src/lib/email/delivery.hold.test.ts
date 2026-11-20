@@ -8,10 +8,11 @@ import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
 import { suppressionDocId } from "./suppression";
 
 // The person repoint job itself is tested in src/lib/ontology/repoint.test.ts: here, only what the queue does with its answer.
-const repoint = vi.hoisted(() => ({ answer: "drop" as "drop" | "again", calls: [] as unknown[] }));
+const repoint = vi.hoisted(() => ({ answer: "drop" as "drop" | "again" | "throw", calls: [] as unknown[] }));
 vi.mock("@/lib/ontology/repoint", () => ({
   processPersonRepointJob: async (_ctx: unknown, job: unknown) => {
     repoint.calls.push(job);
+    if (repoint.answer === "throw") throw new Error("unavailable");
     return repoint.answer;
   },
 }));
@@ -245,6 +246,17 @@ describe("a person repoint job in the queue", () => {
     repoint.answer = "drop";
     await processEmailJobs(ctx, 10, db);
     expect(repoint.calls).toHaveLength(2);
+    expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
+  });
+
+  it("is deleted, not parked as failed, when it throws a third time, so the tick can queue it again", async () => {
+    const db = new FakeFirestore();
+    queued(db);
+    repoint.answer = "throw";
+    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, failed: 1 });
+    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, failed: 1 });
+    expect(db.raw("email_jobs", "pr_1")).toMatchObject({ status: "pending", attempts: 2, lastError: "unavailable" });
+    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, failed: 1 });
     expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
   });
 });

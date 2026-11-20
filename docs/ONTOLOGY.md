@@ -598,10 +598,10 @@ A product user who moved to another person: merged when one known only by their 
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
-  - `person_moves`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Pending until the job has moved their rows, then done; the event fields never change.
+  - `person_moves`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Pending until the job has moved their rows, then done, or dropped when the product user can no longer be a person (erased, or their product revoked); the event fields never change.
 - Links: `product_user` through productUserId; `person` through personId and fromPersonId; `product` through connectionId
 - Events: `record.merged`, `record.repointed`
-- States: `pending`, `done`
+- States: `pending`, `done`, `dropped`
 - Person fields: `personId` (written with the row), `fromPersonId` (written with the row), `productUserId` (written with the row)
 - Erase:
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export

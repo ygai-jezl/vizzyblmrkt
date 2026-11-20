@@ -18,8 +18,9 @@ import { personIdForProductUser } from "./personRef";
 
 /** A move pending longer than this has lost its job, and the tick queues it again. */
 export const REPAIR_AFTER_MS = 15 * 60_000;
-/** Most pending moves one tick looks at per brand. */
-const REPAIR_BATCH = 50;
+/** Pending moves read per page, and the most pages one tick reads per brand. */
+const REPAIR_PAGE = 100;
+const REPAIR_MAX_PAGES = 10;
 
 function hash32(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 32);
@@ -107,21 +108,43 @@ export async function ontologyAfterProductWrites(
 
 /**
  * On the lifecycle tick: queue the job again for any move still pending after REPAIR_AFTER_MS (its
- * job was lost, or dropped while the switch was off). The job works out the current person when it
- * runs, so an older move's key is fine; a job still queued for it dedupes. Switch off: nothing.
+ * job was lost, failed three times, or dropped while the switch was off). The job works out the
+ * current person when it runs, so an older move's key is fine; a job still queued for it dedupes.
+ * It pages through the brand's pending moves by document id (equality only, no composite index),
+ * so moves whose jobs are still queued never hide one whose job was lost. Switch off: nothing.
  */
-export async function repairPendingMoves(ctx: TenantContext, deps: { db?: FirestoreLike; now?: number } = {}): Promise<{ requeued: number }> {
+export async function repairPendingMoves(
+  ctx: TenantContext,
+  deps: { db?: FirestoreLike; now?: number; pageSize?: number } = {},
+): Promise<{ requeued: number }> {
   if (!isOntologyPersonIdsEnabled()) return { requeued: 0 };
   const nowMs = deps.now ?? Date.now();
-  const pending = await forTenant(ctx, deps.db).personMoves.find({ where: [["repoint", "==", "pending"]], limit: REPAIR_BATCH });
+  const pageSize = deps.pageSize ?? REPAIR_PAGE;
+  const repo = forTenant(ctx, deps.db);
+  const tried = new Set<string>();
   let requeued = 0;
-  for (const move of pending) {
-    if (nowMs - Date.parse(move.createdAt) < REPAIR_AFTER_MS) continue;
-    try {
-      if ((await queueRepoint(ctx, move.productUserId, move.personId, deps.db)) === "enqueued") requeued += 1;
-    } catch (err) {
-      console.warn(`[ontology] re-queueing a person move failed tenant=${ctx.tenantId}:`, err instanceof Error ? err.message.slice(0, 120) : "error");
+  let after: string | null = null;
+  for (let page = 0; page < REPAIR_MAX_PAGES; page += 1) {
+    const pending = await repo.personMoves.find({
+      where: [["repoint", "==", "pending"]],
+      orderBy: [["__name__", "asc"]],
+      ...(after ? { startAfter: [after] } : {}),
+      limit: pageSize,
+    });
+    for (const move of pending) {
+      if (nowMs - Date.parse(move.createdAt) < REPAIR_AFTER_MS) continue;
+      // Moves of one product user to one person share a job: try its key once a tick.
+      const key = repointJobKey(ctx.tenantId, move.productUserId, move.personId);
+      if (tried.has(key)) continue;
+      tried.add(key);
+      try {
+        if ((await queueRepoint(ctx, move.productUserId, move.personId, deps.db)) === "enqueued") requeued += 1;
+      } catch (err) {
+        console.warn(`[ontology] re-queueing a person move failed tenant=${ctx.tenantId}:`, err instanceof Error ? err.message.slice(0, 120) : "error");
+      }
     }
+    if (pending.length < pageSize) break;
+    after = pending[pending.length - 1]!.id;
   }
   if (requeued > 0) console.info(`[ontology] re-queued ${requeued} person moves tenant=${ctx.tenantId}`);
   return { requeued };

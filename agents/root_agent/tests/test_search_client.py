@@ -39,6 +39,24 @@ def test_sends_only_known_kinds_and_never_a_brand(monkeypatch):
     assert "tenantId" not in calls[0]["body"]
 
 
+def test_sends_idea_board_as_idea_which_every_app_version_takes(monkeypatch):
+    calls = _capture(monkeypatch)
+    sc.search_brand(STATE, "repot", ["idea_board"])
+    assert calls[0]["body"]["kinds"] == ["idea"]
+    sc.search_brand(STATE, "repot", ["idea", "idea_board", "article"])
+    assert calls[1]["body"]["kinds"] == ["idea", "article"]
+    sc.search_brand(STATE, "repot", ["idea_board", "idea"])
+    assert calls[2]["body"]["kinds"] == ["idea"]
+
+
+def test_knows_learned_and_drops_unknown_kinds(monkeypatch):
+    calls = _capture(monkeypatch)
+    sc.search_brand(STATE, "repot", ["learned", "scrapbook", "people"])
+    assert calls[0]["body"]["kinds"] == ["learned"]
+    sc.search_brand(STATE, "repot", ["people"])
+    assert "kinds" not in calls[1]["body"]
+
+
 def test_caps_the_query(monkeypatch):
     calls = _capture(monkeypatch)
     sc.search_brand(STATE, "x" * 900)

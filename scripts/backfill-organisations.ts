@@ -19,8 +19,9 @@
  * organisations with no owners.
  *
  * --replan <plan> [--from-plan <plan>] fixes a backfill that used the wrong plan: it moves the
- * organisations the backfill created (only those on --from-plan, when given) to <plan>, with the
- * same dry run, flags and --apply --by <label>. Never edit plans by hand.
+ * organisations the backfill set up (only those on --from-plan, when given) to <plan>, with the
+ * same dry run, flags and --apply --by <label>. One that move-brand or the app took up again since
+ * is theirs, and left alone. Never edit plans by hand.
  *
  * Export the deployment's own GRANTED_ONLY_FEATURES and FEATURE_MONTHLY_LIMITS first: the dry run
  * reads them from this shell, and prints what it read.

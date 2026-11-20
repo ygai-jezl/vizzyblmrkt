@@ -112,9 +112,10 @@ describe("organisations", () => {
       db.seed("tenants", "ten_A", brand());
       db.seed(ORGANISATIONS, "org_ten_A", org("org_ten_A", { plan: "ultra", brandIds: [], ownerIds: ["usr_1"] }));
 
-      expect(await ensureBrandOrganisation("ten_A", { plan: "pro", createdBy: "backfill" }, db)).toEqual({ status: "created", organisationId: "org_ten_A" });
+      expect(await ensureBrandOrganisation("ten_A", { plan: "pro", createdBy: "usr_maker" }, db)).toEqual({ status: "created", organisationId: "org_ten_A" });
       const o = await getOrganisation("org_ten_A", db);
-      expect(o).toMatchObject({ plan: "pro", brandIds: ["ten_A"], ownerIds: ["usr_1"], createdAt: T0 });
+      // Who took it up chose the plan: no longer the backfill's, so --replan leaves it.
+      expect(o).toMatchObject({ plan: "pro", brandIds: ["ten_A"], ownerIds: ["usr_1"], createdBy: "usr_maker", createdAt: T0 });
       expect(db.raw("tenants", "ten_A")).toMatchObject({ organisationId: "org_ten_A", orgPlan: "pro" });
       expect(kinds(db)).toEqual(["brand.joined", "plan.changed"]);
     });
@@ -274,7 +275,8 @@ describe("organisations", () => {
       expect(await moveBrandToNewOrganisation("ten_B", { plan: "pro", actor: "script:ops" }, db)).toEqual({ organisationId: "org_ten_B", moved: true });
 
       expect(db.raw(ORGANISATIONS, "org_ten_A")?.brandIds).toEqual(["ten_A"]);
-      expect(await getOrganisation("org_ten_B", db)).toMatchObject({ name: "Beta", plan: "pro", brandIds: ["ten_B"] });
+      // org_ten_B was the backfill's; the operator chose this plan, so --replan must leave it.
+      expect(await getOrganisation("org_ten_B", db)).toMatchObject({ name: "Beta", plan: "pro", brandIds: ["ten_B"], createdBy: "script:ops", createdAt: T0 });
       expect(db.raw("tenants", "ten_B")).toMatchObject({ organisationId: "org_ten_B", orgPlan: "pro" });
       expect(kinds(db)).toEqual(["brand.joined", "brand.left", "plan.changed"]);
     });

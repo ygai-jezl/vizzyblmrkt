@@ -174,7 +174,8 @@ export async function ensureBrandOrganisation(
         planSince: current?.plan === plan ? current.planSince : now,
         brandIds: [tenantId],
         ownerIds: opts.ownerIds ? ownerIds : (current?.ownerIds ?? []),
-        createdBy: current?.createdBy ?? opts.createdBy,
+        // Whoever takes it up chose its plan, so --replan (the backfill's only) follows them.
+        createdBy: opts.createdBy,
         createdAt: current?.createdAt ?? now,
         updatedAt: now,
       };
@@ -293,7 +294,8 @@ export async function moveBrandToNewOrganisation(
       planSince: current?.plan === plan ? current.planSince : now,
       brandIds: [tenantId],
       ownerIds: opts.ownerIds ? ownerIds : (current?.ownerIds ?? []),
-      createdBy: current?.createdBy ?? opts.actor,
+      // A reused one too: the operator chose its plan, so --replan (the backfill's only) leaves it.
+      createdBy: opts.actor,
       createdAt: current?.createdAt ?? now,
       updatedAt: now,
     };

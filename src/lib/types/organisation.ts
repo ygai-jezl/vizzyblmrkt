@@ -66,7 +66,11 @@ export const OrganisationSchema = z.object({
    * brand made in the app lists its creator, and operators add owners with scripts/set-plan.ts.
    */
   ownerIds: z.array(Id).max(MAX_ORGANISATION_OWNERS).default([]),
-  /** "backfill", "selfhost", "seed", or the Firebase UID of the person who made it. */
+  /**
+   * "backfill", "selfhost", "seed", a script's actor (script:<label>), or the Firebase UID of the
+   * person who made it. An empty organisation taken up again records who took it up, since they
+   * chose its plan: backfill-organisations --replan changes only those "backfill" set up.
+   */
   createdBy: z.string().min(1).max(160),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),

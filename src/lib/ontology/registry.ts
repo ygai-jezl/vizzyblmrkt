@@ -20,6 +20,7 @@ import type { OntologyType, PathDecision, PathRef, StoreRef } from "./types";
 const REPO = "src/lib/tenant/repository.ts";
 const CONTROL = "src/lib/tenant/control.ts";
 const TENANT_LOOKUP = "src/lib/tenant/registry.ts";
+const ORGS = "src/lib/tenant/organisations.ts";
 const WORKSPACE_CONTENT = "src/lib/tenant/workspaceContent.ts";
 const KNOWLEDGE = "src/lib/tenant/knowledge.ts";
 const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
@@ -1206,13 +1207,15 @@ export const ONTOLOGY: readonly OntologyType[] = [
     home: "control",
     personal: "team",
     stores: [
-      control("tenants", CONTROL),
+      control("tenants", CONTROL, "`billingTier` is still written for new brands, so a rollback to a build from before plans can list them, but nothing reads it"),
       control("tenants", TENANT_LOOKUP, "the lookups by id, host and member"),
       control("tenants", "workers/knowledge-scraper/src/gitToken.ts", "the scraper reads the brand's repo connection"),
+      control("tenants", ORGS, "the only writer of `organisationId` and `orgPlan`, a copy of the organisation's plan, both written in one transaction with the organisation"),
     ],
     links: [
       { to: "member", via: "tenant_users.tenantId", many: true },
       { to: "brand_kit", via: "brandKit and brandVoice", many: false },
+      { to: "organisation", via: "organisationId, with a copy of its plan in orgPlan", many: false },
     ],
     events: [],
     erase: { gap: "no path deletes a whole brand and everything it holds" },
@@ -1238,6 +1241,63 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { gap: "no path removes a member or their data when they leave the team" },
     export: { none: "a member sees their own access on the Team screen" },
     search: { none: "found on the Team screen" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "organisation",
+    name: "Organisation",
+    description:
+      "The account above brands: its plan (self_hosted, free, pro, ultra or enterprise, from `src/lib/plans/catalog.ts`), the brands it lists, its users counted once across them, and the owners who see its totals on Plan and usage. Its id is `org_<tenantId>` for the brand it started with, or `org_<tenantId>_<6 characters>` when a brand split back out finds that id taken. Written only through `src/lib/tenant/organisations.ts`, in one transaction with its brands and its change log. Never deleted, even when a move leaves it empty. Never a brand's people.",
+    place: "platform",
+    status: "built",
+    home: "control",
+    personal: "team",
+    stores: [
+      control("organisations", ORGS, "`ownerIds` and `createdBy` hold Firebase user ids; `createdBy` is instead backfill, selfhost, seed or `script:<label>` when no member made it"),
+    ],
+    links: [
+      { to: "brand", via: "brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan", many: true },
+      { to: "member", via: "ownerIds and createdBy, as user ids; its users are the members of its brands, counted once", many: true },
+      { to: "organisation_change", via: "organisation_changes.organisationId", many: true },
+    ],
+    events: [],
+    erase: {
+      paths: [
+        { fn: "setOrganisationOwners", file: ORGS, trigger: "member", when: "an operator takes their user id out of `ownerIds` with `scripts/set-plan.ts --remove-owner`, on their erase request" },
+      ],
+      gaps: [
+        "leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it",
+        "`createdBy` keeps the user id of the member who made it (the brand's creator, or whoever took up an empty one again), with no path to clear it",
+        "no path deletes an organisation, even one a move leaves empty, so the user ids it holds are kept for its life",
+      ],
+    },
+    export: { gap: "team member ids in `ownerIds` and `createdBy` stay as ids, with no export by team member; owners see the plan, brands and totals on Plan and usage" },
+    search: { none: "a control plane record with no brand content or people, found on Plan and usage" },
+    numbers: { none: "its allowances and use show on Plan and usage; no agent reads them" },
+  },
+  {
+    id: "organisation_change",
+    name: "Organisation change",
+    description:
+      "One row per change to an organisation, written in the same transaction as the change: organisation.created, plan.changed, brand.joined, brand.left, organisation.renamed and owners.changed, with the values before and after and who made it. Append only: a row is only ever added, never changed or deleted, and is kept with no time to live. Its id is `<organisationId>_<tenantId, or org>_<time>_<kind>_<8 random characters>`. Piece O may fold it into the settings history, or the event envelope may carry it later.",
+    place: "platform",
+    status: "built",
+    home: "control",
+    personal: "team",
+    stores: [
+      control("organisation_changes", ORGS, "append only, written only through this file; `actor` is a Firebase user id or an operator label (`script:<label>`, `backfill:<label>`, seed or selfhost), and an owners.changed row lists owners' user ids in `from` and `to`"),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "brand", via: "tenantId, on brand.joined and brand.left", many: false },
+      { to: "member", via: "actor when it is a user id, and the owners an owners.changed row lists", many: true },
+    ],
+    events: [],
+    erase: {
+      gap: "no path removes or rewrites a member's user id in `actor`, or in the `from` and `to` of an owners.changed row; ADR-0009 has an operator rewrite `actor` to \"erased\" by hand until piece O brings an erase path, which leaves `from` and `to`, including on the row that removing the owner writes",
+    },
+    export: { gap: "team member ids in `actor`, `from` and `to` stay as ids, with no export by team member" },
+    search: { none: "a control plane change log with no brand content or people" },
     numbers: { none: NO_NUMBERS },
   },
   {
@@ -1382,23 +1442,6 @@ export const ONTOLOGY: readonly OntologyType[] = [
   },
 
   // ===== Planned types ======================================================================
-  {
-    id: "organisation",
-    name: "Organisation",
-    description: "The account above brands: the plan, the bill, the team counted once, and its owners. Never a brand's people.",
-    place: "platform",
-    status: "planned",
-    plannedIn: "A",
-    home: "control",
-    personal: "team",
-    stores: [],
-    links: [{ to: "brand", via: "organisationId on the brand", many: true }],
-    events: [],
-    erase: { none: planned("piece A") },
-    export: { none: planned("piece A") },
-    search: { none: "found on Plan and usage" },
-    numbers: { none: planned("piece A") },
-  },
   {
     id: "subscription",
     name: "Subscription",

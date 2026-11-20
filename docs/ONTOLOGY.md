@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-89 types: 63 built and 26 planned.
+90 types: 65 built and 25 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1282,7 +1282,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
 
 ## Platform
 
-A rail beside the spine: the brand record, members, queues, limits, audit, search and outside providers.
+A rail beside the spine: the brand record, members, organisations and their plans, queues, limits, audit, search and outside providers.
 
 ### Brand (`brand`)
 
@@ -1292,10 +1292,11 @@ The tenant: the face people see (name, voice, domains, sender) and the data wall
 - Home: the control plane
 - Personal: the brand's own team
 - Stores:
-  - `tenants`, control plane Firestore, in `src/lib/tenant/control.ts`
+  - `tenants`, control plane Firestore, in `src/lib/tenant/control.ts`. `billingTier` is still written for new brands, so a rollback to a build from before plans can list them, but nothing reads it.
   - `tenants`, control plane Firestore, in `src/lib/tenant/registry.ts`. The lookups by id, host and member.
   - `tenants`, control plane Firestore, in `workers/knowledge-scraper/src/gitToken.ts`. The scraper reads the brand's repo connection.
-- Links: `member` through tenant_users.tenantId (many); `brand_kit` through brandKit and brandVoice
+  - `tenants`, control plane Firestore, in `src/lib/tenant/organisations.ts`. The only writer of `organisationId` and `orgPlan`, a copy of the organisation's plan, both written in one transaction with the organisation.
+- Links: `member` through tenant_users.tenantId (many); `brand_kit` through brandKit and brandVoice; `organisation` through organisationId, with a copy of its plan in orgPlan
 - Erase: gap. No path deletes a whole brand and everything it holds.
 - Export: none. The brand's own settings, read on its settings screens.
 - Search: none. Its voice and kit are searched as brand_kit.
@@ -1316,6 +1317,40 @@ A team member's access to a brand, with their role.
 - Erase: gap. No path removes a member or their data when they leave the team.
 - Export: none. A member sees their own access on the Team screen.
 - Search: none. Found on the Team screen.
+- Numbers: none. No numbers an agent reads.
+
+### Organisation (`organisation`)
+
+The account above brands: its plan (self_hosted, free, pro, ultra or enterprise, from `src/lib/plans/catalog.ts`), the brands it lists, its users counted once across them, and the owners who see its totals on Plan and usage. Its id is `org_<tenantId>` for the brand it started with, or `org_<tenantId>_<6 characters>` when a brand split back out finds that id taken. Written only through `src/lib/tenant/organisations.ts`, in one transaction with its brands and its change log. Never deleted, even when a move leaves it empty. Never a brand's people.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `organisations`, control plane Firestore, in `src/lib/tenant/organisations.ts`. `ownerIds` and `createdBy` hold Firebase user ids; `createdBy` is instead backfill, selfhost, seed or `script:<label>` when no member made it.
+- Links: `brand` through brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan (many); `member` through ownerIds and createdBy, as user ids; its users are the members of its brands, counted once (many); `organisation_change` through organisation_changes.organisationId (many)
+- Erase:
+  - `setOrganisationOwners` in `src/lib/tenant/organisations.ts`, on the team member themselves (an operator takes their user id out of `ownerIds` with `scripts/set-plan.ts --remove-owner`, on their erase request)
+  - Gap: leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it
+  - Gap: `createdBy` keeps the user id of the member who made it (the brand's creator, or whoever took up an empty one again), with no path to clear it
+  - Gap: no path deletes an organisation, even one a move leaves empty, so the user ids it holds are kept for its life
+- Export: gap. Team member ids in `ownerIds` and `createdBy` stay as ids, with no export by team member; owners see the plan, brands and totals on Plan and usage.
+- Search: none. A control plane record with no brand content or people, found on Plan and usage.
+- Numbers: none. Its allowances and use show on Plan and usage; no agent reads them.
+
+### Organisation change (`organisation_change`)
+
+One row per change to an organisation, written in the same transaction as the change: organisation.created, plan.changed, brand.joined, brand.left, organisation.renamed and owners.changed, with the values before and after and who made it. Append only: a row is only ever added, never changed or deleted, and is kept with no time to live. Its id is `<organisationId>_<tenantId, or org>_<time>_<kind>_<8 random characters>`. Piece O may fold it into the settings history, or the event envelope may carry it later.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `organisation_changes`, control plane Firestore, in `src/lib/tenant/organisations.ts`. Append only, written only through this file; `actor` is a Firebase user id or an operator label (`script:<label>`, `backfill:<label>`, seed or selfhost), and an owners.changed row lists owners' user ids in `from` and `to`.
+- Links: `organisation` through organisationId; `brand` through tenantId, on brand.joined and brand.left; `member` through actor when it is a user id, and the owners an owners.changed row lists (many)
+- Erase: gap. No path removes or rewrites a member's user id in `actor`, or in the `from` and `to` of an owners.changed row; ADR-0009 has an operator rewrite `actor` to "erased" by hand until piece O brings an erase path, which leaves `from` and `to`, including on the row that removing the owner writes.
+- Export: gap. Team member ids in `actor`, `from` and `to` stay as ids, with no export by team member.
+- Search: none. A control plane change log with no brand content or people.
 - Numbers: none. No numbers an agent reads.
 
 ### Social account link (`social_connection`)
@@ -1443,19 +1478,6 @@ Mandrill's own record of each email it sent for the brand, with the address and 
 - Export: gap. A person's export does not include Mandrill's message log.
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
 - Numbers: none. Its events arrive as email events.
-
-### Organisation (`organisation`)
-
-The account above brands: the plan, the bill, the team counted once, and its owners. Never a brand's people.
-
-- Status: planned, in A
-- Home: the control plane
-- Personal: the brand's own team
-- Links: `brand` through organisationId on the brand (many)
-- Erase: none. Planned: piece A decides it with the store.
-- Export: none. Planned: piece A decides it with the store.
-- Search: none. Found on Plan and usage.
-- Numbers: none. Planned: piece A decides it with the store.
 
 ### Subscription (`subscription`)
 
@@ -1587,6 +1609,14 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: no path deletes a whole brand and everything it holds
 - Member (`member`):
   - Erase: no path removes a member or their data when they leave the team
+- Organisation (`organisation`):
+  - Erase: leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it
+  - Erase: `createdBy` keeps the user id of the member who made it (the brand's creator, or whoever took up an empty one again), with no path to clear it
+  - Erase: no path deletes an organisation, even one a move leaves empty, so the user ids it holds are kept for its life
+  - Export: team member ids in `ownerIds` and `createdBy` stay as ids, with no export by team member; owners see the plan, brands and totals on Plan and usage
+- Organisation change (`organisation_change`):
+  - Erase: no path removes or rewrites a member's user id in `actor`, or in the `from` and `to` of an owners.changed row; ADR-0009 has an operator rewrite `actor` to "erased" by hand until piece O brings an erase path, which leaves `from` and `to`, including on the row that removing the owner writes
+  - Export: team member ids in `actor`, `from` and `to` stay as ids, with no export by team member
 - Email job (`email_job`):
   - Erase: a person's erase leaves their queued jobs; a queued send for a deleted sign-up drops when it runs
   - Export: queued jobs are not in a person's export; what they sent is in email sends

@@ -147,9 +147,9 @@ Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
   `brand.left`, `organisation.renamed` and `owners.changed`. Row ids carry a random part,
   so two brands joining in the same millisecond never collide. Piece O may fold it into
   the settings history, or piece 0's event envelope may carry it later.
-- **The ontology registry.** Whichever of A and piece 0 merges second adds the
-  `organisations` and `organisation_changes` entries: search kind none (control plane
-  records, no brand content or people) and no number path.
+- **The ontology registry.** A merged first, so piece 0 added the `organisations` and
+  `organisation_changes` entries: search kind none (control plane records, no brand content
+  or people) and no number path.
 - **`billingTier` is deprecated.** It was never read, and it is optional in `TenantSchema`.
   New brands still get `"mvp_free"` (the app, the seed and self-host's `create-workspace`),
   because builds from before plans require it: after a rollback to one, a brand without it
@@ -220,9 +220,9 @@ Owner decisions (2026-11-19 and 2026-11-20):
     sessions, Mailchimp and Mandrill.
   - Planned types carry the piece that builds them. The founder profile lives on the
     organisation (control plane, personal team), with its residency note (decision 16). Gate,
-    data share, partner and provision stay "undecided", which only a planned type may be. The
-    `organisations` and `organisation_changes` stores are added by whichever of piece 0 and
-    piece A merges second.
+    data share, partner and provision stay "undecided", which only a planned type may be.
+    Piece A merged first, so piece 0 added its `organisations` and `organisation_changes`
+    stores, as the built organisation and organisation change types.
   - Gaps are written down, not fixed: social engagement outside a person's erase and export,
     email jobs left by a contact erase, launch deletion leaving email rows and knowledge, counts
     without meanings, catalog history kept to 20, the one asset bucket for every region, the

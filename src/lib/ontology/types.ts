@@ -12,8 +12,8 @@ import type { EventKind } from "./events";
  * Where a type sits. The first five are the spine, in order: an idea, its signals, the product
  * (optional), customers and support. The rest are rails beside the spine: the brand's own
  * writing and assets (content), the company itself (company), who acts for the brand
- * (partner_agent), and what runs everything (platform: the brand record, members, rate limits,
- * audit, queues and copies).
+ * (partner_agent), and what runs everything (platform: the brand record, members, organisations,
+ * rate limits, audit, queues and copies).
  */
 export const PLACES = ["idea", "signals", "product", "customers", "support", "content", "company", "partner_agent", "platform"] as const;
 export type Place = (typeof PLACES)[number];

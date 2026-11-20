@@ -18,7 +18,7 @@ const PLACE_HEADINGS: Record<Place, { title: string; about: string }> = {
   content: { title: "Content", about: "A rail beside the spine: the brand's own writing and assets." },
   company: { title: "Company", about: "A rail beside the spine: the company itself, on the organisation." },
   partner_agent: { title: "Partners and agents", about: "A rail beside the spine: who acts for the brand." },
-  platform: { title: "Platform", about: "A rail beside the spine: the brand record, members, queues, limits, audit, search and outside providers." },
+  platform: { title: "Platform", about: "A rail beside the spine: the brand record, members, organisations and their plans, queues, limits, audit, search and outside providers." },
 };
 
 const DB_LABEL: Record<StoreDb, string> = {

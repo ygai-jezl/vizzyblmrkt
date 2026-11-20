@@ -4,6 +4,7 @@ import type {
   ResolvedMailchimpConfig,
   UpsertMemberInput,
 } from "./types";
+import { isMailchimpServerPrefix } from "./serverPrefix";
 
 /**
  * Thin MailChimp Marketing API client over native fetch. Every call returns a
@@ -31,6 +32,8 @@ async function call<T>(
   path: string,
   body?: unknown,
 ): Promise<MailchimpResult<T>> {
+  // The key only ever goes to a Mailchimp data centre's host.
+  if (!isMailchimpServerPrefix(cfg.serverPrefix)) return { ok: false, reason: "invalid_server_prefix" };
   try {
     const res = await fetch(`${baseUrl(cfg)}${path}`, {
       method,

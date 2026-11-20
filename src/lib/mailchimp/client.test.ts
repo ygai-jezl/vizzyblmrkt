@@ -39,3 +39,14 @@ describe("getAudience", () => {
     expect(await getAudience(cfg)).toEqual({ ok: false, reason: "timeout" });
   });
 });
+
+describe("the host the key goes to", () => {
+  it.each(["example.test#", "example.test/", "us21.example.test", ""])(
+    "never calls out with server prefix %j",
+    async (serverPrefix) => {
+      const res = await getAudience({ ...cfg, serverPrefix });
+      expect(res).toEqual({ ok: false, reason: "invalid_server_prefix" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+});

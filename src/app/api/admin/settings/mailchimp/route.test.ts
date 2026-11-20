@@ -159,6 +159,57 @@ describe("PUT /api/admin/settings/mailchimp: claiming an audience", () => {
   });
 });
 
+describe("PUT /api/admin/settings/mailchimp: the server prefix", () => {
+  // The key is sent to <prefix>.api.mailchimp.com, so "example.test#" would send it to
+  // example.test instead. Only a data centre such as us21 is taken.
+  it.each(["example.test#", "example.test/", "example.test?", "us21.example.test", "us 21", "us"])(
+    "refuses %j before any Mailchimp call or save, even with the saved key",
+    async (serverPrefix) => {
+      tenant.getTenantById.mockResolvedValue(brand({ requiresOwnApiKey: false, apiKey: OWN_KEY }));
+      const res = await PUT(req("PUT", { requiresOwnApiKey: false, audienceId: "own-list", serverPrefix }));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_server_prefix" });
+      expect(client.getAudience).not.toHaveBeenCalled();
+      expect(tenant.getTenantsByMailchimpAudience).not.toHaveBeenCalled();
+      expect(tenant.updateTenantConfig).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a bad prefix even when the audience is unchanged", async () => {
+    tenant.getTenantById.mockResolvedValue(brand({ requiresOwnApiKey: false, apiKey: OWN_KEY, audienceId: "own-list" }));
+    const res = await PUT(req("PUT", { requiresOwnApiKey: false, audienceId: "own-list", serverPrefix: "example.test#" }));
+    expect(res.status).toBe(400);
+    expect(tenant.updateTenantConfig).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bad prefix saved before this check, with no Mailchimp call", async () => {
+    tenant.getTenantById.mockResolvedValue(
+      brand({ requiresOwnApiKey: false, apiKey: OWN_KEY, serverPrefix: "example.test#" }),
+    );
+    const res = await PUT(req("PUT", { requiresOwnApiKey: false, audienceId: "own-list" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_server_prefix" });
+    expect(client.getAudience).not.toHaveBeenCalled();
+    expect(tenant.updateTenantConfig).not.toHaveBeenCalled();
+  });
+
+  it("refuses a key whose suffix isn't a data centre", async () => {
+    const res = await PUT(
+      req("PUT", { requiresOwnApiKey: false, apiKey: "made-up-test-key-example.test#", audienceId: "own-list" }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_server_prefix" });
+    expect(client.getAudience).not.toHaveBeenCalled();
+  });
+
+  it("takes a data centre, trimmed, and checks the claim there", async () => {
+    const res = await PUT(req("PUT", { requiresOwnApiKey: false, apiKey: OWN_KEY, audienceId: "own-list", serverPrefix: " us9 " }));
+    expect(res.status).toBe(200);
+    expect(client.getAudience).toHaveBeenCalledWith({ apiKey: OWN_KEY, serverPrefix: "us9", audienceId: "own-list" });
+    expect(saved()).toMatchObject({ serverPrefix: "us9" });
+  });
+});
+
 describe("PUT /api/admin/settings/mailchimp: requiresOwnApiKey", () => {
   it("can't be turned off here", async () => {
     tenant.getTenantById.mockResolvedValue(brand({ requiresOwnApiKey: true, apiKey: OWN_KEY, audienceId: "own-list" }));

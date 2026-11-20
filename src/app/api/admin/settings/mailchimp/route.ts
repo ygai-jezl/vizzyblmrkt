@@ -12,6 +12,7 @@ import {
 } from "@/lib/mailchimp/keyBox";
 import { getAudience } from "@/lib/mailchimp/client";
 import { deriveServerPrefix } from "@/lib/mailchimp/config";
+import { isMailchimpServerPrefix } from "@/lib/mailchimp/serverPrefix";
 import type { MailchimpTenantConfig } from "@/lib/types/tenant";
 
 export const runtime = "nodejs";
@@ -78,6 +79,9 @@ async function audienceClaimRefused(
     input.serverPrefix?.trim() || existing?.serverPrefix?.trim() || deriveServerPrefix(apiKey);
   // A key with no data centre can't read any list.
   if (!serverPrefix) return fail("audience_not_yours", 400);
+  // The key goes to this host, so only a Mailchimp data centre (a saved prefix from
+  // before this check, or a key whose suffix isn't one, is refused here too).
+  if (!isMailchimpServerPrefix(serverPrefix)) return fail("invalid_server_prefix", 400);
   const read = await getAudience({ apiKey, serverPrefix, audienceId });
   if (read.ok) return null;
   if (read.reason === "timeout" || read.reason === "request_error" || (read.status ?? 0) >= 500) {
@@ -90,7 +94,8 @@ async function audienceClaimRefused(
  * Update the BYO feature gate + (optionally) the tenant's own credentials. Admins only.
  * `requiresOwnApiKey` can be turned on here but never off (the owner does that). A changed
  * audience id must pass audienceClaimRefused; an unchanged one is not checked again, so an
- * existing configuration can be saved as it is. Nothing is saved on any refusal.
+ * existing configuration can be saved as it is. A server prefix must be a Mailchimp data
+ * centre (us21), because the key is sent to that host. Nothing is saved on any refusal.
  */
 export async function PUT(req: Request) {
   const blocked = sameOriginGuard(req);
@@ -112,6 +117,12 @@ export async function PUT(req: Request) {
 
   if (existing?.requiresOwnApiKey === true && parsed.data.requiresOwnApiKey === false) {
     return fail("requires_own_key_locked", 403);
+  }
+
+  // Only a Mailchimp data centre such as us21, or empty to use the key's own.
+  const serverPrefix = parsed.data.serverPrefix?.trim();
+  if (serverPrefix && !isMailchimpServerPrefix(serverPrefix)) {
+    return fail("invalid_server_prefix", 400);
   }
 
   const audienceId = parsed.data.audienceId?.trim();
@@ -139,7 +150,7 @@ export async function PUT(req: Request) {
     requiresOwnApiKey: parsed.data.requiresOwnApiKey,
     ...keyFields,
     audienceId: audienceId ?? existing?.audienceId,
-    serverPrefix: parsed.data.serverPrefix ?? existing?.serverPrefix,
+    serverPrefix: serverPrefix ?? existing?.serverPrefix,
   };
 
   await updateTenantConfig(ctx.tenantId, { mailchimpConfig: next });

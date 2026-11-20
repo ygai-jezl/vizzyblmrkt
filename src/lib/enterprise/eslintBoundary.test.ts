@@ -41,4 +41,18 @@ describe("the Enterprise boundary in ESLint", () => {
     },
     30_000,
   );
+
+  // The rule skips a specifier its resolvers can't resolve, so show it firing on a real file.
+  // The build without Enterprise code deletes src/ee, and then there is nothing to import.
+  it.skipIf(!existsSync(join(ROOT, "src/ee/README.md")))(
+    "fires on an import of a real src/ee file, by alias and by relative path",
+    async () => {
+      const source = 'import a from "@/ee/README.md";\nimport b from "../../ee/README.md";\nexport { a, b };\n';
+      const [result] = await eslint.lintText(source, { filePath: join(ROOT, "src/lib/plans/boundaryProbe.ts") });
+      const hits = (result?.messages ?? []).filter((m) => m.ruleId === RULE);
+      expect(hits.map((m) => m.line)).toEqual([1, 2]);
+      for (const hit of hits) expect(hit.message).toContain("Only src/lib/enterprise/registry.ts may import from src/ee");
+    },
+    60_000,
+  );
 });

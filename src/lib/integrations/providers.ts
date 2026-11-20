@@ -22,6 +22,9 @@ export interface ProviderConfig {
   listScope?: string;
   /** Field on the user API response that holds the account handle. */
   loginField: string;
+  /** OAuth token revocation endpoint (RFC 7009), when the provider has one we use.
+   *  Classic GitHub uses githubTokenRevokeUrl instead. */
+  revokeUrl?: string;
   clientId: () => string | undefined;
   clientSecret: () => string | undefined;
 }
@@ -50,10 +53,20 @@ export const PROVIDERS: Record<GitProvider, ProviderConfig> = {
     // read_repository/read_user don't cover GET /projects.
     listScope: "read_api",
     loginField: "username",
+    revokeUrl: "https://gitlab.com/oauth/revoke",
     clientId: () => process.env.GITLAB_OAUTH_CLIENT_ID,
     clientSecret: () => process.env.GITLAB_OAUTH_CLIENT_SECRET,
   },
 };
+
+/**
+ * Classic GitHub OAuth app: the endpoint that revokes ONE token
+ * (DELETE /applications/{client_id}/token). Never /applications/{client_id}/grant,
+ * which removes the app's grant for that GitHub user and so every brand's token.
+ */
+export function githubTokenRevokeUrl(clientId: string): string {
+  return `https://api.github.com/applications/${encodeURIComponent(clientId)}/token`;
+}
 
 export function isGitProvider(p: string): p is GitProvider {
   return p === "github" || p === "gitlab";

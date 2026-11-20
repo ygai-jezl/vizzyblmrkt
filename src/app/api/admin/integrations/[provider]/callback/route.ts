@@ -8,11 +8,14 @@ import {
   isGitProvider,
   oauthOrigin,
   grantedScopes,
+  type GitProvider,
 } from "@/lib/integrations/providers";
 import { verifyState, encryptToken, gitRefreshAad } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 import { githubAppConfig, verifyUserInstallation } from "@/lib/integrations/githubApp";
+import { isConnectorRevokeEnabled } from "@/lib/integrations/flags";
+import { revokeReplacedGitConnection } from "@/lib/integrations/revoke";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +34,11 @@ function back(origin: string, params: Record<string, string>): NextResponse {
   return res;
 }
 
+/** The brand's stored connection for this provider, before this callback replaces it. */
+async function priorConnection(tenantId: string, provider: GitProvider) {
+  return (await getTenantById(tenantId))?.gitConnections?.[provider];
+}
+
 /**
  * OAuth callback: provider redirects here with code+state. CSRF is the signed,
  * tenant-bound state plus the nonce cookie set by /start, which binds the flow to the
@@ -39,6 +47,9 @@ function back(origin: string, params: Record<string, string>): NextResponse {
  * redirect back to the connections page. With repo selection on, a new connection
  * starts with NO repos chosen and the page opens the repo picker (`select=`), so the
  * token isn't usable until the admin picks which repos across their orgs to use.
+ * With CONNECTOR_REVOKE_ENABLED on, a token this callback replaces (a reconnect, or an
+ * older GitHub connection switched to the GitHub App) is revoked after the save, only
+ * when it differs from the new one.
  */
 export async function GET(
   req: Request,
@@ -96,10 +107,13 @@ export async function GET(
   // GitHub App installation (read-only): store the installation, never a token.
   const app = provider === "github" ? githubAppConfig() : null;
   const installationId = Number(sp.get("installation_id"));
+  const revokeReplaced = isConnectorRevokeEnabled();
   if (app && Number.isInteger(installationId) && installationId > 0) {
     try {
       const v = await verifyUserInstallation({ code, installationId, redirectUri }, app);
       if (!v.ok) return back(origin, { status: "error", reason: v.reason, provider });
+      // Switch now: an older GitHub connection's token is replaced by the installation.
+      const prior = revokeReplaced ? await priorConnection(ctx.tenantId, provider) : undefined;
       await setTenantGitConnection(ctx.tenantId, provider, {
         provider,
         kind: "app",
@@ -109,6 +123,10 @@ export async function GET(
         connectedBy: ctx.userId,
         connectedAt: new Date().toISOString(),
       });
+      // After the save, best effort (never throws). An installation is never uninstalled.
+      if (revokeReplaced) {
+        await revokeReplacedGitConnection(ctx.tenantId, prior, { accessToken: null, refreshToken: null });
+      }
       return back(origin, { status: "ok", provider });
     } catch {
       return back(origin, { status: "error", reason: "exception", provider });
@@ -165,10 +183,9 @@ export async function GET(
     }
 
     const repoSelection = isGitRepoSelectionEnabled();
+    const prior = repoSelection || revokeReplaced ? await priorConnection(ctx.tenantId, provider) : undefined;
     // A reconnect keeps the repos already chosen; a first connect starts with none.
-    const priorRepos = repoSelection
-      ? (await getTenantById(ctx.tenantId))?.gitConnections?.[provider]?.repos
-      : undefined;
+    const priorRepos = repoSelection ? prior?.repos : undefined;
     const now = Date.now();
     // GitLab access tokens last 2 hours, so keep the refresh token (sealed and bound
     // to this brand) and the expiry; src/lib/integrations/tokenRefresh.ts renews it
@@ -197,6 +214,14 @@ export async function GET(
       connectedAt: new Date(now).toISOString(),
       ...(repoSelection ? { repos: priorRepos ?? [] } : {}),
     });
+    // After the save, best effort (never throws): revoke the token this reconnect
+    // replaced, unless the provider handed back the same access or refresh token.
+    if (revokeReplaced) {
+      await revokeReplacedGitConnection(ctx.tenantId, prior, {
+        accessToken: tok.access_token,
+        refreshToken: tok.refresh_token ?? null,
+      });
+    }
     return back(origin, {
       status: "ok",
       provider,

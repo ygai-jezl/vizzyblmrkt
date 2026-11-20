@@ -15,7 +15,7 @@ vi.mock("next/headers", () => ({
 }));
 
 const { GET } = await import("./route");
-const { signState, decryptToken, gitRefreshAad } = await import("@/lib/integrations/crypto");
+const { signState, decryptToken, encryptToken, gitRefreshAad } = await import("@/lib/integrations/crypto");
 
 const ORIGIN = "https://yougrow.test";
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -59,6 +59,8 @@ const fetchMock = vi.fn(async (url: string) => {
     );
   }
   if (u.includes("gitlab.com/api/v4/user")) return new Response(JSON.stringify({ username: "acme-dev" }), { status: 200 });
+  if (u === "https://gitlab.com/oauth/revoke") return new Response("{}", { status: 200 });
+  if (u.startsWith("https://api.github.com/applications/")) return new Response(null, { status: 204 });
   return new Response("{}", { status: 404 });
 });
 const org = (id: number): Install => ({
@@ -76,6 +78,8 @@ beforeEach(() => {
   vi.stubEnv("GITLAB_OAUTH_CLIENT_ID", "gitlab-test-client");
   vi.stubEnv("GITLAB_OAUTH_CLIENT_SECRET", "gitlab-test-secret");
   vi.stubEnv("GIT_REPO_SELECTION_ENABLED", "");
+  vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "");
+  vi.stubEnv("CONNECTOR_REVOKE_X_ENABLED", "");
   for (const [k, v] of Object.entries(APP_ENV)) vi.stubEnv(k, v);
   session.getAdminContext.mockResolvedValue(admin);
   tenant.getTenantById.mockResolvedValue({ gitConnections: {} });
@@ -268,5 +272,141 @@ describe("every redirect back clears the cookie", () => {
     const res = await call("gitlab", { code: "c", state: stateFor("gitlab") });
     expect(location(res).searchParams.get("reason")).toBe("forbidden");
     clearsCookie(res, "gitlab");
+  });
+});
+
+describe("a reconnect replaces a stored token: revoke the old one after the save", () => {
+  const revokeCalls = () =>
+    (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).filter(([u]) =>
+      /oauth\/revoke|api\.github\.com\/applications\//.test(String(u)),
+    );
+  /** The callback's revoke came after its save. */
+  const revokedAfterSave = () => {
+    const revokeIndex = fetchMock.mock.calls.findIndex(([u]) => /oauth\/revoke|applications\//.test(String(u)));
+    expect(revokeIndex).toBeGreaterThanOrEqual(0);
+    expect(tenant.setTenantGitConnection.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[revokeIndex]!,
+    );
+  };
+  const storedGitlab = (access: string, refresh: string) => ({
+    gitConnections: {
+      gitlab: {
+        provider: "gitlab",
+        kind: "oauth",
+        enc: encryptToken(access),
+        refreshEnc: encryptToken(refresh, gitRefreshAad("ten_A", "gitlab")),
+        connectedAt: "2026-11-20T08:00:00.000Z",
+      },
+    },
+  });
+  const classicGithub = () => ({
+    gitConnections: {
+      github: { provider: "github", kind: "oauth", enc: encryptToken("gho_old_classic"), connectedAt: "2026-11-01T00:00:00.000Z" },
+    },
+  });
+
+  it("switch off: no revoke, as before", async () => {
+    tenant.getTenantById.mockResolvedValue(storedGitlab("gl-old-token", "gl-old-refresh"));
+    jar.set("git_oauth_state", "nonce-1");
+    const res = await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(location(res).searchParams.get("status")).toBe("ok");
+    expect(revokeCalls()).toHaveLength(0);
+    expect(tenant.getTenantById).not.toHaveBeenCalled();
+  });
+
+  it("switch on: a different GitLab token is revoked after the new one is saved", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    tenant.getTenantById.mockResolvedValue(storedGitlab("gl-old-token", "gl-old-refresh"));
+    jar.set("git_oauth_state", "nonce-1");
+    const res = await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(Object.fromEntries(location(res).searchParams)).toEqual({ status: "ok", provider: "gitlab" });
+    expect(revokeCalls()).toHaveLength(1);
+    const body = new URLSearchParams(String(revokeCalls()[0]![1].body));
+    expect(body.get("token")).toBe("gl-old-refresh");
+    revokedAfterSave();
+  });
+
+  it("switch on: the same token handed back is never revoked", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    tenant.getTenantById.mockResolvedValue(storedGitlab("gl-test-token", "gl-old-refresh"));
+    jar.set("git_oauth_state", "nonce-1");
+    await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(tenant.setTenantGitConnection).toHaveBeenCalled();
+    expect(revokeCalls()).toHaveLength(0);
+  });
+
+  it("switch on: the same refresh token handed back is never revoked", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    tenant.getTenantById.mockResolvedValue(storedGitlab("gl-old-token", "gl-test-refresh"));
+    jar.set("git_oauth_state", "nonce-1");
+    await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(revokeCalls()).toHaveLength(0);
+  });
+
+  it("switch on: a first connect has nothing to revoke", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    jar.set("git_oauth_state", "nonce-1");
+    await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(tenant.setTenantGitConnection).toHaveBeenCalled();
+    expect(revokeCalls()).toHaveLength(0);
+  });
+
+  it("switch on: a failed revoke still connects", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    tenant.getTenantById.mockResolvedValue(storedGitlab("gl-old-token", "gl-old-refresh"));
+    const usual = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("oauth/revoke")) throw new TypeError("fetch failed");
+      return usual(url);
+    });
+    try {
+      jar.set("git_oauth_state", "nonce-1");
+      const res = await call("gitlab", { code: "c", state: stateFor("gitlab") });
+      expect(location(res).searchParams.get("status")).toBe("ok");
+      expect(tenant.setTenantGitConnection).toHaveBeenCalled();
+      expect(revokeCalls()).toHaveLength(1);
+      expect(warn.mock.calls.join(" ")).toContain("[revoke] gitlab revoke failed for ten_A: network:TypeError");
+      expect(warn.mock.calls.join(" ")).not.toMatch(/gl-old|gl-test/);
+    } finally {
+      fetchMock.mockImplementation(usual);
+      warn.mockRestore();
+    }
+  });
+
+  it("switch on: Switch now to the GitHub App revokes the older GitHub token after the save", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_ID", "github-test-client");
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_SECRET", "github-test-secret");
+    tenant.getTenantById.mockResolvedValue(classicGithub());
+    jar.set("git_oauth_state", "nonce-1");
+    const res = await call("github", { code: "c", installation_id: "222", setup_action: "install", state: stateFor("github") });
+    expect(Object.fromEntries(location(res).searchParams)).toEqual({ status: "ok", provider: "github" });
+    expect(revokeCalls()).toHaveLength(1);
+    expect(revokeCalls()[0]![0]).toBe("https://api.github.com/applications/github-test-client/token");
+    expect(JSON.parse(String(revokeCalls()[0]![1].body))).toEqual({ access_token: "gho_old_classic" });
+    revokedAfterSave();
+  });
+
+  it("switch on: reinstalling the GitHub App never uninstalls or revokes anything", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    tenant.getTenantById.mockResolvedValue({
+      gitConnections: { github: { provider: "github", kind: "app", installationId: 111, connectedAt: "2026-11-01T00:00:00.000Z" } },
+    });
+    jar.set("git_oauth_state", "nonce-1");
+    await call("github", { code: "c", installation_id: "222", setup_action: "install", state: stateFor("github") });
+    expect(tenant.setTenantGitConnection).toHaveBeenCalled();
+    expect(revokeCalls()).toHaveLength(0);
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/app/installations"))).toBe(false);
+  });
+
+  it("switch off: Switch now to the GitHub App revokes nothing", async () => {
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_ID", "github-test-client");
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_SECRET", "github-test-secret");
+    tenant.getTenantById.mockResolvedValue(classicGithub());
+    jar.set("git_oauth_state", "nonce-1");
+    await call("github", { code: "c", installation_id: "222", setup_action: "install", state: stateFor("github") });
+    expect(tenant.setTenantGitConnection).toHaveBeenCalled();
+    expect(revokeCalls()).toHaveLength(0);
   });
 });

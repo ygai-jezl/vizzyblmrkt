@@ -21,7 +21,7 @@
 #   DISPLAY_NAME           optional, default yougrow-root.
 #   AGENT_SERVICE_ACCOUNT  optional, default root-agent@$PROJECT.iam.gserviceaccount.com.
 #                          infra/agent/setup.sh creates it with the roles it needs.
-#   ROOT_AGENT_MODEL       optional, default gemini-3.6-flash (keep in step with
+#   ROOT_AGENT_MODEL       optional, default gemini-3.8-flash (keep in step with
 #                          DEFAULT_MODEL in model_config.py unless pinning on purpose).
 #
 # Usage:
@@ -58,7 +58,7 @@ REGION="${REGION:-us-central1}"
 DISPLAY_NAME="${DISPLAY_NAME:-yougrow-root}"
 CANVAS_CALLBACK_URL="${CANVAS_CALLBACK_URL:-}"
 AGENT_ENGINE_ID="${AGENT_ENGINE_ID:-}"
-ROOT_AGENT_MODEL="${ROOT_AGENT_MODEL:-gemini-3.6-flash}"
+ROOT_AGENT_MODEL="${ROOT_AGENT_MODEL:-gemini-3.8-flash}"
 
 fail() { echo "$1" >&2; exit 2; }
 

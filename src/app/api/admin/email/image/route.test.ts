@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The launch email hero: off, Imagen and today's prompt (no direction); on, the brand's launch
+// The launch email hero: off, the hero model and today's prompt (no direction); on, the brand's launch
 // email style, else the hero's own pick.
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);

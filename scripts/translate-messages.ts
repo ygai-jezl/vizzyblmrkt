@@ -44,7 +44,7 @@ function client(): GoogleGenAI {
     return new GoogleGenAI({
       vertexai: true,
       project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION ?? "us-central1",
+      location: process.env.GOOGLE_CLOUD_LOCATION ?? "global",
     });
   }
   if (apiKey) return new GoogleGenAI({ apiKey });

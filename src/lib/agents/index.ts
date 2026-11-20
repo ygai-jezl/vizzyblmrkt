@@ -1,6 +1,6 @@
 /**
  * Email-hub AI agents.
- *  - Agent 3 (creative): performance-informed copy + Vertex Imagen hero images.
+ *  - Agent 3 (creative): performance-informed copy + Gemini hero images.
  *  - Agent 4 (compiler):  deterministic channel compilation + QA gate.
  * All prompts live in ./prompts/registry (no inline prompt literals).
  */

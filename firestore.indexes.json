@@ -1299,6 +1299,96 @@
           }
         }
       ]
+    },
+    {
+      "collectionGroup": "ontology_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "personId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ontology_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "subjectKey",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fieldIds",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "expiresAt",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -1310,6 +1400,46 @@
     {
       "collectionGroup": "contacts",
       "fieldPath": "optOuts",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "ontology_events",
+      "fieldPath": "properties",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "ontology_events",
+      "fieldPath": "refs",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "ontology_events",
+      "fieldPath": "identity",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "fieldPath": "proposal",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "fieldPath": "basis",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "fieldPath": "result",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "fieldPath": "undo",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "fieldPath": "signals",
       "indexes": []
     }
   ]

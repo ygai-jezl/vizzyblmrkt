@@ -13,7 +13,8 @@ import { isPlansEnabled } from "./flags";
  * - features: which metered features (src/lib/plans/brandAccess.ts) and Enterprise features
  *   (src/lib/enterprise/features.ts) its brands may use. A brand's own grant still adds one, and
  *   GRANTED_ONLY_FEATURES still holds one back (decision 18).
- * - allowances: what the organisation shares across its brands. null means no limit.
+ * - allowances: what the organisation shares across its brands (live launches are per brand).
+ *   null means no limit.
  * - monthlyCaps: a per brand cap for a LIMITED_FEATURE, between the brand's own cap and this
  *   copy's FEATURE_MONTHLY_LIMITS (src/lib/plans/limits.ts). Unset: the copy's cap applies.
  *
@@ -39,6 +40,9 @@ export type Allowance = (typeof ALLOWANCES)[number];
 /** The allowances counted today. Emails and AI credits wait for their meters ("Not counted yet"). */
 export const COUNTED_ALLOWANCES: readonly Allowance[] = ["brands", "users", "liveIdeas", "people"];
 
+/** Allowances that apply to each brand on its own ("Live ideas per brand"); the rest are shared. */
+export const PER_BRAND_ALLOWANCES: readonly Allowance[] = ["liveIdeas"];
+
 export interface Plan {
   id: PlanId;
   /** What people read. The screens say "Plan and usage", never a bare "Plan". */
@@ -49,7 +53,7 @@ export interface Plan {
   /** Run by the hosted service, rather than on your own Google Cloud. */
   hosted: boolean;
   features: readonly PlanFeature[];
-  /** Per organisation, shared by its brands. null means no limit. */
+  /** Shared by the organisation's brands, except PER_BRAND_ALLOWANCES. null means no limit. */
   allowances: Record<Allowance, number | null>;
   /** Allowances given per user: the organisation's limit is the number times its users. */
   perUser: readonly Allowance[];

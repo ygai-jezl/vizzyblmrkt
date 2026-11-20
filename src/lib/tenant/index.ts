@@ -103,6 +103,7 @@ export {
   organisationUserIds,
 } from "./organisations";
 export type { EnsureOrganisationOptions, EnsureOrganisationResult, SetPlanResult } from "./organisations";
+export { countLiveLaunches } from "./liveLaunches";
 export {
   appendPatternVersion,
   listPatternVersions,

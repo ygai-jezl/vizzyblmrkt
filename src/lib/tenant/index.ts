@@ -89,6 +89,21 @@ export {
 } from "./control";
 export type { DomainGrantAudit, SocialSubscription } from "./control";
 export {
+  ORGANISATIONS,
+  ORGANISATION_CHANGES,
+  organisationIdFor,
+  getOrganisation,
+  listOrganisations,
+  ensureBrandOrganisation,
+  attachBrandToOrganisation,
+  moveBrandToNewOrganisation,
+  setOrganisationPlan,
+  setOrganisationName,
+  setOrganisationOwners,
+  organisationUserIds,
+} from "./organisations";
+export type { EnsureOrganisationOptions, EnsureOrganisationResult, SetPlanResult } from "./organisations";
+export {
   appendPatternVersion,
   listPatternVersions,
   getPatternVersion,

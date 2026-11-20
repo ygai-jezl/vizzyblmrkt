@@ -63,4 +63,16 @@ describe("the switches npm run selfhost leaves off", () => {
       expect.arrayContaining(["SITE_HOME_ENABLED", "NEXT_PUBLIC_GA_ENABLED"]),
     );
   });
+
+  it("keep X revoke off on a new copy, and no add-on turns it on", () => {
+    // An X account connected to two brands may share one grant, so revoking it on one
+    // brand's Disconnect can end the other's access (ADR-0006). GitLab and classic
+    // GitHub revoke end only that brand's token, so CONNECTOR_REVOKE_ENABLED is turned on.
+    expect(KEPT_OFF).toHaveProperty("CONNECTOR_REVOKE_X_ENABLED");
+    expect(KEPT_OFF.CONNECTOR_REVOKE_X_ENABLED.addon).toBeNull();
+    for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
+      expect(switchesForAddon(addon), addon).not.toContain("CONNECTOR_REVOKE_X_ENABLED");
+    }
+    expect(KEPT_OFF).not.toHaveProperty("CONNECTOR_REVOKE_ENABLED");
+  });
 });

@@ -33,6 +33,33 @@ describe("TenantSchema.gitConnections", () => {
     const both = { github: conn, gitlab: { ...conn, provider: "gitlab" as const } };
     expect(field.parse(both)).toEqual(both);
   });
+
+  it("still parses an older GitLab connection with no refresh token, expiry or mark", () => {
+    const old = { ...conn, provider: "gitlab" as const, kind: "oauth" as const };
+    expect(field.parse({ gitlab: old })).toEqual({ gitlab: old });
+  });
+
+  it("parses a GitLab connection with refreshEnc, expiresAt and a reconnect mark", () => {
+    const gitlab = {
+      ...conn,
+      provider: "gitlab" as const,
+      kind: "oauth" as const,
+      refreshEnc: { ct: "d", iv: "e", tag: "f" },
+      expiresAt: "2026-06-30T02:00:00.000Z",
+      reconnect: { at: "2026-06-30T03:00:00.000Z", reason: "refresh_failed" as const },
+    };
+    expect(field.parse({ gitlab })).toEqual({ gitlab });
+  });
+
+  it("accepts a null refreshEnc and expiresAt", () => {
+    const gitlab = { ...conn, provider: "gitlab" as const, refreshEnc: null, expiresAt: null };
+    expect(field.parse({ gitlab })).toEqual({ gitlab });
+  });
+
+  it("drops a reconnect mark it can't read instead of failing the tenant", () => {
+    const gitlab = { ...conn, provider: "gitlab" as const, reconnect: { at: 1, reason: "later_reason" } };
+    expect(field.parse({ gitlab })?.gitlab?.reconnect).toBeUndefined();
+  });
 });
 
 describe("BrandVoiceSchema", () => {

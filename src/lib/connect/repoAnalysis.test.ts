@@ -117,6 +117,48 @@ describe("starting an analysis", () => {
     const [a] = await listRepoAnalyses(ctx, connection.id, db);
     expect(a).toMatchObject({ status: "failed", error: "job_not_configured" });
   });
+
+  it("prepares the GitLab token once, with the same database, before the Job starts", async () => {
+    const { db, connection } = await world();
+    const order: string[] = [];
+    const prepared: unknown[][] = [];
+    const prepareGit = async (...args: unknown[]) => {
+      prepared.push(args);
+      order.push("prepare");
+    };
+    const trigger = async () => {
+      order.push("trigger");
+    };
+    const r = await startRepoAnalysis(
+      ctx,
+      connection.id,
+      { repos: [{ url: "gitlab.com/acme/api" }, { url: "github.com/acme/web" }, { url: "gitlab.com/acme/worker" }] },
+      { db, nowMs: NOW, trigger, prepareGit },
+    );
+    expect(r.ok).toBe(true);
+    expect(prepared).toEqual([[ctx, "gitlab", { db }]]);
+    expect(order).toEqual(["prepare", "trigger"]);
+  });
+
+  it("doesn't prepare anything when every repo is on GitHub", async () => {
+    const { db, connection, trigger } = await world();
+    let prepared = 0;
+    const prepareGit = async () => {
+      prepared += 1;
+    };
+    await startRepoAnalysis(ctx, connection.id, { repos: [{ url: "github.com/acme/web" }] }, { db, nowMs: NOW, trigger, prepareGit });
+    expect(prepared).toBe(0);
+  });
+
+  it("still starts the Job when the preparation fails", async () => {
+    const { db, connection, triggered, trigger } = await world();
+    const prepareGit = async () => {
+      throw new Error("unavailable");
+    };
+    const r = await startRepoAnalysis(ctx, connection.id, { repos: [{ url: "gitlab.com/acme/api" }] }, { db, nowMs: NOW, trigger, prepareGit });
+    expect(r.ok).toBe(true);
+    expect(triggered).toHaveLength(1);
+  });
 });
 
 describe("accepting a product map", () => {

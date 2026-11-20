@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getAdminContext } from "@/lib/auth/session";
+import { integrationsHopAdmin } from "@/lib/integrations/admin";
 import {
   isLinkedInCMConfigured,
   linkedinCmClientId,
@@ -37,8 +37,12 @@ function back(origin: string, params: Record<string, string>): NextResponse {
  */
 export async function GET(req: Request) {
   const origin = socialOrigin(req.headers);
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.redirect(`${origin}/login`);
+  const gate = await integrationsHopAdmin();
+  if (!gate.ok) {
+    if (gate.why === "signed_out") return NextResponse.redirect(`${origin}/login`);
+    return back(origin, { status: "error", reason: "forbidden", provider: "linkedin_org" });
+  }
+  const { ctx } = gate;
   if (!isLinkedInCMConfigured()) {
     return back(origin, { status: "error", reason: "linkedin_cm_not_configured", provider: "linkedin_org" });
   }

@@ -184,7 +184,7 @@ export default function WriteAndScheduleHelp() {
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
-          Connect LinkedIn or X in <Open href="/admin/account/connections">Settings › Integrations</Open>.
+          An admin connects LinkedIn or X in <Open href="/admin/account/connections">Settings › Integrations</Open>.
         </li>
         <li>
           Open your programme, then <strong>Calendar</strong>.
@@ -292,11 +292,14 @@ export default function WriteAndScheduleHelp() {
             "Try again in a minute, or let the article be written without it.",
           ],
           ["That item isn't generated yet", "Open it in Drafts and generate it first."],
-          ["Connect LinkedIn in Settings › Integrations first", "Connect it, then press Schedule again."],
-          ["Connect X in Settings › Integrations first", "Connect it, then press Schedule again."],
+          [
+            "Connect LinkedIn in Settings › Integrations first",
+            "Ask an admin to connect it in Settings › Integrations, then press Schedule again.",
+          ],
+          ["Connect X in Settings › Integrations first", "Ask an admin to connect it in Settings › Integrations, then press Schedule again."],
           [
             "That LinkedIn Page isn't connected.",
-            "Connect LinkedIn Pages while signed in to LinkedIn as an admin of the Page, or choose to post as yourself.",
+            "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Or choose to post as yourself.",
           ],
           [
             "Nobody has joined this launch's weekly newsletter yet",
@@ -332,7 +335,7 @@ export default function WriteAndScheduleHelp() {
                 ],
                 [
                   "Reconnect it in Settings › Integrations so your next posts get results.",
-                  "Reconnect the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
+                  "An admin reconnects the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
                 ],
                 [
                   "wouldn't give this post's numbers, so YouGrow stopped reading them.",

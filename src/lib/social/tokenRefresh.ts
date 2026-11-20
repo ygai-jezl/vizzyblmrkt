@@ -1,8 +1,9 @@
 import type { TenantContext } from "@/lib/tenant/types";
 import type { SocialConnection, Tenant } from "@/lib/types/tenant";
-import { setTenantSocialConnection } from "@/lib/tenant";
+import { swapTenantSocialToken } from "@/lib/tenant";
 import { encryptToken } from "./crypto";
 import { getDecryptedSocialTokens } from "./connections";
+import { revokeSocialConnection } from "./revoke";
 import {
   X_TOKEN_URL,
   basicAuthHeader,
@@ -178,22 +179,44 @@ export async function refreshSocialToken(
   }
 }
 
+/**
+ * What storing a refreshed token did. "saved": stored. "stale": the stored token had
+ * already changed (a reconnect or another refresh), so nothing was stored. "gone": the
+ * connection was removed meanwhile (a Disconnect), so nothing was stored.
+ */
+export type SocialPersistOutcome = "saved" | "stale" | "gone";
+
 export interface EnsureFreshDeps extends RefreshDeps {
   /** Injectable clock (ms) — tests drive expiry deterministically. */
   now?: () => number;
-  /** Injectable persistence — defaults to writing the tenant control doc. */
-  persist?: (platform: RefreshablePlatform, conn: SocialConnection) => Promise<void>;
+  /**
+   * Injectable persistence. Defaults to swapTenantSocialToken on the tenant control doc,
+   * compare-and-set on `expectedCt` (the stored ciphertext of the token that was
+   * refreshed). Returning nothing counts as "saved".
+   */
+  persist?: (
+    platform: RefreshablePlatform,
+    conn: SocialConnection,
+    expectedCt: string,
+  ) => Promise<SocialPersistOutcome | void>;
 }
 
 /**
  * Return a VALID access token for the tenant's platform connection, refreshing (and
- * persisting the rotated token) when it's at/near expiry. Returns null only when the
- * platform isn't connected (or crypto is unset) — the caller parks as "not connected".
+ * persisting the rotated token) when it's at/near expiry. Returns null when the
+ * platform isn't connected (or crypto is unset), and when the connection was removed
+ * while the refresh ran: the caller parks as "not connected".
  *
  * Refresh is FAIL-SOFT (see the module header): on any refresh error it returns the
  * current token and lets the publish decide (a real 401 parks; a still-valid token
  * simply works). Persist failure is likewise swallowed — the in-memory token is used
  * for THIS send and re-refreshed next run.
+ *
+ * DISCONNECT STICKS: the store is compare-and-set on the token that was refreshed, so a
+ * Disconnect that lands during the refresh is never undone. "gone" returns null and
+ * stores nothing, and with CONNECTOR_REVOKE_X_ENABLED on revokes the X tokens it minted.
+ * "stale" (the stored token changed meanwhile) uses the new token for this send without
+ * storing it.
  *
  * ROTATION CAVEAT: X invalidates the old refresh token on every refresh. If the
  * refresh succeeds but the persist fails, the next run's stored refresh token is stale
@@ -249,12 +272,38 @@ export async function ensureFreshAccessToken(
     expiresAt: res.bundle.expiresAt ?? null,
     scope: res.bundle.scope ?? conn.scope,
   };
-  const persist =
-    deps.persist ?? ((p, c) => setTenantSocialConnection(ctx.tenantId, p, c));
+  const persist: NonNullable<EnsureFreshDeps["persist"]> =
+    deps.persist ??
+    ((p, c, expectedCt) =>
+      swapTenantSocialToken(ctx.tenantId, p, expectedCt, {
+        enc: c.enc,
+        refreshEnc: c.refreshEnc ?? null,
+        expiresAt: c.expiresAt ?? null,
+        scope: c.scope,
+      }));
+  let outcome: SocialPersistOutcome | void;
   try {
-    await persist(platform, updated);
+    outcome = await persist(platform, updated, conn.enc.ct);
   } catch (e) {
     console.warn(`[social-refresh] ${platform} persist failed for ${ctx.tenantId}: ${errMsg(e)}`);
+    return res.bundle.accessToken;
+  }
+  if (outcome === "gone") {
+    // Disconnected while the refresh ran: never store or use the new token. The tokens
+    // this refresh minted are live at the platform, so revoke them, best effort.
+    // revokeSocialConnection does so only for X with CONNECTOR_REVOKE_X_ENABLED (and
+    // CONNECTOR_REVOKE_ENABLED) on, and never for LinkedIn.
+    console.warn(`[social-refresh] ${platform} was disconnected during a refresh for ${ctx.tenantId}; nothing stored`);
+    await revokeSocialConnection(
+      ctx.tenantId,
+      platform,
+      { accessToken: res.bundle.accessToken, refreshToken: res.bundle.refreshToken ?? tokens.refreshToken },
+      { fetch: deps.fetch },
+    );
+    return null;
+  }
+  if (outcome === "stale") {
+    console.warn(`[social-refresh] ${platform} token changed during a refresh for ${ctx.tenantId}; used once, not stored`);
   }
   return res.bundle.accessToken;
 }

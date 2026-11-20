@@ -23,12 +23,25 @@ export function isGitCryptoConfigured(): boolean {
   return box.isConfigured();
 }
 
-export function encryptToken(plaintext: string): EncryptedBlob {
-  return box.seal(plaintext);
+/**
+ * `aad` binds a ciphertext to its brand and purpose (see gitRefreshAad), so a copy
+ * pasted onto another brand's record won't open. Leave it out for `enc`, the
+ * access token the worker decrypts: the worker opens it without AAD. A blob sealed
+ * without AAD opens without it, so existing ciphertexts are unchanged.
+ */
+export function encryptToken(plaintext: string, aad?: string): EncryptedBlob {
+  return box.seal(plaintext, aad);
 }
 
-export function decryptToken(blob: EncryptedBlob): string {
-  return box.open(blob);
+export function decryptToken(blob: EncryptedBlob, aad?: string): string {
+  return box.open(blob, aad);
+}
+
+/** The AAD for a git connection's sealed refresh token: `<tenantId>:<provider>:refresh`.
+ *  Only the app reads refresh tokens, so they can be bound to the brand (the same
+ *  pattern as sealMailchimpKey in src/lib/mailchimp/keyBox.ts). */
+export function gitRefreshAad(tenantId: string, provider: string): string {
+  return `${tenantId}:${provider}:refresh`;
 }
 
 /** Sign a short-lived OAuth `state` (CSRF) — brace-free `<b64url>.<hmac>`. */

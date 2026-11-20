@@ -135,6 +135,12 @@ merged order). Turn on the Discovery Engine API (`gcloud services enable discove
 give the App Hosting runtime service account a role with `discoveryengine.rankingConfigs.rank`, then
 set the switch to `"true"`. Without it, or if a call fails, search keeps its merged order.
 
+**Cancelling access on Disconnect.** `npm run selfhost` turns on `CONNECTOR_REVOKE_ENABLED`, so
+Disconnect also cancels YouGrow's access at GitLab and on an older GitHub connection. It leaves
+`CONNECTOR_REVOKE_X_ENABLED` off: an X account connected to two brands may share one grant, so
+cancelling it for one brand could end the other's access. Connect one X account to two test brands,
+press Disconnect on one, and check the other still posts. Then set the switch to `"true"`.
+
 Each add-on writes its settings into `apphosting.live.yaml` and turns its switches on.
 Roll out afterwards: `npm run selfhost -- --project <id> --apply rollout` (or push).
 

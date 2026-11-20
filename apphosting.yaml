@@ -869,6 +869,16 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Disconnect also cancels YouGrow's access at GitLab and on an older GitHub connection.
+  - variable: CONNECTOR_REVOKE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Disconnect also cancels YouGrow's access at X (needs CONNECTOR_REVOKE_ENABLED).
+  - variable: CONNECTOR_REVOKE_X_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Social distribution and what it learns ==
   # Real posting to X and LinkedIn, and the carousel builder.

@@ -169,6 +169,24 @@ per brand; add `competitor_articles` to `GRANTED_ONLY_FEATURES` to keep it for s
 `COMPETITOR_ARTICLES_PLANNING_ENABLED` then feeds what they wrote into the brand map, Suggest an angle,
 blog research and the writer.
 
+**Plans stay off.** `PLANS_ENABLED` and `NEXT_PUBLIC_PLANS_ENABLED` are the hosted service's plans
+(Free, Pro, Ultra and Enterprise). Leave both `"false"`; `npm run selfhost` keeps them off. Every brand
+may then use every feature its switch turns on, and `GRANTED_ONLY_FEATURES` with
+`scripts/grant-feature.ts` still works as above.
+
+- The `workspace` step (`scripts/selfhost/create-workspace.ts`) gives your first brand an organisation
+  on the Self-hosted plan, which stays open even if plans are turned on.
+- `PLANS_NEW_ORGANISATION_PLAN` left empty means brands made in the app start on Self-hosted too.
+- To turn plans on in a copy that already has brands: brands with no organisation stay open, but give
+  each one an organisation first, so Settings › Plan and usage shows them. Run
+  `GOOGLE_CLOUD_PROJECT=<your-project-id> npx tsx scripts/backfill-organisations.ts --plan self_hosted`
+  (a dry run), then the same with `--apply --by <label>`, then with `--check` instead. Then set both
+  switches to `"true"` and roll out.
+- `scripts/set-plan.ts` shows or changes an organisation's plan, name and owners, and
+  `scripts/move-brand.ts` puts a brand on another organisation's plan or back on its own. Both are dry
+  runs until you add `--apply --by <label>`, and refuse a change that narrows or widens access unless
+  you add `--allow-narrower` or `--allow-wider`.
+
 **Email: test mode first.** With a provider set, waitlist emails send. Product journeys
 stay in test mode, sending nothing real, until you add `LIFECYCLE_MODE_CEILING` with the
 value `"live"` to your settings file. Journeys also need `EMAIL_DEFAULT_PRIVACY_URL`, which

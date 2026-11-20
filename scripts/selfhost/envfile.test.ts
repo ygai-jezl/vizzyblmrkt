@@ -75,4 +75,15 @@ describe("the switches npm run selfhost leaves off", () => {
     }
     expect(KEPT_OFF).not.toHaveProperty("CONNECTOR_REVOKE_ENABLED");
   });
+
+  it("keep plans off on a new copy, and no add-on turns them on", () => {
+    // Plans are the hosted service's (ADR-0009). Off, every brand may use every feature its
+    // switch turns on, and GRANTED_ONLY_FEATURES still works.
+    for (const name of ["PLANS_ENABLED", "NEXT_PUBLIC_PLANS_ENABLED"] as const) {
+      expect(KEPT_OFF[name].addon, name).toBeNull();
+      for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
+        expect(switchesForAddon(addon), `${addon}: ${name}`).not.toContain(name);
+      }
+    }
+  });
 });

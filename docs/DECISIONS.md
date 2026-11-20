@@ -4,6 +4,185 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0009 · Organisations and plans (2026-11-20)
+
+Context: piece A of the CRM and tiers plan puts an organisation above brands and gives it
+a plan, so the hosted service can offer Free, Pro, Ultra and Enterprise later. Nothing
+charges anyone yet: billing is piece H. Everything sits behind `PLANS_ENABLED` (server)
+and `NEXT_PUBLIC_PLANS_ENABLED` (build time), both `"false"` in `apphosting.yaml`. Off,
+every result is exactly as before, which is the self-hosted open core. There is no new
+dependency, no Firestore index or rules change, and no Vizzy change.
+
+Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
+
+- **The organisation record.** `organisations/{orgId}` in the control database
+  ((default)), beside `tenants`. It holds a name, the plan id, `planSince`, `brandIds`,
+  `ownerIds`, `createdBy` and times, and never any end user's data. The id is
+  `org_<first tenantId>`, or `org_<tenantId>_<6 characters>` when a brand split back out
+  finds that id taken.
+  - **Two-way links.** The organisation lists its brands (`brandIds`) and each brand
+    points back (`tenants.organisationId`), so either side can be read alone and
+    `--check` can compare them.
+  - **The plan copy.** Each brand keeps a read-only copy of the plan, `tenants.orgPlan`.
+    About 20 callers of `tenantMayUse` and `monthlyLimit` are synchronous, in crons and
+    admin APIs, and already hold the brand record. A join on read in
+    `src/lib/tenant/registry.ts` was rejected, because it would add a read to every
+    `getTenantById`, including the admin layout's.
+  - **One writer.** Only `src/lib/tenant/organisations.ts` writes the three, together, in
+    the organisation's transaction. `updateTenantConfig` strips `organisationId` and
+    `orgPlan` from any patch. A missing, damaged or unknown copy reads as no plan, which is
+    open, never locked. `scripts/backfill-organisations.ts --check` reports drift.
+  - **Limits.** A plan change rewrites every brand's copy in one transaction, so `brandIds`
+    is capped at 400 (under Firestore's 500 writes a transaction). `ownerIds` is capped at
+    20.
+- **The catalog.** Five plans in code, `src/lib/plans/catalog.ts`: Self-hosted, Free,
+  Pro, Ultra and Enterprise. An organisation record only names one. It is pure and client
+  safe.
+  - Its source is the tiers table in the CRM and tiers plan, version 15, signed off as
+    decision 17. AI credits a month are 50 per organisation on Free, 250 per user on Pro
+    and 1,200 per user on Ultra. Allowances are stored so that "per user" can be said
+    (`perUser`), and the limit is the number times the organisation's users.
+  - Each plan has its features, its allowances (null is no limit) and optional per brand
+    monthly caps for the limited features. Ultra and Self-hosted set no caps. Enterprise
+    lists the eight Enterprise ids from `src/lib/enterprise/features.ts` (ADR-0007), with
+    limits and price by agreement; a brand's own cap carries the agreed number.
+  - The tiers table gives Pro the article autopilot without Next up. In today's code the
+    autopilot sits behind Next up, so a Pro brand reaches it only when that changes or Pro
+    gains Next up. The catalog says so beside Pro.
+  - No price appears on a public page: the help page reads each plan's summary, which
+    names none.
+- **Resolution order (decision 18).** For a metered feature, `mayUseWith` in
+  `src/lib/plans/brandAccess.ts` decides:
+  1. `GRANTED_ONLY_FEATURES` still holds a feature back from every plan, unless the brand
+     has its own grant.
+  2. A brand's own grant adds a feature its plan lacks.
+  3. With `PLANS_ENABLED`, the brand's plan copy decides.
+  4. Otherwise the brand may use it. No plan, or an unknown plan, is open.
+
+  Monthly caps resolve brand, then plan, then this copy's `FEATURE_MONTHLY_LIMITS`, then
+  the default (`src/lib/plans/limits.ts`). The signatures of `brandCanUse`,
+  `tenantMayUse`, `monthlyLimit` and `monthlyLimitOf` did not change, and no feature code
+  changed. With plans on, `brandCanUse` reads the brand once per call for a feature not in
+  every plan, and never for one in `INCLUDED_IN_EVERY_PLAN`.
+- **New brands (decision 19).** Every brand made in the app starts an organisation of its
+  own, on the plan `PLANS_NEW_ORGANISATION_PLAN` names (a setting, not a switch), with its
+  creator as owner. Unset or unknown means Self-hosted, so a copy that turns plans on stays
+  open. The route never reads or joins the brand the caller is in, and checks no allowance
+  at creation. The reason: the bootstrap claims make every allowlisted user an admin of
+  the same home brand (`src/lib/auth/session.ts`), so "the brand you are in" says nothing
+  about which organisation a new brand belongs to. Brands are combined or split only with
+  `scripts/move-brand.ts`. An in-app join waits for H or M, as an explicit choice offered
+  to the target organisation's owners. The demo seed and the self-host `workspace` step
+  give their brand a Self-hosted organisation; in the self-host step a failure is a
+  warning naming the repair, not a failed step.
+- **The backfill (decision 20).** `scripts/backfill-organisations.ts` gives every brand
+  with no organisation one of its own. Existing brands go on Ultra with caps unset, so the
+  dry run must show nothing narrower and nothing wider. `--replan <plan> [--from-plan
+  <plan>]` fixes a backfill that used the wrong plan.
+- **Dry runs both ways.** All three scripts (`backfill-organisations`, `set-plan`,
+  `move-brand`) are dry runs until `--apply --by <label>`. Their preview
+  (`src/lib/plans/preview.ts`) lists, per brand, the features lost with the data each
+  hides, the features gained, and the caps lowered or raised. Applying a change that
+  narrows access needs `--allow-narrower`; one that raises a cap or adds a feature, so
+  spend can rise, needs `--allow-wider`. They print the project and the settings they read
+  from the operator's shell, so the deployment's own `GRANTED_ONLY_FEATURES` and
+  `FEATURE_MONTHLY_LIMITS` must be exported first.
+- **Gates guide and never lock, with one exception until H or M.** The owner ruled that
+  gates guide and never lock. In A a plan exclusion reuses today's denials: the feature's
+  screens show their not-included message, its scheduled work stops, and the data it saved
+  is kept but out of view (Brand › Competitors shows none, for one). Nothing is deleted.
+  This is accepted only because narrowing happens solely through operator scripts, after a
+  dry run that lists the hidden data and needs `--allow-narrower`. Before H ships in-app
+  downgrades, or M ships in-app plan or role changes, whichever comes first, excluded data
+  must become readable again and the not-included notices must link to Plan and usage.
+  That is feature code, so A changes neither.
+- **Who sees organisation figures (decision 21).** Settings › Plan and usage (the path
+  stays `/admin/account/billing`) shows the plan, what it includes and this brand's
+  figures to anyone in the brand. The organisation's other brands, their data regions and
+  the totals show only to people in the organisation's `ownerIds`, read live from the
+  organisation record on every view, or to anyone when the organisation holds only this
+  brand. The session's role claim decides nothing about organisations. Another brand is
+  read through a system context built from its registry record, counts only, and nothing
+  is copied into the control database. With only the UI switch on, the page says plans are
+  off, never "coming soon".
+- **ADR-0003 P2.** Confirmed by the owner for A: Plan and usage is read only and re-reads
+  `ownerIds` live on every view, which meets P2's "re-read live claims" condition, so a
+  stale 5-day session cannot widen what A shows. P2 stays open, and a precondition, for any
+  in-app plan or role change in H or M: `revokeRefreshTokens` on downgrade, or live claims
+  for privileged actions.
+- **Allowances.** Counted and shown in A: brands, users, people and live launches. Emails
+  and AI credits show "Not counted yet" with the allowance, until their meters exist.
+  - Enforced in A: only the brands allowance, inside `move-brand`'s transaction. Users
+    waits for M, people for B and J, and live ideas for D. `checkAllowance` and
+    `mayAddUser` in `src/lib/plans/usage.ts` are ready for them.
+  - Suspended brands count, marked Suspended.
+  - Users are counted from `tenant_users` only, once across the organisation's brands.
+    Operators who reach the bootstrap brand by claim alone have no row, so they are not
+    counted until M.
+  - Live ideas show as Live launches until D renames Launches.
+- **Enterprise features.** A licence and a plan answer different questions. The licence
+  (ADR-0007, piece P) is per deployment and is never stored on the organisation. The plan
+  decides between organisations on a copy with plans on, where only Enterprise includes
+  the Enterprise ids. With plans off, as on a self-hosted copy, the licence alone decides.
+  ADR-0007 expected A to add the plan side as its own function. No Enterprise feature
+  exists yet, so A leaves that helper to the first one (piece M), together with one open
+  question: the Self-hosted plan lists no Enterprise feature, so a self-hosted copy that
+  turns plans on and holds a licence would be refused by its plan unless that changes.
+- **Personal data.** `ownerIds`, `createdBy` and the `actor` on `organisation_changes`
+  hold Firebase UIDs: pseudonymous staff data, the same kind of value
+  `tenant_users.userId`, `tenants.ownerId` and `domain_grants.actorUid` already hold. The
+  control plane still holds no end-user personal data (ADR-0002). They are kept for the
+  life of the organisation. On a staff erase request, the owner removes the uid with
+  `set-plan --remove-owner` and rewrites its `actor` values to `"erased"` by hand, as for
+  `domain_grants` today, until piece O brings an erase path. Script actors are operator
+  labels from `--by` (`script:<label>`, `backfill:<label>`), which refuse `@` and dots, so
+  no email address or domain is stored.
+- **The change log.** `organisation_changes` is append only, written in the same
+  transaction as each change: `organisation.created`, `plan.changed`, `brand.joined`,
+  `brand.left`, `organisation.renamed` and `owners.changed`. Row ids carry a random part,
+  so two brands joining in the same millisecond never collide. Piece O may fold it into
+  the settings history, or piece 0's event envelope may carry it later.
+- **The ontology registry.** Whichever of A and piece 0 merges second adds the
+  `organisations` and `organisation_changes` entries: search kind none (control plane
+  records, no brand content or people) and no number path.
+- **`billingTier` is deprecated.** It was never read. It is optional in `TenantSchema` and
+  no longer written; old documents keep it. Removing it is a later cleanup once prod has
+  run on plans.
+
+Rollback:
+1. In the deployment's private settings file, set both switches to `"false"` together and
+   roll out one new build (`NEXT_PUBLIC_PLANS_ENABLED` is fixed at build time).
+2. Leave `organisations`, `organisation_changes` and the brand fields in place. Off ignores
+   them, and nothing is deleted.
+3. To turn plans on again, set both switches on, roll out, run
+   `backfill-organisations` to catch brands made while off, then `--check`.
+4. A backfill on the wrong plan: `backfill-organisations --replan <plan> [--from-plan
+   <plan>]` as a dry run, then with `--apply --by <label>`.
+
+Room left for later pieces, none of it written yet: settings history on the organisation
+(piece O, a `settingsVersion` and versions beside it); legal entities and founder profiles
+as children of the organisation (Phase 2, only after a residency decision, since (default)
+is the US database); connections owned by an organisation (connectors piece 3, an
+`organisationId` on each connection rather than a list here); and the licence (piece P),
+which stays with the deployment.
+
+Consequences: with plans on, Plan and usage in organisation view costs, per brand, one
+registry read, one people count, one read per live launch (up to 5000) and its
+`tenant_users` rows; a cache waits until costs show it is needed. Scripts that call
+`tenantMayUse`, such as `scripts/search-backfill.ts`, read the plans switch and settings
+from the operator's shell, not the deployment. A crash between making a brand and linking
+its organisation leaves an open brand, which the backfill catches.
+
+Where: `src/lib/types/organisation.ts`; `src/lib/plans/` (`flags.ts`, `catalog.ts`,
+`brandAccess.ts`, `limits.ts`, `preview.ts`, `usage.ts`); `src/lib/tenant/`
+(`organisations.ts`, `liveLaunches.ts`, `control.ts`); `src/app/api/admin/tenants/route.ts`;
+`scripts/backfill-organisations.ts`, `scripts/set-plan.ts`, `scripts/move-brand.ts`,
+`scripts/lib/operatorCli.ts`; `src/app/admin/account/billing/page.tsx`,
+`src/components/admin/plans/PlanAndUsage.tsx`; help `/help/plan-and-usage`;
+`docs/self-host.md`; `scripts/selfhost/spec.mjs` (`KEPT_OFF`).
+
+---
+
 ## ADR-0007 · Open core: the Enterprise boundary, licence keys, licences and the CLA (2026-11-19)
 
 Context: on 2026-11-19 the owner chose open core. The app stays AGPL-3.0, Enterprise

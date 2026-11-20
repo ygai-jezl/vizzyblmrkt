@@ -23,6 +23,8 @@ interface ProviderStatus {
   repoSelection?: boolean;
   /** null = legacy connection (any repo). */
   selectedRepos?: { fullPath: string; webUrl: string }[] | null;
+  /** The service no longer accepts this connection, or it is an older GitLab one. */
+  needsReconnect?: boolean;
 }
 
 const GIT_IDS = new Set(["github", "gitlab"]);
@@ -189,6 +191,18 @@ export function ConnectionsPanel() {
                         Add or remove repositories on GitHub
                       </a>
                     ) : null}
+                      {s.needsReconnect ? (
+                        <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                          This connection needs reconnecting.{" "}
+                          {canEdit ? (
+                            <button type="button" className="underline" onClick={() => connect(p)}>
+                              Reconnect
+                            </button>
+                          ) : (
+                            "Ask an admin to reconnect it."
+                          )}
+                        </span>
+                      ) : null}
                       {s.upgradeAvailable ? (
                         <span className="mt-1 block text-amber-700 dark:text-amber-400">
                           This older connection can also write to your repos. Switch to read-only access, as we only ever read your code.
@@ -248,6 +262,7 @@ export function ConnectionsPanel() {
                   provider={p as "github" | "gitlab"}
                   label={s.label}
                   onSaved={load}
+                  onNeedsReconnect={load}
                   onClose={() => setPicking(null)}
                 />
               ) : null}

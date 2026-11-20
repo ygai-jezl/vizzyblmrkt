@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface Repo {
   fullPath: string;
@@ -20,7 +20,7 @@ interface Listing {
 }
 
 const ERRORS: Record<string, string> = {
-  reconnect_required: "This connection can't list repositories — disconnect and connect again.",
+  reconnect_required: "This connection needs reconnecting.",
   provider_error: "The provider didn't respond. Try again in a moment.",
   not_connected: "Not connected.",
   unknown_repos: "Some repositories are no longer accessible. Reload and pick again.",
@@ -36,13 +36,20 @@ export function GitRepoPicker({
   provider,
   label,
   onSaved,
+  onNeedsReconnect,
   onClose,
 }: {
   provider: "github" | "gitlab";
   label: string;
   onSaved: () => void | Promise<void>;
+  /** The connection needs reconnecting: the panel reloads its status to show Reconnect. */
+  onNeedsReconnect?: () => void | Promise<void>;
   onClose: () => void;
 }) {
+  const needsReconnect = useRef(onNeedsReconnect);
+  useEffect(() => {
+    needsReconnect.current = onNeedsReconnect;
+  });
   const [data, setData] = useState<Listing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -57,6 +64,7 @@ export function GitRepoPicker({
       if (!live) return;
       if (!res?.ok || !d.repos) {
         setError(ERRORS[d?.error ?? ""] ?? "Couldn't load repositories.");
+        if (d?.error === "reconnect_required") void needsReconnect.current?.();
         return;
       }
       setData(d as Listing);
@@ -107,6 +115,7 @@ export function GitRepoPicker({
       if (!res.ok) {
         const d = (await res.json().catch(() => ({}))) as { error?: string };
         setError(ERRORS[d.error ?? ""] ?? "Couldn't save the selection.");
+        if (d.error === "reconnect_required") void needsReconnect.current?.();
         return;
       }
       await onSaved();

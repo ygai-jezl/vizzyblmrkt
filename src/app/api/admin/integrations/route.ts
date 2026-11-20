@@ -5,6 +5,7 @@ import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integra
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
 import { githubAppConfig, manageInstallationUrl } from "@/lib/integrations/githubApp";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
+import { gitNeedsReconnect, socialNeedsReconnect } from "@/lib/integrations/reconnect";
 import type { GitConnection } from "@/lib/types/tenant";
 import { isXConfigured } from "@/lib/social/x/oauth";
 import { isLinkedInConfigured, isLinkedInCMConfigured } from "@/lib/social/linkedin/oauth";
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
   const app = githubAppConfig();
   const githubApp = Boolean(app);
   const repoSelection = isGitRepoSelectionEnabled();
+  const nowMs = Date.now();
 
   const providers: Record<string, unknown> = {};
   (Object.keys(PROVIDERS) as GitProvider[]).forEach((p) => {
@@ -36,6 +38,8 @@ export async function GET(req: Request) {
       connected: Boolean(c),
       accountLogin: c?.accountLogin ?? null,
       connectedAt: c?.connectedAt ?? null,
+      // Marked by a refused refresh or a rejected token, or an older GitLab connection.
+      needsReconnect: gitNeedsReconnect(c, nowMs),
       // GitLab's read_repository scope and the GitHub App are read-only; classic GitHub OAuth isn't.
       readOnly: p === "gitlab" || c?.kind === "app",
       // A classic GitHub connection can be replaced with the read-only app.
@@ -60,6 +64,7 @@ export async function GET(req: Request) {
     connected: Boolean(x),
     accountLogin: x?.handle ?? null,
     connectedAt: x?.connectedAt ?? null,
+    needsReconnect: socialNeedsReconnect(x, nowMs),
   };
   const li = tenant?.socialConnections?.linkedin;
   providers.linkedin = {
@@ -68,6 +73,7 @@ export async function GET(req: Request) {
     connected: Boolean(li),
     accountLogin: li?.handle ?? null,
     connectedAt: li?.connectedAt ?? null,
+    needsReconnect: socialNeedsReconnect(li, nowMs),
   };
   const liOrg = tenant?.socialConnections?.linkedin_org;
   providers.linkedin_org = {
@@ -76,6 +82,7 @@ export async function GET(req: Request) {
     connected: Boolean(liOrg),
     accountLogin: liOrg?.orgs?.length ? `${liOrg.orgs.length} page(s)` : null,
     connectedAt: liOrg?.connectedAt ?? null,
+    needsReconnect: socialNeedsReconnect(liOrg, nowMs),
   };
   // Members can look, only admins connect: the panel hides what a member can't use.
   return NextResponse.json({ providers, canEdit: ctx.role === "admin" });

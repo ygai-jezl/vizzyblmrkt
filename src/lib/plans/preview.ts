@@ -104,3 +104,30 @@ export function accessChangeLines(changes: AccessChanges): string[] {
   for (const c of changes.caps.filter((x) => x.after > x.before)) lines.push(`${c.feature} cap raised from ${c.before} to ${c.after} a month (from the ${SOURCE[c.afterFrom]})`);
   return lines;
 }
+
+/**
+ * Whether the changes may be applied with the flags given: a change that narrows access (a lost
+ * feature, a lower cap) needs --allow-narrower, and one that widens it (a gained feature, a higher
+ * cap, so spend can rise) needs --allow-wider. Null when nothing stops it, else why.
+ */
+export function guardChanges(all: readonly AccessChanges[], allow: { narrower: boolean; wider: boolean }): string | null {
+  const reasons: string[] = [];
+  if (!allow.narrower && all.some((c) => c.narrower)) reasons.push("Some brands would lose a feature or get a lower cap: pass --allow-narrower to apply.");
+  if (!allow.wider && all.some((c) => c.wider)) reasons.push("Some brands would gain a feature or a higher cap, so spend can rise: pass --allow-wider to apply.");
+  return reasons.length ? reasons.join(" ") : null;
+}
+
+/**
+ * The settings a preview read from this shell, for a script to print, so the operator can see
+ * they exported the deployment's own values (a preview with other values is wrong).
+ */
+export function previewSettingsLines(env: Record<string, string | undefined> = process.env): string[] {
+  const show = (name: string) => {
+    const raw = (env[name] ?? "").trim();
+    return `${name}=${raw ? JSON.stringify(raw) : "(unset)"}`;
+  };
+  return [
+    `${show("GRANTED_ONLY_FEATURES")} ${show("FEATURE_MONTHLY_LIMITS")}`,
+    "These come from this shell. Export the deployment's own values first, or the preview won't match it.",
+  ];
+}

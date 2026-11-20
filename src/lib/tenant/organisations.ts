@@ -428,3 +428,87 @@ export async function organisationUserIds(
   }
   return users;
 }
+
+/**
+ * The operator label a script records (`--by <label>`): lower case letters, digits, `_` and `-`,
+ * up to 40 characters. No `@` and no dots, so no email address or domain is ever stored.
+ */
+export const OPERATOR_LABEL = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
+/**
+ * The actor an operator script records on organisation_changes rows: `script:<label>` (set-plan,
+ * move-brand) or `backfill:<label>` (backfill-organisations). Throws on a label that isn't plain.
+ */
+export function scriptActor(tool: "script" | "backfill", label: string | undefined): string {
+  if (!label || !OPERATOR_LABEL.test(label)) {
+    throw new TenantValidationError("--by takes a short label: lower case letters, digits, _ and -, up to 40 characters, with no @ or dots");
+  }
+  return `${tool}:${label}`;
+}
+
+/** A brand as the drift report reads it. */
+export type DriftBrand = { id: string; organisationId?: string; orgPlan?: PlanId };
+
+/**
+ * What `scripts/backfill-organisations.ts --check` reports. Everything but `ownerless` is drift
+ * (the check exits 1); `ownerless` is a warning.
+ */
+export interface OrganisationDrift {
+  /** Brands with no organisation. They are open (no plan) until the backfill gives them one. */
+  open: string[];
+  /** A brand points at an organisation that is missing or does not parse. */
+  missingOrganisation: Array<{ tenantId: string; organisationId: string }>;
+  /** A brand points at an organisation that does not list it. */
+  notListed: Array<{ tenantId: string; organisationId: string }>;
+  /** A brand's orgPlan copy differs from its organisation's plan (null: no copy, or damaged). */
+  planDrift: Array<{ tenantId: string; organisationId: string; orgPlan: PlanId | null; plan: PlanId }>;
+  /** An organisation lists a brand that does not exist. */
+  missingBrands: Array<{ organisationId: string; tenantId: string }>;
+  /** An organisation lists a brand that points at another organisation, or at none. */
+  listedElsewhere: Array<{ organisationId: string; tenantId: string; linkedTo: string | null }>;
+  /** A brand with no organisation whose org_<tenantId> lists other brands, so the backfill can't use it. */
+  conflicts: Array<{ tenantId: string; organisationId: string }>;
+  /** Warning: organisations with more than one brand and no owners, so nobody sees their totals. */
+  ownerless: string[];
+}
+
+/** Whether a drift report has anything to repair (the ownerless warning does not count). */
+export function hasDrift(d: OrganisationDrift): boolean {
+  return [d.open, d.missingOrganisation, d.notListed, d.planDrift, d.missingBrands, d.listedElsewhere, d.conflicts].some((list) => list.length > 0);
+}
+
+/**
+ * Compare every brand with every organisation: the links both ways, the plan copies and the
+ * org_<id> each unlinked brand would take. Pure; the backfill's --check reads both lists once.
+ */
+export function organisationDrift(brands: readonly DriftBrand[], organisations: readonly Organisation[]): OrganisationDrift {
+  const orgs = new Map(organisations.map((o) => [o.id, o]));
+  const brandById = new Map(brands.map((b) => [b.id, b]));
+  const drift: OrganisationDrift = { open: [], missingOrganisation: [], notListed: [], planDrift: [], missingBrands: [], listedElsewhere: [], conflicts: [], ownerless: [] };
+
+  for (const b of brands) {
+    if (!b.organisationId) {
+      drift.open.push(b.id);
+      const own = orgs.get(organisationIdFor(b.id));
+      if (own && own.brandIds.length > 0 && !own.brandIds.includes(b.id)) drift.conflicts.push({ tenantId: b.id, organisationId: own.id });
+      continue;
+    }
+    const org = orgs.get(b.organisationId);
+    if (!org) {
+      drift.missingOrganisation.push({ tenantId: b.id, organisationId: b.organisationId });
+      continue;
+    }
+    if (!org.brandIds.includes(b.id)) drift.notListed.push({ tenantId: b.id, organisationId: org.id });
+    if (b.orgPlan !== org.plan) drift.planDrift.push({ tenantId: b.id, organisationId: org.id, orgPlan: b.orgPlan ?? null, plan: org.plan });
+  }
+
+  for (const org of organisations) {
+    for (const id of org.brandIds) {
+      const b = brandById.get(id);
+      if (!b) drift.missingBrands.push({ organisationId: org.id, tenantId: id });
+      else if (b.organisationId !== org.id) drift.listedElsewhere.push({ organisationId: org.id, tenantId: id, linkedTo: b.organisationId ?? null });
+    }
+    if (org.brandIds.length > 1 && org.ownerIds.length === 0) drift.ownerless.push(org.id);
+  }
+  return drift;
+}

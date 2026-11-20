@@ -3,19 +3,23 @@ import { FakeFirestore } from "./testing/fakeFirestore";
 import {
   ORGANISATIONS,
   ORGANISATION_CHANGES,
+  OPERATOR_LABEL,
   attachBrandToOrganisation,
   ensureBrandOrganisation,
   getOrganisation,
+  hasDrift,
   listOrganisations,
   moveBrandToNewOrganisation,
+  organisationDrift,
   organisationIdFor,
   organisationUserIds,
+  scriptActor,
   setOrganisationName,
   setOrganisationOwners,
   setOrganisationPlan,
 } from "./organisations";
 import { getTenantById } from "./registry";
-import { OrganisationChangeSchema } from "@/lib/types/organisation";
+import { OrganisationChangeSchema, OrganisationSchema } from "@/lib/types/organisation";
 
 const T0 = "2026-11-01T00:00:00.000Z";
 
@@ -360,6 +364,95 @@ describe("organisations", () => {
 
       expect((await organisationUserIds({ brandIds: ids }, spied as never)).size).toBe(40);
       expect(where.mock.calls.map(([v]) => (v as string[]).length)).toEqual([30, 30, 5]);
+    });
+  });
+
+  describe("scriptActor", () => {
+    it("records <tool>:<label> for a plain label", () => {
+      expect(scriptActor("script", "ops")).toBe("script:ops");
+      expect(scriptActor("backfill", "jo_2-b")).toBe("backfill:jo_2-b");
+    });
+
+    it.each([undefined, "", "Jo", "jo@example.com", "example.test", "-jo", "a".repeat(41), "jo smith"])("refuses %s, so no email or domain is stored", (label) => {
+      expect(() => scriptActor("script", label)).toThrow(/--by/);
+      if (label) expect(OPERATOR_LABEL.test(label)).toBe(false);
+    });
+  });
+
+  describe("organisationDrift", () => {
+    const o = (id: string, over: Record<string, unknown> = {}) => OrganisationSchema.parse({ id, ...org(id, over) });
+
+    it("is clean when every brand and organisation agree", () => {
+      const d = organisationDrift(
+        [
+          { id: "ten_A", organisationId: "org_ten_A", orgPlan: "ultra" },
+          { id: "ten_B", organisationId: "org_ten_A", orgPlan: "ultra" },
+        ],
+        [o("org_ten_A", { brandIds: ["ten_A", "ten_B"], ownerIds: ["usr_owner"] })],
+      );
+      expect(hasDrift(d)).toBe(false);
+      expect(d.ownerless).toEqual([]);
+    });
+
+    it("reports open brands, broken links both ways, plan copies and conflicts", () => {
+      const d = organisationDrift(
+        [
+          { id: "ten_open" },
+          { id: "ten_conflict" },
+          { id: "ten_gone_org", organisationId: "org_missing", orgPlan: "pro" },
+          { id: "ten_unlisted", organisationId: "org_ten_A", orgPlan: "ultra" },
+          { id: "ten_A", organisationId: "org_ten_A", orgPlan: "pro" },
+          { id: "ten_elsewhere", organisationId: "org_ten_elsewhere", orgPlan: "free" },
+        ],
+        [
+          o("org_ten_A", { brandIds: ["ten_A", "ten_deleted", "ten_elsewhere"] }),
+          o("org_ten_conflict", { brandIds: ["ten_other"] }),
+          o("org_ten_elsewhere", { plan: "free", brandIds: ["ten_elsewhere"] }),
+        ],
+      );
+      expect(hasDrift(d)).toBe(true);
+      expect(d.open).toEqual(["ten_open", "ten_conflict"]);
+      expect(d.conflicts).toEqual([{ tenantId: "ten_conflict", organisationId: "org_ten_conflict" }]);
+      expect(d.missingOrganisation).toEqual([{ tenantId: "ten_gone_org", organisationId: "org_missing" }]);
+      expect(d.notListed).toEqual([{ tenantId: "ten_unlisted", organisationId: "org_ten_A" }]);
+      expect(d.planDrift).toEqual([{ tenantId: "ten_A", organisationId: "org_ten_A", orgPlan: "pro", plan: "ultra" }]);
+      expect(d.missingBrands).toEqual([
+        { organisationId: "org_ten_A", tenantId: "ten_deleted" },
+        { organisationId: "org_ten_conflict", tenantId: "ten_other" },
+      ]);
+      expect(d.listedElsewhere).toEqual([{ organisationId: "org_ten_A", tenantId: "ten_elsewhere", linkedTo: "org_ten_elsewhere" }]);
+      expect(d.ownerless).toEqual(["org_ten_A"]);
+    });
+
+    it("counts a missing or damaged plan copy as drift, and an empty org_<id> as no conflict", () => {
+      const d = organisationDrift(
+        [{ id: "ten_A", organisationId: "org_ten_A" }, { id: "ten_B" }],
+        [o("org_ten_A", { brandIds: ["ten_A"] }), o("org_ten_B", { brandIds: [] })],
+      );
+      expect(d.planDrift).toEqual([{ tenantId: "ten_A", organisationId: "org_ten_A", orgPlan: null, plan: "ultra" }]);
+      expect(d.open).toEqual(["ten_B"]);
+      expect(d.conflicts).toEqual([]);
+    });
+
+    it("warns, without drift, about a combined organisation nobody owns", () => {
+      const d = organisationDrift(
+        [
+          { id: "ten_A", organisationId: "org_ten_A", orgPlan: "ultra" },
+          { id: "ten_B", organisationId: "org_ten_A", orgPlan: "ultra" },
+        ],
+        [o("org_ten_A", { brandIds: ["ten_A", "ten_B"] })],
+      );
+      expect(hasDrift(d)).toBe(false);
+      expect(d.ownerless).toEqual(["org_ten_A"]);
+    });
+
+    it("agrees with ensureBrandOrganisation after a backfill", async () => {
+      const db = new FakeFirestore();
+      db.seed("tenants", "ten_A", brand());
+      db.seed("tenants", "ten_B", brand({ tenantName: "Beta" }));
+      for (const id of ["ten_A", "ten_B"]) await ensureBrandOrganisation(id, { plan: "ultra", createdBy: "backfill", actor: "backfill:ops" }, db);
+      const brands = await Promise.all(["ten_A", "ten_B"].map((id) => getTenantById(id, db)));
+      expect(hasDrift(organisationDrift(brands.map((b) => b!), await listOrganisations(db)))).toBe(false);
     });
   });
 

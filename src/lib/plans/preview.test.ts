@@ -3,7 +3,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { METERED_FEATURES } from "./brandAccess";
 import { DEFAULT_MONTHLY_LIMITS } from "./limits";
-import { EXCLUDED_EFFECT, accessChangeLines, accessChanges } from "./preview";
+import { EXCLUDED_EFFECT, accessChangeLines, accessChanges, guardChanges, previewSettingsLines } from "./preview";
 
 type Fields = Pick<Tenant, "grantedFeatures" | "featureLimits" | "orgPlan">;
 const brand = (over: Partial<Fields> = {}): Fields => ({ grantedFeatures: [], ...over });
@@ -78,6 +78,31 @@ describe("plan change previews", () => {
     expect(c.wider).toBe(true);
     expect(c.narrower).toBe(false);
     expect(accessChangeLines(c)[0]).toBe("gains Vizzy in Edit mode (edit_vizzy)");
+  });
+
+  it("lets a change through only with the flag for each direction", () => {
+    const narrower = accessChanges(brand(), "free");
+    const wider = accessChanges(brand({ orgPlan: "free" }), "ultra");
+    const same = accessChanges(brand(), "ultra");
+    expect(guardChanges([same], { narrower: false, wider: false })).toBeNull();
+    expect(guardChanges([], { narrower: false, wider: false })).toBeNull();
+    expect(guardChanges([same, narrower], { narrower: false, wider: false })).toMatch(/--allow-narrower/);
+    expect(guardChanges([same, narrower], { narrower: true, wider: false })).toBeNull();
+    expect(guardChanges([wider], { narrower: true, wider: false })).toMatch(/--allow-wider/);
+    const both = guardChanges([narrower, wider], { narrower: false, wider: false })!;
+    expect(both).toMatch(/--allow-narrower.*--allow-wider/);
+    expect(guardChanges([narrower, wider], { narrower: true, wider: true })).toBeNull();
+    expect(dashesIn(both)).toEqual([]);
+    expect(aiTellsIn(both)).toEqual([]);
+  });
+
+  it("prints the settings it read, quoted, or unset", () => {
+    const lines = previewSettingsLines({ GRANTED_ONLY_FEATURES: "competitors,next_up", FEATURE_MONTHLY_LIMITS: " " });
+    expect(lines[0]).toBe('GRANTED_ONLY_FEATURES="competitors,next_up" FEATURE_MONTHLY_LIMITS=(unset)');
+    for (const line of lines) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 
   it("writes every hidden data line in house style", () => {

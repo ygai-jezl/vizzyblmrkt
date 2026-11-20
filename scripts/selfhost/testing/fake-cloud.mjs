@@ -159,7 +159,12 @@ function workspace() {
   const id = `ten_${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   state.tenants = [...(state.tenants ?? []), { id, name, region: flag("region") ?? "us" }];
   save();
-  return json({ ok: true, created: true, id, name, region: flag("region") ?? "us" });
+  // As create-workspace.ts does when the organisation step fails: the workspace is made, with a warning.
+  if (state.workspaceOrganisationFails) {
+    const warning = `The workspace was created without an organisation. To give it one, run GOOGLE_CLOUD_PROJECT=${flag("project")} npx tsx scripts/backfill-organisations.ts --tenant ${id} --plan self_hosted to see the change, then the same with --apply --by <label> to make it.`;
+    return json({ ok: true, created: true, id, name, region: flag("region") ?? "us", organisationId: null, warning });
+  }
+  return json({ ok: true, created: true, id, name, region: flag("region") ?? "us", organisationId: `org_${id}` });
 }
 
 if (tool === "gcloud") gcloud();

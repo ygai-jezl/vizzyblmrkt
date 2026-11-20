@@ -178,10 +178,13 @@ may then use every feature its switch turns on, and `GRANTED_ONLY_FEATURES` with
   on the Self-hosted plan, which stays open even if plans are turned on.
 - `PLANS_NEW_ORGANISATION_PLAN` left empty means brands made in the app start on Self-hosted too.
 - To turn plans on in a copy that already has brands: brands with no organisation stay open, but give
-  each one an organisation first, so Settings › Plan and usage shows them. Run
-  `GOOGLE_CLOUD_PROJECT=<your-project-id> npx tsx scripts/backfill-organisations.ts --plan self_hosted`
-  (a dry run), then the same with `--apply --by <label>`, then with `--check` instead. Then set both
-  switches to `"true"` and roll out.
+  each one an organisation first, so Settings › Plan and usage shows them. Run these in order:
+  1. `GOOGLE_CLOUD_PROJECT=<your-project-id> npx tsx scripts/backfill-organisations.ts --plan self_hosted`
+     (a dry run that changes nothing);
+  2. the same command with `--apply --by <label>` added, which writes;
+  3. `GOOGLE_CLOUD_PROJECT=<your-project-id> npx tsx scripts/backfill-organisations.ts --check`
+     (with no other flags), which should say every brand and organisation agree;
+  4. set both switches to `"true"` and roll out.
 - `scripts/set-plan.ts` shows or changes an organisation's plan, name and owners, and
   `scripts/move-brand.ts` puts a brand on another organisation's plan or back on its own. Both are dry
   runs until you add `--apply --by <label>`, and refuse a change that narrows or widens access unless

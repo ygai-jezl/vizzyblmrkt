@@ -114,7 +114,8 @@ async function main() {
   }
   const created = `Created workspace ${id} (${name}, ${region}).`;
   if (!organisationId) {
-    const warning = "The workspace was created without an organisation. Run scripts/backfill-organisations.ts --plan self_hosted to give it one.";
+    const repair = `GOOGLE_CLOUD_PROJECT=${project} npx tsx scripts/backfill-organisations.ts --tenant ${id} --plan self_hosted`;
+    const warning = `The workspace was created without an organisation. To give it one, run ${repair} to see the change, then the same with --apply --by <label> to make it.`;
     finish({ ok: true, created: true, id, name, region, organisationId: null, warning, message: `${created}\n${warning}` });
   }
   finish({ ok: true, created: true, id, name, region, organisationId, message: created });

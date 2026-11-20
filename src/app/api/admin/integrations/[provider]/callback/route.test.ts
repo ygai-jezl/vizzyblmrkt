@@ -273,6 +273,16 @@ describe("every redirect back clears the cookie", () => {
     expect(location(res).searchParams.get("reason")).toBe("forbidden");
     clearsCookie(res, "gitlab");
   });
+
+  it.each(["gitlab", "github"] as const)("signed out on %s: to sign-in, still clearing it", async (provider) => {
+    session.getAdminContext.mockResolvedValue(null);
+    jar.set("git_oauth_state", "nonce-1");
+    const res = await call(provider, { code: "c", state: stateFor(provider) });
+    expect(location(res).pathname).toBe("/login");
+    clearsCookie(res, provider);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tenant.setTenantGitConnection).not.toHaveBeenCalled();
+  });
 });
 
 describe("a reconnect replaces a stored token: revoke the old one after the save", () => {

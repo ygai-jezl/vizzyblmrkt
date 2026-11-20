@@ -56,10 +56,15 @@ export async function GET(
   { params }: { params: Promise<{ provider: string }> },
 ) {
   const origin = oauthOrigin(req.headers);
-  const gate = await integrationsHopAdmin();
-  if (!gate.ok && gate.why === "signed_out") return NextResponse.redirect(`${origin}/login`);
-
   const { provider } = await params;
+  const gate = await integrationsHopAdmin();
+  if (!gate.ok && gate.why === "signed_out") {
+    // Signed out: to sign-in, and like every other exit, clear the nonce cookie.
+    const res = NextResponse.redirect(`${origin}/login`);
+    if (isGitProvider(provider)) res.cookies.delete({ name: GIT_STATE_COOKIE, path: gitCallbackPath(provider) });
+    return res;
+  }
+
   if (!isGitProvider(provider)) return back(origin, { status: "error", reason: "unknown_provider" });
   const cfg = PROVIDERS[provider];
 

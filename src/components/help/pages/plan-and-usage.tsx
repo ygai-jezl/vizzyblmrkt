@@ -35,6 +35,10 @@ export default function PlanAndUsageHelp() {
       </P>
       <Pairs head={["Plan", "In a sentence"]} rows={PLANS.map((p) => [p.name, p.summary])} />
       <P>
+        Every plan includes launches and waitlists, journeys, posts and your Audience. Plans differ in the features they add
+        and in how much they allow.
+      </P>
+      <P>
         A plan guides what you do next and never deletes what you made: at a limit nothing is removed, and a feature
         outside your plan keeps everything it saved. A brand that isn&apos;t on a plan yet can use everything your copy of
         YouGrow turns on.
@@ -65,7 +69,7 @@ export default function PlanAndUsageHelp() {
         head={["Line", "What it counts"]}
         rows={[
           ["Brands", "Every brand on the plan, suspended ones too."],
-          ["Users", "Everyone who can open any of the plan's brands, counted once however many brands they are in."],
+          ["Users", "Everyone added to any of the plan's brands, counted once however many brands they are in."],
           ["People", "Everyone in each brand's Audience, added up across the plan's brands."],
           ["Live launches", "Each brand's launches that aren't archived. This one is per brand, not shared."],
         ]}
@@ -85,9 +89,10 @@ export default function PlanAndUsageHelp() {
       </UL>
 
       <H2 id="limits">At a limit</H2>
-      <P>Nobody and nothing is removed. New ones wait until there is room.</P>
+      <P>Nobody and nothing is removed, and new sign-ups, launches and teammates still come in for now.</P>
       <UL>
         <li>A monthly allowance that runs out stops that feature for the rest of the month. It starts again on the 1st.</li>
+        <li>A plan that has all the brands it allows takes no more until there is room.</li>
         <li>Over a shared allowance, owners see it in the Your organisation box on Plan and usage.</li>
         <li>
           To make room, archive a launch you have finished, or ask whoever runs your copy of YouGrow about another plan.
@@ -128,7 +133,7 @@ export default function PlanAndUsageHelp() {
       <Messages
         rows={[
           [
-            "Over your plan. Nobody and nothing is removed; new ones wait until there is room.",
+            "Over your plan. Nobody and nothing is removed, and new ones still come in for now.",
             "Archive what you have finished, or ask whoever runs your copy of YouGrow about another plan.",
           ],
           [

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { AllowanceRow, FeatureRow, UsageSummary } from "@/lib/plans/usage";
-import { PLAN_AND_USAGE_COPY, PlanAndUsage, PlanAndUsageFailed, PlansOff, needsText } from "./PlanAndUsage";
+import { EVERY_PLAN_INCLUDES, PLAN_AND_USAGE_COPY, PlanAndUsage, PlanAndUsageFailed, PlansOff, needsText } from "./PlanAndUsage";
 
 /** Text as a reader sees it: tags dropped, entities read back. */
 const textOf = (html: string) =>
@@ -93,7 +93,7 @@ describe("Plan and usage", () => {
 
   it("marks each feature Included, granted, held back, or not in the plan", () => {
     const text = render(proOwner());
-    expect(text).toContain("What your plan includes");
+    expect(text).toContain("What your plan includes Launches and waitlists Journeys Posts Audience Vizzy in Edit mode");
     expect(text).toContain("Vizzy in Edit mode");
     expect(text).toContain(`Competitors · ${PLAN_AND_USAGE_COPY.granted}`);
     expect(text).toContain(`Brand search · ${PLAN_AND_USAGE_COPY.heldBack}`);
@@ -146,7 +146,8 @@ describe("Plan and usage", () => {
     expect(text).toContain("AI credits Not counted yet 50 a month");
     expect(text).toContain("Live launches 2 of 1");
     expect(text).toContain(PLAN_AND_USAGE_COPY.over);
-    expect(text).toContain(`${PLAN_AND_USAGE_COPY.notIncluded} Vizzy in Edit mode Competitors`);
+    // Free adds no feature of its own, so what every plan has is listed: never an empty heading.
+    expect(text).toContain(`What your plan includes Launches and waitlists Journeys Posts Audience ${PLAN_AND_USAGE_COPY.notIncluded} Vizzy in Edit mode Competitors`);
   });
 
   it("says everything is open for a brand with no plan, and for Self-hosted", () => {
@@ -210,7 +211,7 @@ describe("Plan and usage", () => {
   });
 
   it("keeps to the writing rules", () => {
-    for (const text of Object.values(PLAN_AND_USAGE_COPY)) {
+    for (const text of [...Object.values(PLAN_AND_USAGE_COPY), ...EVERY_PLAN_INCLUDES]) {
       expect(dashesIn(text), text).toEqual([]);
       expect(aiTellsIn(text), text).toEqual([]);
     }

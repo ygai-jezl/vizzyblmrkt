@@ -18,7 +18,7 @@ export const PLAN_AND_USAGE_COPY = {
   plansOff: "Plans are off in this copy of YouGrow, so every brand may use everything its switches turn on.",
   noPlan: "This brand isn't on a plan yet, so everything your copy of YouGrow turns on is open.",
   selfHosted: "Everything is open and nothing is limited.",
-  over: "Over your plan. Nobody and nothing is removed; new ones wait until there is room.",
+  over: "Over your plan. Nobody and nothing is removed, and new ones still come in for now.",
   brandView: "This brand shares a plan with other brands. Their names and totals are shown to the organisation's owners.",
   notIncluded: "Not in your plan. Nothing saved is deleted.",
   notInPlan: "Not in your plan",
@@ -31,6 +31,12 @@ export const PLAN_AND_USAGE_COPY = {
   month: "Counted from the 1st of each month (UTC).",
   failed: "Plan and usage didn't load. Try again in a moment.",
 } as const;
+
+/**
+ * What every plan includes, shown before the plan's own features, so Free (which adds none) never
+ * reads as a plan with nothing in it. The names the navigation uses.
+ */
+export const EVERY_PLAN_INCLUDES = ["Launches and waitlists", "Journeys", "Posts", "Audience"] as const;
 
 const CARD = "rounded-lg border border-neutral-200 p-4 dark:border-neutral-800";
 const HINT = "text-xs text-neutral-500 dark:text-neutral-400";
@@ -195,13 +201,16 @@ export function PlanAndUsage({ summary }: { summary: UsageSummary }) {
 
           <div className="space-y-1.5">
             <h3 className={LABEL}>{plan ? "What your plan includes" : "What this brand can use"}</h3>
-            {shown.length ? (
-              <ul className="flex flex-wrap gap-1.5">
-                {shown.map((f) => (
-                  <FeaturePill key={f.feature} row={f} />
-                ))}
-              </ul>
-            ) : null}
+            <ul className="flex flex-wrap gap-1.5">
+              {EVERY_PLAN_INCLUDES.map((name) => (
+                <li key={name} className={PILL}>
+                  {name}
+                </li>
+              ))}
+              {shown.map((f) => (
+                <FeaturePill key={f.feature} row={f} />
+              ))}
+            </ul>
             {left.length ? (
               <div className="space-y-1.5 pt-1">
                 <p className={HINT}>{PLAN_AND_USAGE_COPY.notIncluded}</p>

@@ -8,7 +8,8 @@
  *
  * DRY RUN by default: for a plan change it lists, per brand, the features lost (with the data each
  * hides) or gained and the caps lowered or raised, and warns about allowances already over the new
- * plan. Nobody and nothing is removed; new ones wait for room. Pass --apply --by <label> to write.
+ * plan. Nobody and nothing is removed, and new ones still come in for now. Pass --apply --by
+ * <label> to write.
  * A change in either direction also needs --allow-narrower or --allow-wider.
  *
  *   GOOGLE_CLOUD_PROJECT=<your-project> npx tsx scripts/set-plan.ts --tenant <tenantId>
@@ -149,7 +150,7 @@ async function main() {
       check("users", users, allowanceLimit(next, "users", users));
       check("people", people, allowanceLimit(next, "people", users));
       for (const b of brands) check(`live launches in ${b.id}`, b.live, allowanceLimit(next, "liveIdeas"));
-      if (over.length) say(`Already over ${next.name}: ${over.join(", ")}. Nobody and nothing is removed; new ones wait for room.`);
+      if (over.length) say(`Already over ${next.name}: ${over.join(", ")}. Nobody and nothing is removed, and new ones still come in for now.`);
     }
   }
   const nameChange = nextName !== null && nextName !== org.name;

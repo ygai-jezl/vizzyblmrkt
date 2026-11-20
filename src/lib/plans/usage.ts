@@ -87,7 +87,10 @@ export interface AllowanceRow {
   perUser: boolean;
   /** `used` is a floor. */
   capped: boolean;
-  /** Over the plan: nobody and nothing is removed; new ones wait until there is room. */
+  /**
+   * Over the plan. Nobody and nothing is removed, and nothing new is stopped yet: in A only
+   * move-brand enforces the brands allowance. Later pieces enforce the others.
+   */
   over: boolean;
 }
 

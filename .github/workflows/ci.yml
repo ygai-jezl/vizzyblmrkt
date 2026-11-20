@@ -29,7 +29,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Lint (includes tenant-isolation guardrails)
+      - name: Lint (tenant isolation and the Enterprise boundary)
         run: npm run lint
 
       - name: No hosted-instance values in the code
@@ -44,6 +44,40 @@ jobs:
         run: npm run agents:check
 
       - name: Unit tests (includes cross-tenant isolation tests)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  # Enterprise code (src/ee) is optional: the app must typecheck, lint, test and build without it.
+  # It runs beside verify, so a result takes no longer. agents:check and the check:* steps stay in
+  # verify, since the guides name files in src/ee on purpose. Until Enterprise code lands there,
+  # this proves the steps work; from then on it is the guard.
+  without-enterprise:
+    name: Builds without Enterprise code
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Remove src/ee
+        run: rm -rf src/ee
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
         run: npm test
 
       - name: Build

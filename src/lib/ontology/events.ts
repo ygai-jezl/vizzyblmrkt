@@ -2,6 +2,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailEvent, EmailEventType } from "@/lib/types/emailEvent";
 import type { ProductEvent } from "@/lib/types/productEvent";
 import type { PersonMove } from "@/lib/types/personMove";
+import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentActionId, AgentActionState, DeclineReason } from "@/lib/types/agentAction";
 import { isContactPersonId, type ContactPersonId } from "./person";
 
@@ -437,4 +438,24 @@ export function isCanonicalInstant(value: unknown): value is string {
 /** A value's size as UTF-8 JSON, measured with TextEncoder (no Buffer: this can reach the browser). */
 export function jsonBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value) ?? "").length;
+}
+
+/**
+ * A stored event as an envelope: the person from its personId, and its subject kept. Ids only;
+ * properties are the kind's own detail (a field change holds its values before and after).
+ */
+export function fromStoredEvent(row: StoredEvent): OntologyEvent {
+  return {
+    id: row.id,
+    kind: row.kind,
+    at: row.at,
+    person: isContactPersonId(row.personId) ? row.personId : null,
+    identity: row.identity ?? null,
+    ideaCredited: row.ideaCredited ?? null,
+    source: row.source,
+    actor: row.actor,
+    refs: row.refs ?? {},
+    properties: row.properties,
+    subject: row.subject,
+  };
 }

@@ -24,12 +24,15 @@ import {
   fromEmailEvent,
   fromPersonMove,
   fromProductEvent,
+  fromStoredEvent,
   isEventKind,
   PRODUCT_EVENT_KIND,
   type AgentActionEvent,
   type EventKind,
 } from "./events";
 import type { ContactPersonId } from "./person";
+import type { StoredEvent } from "@/lib/types/ontologyEvent";
+import { deterministicEventId } from "@/lib/crm/identifiers";
 
 const PERSON = deterministicContactId("ten_demo", "ada@example.com") as ContactPersonId;
 
@@ -307,5 +310,42 @@ describe("times and sizes", () => {
   it("counts bytes in UTF-8", () => {
     expect(jsonBytes({ a: "é" })).toBe(new TextEncoder().encode('{"a":"é"}').length);
     expect(jsonBytes("€")).toBe(5);
+  });
+});
+
+describe("fromStoredEvent", () => {
+  const row = (over: Partial<StoredEvent> = {}): StoredEvent => ({
+    id: deterministicEventId("ten_demo", "created|company:co_1|t"),
+    tenantId: "ten_demo",
+    key: "created|company:co_1|t",
+    kind: "record.created",
+    at: "2026-11-20T10:00:00.000Z",
+    subject: { type: "company", id: "co_1" },
+    subjectKey: "company:co_1",
+    personId: null,
+    productUserId: null,
+    fieldId: null,
+    agentActionId: null,
+    identity: null,
+    ideaCredited: null,
+    source: { system: "app" },
+    actor: { type: "member", id: "uid_1" },
+    refs: null,
+    properties: { object: "company", via: "form" },
+    createdAt: "2026-11-20T10:00:01.000Z",
+    blankedAt: null,
+    blankedReason: null,
+    ...over,
+  });
+
+  it("takes the person from personId and keeps the subject", () => {
+    const e = fromStoredEvent(row({ subject: { type: "person", id: PERSON }, subjectKey: `person:${PERSON}`, personId: PERSON }));
+    expect(e.person).toBe(PERSON);
+    expect(e.subject).toEqual({ type: "person", id: PERSON });
+    expect(e.refs).toEqual({});
+  });
+
+  it("has no person for a company's row, and keeps its kind, time and actor", () => {
+    expect(fromStoredEvent(row())).toMatchObject({ kind: "record.created", at: "2026-11-20T10:00:00.000Z", person: null, actor: { type: "member", id: "uid_1" }, subject: { type: "company", id: "co_1" } });
   });
 });

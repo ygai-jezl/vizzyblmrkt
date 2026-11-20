@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
   resolveNextStep,
   validateJourneyGraph,
@@ -13,6 +13,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { JourneyGraph } from "@/lib/types/journey";
 import type { Tenant } from "@/lib/types/tenant";
+import { personIdForSignup } from "@/lib/ontology/personRef";
 
 function graph(
   nodes: Array<[string, "trigger" | "email" | "wait" | "condition", number?]>,
@@ -836,5 +837,71 @@ describe("cancelScheduledBroadcast", () => {
     const ok = await cancelScheduledBroadcast(ctx, "bcast1", db);
     expect(ok).toBe(false);
     expect(db.raw("email_jobs", key)).toMatchObject({ status: "processing" });
+  });
+});
+
+describe("processEmailJobs: the person on a waitlist journey's send (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  const ctx: TenantContext = { tenantId: "ten_P", region: "us", source: "system" };
+  const dedupe = "journey:journey_camp1:email1:s1";
+
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  function world() {
+    const db = new FakeFirestore();
+    db.seed("journeys", "journey_camp1", {
+      tenantId: "ten_P",
+      campaignId: "camp1",
+      status: "active",
+      graph: {
+        nodes: [
+          { id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: {} },
+          { id: "email1", type: "email", position: { x: 0, y: 0 }, data: { subject: "Hello", body: "Hi there" } },
+        ],
+        edges: [{ id: "e0", source: "trigger", target: "email1", sourceHandle: null }],
+      },
+      createdAt: "2026-06-19T00:00:00Z",
+      updatedAt: "2026-06-19T00:00:00Z",
+    });
+    db.seed("campaigns", "camp1", { tenantId: "ten_P", waitlistName: "Launch", createdAt: "2026-06-19T00:00:00Z" });
+    db.seed("signups", "s1", { tenantId: "ten_P", campaignId: "camp1", status: "verified_active", verified: true, email: "Ada@Example.com", firstName: "Ada" });
+    db.seed("email_jobs", dedupe, {
+      tenantId: "ten_P",
+      campaignId: "camp1",
+      type: "journey_step",
+      status: "pending",
+      dedupeKey: dedupe,
+      scheduledAt: "2020-01-01T00:00:00.000Z",
+      attempts: 0,
+      claimedAt: null,
+      emailSentAt: null,
+      payload: { journeyId: "journey_camp1", nodeId: "email1", signupId: "s1" },
+      lastError: null,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      processedAt: null,
+    });
+    return db;
+  }
+
+  it("writes the sign-up's person on the send record and the send row", async () => {
+    const db = world();
+    expect(await processEmailJobs(ctx, 25, db)).toMatchObject({ processed: 1, failed: 0 });
+    const person = personIdForSignup("ten_P", { email: "ada@example.com", phone: null });
+    const [send] = db.dump("email_sends");
+    expect(send).toMatchObject({ engine: "waitlist", signupId: "s1", personId: person });
+    expect(db.dump("email_events")).toEqual([expect.objectContaining({ type: "send", signupId: "s1", personId: person })]);
+  });
+
+  it("writes none while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const db = world();
+    await processEmailJobs(ctx, 25, db);
+    expect(db.dump("email_sends")).toHaveLength(1);
+    expect(db.dump("email_sends")[0]).not.toHaveProperty("personId");
+    expect(db.dump("email_events")[0]).not.toHaveProperty("personId");
   });
 });

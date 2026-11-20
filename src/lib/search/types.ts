@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Brand search: the shapes shared by the indexer, the store (src/lib/tenant/searchIndex.ts, the
  * only code that touches the search databases), the query and the screens.
@@ -12,7 +14,7 @@ export const SEARCH_KINDS = [
   "newsletter",
   "ebook",
   "post",
-  "idea",
+  "idea_board",
   "template",
   "journey_email",
   "broadcast",
@@ -33,6 +35,46 @@ export type SearchKind = (typeof SEARCH_KINDS)[number];
 export function isSearchKind(value: unknown): value is SearchKind {
   return typeof value === "string" && (SEARCH_KINDS as readonly string[]).includes(value);
 }
+
+/**
+ * Older kind names that may be stored or asked for, read as one of today's kinds. An Idea Board
+ * item was `idea` until it became `idea_board`, which frees "idea" for a business idea. It is
+ * still written as `idea` while SEARCH_KIND_IDEA_BOARD_ENABLED is off (storedKindOf in
+ * ./indexer.ts), and reads take both names either way. Piece 0a shipped the reverse alias
+ * ({idea_board: "idea"}), so reverting this change still reads both names.
+ */
+export const SEARCH_KIND_ALIASES = { idea: "idea_board" } as const satisfies Readonly<Record<string, SearchKind>>;
+
+/** An older kind name (SEARCH_KIND_ALIASES). */
+export type SearchKindAlias = keyof typeof SEARCH_KIND_ALIASES;
+
+/** A kind name as the index stores it: one of today's kinds, or an older name read as one. */
+export type StoredSearchKind = SearchKind | SearchKindAlias;
+
+/** How many alias names there are, for limits on lists of kinds. */
+export const SEARCH_KIND_ALIAS_COUNT = Object.keys(SEARCH_KIND_ALIASES).length;
+
+/** A stored or requested kind as one of today's kinds: a current kind, an alias mapped to its kind, or null. */
+export function readSearchKind(value: unknown): SearchKind | null {
+  if (isSearchKind(value)) return value;
+  if (typeof value === "string" && Object.prototype.hasOwnProperty.call(SEARCH_KIND_ALIASES, value)) return SEARCH_KIND_ALIASES[value as SearchKindAlias];
+  return null;
+}
+
+/** The kind values to look for in the index: the kinds, plus every alias stored for one of them. */
+export function storedKindsFor(kinds: readonly SearchKind[]): StoredSearchKind[] {
+  const out = new Set<StoredSearchKind>(kinds);
+  for (const [alias, kind] of Object.entries(SEARCH_KIND_ALIASES) as Array<[SearchKindAlias, SearchKind]>) if (kinds.includes(kind)) out.add(alias);
+  return [...out];
+}
+
+/** Each kind once, in first seen order. */
+export function dedupeKinds<T extends string>(kinds: readonly T[]): T[] {
+  return [...new Set(kinds)];
+}
+
+/** A kind as a request names it: a current kind or an alias, read as the current kind. */
+export const SearchKindInput = z.string().transform(readSearchKind).pipe(z.enum(SEARCH_KINDS));
 
 /** One record to index, as a feeder reads it through the tenant layer. */
 export interface SearchSource {
@@ -68,7 +110,8 @@ export interface SearchStub {
 /** One stored chunk (brands/{tenantId}/search_docs/{id}). */
 export interface SearchChunkDoc {
   tenantId: string;
-  kind: SearchKind;
+  /** The name it is stored under (storedKindOf); reads give today's kind. */
+  kind: StoredSearchKind;
   ref: string;
   sourceKey: string;
   chunk: number;
@@ -97,6 +140,9 @@ export interface SearchManifest {
   version?: string;
 }
 
+/** A manifest as written: its kind is the name it is stored under (storedKindOf), which may be an older one. */
+export type StoredSearchManifest = Omit<SearchManifest, "kind"> & { kind: StoredSearchKind };
+
 /** A chunk a search found, in rank order. */
 export interface RankedChunk {
   id: string;
@@ -114,9 +160,9 @@ export interface SearchStore {
   getManifest(sourceKey: string): Promise<SearchManifest | null>;
   listManifests(): Promise<SearchManifest[]>;
   /** Replace a record's chunks (and drop chunks past the new count), then its manifest. */
-  putSource(manifest: SearchManifest, chunks: SearchChunkDoc[], previousChunks: number): Promise<void>;
+  putSource(manifest: StoredSearchManifest, chunks: SearchChunkDoc[], previousChunks: number): Promise<void>;
   /** Rewrite only a manifest (its version moved but the text didn't). */
-  putManifest(manifest: SearchManifest): Promise<void>;
+  putManifest(manifest: StoredSearchManifest): Promise<void>;
   removeSource(sourceKey: string): Promise<void>;
   /** Text search. `query` is already in the words query syntax (see wordsQueries). */
   words(query: string, opts: { limit: number; kinds?: SearchKind[]; lang?: string }): Promise<RankedChunk[]>;
@@ -125,6 +171,7 @@ export interface SearchStore {
   clear(): Promise<number>;
 }
 
-export function sourceKeyOf(kind: SearchKind, ref: string): string {
+/** A record's key in the index, from the kind name it is stored under (see storedSourceKey in ./indexer.ts). */
+export function sourceKeyOf(kind: StoredSearchKind, ref: string): string {
   return `${kind}:${ref}`;
 }

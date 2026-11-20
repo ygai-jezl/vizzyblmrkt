@@ -21,6 +21,9 @@ import { suppressEmail } from "@/lib/email/suppression";
 import { notifyProductOfSuppression } from "@/lib/connect/suppressed";
 import { isSuppressionWebhookEnabled } from "@/lib/connect/v2/flags";
 import type { EmailSuppressionReason } from "@/lib/types/emailSuppression";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { personIdForAddress, personStamp } from "@/lib/ontology/personRef";
+import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
 
 /** Engagement events that mean "never email this address again". */
 const SUPPRESSION_REASON: Partial<Record<string, EmailSuppressionReason>> = {
@@ -70,9 +73,10 @@ export async function POST(req: Request) {
   const enrolmentSends = new Map<string, EventMetadata | null>();
   const sendRecords = new Map<string, EventMetadata | null>();
   const detail = isEmailEngagementDetailEnabled();
-  const detailGroups = new Map<string, { ctx: TenantContext; meta: EventMetadata; events: MandrillEvent[] }>();
+  const detailGroups = new Map<string, { ctx: TenantContext; meta: EventMetadata; events: MandrillEvent[]; personId: ContactPersonId | null }>();
   let recorded = 0;
   let skipped = 0;
+  const stampPeople = isOntologyPersonIdsEnabled();
 
   for (const ev of events) {
     const type = mapMandrillEventType(ev.event);
@@ -118,10 +122,17 @@ export async function POST(req: Request) {
             return null;
           })
         : direct;
+    // The person (ONTOLOGY_PERSON_IDS_ENABLED): the one the send record or enrolment holds, else a
+    // sign-up's by the address it went to. A product user's is never guessed from an address: their
+    // person can be their own until they give one.
+    const recipient = typeof ev.msg?.email === "string" ? ev.msg.email : "";
+    const personId: ContactPersonId | null = !stampPeople
+      ? null
+      : (meta?.personId ?? (meta && meta.recipientKind !== "product_user" && recipient ? personIdForAddress(tenantId, recipient) : null));
     // Everything that happened to the email, gathered per send and written once after the batch.
     if (detail && meta?.nodeId) {
       const key = `${tenantId}|${sendIdOf(tenantId, emailEventKeyBase(meta))}`;
-      const group = detailGroups.get(key) ?? { ctx, meta, events: [] };
+      const group = detailGroups.get(key) ?? { ctx, meta, events: [], personId };
       group.events.push(ev);
       detailGroups.set(key, group);
     }
@@ -150,6 +161,7 @@ export async function POST(req: Request) {
             : new Date().toISOString(),
           mandrillMessageId: ev.msg?._id ?? null,
           url: ev.url ?? null,
+          ...(personId ? { personId } : {}),
         });
         if (outcome === "recorded") recorded += 1;
         else skipped += 1;
@@ -209,6 +221,7 @@ export async function POST(req: Request) {
             ...(g.meta.recipientKind ? { recipientKind: g.meta.recipientKind } : {}),
             ...(g.meta.connectionId ? { connectionId: g.meta.connectionId } : {}),
             ...(g.meta.enrolmentId ? { enrolmentId: g.meta.enrolmentId } : {}),
+            ...personStamp(g.personId),
             mandrillMessageId: null,
             ...(applyEngagement({}, g.events, nowIso) ?? {}),
             createdAt: nowIso,

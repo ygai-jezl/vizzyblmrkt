@@ -33,6 +33,7 @@ export async function attributionOfEnrolmentSend(
         recipientKind: "product_user",
         connectionId: enrolment.connectionId,
         enrolmentId: enrolment.id,
+        ...(enrolment.personId ? { personId: enrolment.personId } : {}),
       }
     : null;
   deps.cache?.set(key, meta);

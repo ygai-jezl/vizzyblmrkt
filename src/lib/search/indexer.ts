@@ -3,10 +3,10 @@ import { embedForSearch, SEARCH_EMBEDDING_TAG } from "@/lib/agents/embeddings";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { searchStoreFor } from "@/lib/tenant/searchIndex";
 import type { TenantContext } from "@/lib/tenant/types";
-import { isSearchIndexEnabled } from "./flags";
+import { isSearchIndexEnabled, isSearchKindIdeaBoardEnabled } from "./flags";
 import { chunkText, contentHash, toPlainText } from "./text";
-import type { SearchChunkDoc, SearchKind, SearchManifest, SearchSource, SearchStore } from "./types";
-import { sourceKeyOf } from "./types";
+import type { SearchChunkDoc, SearchKind, SearchManifest, SearchSource, SearchStore, StoredSearchKind, StoredSearchManifest } from "./types";
+import { sourceKeyOf, storedKindsFor } from "./types";
 
 /**
  * Keeps one record's chunks in the brand's search index: plain text, chunks, a hash, and an
@@ -35,6 +35,20 @@ const MAX_PART_CHARS = 4000;
 /** Most parts one record keeps (a very large knowledge source). */
 export const MAX_PARTS_PER_SOURCE = 3000;
 
+/**
+ * The name a kind is written under. Idea Board items keep the older name `idea` until
+ * SEARCH_KIND_IDEA_BOARD_ENABLED. Reads take both names (SEARCH_KIND_ALIASES), and the scheduled
+ * check moves what is stored to the name in use, since a record's key holds the name.
+ */
+export function storedKindOf(kind: SearchKind): StoredSearchKind {
+  return kind === "idea_board" && !isSearchKindIdeaBoardEnabled() ? "idea" : kind;
+}
+
+/** A record's key in the index, under the name its kind is written as now. */
+export function storedSourceKey(kind: SearchKind, ref: string): string {
+  return sourceKeyOf(storedKindOf(kind), ref);
+}
+
 async function allowed(ctx: Ctx, deps: IndexDeps): Promise<IndexOutcome | null> {
   if (!isSearchIndexEnabled()) return "off";
   const granted = deps.granted ?? (await brandCanUse(ctx, "brand_search"));
@@ -45,7 +59,8 @@ async function allowed(ctx: Ctx, deps: IndexDeps): Promise<IndexOutcome | null> 
 export async function indexSource(ctx: Ctx, source: SearchSource, deps: IndexDeps = {}): Promise<IndexOutcome> {
   const stop = await allowed(ctx, deps);
   if (stop) return stop;
-  const sourceKey = sourceKeyOf(source.kind, source.ref);
+  const kind = storedKindOf(source.kind);
+  const sourceKey = sourceKeyOf(kind, source.ref);
   try {
     const store = deps.store ?? searchStoreFor(ctx);
     const title = (source.title ?? "").trim().slice(0, 500);
@@ -69,7 +84,7 @@ export async function indexSource(ctx: Ctx, source: SearchSource, deps: IndexDep
       pieces.map((p) => `${p.title}\u0002${p.url}\u0002${p.text}`),
     );
     if (prev && prev.hash === hash && prev.embedded) {
-      if (deps.version && prev.version !== deps.version) await store.putManifest({ ...prev, version: deps.version });
+      if (deps.version && prev.version !== deps.version) await store.putManifest({ ...prev, kind, version: deps.version });
       return "unchanged";
     }
 
@@ -81,7 +96,7 @@ export async function indexSource(ctx: Ctx, source: SearchSource, deps: IndexDep
     const now = (deps.now ?? (() => new Date()))().toISOString();
     const docs: SearchChunkDoc[] = pieces.map((p, chunk) => ({
       tenantId: ctx.tenantId,
-      kind: source.kind,
+      kind,
       ref: source.ref,
       sourceKey,
       chunk,
@@ -93,9 +108,9 @@ export async function indexSource(ctx: Ctx, source: SearchSource, deps: IndexDep
       ...(vectors[chunk] ? { embedding: vectors[chunk] as number[], embeddingModel: SEARCH_EMBEDDING_TAG } : {}),
     }));
     const embedded = docs.every((d) => d.embedding);
-    const manifest: SearchManifest = {
+    const manifest: StoredSearchManifest = {
       sourceKey,
-      kind: source.kind,
+      kind,
       ref: source.ref,
       hash,
       chunks: docs.length,
@@ -116,7 +131,9 @@ export async function removeFromIndex(ctx: Ctx, kind: SearchKind, ref: string, d
   // A delete clears the index even when the brand has since lost access: nothing is left behind.
   if (!isSearchIndexEnabled()) return "off";
   try {
-    await (deps.store ?? searchStoreFor(ctx)).removeSource(sourceKeyOf(kind, ref));
+    const store = deps.store ?? searchStoreFor(ctx);
+    // Under every name the kind may be stored as, so nothing is left whichever name was in use.
+    for (const name of storedKindsFor([kind])) await store.removeSource(sourceKeyOf(name, ref));
     return "removed";
   } catch (err) {
     console.warn("[search] removing failed:", kind, err instanceof Error ? err.message.slice(0, 200) : "error");

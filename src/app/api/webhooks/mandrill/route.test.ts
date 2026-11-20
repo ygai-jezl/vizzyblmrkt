@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { enrolmentSendMetadata, mandrillSignedData, type EventMetadata } from "@/lib/email/mandrillWebhook";
+import { personIdForAddress } from "@/lib/ontology/personRef";
+import type { ContactPersonId } from "@/lib/ontology/person";
 
 const recordEmailEvent = vi.fn(async () => "recorded" as const);
 const suppressEmail = vi.fn(async () => undefined);
@@ -134,5 +136,51 @@ describe("POST /api/webhooks/mandrill with send records", () => {
     expect(recordEmailEvent).not.toHaveBeenCalled();
     expect(attributionOfSend).not.toHaveBeenCalled();
     expect(suppressEmail).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_a" }), expect.objectContaining({ reason: "spam", campaignId: null, signupId: null }));
+  });
+});
+
+describe("POST /api/webhooks/mandrill: the person on each event (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  const SIGNUP = { tenantId: "ten_a", campaignId: "spring", journeyId: "lcjw_1", nodeId: "email_1", signupId: "sig_1", variantId: "control", recipientKind: "signup" };
+  const ENROLMENT_PERSON = personIdForAddress("ten_a", "kept@customer.test") as ContactPersonId;
+  const call = () => (recordEmailEvent.mock.calls[0] as unknown[])[1] as Record<string, unknown>;
+
+  beforeEach(() => {
+    vi.stubEnv("MANDRILL_WEBHOOK_KEY", KEY);
+    vi.stubEnv("MANDRILL_WEBHOOK_URL", URL_);
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    for (const fn of [recordEmailEvent, suppressEmail, attributionOfSend, attributionOfEnrolmentSend]) fn.mockClear();
+    attributionOfEnrolmentSend.mockImplementation(async () => null);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("finds a sign-up's person from the address the email went to", async () => {
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "Sam@Customer.test", metadata: SIGNUP } }]));
+    expect(call().personId).toBe(personIdForAddress("ten_a", "sam@customer.test"));
+  });
+
+  it("takes the person the enrolment holds for a product journey's email", async () => {
+    attributionOfEnrolmentSend.mockImplementation(async () => ({ ...FOUND, personId: ENROLMENT_PERSON }));
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "alex@customer.test", metadata: NAMED } }]));
+    expect(call().personId).toBe(ENROLMENT_PERSON);
+  });
+
+  it("takes the person the send record holds", async () => {
+    attributionOfSend.mockImplementation(async () => ({ ...SIGNUP, recipientKind: "signup" as const, personId: ENROLMENT_PERSON }));
+    await POST(post([{ event: "click", ts: 1_790_000_000, url: "https://app.example.com/", msg: { _id: "m_9", email: "sam@customer.test", metadata: { t: "ten_a", s: "es_AAAAAAAAAAAAAAAAAAAAAA" } } }]));
+    expect(call().personId).toBe(ENROLMENT_PERSON);
+  });
+
+  it("never guesses a product user's person from the address", async () => {
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "alex@customer.test", metadata: LONG } }]));
+    expect(call()).not.toHaveProperty("personId");
+  });
+
+  it("gives none while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    attributionOfEnrolmentSend.mockImplementation(async () => ({ ...FOUND, personId: ENROLMENT_PERSON }));
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "sam@customer.test", metadata: SIGNUP } }]));
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "alex@customer.test", metadata: NAMED } }]));
+    for (const c of recordEmailEvent.mock.calls) expect((c as unknown[])[1]).not.toHaveProperty("personId");
   });
 });

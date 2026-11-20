@@ -52,6 +52,16 @@ describe("GET /api/admin/search", () => {
     expect(query.searchBrand).toHaveBeenCalledWith(member, "FL-204 kit", { kinds: ["article", "post"], limit: 5 });
   });
 
+  it("accepts the old name idea and passes it on as idea_board, each kind once", async () => {
+    expect((await GET(get("?q=repot&kinds=idea"))).status).toBe(200);
+    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined });
+    expect((await GET(get("?q=repot&kinds=idea_board"))).status).toBe(200);
+    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined });
+    expect((await GET(get("?q=repot&kinds=idea,idea_board"))).status).toBe(200);
+    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined });
+    expect((await GET(get("?q=repot&kinds=idea,people"))).status).toBe(400);
+  });
+
   it("never takes the brand from the request", async () => {
     await GET(get("?q=repot&tenantId=ten_B"));
     expect(query.searchBrand.mock.calls[0]?.[0]).toMatchObject({ tenantId: "ten_A" });

@@ -3,6 +3,8 @@ import {
   deterministicContactId,
   deterministicCompanyId,
   deterministicMessageId,
+  deterministicEventId,
+  deterministicAgentActionId,
   canonicalDomain,
   domainFromEmail,
 } from "./identifiers";
@@ -76,5 +78,23 @@ describe("domainFromEmail", () => {
   it("returns null without a usable host part", () => {
     expect(domainFromEmail("not-an-email")).toBeNull();
     expect(domainFromEmail("jo@")).toBeNull();
+  });
+});
+
+describe("event and agent action ids", () => {
+  it("have their prefix and 40 hex", () => {
+    expect(deterministicEventId("ten_demo", "created|person:ct_1|2026-11-20T10:00:00.000Z")).toMatch(/^ev_[0-9a-f]{40}$/);
+    expect(deterministicAgentActionId("ten_demo", "new_person.fill|req_1")).toMatch(/^aa_[0-9a-f]{40}$/);
+  });
+
+  it("hash the tenant in, so two brands never share one", () => {
+    expect(deterministicEventId("ten_demo", "k")).not.toBe(deterministicEventId("ten_other", "k"));
+    expect(deterministicAgentActionId("ten_demo", "k")).not.toBe(deterministicAgentActionId("ten_other", "k"));
+  });
+
+  it("keep the key's case, unlike contact ids", () => {
+    expect(deterministicEventId("ten_demo", "A")).not.toBe(deterministicEventId("ten_demo", "a"));
+    expect(deterministicAgentActionId("ten_demo", "A")).not.toBe(deterministicAgentActionId("ten_demo", "a"));
+    expect(deterministicContactId("ten_demo", "A@example.com")).toBe(deterministicContactId("ten_demo", "a@example.com"));
   });
 });

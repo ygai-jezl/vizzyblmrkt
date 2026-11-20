@@ -6,7 +6,7 @@ export const KIND_LABEL: Record<SearchKind, string> = {
   newsletter: "Newsletter",
   ebook: "Ebook",
   post: "Post",
-  idea: "Idea",
+  idea_board: "Clipping",
   template: "Template",
   journey_email: "Email",
   broadcast: "Broadcast",
@@ -31,7 +31,7 @@ export const KIND_GROUPS: Array<{ key: string; label: string; kinds: SearchKind[
   { key: "brand", label: "Brand map and notes", kinds: ["brand_kit", "subject", "situation", "question", "note", "research", "learned"] },
   { key: "knowledge", label: "Knowledge", kinds: ["knowledge", "repo_map"] },
   { key: "competitors", label: "Competitors", kinds: ["competitor"] },
-  { key: "ideas", label: "Ideas and images", kinds: ["idea", "image"] },
+  { key: "ideas", label: "Scrapbook and images", kinds: ["idea_board", "image"] },
 ];
 
 export function groupOf(kind: SearchKind): string {

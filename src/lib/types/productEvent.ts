@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContactPersonIdSchema } from "@/lib/ontology/person";
 
 /**
  * Product event — one identify/track message accepted from a connected product.
@@ -31,6 +32,11 @@ export const ProductEventSchema = z.object({
   ignoredFields: z.array(z.string()).optional(),
   /** API v2: the entity (a brand, a workspace…) a milestone was about. */
   entityId: z.string().nullable().optional(),
+  /**
+   * The person (a `ct_` id), written with the row (ONTOLOGY_PERSON_IDS_ENABLED) and moved when
+   * the product user moves. Never on an erase row or a sandbox's. Not the product user id.
+   */
+  personId: ContactPersonIdSchema.optional(),
   ttlAt: z.unknown().optional(),
 });
 export type ProductEvent = z.infer<typeof ProductEventSchema>;

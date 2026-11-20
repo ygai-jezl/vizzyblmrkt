@@ -4,7 +4,8 @@ import { forTenant } from "@/lib/tenant";
 import { runLifecycleTick } from "../runner";
 import { sendStub } from "../testing/fixtures";
 import { backfillWaitlistJourney, claimLifecycleEngine, enrolWaitlistSignup } from "./enrol";
-import { waitlistEnrolmentId, waitlistJourneyId } from "./ids";
+import { rehearsalEnrolmentId, waitlistEnrolmentId, waitlistJourneyId } from "./ids";
+import { personIdForSignup } from "@/lib/ontology/personRef";
 import { CAMPAIGN_ID, publishWaitlist, seedLaunch, seedSignup, system, T0, TENANT_ID } from "./testing/fixtures";
 
 /**
@@ -147,5 +148,37 @@ describe("the lifecycle tick", () => {
     expect(waitlistJourneyId(CAMPAIGN_ID)).toBe(waitlistJourneyId(CAMPAIGN_ID));
     expect(waitlistJourneyId(CAMPAIGN_ID)).not.toBe(waitlistJourneyId("camp2"));
     expect(waitlistJourneyId(CAMPAIGN_ID)).toMatch(/^lcjw_[0-9a-f]{40}$/);
+  });
+});
+
+describe("the person on a waitlist enrolment (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+
+  it("comes from the sign-up", async () => {
+    const w = await world();
+    const ada = seedSignup(w.db, "ada", { email: "Ada@Example.test" });
+    await w.enrol(ada);
+    const e = await forTenant(system, w.db).waitlistEnrolments.getById(waitlistEnrolmentId(w.journey.id, "ada"));
+    expect(e?.personId).toBe(personIdForSignup(TENANT_ID, { email: "ada@example.test", phone: null }));
+    expect(e?.personId).toMatch(/^ct_/);
+  });
+
+  it("is never on a rehearsal", async () => {
+    const w = await world();
+    const ada = seedSignup(w.db, "ada");
+    expect((await w.enrol(ada, { rehearsal: true })).outcome).toBe("enrolled");
+    const e = await forTenant(system, w.db).waitlistEnrolments.getById(rehearsalEnrolmentId(w.journey.id, "ada"));
+    expect(e).toMatchObject({ rehearsal: true });
+    expect(e).not.toHaveProperty("personId");
+  });
+
+  it("is not written while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await world();
+    await w.enrol(seedSignup(w.db, "ada"));
+    expect(await forTenant(system, w.db).waitlistEnrolments.getById(waitlistEnrolmentId(w.journey.id, "ada"))).not.toHaveProperty("personId");
   });
 });

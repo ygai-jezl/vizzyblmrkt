@@ -13,6 +13,7 @@ import { resolveCampaignLocale } from "@/lib/i18n/locale";
 import { offboardSignup } from "@/lib/waitlist/offboard";
 import { inviteConnections, inviteProductName } from "./eligibility";
 import { isInvitesEnabled } from "./flags";
+import { personIdForSignup } from "@/lib/ontology/personRef";
 import { renderInviteEmail } from "./render";
 import { inviteLinkUrl, signInviteToken } from "./token";
 
@@ -112,6 +113,8 @@ export async function processInviteJob(
   });
   const sender = resolveSender(tenant, campaign);
   const journeyId = inviteJourneyId(campaign.id);
+  // The person, on the send record and the send row (ONTOLOGY_PERSON_IDS_ENABLED); never in the metadata.
+  const personId = personIdForSignup(ctx.tenantId, signup);
   const res = await sendEmail({
     to: signup.email,
     subject: rendered.subject,
@@ -126,6 +129,7 @@ export async function processInviteJob(
       ctx,
       { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
       "invite",
+      { db, personId },
     ),
     tags: ["invite", `wave-${wave.id}`],
   });
@@ -148,6 +152,7 @@ export async function processInviteJob(
       type: "send",
       ts: new Date().toISOString(),
       mandrillMessageId: res.id ?? null,
+      personId,
     },
     db,
   ).catch(() => {});

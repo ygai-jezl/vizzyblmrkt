@@ -15,6 +15,8 @@ import { enrolWaitlistSignup, releaseHeldWaitlistEnrolments } from "./enrol";
 import { waitlistEnrolmentId } from "./ids";
 import { drainWaitlistTenant, processWaitlistEnrolment } from "./runner";
 import { CAMPAIGN_ID, publishWaitlist, seedLaunch, seedSignup, system, T0, TENANT_ID, welcomeDraft } from "./testing/fixtures";
+import { personIdForSignup } from "@/lib/ontology/personRef";
+import { metadataBytes, METADATA_LIMIT_BYTES } from "@/lib/email/mandrillWebhook";
 
 /**
  * Waitlist journeys on the lifecycle engine (engine move D2): the runner sends
@@ -420,5 +422,46 @@ describe("waitlist journeys on the lifecycle engine: a journey's own style", () 
     const pinned = await brandWelcome();
     expect(masked(w.sent[0]!.html)).toBe(masked(pinned.html));
     expect(masked(w.sent[0]!.text)).toBe(masked(pinned.text));
+  });
+});
+
+describe("the person on a waitlist journey's send (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+
+  it("is on the send record and the send row, never in the metadata", async () => {
+    const w = await world();
+    expect(await w.run()).toBe("sent");
+    const person = personIdForSignup(TENANT_ID, { email: "ada@example.test", phone: null });
+    const m = w.sent[0]!;
+    expect(Object.keys(m.metadata ?? {})).toEqual(["t", "s"]);
+    expect(JSON.stringify(m.metadata)).not.toContain("ct_");
+    expect(metadataBytes(m.metadata!)).toBeLessThanOrEqual(METADATA_LIMIT_BYTES);
+    expect(w.db.raw("email_sends", m.metadata!.s!)).toMatchObject({ engine: "waitlist_v2", signupId: "ada", personId: person });
+    expect(w.db.dump("email_events")).toEqual([expect.objectContaining({ type: "send", signupId: "ada", personId: person })]);
+  });
+
+  it("is nowhere for a shadow rehearsal", async () => {
+    const w = await world({ people: [] });
+    await forTenant(system, w.db).lifecycleJourneys.update(w.journey.id, { shadowInbox: "jez@sandbox.test" });
+    const journey = (await forTenant(system, w.db).lifecycleJourneys.getById(w.journey.id))!;
+    const ada = seedSignup(w.db, "ada", { journeyEngine: "legacy" });
+    const r = await enrolWaitlistSignup(system, { journey, version: w.version, campaign: w.campaign, signup: ada, source: "backfill", rehearsal: true }, { db: w.db, nowMs: T0 });
+    const id = r.outcome === "enrolled" ? r.enrolmentId : "";
+    expect(await processWaitlistEnrolment(system, id, w.deps)).toBe("sent");
+    expect(w.db.dump("email_sends")).toHaveLength(0);
+    expect(w.db.dump("email_events")).toHaveLength(0);
+    expect(w.db.raw("waitlist_enrolments", id)).not.toHaveProperty("personId");
+  });
+
+  it("is not written while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await world();
+    await w.run();
+    expect(w.db.dump("email_sends")[0]).not.toHaveProperty("personId");
+    expect(w.db.dump("email_events")[0]).not.toHaveProperty("personId");
   });
 });

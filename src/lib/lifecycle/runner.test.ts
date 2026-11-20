@@ -7,6 +7,7 @@ import type { EmailResult } from "@/lib/email";
 import type { ProductContext } from "@/lib/connect/protocol";
 import type { DeliveryMode } from "@/lib/types/lifecycle";
 import { enrolUser, enrolmentDocId, counterDocId } from "./enrol";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { processEnrolment, runEnrolmentNow } from "./runner";
 import { publishLifecycleJourney, saveLifecycleDraft, setLifecycleJourneyStatus } from "./service";
 import {
@@ -708,5 +709,51 @@ describe("Email style (EMAIL_STYLE_ENABLED)", () => {
       expect(masked(w.sent[0]!.html)).toBe(masked(pinned.html));
       expect(masked(w.sent[0]!.text)).toBe(masked(pinned.text));
     });
+  });
+});
+
+describe("the person on a product journey's send (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function personOf(w: Awaited<ReturnType<typeof world>>) {
+    const connection = await forTenant(system, w.db).productConnections.getById(CONNECTION_ID);
+    return personIdForProductUser(system.tenantId, w.users[0]!, connection);
+  }
+
+  it("is on the send record and the send row, never in the metadata", async () => {
+    const w = await world();
+    await throughWelcome(w);
+    const person = await personOf(w);
+    expect(person).toMatch(/^ct_/);
+    const [record] = w.db.dump("email_sends");
+    expect(record).toMatchObject({ engine: "lifecycle", signupId: w.users[0]!.id, personId: person });
+    expect(w.db.dump("email_events")).toEqual([expect.objectContaining({ type: "send", personId: person })]);
+  });
+
+  it("is on the send row of an email named by its enrolment (LIFECYCLE_SEND_TRACKING)", async () => {
+    vi.stubEnv("LIFECYCLE_SEND_TRACKING", "true");
+    const w = await world();
+    await throughWelcome(w);
+    expect(w.db.dump("email_events")).toEqual([expect.objectContaining({ type: "send", enrolmentId: (await w.get()).id, personId: await personOf(w) })]);
+  });
+
+  it("is nowhere for shadow mail, which goes to the operator", async () => {
+    const w = await world({ mode: "shadow", shadowInbox: "jez@sandbox.test", testUserIds: [] });
+    await throughWelcome(w);
+    expect(w.db.dump("email_events")).toHaveLength(0);
+    expect(w.db.dump("email_sends")).toHaveLength(0);
+  });
+
+  it("is not written while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await world();
+    await throughWelcome(w);
+    expect(w.db.dump("email_sends")[0]).not.toHaveProperty("personId");
+    expect(w.db.dump("email_events")[0]).not.toHaveProperty("personId");
   });
 });

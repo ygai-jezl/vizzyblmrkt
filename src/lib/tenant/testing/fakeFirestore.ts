@@ -243,7 +243,8 @@ class FakeCollection extends FakeQuery implements CollectionLike {
       },
       async update(data: Doc) {
         const cur = store.get(docId);
-        if (!cur) throw new Error(`update() on missing doc ${docId}`);
+        // As Firestore does: NOT_FOUND (gRPC code 5), never a create.
+        if (!cur) throw Object.assign(new Error(`NOT_FOUND: update() on missing doc ${docId}`), { code: 5 });
         store.set(docId, stripUndefined(applyUpdate(cur, data)));
         bump();
       },
@@ -271,8 +272,17 @@ export class FakeFirestore implements FirestoreLike {
   /** Commits are serialised, so a commit's conflict check and its writes are atomic (as in Firestore). */
   private commitChain: Promise<void> = Promise.resolve();
 
+  /** How many times each collection was opened: a test can prove a path read nothing it was handed. */
+  private readonly opened = new Map<string, number>();
+
   collection(name: string): CollectionLike {
+    this.opened.set(name, (this.opened.get(name) ?? 0) + 1);
     return new FakeCollection(this.mapFor(name), name, this);
+  }
+
+  /** How many reads or writes went to a collection since the fake was made (each opens it once). */
+  collectionCalls(name: string): number {
+    return this.opened.get(name) ?? 0;
   }
 
   /** @internal — bump a document's version (called by fake doc refs on write). */

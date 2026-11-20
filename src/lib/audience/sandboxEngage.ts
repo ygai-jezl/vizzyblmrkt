@@ -60,6 +60,7 @@ export async function pretendEngagement(
       type: parsed.data.action,
       ts: new Date(deps.nowMs ?? Date.now()).toISOString(),
       ...(parsed.data.action === "click" ? { url: `https://${conn.linkDomains[0] ?? "example.com"}/` } : {}),
+      // No person (the `ct_` personId the ontology writes): a Sandbox's test users are not people.
     },
     deps.db,
   );

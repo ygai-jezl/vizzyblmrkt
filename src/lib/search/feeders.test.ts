@@ -1,11 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BrandNote } from "@/lib/types/brandNote";
 import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { BrandSignal } from "@/lib/types/brandSignal";
-import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, learnedSource, lifecycleSources, noteSource, signalSource, stubOf } from "./feeders";
+import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, ideaSource, learnedSource, lifecycleSources, noteSource, readBrandStubs, signalSource, stubOf } from "./feeders";
 import type { LearnedEntry } from "@/lib/types/autopilot";
+import type { IdeaItem } from "@/lib/types/ideaItem";
+
+// For readBrandStubs: the workspace content readers answer, every other read fails (no database).
+const tenant = vi.hoisted(() => ({ forTenant: vi.fn() }));
+vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), forTenant: tenant.forTenant }));
+const content = vi.hoisted(() => ({ listContentPlans: vi.fn(async () => []), listIdeaItems: vi.fn(async () => [] as unknown[]), listTemplates: vi.fn(async () => [] as unknown[]) }));
+vi.mock("@/lib/tenant/workspaceContent", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant/workspaceContent")>()), ...content }));
+vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/tenant/firestore")>()),
+  getDb: () => {
+    throw new Error("no database in this test");
+  },
+}));
 
 const node = (over: Record<string, unknown>) => ({ id: "n", type: "spoke", channel: "linkedin", role: "Post", position: { x: 0, y: 0 }, body: "", status: "generated", placeholderValues: {}, warnings: [], ...over });
 
@@ -95,11 +108,42 @@ describe("the other kinds", () => {
 
 describe("stubOf", () => {
   it("changes version when the text changes", async () => {
-    const a = stubOf({ kind: "idea", ref: "i1", title: "T", body: "one" });
-    const b = stubOf({ kind: "idea", ref: "i1", title: "T", body: "two" });
+    const a = stubOf({ kind: "idea_board", ref: "i1", title: "T", body: "one" });
+    const b = stubOf({ kind: "idea_board", ref: "i1", title: "T", body: "two" });
     expect(a.version).not.toBe(b.version);
-    expect(stubOf({ kind: "idea", ref: "i1", title: "T", body: "one" }).version).toBe(a.version);
+    expect(stubOf({ kind: "idea_board", ref: "i1", title: "T", body: "one" }).version).toBe(a.version);
     expect((await a.load())?.body).toBe("one");
+  });
+});
+
+const idea = { id: "i1", tenantId: "ten_fernleaf", workspaceId: "ws_1", title: "Repot in spring", note: "Our readers ask", text: "Saved from a forum.", url: "https://forum.example.com/t/1", status: "captured", createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z" } as IdeaItem;
+
+describe("ideaSource", () => {
+  it("reads an Idea Board item as an idea_board, at its board", () => {
+    expect(ideaSource(idea)).toEqual({
+      kind: "idea_board",
+      ref: "i1",
+      title: "Repot in spring",
+      body: "Our readers ask\n\nSaved from a forum.\n\nLink: https://forum.example.com/t/1",
+      url: "/admin/workspace/ws_1/curate/idea-board",
+    });
+  });
+});
+
+describe("readBrandStubs", () => {
+  it("lists Idea Board items as idea_board stubs, and counts idea_board as read in full", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    tenant.forTenant.mockReturnValue({ workspaces: { find: async () => [{ id: "ws_1" }] } });
+    content.listIdeaItems.mockResolvedValue([idea]);
+    content.listTemplates.mockResolvedValue([{ id: "t1", workspaceId: "ws_1", title: "Seasonal checklist", body: "Step one" }]);
+    const { stubs, complete } = await readBrandStubs({ tenantId: "ten_fernleaf", region: "us", source: "system" });
+    expect(stubs.map((st) => `${st.kind}:${st.ref}`)).toEqual(["idea_board:i1", "template:t1"]);
+    expect(complete.has("idea_board")).toBe(true);
+    expect(complete.has("template")).toBe(true);
+    // A read that failed is not complete, so nothing of its kind is removed.
+    expect(complete.has("broadcast")).toBe(false);
+    expect((await stubs[0]!.load())?.kind).toBe("idea_board");
+    warn.mockRestore();
   });
 });
 

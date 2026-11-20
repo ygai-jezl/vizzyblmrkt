@@ -60,7 +60,7 @@ export default function SearchHelp() {
 
       <H2 id="whats-in">What search covers</H2>
       <UL>
-        <li>Articles, newsletters and ebooks, social posts, ideas and templates</li>
+        <li>Articles, newsletters and ebooks, social posts, Scrapbook clippings and templates</li>
         <li>Journey emails, email steps and broadcasts</li>
         <li>Your brand voice, brand kit and author bios</li>
         <li>Your brand map: subjects, questions, buying situations, research you imported, and What we&apos;ve seen notes</li>

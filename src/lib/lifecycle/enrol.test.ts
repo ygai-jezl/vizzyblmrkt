@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import { productUserDocId } from "@/lib/connect/profile";
 import { deleteUser, patchUser, recordUserEvent } from "@/lib/connect/v2/users";
 import type { ProductConnection } from "@/lib/types/productConnection";
-import { enrolmentDocId, pastSignupWindow, signupWindowHours } from "./enrol";
-import { CONNECTION_ID, T0, publishOnboarding, seedWorld, system } from "./testing/fixtures";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
+import { enrolmentDocId, enrolUser, pastSignupWindow, signupWindowHours } from "./enrol";
+import { CONNECTION_ID, T0, publishOnboarding, seedUser, seedWorld, system } from "./testing/fixtures";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const HOUR = 3600_000;
@@ -102,5 +103,76 @@ describe("the sign-up window", () => {
     expect(pastSignupWindow({ signedUpAt: at, firstSeenAt: at }, 72, T0 + 73 * 3600_000)).toBe(true);
     expect(pastSignupWindow({ signedUpAt: null, firstSeenAt: at }, 72, T0 + 3600_000)).toBe(false);
     expect(pastSignupWindow({ signedUpAt: new Date(T0 - 10 * 86_400_000).toISOString(), firstSeenAt: at }, 72, T0)).toBe(true);
+  });
+});
+
+describe("the person on an enrolment (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  async function world() {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey, version } = await publishOnboarding(db, { mode: "live" });
+    const user = seedUser(db, "dana");
+    const connection = (await forTenant(system, db).productConnections.getById(CONNECTION_ID)) as ProductConnection;
+    const enrol = (over: Partial<Parameters<typeof enrolUser>[1]> = {}) =>
+      enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0), ...over }, { db, nowMs: T0 });
+    const stored = () => forTenant(system, db).lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id));
+    return { db, user, connection, enrol, stored };
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("writes the person for a custom product, with no read of the connection it was handed", async () => {
+    const w = await world();
+    const before = w.db.collectionCalls("product_connections");
+    expect((await w.enrol({ connection: w.connection })).outcome).toBe("enrolled");
+    expect(w.db.collectionCalls("product_connections")).toBe(before);
+    expect((await w.stored())?.personId).toBe(personIdForProductUser(system.tenantId, w.user, w.connection));
+    expect((await w.stored())?.personId).toMatch(/^ct_/);
+  });
+
+  it("writes no person for a sandbox's user", async () => {
+    const w = await world();
+    await w.enrol({ connection: { ...w.connection, kind: "sandbox" } });
+    expect((await w.stored())?.personId).toBeUndefined();
+  });
+
+  it("reads the connection once when the caller didn't pass it", async () => {
+    const w = await world();
+    const before = w.db.collectionCalls("product_connections");
+    await w.enrol();
+    expect(w.db.collectionCalls("product_connections")).toBe(before + 1);
+    expect((await w.stored())?.personId).toBe(personIdForProductUser(system.tenantId, w.user, w.connection));
+  });
+
+  it("writes no person and reads nothing more while the switch is off, or the person links are", async () => {
+    for (const [links, ids] of [["true", "false"], ["false", "true"]] as const) {
+      vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", links);
+      vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", ids);
+      const w = await world();
+      const before = w.db.collectionCalls("product_connections");
+      await w.enrol();
+      expect(w.db.collectionCalls("product_connections")).toBe(before);
+      expect(await w.stored()).not.toHaveProperty("personId");
+    }
+  });
+
+  it("writes the person on a product's sign-up write, from the connection it holds", async () => {
+    process.env.LIFECYCLE_MODE_CEILING = "live";
+    try {
+      const db = new FakeFirestore();
+      seedWorld(db);
+      const { journey } = await publishOnboarding(db, { mode: "live" });
+      const connection = (await forTenant(system, db).productConnections.getById(CONNECTION_ID)) as ProductConnection;
+      await patchUser(system, connection, "erin", { email: "Erin@Customer.test", signedUpAt: iso(T0) }, { db, nowMs: T0 + 60_000 });
+      const id = productUserDocId(CONNECTION_ID, "erin");
+      const e = await forTenant(system, db).lifecycleEnrolments.getById(enrolmentDocId(journey.id, id));
+      expect(e?.personId).toBe(personIdForProductUser(system.tenantId, { id, emailNormalized: "erin@customer.test" }, connection));
+    } finally {
+      delete process.env.LIFECYCLE_MODE_CEILING;
+    }
   });
 });

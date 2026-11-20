@@ -5,7 +5,7 @@ import type { PipelineResult, PipelineSource } from "@google-cloud/firestore/pip
 import type { Region } from "@/lib/types/tenant";
 import { localWordsScore } from "@/lib/search/text";
 import type { RankedChunk, SearchKind, SearchManifest, SearchStore } from "@/lib/search/types";
-import { isSearchKind } from "@/lib/search/types";
+import { readSearchKind, storedKindsFor } from "@/lib/search/types";
 import { searchDatabaseIdForRegion } from "./region";
 import type { TenantContext } from "./types";
 
@@ -95,12 +95,17 @@ function rankedFromResult(r: PipelineResult, tenantId: string): RankedChunk | nu
   return id ? rankedFrom(id, data, tenantId) : null;
 }
 
-function rankedFrom(id: string, data: Record<string, unknown> | undefined, tenantId: string): RankedChunk | null {
-  if (!data || data.tenantId !== tenantId || !isSearchKind(data.kind)) return null;
+/**
+ * A stored chunk as a result, or null when it isn't this brand's or its kind is unknown. A kind
+ * stored under an alias (SEARCH_KIND_ALIASES) reads as today's kind; the stored sourceKey stays.
+ */
+export function rankedFrom(id: string, data: Record<string, unknown> | undefined, tenantId: string): RankedChunk | null {
+  const kind = data ? readSearchKind(data.kind) : null;
+  if (!data || data.tenantId !== tenantId || !kind) return null;
   return {
     id,
     sourceKey: String(data.sourceKey ?? ""),
-    kind: data.kind,
+    kind,
     ref: String(data.ref ?? ""),
     chunk: typeof data.chunk === "number" ? data.chunk : 0,
     title: String(data.title ?? ""),
@@ -109,11 +114,16 @@ function rankedFrom(id: string, data: Record<string, unknown> | undefined, tenan
   };
 }
 
-function manifestFrom(data: Record<string, unknown> | undefined): SearchManifest | null {
-  if (!data || !isSearchKind(data.kind) || typeof data.sourceKey !== "string") return null;
+/**
+ * A stored manifest, or null. A kind stored under an alias reads as today's kind and keeps its
+ * stored sourceKey, so the scheduled check sees a record that is gone and removes its chunks.
+ */
+export function manifestFrom(data: Record<string, unknown> | undefined): SearchManifest | null {
+  const kind = data ? readSearchKind(data.kind) : null;
+  if (!data || !kind || typeof data.sourceKey !== "string") return null;
   return {
     sourceKey: data.sourceKey,
-    kind: data.kind,
+    kind,
     ref: String(data.ref ?? ""),
     hash: String(data.hash ?? ""),
     chunks: typeof data.chunks === "number" ? data.chunks : 0,
@@ -131,7 +141,8 @@ export function searchStoreFor(ctx: Pick<TenantContext, "tenantId" | "region">):
   const docs = () => db().collection(`${root}/${SEARCH_DOCS}`);
   const sources = () => db().collection(`${root}/${SEARCH_SOURCES}`);
 
-  const kindFilter = (kinds?: SearchKind[]) => (kinds && kinds.length ? field("kind").equalAny(kinds) : null);
+  // Stored kinds include aliases (SEARCH_KIND_ALIASES), so a filter asks for both names.
+  const kindFilter = (kinds?: SearchKind[]) => (kinds && kinds.length ? field("kind").equalAny(storedKindsFor(kinds)) : null);
 
   return {
     async getManifest(sourceKey) {
@@ -224,7 +235,8 @@ export function searchStoreFor(ctx: Pick<TenantContext, "tenantId" | "region">):
       if (onEmulator()) {
         // The emulator runs Standard edition (Enterprise mode breaks the app's paging), and
         // Standard refuses pipelines, so the classic vector query stands in.
-        const base = opts.kinds?.length ? docs().where("kind", "in", opts.kinds.slice(0, 30)) : docs();
+        // An "in" filter takes up to 30 values: today's kinds and their aliases are fewer.
+        const base = opts.kinds?.length ? docs().where("kind", "in", storedKindsFor(opts.kinds).slice(0, 30)) : docs();
         const snap = await base
           .findNearest({ vectorField: "embedding", queryVector: vector, limit, distanceMeasure: "DOT_PRODUCT" })
           .get();

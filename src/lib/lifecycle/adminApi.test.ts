@@ -17,6 +17,7 @@ import {
   stopEnrolment,
 } from "./adminApi";
 import { enrolmentDocId } from "./enrol";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { createConnection } from "@/lib/connect/keys";
 import { __resetConnectionCaches as __resetIngestCaches } from "@/lib/connect/connectionAuth";
 import { productUserDocId } from "@/lib/connect/profile";
@@ -166,6 +167,33 @@ describe("lifecycle admin API", () => {
     });
     // Anyone who isn't one of the Sandbox's test users is still refused.
     expect(await enrolByHand(ctx, journey.id, { userId: "stranger" }, db, T0)).toMatchObject({ status: 404, body: { error: "user_not_found" } });
+  });
+});
+
+describe("the person on an enrolment made by hand (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("reads the journey's connection once and writes the person", async () => {
+    const { db, journey, user } = await setup();
+    const connection = await forTenant(system, db).productConnections.getById(CONNECTION_ID);
+    const before = db.collectionCalls("product_connections");
+    expect((await enrolByHand(ctx, journey.id, { userId: "alex" }, db, T0)).status).toBe(201);
+    expect(db.collectionCalls("product_connections")).toBe(before + 1);
+    const e = await forTenant(system, db).lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id));
+    expect(e?.personId).toBe(personIdForProductUser(system.tenantId, user, connection));
+  });
+
+  it("reads no connection for a known user while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const { db, journey, user } = await setup();
+    const before = db.collectionCalls("product_connections");
+    expect((await enrolByHand(ctx, journey.id, { userId: "alex" }, db, T0)).status).toBe(201);
+    expect(db.collectionCalls("product_connections")).toBe(before);
+    expect(await forTenant(system, db).lifecycleEnrolments.getById(enrolmentDocId(journey.id, user.id))).not.toHaveProperty("personId");
   });
 });
 

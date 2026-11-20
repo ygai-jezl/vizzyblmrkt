@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import { forTenant } from "./repository";
 import { TenantIsolationError, TenantValidationError } from "./errors";
+import { isNotFound } from "./firestore";
 import type { TenantContext } from "./types";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
@@ -294,5 +295,151 @@ describe("TenantCollection.upsert (atomic create-or-update)", () => {
     await expect(
       forTenant(ctxA, db).signups.upsert("", () => signup() as never, () => null),
     ).rejects.toBeInstanceOf(TenantValidationError);
+  });
+});
+
+describe("TenantCollection.updateWhere (a paged update by query)", () => {
+  /** Walk every page, as the repoint job and the backfill do. */
+  async function walk(
+    db: FakeFirestore,
+    ctx: TenantContext,
+    where: Array<[string, "==", unknown]>,
+    plan: (row: Record<string, unknown>) => Record<string, unknown> | null,
+    opts: { limit: number; dryRun?: boolean },
+  ) {
+    const totals = { pages: 0, scanned: 0, updated: 0, unchanged: 0, gone: 0 };
+    let after: string | null = null;
+    for (;;) {
+      const r = await forTenant(ctx, db).signups.updateWhere(where as never, plan as never, { ...opts, startAfter: after });
+      totals.pages += 1;
+      totals.scanned += r.scanned;
+      totals.updated += r.updated;
+      totals.unchanged += r.unchanged;
+      totals.gone += r.gone;
+      after = r.last;
+      if (!r.more) return totals;
+    }
+  }
+
+  it("never reads or writes another tenant's rows", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    db.seed("signups", "b1", signup({ tenantId: "ten_B" }));
+    const seen: string[] = [];
+    const t = await walk(db, ctxA, [], (row) => {
+      seen.push(String(row.id));
+      return { score: 9 };
+    }, { limit: 10 });
+    expect(seen).toEqual(["a1"]);
+    expect(t.updated).toBe(1);
+    expect(db.raw("signups", "a1")).toMatchObject({ score: 9 });
+    expect(db.raw("signups", "b1")).toMatchObject({ score: 0 });
+    expect(db.writeCountFor("signups", "b1")).toBe(0);
+  });
+
+  it("drops a tenantId clause instead of widening the query", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    db.seed("signups", "b1", signup({ tenantId: "ten_B" }));
+    const t = await walk(db, ctxA, [["tenantId", "==", "ten_B"]], () => ({ score: 9 }), { limit: 10 });
+    expect(t.scanned).toBe(1);
+    expect(db.raw("signups", "a1")).toMatchObject({ score: 9 });
+    expect(db.raw("signups", "b1")).toMatchObject({ score: 0 });
+  });
+
+  it("keeps to the where clause", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A", campaignId: "camp1" }));
+    db.seed("signups", "a2", signup({ tenantId: "ten_A", campaignId: "camp2" }));
+    await walk(db, ctxA, [["campaignId", "==", "camp1"]], () => ({ score: 9 }), { limit: 10 });
+    expect(db.raw("signups", "a1")).toMatchObject({ score: 9 });
+    expect(db.raw("signups", "a2")).toMatchObject({ score: 0 });
+  });
+
+  it("strips tenantId, id and createdAt from every patch", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    db.seed("signups", "a2", signup({ tenantId: "ten_A" }));
+    const t = await walk(
+      db,
+      ctxA,
+      [],
+      (row) => (row.id === "a1" ? { tenantId: "ten_B", id: "evil", createdAt: "1999-01-01", score: 5 } : { tenantId: "ten_B" }),
+      { limit: 10 },
+    );
+    expect(db.raw("signups", "a1")).toMatchObject({ tenantId: "ten_A", createdAt: "2026-06-15T16:00:00Z", score: 5 });
+    expect(db.raw("signups", "evil")).toBeUndefined();
+    // A patch of identity fields only is nothing to write.
+    expect(t).toMatchObject({ updated: 1, unchanged: 1 });
+    expect(db.writeCountFor("signups", "a2")).toBe(0);
+  });
+
+  it("counts a row deleted between the read and the write as gone, and never creates it again", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    db.seed("signups", "a2", signup({ tenantId: "ten_A" }));
+    const r = await forTenant(ctxA, db).signups.updateWhere(
+      [],
+      (row) => {
+        // A time to live or an erase takes a2 while the page is being planned.
+        if (row.id === "a1") db.cols.get("signups")!.delete("a2");
+        return { score: 7 };
+      },
+      { limit: 10 },
+    );
+    expect(r).toMatchObject({ scanned: 2, updated: 1, gone: 1, unchanged: 0 });
+    expect(db.raw("signups", "a1")).toMatchObject({ score: 7 });
+    expect(db.raw("signups", "a2")).toBeUndefined();
+  });
+
+  it("pages across a boundary by document id, each row once", async () => {
+    const db = new FakeFirestore();
+    for (let i = 0; i < 7; i += 1) db.seed("signups", `a${i}`, signup({ tenantId: "ten_A" }));
+    db.seed("signups", "b0", signup({ tenantId: "ten_B" }));
+    const seen: string[] = [];
+    const t = await walk(db, ctxA, [], (row) => {
+      seen.push(String(row.id));
+      return Number(String(row.id).slice(1)) % 2 === 0 ? { score: 1 } : null;
+    }, { limit: 3 });
+    expect(seen).toEqual(["a0", "a1", "a2", "a3", "a4", "a5", "a6"]);
+    expect(t).toMatchObject({ pages: 3, scanned: 7, updated: 4, unchanged: 3, gone: 0 });
+  });
+
+  it("returns the cursor it was given when a page is empty", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    const r = await forTenant(ctxA, db).signups.updateWhere([], () => ({ score: 1 }), { startAfter: "a1", limit: 5 });
+    expect(r).toEqual({ scanned: 0, updated: 0, unchanged: 0, gone: 0, last: "a1", more: false });
+  });
+
+  it("writes nothing in a dry run, and counts what it would write", async () => {
+    const db = new FakeFirestore();
+    for (let i = 0; i < 4; i += 1) db.seed("signups", `a${i}`, signup({ tenantId: "ten_A" }));
+    const t = await walk(db, ctxA, [], (row) => (row.id === "a0" ? null : { score: 3 }), { limit: 2, dryRun: true });
+    expect(t).toMatchObject({ scanned: 4, updated: 3, unchanged: 1 });
+    for (let i = 0; i < 4; i += 1) {
+      expect(db.raw("signups", `a${i}`)).toMatchObject({ score: 0 });
+      expect(db.writeCountFor("signups", `a${i}`)).toBe(0);
+    }
+  });
+
+  it("takes an async plan", async () => {
+    const db = new FakeFirestore();
+    db.seed("signups", "a1", signup({ tenantId: "ten_A" }));
+    const r = await forTenant(ctxA, db).signups.updateWhere([], async () => ({ score: 4 }), { limit: 5 });
+    expect(r.updated).toBe(1);
+    expect(db.raw("signups", "a1")).toMatchObject({ score: 4 });
+  });
+});
+
+describe("the fake's update() of a missing document", () => {
+  it("fails with NOT_FOUND, as Firestore does, and creates nothing", async () => {
+    const db = new FakeFirestore();
+    const err = await db.collection("signups").doc("nope").update({ score: 1 }).catch((e: unknown) => e);
+    expect(isNotFound(err)).toBe(true);
+    expect(isNotFound(new Error("other"))).toBe(false);
+    expect(isNotFound({ code: "not-found" })).toBe(true);
+    expect(isNotFound({ code: "NOT_FOUND" })).toBe(true);
+    expect(db.raw("signups", "nope")).toBeUndefined();
   });
 });

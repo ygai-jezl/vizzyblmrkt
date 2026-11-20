@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import { emailEventId, recordEmailEvent } from "@/lib/email/events";
 import { METADATA_LIMIT_BYTES, enrolmentSendMetadata, metadataBytes, readEnrolmentSendRef, readEventMetadata } from "@/lib/email/mandrillWebhook";
 import { attributionOfEnrolmentSend } from "./sendAttribution";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { enrolUser, enrolmentDocId } from "./enrol";
 import { processEnrolment } from "./runner";
 import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft } from "./service";
@@ -208,5 +209,28 @@ describe("a product journey email's metadata (the provider drops anything over 2
     // A step the message couldn't name: the person is still known.
     await enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0) }, { db, nowMs: T0 });
     expect(await attributionOfEnrolmentSend(system, { ...ref, nodeId: "", variantId: "" }, { db })).toMatchObject({ signupId: user.id, nodeId: "" });
+  });
+});
+
+describe("the person behind an enrolment's email (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is the enrolment's person, when it has one", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const user = seedUser(db, "alex");
+    const { journey, version } = await publishOnboarding(db, { testUserIds: ["alex"] });
+    await enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0) }, { db, nowMs: T0 });
+    const ref = { tenantId: system.tenantId, enrolmentId: enrolmentDocId(journey.id, user.id), nodeId: "email_welcome", variantId: "w" };
+    const connection = await forTenant(system, db).productConnections.getById(CONNECTION_ID);
+    expect((await attributionOfEnrolmentSend(system, ref, { db }))?.personId).toBe(personIdForProductUser(system.tenantId, user, connection));
+
+    // An enrolment written before the switch has none, and gives none.
+    await forTenant(system, db).lifecycleEnrolments.delete(ref.enrolmentId);
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    await enrolUser(system, { journey, version, user, source: "trigger", anchorAt: iso(T0) }, { db, nowMs: T0 });
+    expect(await attributionOfEnrolmentSend(system, ref, { db })).not.toHaveProperty("personId");
   });
 });

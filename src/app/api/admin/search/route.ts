@@ -4,7 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isSearchEnabled } from "@/lib/search/flags";
 import { MAX_QUERY_CHARS, searchBrand } from "@/lib/search/query";
-import { SEARCH_KINDS } from "@/lib/search/types";
+import { dedupeKinds, SEARCH_KIND_ALIAS_COUNT, SEARCH_KINDS, SearchKindInput } from "@/lib/search/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,8 @@ const QuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ? v.split(",").map((k) => k.trim()).filter(Boolean) : []))
-    .pipe(z.array(z.enum(SEARCH_KINDS)).max(SEARCH_KINDS.length)),
+    // Today's kinds, or an alias read as one (SEARCH_KIND_ALIASES), each once.
+    .pipe(z.array(SearchKindInput).max(SEARCH_KINDS.length + SEARCH_KIND_ALIAS_COUNT).transform(dedupeKinds)),
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 

@@ -147,9 +147,9 @@ Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
   `brand.left`, `organisation.renamed` and `owners.changed`. Row ids carry a random part,
   so two brands joining in the same millisecond never collide. Piece O may fold it into
   the settings history, or piece 0's event envelope may carry it later.
-- **The ontology registry.** Whichever of A and piece 0 merges second adds the
-  `organisations` and `organisation_changes` entries: search kind none (control plane
-  records, no brand content or people) and no number path.
+- **The ontology registry.** A merged first, so piece 0 added the `organisations` and
+  `organisation_changes` entries: search kind none (control plane records, no brand content
+  or people) and no number path.
 - **`billingTier` is deprecated.** It was never read, and it is optional in `TenantSchema`.
   New brands still get `"mvp_free"` (the app, the seed and self-host's `create-workspace`),
   because builds from before plans require it: after a rollback to one, a brand without it
@@ -189,6 +189,337 @@ Where: `src/lib/types/organisation.ts`; `src/lib/plans/` (`flags.ts`, `catalog.t
 `scripts/lib/operatorCli.ts`; `src/app/admin/account/billing/page.tsx`,
 `src/components/admin/plans/PlanAndUsage.tsx`; help `/help/plan-and-usage`;
 `docs/self-host.md`; `scripts/selfhost/spec.mjs` (`KEPT_OFF`).
+
+---
+
+## ADR-0008 · The core ontology in code: registry, person ids and the event store (2026-11-20)
+
+Context: piece 0 of the build plan makes the core ontology real in code, so the CRM,
+connectors and later pieces build on one model. It ships as one pull request in four parts:
+the registry (0a), the search kind rename (0b), person ids at write time (0c), and the event
+store with agent actions (0e). The owner answered the open questions in the build plan's
+decisions 11 to 26 and approved the plan for piece 0, which this record follows where it
+differs from the specs. With every switch off, the only change people see is in search, as
+decision 11 approved: the result badge reads "Clipping", the filter group "Scrapbook and
+images", and the Search help page lists "Scrapbook clippings and templates", ahead of piece D
+renaming the Idea Board screen itself. Otherwise two new server switches ship `"false"`,
+nothing calls the event store's writers yet, and Vizzy keeps sending the old search kind name.
+No dependency, `firestore.rules`, infra or deploy change.
+
+Owner decisions (2026-11-19 and 2026-11-20):
+
+- **The registry is the source of truth for types and stores.** `src/lib/ontology/registry.ts`
+  (not the tenant lookup in `src/lib/tenant/registry.ts`) lists every core type, built and
+  planned, by place: the five spine steps (idea, signals, product, customers, support) and the
+  rails content, company, partner_agent and platform. Each entry gives its stores, its home
+  (control or brand), whether it holds people, its erase and export paths with what triggers
+  each, and its search and number decisions.
+  - Stores beyond Firestore are listed too: Cloud Storage (six writers, all on the one
+    `EMAIL_ASSET_BUCKET`, so each records a residency gap), the write-once audit sink, BigQuery
+    (`widget_views`, and the `email_events` and `signups` mirrors), Memory Bank, Agent Engine
+    sessions, Mailchimp and Mandrill.
+  - Planned types carry the piece that builds them. The founder profile lives on the
+    organisation (control plane, personal team), with its residency note (decision 16). Gate,
+    data share, partner and provision stay "undecided", which only a planned type may be.
+    Piece A merged first, so piece 0 added its `organisations` and `organisation_changes`
+    stores, as the built organisation and organisation change types.
+  - Gaps are written down, not fixed: social engagement outside a person's erase and export,
+    email jobs left by a contact erase, launch deletion leaving email rows and knowledge, counts
+    without meanings, catalog history kept to 20, the one asset bucket for every region, the
+    BigQuery changelog keeping values after erasure, and Vizzy's chats.
+  - `registry.test.ts` enforces the rules: every erase and export path names a file that
+    exports it, every search kind, alias and meaning is claimed by a type, each spine step has a
+    type, and all text follows the house style.
+  - `docs/ONTOLOGY.md` is generated from it by `npm run ontology:doc`. `doc.test.ts` fails while
+    the file is out of date, and `agents:check` reads it as a guide.
+- **The coverage test.** `src/lib/ontology/coverage.test.ts`, with `storeScan.ts`, reads the
+  source of `src/lib/tenant/**` and `workers/*/src/**` (comments stripped, strings kept). It
+  fails when a Firestore collection, or a file that writes to Cloud Storage, BigQuery or Memory
+  Bank, has no registry entry, or sits in another database than its entry says. The two calls
+  whose collection is chosen at run time are allowlisted with reasons; a new one fails the test.
+  The control plane set comes from the registry, so piece A only adds registry entries and
+  never edits the test. `AGENTS.md` and the build-a-feature skill say a new collection or file
+  store needs an entry, then `npm run ontology:doc`.
+- **One event envelope.** `src/lib/ontology/events.ts` holds `EVENT_KINDS`, each `family.what`:
+  - email, product, journey and signup kinds, `person_plan.*` (never `plan.*`, which the
+    organisation's plan keeps), `social.engaged`;
+  - `record.created`, `record.field_changed`, `record.merged`, `record.repointed` and
+    `consent.recorded`;
+  - the agent trail: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone` and
+    `agent.declined`. Expiry, staleness and being superseded are declines with a reason, not
+    kinds of their own.
+
+  `OntologyEvent` carries the person (the `ct_` id, or null), identity as ids only and never an
+  address, the idea credited, the source, the actor (`actorOf` maps every
+  `TenantContext.source`), refs and properties. Pure mappers read today's email, product and
+  person move rows into it; a click keeps its link's origin and path only. The file needs no
+  Node, so client code can import it.
+- **`personId` on rows means the `ct_` contact id** (decision 13): `ContactPersonId`, checked
+  by `ContactPersonIdSchema`, so a product user's `pu_` id fails typecheck and parse. The older
+  product user meaning of the name (the `personPlans.ts` parameters, `exportPerson`, the canvas
+  `person_plan` scope, `/api/agent/lifecycle/people/[personId]` and
+  `/api/admin/audience/people/[personId]/*`) becomes `productUserId` in piece B.
+- **The search kind rename (0b).** The content kind `idea` becomes `idea_board`, which frees
+  "idea" for piece D's business ideas.
+  - 0a taught the store to read the new name first (`SEARCH_KIND_ALIASES` was
+    `{idea_board: "idea"}`). 0b flips `SEARCH_KINDS` and the alias to `{idea: "idea_board"}`,
+    so every version from 0a on reads both names. Both search routes accept both and pass each
+    kind once, and a delete removes a record under both names.
+  - `SEARCH_KIND_IDEA_BOARD_ENABLED` (server, `"false"`) picks the name the indexer writes
+    (`storedKindOf` in `src/lib/search/indexer.ts`). Off: Idea Board items are still written as
+    `idea`, so nothing moves at deploy. The scheduled search check, about every 10 minutes,
+    moves stored items to the name in use, either way. It shares its time between brands and can
+    stop part way, so a move can take several checks; `scripts/search-backfill.ts --apply` moves
+    every brand in one run.
+  - Labels follow decision 11: the result badge reads "Clipping", the filter group "Scrapbook
+    and images" (its key unchanged), and the Search help page and Vizzy's `search_brand`
+    docstring say "Scrapbook clippings and templates". The brand context pack and Next up keep
+    "saved idea" until piece D moves the item words to clipping.
+  - Vizzy's `search_client.py` knows `idea_board` and `learned` but keeps sending `idea`, which
+    every app version takes, so its redeploy rides with piece B in any order.
+    `src/lib/search/vizzyKinds.test.ts` keeps its list in step with the app's.
+- **Person ids at write time (0c).** While `ONTOLOGY_PERSON_IDS_ENABLED` is on, the `ct_`
+  person is written on each new row of `email_sends`, `email_events`, `product_events`,
+  `lifecycle_enrolments`, `waitlist_enrolments` and `person_plans`, as it is written.
+  - The switch is tied in code to `AUDIENCE_PERSON_LINKS_ENABLED`
+    (`isOntologyPersonIdsEnabled` in `src/lib/ontology/flags.ts`), as the one view is, so a row
+    never points at a person record that isn't kept. Person links have been on in prod since
+    29 Oct (decision 15).
+  - Only people connections get a person. Sandbox and revoked connections, rehearsal waitlist
+    enrolments, shadow sends and erase rows get none. Every caller hands over the connection it
+    already holds, so no write pays an extra read.
+  - The person is worked out on the server and never put in Mandrill metadata, which keeps its
+    short form well under Mandrill's 250 byte limit. The webhook takes the person from the send
+    record or the enrolment, else a sign-up's from the address the email went to, never a
+    product user's.
+  - `TenantCollection.updateWhere` is a paged, tenant scoped update by query, following
+    `deleteWhere`: the tenant predicate is always applied, rows are written by id with no second
+    read, and a row deleted between the read and the write counts as gone and is never created
+    again. It has its own isolation tests.
+  - `scripts/backfill-person-ids.ts` stamps older rows: a dry run by default (`--apply`,
+    `--tenant`, `--store`), counts only, never against the emulator. A row is written only when
+    its person is missing or different; one that resolves to nobody now keeps its value.
+- **A product user's rows follow their current person** (decision 14). When a product write
+  leaves a product user with another person, the move is kept in the new regional store
+  `person_moves`: `record.merged` when a `pu:` person gains an address, `record.repointed` when
+  an address changes or is removed. One move per write (`mv_` from the write's message id), ids
+  only, and only its `repoint` marker changes, from pending to done, or to dropped when the
+  product user can no longer be a person (erased, or their product revoked).
+  - A `person_repoint` job on the email queue (`pr_` per product user and target person) moves
+    the rows. It works out the person when it runs, so the newest one wins whatever order jobs
+    run in, and checks again before each page and at the end. It works in 20 second slices with
+    a saved cursor (the queue's new `again` outcome), then marks the moves done and deletes
+    itself. It walks the five stamped stores by product user or sign-up, then the event history
+    and agent actions: by the product user, and by the person rows were filed under for a merge
+    or a from-person whose record is gone.
+  - The lifecycle tick queues again any move pending for over 15 minutes, paging through the
+    brand's pending moves by document id. A job that fails three times is deleted rather than
+    parked as failed, so its key never blocks that. Switch off: the job drops without writing,
+    and no move or job is made. `person_moves` is erased and exported with the product user and
+    with either person.
+- **The event store and agent actions (0e).** Two new collections in the brand's regional
+  database, through `forTenant`: `ontology_events` (append only) and `agent_actions` (one
+  record per agent suggestion), as decisions 12 and 22 chose. Regional because the rows are
+  personal, and because a record's change must commit with its events, which a Firestore
+  transaction can only do inside one database.
+  - **The subject model.** Each row is about a subject `{type, id}`: a person, company, idea or
+    agent action, keyed `type:id` and mapped to its registry type, plus a separate `personId`
+    routing key. A person's timeline is every row carrying their `personId`, which also covers
+    an agent action about them. Person only was turned down: company field history, idea status
+    history and agent actions with no person would have had nowhere to go.
+  - **What is stored, and the timeline merged when read** (decision 24). The store keeps only
+    what has no other home: `record.created`, `record.field_changed` (person, company and idea
+    fields, with stage, tag and idea status moves under `sys.` field ids), `consent.recorded` and
+    the `agent.*` trail. `STORED_EVENT_KINDS` holds that list and the writers refuse any other
+    kind. Email, product, journey and sign-up moments stay in their own stores and B5 merges
+    them when it reads. The cost: raw product track events drop out after the 90 day time to
+    live on `product_events`, while steps, milestones and activation stay on the product user.
+    Pointer rows that outlive their source would be a later card. Merges and repoints stay in
+    `person_moves`.
+  - **The writers.** Only `src/lib/tenant/ontologyEvents.ts` and `src/lib/tenant/agentActions.ts`
+    write the two stores. Every write runs in a transaction on `regionalStoreFor`, reads first.
+    `@/lib/tenant` exports context level functions only: `appendEvents` (up to 200 rows),
+    `writeRecordWithEvents` (a contact create, or a contact, company or campaign patch, with its
+    events and optionally an agent action's decision in one commit), the blanking, count, erase
+    and repoint helpers, and the agent action functions. The raw transaction helpers stay inside
+    `src/lib/tenant`, for B2a's field writes.
+  - **Ids and keys.** An event's id is `ev_` and 40 hex of a hash of the brand and its key; an
+    action's is `aa_` and a hash of the brand and its dedupe key. Keys hold ids and codes only,
+    never an address or a spaced name. A key already stored in the brand is skipped as a
+    duplicate, another brand's row throws, and a write tries once more when its create meets a
+    row that already exists. A field change's key carries a nonce, so it never dedupes: the
+    transaction makes it exactly once. Times are canonical (`toISOString`), so string order is
+    time order.
+  - **Append only.** A stored event changes in three ways and no other: its `personId` (and a
+    person subject) is repointed; an erased field's values before and after are blanked in place,
+    with `blankedAt` and `blankedReason`; or it is deleted by an erase. The admin SDK ignores
+    Firestore rules, so the repository's type, `src/lib/ontology/appendOnly.test.ts` and review
+    hold it. `forTenant` gives both stores as a `HistoryCollection`, reads and the erase's
+    `deleteWhere` only, so any other write through it fails typecheck. The test scans the source
+    and fails on a mutating call on either store outside the two writers (by property, by a
+    destructured name or across lines), a store reached by a string key or destructured from
+    `forTenant`, either collection named outside the writers, the repository and the registry,
+    the writers' collection constants or `eventRef` used elsewhere, a set, update or delete in
+    either writer outside the functions allowed to change a row, agent rows staged outside the
+    agent action writer, or a direct import of either writer from outside `src/lib/tenant`.
+  - **Agent actions.** States are proposed, approved, acted, undone and declined. Proposed goes to
+    approved, acted or declined; approved to acted or declined; acted to undone. Every change
+    appends exactly one `agent.*` row in the same transaction (proposed straight to acted writes
+    approved, then acted 1 ms later, so newest first reads right). Mode is suggest only; acting
+    within limits is a later piece with its own switch (decision 42).
+    - Every action needs `expiresAt`, at most 90 days on, and `expireAgentActions` declines past
+      ones with the reason expired.
+    - Proposing a dedupe key again writes nothing and answers `open` or `decided`. Raising
+      something again after a decision takes a new key (`agentDedupeKey` lists the patterns).
+    - Signals are references with meaning keys, never free text. Targets are a person, company
+      or idea, each a registry type. `requestedBy`, `decidedBy`, `actedBy` and `undoneBy` hold
+      ids only.
+    - `clearDetailsOnClose` on the record, or `clearDetails` on the decision, clears proposal
+      and basis in the commit that acts or declines.
+  - **Reads.** `src/lib/ontology/timeline.ts` reads one person's or one subject's rows newest
+    first, a page at a time, with an opaque cursor. `src/lib/ontology/agentActions.ts` lists open
+    actions per action, so one consumer's backlog never pushes another's out of Review.
+- **Erase and export reach both stores whatever any switch says.**
+  - A contact's erase removes rows by their person id (before its early return, and again after
+    the contact goes), by the `pu:` person id of each product user they link, and a company's
+    rows when the company is dropped.
+  - A product user's erase removes rows by the product user and by their `pu:` person id
+    (`productUserPersonId`, the same hash whether or not that record still exists, so it never
+    depends on 0c's switch). It also forgets the history of a person who goes with their last
+    product user, decided from the person's sources as the person sync decides, so it holds when
+    the record only goes at a later sweep (a sync that failed, or person links off).
+  - Deleting a launch removes the idea's rows and the actions about it. An archived field's
+    values are blanked in place, never deleted.
+  - `exportPerson` gains events and agent actions by the product user, their `pu:` person and a
+    removed product-only person. `exportWholePerson` (the People view's export) gains both by
+    person id, each row once, at most 5,000 events and 500 actions, with a truncated flag.
+  - When a sync removes a product-only person, their history stays, reachable through the
+    product user's erase and export (decision 26).
+  - Team member ids stay as ids in actor and decision fields and show as "Former team member"
+    once the member leaves, as O1 decided for settings history. There is no erase or export by
+    member.
+  - These reads and deletes are equality only, so they work before the indexes are deployed.
+- **Retention.** Both stores are kept until erased, with no time to live and no change to
+  `infra/lifecycle/setup.sh` (decision 22). Personal values leave through erase, blanking and
+  clearing details; open suggestions close by expiry within 90 days once a consumer runs the
+  sweep.
+- **The indexes and field exemptions, as approved** (decision 23). `firestore.indexes.json`
+  gains exactly these and nothing else:
+  - `ontology_events` (tenantId ASC, personId ASC, at DESC): one person's timeline;
+  - `ontology_events` (tenantId ASC, subjectKey ASC, at DESC): one company's or idea's history;
+  - `agent_actions` (tenantId ASC, action ASC, state ASC, createdAt DESC): open suggestions per
+    action in Review;
+  - `agent_actions` (tenantId ASC, fieldIds CONTAINS): blanking an erased field in suggestions,
+    and its count;
+  - `agent_actions` (tenantId ASC, state ASC, expiresAt ASC): the expiry sweep;
+  - field exemptions (`indexes: []`) for `ontology_events.properties`, `.refs` and `.identity`,
+    and for `agent_actions.proposal`, `.basis`, `.result`, `.undo` and `.signals`.
+
+  Every other query on the two stores is equality only, ordered by document id or not at all.
+  The emulator ignores composite indexes, so the five must be READY in each environment before
+  the first consumer switch there. Deploying them is the owner's step
+  (`firebase deploy --only firestore:indexes --project <your-project>`, which applies the file to
+  all three databases).
+- **Google's pattern**
+  (https://firebase.google.com/docs/firestore/query-data/index-overview, "Indexing best
+  practices", read through Google's Developer Knowledge on 2026-11-20):
+  - Exempt large map and array fields that are never queried, since they can approach the limit
+    of 40,000 index entries per document. Those are the eight exemptions above: values nobody
+    queries, some of them personal. `fieldIds` stays indexed because the fourth index needs it,
+    and it holds at most 100 ids.
+  - An indexed field whose values rise in order between documents, like a timestamp, caps a
+    collection at 500 writes a second. `ontology_events` indexes `at` for the timeline, so it
+    sits under that cap. That is far above the rate we expect: its rows come from edits, consent
+    records and agent suggestions, while email and product traffic stays in its own stores.
+- **Switches.**
+  - `ONTOLOGY_PERSON_IDS_ENABLED` and `SEARCH_KIND_IDEA_BOARD_ENABLED`: server only, `"false"` in
+    `apphosting.yaml`, empty in `.env.example`.
+  - 0e has no switch. Nothing calls its writers yet, and a library nobody calls ships without one,
+    as O1 does. There is no master kill switch for event writes either: values would then change
+    with no event. Each consumer card gates its own writes, and its own call of
+    `expireAgentActions`, with its own switch.
+  - Every consumer switch that writes person rows (B2a, B4, B5, B6a, B6b) is tied in code to
+    `isOntologyPersonIdsEnabled()`, as `isOneViewEnabled` is tied to person links, so merged and
+    repointed history follows the person on the timeline (decision 25). Erase and export don't
+    need it.
+  - Decision 25 also clears the proposed values of any suggestion that is declined or expires.
+    The store does that through `clearDetailsOnClose`, which defaults to false, so each proposing
+    consumer sets it. Who may approve, decline or undo is each consumer's gate: admins for now
+    (decision 28).
+- **Rollback, in this order:**
+  1. Turn `SEARCH_KIND_IDEA_BOARD_ENABLED` off, then move every brand's items back under
+     `idea` before going on: anything left under `idea_board` would never be read or removed by
+     the reverted code. Don't count on one search check, which shares 30 seconds a tick between
+     brands and can stop part way. Run `npx tsx scripts/search-backfill.ts --apply` once with the
+     switch unset in that shell (its header says what it needs), and go on only when it ends
+     with no failures.
+  2. Turn `ONTOLOGY_PERSON_IDS_ENABLED` off, then wait one delivery drain, so queued
+     `person_repoint` jobs drop themselves. A revert with jobs still queued makes the job switch
+     in `src/lib/email/delivery.ts` throw for them until they park as failed after three
+     attempts.
+  3. Only then revert. Once consumers of the event store exist, their switches go off before
+     this step too.
+  4. Once rows exist, any revert keeps the `person_moves` erase and export lines and 0e's erase
+     and export commit, with the repository entries and writers they use, or erase and export
+     stop reaching personal data. A full revert of 0e after rows exist needs a one-off purge
+     first: written then, asked first, dry run first and run by the owner per environment. The
+     indexes can stay, since empty indexes cost nothing.
+
+Known gaps (also in the registry):
+- Today's agent paths write drafts with no agent action record: canvas drafts for nine kinds,
+  brand notes, learning from a repo, autopilot runs, brand map research and lifecycle AI lines.
+  The Agent record piece (decision 42, wave 3) records them behind its own switch. Until then
+  "every agent action is recorded" does not hold for them.
+- An open new person suggestion for someone not yet in People has no export path. Its details
+  clear within 7 days, and erase finds it by person id once they are added.
+- Rows about a product-only person whose address changed while `ONTOLOGY_PERSON_IDS_ENABLED` was
+  off stay under the old person. The switch tie above stops consumers writing such rows.
+- A product user's rows keep their `personId` after a contact erase while
+  `AUDIENCE_ONE_VIEW_ENABLED` is off, because the product user is kept then.
+- `email_events` is mirrored to BigQuery per region, so `personId` appears there, and the
+  changelog keeps it after erasure, as it does for every mirrored field.
+- Erasing a product user also erases rows under their `pu:` person from before a merge the
+  repoint job hasn't moved yet. That errs toward deletion, the safe direction.
+
+Owner steps:
+- After merge, on dev: sync the settings, deploy the indexes and wait for READY in all three
+  databases, then run the backfill: dry run, apply, dry run (stamped 0 and corrected 0).
+- Prod: promote with both switches off, deploy the indexes, then a private settings change
+  turns on `ONTOLOGY_PERSON_IDS_ENABLED` and after it `SEARCH_KIND_IDEA_BOARD_ENABLED`. Run the
+  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --apply`
+  with `SEARCH_KIND_IDEA_BOARD_ENABLED=true` in that shell moves every brand's clippings in one
+  run, instead of some dropping out of search for a check or two. Vizzy's search change rides
+  the redeploy after piece B.
+
+Deferred:
+- Renaming the older product user meaning of `personId` (piece B).
+- Every consumer of the event store (B2a, B4, B5, B6a, B6b, 2d, D1, O2b), the timeline view and
+  its merge (B5), and wiring `expireAgentActions` into a tick.
+- Pointer rows for email and product moments, if the owner wants them later.
+- Vizzy sending `idea_board` itself, once every environment runs 0a or later.
+- Acting within limits (wave 4).
+
+Consequences: two more regional stores hold personal data, so any new path that removes a
+person, company or idea calls `eraseHistory`. Every new collection or file store needs a
+registry entry and a regenerated `docs/ONTOLOGY.md`, so piece A and piece 0 rebase on each
+other's registry. `person_repoint` jobs share the email queue and run between sends, in the
+scheduled drain only: an inline drain inside a request leaves them queued. The fake
+Firestore applies transaction writes in order and doesn't enforce reads before writes, so the
+writers' tests run through `src/lib/tenant/testing/readsFirst.ts`.
+
+Where: `src/lib/ontology/` (`person.ts`, `types.ts`, `registry.ts`, `storeScan.ts`,
+`coverage.test.ts`, `events.ts`, `doc.ts`, `flags.ts`, `personRef.ts`, `moves.ts`,
+`repoint.ts`, `backfillPersonIds.ts`, `consent.ts`, `eventBuilders.ts`, `timeline.ts`,
+`agentActions.ts`, `erase.ts`, `appendOnly.test.ts`), `scripts/ontology-doc.ts`,
+`scripts/backfill-person-ids.ts`, `docs/ONTOLOGY.md`, `scripts/agents-check.mjs`;
+`src/lib/tenant/` (`repository.ts`, `ontologyEvents.ts`, `agentActions.ts`, `index.ts`,
+`launchDeletion.ts`, `testing/readsFirst.ts`), `src/lib/types/` (`ontologyEvent.ts`,
+`agentAction.ts`, `personMove.ts`); `src/lib/search/` (`types.ts`, `indexer.ts`, `sweep.ts`,
+`flags.ts`, `labels.ts`), `src/lib/tenant/searchIndex.ts`, both search routes,
+`src/components/help/pages/search.tsx`, `agents/root_agent/tools/search_client.py` and
+`search.py`; the email, lifecycle and connect writers, `src/lib/crm/eraseWorker.ts`,
+`src/lib/connect/erase.ts`, `src/lib/audience/personExport.ts`; `firestore.indexes.json`,
+`apphosting.yaml`, `.env.example`, `AGENTS.md`.
 
 ---
 

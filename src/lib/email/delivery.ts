@@ -49,6 +49,8 @@ import { processContactEraseJob } from "@/lib/crm/eraseWorker";
 import { markInviteFailed, processInviteJob } from "@/lib/invites/send";
 import type { EndedReason, HeldReason } from "@/lib/types/emailJob";
 import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
+import { personIdForSignup } from "@/lib/ontology/personRef";
+import { processPersonRepointJob } from "@/lib/ontology/repoint";
 
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
@@ -63,7 +65,12 @@ const RUN_BUDGET_MS = 90_000;
 
 /** Options for one drain. */
 export interface DrainOptions {
-  /** Epoch ms after which no NEW job is claimed; the job in flight finishes. */
+  /**
+   * Epoch ms after which no NEW job is claimed; the job in flight finishes. Only the scheduled
+   * drain sets one. Without it (an inline drain inside a request: a broadcast send, a journey
+   * activation, an invite wave) person_repoint jobs are left for the scheduled drain, since one
+   * can work for a 20 second slice.
+   */
   deadlineAt?: number;
 }
 
@@ -74,15 +81,18 @@ export interface DrainOptions {
  * from (campaign, email) — so a job tombstoned as "done" for a now-absent
  * recipient would permanently block re-enrollment of a deleted-then-re-added
  * contact (same email → same signup id → same key). Dropping prevents that.
+ * "again" puts a job that worked a slice back in the queue at once, without spending an attempt
+ * (a person repoint that saved its cursor).
  */
-type JobOutcome = "done" | "drop" | "hold" | `held:${HeldReason}` | `ended:${EndedReason}`;
+type JobOutcome = "done" | "drop" | "hold" | "again" | `held:${HeldReason}` | `ended:${EndedReason}`;
 
 /** How long a held job waits before it's looked at again (e.g. invites while switched off). */
 const HOLD_MS = 30 * 60_000;
 
 /**
  * Drain due jobs from the queue. Idempotent + best-effort: a failed job retries
- * up to MAX_ATTEMPTS, then parks as "failed". Designed to be kicked inline after
+ * up to MAX_ATTEMPTS, then parks as "failed" (a person repoint is deleted instead,
+ * for the lifecycle tick to queue again). Designed to be kicked inline after
  * enqueue (immediate sends) AND on a schedule (Cloud Scheduler) for future
  * journey steps. Safe under overlapping drains: each job is claimed in a
  * transaction, so exactly one drain processes it (see the claim below).
@@ -132,6 +142,8 @@ export async function processEmailJobs(
 
   for (const candidate of jobs) {
     if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
+    // Never inside a request: a person repoint waits for the scheduled drain (see DrainOptions).
+    if (candidate.type === "person_repoint" && opts.deadlineAt === undefined) continue;
     // EXACTLY-ONCE CLAIM: the queries above only find CANDIDATES — the claim is
     // authoritative. Inside a transaction we re-read the job FRESH and move
     // due-pending / stale-processing → processing atomically. Overlapping drains
@@ -179,6 +191,9 @@ export async function processEmailJobs(
         case "invite":
           outcome = await processInviteJob(ctx, job, db);
           break;
+        case "person_repoint":
+          outcome = await processPersonRepointJob(ctx, job, db);
+          break;
         default: {
           const _exhaustive: never = job.type;
           throw new Error(`unknown job type: ${String(_exhaustive)}`);
@@ -190,6 +205,17 @@ export async function processEmailJobs(
         await forTenant(ctx, db).emailJobs.update(job.id, {
           status: "pending",
           scheduledAt: new Date(Date.now() + HOLD_MS).toISOString(),
+          attempts: Math.max(0, attempts - 1),
+          claimedAt: null,
+        });
+        continue;
+      }
+      if (outcome === "again") {
+        // A slice of a long job is done and its cursor saved: back in the queue now, without
+        // spending an attempt. The next drain picks it up; other jobs due first still go first.
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: "pending",
+          scheduledAt: new Date().toISOString(),
           attempts: Math.max(0, attempts - 1),
           claimedAt: null,
         });
@@ -237,11 +263,17 @@ export async function processEmailJobs(
     } catch (err) {
       const msg = err instanceof Error ? err.message : "error";
       const exhausted = attempts >= MAX_ATTEMPTS;
-      await forTenant(ctx, db).emailJobs.update(job.id, {
-        status: exhausted ? "failed" : "pending",
-        lastError: msg,
-        processedAt: exhausted ? new Date().toISOString() : null,
-      });
+      if (exhausted && job.type === "person_repoint") {
+        // Self correcting: its move stays pending in person_moves and the lifecycle tick queues it
+        // again. Parked as failed, its key would block that for good and keep the product user id.
+        await forTenant(ctx, db).emailJobs.delete(job.id);
+      } else {
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: exhausted ? "failed" : "pending",
+          lastError: msg,
+          processedAt: exhausted ? new Date().toISOString() : null,
+        });
+      }
       if (exhausted && job.type === "invite") await markInviteFailed(ctx, job, msg, db);
       if (exhausted && job.type === "broadcast") {
         const bid = String(job.payload.broadcastId ?? "");
@@ -687,6 +719,8 @@ async function processJourneyStepJob(
   // Send once per job: if a prior attempt already dispatched (then failed during
   // the next-step enqueue), don't re-send — just continue to scheduling.
   if (!job.emailSentAt) {
+    // The person, on the send record and the send row (ONTOLOGY_PERSON_IDS_ENABLED); never in the metadata.
+    const personId = personIdForSignup(ctx.tenantId, signup);
     const res = await sendEmail({
       to: signup.email,
       subject: compiled.subject,
@@ -713,6 +747,7 @@ async function processJourneyStepJob(
           variantId,
         },
         "waitlist",
+        { db, personId },
       ),
       tags: ["journey", `node-${node.id}`],
     });
@@ -745,6 +780,7 @@ async function processJourneyStepJob(
         type: "send",
         ts: new Date().toISOString(),
         mandrillMessageId: res.id ?? null,
+        personId,
       },
       db,
     ).catch(() => {});

@@ -250,7 +250,7 @@ async function enrolIfPast(
       if (decideEntry(dateMs, start, earlier, deps.nowMs) !== "enter") continue;
       const r = await enrolUser(
         ctx,
-        { journey, version, user, source: "trigger", anchorAt: new Date(deps.nowMs).toISOString(), consentPolicy: connection.consentPolicy, entityId, dateAt },
+        { journey, version, user, source: "trigger", anchorAt: new Date(deps.nowMs).toISOString(), consentPolicy: connection.consentPolicy, entityId, dateAt, connection },
         deps,
       );
       if (r.outcome === "enrolled") enrolled += 1;
@@ -273,7 +273,15 @@ async function enrolIfPast(
  */
 export async function enrolOnDateByHand(
   ctx: TenantContext,
-  a: { journey: LifecycleJourney; version: LifecycleVersion; user: ProductUser; catalog: ConnectionCatalog; start: DateStart },
+  a: {
+    journey: LifecycleJourney;
+    version: LifecycleVersion;
+    user: ProductUser;
+    catalog: ConnectionCatalog;
+    start: DateStart;
+    /** The connection, when the caller holds it: the person on each new enrolment comes from it. */
+    connection?: Pick<ProductConnection, "kind" | "status"> | null;
+  },
   deps: { db?: FirestoreLike; nowMs: number },
 ): Promise<EnrolOutcome[]> {
   const about = aboutOf(a.version);
@@ -289,7 +297,16 @@ export async function enrolOnDateByHand(
     out.push(
       await enrolUser(
         ctx,
-        { journey: a.journey, version: a.version, user: a.user, source: "manual", anchorAt: new Date(deps.nowMs).toISOString(), entityId, dateAt: ms === null ? null : new Date(ms).toISOString() },
+        {
+          journey: a.journey,
+          version: a.version,
+          user: a.user,
+          source: "manual",
+          anchorAt: new Date(deps.nowMs).toISOString(),
+          entityId,
+          dateAt: ms === null ? null : new Date(ms).toISOString(),
+          connection: a.connection,
+        },
         deps,
       ),
     );

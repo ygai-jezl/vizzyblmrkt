@@ -1,7 +1,8 @@
-import { forTenant, type TenantContext } from "@/lib/tenant";
+import { eraseHistory, forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { tombstoneOf } from "./profile";
 import { personAfterProductErase, previousPersonKey } from "@/lib/audience/personHooks";
+import { forgetGonePersonHistory, productUserPersonId } from "@/lib/ontology/erase";
 
 /**
  * Erasure (GDPR Art. 17) of one product user. Two routes in: the product's own
@@ -27,14 +28,18 @@ export async function eraseProductUser(
   await eraseProductUserHistory(ctx, productUserId, db);
   if (email) await scrubSuppressionEmails(ctx, email, db);
   await personAfterProductErase(ctx, personKey, { db, nowMs });
+  // Their person's event history and agent actions, when the person record went with them.
+  await forgetGonePersonHistory(ctx, personKey, { db });
   return true;
 }
 
 /**
  * Everything keyed to a product user beyond their profile: their event log,
  * journey enrolments (progress + send log), email engagement rows, AI drafts
- * (which hold their facts and a preview of the email), their plan, and the link
- * from any waitlist invite to them. Safe to repeat — every DELETE re-runs it.
+ * (which hold their facts and a preview of the email), their plan, their person
+ * moves, their event history and agent actions (by their id, and by their pu: person's id, which
+ * reaches history from before they gave an address whatever ONTOLOGY_PERSON_IDS_ENABLED says), and
+ * the link from any waitlist invite to them. Safe to repeat — every DELETE re-runs it.
  * A store added here belongs in the person's export too (audience/personExport.ts).
  */
 export async function eraseProductUserHistory(
@@ -50,6 +55,11 @@ export async function eraseProductUserHistory(
   await repo.lifecycleDrafts.deleteWhere([["productUserId", "==", productUserId]]);
   // Their plan (LIFECYCLE_PERSON_PLANS): words about one person's situation.
   await repo.personPlans.deleteWhere([["productUserId", "==", productUserId]]);
+  // Their person moves (ONTOLOGY_PERSON_IDS_ENABLED): which people they moved between.
+  await repo.personMoves.deleteWhere([["productUserId", "==", productUserId]]);
+  // Their event history and agent actions: rows about their own data, and their pu: person's.
+  await eraseHistory(ctx, { productUserId }, { db });
+  await eraseHistory(ctx, { personId: productUserPersonId(ctx.tenantId, productUserId) }, { db });
   // The invite stays (the waitlist side: who was invited, and the counts) but no longer points at this user.
   const invites = await repo.invites.find({ where: [["productUserId", "==", productUserId]], limit: 500 });
   for (const invite of invites) await repo.invites.update(invite.id, { productUserId: null });

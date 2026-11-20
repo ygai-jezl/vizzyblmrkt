@@ -47,6 +47,9 @@ export interface LaunchDeletionCounts {
   waitlistEnrolments?: number;
   /** The launch's site key (LAUNCH_SITE_SIGNUPS_ENABLED); only when present. */
   siteKeys?: number;
+  /** The idea's event history and the agent actions about it; only when present. */
+  events?: number;
+  agentActions?: number;
 }
 
 /**

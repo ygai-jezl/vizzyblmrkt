@@ -56,6 +56,16 @@ describe("POST /api/agent/search", () => {
     expect((await POST(post({ query: "x", kinds: ["signups"] }))).status).toBe(400);
   });
 
+  it("accepts the old name idea, which Vizzy still sends, and passes it on as idea_board, each kind once", async () => {
+    expect((await POST(post({ query: "repot", kinds: ["idea"] }))).status).toBe(200);
+    expect(query.searchBrand.mock.calls[0]?.[2]).toEqual({ kinds: ["idea_board"], limit: 8 });
+    expect((await POST(post({ query: "repot", kinds: ["idea", "idea_board", "article"] }))).status).toBe(200);
+    expect(query.searchBrand.mock.calls[1]?.[2]).toEqual({ kinds: ["idea_board", "article"], limit: 8 });
+    expect((await POST(post({ query: "repot", kinds: ["idea_board"] }))).status).toBe(200);
+    expect(query.searchBrand.mock.calls[2]?.[2]).toEqual({ kinds: ["idea_board"], limit: 8 });
+    expect((await POST(post({ query: "repot", kinds: ["idea", "people"] }))).status).toBe(400);
+  });
+
   it("searches the token's brand, never one in the body, and names each source", async () => {
     const res = await POST(post({ query: "returns", tenantId: "ten_B", kinds: ["article"] }));
     expect(res.status).toBe(200);

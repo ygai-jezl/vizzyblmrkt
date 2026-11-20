@@ -1,4 +1,4 @@
-import { forTenant, type WhereClause } from "@/lib/tenant";
+import { eraseHistory, forTenant, type WhereClause } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { Contact } from "@/lib/types/contact";
 import type { EmailJob } from "@/lib/types/emailJob";
@@ -6,6 +6,7 @@ import { removeSignupFromAudience } from "@/lib/mailchimp";
 import { eraseProductUser, scrubSuppressionEmails } from "@/lib/connect/erase";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import { isOneViewEnabled } from "@/lib/audience/flags";
+import { productUserPersonId } from "@/lib/ontology/erase";
 
 /**
  * Process a `contact_erase` job — the GDPR Art.17 cascade (§H2). Idempotent and
@@ -16,6 +17,11 @@ import { isOneViewEnabled } from "@/lib/audience/flags";
  * name. Their opt-out rows stay with the address blanked, as for a product user.
  * With the one view on (AUDIENCE_ONE_VIEW_ENABLED) this is "Erase everywhere": their
  * user record in every connected product goes as well, as each product's own erase does it.
+ *
+ * Their event history and agent actions go whatever any switch says: by their person id (first,
+ * so a retried job for a contact already deleted still clears them, and again at the end for rows
+ * written while the job ran), by the pu: person id of each product user they link (history from
+ * before a merge, even when the product users are kept), and the company's when it goes.
  *
  * NOTE: a self-service DSR entry-point must wrap this job to fully satisfy Art.17,
  * and the audit should be promoted to the WORM store used by launch deletion.
@@ -29,6 +35,13 @@ export async function processContactEraseJob(
   if (!contactId) return "done";
 
   const repo = forTenant(ctx, db);
+  // Their event history and agent actions, and moves to or from them (ONTOLOGY_PERSON_IDS_ENABLED:
+  // ids only, but about them), before anything else: a retry for a contact already deleted (step 2
+  // can remove a product-only record) still clears what is left. Kept rows of a product user they
+  // still have go with that user's own erase.
+  const history = await eraseHistory(ctx, { personId: contactId }, { db });
+  await repo.personMoves.deleteWhere([["personId", "==", contactId]]);
+  await repo.personMoves.deleteWhere([["fromPersonId", "==", contactId]]);
   const contact = await repo.contacts.getById(contactId);
   if (!contact) return "done"; // already erased — idempotent
 
@@ -57,11 +70,20 @@ export async function processContactEraseJob(
   }
 
   // 2. With the one view: their user in every product, linked or found by address.
+  const productUsers = await productUsersOf(ctx, contact, db);
   let productUsersErased = 0;
   if (isOneViewEnabled()) {
-    for (const u of await productUsersOf(ctx, contact, db)) {
+    for (const u of productUsers) {
       if (await eraseProductUser(ctx, u.connectionId, u.id, db)) productUsersErased += 1;
     }
+  }
+
+  // 2b. History kept under the pu: person of each product user they link: from before a merge
+  //     that the repoint job hasn't moved (or can't, with its switch off). Whatever the one view says.
+  for (const u of productUsers) {
+    const h = await eraseHistory(ctx, { personId: productUserPersonId(ctx.tenantId, u.id) }, { db });
+    history.events += h.events;
+    history.agentActions += h.agentActions;
   }
 
   // 3. Opt-outs keep holding, without the address (the row id is a hash of it).
@@ -81,12 +103,20 @@ export async function processContactEraseJob(
   //    a fresh contact with new consent). A person who only used products may
   //    already be gone: erasing their last product user removed the record.
   if (await repo.contacts.getById(contactId)) await repo.contacts.delete(contactId);
+  // Once more by their id, for rows written while the job ran.
+  const late = await eraseHistory(ctx, { personId: contactId }, { db });
+  history.events += late.events;
+  history.agentActions += late.agentActions;
 
   // 6. Maintain the company rollup; drop the company when it has no contacts left.
   if (companyId) {
     const remaining = await repo.contacts.count([["companyId", "==", companyId]]);
     if (remaining <= 0) {
       await repo.companies.delete(companyId).catch(() => {});
+      // The company's own history and the agent actions about it go with it.
+      const h = await eraseHistory(ctx, { recordKey: `company:${companyId}` }, { db });
+      history.events += h.events;
+      history.agentActions += h.agentActions;
     } else {
       await repo.companies
         .update(companyId, { contactCount: remaining })
@@ -96,7 +126,7 @@ export async function processContactEraseJob(
 
   // 7. PII-free audit (counts only).
   console.info(
-    `[crm] contact_erase done tenant=${ctx.tenantId} region=${ctx.region} contact=${contactId} signupsDeleted=${signupsDeleted} productUsersErased=${productUsersErased} messagesDeleted=${messagesDeleted} companyId=${companyId ?? "-"}`,
+    `[crm] contact_erase done tenant=${ctx.tenantId} region=${ctx.region} contact=${contactId} signupsDeleted=${signupsDeleted} productUsersErased=${productUsersErased} messagesDeleted=${messagesDeleted} eventsDeleted=${history.events} agentActionsDeleted=${history.agentActions} companyId=${companyId ?? "-"}`,
   );
   return "done";
 }
@@ -121,7 +151,10 @@ async function signupIdsOf(ctx: TenantContext, contact: Contact, db?: FirestoreL
   return Array.from(ids);
 }
 
-/** Their user in every product: the ones the person record links, and any with their address. */
+/**
+ * Their user in every product: the ones the person record links, and any with their address. Read
+ * whatever the one view says: without it the users are kept, but their pu: person's history goes.
+ */
 async function productUsersOf(ctx: TenantContext, contact: Contact, db?: FirestoreLike): Promise<Array<{ id: string; connectionId: string }>> {
   const users = new Map((contact.products ?? []).map((p) => [p.productUserId, { id: p.productUserId, connectionId: p.connectionId }]));
   if (contact.email) {

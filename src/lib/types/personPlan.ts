@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContactPersonIdSchema } from "@/lib/ontology/person";
 
 /**
  * A plan for ONE product user (LIFECYCLE_PERSON_PLANS): what to help them do next
@@ -36,6 +37,8 @@ export const PersonPlanSchema = z.object({
   tenantId: z.string(),
   connectionId: z.string(),
   productUserId: z.string(),
+  /** The person (a `ct_` id), written when the plan is first saved (ONTOLOGY_PERSON_IDS_ENABLED) and moved when they move. */
+  personId: ContactPersonIdSchema.optional(),
   /** Waiting for staff: who wrote it (Vizzy or a person on the team) and when. */
   draft: PlanBodySchema.extend({ by: z.enum(["agent", "human"]), at: z.string() }).nullable(),
   /** In force: who wrote it, who approved it and when. */

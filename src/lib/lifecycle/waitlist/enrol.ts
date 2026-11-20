@@ -8,6 +8,7 @@ import { isTestRecipient } from "../policy";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey, versionDocId } from "../enrol";
 import { rehearsalEnrolmentId, waitlistEnrolmentId, waitlistJourneyId } from "./ids";
 import { WAITLIST_DUE_LIMIT } from "./runner";
+import { personIdForSignup, personStamp } from "@/lib/ontology/personRef";
 
 /**
  * Who enters a launch's waitlist journey on the lifecycle engine, and when
@@ -144,6 +145,8 @@ export async function enrolWaitlistSignup(
       versionId: version.id,
       campaignId: campaign.id,
       signupId: signup.id,
+      // The person, from the sign-up (ONTOLOGY_PERSON_IDS_ENABLED). A rehearsal is nobody's.
+      ...(a.rehearsal ? {} : personStamp(personIdForSignup(ctx.tenantId, signup))),
       mode,
       status: "active",
       stopReason: null,

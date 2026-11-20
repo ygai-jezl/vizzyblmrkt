@@ -88,9 +88,10 @@ export function contentPlanSources(plan: ContentPlan): SearchSource[] {
   return out;
 }
 
+/** An Idea Board item (a clipping). Written to the index as `idea` until SEARCH_KIND_IDEA_BOARD_ENABLED (storedKindOf). */
 export function ideaSource(idea: IdeaItem): SearchSource {
   return {
-    kind: "idea",
+    kind: "idea_board",
     ref: idea.id,
     title: idea.title,
     body: lines(idea.note, idea.text, idea.url ? `Link: ${idea.url}` : ""),
@@ -273,7 +274,7 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
     for (const ws of workspaces) for (const plan of await listContentPlans(ctx, ws.id, 500)) out.push(...contentPlanSources(plan).map(stubOf));
     return out;
   });
-  await read(["idea", "template"], async () => {
+  await read(["idea_board", "template"], async () => {
     const out: SearchStub[] = [];
     for (const ws of workspaces) {
       for (const i of await listIdeaItems(ctx, ws.id, 500)) out.push(stubOf(ideaSource(i)));

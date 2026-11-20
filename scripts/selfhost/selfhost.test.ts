@@ -221,6 +221,17 @@ describe("npm run selfhost --apply", { timeout: SLOW }, () => {
     expect(r.out).toContain("only with the user's go-ahead");
   });
 
+  it("passes the workspace step when its organisation fails, printing the repair", async () => {
+    writeState({ firebase: true, webApps: [{ appId: "1:1:web:x", displayName: "YouGrow" }], databases: { "(default)": "nam5" }, workspaceOrganisationFails: true });
+    const r = await selfhost(["--apply", "workspace", "--yes", "--workspace-name", "Acme", "--workspace-domain", "acme.test"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ok   workspace ten_acme");
+    expect(r.out).toContain("The workspace was created without an organisation.");
+    expect(r.out).toContain(`GOOGLE_CLOUD_PROJECT=${PROJECT} npx tsx scripts/backfill-organisations.ts --tenant ten_acme --plan self_hosted`);
+    expect(r.out).toContain("--apply --by <label>");
+    expect(readState().tenants).toEqual([{ id: "ten_acme", name: "Acme", region: "us" }]);
+  });
+
   it("--apply core --yes takes an empty project through every step, and a second run changes nothing", async () => {
     writeState({ googleSignIn: true });
     const first = await selfhost(["--apply", "core", "--yes", ...coreAnswers()]);

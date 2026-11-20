@@ -12,6 +12,10 @@
  *   --another         create one even though a workspace exists already
  *   --json            machine-readable output
  *
+ * The workspace gets an organisation of its own on the Self-hosted plan (src/lib/tenant/organisations.ts),
+ * so it stays fully open when plans are turned on. If that step fails the workspace is still made,
+ * with a warning naming the repair command.
+ *
  * Signs in with Application Default Credentials (gcloud auth application-default login).
  * Refuses demo-* projects (those exist only in the emulators: use npm run local) and any
  * run with FIRESTORE_EMULATOR_HOST set.
@@ -57,7 +61,7 @@ async function main() {
 
   // The tenant code reads the project from the environment when it first connects.
   process.env.GOOGLE_CLOUD_PROJECT = project;
-  const { createTenant, listAllTenants, REGION_CONFIGS, TenantIsolationError } = await import("@/lib/tenant");
+  const { createTenant, ensureBrandOrganisation, listAllTenants, REGION_CONFIGS, TenantIsolationError } = await import("@/lib/tenant");
   const { normalizeDomain, slugifyTenantId } = await import("@/lib/tenant/tenantId");
 
   const existing = await listAllTenants();
@@ -88,6 +92,7 @@ async function main() {
       region: region as "us" | "eu" | "asia",
       // As in the app's own "new brand" flow: no origin is trusted until its domain is verified.
       allowedOrigins: [],
+      // Unread, but builds from before plans require it to list brands: kept until the field goes.
       billingTier: "mvp_free",
       ownerId: "selfhost",
       createdAt: now,
@@ -97,7 +102,23 @@ async function main() {
     if (err instanceof TenantIsolationError) refuse(`The workspace id ${id} is taken. Pick another name.`);
     throw err;
   }
-  finish({ ok: true, created: true, id, name, region, message: `Created workspace ${id} (${name}, ${region}).` });
+
+  // The workspace exists now, so nothing below may fail the step: a re-run would say the id is
+  // taken. Without an organisation the workspace reads as open, and the backfill repairs it.
+  let organisationId: string | null = null;
+  try {
+    const res = await ensureBrandOrganisation(id, { plan: "self_hosted", createdBy: "selfhost" });
+    organisationId = res.status === "created" || res.status === "exists" ? (res.organisationId ?? null) : null;
+  } catch {
+    organisationId = null;
+  }
+  const created = `Created workspace ${id} (${name}, ${region}).`;
+  if (!organisationId) {
+    const repair = `GOOGLE_CLOUD_PROJECT=${project} npx tsx scripts/backfill-organisations.ts --tenant ${id} --plan self_hosted`;
+    const warning = `The workspace was created without an organisation. To give it one, run ${repair} to see the change, then the same with --apply --by <label> to make it.`;
+    finish({ ok: true, created: true, id, name, region, organisationId: null, warning, message: `${created}\n${warning}` });
+  }
+  finish({ ok: true, created: true, id, name, region, organisationId, message: created });
 }
 
 main().catch((err) => {

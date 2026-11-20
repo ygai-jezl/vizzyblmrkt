@@ -7,7 +7,7 @@ import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
 /**
  * Agent 3 — Creative Director side-panel docked beside the email preview. Lets
  * the operator brief the agent, get performance-informed copy variants (click to
- * apply), generate a Vertex Imagen hero image, and see prior-send performance.
+ * apply), generate a Gemini hero image, and see prior-send performance.
  */
 export interface CopyVariant {
   subject: string;

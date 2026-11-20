@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 /** Each help page's body, loaded on demand: the in-app How to drawer shows one page at a time. */
 export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType }>> = {
   "": () => import("./pages/get-set-up"),
+  "plan-and-usage": () => import("./pages/plan-and-usage"),
   "email-sending": () => import("./pages/email-sending"),
   "your-brand": () => import("./pages/your-brand"),
   "email-style": () => import("./pages/email-style"),

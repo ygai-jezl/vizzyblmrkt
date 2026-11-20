@@ -15,8 +15,10 @@ const REGIONS: { value: Region; label: string }[] = [
  * and POST to /api/admin/tenants. On success the caller is auto-switched into
  * the new brand (cookie set server-side), so we jump back to the dashboard.
  * Mirrors NewLaunchForm's structure.
+ *
+ * `organisationNote` (with plans on) says which plan the new brand starts on.
  */
-export function NewBrandForm() {
+export function NewBrandForm({ organisationNote }: { organisationNote?: string } = {}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
@@ -105,6 +107,8 @@ export function NewBrandForm() {
           {error}
         </p>
       ) : null}
+
+      {organisationNote ? <p className="text-sm text-neutral-500">{organisationNote}</p> : null}
 
       <div className="flex items-center gap-3">
         <button

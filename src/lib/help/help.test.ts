@@ -42,6 +42,7 @@ vi.hoisted(() => {
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
   process.env.CREATE_ARTICLE_AUTOPILOT_ENABLED = "true";
+  process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -219,5 +220,11 @@ describe("links into the help", () => {
     expect(helpFor("/admin/workspace/w1/curate/idea-board")).toBe("/help/write-and-schedule#write");
     expect(helpFor("/admin/lifecycle/j1")).toBe("/help/onboarding-journeys");
     expect(helpFor("/admin/somewhere-new")).toBe("/help");
+  });
+
+  it("sends Plan and usage and Add Brand to the plans page while its switch is on", () => {
+    expect(helpFor("/admin/account/billing")).toBe("/help/plan-and-usage");
+    expect(helpFor("/admin/brands/new")).toBe("/help/plan-and-usage#brands");
+    expect(HELP_PLACES).toContain("/help/plan-and-usage");
   });
 });

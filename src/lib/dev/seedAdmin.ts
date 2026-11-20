@@ -1,5 +1,6 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { addTenantMember } from "@/lib/tenant";
 import { SEED_TENANT_ID } from "./seedDemo";
 
 /**
@@ -12,6 +13,9 @@ import { SEED_TENANT_ID } from "./seedDemo";
  * page lists it: a local run signs in with "Sign in with Google" like the real
  * app. The password is for scripts (the smoke test) and only exists in the
  * emulator. The address must be on ADMIN_ALLOWED_EMAILS (npm run local sets it).
+ *
+ * It also gets a membership row in the demo brand (tenant_users), so Plan and usage counts one
+ * user locally. The claims alone reach the brand, so nothing else changes.
  */
 export const DEMO_ADMIN_EMAIL = "admin@example.com";
 export const DEMO_ADMIN_PASSWORD = "local-demo-password";
@@ -57,5 +61,6 @@ export async function seedAdminUser(): Promise<{ uid: string; email: string }> {
     region: "us",
     role: "admin",
   });
+  await addTenantMember(uid, SEED_TENANT_ID, "admin"); // idempotent
   return { uid, email: DEMO_ADMIN_EMAIL };
 }

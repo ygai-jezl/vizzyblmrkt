@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { usePathname, useRouter } from "next/navigation";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled, isNavV2Phase4Enabled } from "@/lib/nav/flags";
 import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
+import { isPlansUiEnabled } from "@/lib/plans/flags";
 import { shellChatContext, vizzyPageLabel } from "@/lib/nav/vizzy";
 import { useDashboardChat, type CanvasCardData, type UseDashboardChatReturn } from "../chat/useDashboardChat";
 import { cardListeners } from "../chat/cardData";
@@ -67,7 +68,7 @@ export function ShellProvider({
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
-  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled() }));
+  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled() }));
   const router = useRouter();
   // Made once, so a page's subscription outlives re-renders.
   const [saved] = useState(cardListeners);

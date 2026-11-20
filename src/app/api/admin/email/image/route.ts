@@ -21,7 +21,7 @@ const ImageSchema = z.object({
   styleId: z.string().min(1).max(40).optional(),
 });
 
-/** Agent 3 — generate a hero image (Vertex Imagen) and store it for the email. */
+/** Agent 3: generate a hero image (Gemini Nano Banana) and store it for the email. */
 export async function POST(req: Request) {
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   const baseUrl = platformOrigin() || originFromHeaders(req.headers);
 
   // The hero's own pick, else the brand's launch email style, else its default. Off, or before
-  // the brand picks: Imagen and today's prompt, exactly as before.
+  // the brand picks: the hero model and today's prompt, exactly as before.
   const choice = styleForImage({
     surface: "launchEmail",
     tenant: isBrandImageStyleEnabled() ? await getTenantById(ctx.tenantId) : null,

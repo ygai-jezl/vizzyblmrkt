@@ -18,7 +18,7 @@ import type { Region } from "../config";
 const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
 
 /** Mirrors the app's DEFAULT_TEXT_MODEL (src/lib/agents/modelConfig.ts); env-overridable. */
-export const DEFAULT_PRODUCT_MAP_MODEL = "gemini-3.6-flash";
+export const DEFAULT_PRODUCT_MAP_MODEL = "gemini-3.8-flash";
 
 const REGION_KEY: Record<Region, string> = { us: "US", eu: "EU", asia: "ASIA" };
 

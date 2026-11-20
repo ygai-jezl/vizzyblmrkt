@@ -1,8 +1,10 @@
 import {
   createTenant,
   backfillTenantFavicon,
+  ensureBrandOrganisation,
   forTenant,
   TenantIsolationError,
+  type EnsureOrganisationResult,
 } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 
@@ -38,6 +40,11 @@ export interface SeedResult {
   /** Outcome of the favicon backfill on the (possibly pre-existing) tenant doc. */
   favicon: "set" | "already_set" | "not_found";
   campaign: "created" | "exists";
+  /**
+   * The demo brand's organisation, on the Self-hosted plan, so a local run (which turns
+   * PLANS_ENABLED on) stays fully open.
+   */
+  organisation: EnsureOrganisationResult;
   hostedPage: string;
 }
 
@@ -47,6 +54,7 @@ export async function seedDemoData(): Promise<SeedResult> {
     tenant: "created",
     favicon: "already_set",
     campaign: "created",
+    organisation: { status: "created" },
     hostedPage: `/waitlist/${SEED_CAMPAIGN_ID}`,
   };
 
@@ -58,6 +66,7 @@ export async function seedDemoData(): Promise<SeedResult> {
       status: "active",
       region: "us",
       allowedOrigins: seedAllowedOrigins(),
+      // Unread, but builds from before plans require it to list brands: kept until the field goes.
       billingTier: "mvp_free",
       ownerId: "seed",
       createdAt: now,
@@ -67,6 +76,10 @@ export async function seedDemoData(): Promise<SeedResult> {
     if (err instanceof TenantIsolationError) result.tenant = "exists";
     else throw err;
   }
+
+  // Its own organisation on Self-hosted. A brand that has one already keeps it (a re-run
+  // never moves the demo brand, nor changes a plan set with scripts/set-plan.ts).
+  result.organisation = await ensureBrandOrganisation(SEED_TENANT_ID, { plan: "self_hosted", createdBy: "seed" });
 
   // Backfill the brand favicon so tenant docs created before the field gain one
   // (no-op when already set, e.g. a tenant just created above).

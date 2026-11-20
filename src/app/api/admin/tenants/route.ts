@@ -5,9 +5,11 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import {
   createTenant,
   addTenantMember,
+  ensureBrandOrganisation,
   getTenantById,
   TenantIsolationError,
 } from "@/lib/tenant";
+import { isPlansEnabled, newOrganisationPlan } from "@/lib/plans/flags";
 import { Region } from "@/lib/types/tenant";
 import { normalizeDomain, slugifyTenantId } from "@/lib/tenant/tenantId";
 
@@ -26,6 +28,13 @@ const NewBrandSchema = z.object({
  * owner + first `tenant_users` admin (so it shows up in their switcher). The
  * caller is auto-switched into the new brand. `createTenant`'s atomic create
  * rejects a duplicate id as 409. Region is chosen here and immutable thereafter.
+ *
+ * With PLANS_ENABLED, every new brand starts an organisation of its own, on the
+ * plan PLANS_NEW_ORGANISATION_PLAN names (unset or unknown: self_hosted), with
+ * its creator as owner. It never joins the brand the caller is in: on a hosted
+ * copy every allowlisted person's home brand is the bootstrap brand, so that
+ * would put almost every new brand into one organisation. Brands are combined
+ * only on purpose, by scripts/move-brand.ts.
  *
  * Body: `{ name: string, rootDomain: string, region: "us"|"eu"|"asia" }`.
  */
@@ -83,7 +92,6 @@ export async function POST(req: Request) {
       // public host→tenant traffic, so a new brand starts with none; domains are
       // added later through the verified-domain flow.
       allowedOrigins: [],
-      billingTier: "mvp_free",
       ownerId: ctx.userId,
       createdAt: now,
       updatedAt: now,
@@ -107,6 +115,30 @@ export async function POST(req: Request) {
   }
 
   await addTenantMember(ctx.userId, id, "admin"); // idempotent
+  if (isPlansEnabled()) await startOrganisation(id, ctx.userId);
   await setActiveTenantCookie(id); // land the user in the brand they just made
   return NextResponse.json({ ok: true, id }, { status: 201 });
+}
+
+/**
+ * Give the new brand its own organisation. Safe on a retry: a brand that has an
+ * organisation already is left where it is ("exists"), so it is never moved or
+ * counted twice. A failure is logged with a code only and the brand is still
+ * made: a brand with no organisation reads as open (no plan), and
+ * scripts/backfill-organisations.ts gives it one.
+ */
+async function startOrganisation(tenantId: string, userId: string): Promise<void> {
+  try {
+    const res = await ensureBrandOrganisation(tenantId, {
+      plan: newOrganisationPlan(),
+      createdBy: userId,
+      ownerIds: [userId],
+    });
+    if (res.status === "conflict" || res.status === "missing_brand") {
+      console.error("[admin/tenants] organisation_link_failed", { code: res.status });
+    }
+  } catch (err) {
+    const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code: unknown }).code) : "unknown";
+    console.error("[admin/tenants] organisation_link_failed", { code });
+  }
 }

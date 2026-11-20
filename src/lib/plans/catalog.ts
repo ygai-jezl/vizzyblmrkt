@@ -222,3 +222,11 @@ export function allowanceText(plan: Plan, allowance: Allowance): string {
   const n = amount.toLocaleString("en-US");
   return plan.perUser.includes(allowance) ? `${n} per user` : n;
 }
+
+/**
+ * The line on the New brand page (PLANS_ENABLED and NEXT_PUBLIC_PLANS_ENABLED): every brand made in
+ * the app starts an organisation of its own, on the plan PLANS_NEW_ORGANISATION_PLAN names.
+ */
+export function newBrandPlanNote(plan: Pick<Plan, "name">): string {
+  return `This brand starts on its own plan, ${plan.name}. To put it on one plan with your other brands, ask whoever runs your copy of YouGrow.`;
+}

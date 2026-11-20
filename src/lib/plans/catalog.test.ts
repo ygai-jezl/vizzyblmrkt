@@ -10,6 +10,7 @@ import {
   PLANS,
   allowanceLimit,
   allowanceText,
+  newBrandPlanNote,
   planById,
   type Plan,
   type PlanFeature,
@@ -137,6 +138,17 @@ describe("plan catalog", () => {
       ...Object.values(ALLOWANCE_LABELS),
     ];
     for (const text of copy) {
+      expect(dashesIn(text), text).toEqual([]);
+      expect(aiTellsIn(text), text).toEqual([]);
+    }
+  });
+
+  it("says which plan a new brand starts on, in house style", () => {
+    expect(newBrandPlanNote(plan("self_hosted"))).toBe(
+      "This brand starts on its own plan, Self-hosted. To put it on one plan with your other brands, ask whoever runs your copy of YouGrow.",
+    );
+    for (const p of PLANS) {
+      const text = newBrandPlanNote(p);
       expect(dashesIn(text), text).toEqual([]);
       expect(aiTellsIn(text), text).toEqual([]);
     }

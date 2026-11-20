@@ -474,6 +474,8 @@ export const CORE_STEPS = [
       if (!r.ok) return fail(`Creating the workspace failed: ${r.why}`);
       ctx.state.tenantId = r.data.id;
       ctx.say(`  ok   workspace ${r.data.id}`);
+      // The workspace is made even when its organisation isn't; the warning names the repair.
+      if (r.data.warning) ctx.say(`  ${r.data.warning}`);
       return ok();
     },
   },

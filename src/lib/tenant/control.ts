@@ -694,25 +694,35 @@ export async function setTenantSocialConnection(
     });
 }
 
-/** Remove a tenant's social OAuth connection for a platform (+ its webhook map). */
+/**
+ * Remove a tenant's social OAuth connection for a platform, and its webhook map entry
+ * when THIS tenant holds it. One transaction: the connection and the map entry go
+ * together or not at all. Another brand that connected the same account first keeps
+ * its attribution (this brand got `held_by_other` when it connected). When the holder
+ * disconnects, the entry is freed, not handed to another brand.
+ */
 export async function deleteTenantSocialConnection(
   id: string,
   platform: "x" | "instagram" | "linkedin" | "linkedin_org",
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
 ): Promise<void> {
-  const ref = getDb().collection("tenants").doc(id);
-  // Read the connection's userId first so we can also drop the attribution map entry.
-  const snap = await ref.get();
-  const conns = (snap.data()?.socialConnections ?? {}) as Record<string, { userId?: string }>;
-  const userId = conns[platform]?.userId;
-  // Remove the attribution map FIRST (not swallowed): if this fails the disconnect
-  // aborts and is retryable, rather than orphaning a subscription that would keep
-  // routing inbound engagement to a now-disconnected tenant.
-  if (typeof userId === "string" && userId) {
-    await deleteSocialSubscription(platform, userId);
-  }
-  await ref.update({
-    [`socialConnections.${platform}`]: FieldValue.delete(),
-    updatedAt: new Date().toISOString(),
+  const ref = db.collection("tenants").doc(id);
+  await db.runTransaction(async (tx) => {
+    // All reads before any write.
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const conns = (snap.data()?.socialConnections ?? {}) as Record<string, { userId?: string }>;
+    const userId = conns[platform]?.userId;
+    const subRef =
+      typeof userId === "string" && userId
+        ? db.collection(SOCIAL_SUBSCRIPTIONS).doc(socialSubId(platform, userId))
+        : null;
+    const sub = subRef ? await tx.get(subRef) : null;
+    if (subRef && sub?.exists && sub.data()?.tenantId === id) tx.delete(subRef);
+    tx.update(ref, {
+      [`socialConnections.${platform}`]: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
   });
 }
 

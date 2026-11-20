@@ -10,8 +10,18 @@ const tenant = vi.hoisted(() => ({
   setTenantGitConnection: vi.fn(),
   deleteTenantGitConnection: vi.fn(),
   setTenantGitRepos: vi.fn(),
+  setTenantSocialConnection: vi.fn(),
+  setSocialSubscription: vi.fn(),
+  deleteTenantSocialConnection: vi.fn(),
 }));
 vi.mock("@/lib/tenant", () => tenant);
+// The social callbacks read their nonce cookie through next/headers.
+const jar = vi.hoisted(() => new Map<string, string>());
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({
+    get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)! } : undefined),
+  })),
+}));
 
 const status = await import("./route");
 const gitStart = await import("./[provider]/start/route");
@@ -20,6 +30,27 @@ const gitDelete = await import("./[provider]/route");
 const gitRepos = await import("./[provider]/repos/route");
 const gitInstallation = await import("./[provider]/installation/route");
 const { encryptToken, signState } = await import("@/lib/integrations/crypto");
+const social = {
+  x: {
+    start: await import("./x/start/route"),
+    callback: await import("./x/callback/route"),
+    remove: await import("./x/route"),
+    cookie: (nonce: string) => ["x_pkce", `${nonce}.verifier-test`] as const,
+  },
+  linkedin: {
+    start: await import("./linkedin/start/route"),
+    callback: await import("./linkedin/callback/route"),
+    remove: await import("./linkedin/route"),
+    cookie: (nonce: string) => ["li_oauth_state", nonce] as const,
+  },
+  linkedin_org: {
+    start: await import("./linkedin_org/start/route"),
+    callback: await import("./linkedin_org/callback/route"),
+    remove: await import("./linkedin_org/route"),
+    cookie: (nonce: string) => ["li_org_state", nonce] as const,
+  },
+};
+const socialState = (await import("@/lib/social/crypto")).signState;
 
 const ORIGIN = "https://yougrow.test";
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
@@ -43,6 +74,13 @@ beforeEach(() => {
   vi.stubEnv("GITLAB_OAUTH_CLIENT_ID", "gitlab-test-client");
   vi.stubEnv("GITLAB_OAUTH_CLIENT_SECRET", "gitlab-test-secret");
   vi.stubEnv("GIT_REPO_SELECTION_ENABLED", "true");
+  vi.stubEnv("SOCIAL_TOKEN_ENC_KEY", "unit-test-social-root-key-please-rotate");
+  vi.stubEnv("SOCIAL_OAUTH_ORIGIN", ORIGIN);
+  for (const v of ["X_OAUTH", "LINKEDIN_OAUTH", "LINKEDIN_CM"]) {
+    vi.stubEnv(`${v}_CLIENT_ID`, "client-test");
+    vi.stubEnv(`${v}_CLIENT_SECRET`, "secret-test");
+  }
+  jar.clear();
   for (const v of ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY"]) {
     vi.stubEnv(v, "");
   }
@@ -64,6 +102,9 @@ function expectNothingWritten() {
   expect(tenant.setTenantGitConnection).not.toHaveBeenCalled();
   expect(tenant.deleteTenantGitConnection).not.toHaveBeenCalled();
   expect(tenant.setTenantGitRepos).not.toHaveBeenCalled();
+  expect(tenant.setTenantSocialConnection).not.toHaveBeenCalled();
+  expect(tenant.setSocialSubscription).not.toHaveBeenCalled();
+  expect(tenant.deleteTenantSocialConnection).not.toHaveBeenCalled();
   expect(fetchMock).not.toHaveBeenCalled();
 }
 
@@ -132,5 +173,61 @@ describe("GitHub and GitLab, as an admin", () => {
     const res = await gitDelete.DELETE(req("/api/admin/integrations/gitlab", "DELETE"), gitlab);
     expect(res.status).toBe(200);
     expect(tenant.deleteTenantGitConnection).toHaveBeenCalledWith("ten_A", "gitlab");
+  });
+});
+
+describe.each(Object.entries(social))("%s, as a member", (platform, routes) => {
+  it("start sends them back with reason=forbidden and sets no cookie", async () => {
+    const res = await routes.start.GET(req(`/api/admin/integrations/${platform}/start`));
+    const to = location(res);
+    expect(to.origin + to.pathname).toBe(`${ORIGIN}/admin/account/connections`);
+    expect(Object.fromEntries(to.searchParams)).toEqual({ status: "error", reason: "forbidden", provider: platform });
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expectNothingWritten();
+  });
+
+  it("callback with a good code, state and cookie is refused before the token exchange", async () => {
+    const [name, value] = routes.cookie("nonce-1");
+    jar.set(name, value);
+    const state = socialState({ t: "ten_A", p: platform, n: "nonce-1", ts: Date.now() });
+    const res = await routes.callback.GET(req(`/api/admin/integrations/${platform}/callback?code=c&state=${state}`));
+    expect(Object.fromEntries(location(res).searchParams)).toEqual({ status: "error", reason: "forbidden", provider: platform });
+    // The route's own back() clears its cookie on the way out.
+    expect(res.headers.get("set-cookie") ?? "").toContain(`${name}=;`);
+    expectNothingWritten();
+  });
+
+  it("DELETE is 403 with nothing removed", async () => {
+    const res = await routes.remove.DELETE(req(`/api/admin/integrations/${platform}`, "DELETE"));
+    expect(res.status).toBe(403);
+    expectNothingWritten();
+  });
+});
+
+describe.each(Object.entries(social))("%s, signed out", (platform, routes) => {
+  beforeEach(() => session.getAdminContext.mockResolvedValue(null));
+
+  it("start and DELETE are 401, and the callback goes to sign in", async () => {
+    expect((await routes.start.GET(req(`/api/admin/integrations/${platform}/start`))).status).toBe(401);
+    expect((await routes.remove.DELETE(req(`/api/admin/integrations/${platform}`, "DELETE"))).status).toBe(401);
+    const cb = await routes.callback.GET(req(`/api/admin/integrations/${platform}/callback?code=c&state=s`));
+    expect(cb.headers.get("location")).toBe(`${ORIGIN}/login`);
+    expectNothingWritten();
+  });
+});
+
+describe.each(Object.entries(social))("%s, as an admin", (platform, routes) => {
+  beforeEach(() => session.getAdminContext.mockResolvedValue(admin));
+
+  it("start still sets its cookie and goes to the provider", async () => {
+    const res = await routes.start.GET(req(`/api/admin/integrations/${platform}/start`));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("set-cookie") ?? "").toContain(`${routes.cookie("n")[0]}=`);
+  });
+
+  it("DELETE still disconnects this brand", async () => {
+    const res = await routes.remove.DELETE(req(`/api/admin/integrations/${platform}`, "DELETE"));
+    expect(res.status).toBe(200);
+    expect(tenant.deleteTenantSocialConnection).toHaveBeenCalledWith("ten_A", platform);
   });
 });

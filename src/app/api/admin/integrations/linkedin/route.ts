@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminContext } from "@/lib/auth/session";
-import { sameOriginGuard } from "@/lib/http/sameOrigin";
+import { integrationsAdmin } from "@/lib/integrations/admin";
 import { deleteTenantSocialConnection } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -8,10 +7,9 @@ export const dynamic = "force-dynamic";
 
 /** Disconnect the tenant's LinkedIn account (removes the encrypted tokens). */
 export async function DELETE(req: Request) {
-  const blocked = sameOriginGuard(req);
-  if (blocked) return blocked;
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const gate = await integrationsAdmin(req, { adminOnly: true });
+  if (!gate.ok) return gate.response;
+  const { ctx } = gate;
   await deleteTenantSocialConnection(ctx.tenantId, "linkedin");
   return NextResponse.json({ ok: true });
 }

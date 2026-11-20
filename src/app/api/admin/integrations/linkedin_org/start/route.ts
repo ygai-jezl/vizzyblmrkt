@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { getAdminContext } from "@/lib/auth/session";
+import { integrationsHopAdmin } from "@/lib/integrations/admin";
 import {
   isLinkedInCMConfigured,
   linkedinCmClientId,
@@ -21,8 +21,15 @@ export const dynamic = "force-dynamic";
  * (OAuth account-fixation defence), mirroring the personal LinkedIn flow.
  */
 export async function GET(req: Request) {
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Admins only, checked before any cookie is set.
+  const gate = await integrationsHopAdmin();
+  if (!gate.ok) {
+    if (gate.why === "signed_out") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.redirect(
+      `${socialOrigin(req.headers)}/admin/account/connections?status=error&reason=forbidden&provider=linkedin_org`,
+    );
+  }
+  const { ctx } = gate;
   if (!isLinkedInCMConfigured() || !isSocialCryptoConfigured()) {
     return NextResponse.json({ error: "linkedin_cm_not_configured" }, { status: 503 });
   }

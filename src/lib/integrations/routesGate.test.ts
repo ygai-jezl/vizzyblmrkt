@@ -15,14 +15,11 @@ function routeFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-// The X and LinkedIn routes move onto the gate in the next commit.
-const NOT_YET = new Set(["x", "linkedin", "linkedin_org"]);
-
 describe("integrations routes", () => {
-  const files = routeFiles(ROOT).filter((f) => !NOT_YET.has(relative(ROOT, f).split(/[\\/]/)[0]!));
+  const files = routeFiles(ROOT);
 
   it("are all found", () => {
-    expect(files.length).toBeGreaterThanOrEqual(6);
+    expect(files.length).toBeGreaterThanOrEqual(15);
   });
 
   it.each(files.map((f) => [relative(ROOT, f), f]))("%s uses the integrations gate", (_name, file) => {

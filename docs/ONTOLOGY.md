@@ -1313,6 +1313,7 @@ A team member's access to a brand, with their role.
   - `tenant_users`, control plane Firestore, in `src/lib/tenant/repository.ts`
   - `tenant_users`, control plane Firestore, in `src/lib/tenant/control.ts`
   - `tenant_users`, control plane Firestore, in `src/lib/tenant/registry.ts`. The brands a user belongs to.
+  - `tenant_users`, control plane Firestore, in `src/lib/tenant/organisations.ts`. Counts an organisation's users once across its brands (organisationUserIds).
 - Links: `brand` through tenantId
 - Erase: gap. No path removes a member or their data when they leave the team.
 - Export: none. A member sees their own access on the Team screen.

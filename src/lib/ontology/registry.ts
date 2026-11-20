@@ -1235,6 +1235,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { collection: "tenant_users", db: "control", definedIn: REPO },
       control("tenant_users", CONTROL),
       control("tenant_users", TENANT_LOOKUP, "the brands a user belongs to"),
+      control("tenant_users", ORGS, "counts an organisation's users once across its brands (organisationUserIds)"),
     ],
     links: [{ to: "brand", via: "tenantId", many: false }],
     events: [],

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminContext } from "@/lib/auth/session";
-import { sameOriginGuard } from "@/lib/http/sameOrigin";
+import { integrationsAdmin } from "@/lib/integrations/admin";
 import { getTenantById } from "@/lib/tenant";
 import { PROVIDERS, isProviderConfigured, type GitProvider } from "@/lib/integrations/providers";
 import { isGitCryptoConfigured } from "@/lib/integrations/crypto";
@@ -14,12 +13,11 @@ import { isSocialCryptoConfigured } from "@/lib/social/crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Per-provider git connection status for the current tenant (never the token). */
+/** Per-provider git connection status for the current tenant (never the token). Members can read it. */
 export async function GET(req: Request) {
-  const blocked = sameOriginGuard(req);
-  if (blocked) return blocked;
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const gate = await integrationsAdmin(req, { adminOnly: false });
+  if (!gate.ok) return gate.response;
+  const { ctx } = gate;
 
   const tenant = await getTenantById(ctx.tenantId);
   const conns = (tenant?.gitConnections ?? {}) as Partial<Record<GitProvider, GitConnection>>;

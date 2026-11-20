@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminContext } from "@/lib/auth/session";
+import { integrationsHopAdmin } from "@/lib/integrations/admin";
 import { PROVIDERS, isGitProvider, oauthOrigin, grantedScopes } from "@/lib/integrations/providers";
 import { verifyState, encryptToken } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
@@ -30,8 +30,8 @@ export async function GET(
   { params }: { params: Promise<{ provider: string }> },
 ) {
   const origin = oauthOrigin(req.headers);
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.redirect(`${origin}/login`);
+  const gate = await integrationsHopAdmin();
+  if (!gate.ok && gate.why === "signed_out") return NextResponse.redirect(`${origin}/login`);
 
   const { provider } = await params;
   if (!isGitProvider(provider)) return back(origin, { status: "error", reason: "unknown_provider" });
@@ -54,6 +54,11 @@ export async function GET(
   if (provider === "github" && githubAppConfig() && sp.get("setup_action") === "request") {
     return back(origin, { status: "requested", provider });
   }
+  // Everything below can store a connection: admins only. The two GitHub branches
+  // above write nothing and stay open to anyone signed in, because GitHub sends
+  // whoever changed the app there.
+  if (!gate.ok) return back(origin, { status: "error", reason: "forbidden", provider });
+  const { ctx } = gate;
   if (!code || !stateRaw) return back(origin, { status: "error", reason: "missing_code", provider });
 
   const state = verifyState(stateRaw);

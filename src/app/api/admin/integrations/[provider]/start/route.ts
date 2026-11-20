@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { getAdminContext } from "@/lib/auth/session";
+import { integrationsHopAdmin } from "@/lib/integrations/admin";
 import {
   PROVIDERS,
   authorizeScope,
@@ -15,16 +15,29 @@ import { githubAppConfig, installUrl } from "@/lib/integrations/githubApp";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Back to the connections page with a reason, for a member who pressed Connect. */
+function forbidden(req: Request, provider: string): NextResponse {
+  const u = new URL(`${oauthOrigin(req.headers)}/admin/account/connections`);
+  u.searchParams.set("status", "error");
+  u.searchParams.set("reason", "forbidden");
+  if (isGitProvider(provider)) u.searchParams.set("provider", provider);
+  return NextResponse.redirect(u.toString());
+}
+
 /** Begin the OAuth flow: redirect the browser to the provider's authorize page
- *  with a signed, tenant-bound `state` (CSRF). */
+ *  with a signed, tenant-bound `state` (CSRF). Admins only. */
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> },
 ) {
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
   const { provider } = await params;
+  const gate = await integrationsHopAdmin();
+  if (!gate.ok) {
+    if (gate.why === "signed_out") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return forbidden(req, provider);
+  }
+  const { ctx } = gate;
+
   if (!isGitProvider(provider)) {
     return NextResponse.json({ error: "unknown_provider" }, { status: 400 });
   }

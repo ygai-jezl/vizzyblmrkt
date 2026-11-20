@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminContext } from "@/lib/auth/session";
-import { sameOriginGuard } from "@/lib/http/sameOrigin";
+import { integrationsAdmin } from "@/lib/integrations/admin";
 import { getTenantById, setTenantGitRepos } from "@/lib/tenant";
 import { PROVIDERS, isGitProvider, type GitProvider } from "@/lib/integrations/providers";
 import { decryptToken } from "@/lib/integrations/crypto";
@@ -19,19 +18,21 @@ export const dynamic = "force-dynamic";
 
 type Resolved =
   | { ok: true; ctx: TenantContext; provider: GitProvider; token: string; selected: string[] | null }
-  | { ok: false; res: NextResponse };
+  | { ok: false; res: Response };
 
-/** Shared guard: flag, same-origin, admin, provider, and a decryptable connection. */
+/**
+ * Shared guard: flag, same-origin, the admin role (the list shows every private repo the
+ * token can see across orgs, so members don't get it), provider, and a decryptable connection.
+ */
 async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
   const fail = (error: string, status: number) => ({
     ok: false as const,
     res: NextResponse.json({ error }, { status }),
   });
   if (!isGitRepoSelectionEnabled()) return fail("not_found", 404);
-  const blocked = sameOriginGuard(req);
-  if (blocked) return { ok: false, res: blocked };
-  const ctx = await getAdminContext();
-  if (!ctx) return fail("unauthorized", 401);
+  const gate = await integrationsAdmin(req, { adminOnly: true });
+  if (!gate.ok) return { ok: false, res: gate.response };
+  const { ctx } = gate;
   if (!isGitProvider(rawProvider)) return fail("unknown_provider", 400);
 
   const conn = (await getTenantById(ctx.tenantId))?.gitConnections?.[rawProvider];

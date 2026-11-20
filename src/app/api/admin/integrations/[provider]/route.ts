@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
-import { getAdminContext } from "@/lib/auth/session";
-import { sameOriginGuard } from "@/lib/http/sameOrigin";
+import { integrationsAdmin } from "@/lib/integrations/admin";
 import { deleteTenantGitConnection } from "@/lib/tenant";
 import { isGitProvider } from "@/lib/integrations/providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Disconnect a git provider (delete the stored encrypted token). */
+/** Disconnect a git provider (delete the stored encrypted token). Admins only. */
 export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ provider: string }> },
 ) {
-  const blocked = sameOriginGuard(req);
-  if (blocked) return blocked;
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const gate = await integrationsAdmin(req, { adminOnly: true });
+  if (!gate.ok) return gate.response;
+  const { ctx } = gate;
 
   const { provider } = await params;
   if (!isGitProvider(provider)) {

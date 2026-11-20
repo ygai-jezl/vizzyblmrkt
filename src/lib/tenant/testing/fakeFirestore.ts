@@ -243,7 +243,8 @@ class FakeCollection extends FakeQuery implements CollectionLike {
       },
       async update(data: Doc) {
         const cur = store.get(docId);
-        if (!cur) throw new Error(`update() on missing doc ${docId}`);
+        // As Firestore does: NOT_FOUND (gRPC code 5), never a create.
+        if (!cur) throw Object.assign(new Error(`NOT_FOUND: update() on missing doc ${docId}`), { code: 5 });
         store.set(docId, stripUndefined(applyUpdate(cur, data)));
         bump();
       },

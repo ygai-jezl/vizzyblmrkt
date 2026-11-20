@@ -1,4 +1,4 @@
-import { getDb, isAlreadyExists } from "./firestore";
+import { getDb, isAlreadyExists, isNotFound } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type {
@@ -321,6 +321,85 @@ export class TenantCollection<T extends TenantScoped> {
     }
     return total;
   }
+
+  /**
+   * Update ONE page of this tenant's documents matching `where`, ordered by document id: each row
+   * goes through `plan(row)`, and a returned patch is written to that row (null leaves it alone).
+   * Pass the result's `last` back as `startAfter` for the next page while `more` is true. Safe to
+   * stop between pages and resume later from a stored `last`.
+   *
+   * SECURITY: the tenant predicate is always applied and any tenantId clause in `where` is
+   * dropped, as in find(). Rows are written by id with no second read, because the query already
+   * proved tenant ownership (the deleteWhere precedent); each row's tenantId is still checked
+   * from the data the query returned. tenantId, id and createdAt are stripped from every patch,
+   * as update() does. A row deleted between the read and the write (a time to live, an erase) is
+   * counted as gone and never created again: update() refuses a missing document.
+   *
+   * Not a transaction or a batch: one row that expired would fail the whole write. With `dryRun`
+   * it plans and counts, writing nothing.
+   */
+  async updateWhere(
+    where: WhereClause[],
+    plan: (row: T) => UpdatePatch<T> | null | Promise<UpdatePatch<T> | null>,
+    opts: { startAfter?: string | null; limit: number; dryRun?: boolean },
+  ): Promise<UpdateWhereResult> {
+    let q = this.applyWhere(this.base(), where).orderBy("__name__", "asc");
+    if (opts.startAfter) q = q.startAfter(opts.startAfter);
+    const snap = await q.limit(opts.limit).get();
+    const writes: Array<[id: string, patch: Record<string, unknown>]> = [];
+    let unchanged = 0;
+    for (const d of snap.docs) {
+      const data = d.data() ?? {};
+      if (data[TENANT_FIELD] !== this.tenantId) continue; // defence in depth
+      const patch = await plan({ id: d.id, ...data } as T);
+      const {
+        tenantId: _t,
+        id: _i,
+        createdAt: _c,
+        ...rest
+      } = (patch ?? {}) as Record<string, unknown>;
+      if (!patch || Object.keys(rest).length === 0) unchanged += 1;
+      else writes.push([d.id, rest]);
+    }
+    let gone = 0;
+    if (!opts.dryRun) {
+      const results = await Promise.allSettled(
+        writes.map(([id, rest]) => this.db.collection(this.name).doc(id).update(rest)),
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") continue;
+        if (isNotFound(r.reason)) gone += 1;
+        else throw r.reason;
+      }
+    }
+    const docs = snap.docs;
+    return {
+      scanned: docs.length,
+      updated: writes.length - gone,
+      unchanged,
+      gone,
+      last: docs.length ? docs[docs.length - 1]!.id : (opts.startAfter ?? null),
+      more: docs.length === opts.limit,
+    };
+  }
+}
+
+/** A patch updateWhere may write. Identity fields are stripped whatever the plan returns. */
+export type UpdatePatch<T extends TenantScoped> = Partial<CreateInput<T>>;
+
+/** What one updateWhere page did. In a dry run, `updated` counts the rows it would write. */
+export interface UpdateWhereResult {
+  /** Rows the query returned. */
+  scanned: number;
+  updated: number;
+  /** Rows the plan left alone. */
+  unchanged: number;
+  /** Rows deleted between the read and the write: counted, never created again. */
+  gone: number;
+  /** The last row's id, the next page's startAfter (the given one when the page was empty). */
+  last: string | null;
+  /** True when the page was full, so there may be more. */
+  more: boolean;
 }
 
 /** The set of tenant-scoped repositories available within a request context. */

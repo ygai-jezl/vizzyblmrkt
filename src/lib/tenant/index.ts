@@ -7,6 +7,8 @@ export type {
   TenantRepositories,
   FindOptions,
   WhereClause,
+  UpdatePatch,
+  UpdateWhereResult,
 } from "./repository";
 export {
   resolveTenantFromOrigin,

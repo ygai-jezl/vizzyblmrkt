@@ -796,6 +796,50 @@ export async function setTenantSocialConnection(
     });
 }
 
+/** The raw stored social connection for a platform, or null when there is none. */
+function storedSocialConnection(
+  data: Record<string, unknown> | undefined,
+  platform: string,
+): { enc?: { ct?: unknown } } | null {
+  const conns = data?.socialConnections as Record<string, unknown> | undefined;
+  const conn = conns?.[platform];
+  return conn && typeof conn === "object" ? (conn as { enc?: { ct?: unknown } }) : null;
+}
+
+/**
+ * Store a refreshed social token, compare-and-set on the access token it replaces (the
+ * same terms as swapTenantGitToken). "gone" = the connection was removed (a Disconnect
+ * won): nothing is written, so a refresh during a publish run never brings it back.
+ * "stale" = the stored token is no longer the one that was refreshed (a reconnect or
+ * another refresh got there first): nothing is written. "saved" = enc, refreshEnc,
+ * expiresAt and scope are stored as dotted writes inside the transaction, so platform,
+ * handle, userId, orgs and connectedAt stay as they are. A scope that isn't a string
+ * keeps the stored one (the schema has no null scope).
+ */
+export async function swapTenantSocialToken(
+  id: string,
+  platform: "x" | "instagram" | "linkedin" | "linkedin_org",
+  expectedCt: string,
+  next: { enc: EncBlob; refreshEnc: EncBlob | null; expiresAt: string | null; scope?: string | null },
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"saved" | "stale" | "gone"> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const conn = snap.exists ? storedSocialConnection(snap.data(), platform) : null;
+    if (!conn) return "gone";
+    if (conn.enc?.ct !== expectedCt) return "stale";
+    tx.update(ref, {
+      [`socialConnections.${platform}.enc`]: next.enc,
+      [`socialConnections.${platform}.refreshEnc`]: next.refreshEnc,
+      [`socialConnections.${platform}.expiresAt`]: next.expiresAt,
+      ...(typeof next.scope === "string" ? { [`socialConnections.${platform}.scope`]: next.scope } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    return "saved";
+  });
+}
+
 /**
  * Remove a tenant's social OAuth connection for a platform, and its webhook map entry
  * when THIS tenant holds it. One transaction: the connection and the map entry go

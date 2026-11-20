@@ -80,6 +80,7 @@ export {
   markTenantGitReconnect,
   clearTenantGitReconnect,
   setTenantSocialConnection,
+  swapTenantSocialToken,
   deleteTenantSocialConnection,
   setSocialSubscription,
   getSocialSubscription,

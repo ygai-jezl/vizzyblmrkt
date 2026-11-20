@@ -64,7 +64,7 @@ async function main() {
       process.exit(1);
     }
     const now = monthlyLimitOf(tenant, feature);
-    console.log(`[grant-feature] project=${project} brand=${tenantId} feature=${feature} cap now: ${now.limit} a month (from the ${now.from === "brand" ? "brand's own cap" : now.from === "copy" ? "copy's setting" : "default"})`);
+    console.log(`[grant-feature] project=${project} brand=${tenantId} feature=${feature} cap now: ${now.limit} a month (from the ${now.from === "brand" ? "brand's own cap" : now.from === "plan" ? "plan's cap" : now.from === "copy" ? "copy's setting" : "default"})`);
     const own = tenant.featureLimits?.[feature];
     if ((wanted === null && own === undefined) || wanted === own) {
       console.log("[grant-feature] nothing to change");

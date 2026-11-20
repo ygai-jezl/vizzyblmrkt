@@ -3,6 +3,7 @@ import { AutopilotSettingsSchema } from "./autopilot";
 import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
+import { PlanIdSchema } from "./organisation";
 
 /**
  * Core tenant (brand / workspace). Lives in the root-level `tenants` collection.
@@ -708,7 +709,21 @@ export const TenantSchema = z.object({
   region: Region,
   /** Allow-listed full origins (scheme + host) for CORS / embed / signup gating. */
   allowedOrigins: z.array(z.string()),
-  billingTier: z.string(),
+  /**
+   * @deprecated Unread: the plan is on the organisation (see `organisationId` and `orgPlan`). New
+   * brands still get "mvp_free", because builds from before plans require it and their
+   * listAllTenants would throw on a brand without it after a rollback. Remove the writes and the
+   * field together once prod has run on plans.
+   */
+  billingTier: z.string().optional(),
+  /** The organisation this brand belongs to (organisations/{id}, src/lib/tenant/organisations.ts). */
+  organisationId: z.string().min(1).max(160).optional().catch(undefined),
+  /**
+   * A copy of the organisation's plan, written only by src/lib/tenant/organisations.ts in the
+   * organisation's transaction, so the synchronous checks in crons read it with no extra read.
+   * Unset or damaged means no plan, which means open (src/lib/plans/catalog.ts activePlanOf).
+   */
+  orgPlan: PlanIdSchema.optional().catch(undefined),
   /** Firebase Auth UID of the primary creator. */
   ownerId: z.string(),
   /** Per-tenant MailChimp / email-provider config + BYO feature gate. */

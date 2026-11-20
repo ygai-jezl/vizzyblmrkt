@@ -1,8 +1,12 @@
 import { NewBrandForm } from "@/components/admin/NewBrandForm";
+import { newBrandPlanNote, planById } from "@/lib/plans/catalog";
+import { isPlansEnabled, isPlansUiEnabled, newOrganisationPlan } from "@/lib/plans/flags";
 
 export const dynamic = "force-dynamic";
 
 export default function NewBrandPage() {
+  // With plans on, every new brand starts an organisation of its own (src/app/api/admin/tenants).
+  const plan = isPlansEnabled() && isPlansUiEnabled() ? planById(newOrganisationPlan()) : null;
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-1">
@@ -10,11 +14,11 @@ export default function NewBrandPage() {
         <h1 className="text-xl font-semibold">Add Brand</h1>
         <p className="text-sm text-neutral-500">
           Create a new brand workspace. You will be switched into it once it is
-          created — its launches, audience, and settings all live inside the new
+          created. Its launches, audience and settings all live inside the new
           workspace.
         </p>
       </div>
-      <NewBrandForm />
+      <NewBrandForm organisationNote={plan ? newBrandPlanNote(plan) : undefined} />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
+import { activePlanOf } from "./catalog";
+import { isPlansEnabled } from "./flags";
 
 /**
  * How much of a costly feature one brand may use in a calendar month. One place decides it, so a
@@ -8,9 +10,11 @@ import type { Tenant } from "@/lib/types/tenant";
  *
  *   1. the brand's own value (`tenant.featureLimits[feature]`, set with
  *      `scripts/grant-feature.ts --limit`), else
- *   2. this copy's setting, FEATURE_MONTHLY_LIMITS ("next_up=100,competitor_articles=200"), else
- *   3. the default below.
+ *   2. with PLANS_ENABLED, its plan's cap (`monthlyCaps` in src/lib/plans/catalog.ts), else
+ *   3. this copy's setting, FEATURE_MONTHLY_LIMITS ("next_up=100,competitor_articles=200"), else
+ *   4. the default below.
  *
+ * A plan that sets no cap for a feature (none sets one today) falls through to the copy's setting.
  * A cap of 0 stops the feature for that brand without taking the grant away.
  */
 export const LIMITED_FEATURES = ["next_up", "competitor_articles", "article_autopilot"] as const;
@@ -48,20 +52,31 @@ export function copyMonthlyLimits(raw: string | undefined = process.env.FEATURE_
   return out;
 }
 
-/** The cap in force for a brand, and where it came from. Pure. */
-export function monthlyLimitOf(
-  tenant: Pick<Tenant, "featureLimits"> | null,
+type CapFields = Pick<Tenant, "featureLimits" | "orgPlan">;
+export type CapSource = "brand" | "plan" | "copy" | "default";
+
+/** The cap in force for a brand and where it came from, with plans on or off as given. Pure (reads the settings). */
+export function monthlyLimitWith(
+  tenant: CapFields | null | undefined,
   feature: LimitedFeature,
-): { limit: number; from: "brand" | "copy" | "default" } {
+  plansOn: boolean,
+): { limit: number; from: CapSource } {
   const own = tenant?.featureLimits?.[feature];
   if (validCap(own)) return { limit: own, from: "brand" };
+  const planCap = activePlanOf(tenant, plansOn)?.monthlyCaps[feature];
+  if (validCap(planCap)) return { limit: planCap, from: "plan" };
   const copy = copyMonthlyLimits()[feature];
   if (validCap(copy)) return { limit: copy, from: "copy" };
   return { limit: DEFAULT_MONTHLY_LIMITS[feature], from: "default" };
 }
 
+/** The cap in force for a brand, and where it came from. Pure. */
+export function monthlyLimitOf(tenant: CapFields | null, feature: LimitedFeature): { limit: number; from: CapSource } {
+  return monthlyLimitWith(tenant, feature, isPlansEnabled());
+}
+
 /** The cap in force for a brand. Pure. */
-export function monthlyLimit(tenant: Pick<Tenant, "featureLimits"> | null, feature: LimitedFeature): number {
+export function monthlyLimit(tenant: CapFields | null, feature: LimitedFeature): number {
   return monthlyLimitOf(tenant, feature).limit;
 }
 

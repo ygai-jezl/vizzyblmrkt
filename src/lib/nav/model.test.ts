@@ -194,6 +194,17 @@ describe("phase 3", () => {
     expect(labels("/admin/account/connections")).toEqual(["Settings", "Integrations"]);
     expect(labels("/admin/brand-kit/guidelines")).toEqual(["Brand", "Guidelines"]);
   });
+
+  it("names the billing tab Plan and usage only with plans on", () => {
+    expect(labels("/admin/account/billing")).toEqual(["Settings", "Billing"]);
+    const withPlans = (path: string, phase3: boolean) => breadcrumbsFor(path, names, { phase3, plans: true }).map((c) => c.label);
+    expect(withPlans("/admin/account/billing", true)).toEqual(["Settings", "Plan and usage"]);
+    expect(withPlans("/admin/account/billing", false)).toEqual(["Settings", "Plan and usage"]);
+    expect(breadcrumbsFor("/admin/account/billing", names, { phase3: false }).map((c) => c.label)).toEqual(["Settings", "Billing"]);
+    // Only the billing tab changes.
+    expect(withPlans("/admin/account/settings", true)).toEqual(["Settings", "General"]);
+    expect(withPlans("/admin/account", false)).toEqual(["Settings", "Domains"]);
+  });
 });
 
 describe("phase 4 breadcrumbs", () => {

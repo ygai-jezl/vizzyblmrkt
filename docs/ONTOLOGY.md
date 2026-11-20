@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-90 types: 61 built and 29 planned.
+89 types: 63 built and 26 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -612,6 +612,23 @@ A product user who moved to another person: merged when one known only by their 
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
 - Numbers: none. No numbers an agent reads.
 
+### Event history (`ontology_event`)
+
+One row per thing that happened to a person, company, idea or agent action and has no other home: a record created, a field changed with its values before and after, consent recorded, and each step of an agent action. A person's timeline is every row carrying their personId. Append only: a row changes only when its person is repointed or an erased field's values are blanked, and goes when its subject is erased. Email, product, journey and sign-up moments stay in their own stores and are read beside it. Kept until erased, with no time to live.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `ontology_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/ontologyEvents.ts`; field changes hold personal values.
+- Links: `person` through personId, and the subject when it is a person; `company` through the subject, when it is a company; `idea` through the subject, when it is an idea; `agent_action` through agentActionId
+- Events: `record.created`, `record.field_changed`, `consent.recorded`, `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
+- Person fields: `personId` (written with the row)
+- Erase: gap. Wired by the erase and export commit of this PR.
+- Export: gap. Wired by the erase and export commit of this PR.
+- Search: none. Personal data, kept out of brand search until the data processing agreement covers it.
+- Numbers: none. A history of changes, not a brand number.
+
 ### Field (`custom_field`)
 
 A field the brand adds to people or companies, or one that comes from sign-up questions, the catalog or enrichment.
@@ -619,28 +636,15 @@ A field the brand adds to people or companies, or one that comes from sign-up qu
 - Status: planned, in B
 - Home: the brand's region
 - Personal: no
-- Links: `field_value_history` through fieldId (many)
+- Links: `ontology_event` through fieldId, one row per change of a value (many)
 - Erase: none. Planned: piece B decides it with the store.
 - Export: none. Planned: piece B decides it with the store.
 - Search: none. A field's values are found with its person.
 - Numbers: none. Planned: piece B decides it with the store.
 
-### Field value history (`field_value_history`)
-
-Every value a field had on a person, with its source, who set it and when.
-
-- Status: planned, in B
-- Home: the brand's region
-- Personal: yes, the brand's people
-- Links: `person` through personId; `custom_field` through fieldId
-- Erase: gap. Planned: piece B erases and exports it with the person.
-- Export: gap. Planned: piece B erases and exports it with the person.
-- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
-- Numbers: none. Planned: piece B decides it with the store.
-
 ### Consent purpose (`consent_purpose`)
 
-What a person can agree to, per channel: marketing email, product email, transactional.
+What a person can agree to. The starting purposes are marketing email, product email and transactional, in CONSENT_PURPOSES (`src/lib/ontology/consent.ts`); support replies count as transactional. Piece F adds the settings.
 
 - Status: planned, in F
 - Home: the brand's region
@@ -652,12 +656,12 @@ What a person can agree to, per channel: marketing email, product email, transac
 
 ### Consent record (`consent_record`)
 
-One person's consent for one channel and purpose, with the event that proves it. Every send checks it.
+One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it.
 
 - Status: planned, in F
 - Home: the brand's region
 - Personal: yes, the brand's people
-- Links: `person` through personId; `consent_purpose` through purpose
+- Links: `person` through personId; `consent_purpose` through purpose; `ontology_event` through its consent.recorded events (many)
 - Erase: gap. Planned: piece F erases and exports it with the person.
 - Export: gap. Planned: piece F erases and exports it with the person.
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
@@ -724,20 +728,6 @@ A file of records brought into an object or list, matched on email or domain, wh
 - Export: gap. Planned: piece J decides how an import's rows are exported with the person.
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
 - Numbers: none. Planned: piece J decides it with the store.
-
-### Person timeline (`person_timeline`)
-
-Everything that happened to one person, in one shape, newest first, read from the event envelope.
-
-- Status: planned, in 0e
-- Home: the brand's region
-- Personal: yes, the brand's people
-- Links: `person` through personId
-- Events: `record.merged`, `record.repointed`
-- Erase: gap. Planned: 0e erases and exports a person's events with them.
-- Export: gap. Planned: 0e erases and exports a person's events with them.
-- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
-- Numbers: none. Planned: 0e decides it with the store.
 
 ## Support
 
@@ -1252,17 +1242,21 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-What an agent proposed or did for the brand, at which level, who approved it and how to undo it. Its trail is the agent kinds of event.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days. Its trail is the agent kinds of event in the event history. Today's drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
 
-- Status: planned, in 0e
+- Status: built
 - Home: the brand's region
-- Personal: undecided
-- Links: `person` through its target, when it is a person
-- Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`
-- Erase: none. Decided with its personal flag in 0e.
-- Export: none. Decided with its personal flag in 0e.
-- Search: none. Found on Review.
-- Numbers: none. Planned: 0e decides it with the store.
+- Personal: yes, the brand's people
+- Stores:
+  - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion; its proposal, basis, result and undo may hold personal values.
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
+- States: `proposed`, `approved`, `acted`, `undone`, `declined`
+- Person fields: `personId` (written with the row)
+- Erase: gap. Wired by the erase and export commit of this PR.
+- Export: gap. Wired by the erase and export commit of this PR.
+- Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
+- Numbers: none. No numbers an agent reads.
 
 ## Platform
 
@@ -1550,6 +1544,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Person plan (`person_plan`):
   - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Event history (`ontology_event`):
+  - Erase: wired by the erase and export commit of this PR
+  - Export: wired by the erase and export commit of this PR
 - Knowledge (`knowledge`):
   - Erase: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
 - Programme (`workspace`):
@@ -1574,9 +1571,6 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Mandrill message log (`mandrill_message`):
   - Erase: no erase reaches Mandrill's message log; it keeps it for its own retention period
   - Export: a person's export does not include Mandrill's message log
-- Field value history (`field_value_history`):
-  - Erase: planned: piece B erases and exports it with the person
-  - Export: planned: piece B erases and exports it with the person
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person
   - Export: planned: piece F erases and exports it with the person
@@ -1592,9 +1586,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Import (`import`):
   - Erase: planned: piece J decides how an import's rows are erased with the person
   - Export: planned: piece J decides how an import's rows are exported with the person
-- Person timeline (`person_timeline`):
-  - Erase: planned: 0e erases and exports a person's events with them
-  - Export: planned: 0e erases and exports a person's events with them
+- Agent action (`agent_action`):
+  - Erase: wired by the erase and export commit of this PR
+  - Export: wired by the erase and export commit of this PR
 - Support conversation (`support_conversation`):
   - Erase: planned: support erases and exports conversations with the person, after the data processing agreement
   - Export: planned: support erases and exports conversations with the person, after the data processing agreement

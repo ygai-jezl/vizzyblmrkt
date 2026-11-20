@@ -55,6 +55,8 @@ import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
+import type { StoredEvent } from "@/lib/types/ontologyEvent";
+import type { AgentAction } from "@/lib/types/agentAction";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -525,6 +527,13 @@ export interface TenantRepositories {
   nextUp: TenantCollection<NextUpDoc>;
   /** Autopilot runs: one question found, sorted and (Draft mode) written (src/lib/autopilot/runs.ts). */
   autopilotRuns: TenantCollection<AutopilotRun>;
+  /**
+   * The event history: one row per thing that happened to a person, company, idea or agent
+   * action. Append only: written only through ./ontologyEvents.ts and ./agentActions.ts.
+   */
+  ontologyEvents: TenantCollection<StoredEvent>;
+  /** Agents' suggestions, one record each, with their agent.* trail in ontologyEvents (./agentActions.ts writes them). */
+  agentActions: TenantCollection<AgentAction>;
 }
 
 /**
@@ -667,5 +676,8 @@ export function forTenant(
     autopilotLearned: new TenantCollection<LearnedEntry>(regionalDb, "autopilot_learned", t),
     nextUp: new TenantCollection<NextUpDoc>(regionalDb, "next_up", t),
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
+    // A person's history and agents' suggestions are personal: regional, beside the person.
+    ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
+    agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
   };
 }

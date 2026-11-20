@@ -139,5 +139,21 @@ export { applyProductMessage } from "./productIngest";
 export type { ApplyOutcome, ApplyMessageArgs } from "./productIngest";
 export { isRateLimited } from "./rateLimit";
 export { claimLifecycleSend } from "./lifecycleSend";
+// The event history: context-level writers only. The raw transaction helpers stay in src/lib/tenant.
+export {
+  appendEvents,
+  writeRecordWithEvents,
+  blankFieldEvents,
+  countFieldEvents,
+} from "./ontologyEvents";
+export type {
+  RecordCollection,
+  RecordOf,
+  RecordPlan,
+  RecordWriteResult,
+  BlankOptions,
+  BlankResult,
+  HistoryStore,
+} from "./ontologyEvents";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

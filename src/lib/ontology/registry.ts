@@ -1,3 +1,5 @@
+import { AGENT_ACTION_STATES } from "@/lib/types/agentAction";
+import { STORED_EVENT_KINDS } from "./events";
 import type { OntologyType, PathRef, StoreRef } from "./types";
 
 /**
@@ -72,6 +74,9 @@ const PERSON_KEPT_ON_PRODUCT_ROWS =
 const NOT_PERSONAL = "the brand's own work, with no one's personal data";
 const NO_NUMBERS = "no numbers an agent reads";
 const planned = (piece: string) => `planned: ${piece} decides it with the store`;
+/** Until the erase and export commit of 0e wires both history stores. */
+const HISTORY_WIRING = "wired by the erase and export commit of this PR";
+const HISTORY_SEARCH = "personal data, kept out of brand search until the data processing agreement covers it";
 
 const EMAIL_MEANINGS = [
   "sends",
@@ -727,6 +732,29 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { paths: [EXPORT_PU, EXPORT_PERSON] },
     search: { none: PEOPLE_WORDS },
     numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "ontology_event",
+    name: "Event history",
+    description:
+      "One row per thing that happened to a person, company, idea or agent action and has no other home: a record created, a field changed with its values before and after, consent recorded, and each step of an agent action. A person's timeline is every row carrying their personId. Append only: a row changes only when its person is repointed or an erased field's values are blanked, and goes when its subject is erased. Email, product, journey and sign-up moments stay in their own stores and are read beside it. Kept until erased, with no time to live.",
+    place: "customers",
+    status: "built",
+    home: "brand",
+    personal: "people",
+    stores: [regional("ontology_events", "written only through `src/lib/tenant/ontologyEvents.ts`; field changes hold personal values")],
+    links: [
+      { to: "person", via: "personId, and the subject when it is a person", many: false },
+      { to: "company", via: "the subject, when it is a company", many: false },
+      { to: "idea", via: "the subject, when it is an idea", many: false },
+      { to: "agent_action", via: "agentActionId", many: false },
+    ],
+    events: [...STORED_EVENT_KINDS],
+    personFields: [{ field: "personId", stampedAtWrite: true }],
+    erase: { gap: HISTORY_WIRING },
+    export: { gap: HISTORY_WIRING },
+    search: { none: HISTORY_SEARCH },
+    numbers: { none: "a history of changes, not a brand number" },
   },
 
   // ===== Support: help after the sale ========================================================
@@ -1429,7 +1457,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     home: "brand",
     personal: "none",
     stores: [],
-    links: [{ to: "field_value_history", via: "fieldId", many: true }],
+    links: [{ to: "ontology_event", via: "fieldId, one row per change of a value", many: true }],
     events: [],
     erase: { none: planned("piece B") },
     export: { none: planned("piece B") },
@@ -1437,29 +1465,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { none: planned("piece B") },
   },
   {
-    id: "field_value_history",
-    name: "Field value history",
-    description: "Every value a field had on a person, with its source, who set it and when.",
-    place: "customers",
-    status: "planned",
-    plannedIn: "B",
-    home: "brand",
-    personal: "people",
-    stores: [],
-    links: [
-      { to: "person", via: "personId", many: false },
-      { to: "custom_field", via: "fieldId", many: false },
-    ],
-    events: [],
-    erase: { gap: "planned: piece B erases and exports it with the person" },
-    export: { gap: "planned: piece B erases and exports it with the person" },
-    search: { none: PEOPLE_WORDS },
-    numbers: { none: planned("piece B") },
-  },
-  {
     id: "consent_purpose",
     name: "Consent purpose",
-    description: "What a person can agree to, per channel: marketing email, product email, transactional.",
+    description:
+      "What a person can agree to. The starting purposes are marketing email, product email and transactional, in CONSENT_PURPOSES (`src/lib/ontology/consent.ts`); support replies count as transactional. Piece F adds the settings.",
     place: "customers",
     status: "planned",
     plannedIn: "F",
@@ -1476,7 +1485,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "consent_record",
     name: "Consent record",
-    description: "One person's consent for one channel and purpose, with the event that proves it. Every send checks it.",
+    description:
+      "One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it.",
     place: "customers",
     status: "planned",
     plannedIn: "F",
@@ -1486,6 +1496,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     links: [
       { to: "person", via: "personId", many: false },
       { to: "consent_purpose", via: "purpose", many: false },
+      { to: "ontology_event", via: "its consent.recorded events", many: true },
     ],
     events: [],
     erase: { gap: "planned: piece F erases and exports it with the person" },
@@ -1785,36 +1796,26 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "agent_action",
     name: "Agent action",
-    description: "What an agent proposed or did for the brand, at which level, who approved it and how to undo it. Its trail is the agent kinds of event.",
+    description:
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days. Its trail is the agent kinds of event in the event history. Today's drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
-    status: "planned",
-    plannedIn: "0e",
-    home: "brand",
-    personal: "undecided",
-    stores: [],
-    links: [{ to: "person", via: "its target, when it is a person", many: false }],
-    events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone"],
-    erase: { none: "decided with its personal flag in 0e" },
-    export: { none: "decided with its personal flag in 0e" },
-    search: { none: "found on Review" },
-    numbers: { none: planned("0e") },
-  },
-  {
-    id: "person_timeline",
-    name: "Person timeline",
-    description: "Everything that happened to one person, in one shape, newest first, read from the event envelope.",
-    place: "customers",
-    status: "planned",
-    plannedIn: "0e",
+    status: "built",
     home: "brand",
     personal: "people",
-    stores: [],
-    links: [{ to: "person", via: "personId", many: false }],
-    events: ["record.merged", "record.repointed"],
-    erase: { gap: "planned: 0e erases and exports a person's events with them" },
-    export: { gap: "planned: 0e erases and exports a person's events with them" },
-    search: { none: PEOPLE_WORDS },
-    numbers: { none: planned("0e") },
+    stores: [regional("agent_actions", "one record per suggestion; its proposal, basis, result and undo may hold personal values")],
+    links: [
+      { to: "person", via: "personId, and the target when it is a person", many: false },
+      { to: "company", via: "the target, when it is a company", many: false },
+      { to: "idea", via: "the target, when it is an idea", many: false },
+      { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
+    ],
+    events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],
+    states: [...AGENT_ACTION_STATES],
+    personFields: [{ field: "personId", stampedAtWrite: true }],
+    erase: { gap: HISTORY_WIRING },
+    export: { gap: HISTORY_WIRING },
+    search: { none: `found on Review; ${HISTORY_SEARCH}` },
+    numbers: { none: NO_NUMBERS },
   },
   {
     id: "support_conversation",

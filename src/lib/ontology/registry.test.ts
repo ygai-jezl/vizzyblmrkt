@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
-import { SEARCH_KINDS } from "@/lib/search/types";
+import { readSearchKind, SEARCH_KIND_ALIASES, SEARCH_KINDS } from "@/lib/search/types";
 import { EVENT_KINDS } from "./events";
 import { ONTOLOGY, storesOf, typeById } from "./registry";
 import { PATH_TRIGGERS, PERSONALS, PLACES, PLANNED_IN, SPINE_STEPS, STORE_DBS, type OntologyType, type PathDecision, type PathRef } from "./types";
@@ -126,9 +126,13 @@ describe("the ontology registry", () => {
     for (const s of storesOf()) expect(existsSync(join(ROOT, s.definedIn)), `${s.typeId}: ${s.definedIn}`).toBe(true);
   });
 
-  it("claims every search kind", () => {
-    const claimed = new Set(ONTOLOGY.flatMap((t) => ("kinds" in t.search ? t.search.kinds : [])));
+  it("claims every search kind, and every alias through the kind it reads as", () => {
+    const claimed = new Set<string>(ONTOLOGY.flatMap((t) => ("kinds" in t.search ? t.search.kinds : [])));
     for (const k of SEARCH_KINDS) expect(claimed.has(k), `no type claims the search kind ${k}`).toBe(true);
+    for (const alias of Object.keys(SEARCH_KIND_ALIASES)) {
+      const kind = readSearchKind(alias);
+      expect(kind !== null && (claimed.has(alias) || claimed.has(kind)), `no type claims the alias ${alias}`).toBe(true);
+    }
   });
 
   it("claims every number's meaning", () => {

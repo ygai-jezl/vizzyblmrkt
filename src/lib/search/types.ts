@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Brand search: the shapes shared by the indexer, the store (src/lib/tenant/searchIndex.ts, the
  * only code that touches the search databases), the query and the screens.
@@ -33,6 +35,38 @@ export type SearchKind = (typeof SEARCH_KINDS)[number];
 export function isSearchKind(value: unknown): value is SearchKind {
   return typeof value === "string" && (SEARCH_KINDS as readonly string[]).includes(value);
 }
+
+/**
+ * Kind names that may be stored or asked for, read as one of today's kinds. `idea_board` is the
+ * name piece 0b will write for an Idea Board item, read as today's `idea`: the app reads the new
+ * name before anything writes it, so reverting 0b leaves nothing in the index that can't be read.
+ */
+export const SEARCH_KIND_ALIASES: Readonly<Record<string, SearchKind>> = { idea_board: "idea" };
+
+/** How many alias names there are, for limits on lists of kinds. */
+export const SEARCH_KIND_ALIAS_COUNT = Object.keys(SEARCH_KIND_ALIASES).length;
+
+/** A stored or requested kind as one of today's kinds: a current kind, an alias mapped to its kind, or null. */
+export function readSearchKind(value: unknown): SearchKind | null {
+  if (isSearchKind(value)) return value;
+  if (typeof value === "string" && Object.prototype.hasOwnProperty.call(SEARCH_KIND_ALIASES, value)) return SEARCH_KIND_ALIASES[value]!;
+  return null;
+}
+
+/** The kind values to look for in the index: the kinds, plus every alias stored for one of them. */
+export function storedKindsFor(kinds: readonly SearchKind[]): string[] {
+  const out = new Set<string>(kinds);
+  for (const [alias, kind] of Object.entries(SEARCH_KIND_ALIASES)) if (kinds.includes(kind)) out.add(alias);
+  return [...out];
+}
+
+/** Each kind once, in first seen order. */
+export function dedupeKinds<T extends string>(kinds: readonly T[]): T[] {
+  return [...new Set(kinds)];
+}
+
+/** A kind as a request names it: a current kind or an alias, read as the current kind. */
+export const SearchKindInput = z.string().transform(readSearchKind).pipe(z.enum(SEARCH_KINDS));
 
 /** One record to index, as a feeder reads it through the tenant layer. */
 export interface SearchSource {

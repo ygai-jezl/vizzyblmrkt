@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { brandRoot, resultId, searchChunkId, searchManifestId } from "./searchIndex";
+import { readSearchKind, SEARCH_KIND_ALIASES, storedKindsFor } from "@/lib/search/types";
+import { brandRoot, manifestFrom, rankedFrom, resultId, searchChunkId, searchManifestId } from "./searchIndex";
 import { SEARCH_DATABASE_IDS, searchDatabaseIdForRegion } from "./region";
 
 describe("brand search paths", () => {
@@ -37,3 +38,29 @@ describe("resultId", () => {
   });
 });
 
+
+describe("kinds stored under an alias", () => {
+  const manifest = { tenantId: "ten_A", sourceKey: "idea_board:i1", kind: "idea_board", ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z" };
+  const chunk = { tenantId: "ten_A", sourceKey: "idea_board:i1", kind: "idea_board", ref: "i1", chunk: 0, title: "Repot", text: "Repot in spring", url: "/admin/x" };
+
+  it("reads idea_board as idea and keeps the stored sourceKey", () => {
+    expect(SEARCH_KIND_ALIASES).toEqual({ idea_board: "idea" });
+    expect(manifestFrom(manifest)).toMatchObject({ kind: "idea", sourceKey: "idea_board:i1", chunks: 2 });
+    expect(rankedFrom("c_1", chunk, "ten_A")).toMatchObject({ kind: "idea", sourceKey: "idea_board:i1", ref: "i1" });
+  });
+
+  it("asks for both names when filtering by a kind that has an alias", () => {
+    expect(storedKindsFor(["idea"])).toEqual(["idea", "idea_board"]);
+    expect(storedKindsFor(["article", "idea"])).toEqual(["article", "idea", "idea_board"]);
+    expect(storedKindsFor(["article"])).toEqual(["article"]);
+  });
+
+  it("still drops unknown kinds and other brands' chunks", () => {
+    expect(readSearchKind("people")).toBeNull();
+    expect(readSearchKind("constructor")).toBeNull();
+    expect(manifestFrom({ ...manifest, kind: "people" })).toBeNull();
+    expect(rankedFrom("c_1", { ...chunk, kind: "people" }, "ten_A")).toBeNull();
+    expect(rankedFrom("c_1", chunk, "ten_B")).toBeNull();
+    expect(manifestFrom(undefined)).toBeNull();
+  });
+});

@@ -1,5 +1,6 @@
 import { localWordsScore } from "./text";
-import type { RankedChunk, SearchChunkDoc, SearchManifest, SearchStore } from "./types";
+import type { RankedChunk, SearchChunkDoc, SearchKind, SearchManifest, SearchStore } from "./types";
+import { readSearchKind, storedKindsFor } from "./types";
 
 /**
  * An in-memory search index for tests (the fake Firestore has no pipelines). One shared map of
@@ -27,10 +28,17 @@ export class MemorySearchIndex {
     const chunks = () => this.brandChunks(tenantId);
     const manifests = () => this.brandManifests(tenantId);
     const key = (sourceKey: string, n: number) => `${sourceKey}#${n}`;
+    // As the real store does: a kind stored under an alias reads as today's kind, and the stored
+    // sourceKey stays; a filter matches the kinds and their aliases.
+    const manifestOut = (m: SearchManifest): SearchManifest | null => {
+      const kind = readSearchKind(m.kind);
+      return kind ? { ...m, kind } : null;
+    };
+    const kindMatches = (c: SearchChunkDoc, kinds?: SearchKind[]) => (!kinds?.length || storedKindsFor(kinds).includes(c.kind)) && readSearchKind(c.kind) !== null;
     const ranked = (id: string, c: SearchChunkDoc): RankedChunk => ({
       id,
       sourceKey: c.sourceKey,
-      kind: c.kind,
+      kind: readSearchKind(c.kind) ?? c.kind,
       ref: c.ref,
       chunk: c.chunk,
       title: c.title,
@@ -40,10 +48,11 @@ export class MemorySearchIndex {
 
     return {
       async getManifest(sourceKey) {
-        return manifests().get(sourceKey) ?? null;
+        const m = manifests().get(sourceKey);
+        return m ? manifestOut(m) : null;
       },
       async listManifests() {
-        return [...manifests().values()];
+        return [...manifests().values()].map(manifestOut).filter((m): m is SearchManifest => m !== null);
       },
       async putSource(manifest, list, previousChunks) {
         for (const c of list) if (c.tenantId !== tenantId || c.sourceKey !== manifest.sourceKey) throw new Error("search_index_wrong_source");
@@ -61,7 +70,7 @@ export class MemorySearchIndex {
       },
       async words(query, opts) {
         return [...chunks().entries()]
-          .filter(([, c]) => !opts.kinds?.length || opts.kinds.includes(c.kind))
+          .filter(([, c]) => kindMatches(c, opts.kinds))
           .map(([id, c]) => ({ id, c, s: localWordsScore(query, c) }))
           .filter((x) => x.s > 0)
           .sort((a, b) => b.s - a.s || a.id.localeCompare(b.id))
@@ -70,7 +79,7 @@ export class MemorySearchIndex {
       },
       async meaning(vector, opts) {
         return [...chunks().entries()]
-          .filter(([, c]) => c.embedding && (!opts.kinds?.length || opts.kinds.includes(c.kind)))
+          .filter(([, c]) => c.embedding && kindMatches(c, opts.kinds))
           .map(([id, c]) => ({ id, c, d: (c.embedding ?? []).reduce((sum, v, i) => sum + v * (vector[i] ?? 0), 0) }))
           .sort((a, b) => b.d - a.d || a.id.localeCompare(b.id))
           .slice(0, opts.limit)

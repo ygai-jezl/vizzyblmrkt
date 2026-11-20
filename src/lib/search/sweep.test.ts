@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubOf } from "./feeders";
 import { MemorySearchIndex } from "./memoryStore";
 import { isSweepTick, runSearchSweeps, sweepBrand } from "./sweep";
-import type { SearchKind, SearchSource } from "./types";
+import type { SearchChunkDoc, SearchKind, SearchManifest, SearchSource } from "./types";
 
 vi.mock("@/lib/tenant/searchIndex", () => ({
   searchStoreFor: () => {
@@ -33,6 +33,35 @@ describe("sweepBrand", () => {
     const changed = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "Repot in autumn"), src("note", "n1", "Fans love citrus")], ["idea", "note"]) });
     expect(changed).toMatchObject({ changed: 1, indexed: 1 });
     expect((await store.words("autumn", { limit: 5 })).length).toBe(1);
+  });
+
+  it("rolls back a rename: an idea_board entry is removed, chunks too, and indexed again as idea", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctx);
+    // What 0b would have written, then reverted: a manifest and chunks stored as idea_board.
+    const stored = (n: number) => ({
+      tenantId: ctx.tenantId,
+      kind: "idea_board",
+      ref: "i1",
+      sourceKey: "idea_board:i1",
+      chunk: n,
+      title: "i1",
+      text: `Repot in spring ${n}`,
+      url: "",
+      lang: "en",
+      updatedAt: "2026-11-20T10:00:00.000Z",
+      embedding: [1, 0, 0],
+    });
+    const manifest = { sourceKey: "idea_board:i1", kind: "idea_board", ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z", version: "v0" };
+    await store.putSource(manifest as unknown as SearchManifest, [stored(0), stored(1)] as unknown as SearchChunkDoc[], 0);
+    // Before the sweep it is still found, as an idea.
+    expect((await store.words("repot", { limit: 5, kinds: ["idea"] })).map((h) => h.kind)).toEqual(["idea", "idea"]);
+
+    const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "Repot in spring")], ["idea"]) });
+    expect(c).toMatchObject({ removed: 1, indexed: 1 });
+    expect(await store.getManifest("idea_board:i1")).toBeNull();
+    expect([...(index.chunks.get(ctx.tenantId)?.values() ?? [])].map((x) => x.sourceKey)).toEqual(["idea:i1"]);
+    expect(await store.getManifest("idea:i1")).toMatchObject({ kind: "idea", ref: "i1" });
   });
 
   it("removes what is gone, but only for kinds read in full", async () => {

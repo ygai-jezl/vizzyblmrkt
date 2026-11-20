@@ -29,10 +29,11 @@ interface ProviderStatus {
 
 const GIT_IDS = new Set(["github", "gitlab"]);
 
-function repoSummary(s: ProviderStatus): string {
+/** Members only read the choice, so they don't get the call to choose. */
+function repoSummary(s: ProviderStatus, canEdit: boolean): string {
   const r = s.selectedRepos;
-  if (!r) return "All accessible repositories (choose to restrict).";
-  if (r.length === 0) return "No repositories selected yet. Choose which to use.";
+  if (!r) return canEdit ? "All accessible repositories (choose to restrict)." : "All accessible repositories.";
+  if (r.length === 0) return canEdit ? "No repositories selected yet. Choose which to use." : "No repositories selected yet.";
   const shown = r.slice(0, 3).map((x) => x.fullPath).join(", ");
   return `${r.length} repositor${r.length === 1 ? "y" : "ies"}: ${shown}${r.length > 3 ? ", …" : ""}`;
 }
@@ -222,7 +223,7 @@ export function ConnectionsPanel() {
                   )}
                   {s?.connected && s.repoSelection ? (
                     <div className="text-xs text-neutral-500">
-                      {repoSummary(s)}
+                      {repoSummary(s, canEdit)}
                       {canEdit ? (
                         <>
                           {" "}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import type { Tenant, SocialConnection } from "@/lib/types/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -362,5 +362,80 @@ describe("ensureFreshAccessToken with the default persist", () => {
     expect(decryptToken(x.enc)).toBe("reconnected-acc");
     expect(decryptToken(x.refreshEnc!)).toBe("stored-ref");
     warn.mockRestore();
+  });
+});
+
+// ── a refresh that finds the account gone: revoke what it minted (X only, both switches) ──
+describe("ensureFreshAccessToken: tokens minted for a disconnected account", () => {
+  const REVOKE = "https://api.x.com/2/oauth2/revoke";
+  function run(platform: RefreshablePlatform) {
+    const fetchMock = vi.fn(async (url: string) =>
+      url.includes("revoke")
+        ? new Response(JSON.stringify({ revoked: true }), { status: 200 })
+        : okJson({ access_token: "minted-acc", refresh_token: "minted-ref", expires_in: 7200 }),
+    );
+    const token = ensureFreshAccessToken(ctx, platform, tenantWithConn({}, platform), {
+      now: () => T_EXP - 60 * 1000,
+      fetch: fetchMock as unknown as typeof fetch,
+      persist: async () => "gone",
+    });
+    const revokes = () =>
+      (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)
+        .filter(([url]) => url === REVOKE)
+        .map(([, init]) => new URLSearchParams(String(init.body)).get("token"));
+    return { token, revokes };
+  }
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "");
+    vi.stubEnv("CONNECTOR_REVOKE_X_ENABLED", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    warn.mockRestore();
+  });
+
+  it("both switches off: nothing revoked", async () => {
+    const { token, revokes } = run("x");
+    expect(await token).toBeNull();
+    expect(revokes()).toEqual([]);
+  });
+
+  it("the revoke switch on and the X switch off: nothing revoked", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    const { token, revokes } = run("x");
+    expect(await token).toBeNull();
+    expect(revokes()).toEqual([]);
+  });
+
+  it("both switches on: the X tokens it minted are revoked, refresh token first", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_REVOKE_X_ENABLED", "true");
+    const { token, revokes } = run("x");
+    expect(await token).toBeNull();
+    expect(revokes()).toEqual(["minted-ref", "minted-acc"]);
+    expect(warn.mock.calls.join(" ")).not.toMatch(/minted-/);
+  });
+
+  it.each(["linkedin", "linkedin_org"] as const)("both switches on: %s is never revoked", async (platform) => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_REVOKE_X_ENABLED", "true");
+    const { token, revokes } = run(platform);
+    expect(await token).toBeNull();
+    expect(revokes()).toEqual([]);
+  });
+
+  it("a saved refresh revokes nothing, even with both switches on", async () => {
+    vi.stubEnv("CONNECTOR_REVOKE_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_REVOKE_X_ENABLED", "true");
+    const fetchMock = vi.fn(async () => okJson({ access_token: "fresh-acc", expires_in: 7200 }));
+    const token = await ensureFreshAccessToken(ctx, "x", tenantWithConn(), {
+      now: () => T_EXP - 60 * 1000,
+      fetch: fetchMock as unknown as typeof fetch,
+      persist: async () => "saved",
+    });
+    expect(token).toBe("fresh-acc");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

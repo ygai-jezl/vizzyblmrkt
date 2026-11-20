@@ -3,6 +3,7 @@ import type { SocialConnection, Tenant } from "@/lib/types/tenant";
 import { swapTenantSocialToken } from "@/lib/tenant";
 import { encryptToken } from "./crypto";
 import { getDecryptedSocialTokens } from "./connections";
+import { revokeSocialConnection } from "./revoke";
 import {
   X_TOKEN_URL,
   basicAuthHeader,
@@ -213,8 +214,9 @@ export interface EnsureFreshDeps extends RefreshDeps {
  *
  * DISCONNECT STICKS: the store is compare-and-set on the token that was refreshed, so a
  * Disconnect that lands during the refresh is never undone. "gone" returns null and
- * stores nothing. "stale" (the stored token changed meanwhile) uses the new token for
- * this send without storing it.
+ * stores nothing, and with CONNECTOR_REVOKE_X_ENABLED on revokes the X tokens it minted.
+ * "stale" (the stored token changed meanwhile) uses the new token for this send without
+ * storing it.
  *
  * ROTATION CAVEAT: X invalidates the old refresh token on every refresh. If the
  * refresh succeeds but the persist fails, the next run's stored refresh token is stale
@@ -287,8 +289,17 @@ export async function ensureFreshAccessToken(
     return res.bundle.accessToken;
   }
   if (outcome === "gone") {
-    // Disconnected while the refresh ran: never store or use the new token.
+    // Disconnected while the refresh ran: never store or use the new token. The tokens
+    // this refresh minted are live at the platform, so revoke them, best effort.
+    // revokeSocialConnection does so only for X with CONNECTOR_REVOKE_X_ENABLED (and
+    // CONNECTOR_REVOKE_ENABLED) on, and never for LinkedIn.
     console.warn(`[social-refresh] ${platform} was disconnected during a refresh for ${ctx.tenantId}; nothing stored`);
+    await revokeSocialConnection(
+      ctx.tenantId,
+      platform,
+      { accessToken: res.bundle.accessToken, refreshToken: res.bundle.refreshToken ?? tokens.refreshToken },
+      { fetch: deps.fetch },
+    );
     return null;
   }
   if (outcome === "stale") {

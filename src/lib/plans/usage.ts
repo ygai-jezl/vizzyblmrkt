@@ -31,9 +31,11 @@ import { monthlyLimitWith, type CapSource, type LimitedFeature } from "./limits"
  * only.
  *
  * Who sees what (decision 21): this brand's own figures go to anyone in the brand. The
- * organisation's other brands and its totals go only to the people in its `ownerIds`, read live
- * from the organisation record on every view (never from the session's role claim), or to anyone
- * when the organisation holds only this brand. Otherwise no other brand is read at all.
+ * organisation's name and id, its other brands and its totals go only to the people in its
+ * `ownerIds`, read live from the organisation record on every view (never from the session's role
+ * claim), or to anyone when the organisation holds only this brand. Otherwise no other brand is
+ * read at all, and only the plan and since when reach the summary. Owners see only brands whose
+ * own record points back at the organisation.
  *
  * Another brand is read through a system context built from its registry record (tenantId and
  * region, both from the server), as src/app/api/webhooks/mailchimp/route.ts does. Only counts are
@@ -118,8 +120,12 @@ export interface UsageSummary {
   plan: PlanId | null;
   thisBrand: { id: string; name: string; region: Region; status: TenantStatus; liveLaunchesLimit: number | null } & BrandFigures;
   organisation: {
-    id: string;
-    name: string;
+    /**
+     * Organisation view only (null in brand view). An organisation is named after the brand it was
+     * made for, and its id is org_<that brand's id>, so either could name another brand (decision 21).
+     */
+    id: string | null;
+    name: string | null;
     plan: PlanId;
     planSince: string;
     /** The viewer is one of its owners (read live). */
@@ -273,8 +279,11 @@ export async function organisationUsage(ctx: TenantContext, deps: UsageDeps = {}
   if (!org || !org.brandIds.includes(ctx.tenantId)) return summary;
   const owner = Boolean(ctx.userId && org.ownerIds.includes(ctx.userId));
   const view = owner || org.brandIds.length === 1 ? "organisation" : "brand";
+  if (view === "brand") {
+    summary.organisation = { id: null, name: null, plan: org.plan, planSince: org.planSince, owner, view };
+    return summary;
+  }
   summary.organisation = { id: org.id, name: org.name, plan: org.plan, planSince: org.planSince, owner, view };
-  if (view === "brand") return summary;
 
   const thisRow: UsageBrandRow = { id: ctx.tenantId, name: thisBrand.name, region: ctx.region, status: thisBrand.status, isThis: true, ...mine };
   const [siblings, users] = await Promise.all([
@@ -283,7 +292,9 @@ export async function organisationUsage(ctx: TenantContext, deps: UsageDeps = {}
       5,
       async (id): Promise<UsageBrandRow | null> => {
         const t = await soft(() => load(id));
-        if (!t) return null;
+        // A listed brand whose own record points at another organisation (or none) is drift, which
+        // --check reports: it is neither shown nor counted, so its owners' data stays theirs.
+        if (!t || t.organisationId !== org.id) return null;
         return { id, name: t.tenantName, region: t.region, status: t.status, isThis: false, ...(await brandFigures({ tenantId: id, region: t.region }, deps)) };
       },
     ),

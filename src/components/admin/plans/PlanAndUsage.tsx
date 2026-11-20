@@ -168,11 +168,13 @@ export function PlanAndUsage({ summary }: { summary: UsageSummary }) {
             <h2 id="your-plan" className="text-sm font-semibold">
               Your plan
             </h2>
+            {/* Only in organisation view: the name is often another brand's (decision 21). */}
+            {orgView && org?.name ? <p className={HINT}>{org.name}</p> : null}
             {plan ? <p className="text-2xl font-semibold">{plan.name}</p> : null}
             <p className="text-sm text-neutral-600 dark:text-neutral-300">
               {!plan ? PLAN_AND_USAGE_COPY.noPlan : plan.id === "self_hosted" ? PLAN_AND_USAGE_COPY.selfHosted : plan.summary}
             </p>
-            {org || since ? <p className={HINT}>{[org?.name, since].filter(Boolean).join(" · ")}</p> : null}
+            {since ? <p className={HINT}>{since}</p> : null}
           </div>
 
           {orgView && summary.brands ? (

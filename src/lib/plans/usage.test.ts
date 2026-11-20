@@ -4,7 +4,7 @@ import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { recordingFirestore } from "@/lib/tenant/testing/recordingFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Region } from "@/lib/types/tenant";
-import { getTenantById } from "@/lib/tenant";
+import { attachBrandToOrganisation, ensureBrandOrganisation, getTenantById } from "@/lib/tenant";
 import { planById } from "./catalog";
 import { checkAllowance, mayAddUser, organisationAllowance, organisationUsage, type UsageDeps } from "./usage";
 
@@ -116,13 +116,45 @@ describe("organisationUsage", () => {
       loadTenant: load,
     });
 
-    expect(s.organisation).toMatchObject({ id: "org_ten_A", owner: false, view: "brand" });
+    expect(s.organisation).toEqual({ id: null, name: null, plan: "pro", planSince: T0, owner: false, view: "brand" });
     expect(s.brands).toBeNull();
     expect(s.allowances).toBeNull();
     expect(s.thisBrand).toMatchObject({ people: 3, liveLaunches: 2 });
     expect(load.mock.calls.map(([id]) => id)).toEqual(["ten_A"]);
     expect(asked.length).toBeGreaterThan(0);
     expect(asked.every((id) => id === "ten_A")).toBe(true);
+  });
+
+  it("never names the other brand to someone who isn't an owner after brands are combined", async () => {
+    control.seed("tenants", "ten_stealth", brand("Stealth Project", "us"));
+    control.seed("tenants", "ten_quill", brand("Quill", "us"));
+    control.seed("tenant_users", "ten_quill_usr_quill", { userId: "usr_quill", tenantId: "ten_quill", role: "admin", joinedAt: T0 });
+    await ensureBrandOrganisation("ten_stealth", { plan: "pro", createdBy: "backfill", ownerIds: ["usr_owner"] }, control);
+    await ensureBrandOrganisation("ten_quill", { plan: "free", createdBy: "backfill", ownerIds: ["usr_quill"] }, control);
+    expect(await attachBrandToOrganisation("ten_quill", "org_ten_stealth", { actor: "move-brand:test" }, control)).toBe("moved");
+
+    const s = await organisationUsage(ctxOf("ten_quill", "us", "usr_quill"), deps);
+    expect(s.organisation).toMatchObject({ id: null, name: null, plan: "pro", owner: false, view: "brand" });
+    expect(JSON.stringify(s)).not.toMatch(/stealth/i);
+
+    // Its owner sees the organisation, still named after the brand it was made for.
+    const owner = await organisationUsage(ctxOf("ten_quill", "us", "usr_owner"), deps);
+    expect(owner.organisation).toMatchObject({ id: "org_ten_stealth", name: "Stealth Project", view: "organisation" });
+    expect(owner.brands?.map((b) => b.name)).toEqual(["Stealth Project", "Quill"]);
+  });
+
+  it("shows and counts no listed brand whose own record points at another organisation", async () => {
+    // Drift (--check reports it): org_ten_A lists ten_C, but ten_C belongs to org_ten_C.
+    control.seed("tenants", "ten_C", brand("OtherCo", "us", { organisationId: "org_ten_C", orgPlan: "free" }));
+    control.seed("organisations", "org_ten_C", { name: "OtherCo", plan: "free", planSince: T0, brandIds: ["ten_C"], ownerIds: ["usr_c"], createdBy: "backfill", createdAt: T0, updatedAt: T0 });
+    control.seed("organisations", "org_ten_A", { ...control.raw("organisations", "org_ten_A"), brandIds: ["ten_A", "ten_B", "ten_C"] });
+    seedPeople(us, "ten_C", 4);
+
+    const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    expect(s.brands?.map((b) => b.id)).toEqual(["ten_A", "ten_B"]);
+    expect(JSON.stringify(s.brands)).not.toContain("OtherCo");
+    // People can't be totalled without it, so the line says so rather than undercounting.
+    expect(s.allowances?.find((r) => r.key === "people")?.used).toBeNull();
   });
 
   it("shows a one-brand organisation to any viewer", async () => {

@@ -71,8 +71,8 @@ function proOwner(over: Partial<UsageSummary> = {}): UsageSummary {
 describe("Plan and usage", () => {
   it("shows an owner the plan, every brand on it with its region and Suspended, and the totals", () => {
     const text = render(proOwner());
-    expect(text).toContain("Your plan Pro");
-    expect(text).toContain("Northwind Group · Since 3 November 2026");
+    expect(text).toContain("Your plan Northwind Group Pro");
+    expect(text).toContain("Since 3 November 2026");
     expect(text).toContain("Brands on this plan");
     expect(text).toContain("Northwind United States This brand");
     expect(text).toContain("Northwind Labs Europe Suspended");
@@ -100,14 +100,17 @@ describe("Plan and usage", () => {
   });
 
   it("shows someone who isn't an owner only this brand, and says who sees the rest", () => {
+    // Combined brands keep the name of the brand the organisation was made for, here the other
+    // brand's. Usage leaves it out in brand view, and the page never prints it there either.
     const text = render(
       proOwner({
-        organisation: { id: "org_ten_north", name: "Northwind Group", plan: "pro", planSince: "2026-11-03T09:00:00.000Z", owner: false, view: "brand" },
+        organisation: { id: "org_ten_north_labs", name: "Northwind Labs", plan: "pro", planSince: "2026-11-03T09:00:00.000Z", owner: false, view: "brand" },
         brands: null,
         allowances: null,
       }),
     );
     expect(text).toContain(PLAN_AND_USAGE_COPY.brandView);
+    expect(text).toContain("Since 3 November 2026");
     expect(text).not.toContain("Northwind Labs");
     expect(text).not.toContain("Brands on this plan");
     expect(text).not.toContain("Your organisation");

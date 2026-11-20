@@ -132,10 +132,11 @@ describe("docs as Markdown", () => {
     for (const item of HOSTED_ONLY) expect(section, item).toContain(`- ${item}\n`);
     expect(section).toContain("None is released yet.");
     expect(section).toContain("/blob/main/LICENSING.md)");
+    expect(section).toContain("drafts under legal review, not yet in force.");
     expect(section).not.toMatch(/[\u2014\u2013]/);
     expect(dashesIn(section)).toEqual([]);
     expect(aiTellsIn(section)).toEqual([]);
-    expect(md).toContain("/blob/main/docs/cla/individual.md)");
+    expect(md).toContain("/blob/main/docs/cla/individual.md): a draft under legal review, not yet in force.");
     expect(pageMarkdown("", ORIGIN)).toContain(`see [the licences](${ORIGIN}/developers/open-source.md)`);
     expect(llmsTxt(ORIGIN)).toContain("and see what is open and what is Enterprise.");
   });

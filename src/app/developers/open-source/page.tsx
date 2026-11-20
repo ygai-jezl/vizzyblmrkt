@@ -151,7 +151,8 @@ claude "${SETUP_PROMPT}"`}</Code>
       </Note>
       <P>
         Every part of the repository and its licence: {link(file("LICENSING.md"), "LICENSING.md")}. Contributions need a
-        contributor licence agreement: see {link(file("CONTRIBUTING.md"), "Contributing")}.
+        contributor licence agreement: see {link(file("CONTRIBUTING.md"), "Contributing")}. The Enterprise Licence and the
+        contributor licence agreements are drafts under legal review, not yet in force.
       </P>
 
       <H2 id="safety">What the agent asks before doing</H2>
@@ -176,7 +177,7 @@ claude "${SETUP_PROMPT}"`}</Code>
         <li>{link(file("docs/self-host.md"), "Host it on your own Google Cloud")}: the full self-host guide.</li>
         <li>{link(file("docs/agents/cloud.md"), "Cloud coding agents")}: Claude Code on the web, Cursor Cloud Agents and Codespaces.</li>
         <li>{link(file("CONTRIBUTING.md"), "Contributing")}: send your changes back.</li>
-        <li>{link(file("docs/cla/individual.md"), "Contributor licence agreement")}: what you agree to before your first pull request.</li>
+        <li>{link(file("docs/cla/individual.md"), "Contributor licence agreement")}: a draft under legal review, not yet in force.</li>
       </UL>
     </article>
   );

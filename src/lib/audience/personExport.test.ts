@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendEvents, proposeAgentAction } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
+import { productUserPersonId } from "@/lib/ontology/erase";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { agentDedupeKey } from "@/lib/types/agentAction";
 import { T0, TENANT_ID, ctx, seedUser, seedWorld } from "@/lib/lifecycle/testing/fixtures";
 import { exportPerson, exportWholePerson, PERSON_EXPORT_FORMAT, WHOLE_PERSON_EXPORT_FORMAT } from "./personExport";
 import { personIdOf, syncPerson } from "./personSync";
@@ -94,5 +99,128 @@ describe("person moves in an export", () => {
     const doc = (r as { document: Record<string, unknown> }).document;
     expect((doc.moves as Array<Record<string, unknown>>).map((m) => m.id).sort()).toEqual(["mv_from", "mv_to"]);
     expect(JSON.stringify(doc.moves)).not.toContain("ten_other");
+  });
+});
+
+describe("event history and agent actions in an export, with every switch off", () => {
+  const AT = "2026-09-21T08:00:00.000Z";
+  const MEMBER = { type: "member" as const, id: "usr_1" };
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "false");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "false");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** One field change about a person (naming a product user when given); returns its key. */
+  async function change(db: FakeFirestore, personId: string, key: string, productUserId?: string): Promise<string> {
+    const e = fieldChangedEvent({
+      subject: { type: "person", id: personId },
+      personId: personId as ContactPersonId,
+      productUserId: productUserId ?? null,
+      fieldId: "plan",
+      object: "person",
+      before: null,
+      after: "pro",
+      source: "editor",
+      actor: MEMBER,
+      at: AT,
+      nonce: () => key,
+    });
+    await appendEvents(ctx, [e], { db });
+    return e.key;
+  }
+  async function suggestion(db: FakeFirestore, personId: string, key: string): Promise<string> {
+    const { action } = await proposeAgentAction(
+      ctx,
+      {
+        dedupeKey: agentDedupeKey("person_fields.suggest", key),
+        agent: "vizzy",
+        action: "person_fields.suggest",
+        target: { type: "person", id: personId },
+        personId: personId as ContactPersonId,
+        proposal: null,
+        basis: null,
+        signals: [],
+        review: null,
+        requestedBy: MEMBER,
+        expiresAt: "2026-10-21T08:00:00.000Z",
+        at: AT,
+      },
+      { db },
+    );
+    return action.id;
+  }
+  const keys = (rows: unknown) => (rows as Array<Record<string, unknown>>).map((r) => String(r.key ?? r.id)).sort();
+
+  it("a whole person's export has their rows, each once: one already in a product's section is not repeated", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const person = personIdOf(TENANT_ID, "ada@customer.test");
+    const own = await change(db, person, "own");
+    const viaProduct = await change(db, person, "via_product", ada.id);
+    const action = await suggestion(db, person, "s1");
+    await change(db, personIdOf(TENANT_ID, "bo@customer.test"), "someone_else");
+
+    const doc = ((await exportWholePerson(ctx, person, { db, nowMs: T0 })) as { document: Record<string, unknown> }).document;
+    expect(keys(doc.events)).toEqual([`agent|${action}|1`, own].sort());
+    expect(keys(doc.agentActions)).toEqual([action]);
+    const product = (doc.products as Array<Record<string, unknown>>)[0]!;
+    expect(keys(product.events)).toEqual([viaProduct]);
+    expect(doc.complete).toBe(true);
+    expect(JSON.stringify(doc.events)).not.toContain("tenantId");
+  });
+
+  it("after a pu: merge, the whole person's export shows the pu: rows in that product's section", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const anon = seedUser(db, "anon", { email: null, emailNormalized: null });
+    const puPerson = productUserPersonId(TENANT_ID, anon.id);
+    const before = await change(db, puPerson, "before_address");
+    // They give an address: the sync moves them to the address's person, and the pu: record goes.
+    db.seed("product_users", anon.id, { ...db.raw("product_users", anon.id), email: "cal@customer.test", emailNormalized: "cal@customer.test" });
+    await syncPerson(ctx, "cal@customer.test", { db, nowMs: T0 });
+    const doc = ((await exportWholePerson(ctx, personIdOf(TENANT_ID, "cal@customer.test"), { db, nowMs: T0 })) as { document: Record<string, unknown> }).document;
+    const product = (doc.products as Array<Record<string, unknown>>)[0]!;
+    expect(keys(product.events)).toEqual([before]);
+    expect(doc.events).toEqual([]);
+  });
+
+  it("a product user's export has their rows, their pu: person's, and a removed product-only person's", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const bea = seedUser(db, "bea", { email: "bea@customer.test", emailNormalized: "bea@customer.test" });
+    const beaPerson = personIdOf(TENANT_ID, "bea@customer.test");
+    const named = await change(db, beaPerson, "named", bea.id);
+    const pu = await change(db, productUserPersonId(TENANT_ID, bea.id), "pu");
+    const person = await change(db, beaPerson, "person");
+    const action = await suggestion(db, productUserPersonId(TENANT_ID, bea.id), "pu_suggestion");
+
+    // No person record for her address: a sync removed it (her product was revoked), so her person's rows are hers too.
+    const gone = ((await exportPerson(ctx, bea.id, { db, nowMs: T0 })) as { document: Record<string, unknown> }).document;
+    expect(keys(gone.events)).toEqual([named, pu, person, `agent|${action}|1`].sort());
+    expect(keys(gone.agentActions)).toEqual([action]);
+
+    // With the record there, the person's own rows belong to the person's export instead.
+    await syncPerson(ctx, "bea@customer.test", { db, nowMs: T0 });
+    const kept = ((await exportPerson(ctx, bea.id, { db, nowMs: T0 })) as { document: Record<string, unknown> }).document;
+    expect(keys(kept.events)).toEqual([named, pu, `agent|${action}|1`].sort());
+  });
+
+  it("says when a history section reached its limit", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const person = personIdOf(TENANT_ID, "ada@customer.test");
+    await change(db, person, "one", ada.id);
+    await change(db, person, "two");
+    await suggestion(db, person, "s1");
+    const product = ((await exportPerson(ctx, ada.id, { db, nowMs: T0, limits: { events: 1 } })) as { document: Record<string, unknown> }).document;
+    expect(product).toMatchObject({ complete: false, truncated: { events: expect.any(String) } });
+    const whole = ((await exportWholePerson(ctx, person, { db, nowMs: T0, limits: { events: 1, agentActions: 1 } })) as { document: Record<string, unknown> }).document;
+    expect(whole).toMatchObject({ complete: false, truncated: { events: expect.any(String), agentActions: expect.any(String) } });
   });
 });

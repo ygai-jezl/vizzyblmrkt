@@ -4,7 +4,7 @@ import { forTenant, TENANT_FIELD, type WhereClause } from "./repository";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type { DocRefLike, FirestoreLike, QueryLike, TenantContext, TransactionLike } from "./types";
 import { deterministicEventId } from "@/lib/crm/identifiers";
-import { isAgentEventKind, isCanonicalInstant, subjectKey, USER_FIELD_ID } from "@/lib/ontology/events";
+import { isAgentEventKind, isCanonicalInstant, subjectKey, USER_FIELD_ID, type SubjectKey } from "@/lib/ontology/events";
 import { EVENT_LIMITS, EventWriteSchema, type EventId, type EventWrite, type StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction, AgentActionId } from "@/lib/types/agentAction";
 // A cycle by design: agentActions.ts uses this file's helpers, and writeRecordWithEvents commits
@@ -420,4 +420,41 @@ export async function countFieldEvents(ctx: TenantContext, fieldId: string, opts
     ]),
   ]);
   return { total, toBlank };
+}
+
+// --- Erasing -----------------------------------------------------------------------------------
+
+/** What to erase both history stores by. */
+export type HistoryKey = { personId: string } | { productUserId: string } | { recordKey: SubjectKey };
+
+/**
+ * Delete both history stores' rows for a person, a product user, or a company or idea, whatever
+ * any switch says. By personId or productUserId: the events and the agent actions carrying it (an
+ * action's agent.* rows carry its person and product user, so they go too). By recordKey: the
+ * actions targeting it and their agent.* rows, then the events about it. Equality only, so no
+ * composite index. Safe to repeat. Counts only.
+ */
+export async function eraseHistory(ctx: TenantContext, by: HistoryKey, opts: { db?: FirestoreLike } = {}): Promise<{ events: number; agentActions: number }> {
+  const repo = forTenant(ctx, opts.db);
+  if ("personId" in by || "productUserId" in by) {
+    const where: WhereClause[] = "personId" in by ? [["personId", "==", by.personId]] : [["productUserId", "==", by.productUserId]];
+    if (!("personId" in by ? by.personId : by.productUserId)) throw new TenantValidationError("eraseHistory needs an id");
+    const events = await repo.ontologyEvents.deleteWhere(where);
+    const agentActions = await repo.agentActions.deleteWhere(where);
+    return { events, agentActions };
+  }
+  if (!by.recordKey) throw new TenantValidationError("eraseHistory needs an id");
+  // The actions' rows first, then the actions: a retry after a failure still finds the ids.
+  const store = regionalStoreFor(ctx, opts.db);
+  let events = 0;
+  let after: string | null = null;
+  for (;;) {
+    const page = await pageHistory(store, ctx, "agentActions", { where: [["targetKey", "==", by.recordKey]], fields: [], after, limit: 200 });
+    for (const row of page.rows) events += await repo.ontologyEvents.deleteWhere([["agentActionId", "==", row.id]]);
+    if (!page.more) break;
+    after = page.last;
+  }
+  const agentActions = await repo.agentActions.deleteWhere([["targetKey", "==", by.recordKey]]);
+  events += await repo.ontologyEvents.deleteWhere([["subjectKey", "==", by.recordKey]]);
+  return { events, agentActions };
 }

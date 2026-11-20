@@ -145,6 +145,7 @@ export {
   writeRecordWithEvents,
   blankFieldEvents,
   countFieldEvents,
+  eraseHistory,
 } from "./ontologyEvents";
 export type {
   RecordCollection,
@@ -154,6 +155,7 @@ export type {
   BlankOptions,
   BlankResult,
   HistoryStore,
+  HistoryKey,
 } from "./ontologyEvents";
 // Agent actions: one record per suggestion and its agent.* trail. The transaction helpers stay in src/lib/tenant.
 export {

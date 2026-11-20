@@ -624,8 +624,19 @@ One row per thing that happened to a person, company, idea or agent action and h
 - Links: `person` through personId, and the subject when it is a person; `company` through the subject, when it is a company; `idea` through the subject, when it is an idea; `agent_action` through agentActionId
 - Events: `record.created`, `record.field_changed`, `consent.recorded`, `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - Person fields: `personId` (written with the row)
-- Erase: gap. Wired by the erase and export commit of this PR.
-- Export: gap. Wired by the erase and export commit of this PR.
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (by their person id, and the pu: person id of each product user they link, whatever the one view says)
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
+  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person record went with their last product user)
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
+  - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on; each row once, in its product's section when it is there)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export (by the product user, their pu: person, and a removed product-only person)
+  - Gap: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Gap: team member ids stay as ids, with no export by team member
 - Search: none. Personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. A history of changes, not a brand number.
 
@@ -1253,8 +1264,19 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
-- Erase: gap. Wired by the erase and export commit of this PR.
-- Export: gap. Wired by the erase and export commit of this PR.
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (by their person id, and the pu: person id of each product user they link, whatever the one view says)
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
+  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person record went with their last product user)
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
+  - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on; each row once, in its product's section when it is there)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export (by the product user, their pu: person, and a removed product-only person)
+  - Gap: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Gap: team member ids stay as ids, with no export by team member
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
 
@@ -1545,8 +1567,10 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Person plan (`person_plan`):
   - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Event history (`ontology_event`):
-  - Erase: wired by the erase and export commit of this PR
-  - Export: wired by the erase and export commit of this PR
+  - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Export: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Export: team member ids stay as ids, with no export by team member
 - Knowledge (`knowledge`):
   - Erase: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
 - Programme (`workspace`):
@@ -1587,8 +1611,10 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: planned: piece J decides how an import's rows are erased with the person
   - Export: planned: piece J decides how an import's rows are exported with the person
 - Agent action (`agent_action`):
-  - Erase: wired by the erase and export commit of this PR
-  - Export: wired by the erase and export commit of this PR
+  - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Export: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Export: team member ids stay as ids, with no export by team member
 - Support conversation (`support_conversation`):
   - Erase: planned: support erases and exports conversations with the person, after the data processing agreement
   - Export: planned: support erases and exports conversations with the person, after the data processing agreement

@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
-import { forTenant } from "@/lib/tenant";
+import { appendEvents, forTenant, proposeAgentAction } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { enrolmentDocId } from "@/lib/lifecycle/enrol";
 import { ctx as lifecycleCtx, publishOnboarding, seedWorld, T0 } from "@/lib/lifecycle/testing/fixtures";
@@ -16,6 +16,10 @@ import { personIdForAddress, personIdForProductUser } from "@/lib/ontology/perso
 import { repointJobKey } from "@/lib/ontology/moves";
 import { personIdOf } from "@/lib/audience/personSync";
 import { processEmailJobs } from "@/lib/email/delivery";
+import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
+import { productUserPersonId } from "@/lib/ontology/erase";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { agentDedupeKey } from "@/lib/types/agentAction";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
 const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -803,5 +807,82 @@ describe("person moves after a product write (ONTOLOGY_PERSON_IDS_ENABLED)", () 
     await w.patch("u_1", { email: "alex@example.com" });
     expect(moves(w.db)).toHaveLength(0);
     expect(w.db.dump("email_jobs").filter((j) => j.type === "person_repoint")).toHaveLength(0);
+  });
+});
+
+describe("event history and agent actions on DELETE /api/v2/users/{userId}", () => {
+  const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+  const MEMBER = { type: "member" as const, id: "uid_1" };
+  const AT = "2026-09-25T10:00:00.000Z";
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A field change about a person (naming the product user when given) and an open suggestion about them. */
+  async function rowsAbout(db: FakeFirestore, personId: ContactPersonId, key: string, productUserId?: string) {
+    await appendEvents(
+      demo,
+      [fieldChangedEvent({ subject: { type: "person", id: personId }, personId, productUserId: productUserId ?? null, fieldId: "plan", object: "person", before: null, after: "pro", source: "sync", actor: MEMBER, at: AT, nonce: () => key })],
+      { db },
+    );
+    await proposeAgentAction(
+      demo,
+      {
+        dedupeKey: agentDedupeKey("person_fields.suggest", key),
+        agent: "vizzy",
+        action: "person_fields.suggest",
+        target: { type: "person", id: personId },
+        personId,
+        proposal: null,
+        basis: null,
+        signals: [],
+        review: null,
+        requestedBy: MEMBER,
+        expiresAt: "2026-10-25T10:00:00.000Z",
+        at: AT,
+      },
+      { db },
+    );
+  }
+  const held = (db: FakeFirestore, field: "personId" | "productUserId", value: string) =>
+    [...db.dump("ontology_events"), ...db.dump("agent_actions")].filter((r) => r.tenantId === "ten_demo" && r[field] === value).length;
+
+  it("removes rows naming the user and rows under their pu: person, with every switch off", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "false");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "false");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup(demo);
+    await w.patch("u_1", { email: "alex@example.com" });
+    await w.patch("u_2", { email: "sam@example.com" });
+    const id = productUserDocId(w.connection.id, "u_1");
+    const other = productUserDocId(w.connection.id, "u_2");
+    const alex = personIdForAddress("ten_demo", "alex@example.com")!;
+    await rowsAbout(w.db, alex, "named", id);
+    await rowsAbout(w.db, productUserPersonId("ten_demo", id), "pu");
+    await rowsAbout(w.db, productUserPersonId("ten_demo", other), "pu_other");
+    expect((await w.del("u_1")).status).toBe(204);
+    expect(held(w.db, "productUserId", id)).toBe(0);
+    expect(held(w.db, "personId", productUserPersonId("ten_demo", id))).toBe(0);
+    expect(held(w.db, "personId", productUserPersonId("ten_demo", other))).toBe(3);
+  });
+
+  it("after the user gained an address with ONTOLOGY_PERSON_IDS_ENABLED off, removes the pu: rows and the person's whose record went with them", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup(demo);
+    await w.patch("u_1", { firstName: "Alex" });
+    const id = productUserDocId(w.connection.id, "u_1");
+    const puPerson = productUserPersonId("ten_demo", id);
+    expect(w.db.raw("contacts", puPerson)).toBeDefined();
+    await rowsAbout(w.db, puPerson, "before_address");
+    await w.patch("u_1", { email: "alex@example.com" });
+    expect(w.db.raw("contacts", puPerson)).toBeUndefined();
+    const alex = personIdForAddress("ten_demo", "alex@example.com")!;
+    expect(w.db.raw("contacts", alex)).toBeDefined();
+    await rowsAbout(w.db, alex, "after_address");
+
+    expect((await w.del("u_1")).status).toBe(204);
+    expect(w.db.raw("contacts", alex)).toBeUndefined();
+    expect(held(w.db, "personId", puPerson)).toBe(0);
+    expect(held(w.db, "personId", alex)).toBe(0);
   });
 });

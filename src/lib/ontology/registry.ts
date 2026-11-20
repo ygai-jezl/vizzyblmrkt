@@ -1,6 +1,6 @@
 import { AGENT_ACTION_STATES } from "@/lib/types/agentAction";
 import { STORED_EVENT_KINDS } from "./events";
-import type { OntologyType, PathRef, StoreRef } from "./types";
+import type { OntologyType, PathDecision, PathRef, StoreRef } from "./types";
 
 /**
  * The ontology registry: every kind of thing YouGrow knows about, built or planned, with where it
@@ -74,8 +74,30 @@ const PERSON_KEPT_ON_PRODUCT_ROWS =
 const NOT_PERSONAL = "the brand's own work, with no one's personal data";
 const NO_NUMBERS = "no numbers an agent reads";
 const planned = (piece: string) => `planned: ${piece} decides it with the store`;
-/** Until the erase and export commit of 0e wires both history stores. */
-const HISTORY_WIRING = "wired by the erase and export commit of this PR";
+/** The event history and agent actions: erased and exported whatever any switch says. */
+const HISTORY_ERASE: PathDecision = {
+  paths: [
+    { ...CONTACT_ERASE, when: "by their person id, and the pu: person id of each product user they link, whatever the one view says" },
+    { ...CONTACT_ERASE, when: "a company's rows, when the company has no contacts left" },
+    { ...PU_HISTORY, when: "by the product user, and by their pu: person's id" },
+    { fn: "forgetGonePersonHistory", file: "src/lib/ontology/erase.ts", trigger: "product_user", when: "the person record went with their last product user" },
+    { ...LAUNCH_DELETE, when: "an idea's rows, and the agent actions about it" },
+  ],
+  gaps: [
+    "team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does",
+    "rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen",
+  ],
+};
+const HISTORY_EXPORT: PathDecision = {
+  paths: [
+    { ...EXPORT_PERSON, when: `${ONE_VIEW}; each row once, in its product's section when it is there` },
+    { ...EXPORT_PU, when: "by the product user, their pu: person, and a removed product-only person" },
+  ],
+  gaps: [
+    "an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days",
+    "team member ids stay as ids, with no export by team member",
+  ],
+};
 const HISTORY_SEARCH = "personal data, kept out of brand search until the data processing agreement covers it";
 
 const EMAIL_MEANINGS = [
@@ -753,8 +775,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
     ],
     events: [...STORED_EVENT_KINDS],
     personFields: [{ field: "personId", stampedAtWrite: true }],
-    erase: { gap: HISTORY_WIRING },
-    export: { gap: HISTORY_WIRING },
+    erase: HISTORY_ERASE,
+    export: HISTORY_EXPORT,
     search: { none: HISTORY_SEARCH },
     numbers: { none: "a history of changes, not a brand number" },
   },
@@ -1816,8 +1838,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],
     states: [...AGENT_ACTION_STATES],
     personFields: [{ field: "personId", stampedAtWrite: true }],
-    erase: { gap: HISTORY_WIRING },
-    export: { gap: HISTORY_WIRING },
+    erase: HISTORY_ERASE,
+    export: HISTORY_EXPORT,
     search: { none: `found on Review; ${HISTORY_SEARCH}` },
     numbers: { none: NO_NUMBERS },
   },

@@ -5,6 +5,11 @@ import { TenantIsolationError } from "./errors";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import type { AuditObjectSink } from "./auditSink";
 import type { TenantContext, FirestoreLike, CollectionLike } from "./types";
+import { appendEvents } from "./ontologyEvents";
+import { proposeAgentAction, transitionAgentAction } from "./agentActions";
+import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
+import { systemFieldId } from "@/lib/ontology/events";
+import { agentDedupeKey } from "@/lib/types/agentAction";
 
 const ctxAdmin: TenantContext = {
   tenantId: "ten_A",
@@ -318,3 +323,57 @@ function dbThatFailsDeletingFrom(
     },
   };
 }
+
+describe("deleteLaunch and the event history", () => {
+  const demo: TenantContext = { ...ctxAdmin, tenantId: "ten_demo" };
+  const MEMBER = { type: "member" as const, id: "user_1" };
+  const AT = "2026-11-20T10:00:00.000Z";
+
+  async function ideaHistory(db: FakeFirestore, campaignId: string) {
+    const status = (n: string) =>
+      fieldChangedEvent({ subject: { type: "idea", id: campaignId }, personId: null, fieldId: systemFieldId("idea", "status"), object: "idea", before: "draft", after: "live", source: "editor", actor: MEMBER, at: AT, nonce: () => `${campaignId}_${n}` });
+    await appendEvents(demo, [status("1"), status("2")], { db });
+    const { action } = await proposeAgentAction(
+      demo,
+      {
+        dedupeKey: agentDedupeKey("idea.suggest", campaignId),
+        agent: "autopilot",
+        action: "idea.suggest",
+        target: { type: "idea", id: campaignId },
+        personId: null,
+        proposal: null,
+        basis: null,
+        signals: [],
+        review: null,
+        requestedBy: MEMBER,
+        expiresAt: "2026-12-20T10:00:00.000Z",
+        at: AT,
+      },
+      { db },
+    );
+    await transitionAgentAction(demo, action.id, { to: "approved", by: MEMBER, at: "2026-11-21T10:00:00.000Z" }, { db });
+    return action.id;
+  }
+
+  it("removes the idea's events and the actions about it with their rows, counts them, and keeps another launch's", async () => {
+    const db = new FakeFirestore();
+    seedLaunch(db, "ten_demo", "camp1");
+    seedLaunch(db, "ten_demo", "camp2");
+    const mine = await ideaHistory(db, "camp1");
+    const kept = await ideaHistory(db, "camp2");
+    const result = await deleteLaunch(demo, "camp1", {}, db, new FakeAuditSink());
+    expect(result.deleted).toMatchObject({ events: 4, agentActions: 1 });
+    expect(db.raw("agent_actions", mine)).toBeUndefined();
+    expect(db.dump("ontology_events").filter((r) => r.subjectKey === "idea:camp1" || r.agentActionId === mine)).toEqual([]);
+    expect(db.raw("agent_actions", kept)).toBeDefined();
+    expect(db.dump("ontology_events").filter((r) => r.subjectKey === "idea:camp2" || r.agentActionId === kept)).toHaveLength(4);
+  });
+
+  it("records no history counts when there was none", async () => {
+    const db = new FakeFirestore();
+    seedLaunch(db, "ten_demo", "camp1");
+    const result = await deleteLaunch(demo, "camp1", {}, db, new FakeAuditSink());
+    expect(result.deleted.events).toBeUndefined();
+    expect(result.deleted.agentActions).toBeUndefined();
+  });
+});

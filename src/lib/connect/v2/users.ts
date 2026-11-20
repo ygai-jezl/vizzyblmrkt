@@ -38,6 +38,7 @@ import { personAfterProductErase, personAfterProductWrites, previousPersonKey } 
 import { dateFactIds } from "../dateFacts";
 import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
 import { ontologyAfterProductWrites } from "@/lib/ontology/moves";
+import { forgetGonePersonHistory } from "@/lib/ontology/erase";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
@@ -415,6 +416,8 @@ export async function deleteUser(
   await eraseProductUserHistory(ctx, id, deps.db);
   if (user?.status === "active" && user.emailNormalized) await scrubSuppressionEmails(ctx, user.emailNormalized, deps.db);
   await personAfterProductErase(ctx, previousPersonKey(user), { db: deps.db, nowMs });
+  // Their person's event history and agent actions, when the person record went with them.
+  await forgetGonePersonHistory(ctx, previousPersonKey(user), { db: deps.db });
   // The Events tab shows that an erasure arrived — without the user id.
   const messageId = `v2:erase:${randomUUID()}`;
   const now = new Date(nowMs).toISOString();

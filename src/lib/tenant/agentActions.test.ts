@@ -15,7 +15,7 @@ import {
   transitionAgentAction,
   type AgentProposal,
 } from "./agentActions";
-import { regionalStoreFor, writeRecordWithEvents } from "./ontologyEvents";
+import { regionalStoreFor, repointHistoryPage, writeRecordWithEvents } from "./ontologyEvents";
 import { deterministicAgentActionId, deterministicContactId, deterministicEventId } from "@/lib/crm/identifiers";
 import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
 import type { ContactPersonId } from "@/lib/ontology/person";
@@ -353,5 +353,29 @@ describe("blankFieldInAgentActions", () => {
     expect(await blankFieldInAgentActions(ctx, "plan", { db, nowIso: LATER })).toMatchObject({ scanned: 0, blanked: 0 });
     expect(fake.raw("agent_actions", otherBrand.action.id)).toMatchObject({ proposal: { fields: { plan: "pro" } }, fieldIds: ["plan"] });
     await expect(blankFieldInAgentActions(ctx, "sys.stage.x", { db, nowIso: LATER })).rejects.toThrow(TenantValidationError);
+  });
+});
+
+describe("repointHistoryPage on agent actions", () => {
+  it("moves a person's actions and their rows to the target, with a person target, and nobody else's", async () => {
+    const OLD = deterministicContactId("ten_demo", "pu:pu_1") as ContactPersonId;
+    const NEW = deterministicContactId("ten_demo", "ada@new.example.com") as ContactPersonId;
+    const { fake, db } = world();
+    const personal = (await proposeAgentAction(ctx, proposal({ dedupeKey: agentDedupeKey("person_fields.suggest", "old"), target: { type: "person", id: OLD }, personId: OLD }), { db })).action.id;
+    const about = await proposeAgentAction(
+      ctx,
+      proposal({ dedupeKey: agentDedupeKey("company_fields.suggest", "co_1"), action: "company_fields.suggest", target: { type: "company", id: "co_1" }, personId: OLD, productUserId: "pu_1" }),
+      { db },
+    );
+    const someoneElse = (await proposeAgentAction(ctx, proposal({ dedupeKey: agentDedupeKey("person_fields.suggest", "ada") }), { db })).action.id;
+
+    expect(await repointHistoryPage(ctx, { store: "agentActions", by: { personId: OLD }, target: NEW }, { db })).toMatchObject({ scanned: 2, moved: 2 });
+    expect(await repointHistoryPage(ctx, { store: "ontologyEvents", by: { personId: OLD }, target: NEW }, { db })).toMatchObject({ moved: 2 });
+    expect(fake.raw("agent_actions", personal)).toMatchObject({ personId: NEW, target: { type: "person", id: NEW }, targetKey: `person:${NEW}` });
+    expect(fake.raw("agent_actions", about.action.id)).toMatchObject({ personId: NEW, target: { type: "company", id: "co_1" }, targetKey: "company:co_1" });
+    expect(fake.raw("agent_actions", someoneElse)).toMatchObject({ personId: ADA });
+    expect(trail(fake, personal)[0]).toMatchObject({ personId: NEW, subject: { type: "agent_action", id: personal } });
+    // The moved action still reads, and still moves on.
+    expect(await transitionAgentAction(ctx, personal, { to: "approved", by: MEMBER, at: LATER }, { db })).toMatchObject({ ok: true, action: { personId: NEW } });
   });
 });

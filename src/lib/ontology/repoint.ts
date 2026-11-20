@@ -1,8 +1,8 @@
-import { forTenant } from "@/lib/tenant";
+import { forTenant, repointHistoryPage, type HistoryStore } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { isOntologyPersonIdsEnabled } from "./flags";
-import type { ContactPersonId } from "./person";
+import { isContactPersonId, type ContactPersonId } from "./person";
 import { personIdForProductUser } from "./personRef";
 
 /**
@@ -16,6 +16,11 @@ import { personIdForProductUser } from "./personRef";
  * while the person is still the same. When it is done it marks the user's pending moves done and
  * answers "drop", so the job is deleted and no id outlives the work. Switch off: "drop", writing
  * nothing.
+ *
+ * After the five stores it walks the event history and agent actions (by the repository keys in
+ * HISTORY_STORES, never a collection name): first their rows naming the product user, then, for
+ * each pending move of theirs that was a merge (a pu: person never comes back once the user has
+ * an address) or whose from-person's record is gone, every row filed under that person.
  */
 
 /** The stores a product user's person is written on, in the order the job walks them. */
@@ -28,12 +33,22 @@ export const REPOINT_STORES = [
 ] as const;
 type StoreName = (typeof REPOINT_STORES)[number]["store"];
 
+/** The history stores, by their repository keys, walked after the five. */
+export const HISTORY_STORES = ["ontologyEvents", "agentActions"] as const satisfies readonly HistoryStore[];
+
+/** One store's walk: by the product user, or a history store by the person rows were filed under. */
+type Step =
+  | { kind: "rows"; store: StoreName; field: (typeof REPOINT_STORES)[number]["field"] }
+  | { kind: "history"; store: HistoryStore; from: ContactPersonId | null };
+
 export interface RepointCursor {
-  store: StoreName;
+  store: StoreName | HistoryStore;
   /** The last document id done in that store, or null to start it. */
   after: string | null;
   /** The person the cursor was saved for: a cursor for anyone else is thrown away. */
   target: ContactPersonId;
+  /** For a history store walked by a person: the person the rows were filed under. */
+  from?: ContactPersonId;
 }
 
 export interface RepointDeps {
@@ -48,10 +63,17 @@ const DEFAULT_PAGE = 300;
 function cursorOf(payload: Record<string, unknown>): RepointCursor | null {
   const c = payload.cursor as Partial<RepointCursor> | undefined;
   if (!c || typeof c !== "object") return null;
-  if (!REPOINT_STORES.some((s) => s.store === c.store)) return null;
+  if (!REPOINT_STORES.some((s) => s.store === c.store) && !(HISTORY_STORES as readonly string[]).includes(c.store as string)) return null;
   if (typeof c.target !== "string") return null;
-  return { store: c.store as StoreName, after: typeof c.after === "string" ? c.after : null, target: c.target as ContactPersonId };
+  return {
+    store: c.store as StoreName | HistoryStore,
+    after: typeof c.after === "string" ? c.after : null,
+    target: c.target as ContactPersonId,
+    ...(isContactPersonId(c.from) ? { from: c.from } : {}),
+  };
 }
+
+const sameStep = (step: Step, c: RepointCursor) => step.store === c.store && (step.kind === "rows" ? !c.from : (step.from ?? undefined) === c.from);
 
 export async function processPersonRepointJob(
   ctx: TenantContext,
@@ -79,21 +101,52 @@ export async function processPersonRepointJob(
   let target = personIdForProductUser(ctx.tenantId, user0, connection);
   if (!target) return "drop";
 
+  /**
+   * The walk for a target: the five stores, the history stores by the product user, then the
+   * history stores by each person their pending moves left behind for good: a merge's pu: person,
+   * or a from-person whose record is gone. Sorted, so a saved cursor finds its place again.
+   */
+  const stepsFor = async (to: ContactPersonId): Promise<Step[]> => {
+    const steps: Step[] = [
+      ...REPOINT_STORES.map((s): Step => ({ kind: "rows", store: s.store, field: s.field })),
+      ...HISTORY_STORES.map((store): Step => ({ kind: "history", store, from: null })),
+    ];
+    const pending = await repo.personMoves.find({
+      where: [
+        ["productUserId", "==", productUserId],
+        ["repoint", "==", "pending"],
+      ],
+      limit: 100,
+    });
+    const froms = new Set<ContactPersonId>();
+    for (const m of pending) {
+      if (!isContactPersonId(m.fromPersonId) || m.fromPersonId === to || froms.has(m.fromPersonId)) continue;
+      if (m.kind === "record.merged" || !(await repo.contacts.getById(m.fromPersonId))) froms.add(m.fromPersonId);
+    }
+    for (const from of [...froms].sort()) for (const store of HISTORY_STORES) steps.push({ kind: "history", store, from });
+    return steps;
+  };
+
+  let steps = await stepsFor(target);
   const saved = cursorOf(job.payload);
   let index = 0;
   let after: string | null = null;
   if (saved && saved.target === target) {
-    index = REPOINT_STORES.findIndex((s) => s.store === saved.store);
-    after = saved.after;
+    const at = steps.findIndex((step) => sameStep(step, saved));
+    if (at >= 0) {
+      index = at;
+      after = saved.after;
+    }
   }
 
   for (;;) {
-    if (index >= REPOINT_STORES.length) {
+    if (index >= steps.length) {
       // The end: if they moved again meanwhile, start over for the new person.
       const fresh = await currentTarget();
       if (!fresh) return "drop";
       if (fresh !== target) {
         target = fresh;
+        steps = await stepsFor(target);
         index = 0;
         after = null;
         continue;
@@ -115,7 +168,8 @@ export async function processPersonRepointJob(
       return "drop";
     }
     if (now() - started >= sliceMs) {
-      const cursor: RepointCursor = { store: REPOINT_STORES[index]!.store, after, target };
+      const step = steps[index]!;
+      const cursor: RepointCursor = { store: step.store, after, target, ...(step.kind === "history" && step.from ? { from: step.from } : {}) };
       await repo.emailJobs.update(job.id, { payload: { ...job.payload, cursor } });
       return "again";
     }
@@ -124,17 +178,25 @@ export async function processPersonRepointJob(
     if (!fresh) return "drop";
     if (fresh !== target) {
       target = fresh;
+      steps = await stepsFor(target);
       index = 0;
       after = null;
       continue;
     }
-    const { store, field } = REPOINT_STORES[index]!;
+    const step = steps[index]!;
     const to = target;
-    const page = await (repo[store] as unknown as RepointCollection).updateWhere(
-      [[field, "==", productUserId]],
-      (row) => (row.personId === to ? null : { personId: to }),
-      { startAfter: after, limit: pageSize },
-    );
+    const page =
+      step.kind === "rows"
+        ? await (repo[step.store] as unknown as RepointCollection).updateWhere(
+            [[step.field, "==", productUserId]],
+            (row) => (row.personId === to ? null : { personId: to }),
+            { startAfter: after, limit: pageSize },
+          )
+        : await repointHistoryPage(
+            ctx,
+            { store: step.store, by: step.from ? { personId: step.from } : { productUserId }, target: to },
+            { after, limit: pageSize, db },
+          );
     if (page.more) after = page.last;
     else {
       index += 1;

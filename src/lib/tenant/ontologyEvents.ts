@@ -7,6 +7,7 @@ import { deterministicEventId } from "@/lib/crm/identifiers";
 import { isAgentEventKind, isCanonicalInstant, subjectKey, USER_FIELD_ID, type SubjectKey } from "@/lib/ontology/events";
 import { EVENT_LIMITS, EventWriteSchema, type EventId, type EventWrite, type StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction, AgentActionId } from "@/lib/types/agentAction";
+import type { ContactPersonId } from "@/lib/ontology/person";
 // A cycle by design: agentActions.ts uses this file's helpers, and writeRecordWithEvents commits
 // an action's decision with the record. Neither file touches the other's exports at load time.
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransition, type AgentTransitionOk } from "./agentActions";
@@ -457,4 +458,91 @@ export async function eraseHistory(ctx: TenantContext, by: HistoryKey, opts: { d
   const agentActions = await repo.agentActions.deleteWhere([["targetKey", "==", by.recordKey]]);
   events += await repo.ontologyEvents.deleteWhere([["subjectKey", "==", by.recordKey]]);
   return { events, agentActions };
+}
+
+// --- Repointing --------------------------------------------------------------------------------
+
+export interface RepointResult {
+  scanned: number;
+  moved: number;
+  /** Rows already on the target. */
+  unchanged: number;
+  /** Rows deleted between the page read and its transaction. */
+  gone: number;
+  /** The page's last id: the next page's `after`. */
+  last: string | null;
+  more: boolean;
+}
+
+/**
+ * Move one page of a history store's rows to the person a product user belongs to now (change (a)
+ * of the three a stored event allows), for 0c's repoint job. Rows by productUserId, or by the
+ * person they were filed under (a pu: person merged into an address, or a person record that is
+ * gone). Sets personId to the target only where it differs; a row whose subject (or, for an
+ * action, its target) is the old person moves with it, keeping its subject key in step. Pages in
+ * document id order with equality only, then one transaction per page re-reads each row. A dry run
+ * counts and writes nothing.
+ */
+export async function repointHistoryPage(
+  ctx: TenantContext,
+  a: { store: HistoryStore; by: { productUserId: string } | { personId: ContactPersonId }; target: ContactPersonId },
+  opts: { after?: string | null; limit?: number; dryRun?: boolean; db?: FirestoreLike } = {},
+): Promise<RepointResult> {
+  if (!Object.prototype.hasOwnProperty.call(HISTORY_COLLECTIONS, a.store)) throw new TenantValidationError("repointHistoryPage takes ontologyEvents or agentActions");
+  const field = "productUserId" in a.by ? "productUserId" : "personId";
+  const value = "productUserId" in a.by ? a.by.productUserId : a.by.personId;
+  if (!value || !a.target) throw new TenantValidationError("repointHistoryPage needs an id and a target");
+  const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 300)), 400);
+  const store = regionalStoreFor(ctx, opts.db);
+  const page = await pageHistory(store, ctx, a.store, { where: [[field, "==", value]], after: opts.after ?? null, limit });
+  const out: RepointResult = { scanned: page.rows.length, moved: 0, unchanged: 0, gone: 0, last: page.last, more: page.more };
+  const target = a.target;
+  /** The fields that move this row, or null when it is already on the target. */
+  const patchFor = (row: Record<string, unknown>): Record<string, unknown> | null => {
+    const old = row.personId;
+    if (old === target) return null;
+    const patch: Record<string, unknown> = { personId: target };
+    const about = (a.store === "ontologyEvents" ? row.subject : row.target) as { type?: unknown; id?: unknown } | null | undefined;
+    if (about && about.type === "person" && about.id === old) {
+      if (a.store === "ontologyEvents") {
+        patch.subject = { type: "person", id: target };
+        patch.subjectKey = `person:${target}`;
+      } else {
+        patch.target = { type: "person", id: target };
+        patch.targetKey = `person:${target}`;
+      }
+    }
+    return patch;
+  };
+  if (opts.dryRun) {
+    for (const r of page.rows) {
+      if (patchFor(r.data)) out.moved += 1;
+      else out.unchanged += 1;
+    }
+    return out;
+  }
+  if (page.rows.length === 0) return out;
+  const counts = await store.runTransaction(async (txn) => {
+    const c = { moved: 0, unchanged: 0, gone: 0 };
+    const refs = page.rows.map((r) => store.collection(HISTORY_COLLECTIONS[a.store]).doc(r.id));
+    const snaps = await Promise.all(refs.map((ref) => txn.get(ref)));
+    const writes: Array<[DocRefLike, Record<string, unknown>]> = [];
+    snaps.forEach((snap, i) => {
+      if (!snap.exists) {
+        c.gone += 1;
+        return;
+      }
+      const data = snap.data() ?? {};
+      if (data[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${HISTORY_COLLECTIONS[a.store]}/${refs[i]!.id} belongs to another tenant`);
+      const patch = data[field] === value ? patchFor(data) : null;
+      if (patch) writes.push([refs[i]!, patch]);
+      else c.unchanged += 1;
+    });
+    for (const [ref, patch] of writes) {
+      txn.update(ref, patch);
+      c.moved += 1;
+    }
+    return c;
+  });
+  return { ...out, ...counts };
 }

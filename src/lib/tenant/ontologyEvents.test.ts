@@ -8,6 +8,7 @@ import {
   blankFieldEvents,
   countFieldEvents,
   prepareEventsTx,
+  repointHistoryPage,
   stageEvent,
   writeRecordWithEvents,
   type PreparedEvent,
@@ -298,5 +299,54 @@ describe("blankFieldEvents and countFieldEvents", () => {
       await expect(blankFieldEvents(ctx, bad, { db, nowIso: NOW }), bad).rejects.toThrow(TenantValidationError);
       await expect(countFieldEvents(ctx, bad, { db }), bad).rejects.toThrow(TenantValidationError);
     }
+  });
+});
+
+describe("repointHistoryPage on the event history", () => {
+  const OLD = deterministicContactId("ten_demo", "pu:pu_1") as ContactPersonId;
+  const NEW = deterministicContactId("ten_demo", "ada@new.example.com") as ContactPersonId;
+
+  async function seeded() {
+    const w = world();
+    const aboutOld = change(OLD, "plan", { productUserId: "pu_1" });
+    const aboutOldAgain = change(OLD, "tier", { productUserId: "pu_1" });
+    const filedUnderOld = change(OLD, "note");
+    const otherUser = change(BO, "plan", { productUserId: "pu_2" });
+    const company = change(OLD, "size", { subject: { type: "company", id: "co_1" }, personId: null, object: "company", productUserId: "pu_1" });
+    await appendEvents(ctx, [aboutOld, aboutOldAgain, filedUnderOld, otherUser, company], { db: w.db, nowIso: NOW });
+    await appendEvents(other, [change(deterministicContactId("ten_other", "pu:pu_1") as ContactPersonId, "plan", { productUserId: "pu_1" })], { db: w.db, nowIso: NOW });
+    const row = (e: EventWrite) => w.fake.raw("ontology_events", deterministicEventId("ten_demo", e.key))!;
+    return { ...w, row, aboutOld, aboutOldAgain, filedUnderOld, otherUser, company };
+  }
+
+  it("moves a product user's rows to the target, with a person subject, and leaves everyone else's", async () => {
+    const { fake, db, row, aboutOld, aboutOldAgain, filedUnderOld, otherUser, company } = await seeded();
+    const out = await repointHistoryPage(ctx, { store: "ontologyEvents", by: { productUserId: "pu_1" }, target: NEW }, { db });
+    expect(out).toMatchObject({ scanned: 3, moved: 3, unchanged: 0, gone: 0, more: false });
+    for (const e of [aboutOld, aboutOldAgain]) expect(row(e)).toMatchObject({ personId: NEW, subject: { type: "person", id: NEW }, subjectKey: `person:${NEW}` });
+    // A company's row about the product user follows on personId only: its subject is the company.
+    expect(row(company)).toMatchObject({ personId: NEW, subject: { type: "company", id: "co_1" }, subjectKey: "company:co_1" });
+    expect(row(filedUnderOld)).toMatchObject({ personId: OLD });
+    expect(row(otherUser)).toMatchObject({ personId: BO });
+    expect(fake.dump("ontology_events").filter((r) => r.tenantId === "ten_other")[0]).toMatchObject({ personId: deterministicContactId("ten_other", "pu:pu_1") });
+    expect(await repointHistoryPage(ctx, { store: "ontologyEvents", by: { productUserId: "pu_1" }, target: NEW }, { db })).toMatchObject({ moved: 0, unchanged: 3 });
+  });
+
+  it("moves every row filed under a person, a page at a time", async () => {
+    const { db, row, aboutOld, aboutOldAgain, filedUnderOld } = await seeded();
+    const first = await repointHistoryPage(ctx, { store: "ontologyEvents", by: { personId: OLD }, target: NEW }, { db, limit: 2 });
+    expect(first).toMatchObject({ scanned: 2, moved: 2, more: true });
+    const second = await repointHistoryPage(ctx, { store: "ontologyEvents", by: { personId: OLD }, target: NEW }, { db, limit: 2, after: first.last });
+    expect(second).toMatchObject({ moved: 1, more: false });
+    for (const e of [aboutOld, aboutOldAgain, filedUnderOld]) expect(row(e).personId).toBe(NEW);
+  });
+
+  it("writes nothing in a dry run", async () => {
+    const { fake, db, aboutOld } = await seeded();
+    const id = deterministicEventId("ten_demo", aboutOld.key);
+    const before = fake.writeCountFor("ontology_events", id);
+    expect(await repointHistoryPage(ctx, { store: "ontologyEvents", by: { productUserId: "pu_1" }, target: NEW }, { db, dryRun: true })).toMatchObject({ scanned: 3, moved: 3 });
+    expect(fake.writeCountFor("ontology_events", id)).toBe(before);
+    await expect(repointHistoryPage(ctx, { store: "contacts" as never, by: { productUserId: "pu_1" }, target: NEW }, { db })).rejects.toThrow(TenantValidationError);
   });
 });

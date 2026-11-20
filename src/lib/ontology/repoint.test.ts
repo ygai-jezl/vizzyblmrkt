@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forTenant } from "@/lib/tenant";
+import { appendEvents, forTenant, proposeAgentAction } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { personIdOf } from "@/lib/audience/personSync";
 import { personIdForAddress } from "./personRef";
-import { processPersonRepointJob, REPOINT_STORES } from "./repoint";
+import { HISTORY_STORES, processPersonRepointJob, REPOINT_STORES } from "./repoint";
+import { fieldChangedEvent } from "./eventBuilders";
+import type { ContactPersonId } from "./person";
+import { agentDedupeKey } from "@/lib/types/agentAction";
 
 const ctx: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
 const T = Date.parse("2026-11-20T10:00:00Z");
@@ -148,5 +151,95 @@ describe("processPersonRepointJob", () => {
     expect(await processPersonRepointJob({ ...ctx, tenantId: "ten_other" }, await w.job(), w.db, { now: () => T })).toBe("drop");
     expect(w.db.raw("product_events", "product_events_theirs")?.personId).toBe(OLD);
     expect(w.people("product_events")).toEqual([OLD, OLD, OLD]);
+  });
+});
+
+describe("processPersonRepointJob and the history stores", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const MEMBER = { type: "member" as const, id: "uid_1" };
+  const AT = "2026-11-20T09:00:00.000Z";
+  const FORMER = personIdForAddress("ten_demo", "ada@old.example.com")!;
+
+  /** A field change filed under a person (naming pu_1 when asked) and an open suggestion about them. */
+  async function history(db: ReturnType<typeof world>["db"], c: TenantContext, personKey: string, key: string, productUserId?: string) {
+    const person = personKey as ContactPersonId;
+    await appendEvents(
+      c,
+      [fieldChangedEvent({ subject: { type: "person", id: person }, personId: person, productUserId: productUserId ?? null, fieldId: "plan", object: "person", before: null, after: "pro", source: "sync", actor: MEMBER, at: AT, nonce: () => key })],
+      { db },
+    );
+    await proposeAgentAction(
+      c,
+      {
+        dedupeKey: agentDedupeKey("person_fields.suggest", key),
+        agent: "vizzy",
+        action: "person_fields.suggest",
+        target: { type: "person", id: person },
+        personId: person,
+        proposal: null,
+        basis: null,
+        signals: [],
+        review: null,
+        requestedBy: MEMBER,
+        expiresAt: "2026-12-20T09:00:00.000Z",
+        at: AT,
+      },
+      { db },
+    );
+  }
+  const filed = (db: ReturnType<typeof world>["db"], tenantId: string, person: string) =>
+    [...db.dump("ontology_events"), ...db.dump("agent_actions")].filter((r) => r.tenantId === tenantId && r.personId === person).length;
+
+  it("walks the history stores by their repository keys after the five", () => {
+    expect([...HISTORY_STORES]).toEqual(["ontologyEvents", "agentActions"]);
+  });
+
+  it("moves the product user's rows, and everything filed under the pu: person they merged from", async () => {
+    const w = world();
+    await history(w.db, ctx, OLD, "named", "pu_1");
+    await history(w.db, ctx, OLD, "filed");
+    await history(w.db, { ...ctx, tenantId: "ten_other" }, OLD, "theirs");
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T, pageSize: 2 })).toBe("drop");
+    expect(filed(w.db, "ten_demo", OLD)).toBe(0);
+    expect(filed(w.db, "ten_demo", ADA)).toBe(6);
+    expect(w.db.dump("agent_actions").filter((a) => a.tenantId === "ten_demo").every((a) => a.targetKey === `person:${ADA}`)).toBe(true);
+    expect(filed(w.db, "ten_other", OLD)).toBe(3);
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("after an address change, moves what was filed under the former person only when their record is gone", async () => {
+    const kept = world();
+    kept.db.seed("person_moves", "mv_1", { ...kept.db.raw("person_moves", "mv_1")!, kind: "record.repointed", fromPersonId: FORMER });
+    kept.db.seed("contacts", FORMER, { tenantId: "ten_demo", email: "ada@old.example.com" });
+    await history(kept.db, ctx, FORMER, "former", undefined);
+    await history(kept.db, ctx, FORMER, "named_former", "pu_1");
+    expect(await processPersonRepointJob(ctx, await kept.job(), kept.db, { now: () => T })).toBe("drop");
+    // Their own rows from the product move; the former person's own stay with them.
+    expect(filed(kept.db, "ten_demo", FORMER)).toBe(5);
+    expect(filed(kept.db, "ten_demo", ADA)).toBe(1);
+
+    const gone = world();
+    gone.db.seed("person_moves", "mv_1", { ...gone.db.raw("person_moves", "mv_1")!, kind: "record.repointed", fromPersonId: FORMER });
+    await history(gone.db, ctx, FORMER, "former", undefined);
+    expect(await processPersonRepointJob(ctx, await gone.job(), gone.db, { now: () => T })).toBe("drop");
+    expect(filed(gone.db, "ten_demo", FORMER)).toBe(0);
+    expect(filed(gone.db, "ten_demo", ADA)).toBe(3);
+  });
+
+  it("resumes a saved cursor inside a history store", async () => {
+    const w = world({ rowsEach: 1 });
+    await history(w.db, ctx, OLD, "a", "pu_1");
+    await history(w.db, ctx, OLD, "b", "pu_1");
+    await forTenant(ctx, w.db).emailJobs.update("pr_1", { payload: { productUserId: "pu_1", cursor: { store: "agentActions", after: null, target: ADA, from: OLD } } });
+    const eventsBefore = w.db.collectionCalls("product_events");
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    // It started at the agent actions filed under the pu: person, so the five stores were not walked again.
+    expect(w.db.collectionCalls("product_events")).toBe(eventsBefore);
+    expect(w.db.dump("agent_actions").filter((a) => a.tenantId === "ten_demo").every((a) => a.personId === ADA)).toBe(true);
   });
 });

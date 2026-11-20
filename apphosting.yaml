@@ -351,6 +351,11 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The person on every event, send, enrolment and plan, found when it is written. Needs AUDIENCE_PERSON_LINKS_ENABLED.
+  - variable: ONTOLOGY_PERSON_IDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

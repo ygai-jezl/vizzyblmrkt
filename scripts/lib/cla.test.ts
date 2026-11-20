@@ -105,6 +105,39 @@ describe("checkCla: who is covered", () => {
     expect(md).toContain("`docs/cla/signatures/new-person.json`");
     expect(md).toContain('{ "login": "new-person", "cla": "individual-v1", "signedAt": "YYYY-MM-DD" }');
     expect(md).toContain("docs/cla/individual.md");
+    expect(md).toContain("renamed your GitHub account");
+    expect(md).not.toContain("### How others sign");
+  });
+
+  it("tells an unsigned commit author who isn't the pull request's author to sign in a pull request of their own", async () => {
+    const trusted = { dev: base({ "docs/cla/signatures/alice.json": sig("alice") }) };
+    const commits = [commit("alice", "alice@example.test"), commit("bob", "bob@example.test")];
+    const r = await run(pull("alice"), commits, [someFile], trusted);
+    expect(r.ok).toBe(false);
+    expect(r.uncovered).toEqual(["bob"]);
+    const md = summaryMarkdown(r);
+    expect(md).toContain("`bob`");
+    expect(md).not.toContain("In this pull request, add the file");
+    expect(md).toContain("### How others sign");
+    expect(md).toContain("a pull request of their own");
+    expect(md).toContain("`docs/cla/signatures/bob.json`");
+    expect(md).toContain("renamed your GitHub account");
+
+    // Why: this pull request may not add bob's file.
+    const withBobsFile = await run(pull("alice"), commits, [someFile, { filename: "docs/cla/signatures/bob.json", status: "added" }], trusted, {
+      "docs/cla/signatures/bob.json": sig("bob"),
+    });
+    expect(withBobsFile.ok).toBe(false);
+    expect(withBobsFile.register).toEqual(["docs/cla/signatures/bob.json"]);
+  });
+
+  it("gives both sets of steps when the author and someone else are not covered", async () => {
+    const r = await run(pull("new-person"), [commit("new-person", "new@example.com"), commit("bob", "bob@example.test")], [someFile]);
+    expect(r.uncovered).toEqual(["new-person", "bob"]);
+    const md = summaryMarkdown(r);
+    expect(md).toContain("In this pull request, add the file `docs/cla/signatures/new-person.json`");
+    expect(md).toContain("### How others sign");
+    expect(md).toContain("`docs/cla/signatures/bob.json`");
   });
 
   it("passes a login with a trusted signature file", async () => {
@@ -188,6 +221,9 @@ describe("checkCla: co-authors", () => {
     expect(md).toContain(c.sha!.slice(0, 7));
     expect(md).not.toContain("Pat Example");
     expect(md).not.toContain("pat@example.test");
+    // The author is covered, so the steps are for the co-author, in a pull request of their own.
+    expect(md).not.toContain("In this pull request, add the file");
+    expect(md).toContain("### How others sign");
   });
 
   it("passes that address when it is the commit's own author address, or a covered commit author's", async () => {
@@ -208,6 +244,14 @@ describe("checkCla: co-authors", () => {
     const r = await run(pull(OWNER), [commit(OWNER, "owner@example.com", "x\n\nCo-authored-by: someone")], [someFile]);
     expect(r.ok).toBe(false);
     expect(r.coAuthors).toHaveLength(1);
+  });
+
+  it("fails a co-author line with more than one address, even when the last is an AI tool's", async () => {
+    for (const line of ["Co-authored-by: Pat <pat@example.test>, Claude <noreply@anthropic.com>", "Co-authored-by: Pat Example <pat@example.test> <noreply@anthropic.com>"]) {
+      const r = await run(pull(OWNER), [commit(OWNER, "owner@example.com", `x\n\n${line}`)], [someFile]);
+      expect(r.ok, line).toBe(false);
+      expect(r.coAuthors, line).toHaveLength(1);
+    }
   });
 });
 
@@ -389,6 +433,8 @@ describe("parsing", () => {
   it("finds each Co-authored-by address, in lower case", () => {
     expect(coAuthors("feat: x\n\nbody\n\nCo-authored-by: A <A@Example.com>\nco-authored-by: B <b@example.com>\nCo-Authored-By: no address")).toEqual(["a@example.com", "b@example.com", ""]);
     expect(coAuthors(undefined)).toEqual([]);
+    expect(coAuthors("x\n\nCo-authored-by: Pat <pat@example.test>, Claude <noreply@anthropic.com>")).toEqual([""]);
+    expect(coAuthors("x\n\nCo-authored-by: Pat <<pat@example.test>")).toEqual([""]);
   });
 
   it("reads the login in a GitHub noreply address", () => {

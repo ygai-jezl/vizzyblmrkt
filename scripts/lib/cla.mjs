@@ -221,7 +221,8 @@ export function parseSignature(text, login) {
 
 /**
  * The address on each Co-authored-by line of a commit message, in lower case, each once.
- * A line with no address in angle brackets gives "", which no rule covers.
+ * A line with no address in angle brackets, or more than one, gives "", which no rule
+ * covers: "Pat <pat@...>, Claude <noreply@...>" must not pass as the AI tool's line.
  * @param {string | undefined | null} message
  * @returns {string[]}
  */
@@ -230,7 +231,9 @@ export function coAuthors(message) {
   for (const line of String(message ?? "").split(/\r?\n/)) {
     const trailer = line.match(/^\s*co-authored-by\s*:(.*)$/i);
     if (!trailer) continue;
-    const email = trailer[1].match(/<([^<>\s]+)>\s*$/);
+    const value = trailer[1];
+    const oneAddress = value.split("<").length === 2 && value.split(">").length === 2;
+    const email = oneAddress ? value.match(/<([^<>\s]+)>\s*$/) : null;
     out.add(email ? email[1].toLowerCase() : "");
   }
   return [...out];
@@ -654,21 +657,49 @@ export function summaryMarkdown(result) {
       "",
     );
   }
-  const needsSigning = result.uncovered.length > 0 || result.coAuthors.length > 0;
-  if (result.errors.length === 0 && needsSigning) {
-    const login = result.uncovered.some((l) => l.toLowerCase() === result.author.toLowerCase()) && isLogin(result.author) ? result.author : "<your login>";
+  // A pull request may add only its author's own signature file, so only the author signs here.
+  // Anyone else not covered (another commit's author, or a co-author) signs in their own.
+  const authorLower = result.author.toLowerCase();
+  const authorUncovered = result.uncovered.some((l) => l.toLowerCase() === authorLower);
+  const others = result.uncovered.filter((l) => l.toLowerCase() !== authorLower);
+  const othersUncovered = others.length > 0 || result.coAuthors.length > 0;
+  if (result.errors.length === 0 && (authorUncovered || othersUncovered)) {
+    if (authorUncovered) {
+      const login = isLogin(result.author) ? result.author : "<your login>";
+      lines.push(
+        "### How to sign",
+        "",
+        "1. Read the terms in docs/cla/individual.md.",
+        `2. In this pull request, add the file ${code(signaturePath(login))} (your GitHub login in lowercase) holding exactly:`,
+        "",
+        "   ```json",
+        `   { "login": "${login}", "cla": "${result.individualCla}", "signedAt": "YYYY-MM-DD" }`,
+        "   ```",
+        "",
+        "3. Push. The check runs again.",
+        "",
+      );
+    }
+    if (othersUncovered) {
+      const files = others.filter(isLogin).map((l) => code(signaturePath(l)));
+      lines.push(
+        "### How others sign",
+        "",
+        "Anyone named above who is not this pull request's author signs in a pull request of their own. This one may only add its author's own signature file.",
+        "",
+        "1. They read the terms in docs/cla/individual.md.",
+        `2. They open a pull request that adds only the file ${code(signaturePath("<their login>"))} (their GitHub login in lowercase) holding exactly:`,
+        "",
+        "   ```json",
+        `   { "login": "<their login>", "cla": "${result.individualCla}", "signedAt": "YYYY-MM-DD" }`,
+        "   ```",
+        "",
+        "3. Once that is merged, this check passes when it runs again: push to this pull request, or ask a maintainer to run it.",
+        "",
+      );
+      if (files.length) lines.push(`Their files: ${files.join(", ")}.`, "");
+    }
     lines.push(
-      "### How to sign",
-      "",
-      "1. Read the terms in docs/cla/individual.md.",
-      `2. In this pull request, add the file ${code(signaturePath(login))} (your GitHub login in lowercase) holding exactly:`,
-      "",
-      "   ```json",
-      `   { "login": "${login}", "cla": "${result.individualCla}", "signedAt": "YYYY-MM-DD" }`,
-      "   ```",
-      "",
-      "3. Push. The check runs again.",
-      "",
       "If your employer has rights in your work, it signs docs/cla/entity.md instead, by email. If you renamed your GitHub account, sign again under the new login. The terms are in docs/cla/individual.md.",
     );
   } else {

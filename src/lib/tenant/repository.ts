@@ -405,6 +405,15 @@ export interface UpdateWhereResult {
   more: boolean;
 }
 
+/**
+ * The event history's and agent actions' view through forTenant: reads, and the erase's paged
+ * delete. No create, update, upsert, claim or single delete, so a write that skips their writers
+ * (./ontologyEvents.ts and ./agentActions.ts, which write inside transactions) fails typecheck,
+ * however the store is reached. src/lib/ontology/appendOnly.test.ts keeps deleteWhere to the
+ * writers.
+ */
+export type HistoryCollection<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count" | "deleteWhere">;
+
 /** The set of tenant-scoped repositories available within a request context. */
 export interface TenantRepositories {
   campaigns: TenantCollection<Campaign>;
@@ -531,9 +540,9 @@ export interface TenantRepositories {
    * The event history: one row per thing that happened to a person, company, idea or agent
    * action. Append only: written only through ./ontologyEvents.ts and ./agentActions.ts.
    */
-  ontologyEvents: TenantCollection<StoredEvent>;
+  ontologyEvents: HistoryCollection<StoredEvent>;
   /** Agents' suggestions, one record each, with their agent.* trail in ontologyEvents (./agentActions.ts writes them). */
-  agentActions: TenantCollection<AgentAction>;
+  agentActions: HistoryCollection<AgentAction>;
 }
 
 /**

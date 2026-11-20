@@ -160,11 +160,15 @@ Owner decisions (2026-11-19 and 2026-11-20):
   - **Append only.** A stored event changes in three ways and no other: its `personId` (and a
     person subject) is repointed; an erased field's values before and after are blanked in place,
     with `blankedAt` and `blankedReason`; or it is deleted by an erase. The admin SDK ignores
-    Firestore rules, so `src/lib/ontology/appendOnly.test.ts` and review hold it. The test scans
-    the source and fails on a mutating call on either store outside the two writers, either
-    collection named outside the writers, the repository and the registry, an update outside the
-    functions allowed to change a row, agent rows staged outside the agent action writer, or a
-    direct import of either writer from outside `src/lib/tenant`.
+    Firestore rules, so the repository's type, `src/lib/ontology/appendOnly.test.ts` and review
+    hold it. `forTenant` gives both stores as a `HistoryCollection`, reads and the erase's
+    `deleteWhere` only, so any other write through it fails typecheck. The test scans the source
+    and fails on a mutating call on either store outside the two writers (by property, by a
+    destructured name or across lines), a store reached by a string key or destructured from
+    `forTenant`, either collection named outside the writers, the repository and the registry,
+    the writers' collection constants or `eventRef` used elsewhere, a set, update or delete in
+    either writer outside the functions allowed to change a row, agent rows staged outside the
+    agent action writer, or a direct import of either writer from outside `src/lib/tenant`.
   - **Agent actions.** States are proposed, approved, acted, undone and declined. Proposed goes to
     approved, acted or declined; approved to acted or declined; acted to undone. Every change
     appends exactly one `agent.*` row in the same transaction (proposed straight to acted writes

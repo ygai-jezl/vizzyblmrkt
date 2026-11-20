@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
 import { SEARCH_KINDS } from "@/lib/search/types";
+import { EVENT_KINDS } from "./events";
 import { ONTOLOGY, storesOf, typeById } from "./registry";
 import { PATH_TRIGGERS, PERSONALS, PLACES, PLANNED_IN, SPINE_STEPS, STORE_DBS, type OntologyType, type PathDecision, type PathRef } from "./types";
 
@@ -52,10 +53,10 @@ describe("the ontology registry", () => {
     for (const t of ONTOLOGY) for (const l of t.links) expect(typeById(l.to), `${t.id} links to ${l.to}`).toBeDefined();
   });
 
-  it("names event kinds in the envelope's form, and never plan.*, which is the organisation's", () => {
+  it("names only event kinds the envelope has, and never plan.*, which is the organisation's", () => {
     for (const t of ONTOLOGY) {
       for (const k of t.events) {
-        expect(k, `${t.id}: ${k}`).toMatch(/^[a-z_]+\.[a-z_]+$/);
+        expect(EVENT_KINDS, `${t.id}: ${k}`).toContain(k);
         expect(k.startsWith("plan."), `${t.id}: ${k}`).toBe(false);
       }
     }

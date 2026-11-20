@@ -1,5 +1,6 @@
 import type { MeaningKey } from "@/lib/metrics/meanings";
 import type { SearchKind } from "@/lib/search/types";
+import type { EventKind } from "./events";
 
 /**
  * The shapes of the ontology registry (src/lib/ontology/registry.ts): every kind of thing YouGrow
@@ -127,12 +128,6 @@ export const PLANNED_IN = [
 ] as const;
 export type PlannedIn = (typeof PLANNED_IN)[number];
 
-/**
- * An event kind a type produces. A plain string until the event envelope (src/lib/ontology/events.ts)
- * gives the list.
- */
-export type TypeEventKind = string;
-
 export interface OntologyType {
   /** Stable and unique: snake case. Other code names a type by this id. */
   id: string;
@@ -150,7 +145,8 @@ export interface OntologyType {
   /** Built types only. */
   stores: readonly StoreRef[];
   links: readonly TypeLink[];
-  events: readonly TypeEventKind[];
+  /** The kinds of event it produces (src/lib/ontology/events.ts). */
+  events: readonly EventKind[];
   states?: readonly string[];
   personFields?: readonly PersonField[];
   erase: PathDecision;

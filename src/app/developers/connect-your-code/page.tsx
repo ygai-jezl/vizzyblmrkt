@@ -1,12 +1,15 @@
 import { C, Code, Fields, H1, H2, H3, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
 import { docsOrigin, githubAppPublicUrl } from "@/lib/developers/flags";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
+import { isConnectorRevokeEnabled } from "@/lib/integrations/flags";
 
 export default function ConnectYourCodeDocs() {
   const app = githubAppPublicUrl();
   const origin = docsOrigin();
   // GitLab's project chooser (and its read_api scope) exist only with repo selection on.
   const selection = isGitRepoSelectionEnabled();
+  // Disconnect also cancels access at GitLab and on an older GitHub connection.
+  const revoke = isConnectorRevokeEnabled();
   return (
     <article>
       <H1>Connecting your code</H1>
@@ -76,11 +79,15 @@ Details: ${origin}/developers/connect-your-code`}</Code>
 
       <H3>Disconnect</H3>
       <UL>
-        <li>In YouGrow, <strong>Account → Connections → Disconnect</strong> removes the connection on our side.</li>
+        <li>
+          In YouGrow, <strong>Account → Connections → Disconnect</strong> removes the connection on our side. It never
+          uninstalls the app from GitHub, because other brands may use the same installation.
+          {revoke ? " For an older GitHub connection made before the app, it also cancels that connection's access on GitHub." : null}
+        </li>
         <li>
           To remove the app from GitHub entirely: <strong>Settings → Applications → Installed GitHub Apps → YouGrow →
           Uninstall</strong> (for an organisation, <strong>Organisation settings → GitHub Apps</strong>). YouGrow can no
-          longer read anything from that moment.
+          longer read anything from that moment. That stops it for every brand that uses the same installation.
         </li>
       </UL>
 
@@ -117,6 +124,17 @@ Details: ${origin}/developers/connect-your-code`}</Code>
         <strong>This connection needs reconnecting.</strong>, an admin presses <strong>Reconnect</strong> next to GitLab.
         The projects you chose stay chosen.
       </P>
+      {revoke ? (
+        <P>
+          <strong>Disconnect</strong> next to GitLab removes the connection and also cancels YouGrow&apos;s access on GitLab.
+        </P>
+      ) : (
+        <P>
+          <strong>Disconnect</strong> next to GitLab removes the connection on our side. To cancel YouGrow&apos;s access on
+          GitLab too, revoke YouGrow in your GitLab user settings under <strong>Applications</strong>. That stops it for every
+          brand connected with the same GitLab account.
+        </P>
+      )}
 
       <H2 id="public">Public repositories</H2>
       <P>

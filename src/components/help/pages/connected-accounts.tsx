@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isConnectorRevokeEnabled, isConnectorRevokeXEnabled } from "@/lib/integrations/flags";
 
 export default function ConnectedAccountsHelp() {
   return (
@@ -100,6 +101,25 @@ export default function ConnectedAccountsHelp() {
           you connected it.
         </li>
       </Checks>
+
+      <H2 id="disconnect">Disconnect an account</H2>
+      {isConnectorRevokeEnabled() ? (
+        <P>
+          Disconnect removes the connection from YouGrow. For{" "}
+          {isConnectorRevokeXEnabled() ? "GitLab, X and an older GitHub connection" : "GitLab and an older GitHub connection"}{" "}
+          it also cancels YouGrow&apos;s access on that service. It never removes the YouGrow app from GitHub, because other
+          brands may use the same installation. You can uninstall it on GitHub, but that stops it for every brand that uses
+          it.{" "}
+          {isConnectorRevokeXEnabled()
+            ? "For LinkedIn, you can remove YouGrow in your LinkedIn settings, but that stops it for every brand connected with the same LinkedIn account."
+            : "For LinkedIn or X, you can remove YouGrow in that service's settings, but that stops it for every brand connected with the same account."}
+        </P>
+      ) : (
+        <P>
+          Disconnect removes the connection from YouGrow. To cancel YouGrow&apos;s access on the service too, remove YouGrow
+          in that service&apos;s settings. That stops it for every brand connected with the same account.
+        </P>
+      )}
 
       <H2 id="messages">If you see this</H2>
       <Messages

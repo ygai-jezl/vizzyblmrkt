@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "accepted": ["individual-v1", "entity-v1"],
+  "exempt": [
+    {
+      "login": "ygai-jezl",
+      "why": "The maintainer's own account. Its work rests on the founder IP assignment, not a CLA (ADR-0007)."
+    },
+    {
+      "login": "dependabot[bot]",
+      "why": "GitHub's dependency update bot. It only changes dependency versions, and a maintainer reviews each one."
+    },
+    {
+      "login": "github-actions[bot]",
+      "why": "GitHub Actions, acting for this repository's own workflows."
+    }
+  ],
+  "ai": {
+    "emails": ["noreply@anthropic.com"],
+    "logins": ["claude"]
+  },
+  "entities": []
+}

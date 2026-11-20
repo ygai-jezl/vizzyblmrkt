@@ -1,3 +1,5 @@
+import { isNavPeopleEnabled } from "@/lib/nav/flags";
+
 /**
  * Flags for the person view (Audience → Product users). Server-only: pages pass
  * what's on to their client components. Each is off unless "true": listed
@@ -49,4 +51,13 @@ export function isPersonLinksEnabled(): boolean {
  */
 export function isOneViewEnabled(): boolean {
   return isPersonLinksEnabled() && process.env.AUDIENCE_ONE_VIEW_ENABLED === "true";
+}
+
+/**
+ * The Audience area is called People (NEXT_PUBLIC_NAV_PEOPLE_ENABLED, which needs nav phase 3)
+ * only where the one People list is on, so People never sits over the old Signups and Product
+ * users tabs. Worked out on the server: the admin layout passes it down as a `people` prop.
+ */
+export function isPeopleNameEnabled(): boolean {
+  return isNavPeopleEnabled() && isOneViewEnabled();
 }

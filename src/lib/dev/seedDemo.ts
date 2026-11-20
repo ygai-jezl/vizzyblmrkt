@@ -66,6 +66,8 @@ export async function seedDemoData(): Promise<SeedResult> {
       status: "active",
       region: "us",
       allowedOrigins: seedAllowedOrigins(),
+      // Unread, but builds from before plans require it to list brands: kept until the field goes.
+      billingTier: "mvp_free",
       ownerId: "seed",
       createdAt: now,
       updatedAt: now,

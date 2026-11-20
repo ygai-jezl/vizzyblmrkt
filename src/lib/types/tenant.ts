@@ -710,8 +710,10 @@ export const TenantSchema = z.object({
   /** Allow-listed full origins (scheme + host) for CORS / embed / signup gating. */
   allowedOrigins: z.array(z.string()),
   /**
-   * @deprecated Unread and no longer written; old docs keep it. Remove once prod has run on plans
-   * (the plan is on the organisation: see `organisationId` and `orgPlan`).
+   * @deprecated Unread: the plan is on the organisation (see `organisationId` and `orgPlan`). New
+   * brands still get "mvp_free", because builds from before plans require it and their
+   * listAllTenants would throw on a brand without it after a rollback. Remove the writes and the
+   * field together once prod has run on plans.
    */
   billingTier: z.string().optional(),
   /** The organisation this brand belongs to (organisations/{id}, src/lib/tenant/organisations.ts). */

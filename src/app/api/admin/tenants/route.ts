@@ -92,6 +92,8 @@ export async function POST(req: Request) {
       // public host→tenant traffic, so a new brand starts with none; domains are
       // added later through the verified-domain flow.
       allowedOrigins: [],
+      // Unread, but builds from before plans require it to list brands: kept until the field goes.
+      billingTier: "mvp_free",
       ownerId: ctx.userId,
       createdAt: now,
       updatedAt: now,

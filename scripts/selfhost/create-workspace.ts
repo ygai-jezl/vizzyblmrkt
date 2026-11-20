@@ -92,6 +92,8 @@ async function main() {
       region: region as "us" | "eu" | "asia",
       // As in the app's own "new brand" flow: no origin is trusted until its domain is verified.
       allowedOrigins: [],
+      // Unread, but builds from before plans require it to list brands: kept until the field goes.
+      billingTier: "mvp_free",
       ownerId: "selfhost",
       createdAt: now,
       updatedAt: now,

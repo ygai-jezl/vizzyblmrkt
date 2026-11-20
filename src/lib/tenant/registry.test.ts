@@ -138,7 +138,7 @@ describe("tenant registry", () => {
     expect(all.find((t) => t.id === "ten_C")?.orgPlan).toBeUndefined();
   });
 
-  it("a brand written without billingTier still parses (it is no longer written)", async () => {
+  it("a brand written without billingTier still parses (nothing reads it)", async () => {
     const db = new FakeFirestore();
     const { billingTier: _unused, ...rest } = tenant();
     db.seed("tenants", "ten_A", rest);

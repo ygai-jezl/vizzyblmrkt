@@ -148,9 +148,11 @@ Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
 - **The ontology registry.** Whichever of A and piece 0 merges second adds the
   `organisations` and `organisation_changes` entries: search kind none (control plane
   records, no brand content or people) and no number path.
-- **`billingTier` is deprecated.** It was never read. It is optional in `TenantSchema` and
-  no longer written; old documents keep it. Removing it is a later cleanup once prod has
-  run on plans.
+- **`billingTier` is deprecated.** It was never read, and it is optional in `TenantSchema`.
+  New brands still get `"mvp_free"` (the app, the seed and self-host's `create-workspace`),
+  because builds from before plans require it: after a rollback to one, a brand without it
+  would make `listAllTenants` throw and every job that loops over brands would fail. The
+  writes and the field go together in a later cleanup once prod has run on plans.
 
 Rollback:
 1. In the deployment's private settings file, set both switches to `"false"` together and
@@ -161,6 +163,8 @@ Rollback:
    `backfill-organisations` to catch brands made while off, then `--check`.
 4. A backfill on the wrong plan: `backfill-organisations --replan <plan> [--from-plan
    <plan>]` as a dry run, then with `--apply --by <label>`.
+5. Rolling the build back to one from before plans also works: its `TenantSchema` ignores
+   the new brand fields, and every brand made since still has the `billingTier` it requires.
 
 Room left for later pieces, none of it written yet: settings history on the organisation
 (piece O, a `settingsVersion` and versions beside it); legal entities and founder profiles

@@ -48,13 +48,14 @@ describe("POST /api/admin/tenants", () => {
     expect(tenant.ensureBrandOrganisation).not.toHaveBeenCalled();
   });
 
-  it("with plans off, makes the brand with no billingTier and no organisation", async () => {
+  it("with plans off, makes the brand with no organisation, still writing the unread billingTier", async () => {
     const res = await POST(req());
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ ok: true, id: "ten_acme" });
     const made = tenant.createTenant.mock.calls[0]![0] as Record<string, unknown>;
     expect(made).toMatchObject({ id: "ten_acme", tenantName: "Acme", rootDomain: "acme.test", region: "us", allowedOrigins: [], ownerId: "usr_creator" });
-    expect(made).not.toHaveProperty("billingTier");
+    // A build from before plans requires billingTier, so a rollback must still read this brand.
+    expect(made.billingTier).toBe("mvp_free");
     expect(tenant.addTenantMember).toHaveBeenCalledWith("usr_creator", "ten_acme", "admin");
     expect(session.setActiveTenantCookie).toHaveBeenCalledWith("ten_acme");
     expect(tenant.ensureBrandOrganisation).not.toHaveBeenCalled();
@@ -74,7 +75,7 @@ describe("POST /api/admin/tenants", () => {
     // No read of the brand the caller is in, and no join.
     expect(tenant.getTenantById).not.toHaveBeenCalled();
     expect(tenant.attachBrandToOrganisation).not.toHaveBeenCalled();
-    expect(tenant.createTenant.mock.calls[0]![0]).not.toHaveProperty("billingTier");
+    expect(tenant.createTenant.mock.calls[0]![0]).toHaveProperty("billingTier", "mvp_free");
   });
 
   it("on a retry of the caller's own brand, re-ensures membership and the organisation without moving it", async () => {

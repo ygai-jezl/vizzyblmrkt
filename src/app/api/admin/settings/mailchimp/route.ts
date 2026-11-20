@@ -126,7 +126,11 @@ export async function PUT(req: Request) {
   }
 
   const audienceId = parsed.data.audienceId?.trim();
-  if (audienceId && audienceId !== (existing?.audienceId?.trim() ?? "")) {
+  // Unchanged when it matches the saved id once both are trimmed. Then the saved id is
+  // kept exactly as stored: a padded id saved before these checks never matches the
+  // webhook's list_id, and saving it trimmed would claim that audience unchecked.
+  const unchanged = Boolean(audienceId) && audienceId === (existing?.audienceId?.trim() ?? "");
+  if (audienceId && !unchanged) {
     const refused = await audienceClaimRefused(ctx.tenantId, audienceId, existing, parsed.data);
     if (refused) return refused;
   }
@@ -149,7 +153,7 @@ export async function PUT(req: Request) {
   const next = {
     requiresOwnApiKey: parsed.data.requiresOwnApiKey,
     ...keyFields,
-    audienceId: audienceId ?? existing?.audienceId,
+    audienceId: audienceId === undefined || unchanged ? existing?.audienceId : audienceId,
     serverPrefix: serverPrefix ?? existing?.serverPrefix,
   };
 

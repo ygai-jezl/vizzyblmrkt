@@ -157,6 +157,15 @@ describe("PUT /api/admin/settings/mailchimp: claiming an audience", () => {
     expect(tenant.getTenantsByMailchimpAudience).not.toHaveBeenCalled();
     expect(saved()).toMatchObject({ audienceId: "own-list" });
   });
+
+  it("an id saved padded before these checks stays as saved, so it can't become an unchecked claim", async () => {
+    // The webhook matches the trimmed list_id exactly, so the padded id never matched it.
+    tenant.getTenantById.mockResolvedValue(brand({ requiresOwnApiKey: false, audienceId: `${SHARED} ` }));
+    const res = await PUT(req("PUT", { requiresOwnApiKey: false, audienceId: SHARED }));
+    expect(res.status).toBe(200);
+    expect(client.getAudience).not.toHaveBeenCalled();
+    expect(saved()).toMatchObject({ audienceId: `${SHARED} ` });
+  });
 });
 
 describe("PUT /api/admin/settings/mailchimp: the server prefix", () => {

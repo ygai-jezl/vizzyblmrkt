@@ -1,13 +1,15 @@
 import type { PlanId } from "@/lib/types/organisation";
 import type { Tenant } from "@/lib/types/tenant";
-import { METERED_FEATURES, mayUseWith, type MeteredFeature } from "./brandAccess";
+import { FEATURE_NEEDS, METERED_FEATURES, mayReachWith, mayUseWith, type MeteredFeature } from "./brandAccess";
 import { FEATURE_LABELS } from "./catalog";
 import { LIMITED_FEATURES, monthlyLimitWith, type CapSource, type LimitedFeature } from "./limits";
 
 /**
  * What would change for a brand if its organisation moved to another plan: the dry run behind
  * scripts/backfill-organisations.ts, set-plan.ts and move-brand.ts. Both sides are worked out
- * with plans on, so a brand with no plan yet shows today's access as "before".
+ * with plans on, so a brand with no plan yet shows today's access as "before". A feature counts
+ * only when the brand can reach it, with what it needs (FEATURE_NEEDS: the autopilot needs Next
+ * up), so a plan that includes the autopilot without Next up shows it as lost, not kept.
  *
  * It reads GRANTED_ONLY_FEATURES and FEATURE_MONTHLY_LIMITS from the environment, so an operator
  * running a script exports the deployment's own values first.
@@ -39,7 +41,7 @@ export interface FeatureChange {
   feature: MeteredFeature;
   before: boolean;
   after: boolean;
-  /** For a lost feature: what existing data it hides or what work stops. */
+  /** For a lost feature: what existing data it hides or what work stops, or what it needs that is lost. */
   hidden?: string;
 }
 
@@ -71,15 +73,19 @@ export function accessChanges(tenant: PreviewFields | null, nextPlan: PlanId | n
 
   const features: FeatureChange[] = [];
   for (const feature of METERED_FEATURES) {
-    const was = mayUseWith(before, feature, true);
-    const will = mayUseWith(after, feature, true);
-    if (was !== will) features.push({ feature, before: was, after: will, ...(was ? { hidden: EXCLUDED_EFFECT[feature] } : {}) });
+    const was = mayReachWith(before, feature, true);
+    const will = mayReachWith(after, feature, true);
+    if (was === will) continue;
+    // Still in the plan but lost with what it needs: the line for that feature says what stops.
+    const needs = FEATURE_NEEDS[feature];
+    const hidden = needs && mayUseWith(after, feature, true) ? `It needs ${FEATURE_LABELS[needs]} (${needs}), which is lost too.` : EXCLUDED_EFFECT[feature];
+    features.push({ feature, before: was, after: will, ...(was ? { hidden } : {}) });
   }
 
   const caps: CapChange[] = [];
   for (const feature of LIMITED_FEATURES) {
     // A lost or gained feature is already counted above; its cap matters only while it is usable.
-    if (!mayUseWith(before, feature, true) || !mayUseWith(after, feature, true)) continue;
+    if (!mayReachWith(before, feature, true) || !mayReachWith(after, feature, true)) continue;
     const was = monthlyLimitWith(before, feature, true);
     const will = monthlyLimitWith(after, feature, true);
     if (was.limit !== will.limit) caps.push({ feature, before: was.limit, after: will.limit, beforeFrom: was.from, afterFrom: will.from });

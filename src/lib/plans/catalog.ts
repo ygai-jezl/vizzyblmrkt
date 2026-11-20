@@ -114,11 +114,12 @@ export const PLANS: readonly Plan[] = [
   },
   {
     // The tiers table gives Pro the article autopilot (4 a month) without Next up. In today's code
-    // the autopilot sits behind Next up (src/lib/autopilot/adminApi.ts nextUpGate, tick.ts), so a
-    // Pro brand can't reach it until that changes or Pro gains next_up.
+    // the autopilot sits behind Next up (FEATURE_NEEDS in brandAccess.ts), so a Pro brand can't
+    // reach it until that changes or Pro gains next_up: the owner decides which. Until then the
+    // summary leaves the autopilot out, and Plan and usage and the dry runs say it needs Next up.
     id: "pro",
     name: "Pro",
-    summary: "Up to three brands, with Vizzy in Edit mode, brand search and the article autopilot.",
+    summary: "Up to three brands, with Vizzy in Edit mode and brand search.",
     pricePerUserMonthUsd: 9,
     hosted: true,
     features: ["edit_vizzy", "brand_search", "article_autopilot"],

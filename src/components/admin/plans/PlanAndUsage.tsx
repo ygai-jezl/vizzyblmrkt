@@ -1,4 +1,4 @@
-import { allowanceText, planById, type Allowance, type Plan } from "@/lib/plans/catalog";
+import { FEATURE_LABELS, allowanceText, planById, type Allowance, type Plan } from "@/lib/plans/catalog";
 import type { LimitedFeature } from "@/lib/plans/limits";
 import type { AllowanceRow, FeatureRow, MonthlyRow, UsageBrandRow, UsageSummary } from "@/lib/plans/usage";
 import type { Region } from "@/lib/types/tenant";
@@ -54,6 +54,9 @@ const MONTH_ALLOWANCE_LABELS: Partial<Record<Allowance, string>> = {
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
+/** A feature that works only with another this brand can't use: "Needs Next up". */
+export const needsText = (feature: keyof typeof FEATURE_LABELS) => `Needs ${FEATURE_LABELS[feature]}`;
+
 function sinceText(iso: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -106,7 +109,7 @@ function AllowanceMeter({ row, plan, label }: { row: AllowanceRow; plan: Plan | 
 
 function MonthlyMeter({ row }: { row: MonthlyRow }) {
   const label = MONTHLY_LABELS[row.feature];
-  if (!row.included) return <Meter label={label} value={PLAN_AND_USAGE_COPY.notInPlan} />;
+  if (!row.included) return <Meter label={label} value={row.needs ? needsText(row.needs) : PLAN_AND_USAGE_COPY.notInPlan} />;
   if (row.used === null) return <Meter label={label} value={PLAN_AND_USAGE_COPY.couldNotCount} />;
   return <Meter label={label} value={usedText(row.used, row.limit)} used={row.used} limit={row.limit} />;
 }
@@ -125,7 +128,7 @@ function BrandPill({ brand }: { brand: UsageBrandRow }) {
 }
 
 function FeaturePill({ row }: { row: FeatureRow }) {
-  const note = row.usable ? (row.included ? null : PLAN_AND_USAGE_COPY.granted) : PLAN_AND_USAGE_COPY.heldBack;
+  const note = row.usable ? (row.included ? null : PLAN_AND_USAGE_COPY.granted) : row.needs ? needsText(row.needs) : PLAN_AND_USAGE_COPY.heldBack;
   return (
     <li className={`${PILL} ${row.usable ? "" : "text-neutral-500 dark:text-neutral-400"}`}>
       {row.label}

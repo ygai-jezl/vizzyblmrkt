@@ -44,6 +44,24 @@ export function mayUseWith(tenant: AccessFields | null | undefined, feature: Met
   return plan ? plan.features.includes(feature) : true;
 }
 
+/**
+ * Features that only work alongside another. In today's code the article autopilot sits behind
+ * Next up: its scheduled runs pick only brands with next_up (src/lib/autopilot/tick.ts) and every
+ * autopilot route checks next_up first (src/lib/autopilot/adminApi.ts nextUpGate, agentApi.ts).
+ * So a brand that may use the autopilot but not Next up can't reach it.
+ */
+export const FEATURE_NEEDS: Partial<Record<MeteredFeature, MeteredFeature>> = { article_autopilot: "next_up" };
+
+/**
+ * Whether a brand can actually reach the feature: it may use it and what it needs. What Plan and
+ * usage and the dry runs report; the features' own checks stay as they are. Pure.
+ */
+export function mayReachWith(tenant: AccessFields | null | undefined, feature: MeteredFeature, plansOn: boolean): boolean {
+  if (!mayUseWith(tenant, feature, plansOn)) return false;
+  const needs = FEATURE_NEEDS[feature];
+  return needs ? mayReachWith(tenant, needs, plansOn) : true;
+}
+
 /** Whether a brand may use the feature, given its record. Pure. */
 export function tenantMayUse(tenant: AccessFields | null, feature: MeteredFeature): boolean {
   return mayUseWith(tenant, feature, isPlansEnabled());

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { METERED_FEATURES } from "./brandAccess";
+import { FEATURE_NEEDS, METERED_FEATURES } from "./brandAccess";
 import { DEFAULT_MONTHLY_LIMITS, LIMITED_FEATURES, MAX_MONTHLY_LIMIT } from "./limits";
 import {
   ALLOWANCES,
@@ -101,6 +101,18 @@ describe("plan catalog", () => {
         expect(capOf(higher), `${f}: ${lower.id} -> ${higher.id}`).toBeGreaterThanOrEqual(capOf(lower));
       }
     }
+  });
+
+  it("never promises in a summary a feature the plan can't reach without what it needs", () => {
+    // Pro includes the autopilot without Next up, which it needs (the owner decides which changes).
+    for (const p of PLANS) {
+      for (const [f, needs] of Object.entries(FEATURE_NEEDS)) {
+        if (p.features.includes(f as PlanFeature) && !p.features.includes(needs as PlanFeature)) {
+          expect(p.summary.toLowerCase(), `${p.id}: ${f}`).not.toContain(FEATURE_LABELS[f as PlanFeature].toLowerCase());
+        }
+      }
+    }
+    expect(plan("pro").summary).not.toMatch(/autopilot/i);
   });
 
   it("keeps the features that need another together", () => {

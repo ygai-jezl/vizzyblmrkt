@@ -107,7 +107,8 @@ export default function PlanAndUsageHelp() {
             "Where to look",
             <>
               <Open href="/admin/account/billing">Plan and usage</Open> lists each feature as included, granted to your brand,
-              or not in your plan.
+              or not in your plan. A feature that works only with another says what it needs: the article autopilot needs
+              Next up.
             </>,
           ],
         ]}

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { AllowanceRow, FeatureRow, UsageSummary } from "@/lib/plans/usage";
-import { PLAN_AND_USAGE_COPY, PlanAndUsage, PlanAndUsageFailed, PlansOff } from "./PlanAndUsage";
+import { PLAN_AND_USAGE_COPY, PlanAndUsage, PlanAndUsageFailed, PlansOff, needsText } from "./PlanAndUsage";
 
 /** Text as a reader sees it: tags dropped, entities read back. */
 const textOf = (html: string) =>
@@ -34,6 +34,7 @@ const feature = (f: FeatureRow["feature"], label: string, included: boolean, ext
   included,
   granted: false,
   usable: included,
+  needs: null,
   ...extra,
 });
 
@@ -57,7 +58,7 @@ function proOwner(over: Partial<UsageSummary> = {}): UsageSummary {
       row("emailsPerMonth", "Emails a month", null, 5_000, { counted: false }),
       row("aiCreditsPerMonth", "AI credits a month", null, 500, { counted: false, perUser: true }),
     ],
-    monthly: [{ feature: "article_autopilot", label: "Article autopilot", used: 1, limit: 4, from: "plan", included: true }],
+    monthly: [{ feature: "article_autopilot", label: "Article autopilot", used: 1, limit: 4, from: "plan", included: true, needs: null }],
     features: [
       feature("edit_vizzy", "Vizzy in Edit mode", true),
       feature("competitors", "Competitors", false, { granted: true, usable: true }),
@@ -181,11 +182,24 @@ describe("Plan and usage", () => {
     const text = render(
       proOwner({
         thisBrand: { id: "ten_north", name: "Northwind", region: "us", status: "active", liveLaunchesLimit: 5, people: null, liveLaunches: null, liveLaunchesCapped: false },
-        monthly: [{ feature: "next_up", label: "Next up", used: 0, limit: 100, from: "default", included: false }],
+        monthly: [{ feature: "next_up", label: "Next up", used: 0, limit: 100, from: "default", included: false, needs: null }],
       }),
     );
     expect(text).toContain(`People ${PLAN_AND_USAGE_COPY.couldNotCount}`);
     expect(text).toContain(`Google lookups for Next up ${PLAN_AND_USAGE_COPY.notInPlan}`);
+  });
+
+  it("says a feature in the plan needs another it lacks, never that it is ready", () => {
+    const text = render(
+      proOwner({
+        monthly: [{ feature: "article_autopilot", label: "Article autopilot", used: 0, limit: 4, from: "plan", included: false, needs: "next_up" }],
+        features: [feature("article_autopilot", "Article autopilot", true, { usable: false, needs: "next_up" }), feature("next_up", "Next up", false)],
+      }),
+    );
+    expect(needsText("next_up")).toBe("Needs Next up");
+    expect(text).toContain("Autopilot drafts Needs Next up");
+    expect(text).toContain("Article autopilot · Needs Next up");
+    expect(text).not.toContain("Autopilot drafts 0 of 4");
   });
 
   it("has a neutral line when plans are off, never coming soon", () => {

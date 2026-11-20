@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tenant } from "@/lib/types/tenant";
-import { brandCanUse, grantedOnlyFeatures, METERED_FEATURES, tenantMayUse } from "./brandAccess";
+import { brandCanUse, FEATURE_NEEDS, grantedOnlyFeatures, mayReachWith, METERED_FEATURES, tenantMayUse } from "./brandAccess";
 import { INCLUDED_IN_EVERY_PLAN } from "./catalog";
 
 const ctx = { tenantId: "ten_test" };
@@ -115,6 +115,19 @@ describe("brand access with plans on", () => {
       await brandCanUse(ctx, feature, load);
       expect(load.mock.calls.length, feature).toBe(INCLUDED_IN_EVERY_PLAN.includes(feature) ? 0 : 1);
     }
+  });
+
+  it("reaches the autopilot only with the Next up it needs, and leaves the autopilot's own check alone", () => {
+    expect(FEATURE_NEEDS).toEqual({ article_autopilot: "next_up" });
+    expect(tenantMayUse(on("pro"), "article_autopilot")).toBe(true);
+    expect(mayReachWith(on("pro"), "article_autopilot", true)).toBe(false);
+    expect(mayReachWith(on("pro", ["next_up"]), "article_autopilot", true)).toBe(true);
+    expect(mayReachWith(on("ultra"), "article_autopilot", true)).toBe(true);
+    expect(mayReachWith(on("free", ["article_autopilot"]), "article_autopilot", true)).toBe(false);
+    expect(mayReachWith(on("pro"), "article_autopilot", false)).toBe(true);
+    vi.stubEnv("GRANTED_ONLY_FEATURES", "next_up");
+    expect(mayReachWith(on("ultra"), "article_autopilot", true)).toBe(false);
+    expect(mayReachWith(on("ultra", ["next_up"]), "article_autopilot", true)).toBe(true);
   });
 
   it("answers a failed read as no for a held back feature and yes otherwise", async () => {

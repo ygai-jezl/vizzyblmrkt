@@ -8,7 +8,7 @@ import { draftsThisMonth } from "@/lib/autopilot/runs";
 import { isCompetitorArticlesEnabled } from "@/lib/competitors/flags";
 import { readsThisMonth } from "@/lib/competitors/articles";
 import { lookupsThisMonth } from "@/lib/signals/store";
-import { METERED_FEATURES, mayUseWith } from "./brandAccess";
+import { FEATURE_NEEDS, METERED_FEATURES, mayReachWith, mayUseWith, type MeteredFeature } from "./brandAccess";
 import {
   ALLOWANCES,
   ALLOWANCE_LABELS,
@@ -97,8 +97,10 @@ export interface MonthlyRow {
   used: number | null;
   limit: number;
   from: CapSource;
-  /** Whether this brand may use the feature at all. */
+  /** Whether this brand can use the feature at all, with what it needs. */
   included: boolean;
+  /** What it needs and this brand can't use ("Needs Next up"); null otherwise. */
+  needs: MeteredFeature | null;
 }
 
 export interface FeatureRow {
@@ -108,8 +110,10 @@ export interface FeatureRow {
   included: boolean;
   /** This brand has its own grant for it. */
   granted: boolean;
-  /** What brand access answers, with grants and GRANTED_ONLY_FEATURES applied. */
+  /** What brand access answers, with grants and GRANTED_ONLY_FEATURES applied, and what it needs. */
   usable: boolean;
+  /** What it needs and this brand can't use ("Needs Next up"); null otherwise. */
+  needs: MeteredFeature | null;
 }
 
 export interface UsageSummary {
@@ -189,6 +193,12 @@ function monthOf(d: Date): string {
   return d.toISOString().slice(0, 7);
 }
 
+/** What a feature this brand may use still needs and can't use: the autopilot without Next up. */
+function missingNeed(tenant: Tenant | null, feature: MeteredFeature, plansOn: boolean): MeteredFeature | null {
+  const needs = FEATURE_NEEDS[feature];
+  return needs && mayUseWith(tenant, feature, plansOn) && !mayReachWith(tenant, needs, plansOn) ? needs : null;
+}
+
 async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: boolean, deps: UsageDeps, now: Date): Promise<MonthlyRow[]> {
   const counters = { db: dataDbFor(deps, ctx.region), now: () => now };
   const rows: Array<{ feature: LimitedFeature; on: boolean; count: () => Promise<number> }> = [
@@ -207,7 +217,8 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
           used: await soft(r.count),
           limit: cap.limit,
           from: cap.from,
-          included: mayUseWith(tenant, r.feature, plansOn),
+          included: mayReachWith(tenant, r.feature, plansOn),
+          needs: missingNeed(tenant, r.feature, plansOn),
         };
       }),
   );
@@ -217,13 +228,14 @@ function featureRows(tenant: Tenant | null, plan: Plan | null, plansOn: boolean)
   const ee = EE_FEATURES.filter((f) => plan?.features.includes(f));
   return [...METERED_FEATURES, ...ee].map((feature) => {
     const included = plan ? plan.features.includes(feature) : true;
-    const metered = (METERED_FEATURES as readonly string[]).includes(feature);
+    const metered = (METERED_FEATURES as readonly string[]).includes(feature) ? (feature as MeteredFeature) : null;
     return {
       feature,
       label: FEATURE_LABELS[feature],
       included,
       granted: Boolean(tenant?.grantedFeatures?.includes(feature)),
-      usable: metered ? mayUseWith(tenant, feature as (typeof METERED_FEATURES)[number], plansOn) : included,
+      usable: metered ? mayReachWith(tenant, metered, plansOn) : included,
+      needs: metered ? missingNeed(tenant, metered, plansOn) : null,
     };
   });
 }

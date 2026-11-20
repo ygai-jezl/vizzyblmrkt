@@ -42,13 +42,33 @@ describe("plan change previews", () => {
     expect(c.wider).toBe(false);
   });
 
-  it("lists raised caps and gained features as wider (Pro to Ultra)", () => {
+  it("lists gained features as wider (Pro to Ultra), the autopilot too, since Pro lacks the Next up it needs", () => {
     const c = accessChanges(brand({ orgPlan: "pro" }), "ultra");
-    expect(c.features.filter((f) => f.after).map((f) => f.feature).sort()).toEqual(["competitor_articles", "competitors", "edit_vizzy_learning", "next_up"]);
-    expect(c.caps).toEqual([{ feature: "article_autopilot", before: 4, after: DEFAULT_MONTHLY_LIMITS.article_autopilot, beforeFrom: "plan", afterFrom: "default" }]);
+    expect(c.features.filter((f) => f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "competitor_articles", "competitors", "edit_vizzy_learning", "next_up"]);
+    expect(c.caps).toEqual([]);
     expect(c.wider).toBe(true);
     expect(c.narrower).toBe(false);
+    expect(accessChangeLines(c)).toContain("gains Article autopilot (article_autopilot)");
+  });
+
+  it("lists raised caps as wider when the brand keeps what the autopilot needs (Pro to Ultra)", () => {
+    const c = accessChanges(brand({ orgPlan: "pro", grantedFeatures: ["next_up"] }), "ultra");
+    expect(c.caps).toEqual([{ feature: "article_autopilot", before: 4, after: DEFAULT_MONTHLY_LIMITS.article_autopilot, beforeFrom: "plan", afterFrom: "default" }]);
     expect(accessChangeLines(c)).toContain("article_autopilot cap raised from 4 to 8 a month (from the default)");
+  });
+
+  it("lists the autopilot as lost with Next up (Ultra to Pro), never as a lower cap", () => {
+    const c = accessChanges(brand({ orgPlan: "ultra" }), "pro");
+    const autopilot = c.features.find((f) => f.feature === "article_autopilot");
+    expect(autopilot).toEqual({ feature: "article_autopilot", before: true, after: false, hidden: "It needs Next up (next_up), which is lost too." });
+    expect(c.caps).toEqual([]);
+    const lines = accessChangeLines(c);
+    expect(lines).toContain("loses Article autopilot (article_autopilot): It needs Next up (next_up), which is lost too.");
+    expect(lines.join("\n")).not.toMatch(/article_autopilot cap/);
+    for (const line of lines) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 
   it("lists a cap that drops from the copy's setting to a lower plan cap as narrower", () => {

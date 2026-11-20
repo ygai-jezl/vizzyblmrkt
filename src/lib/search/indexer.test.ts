@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { indexSource, removeFromIndex } from "./indexer";
+import { indexSource, removeFromIndex, storedKindOf, storedSourceKey } from "./indexer";
 import { MemorySearchIndex } from "./memoryStore";
 import type { SearchSource } from "./types";
 
@@ -136,5 +136,62 @@ describe("indexSource", () => {
     const store = { ...index.storeFor(ctxA), putSource: vi.fn(async () => Promise.reject(new Error("boom"))) };
     const { embed } = fakeEmbed();
     expect(await indexSource(ctxA, article, { store, embed, granted: true })).toBe("failed");
+  });
+});
+
+describe("the name an Idea Board item is written under", () => {
+  const clipping: SearchSource = { kind: "idea_board", ref: "i1", title: "Repot in spring", body: "Saved from a gardening forum." };
+  const stored = (index: MemorySearchIndex) => ({
+    manifests: [...(index.manifests.get("ten_fernleaf")?.values() ?? [])].map((m) => `${m.kind} ${m.sourceKey}`),
+    chunks: [...(index.chunks.get("ten_fernleaf")?.values() ?? [])].map((c) => `${c.kind} ${c.sourceKey}`),
+  });
+
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("GRANTED_ONLY_FEATURES", "");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is idea while the switch is off, and idea_board once it is on; other kinds keep their name", () => {
+    expect(storedKindOf("idea_board")).toBe("idea");
+    expect(storedSourceKey("idea_board", "i1")).toBe("idea:i1");
+    vi.stubEnv("SEARCH_KIND_IDEA_BOARD_ENABLED", "true");
+    expect(storedKindOf("idea_board")).toBe("idea_board");
+    expect(storedSourceKey("idea_board", "i1")).toBe("idea_board:i1");
+    for (const kind of ["article", "template", "image"] as const) expect(storedKindOf(kind)).toBe(kind);
+  });
+
+  it("writes the chunks and manifest as idea with the switch off, read back as idea_board", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed } = fakeEmbed();
+    expect(await indexSource(ctxA, clipping, { store, embed, granted: true })).toBe("indexed");
+    expect(stored(index)).toEqual({ manifests: ["idea idea:i1"], chunks: ["idea idea:i1"] });
+    expect(await store.getManifest("idea:i1")).toMatchObject({ kind: "idea_board", ref: "i1" });
+    expect((await store.words("repot", { limit: 5, kinds: ["idea_board"] })).map((h) => h.kind)).toEqual(["idea_board"]);
+    // A version that moves with the text unchanged keeps the stored name.
+    expect(await indexSource(ctxA, clipping, { store, embed, granted: true, version: "v2" })).toBe("unchanged");
+    expect(stored(index).manifests).toEqual(["idea idea:i1"]);
+  });
+
+  it("writes them as idea_board with the switch on", async () => {
+    vi.stubEnv("SEARCH_KIND_IDEA_BOARD_ENABLED", "true");
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed } = fakeEmbed();
+    expect(await indexSource(ctxA, clipping, { store, embed, granted: true })).toBe("indexed");
+    expect(stored(index)).toEqual({ manifests: ["idea_board idea_board:i1"], chunks: ["idea_board idea_board:i1"] });
+  });
+
+  it("removes an item under both names, whichever the switch says", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed } = fakeEmbed();
+    await indexSource(ctxA, clipping, { store, embed, granted: true });
+    vi.stubEnv("SEARCH_KIND_IDEA_BOARD_ENABLED", "true");
+    await indexSource(ctxA, clipping, { store, embed, granted: true });
+    expect(stored(index).manifests).toEqual(["idea idea:i1", "idea_board idea_board:i1"]);
+    expect(await removeFromIndex(ctxA, "idea_board", "i1", { store })).toBe("removed");
+    expect(stored(index)).toEqual({ manifests: [], chunks: [] });
   });
 });

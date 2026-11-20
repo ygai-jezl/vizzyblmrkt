@@ -82,7 +82,7 @@ const SEARCH_LIMIT = 12;
 const COVERED_SIM = 0.65;
 
 /** What the brand made that counts as "already said". */
-const OWN_KINDS = new Set<SearchKind>(["article", "newsletter", "ebook", "post", "journey_email", "broadcast", "note", "idea", "knowledge"]);
+const OWN_KINDS = new Set<SearchKind>(["article", "newsletter", "ebook", "post", "journey_email", "broadcast", "note", "idea_board", "knowledge"]);
 const KIND_WORD: Partial<Record<SearchKind, string>> = {
   article: "article",
   newsletter: "newsletter",
@@ -91,7 +91,7 @@ const KIND_WORD: Partial<Record<SearchKind, string>> = {
   journey_email: "email",
   broadcast: "email",
   note: "team note",
-  idea: "saved idea",
+  idea_board: "saved idea",
   knowledge: "site page",
 };
 

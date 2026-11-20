@@ -34,3 +34,13 @@ export function isSearchUiEnabled(): boolean {
 export function isVizzySearchEnabled(): boolean {
   return isSearchEnabled() && process.env.VIZZY_SEARCH_ENABLED === "true";
 }
+
+/**
+ * Write Idea Board items to the index under their new kind name, `idea_board`. Off: they are
+ * written as `idea`, as before. Reads take both names either way, and the scheduled check moves
+ * what is stored to the name in use within about 10 minutes, so turning this off is the first
+ * step of a rollback.
+ */
+export function isSearchKindIdeaBoardEnabled(): boolean {
+  return process.env.SEARCH_KIND_IDEA_BOARD_ENABLED === "true";
+}

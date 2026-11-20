@@ -788,7 +788,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: [],
     erase: { paths: [brandPath("deleteIdeaItem", WORKSPACE_CONTENT)] },
     export: { none: NOT_PERSONAL },
-    search: { kinds: ["idea"] },
+    search: { kinds: ["idea_board"] },
     numbers: { none: NO_NUMBERS },
   },
   {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubOf } from "./feeders";
 import { MemorySearchIndex } from "./memoryStore";
 import { isSweepTick, runSearchSweeps, sweepBrand } from "./sweep";
-import type { SearchChunkDoc, SearchKind, SearchManifest, SearchSource } from "./types";
+import type { SearchKind, SearchSource, SearchStore } from "./types";
 
 vi.mock("@/lib/tenant/searchIndex", () => ({
   searchStoreFor: () => {
@@ -18,6 +18,7 @@ const reader = (sources: SearchSource[], complete: SearchKind[]) => async () => 
 describe("sweepBrand", () => {
   beforeEach(() => {
     vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_KIND_IDEA_BOARD_ENABLED", "true");
     unitEmbed.mockClear();
   });
   afterEach(() => vi.unstubAllEnvs());
@@ -25,53 +26,81 @@ describe("sweepBrand", () => {
   it("indexes new records, skips unchanged ones and re-indexes changed ones", async () => {
     const index = new MemorySearchIndex();
     const store = index.storeFor(ctx);
-    const first = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "Repot in spring"), src("note", "n1", "Fans love citrus")], ["idea", "note"]) });
+    const first = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea_board", "i1", "Repot in spring"), src("note", "n1", "Fans love citrus")], ["idea_board", "note"]) });
     expect(first).toMatchObject({ records: 2, changed: 2, indexed: 2, removed: 0 });
-    const again = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "Repot in spring"), src("note", "n1", "Fans love citrus")], ["idea", "note"]) });
+    const again = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea_board", "i1", "Repot in spring"), src("note", "n1", "Fans love citrus")], ["idea_board", "note"]) });
     expect(again).toMatchObject({ changed: 0, indexed: 0 });
     expect(unitEmbed).toHaveBeenCalledTimes(2);
-    const changed = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "Repot in autumn"), src("note", "n1", "Fans love citrus")], ["idea", "note"]) });
+    const changed = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea_board", "i1", "Repot in autumn"), src("note", "n1", "Fans love citrus")], ["idea_board", "note"]) });
     expect(changed).toMatchObject({ changed: 1, indexed: 1 });
     expect((await store.words("autumn", { limit: 5 })).length).toBe(1);
   });
 
-  it("rolls back a rename: an idea_board entry is removed, chunks too, and indexed again as idea", async () => {
+  // What one record holds in the store, under the name it is stored as.
+  const raw = (index: MemorySearchIndex) => ({
+    manifests: [...(index.manifests.get(ctx.tenantId)?.values() ?? [])].map((m) => `${m.kind} ${m.sourceKey}`),
+    chunks: [...(index.chunks.get(ctx.tenantId)?.values() ?? [])].map((c) => `${c.kind} ${c.sourceKey}`),
+  });
+  // An Idea Board item stored with two chunks under `name`.
+  const seedIdea = async (store: SearchStore, name: "idea" | "idea_board") => {
+    const sourceKey = `${name}:i1`;
+    const stored = (n: number) => ({ tenantId: ctx.tenantId, kind: name, ref: "i1", sourceKey, chunk: n, title: "i1", text: `Repot in spring ${n}`, url: "", lang: "en", updatedAt: "2026-11-20T10:00:00.000Z", embedding: [1, 0, 0] });
+    await store.putSource({ sourceKey, kind: name, ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z", version: "v0" }, [stored(0), stored(1)], 0);
+  };
+  const ideaRead = () => reader([src("idea_board", "i1", "Repot in spring")], ["idea_board"]);
+
+  it("moves an Idea Board item stored as idea to idea_board when the switch is on", async () => {
     const index = new MemorySearchIndex();
     const store = index.storeFor(ctx);
-    // What 0b would have written, then reverted: a manifest and chunks stored as idea_board.
-    const stored = (n: number) => ({
-      tenantId: ctx.tenantId,
-      kind: "idea_board",
-      ref: "i1",
-      sourceKey: "idea_board:i1",
-      chunk: n,
-      title: "i1",
-      text: `Repot in spring ${n}`,
-      url: "",
-      lang: "en",
-      updatedAt: "2026-11-20T10:00:00.000Z",
-      embedding: [1, 0, 0],
-    });
-    const manifest = { sourceKey: "idea_board:i1", kind: "idea_board", ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z", version: "v0" };
-    await store.putSource(manifest as unknown as SearchManifest, [stored(0), stored(1)] as unknown as SearchChunkDoc[], 0);
-    // Before the sweep it is still found, as an idea.
-    expect((await store.words("repot", { limit: 5, kinds: ["idea"] })).map((h) => h.kind)).toEqual(["idea", "idea"]);
+    await seedIdea(store, "idea");
+    // Before the check it is found, as idea_board.
+    expect((await store.words("repot", { limit: 5, kinds: ["idea_board"] })).map((h) => h.kind)).toEqual(["idea_board", "idea_board"]);
 
-    const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "Repot in spring")], ["idea"]) });
+    const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: ideaRead() });
+    expect(c).toMatchObject({ removed: 1, indexed: 1 });
+    expect(await store.getManifest("idea:i1")).toBeNull();
+    expect(raw(index)).toEqual({ manifests: ["idea_board idea_board:i1"], chunks: ["idea_board idea_board:i1"] });
+    expect(await store.getManifest("idea_board:i1")).toMatchObject({ kind: "idea_board", ref: "i1" });
+    // The next check finds nothing to do.
+    expect(await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: ideaRead() })).toMatchObject({ changed: 0, removed: 0 });
+  });
+
+  it("keeps writing idea while the switch is off, and leaves an item stored as idea alone", async () => {
+    vi.stubEnv("SEARCH_KIND_IDEA_BOARD_ENABLED", "false");
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctx);
+    const first = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: ideaRead() });
+    expect(first).toMatchObject({ indexed: 1, removed: 0 });
+    expect(raw(index)).toEqual({ manifests: ["idea idea:i1"], chunks: ["idea idea:i1"] });
+    expect(await store.getManifest("idea:i1")).toMatchObject({ kind: "idea_board" });
+    expect((await store.words("repot", { limit: 5, kinds: ["idea_board"] })).map((h) => h.kind)).toEqual(["idea_board"]);
+
+    const again = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: ideaRead() });
+    expect(again).toMatchObject({ changed: 0, removed: 0, indexed: 0 });
+    expect(unitEmbed).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back: with the switch off again, an idea_board entry is removed, chunks too, and indexed again as idea", async () => {
+    vi.stubEnv("SEARCH_KIND_IDEA_BOARD_ENABLED", "false");
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctx);
+    await seedIdea(store, "idea_board");
+    expect((await store.words("repot", { limit: 5, kinds: ["idea_board"] })).length).toBe(2);
+
+    const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: ideaRead() });
     expect(c).toMatchObject({ removed: 1, indexed: 1 });
     expect(await store.getManifest("idea_board:i1")).toBeNull();
-    expect([...(index.chunks.get(ctx.tenantId)?.values() ?? [])].map((x) => x.sourceKey)).toEqual(["idea:i1"]);
-    expect(await store.getManifest("idea:i1")).toMatchObject({ kind: "idea", ref: "i1" });
+    expect(raw(index)).toEqual({ manifests: ["idea idea:i1"], chunks: ["idea idea:i1"] });
   });
 
   it("removes what is gone, but only for kinds read in full", async () => {
     const index = new MemorySearchIndex();
     const store = index.storeFor(ctx);
-    await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea", "i1", "a"), src("note", "n1", "b")], ["idea", "note"]) });
+    await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([src("idea_board", "i1", "a"), src("note", "n1", "b")], ["idea_board", "note"]) });
     // The note read failed (not complete) and the idea is gone.
-    const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([], ["idea"]) });
+    const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([], ["idea_board"]) });
     expect(c.removed).toBe(1);
-    expect(await store.getManifest("idea:i1")).toBeNull();
+    expect(await store.getManifest("idea_board:i1")).toBeNull();
     expect(await store.getManifest("note:n1")).not.toBeNull();
   });
 
@@ -79,20 +108,20 @@ describe("sweepBrand", () => {
     const index = new MemorySearchIndex();
     const store = index.storeFor(ctx);
     const noVectors = vi.fn(async (items: unknown[]) => items.map(() => null));
-    const read = reader([src("idea", "i1", "a")], ["idea"]);
+    const read = reader([src("idea_board", "i1", "a")], ["idea_board"]);
     const t0 = Date.parse("2026-11-17T10:00:00Z");
     await sweepBrand(ctx, {}, { store, embed: noVectors, read, clock: () => t0 });
     const soon = await sweepBrand(ctx, {}, { store, embed: noVectors, read, clock: () => Date.now() + 60_000 });
     expect(soon.changed).toBe(0);
     const later = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read, clock: () => Date.now() + 7 * 3600_000 });
     expect(later).toMatchObject({ changed: 1, indexed: 1 });
-    expect((await store.getManifest("idea:i1"))?.embedded).toBe(true);
+    expect((await store.getManifest("idea_board:i1"))?.embedded).toBe(true);
   });
 
   it("changes nothing on a dry run", async () => {
     const index = new MemorySearchIndex();
     const store = index.storeFor(ctx);
-    const c = await sweepBrand(ctx, { dryRun: true }, { store, embed: unitEmbed, read: reader([src("idea", "i1", "a")], ["idea"]) });
+    const c = await sweepBrand(ctx, { dryRun: true }, { store, embed: unitEmbed, read: reader([src("idea_board", "i1", "a")], ["idea_board"]) });
     expect(c).toMatchObject({ records: 1, changed: 1, indexed: 0 });
     expect(unitEmbed).not.toHaveBeenCalled();
     expect(await store.listManifests()).toEqual([]);
@@ -106,7 +135,7 @@ describe("sweepBrand", () => {
       now += 1000;
       return items.map(() => [1, 0, 0]);
     });
-    const read = reader([src("idea", "a", "x"), src("idea", "b", "y"), src("idea", "c", "z")], ["idea"]);
+    const read = reader([src("idea_board", "a", "x"), src("idea_board", "b", "y"), src("idea_board", "c", "z")], ["idea_board"]);
     const first = await sweepBrand(ctx, { deadlineMs: 1500 }, { store, embed, read, clock: () => now });
     expect(first.partial).toBe(true);
     expect(first.indexed).toBe(2);

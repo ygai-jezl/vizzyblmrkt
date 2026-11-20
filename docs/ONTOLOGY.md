@@ -806,7 +806,7 @@ Something the team clipped to write about later: a link, a note or a screenshot.
 - Erase:
   - `deleteIdeaItem` in `src/lib/tenant/workspaceContent.ts`, on removing the record
 - Export: none. The brand's own work, with no one's personal data.
-- Search: `idea`
+- Search: `idea_board`
 - Numbers: none. No numbers an agent reads.
 
 ### Template (`template`)

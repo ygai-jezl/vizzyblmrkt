@@ -40,18 +40,25 @@ describe("resultId", () => {
 
 
 describe("kinds stored under an alias", () => {
-  const manifest = { tenantId: "ten_A", sourceKey: "idea_board:i1", kind: "idea_board", ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z" };
-  const chunk = { tenantId: "ten_A", sourceKey: "idea_board:i1", kind: "idea_board", ref: "i1", chunk: 0, title: "Repot", text: "Repot in spring", url: "/admin/x" };
+  // An Idea Board item as written before the rename, and while SEARCH_KIND_IDEA_BOARD_ENABLED is off.
+  const manifest = { tenantId: "ten_A", sourceKey: "idea:i1", kind: "idea", ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z" };
+  const chunk = { tenantId: "ten_A", sourceKey: "idea:i1", kind: "idea", ref: "i1", chunk: 0, title: "Repot", text: "Repot in spring", url: "/admin/x" };
 
-  it("reads idea_board as idea and keeps the stored sourceKey", () => {
-    expect(SEARCH_KIND_ALIASES).toEqual({ idea_board: "idea" });
-    expect(manifestFrom(manifest)).toMatchObject({ kind: "idea", sourceKey: "idea_board:i1", chunks: 2 });
-    expect(rankedFrom("c_1", chunk, "ten_A")).toMatchObject({ kind: "idea", sourceKey: "idea_board:i1", ref: "i1" });
+  it("reads a stored idea as idea_board and keeps the stored sourceKey", () => {
+    expect(SEARCH_KIND_ALIASES).toEqual({ idea: "idea_board" });
+    expect(manifestFrom(manifest)).toMatchObject({ kind: "idea_board", sourceKey: "idea:i1", chunks: 2 });
+    expect(rankedFrom("c_1", chunk, "ten_A")).toMatchObject({ kind: "idea_board", sourceKey: "idea:i1", ref: "i1" });
+  });
+
+  it("reads a stored idea_board as itself", () => {
+    const renamed = { sourceKey: "idea_board:i1", kind: "idea_board" };
+    expect(manifestFrom({ ...manifest, ...renamed })).toMatchObject({ kind: "idea_board", sourceKey: "idea_board:i1" });
+    expect(rankedFrom("c_1", { ...chunk, ...renamed }, "ten_A")).toMatchObject({ kind: "idea_board", sourceKey: "idea_board:i1" });
   });
 
   it("asks for both names when filtering by a kind that has an alias", () => {
-    expect(storedKindsFor(["idea"])).toEqual(["idea", "idea_board"]);
-    expect(storedKindsFor(["article", "idea"])).toEqual(["article", "idea", "idea_board"]);
+    expect(storedKindsFor(["idea_board"])).toEqual(["idea_board", "idea"]);
+    expect(storedKindsFor(["article", "idea_board"])).toEqual(["article", "idea_board", "idea"]);
     expect(storedKindsFor(["article"])).toEqual(["article"]);
   });
 

@@ -695,6 +695,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Write Idea Board items to the index as idea_board, not idea (needs SEARCH_INDEX_ENABLED).
+  # Reads take both names; turn it off and wait one search check before any revert.
+  - variable: SEARCH_KIND_IDEA_BOARD_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Vizzy reads how emails and posts did (get_email_results, get_post_results), each number
   # with its meaning (src/lib/metrics/meanings.ts). Aggregates only; needs a redeployed agent.
   - variable: RESULTS_CHAT_ENABLED

@@ -35,6 +35,10 @@ const signups = await repo.signups.find({ orderBy: [["createdAt", "desc"]], limi
 - A new collection goes in the repository in `src/lib/tenant/` (the only folder allowed to use
   Firestore directly), with a test that one tenant can't read or change another's rows (see
   `src/lib/tenant/repository.test.ts`).
+- A new collection or file store (Cloud Storage, BigQuery, Memory Bank) also needs an entry in
+  `src/lib/ontology/registry.ts`: where it lives, whether it holds people, and how it is erased,
+  exported, found and counted. Then run `npm run ontology:doc`.
+  `src/lib/ontology/coverage.test.ts` fails until the entry is there.
 - A query with several filters or a sort may need a composite index. The emulator won't tell
   you. Add it to `firestore.indexes.json` (ask first).
 

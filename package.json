@@ -21,6 +21,7 @@
     "check:instance": "node scripts/check-instance-values.mjs",
     "check:private-paths": "node scripts/check-private-paths.mjs",
     "agents:check": "node scripts/agents-check.mjs",
+    "ontology:doc": "tsx scripts/ontology-doc.ts",
     "smoke": "(test -f .next/BUILD_ID || next build) && node scripts/emulators.mjs exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'",
     "emulators": "node scripts/emulators.mjs start --only firestore,auth --project demo-yougrow"
   },

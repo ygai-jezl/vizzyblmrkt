@@ -2,6 +2,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailEvent, EmailEventType } from "@/lib/types/emailEvent";
 import type { ProductEvent } from "@/lib/types/productEvent";
 import type { PersonMove } from "@/lib/types/personMove";
+import type { AgentActionId, AgentActionState, DeclineReason } from "@/lib/types/agentAction";
 import { isContactPersonId, type ContactPersonId } from "./person";
 
 /**
@@ -9,7 +10,9 @@ import { isContactPersonId, type ContactPersonId } from "./person";
  * timelines, idea comparisons, journeys, metrics and Vizzy read events the same way. Each source
  * keeps its detail in its own store; the envelope is how they are read together.
  *
- * Pure: mappers from today's rows, and the kinds. Nothing here writes.
+ * Pure: mappers from today's rows, the kinds, and the shapes of the event history
+ * (ontology_events) and its agent actions. Nothing here writes, and nothing here needs Node, so
+ * client components can import it.
  */
 
 /**
@@ -46,15 +49,22 @@ export const EVENT_KINDS = [
   "person_plan.approved",
   // Someone engaging with the brand's social posts.
   "social.engaged",
-  // Records: a pu: person gained an address and joined another (merged), or a product user's
-  // address changed or went, so their rows moved to another person (repointed).
+  // Records: one was created, or one of its fields changed (with its value before and after).
+  // A pu: person gained an address and joined another (merged), or a product user's address
+  // changed or went, so their rows moved to another person (repointed).
+  "record.created",
+  "record.field_changed",
   "record.merged",
   "record.repointed",
-  // What an agent proposed, who approved it, what it did and its undo.
+  // A person agreed to (or, later, withdrew from) one purpose (src/lib/ontology/consent.ts).
+  "consent.recorded",
+  // What an agent proposed, who approved it, what it did, its undo, and a suggestion turned down
+  // (dismissed, expired, stale or superseded: the reason says which).
   "agent.proposed",
   "agent.approved",
   "agent.acted",
   "agent.undone",
+  "agent.declined",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
@@ -69,8 +79,10 @@ export interface EventIdentity {
   connectionId?: string;
 }
 
-export type EventSourceSystem = "app" | "mandrill" | "connect" | "social" | "agent";
-export type EventActorType = "person" | "member" | "agent" | "product" | "system";
+export const EVENT_SOURCE_SYSTEMS = ["app", "mandrill", "connect", "social", "agent"] as const;
+export type EventSourceSystem = (typeof EVENT_SOURCE_SYSTEMS)[number];
+export const EVENT_ACTOR_TYPES = ["person", "member", "agent", "product", "system"] as const;
+export type EventActorType = (typeof EVENT_ACTOR_TYPES)[number];
 
 export interface OntologyEvent<K extends EventKind = EventKind> {
   /** Stable, so a replay counts once. */
@@ -90,7 +102,15 @@ export interface OntologyEvent<K extends EventKind = EventKind> {
   refs: Record<string, string>;
   /** The kind's own detail. */
   properties: Record<string, unknown>;
+  /**
+   * What it is about, when that is more than the person: always set on a stored event
+   * (ontology_events), absent on events mapped from other stores.
+   */
+  subject?: EventSubject;
 }
+
+/** Who or what did it: ids only, never an address. */
+export type EventActor = OntologyEvent["actor"];
 
 /** Every email event type, as an event kind. */
 export const EMAIL_EVENT_KIND: Record<EmailEventType, EventKind> = {
@@ -238,13 +258,24 @@ export function actorOf(ctx: Pick<TenantContext, "source" | "userId">, person?: 
 /** The kinds an agent action's trail is made of. */
 export type AgentEventKind = Extract<EventKind, `agent.${string}`>;
 
+/** Whether a kind is a step of an agent action's trail. */
+export function isAgentEventKind(kind: string): kind is AgentEventKind {
+  return kind.startsWith("agent.") && isEventKind(kind);
+}
+
 export interface AgentActionProperties {
+  /** The agent action (agent_actions) this step belongs to. */
+  agentActionId: AgentActionId;
   /** Which agent, e.g. "vizzy". */
   agent: string;
-  /** What it does, e.g. "draft_article". */
+  /** What it does, e.g. "person_fields.suggest". */
   action: string;
-  /** What it acts on: an ontology type id from src/lib/ontology/registry.ts, and that record's id. */
-  target: { type: string; id: string };
+  /** What it acts on: a person, company or idea, each a type in src/lib/ontology/registry.ts. */
+  target: AgentTarget;
+  /** The action's state after this step. */
+  state: AgentActionState;
+  /** Why it was declined, on agent.declined. */
+  reason?: DeclineReason;
   /** The draft it made, when it made one. */
   draft?: { kind: string; ref: string };
   /** The limit it acted within, when it acted on its own. */
@@ -253,5 +284,157 @@ export interface AgentActionProperties {
   undoes?: string;
 }
 
-/** One step of an agent action's trail. The type only: the store comes later (0e). */
+/** One step of an agent action's trail, kept in ontology_events (src/lib/tenant/agentActions.ts writes it). */
 export type AgentActionEvent = OntologyEvent<AgentEventKind> & { properties: AgentActionProperties };
+
+// --- Stored events: the event history (ontology_events) ---------------------------------------
+
+/**
+ * What a stored event is about. A person's timeline is every row whose personId is theirs, which
+ * also covers rows about something else (an agent action about them). A later object type (the
+ * brand's own objects) widens this list and adds its registry type.
+ */
+export const SUBJECT_TYPES = ["person", "company", "idea", "agent_action"] as const;
+export type SubjectType = (typeof SUBJECT_TYPES)[number];
+
+export interface EventSubject {
+  type: SubjectType;
+  /** A `ct_` person id, a `co_` company id, a launch's campaign id or an `aa_` agent action id. */
+  id: string;
+}
+
+/** `type:id`, as stored on each row so one subject's history is one equality query. */
+export type SubjectKey = `${SubjectType}:${string}`;
+
+/** A subject's id: letters, digits, `_`, `.` and `-`, so it fits in an event key. Never an address. */
+export const SUBJECT_ID = /^[A-Za-z0-9_.-]{1,200}$/;
+
+export function subjectKey(s: EventSubject): SubjectKey {
+  return `${s.type}:${s.id}`;
+}
+
+/** The subject a key names, or null for anything else (an unknown type, no id, a bad id). */
+export function parseSubjectKey(k: string): EventSubject | null {
+  if (typeof k !== "string") return null;
+  const at = k.indexOf(":");
+  if (at <= 0) return null;
+  const type = k.slice(0, at);
+  const id = k.slice(at + 1);
+  if (!(SUBJECT_TYPES as readonly string[]).includes(type) || !SUBJECT_ID.test(id)) return null;
+  return { type: type as SubjectType, id };
+}
+
+/** Each subject type's type in the ontology registry (src/lib/ontology/registry.ts). */
+export const SUBJECT_TYPE_REGISTRY_ID: Record<SubjectType, string> = {
+  person: "person",
+  company: "company",
+  idea: "idea",
+  agent_action: "agent_action",
+};
+
+/**
+ * What an agent action can be about. A consumer that needs another target adds the value and its
+ * registry type id in its own change.
+ */
+export const AGENT_TARGET_TYPES = ["person", "company", "idea"] as const;
+export type AgentTargetType = (typeof AGENT_TARGET_TYPES)[number];
+
+export interface AgentTarget {
+  type: AgentTargetType;
+  id: string;
+}
+
+/** Each target type's type in the ontology registry. */
+export const AGENT_TARGET_REGISTRY_ID: Record<AgentTargetType, string> = {
+  person: "person",
+  company: "company",
+  idea: "idea",
+};
+
+/**
+ * The kinds the event history keeps: what has no other home. Email, product, journey and sign-up
+ * moments stay in their own stores and are read beside it; merges and repoints stay in
+ * person_moves. The writers refuse any other kind.
+ */
+export const STORED_EVENT_KINDS = [
+  "record.created",
+  "record.field_changed",
+  "consent.recorded",
+  "agent.proposed",
+  "agent.approved",
+  "agent.acted",
+  "agent.undone",
+  "agent.declined",
+] as const satisfies readonly EventKind[];
+export type StoredEventKind = (typeof STORED_EVENT_KINDS)[number];
+
+export function isStoredEventKind(value: unknown): value is StoredEventKind {
+  return typeof value === "string" && (STORED_EVENT_KINDS as readonly string[]).includes(value);
+}
+
+/** Where a field's new value came from. */
+export const FIELD_CHANGE_SOURCES = ["editor", "agent", "import", "sync", "restore", "undo"] as const;
+export type FieldChangeSource = (typeof FIELD_CHANGE_SOURCES)[number];
+
+/** The records whose fields change, and that are created, with an event. */
+export const FIELD_OBJECTS = ["person", "company", "idea"] as const;
+export type FieldObject = (typeof FIELD_OBJECTS)[number];
+
+/** record.field_changed: one field's value before and after. The values may be personal. */
+export interface FieldChangedProperties {
+  fieldId: string;
+  object: FieldObject;
+  before: unknown;
+  after: unknown;
+  source: FieldChangeSource;
+}
+
+/** record.created: what was created, and how (for example "form", "palette" or "vizzy"). */
+export interface RecordCreatedProperties {
+  object: FieldObject;
+  via: string;
+}
+
+/**
+ * A field the brand defines: letters, digits, `_` and `-`, so a dotted update path such as
+ * `proposal.fields.<id>` is always safe. Never a system field id.
+ */
+export const USER_FIELD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** System field ids (a stage, a tag, an idea's status) start with this, and never clash with the brand's own. */
+export const SYSTEM_FIELD_PREFIX = "sys.";
+const SYSTEM_FIELD_PART = /^[A-Za-z0-9_-]+$/;
+
+/** A system field id from its parts, e.g. systemFieldId("stage", connectionId) is `sys.stage.<connectionId>`. */
+export function systemFieldId(...parts: string[]): string {
+  if (parts.length === 0 || parts.some((p) => typeof p !== "string" || !SYSTEM_FIELD_PART.test(p))) {
+    throw new Error("bad_system_field_id");
+  }
+  return `${SYSTEM_FIELD_PREFIX}${parts.join(".")}`;
+}
+
+export function isSystemFieldId(id: string): boolean {
+  if (typeof id !== "string" || !id.startsWith(SYSTEM_FIELD_PREFIX) || id.length > 200) return false;
+  return id.slice(SYSTEM_FIELD_PREFIX.length).split(".").every((p) => SYSTEM_FIELD_PART.test(p));
+}
+
+export function isUserFieldId(id: string): boolean {
+  return typeof id === "string" && USER_FIELD_ID.test(id);
+}
+
+/**
+ * The one form a stored time takes: what toISOString gives, with milliseconds and Z, so string
+ * order is time order.
+ */
+export const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+export function isCanonicalInstant(value: unknown): value is string {
+  if (typeof value !== "string" || !CANONICAL_INSTANT.test(value)) return false;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === value;
+}
+
+/** A value's size as UTF-8 JSON, measured with TextEncoder (no Buffer: this can reach the browser). */
+export function jsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value) ?? "").length;
+}

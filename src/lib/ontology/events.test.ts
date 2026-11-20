@@ -3,8 +3,22 @@ import { deterministicContactId } from "@/lib/crm/identifiers";
 import type { TenantContext } from "@/lib/tenant/types";
 import { EmailEventType, type EmailEvent } from "@/lib/types/emailEvent";
 import { ProductEventSchema, type ProductEvent } from "@/lib/types/productEvent";
+import { typeById } from "./registry";
 import {
   actorOf,
+  AGENT_TARGET_REGISTRY_ID,
+  AGENT_TARGET_TYPES,
+  isCanonicalInstant,
+  isStoredEventKind,
+  isSystemFieldId,
+  jsonBytes,
+  parseSubjectKey,
+  STORED_EVENT_KINDS,
+  SUBJECT_TYPE_REGISTRY_ID,
+  SUBJECT_TYPES,
+  subjectKey,
+  systemFieldId,
+  USER_FIELD_ID,
   EMAIL_EVENT_KIND,
   EVENT_KINDS,
   fromEmailEvent,
@@ -182,7 +196,14 @@ describe("AgentActionEvent", () => {
       source: { system: "agent" },
       actor: { type: "agent", id: "u1" },
       refs: {},
-      properties: { agent: "vizzy", action: "draft_article", target: { type: "idea", id: "c1" }, draft: { kind: "content_plan", ref: "p1" } },
+      properties: {
+        agentActionId: `aa_${"0".repeat(40)}`,
+        agent: "vizzy",
+        action: "draft_article",
+        target: { type: "idea", id: "c1" },
+        state: "proposed",
+        draft: { kind: "content_plan", ref: "p1" },
+      },
     };
     const kind: EventKind = e.kind;
     expect(kind.startsWith("agent.")).toBe(true);
@@ -225,5 +246,66 @@ describe("fromPersonMove", () => {
     const e = fromPersonMove({ ...move("record.merged"), personId: "pu_1", fromPersonId: "pu_2" });
     expect(e.person).toBeNull();
     expect(e.properties.fromPersonId).toBeNull();
+  });
+});
+
+describe("the event history's kinds", () => {
+  it("has the four new kinds, and stores only kinds the envelope has", () => {
+    for (const k of ["record.created", "record.field_changed", "consent.recorded", "agent.declined"]) expect(isEventKind(k), k).toBe(true);
+    for (const k of STORED_EVENT_KINDS) expect(EVENT_KINDS, k).toContain(k);
+    expect(STORED_EVENT_KINDS.some((k) => k.startsWith("plan."))).toBe(false);
+    expect(isStoredEventKind("email.opened")).toBe(false);
+    expect(isStoredEventKind("agent.declined")).toBe(true);
+  });
+});
+
+describe("subjects and targets", () => {
+  it("round trip through their key, and refuse anything else", () => {
+    for (const type of SUBJECT_TYPES) {
+      const s = { type, id: `${type}_1` };
+      expect(parseSubjectKey(subjectKey(s))).toEqual(s);
+    }
+    expect(subjectKey({ type: "idea", id: "spring-launch" })).toBe("idea:spring-launch");
+    for (const bad of ["record:x", "person", "person:", ":x", "company:a b", "person:ada@example.com", ""]) expect(parseSubjectKey(bad), bad).toBeNull();
+  });
+
+  it("map every subject and target type to a type in the registry", () => {
+    for (const t of SUBJECT_TYPES) expect(typeById(SUBJECT_TYPE_REGISTRY_ID[t]), t).toBeDefined();
+    for (const t of AGENT_TARGET_TYPES) expect(typeById(AGENT_TARGET_REGISTRY_ID[t]), t).toBeDefined();
+  });
+
+  it("give a company or idea target the same key as its subject", () => {
+    for (const type of ["company", "idea"] as const) {
+      const target = { type, id: "x_1" };
+      expect(`${target.type}:${target.id}`).toBe(subjectKey(target));
+    }
+  });
+});
+
+describe("field ids", () => {
+  it("builds system field ids from plain parts only", () => {
+    expect(systemFieldId("stage", "pcn_1")).toBe("sys.stage.pcn_1");
+    expect(isSystemFieldId("sys.idea.status")).toBe(true);
+    for (const parts of [["a.b"], ["a", ""], [], ["a b"], ["ada@example.com"]]) expect(() => systemFieldId(...parts), parts.join("|")).toThrow();
+    expect(isSystemFieldId("sys.")).toBe(false);
+    expect(isSystemFieldId("stage")).toBe(false);
+  });
+
+  it("keeps the brand's own field ids apart from system ones, with no dots", () => {
+    expect(USER_FIELD_ID.test("plan_tier")).toBe(true);
+    expect(USER_FIELD_ID.test("Plan-2")).toBe(true);
+    for (const bad of ["sys.x", "a.b", "", "a b", "x".repeat(65)]) expect(USER_FIELD_ID.test(bad), bad).toBe(false);
+  });
+});
+
+describe("times and sizes", () => {
+  it("accepts only what toISOString gives", () => {
+    expect(isCanonicalInstant("2026-11-20T10:00:00.000Z")).toBe(true);
+    for (const bad of ["2026-11-20T10:00:00Z", "2026-11-20T10:00:00.000+00:00", "2026-02-30T10:00:00.000Z", "", 5]) expect(isCanonicalInstant(bad), String(bad)).toBe(false);
+  });
+
+  it("counts bytes in UTF-8", () => {
+    expect(jsonBytes({ a: "é" })).toBe(new TextEncoder().encode('{"a":"é"}').length);
+    expect(jsonBytes("€")).toBe(5);
   });
 });

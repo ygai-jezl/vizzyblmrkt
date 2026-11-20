@@ -77,5 +77,6 @@ export async function GET(req: Request) {
     accountLogin: liOrg?.orgs?.length ? `${liOrg.orgs.length} page(s)` : null,
     connectedAt: liOrg?.connectedAt ?? null,
   };
-  return NextResponse.json({ providers });
+  // Members can look, only admins connect: the panel hides what a member can't use.
+  return NextResponse.json({ providers, canEdit: ctx.role === "admin" });
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { GitRepoPicker } from "./GitRepoPicker";
+import { connectErrorMessage } from "./connectErrors";
 
 interface ProviderStatus {
   label: string;
@@ -29,29 +30,33 @@ const GIT_IDS = new Set(["github", "gitlab"]);
 function repoSummary(s: ProviderStatus): string {
   const r = s.selectedRepos;
   if (!r) return "All accessible repositories (choose to restrict).";
-  if (r.length === 0) return "No repositories selected yet — choose which to use.";
+  if (r.length === 0) return "No repositories selected yet. Choose which to use.";
   const shown = r.slice(0, 3).map((x) => x.fullPath).join(", ");
   return `${r.length} repositor${r.length === 1 ? "y" : "ies"}: ${shown}${r.length > 3 ? ", …" : ""}`;
 }
 
 const PROVIDER_IDS = ["github", "gitlab", "x", "linkedin", "linkedin_org"] as const;
 
-/** Why a connection attempt failed, in plain words. */
-const CONNECT_ERRORS: Record<string, string> = {
-  installation_not_yours: "That GitHub installation isn't one your account can access. Install the app from here, signed in as a member of that account.",
-  app_not_read_only: "That GitHub installation has more than read access, so we refused it. Reinstall the YouGrow app from here.",
-  no_installation: "GitHub didn't finish installing the app. Try Connect again, and choose where to install it.",
-  token_exchange_failed: "GitHub didn't confirm the connection. Please try again.",
-  bad_state: "That connection attempt expired or came from another session. Please start again from here.",
-  state_expired: "That connection attempt expired. Please start again from here.",
-  access_denied: "The connection was cancelled on GitHub.",
+/** Names for the banner before the status has loaded. */
+const LABELS: Record<string, string> = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  x: "X (Twitter)",
+  linkedin: "LinkedIn",
+  linkedin_org: "LinkedIn Pages",
 };
 
-/** Manage per-tenant GitHub/GitLab OAuth connections (for ingesting private repos). */
+/**
+ * Manage the brand's GitHub, GitLab, X and LinkedIn connections. Only admins connect,
+ * disconnect or choose repositories; members see what's connected, read only.
+ */
 export function ConnectionsPanel() {
   const sp = useSearchParams();
   const [providers, setProviders] = useState<Record<string, ProviderStatus> | null>(null);
+  // From the status API: false until it says this person is an admin.
+  const [canEdit, setCanEdit] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
   // Which git provider's repo picker is open. Opens automatically after a fresh
   // connect (the callback adds ?select=<provider>).
   const [picking, setPicking] = useState<string | null>(() => {
@@ -65,8 +70,10 @@ export function ConnectionsPanel() {
       if (!res.ok) return;
       const d = (await res.json().catch(() => ({}))) as {
         providers?: Record<string, ProviderStatus>;
+        canEdit?: boolean;
       };
       setProviders(d.providers ?? {});
+      setCanEdit(d.canEdit === true);
     } catch {
       /* keep current */
     }
@@ -91,8 +98,10 @@ export function ConnectionsPanel() {
     const label = providers?.[p]?.label ?? p;
     if (!window.confirm(`Disconnect ${label}?`)) return;
     setBusy(p);
+    setDisconnectError(null);
     try {
-      await fetch(`/api/admin/integrations/${p}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/integrations/${p}`, { method: "DELETE" }).catch(() => null);
+      if (!res?.ok) setDisconnectError("Couldn't disconnect. Please try again.");
       await load();
     } finally {
       setBusy(null);
@@ -101,18 +110,23 @@ export function ConnectionsPanel() {
 
   const status = sp.get("status");
   const bannerProvider = sp.get("provider") ?? "";
-  const bannerLabel = providers?.[bannerProvider]?.label ?? bannerProvider;
+  const bannerLabel = providers?.[bannerProvider]?.label ?? LABELS[bannerProvider] ?? null;
   const reason = sp.get("reason") ?? "error";
   const banner =
     status === "ok"
-      ? { tone: "ok", msg: sp.get("updated") ? `Your ${bannerLabel} repositories were updated.` : `Connected ${bannerLabel}.` }
+      ? {
+          tone: "ok",
+          msg: sp.get("updated")
+            ? `Your ${bannerLabel ?? "GitHub"} repositories were updated.`
+            : `Connected ${bannerLabel ?? "the service"}.`,
+        }
       : status === "requested"
         ? {
             tone: "ok",
-            msg: "Request sent — GitHub has asked your organisation's owners to approve the YouGrow app. Once they do, connect again here to finish.",
+            msg: "Request sent. GitHub has asked your organisation's owners to approve the YouGrow app. Once they do, connect again here to finish.",
           }
         : status === "error"
-          ? { tone: "err", msg: CONNECT_ERRORS[reason] ?? `Couldn't connect (${reason}).` }
+          ? { tone: "err", msg: connectErrorMessage(reason, bannerLabel) }
           : null;
 
   return (
@@ -126,6 +140,16 @@ export function ConnectionsPanel() {
           encrypted, never in plaintext.
         </p>
       </div>
+
+      {!canEdit && providers ? (
+        <p className="text-sm text-neutral-500">Only admins can connect or disconnect accounts.</p>
+      ) : null}
+
+      {disconnectError ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
+          {disconnectError}
+        </p>
+      ) : null}
 
       {banner ? (
         <p
@@ -160,17 +184,22 @@ export function ConnectionsPanel() {
                     <span className="text-xs text-green-600 dark:text-green-400">
                       Connected{s.accountLogin ? ` as ${s.accountLogin}` : ""}.
                       {s.readOnly ? <span className="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-green-800 dark:bg-green-950 dark:text-green-300">Read-only</span> : null}
-                    {s.manageUrl && !s.upgradeAvailable ? (
+                    {canEdit && s.manageUrl && !s.upgradeAvailable ? (
                       <a className="ml-2 text-neutral-500 underline" href={s.manageUrl} target="_blank" rel="noreferrer">
                         Add or remove repositories on GitHub
                       </a>
                     ) : null}
                       {s.upgradeAvailable ? (
                         <span className="mt-1 block text-amber-700 dark:text-amber-400">
-                          This older connection can also write to your repos. Switch to read-only access — we only ever read your code.{" "}
-                          <button type="button" className="underline" onClick={() => connect(p)}>
-                            Switch now
-                          </button>
+                          This older connection can also write to your repos. Switch to read-only access, as we only ever read your code.
+                          {canEdit ? (
+                            <>
+                              {" "}
+                              <button type="button" className="underline" onClick={() => connect(p)}>
+                                Switch now
+                              </button>
+                            </>
+                          ) : null}
                         </span>
                       ) : null}
                     </span>
@@ -179,18 +208,23 @@ export function ConnectionsPanel() {
                   )}
                   {s?.connected && s.repoSelection ? (
                     <div className="text-xs text-neutral-500">
-                      {repoSummary(s)}{" "}
-                      <button
-                        type="button"
-                        onClick={() => setPicking(picking === p ? null : p)}
-                        className="text-violet-600 underline dark:text-violet-400"
-                      >
-                        {s.selectedRepos?.length ? "Manage" : "Choose repositories"}
-                      </button>
+                      {repoSummary(s)}
+                      {canEdit ? (
+                        <>
+                          {" "}
+                          <button
+                            type="button"
+                            onClick={() => setPicking(picking === p ? null : p)}
+                            className="text-violet-600 underline dark:text-violet-400"
+                          >
+                            {s.selectedRepos?.length ? "Manage" : "Choose repositories"}
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-                {s?.configured ? (
+                {canEdit && s?.configured ? (
                   s.connected ? (
                     <button
                       onClick={() => disconnect(p)}
@@ -209,7 +243,7 @@ export function ConnectionsPanel() {
                   )
                 ) : null}
               </div>
-              {picking === p && s?.connected && s.repoSelection && GIT_IDS.has(p) ? (
+              {canEdit && picking === p && s?.connected && s.repoSelection && GIT_IDS.has(p) ? (
                 <GitRepoPicker
                   provider={p as "github" | "gitlab"}
                   label={s.label}

@@ -23,7 +23,8 @@ const ERRORS: Record<string, string> = {
   reconnect_required: "This connection can't list repositories — disconnect and connect again.",
   provider_error: "The provider didn't respond. Try again in a moment.",
   not_connected: "Not connected.",
-  unknown_repos: "Some repositories are no longer accessible — reload and pick again.",
+  unknown_repos: "Some repositories are no longer accessible. Reload and pick again.",
+  forbidden: "Only admins can choose repositories.",
 };
 
 /**

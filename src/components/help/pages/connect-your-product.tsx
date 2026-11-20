@@ -85,8 +85,8 @@ export default function ConnectYourProductHelp() {
       </P>
       <Steps>
         <li>
-          On the product&apos;s <strong>Learn from repo</strong> tab, press <strong>Connect GitHub</strong> and choose the
-          repositories it may read. On GitLab, or a public repo? Press{" "}
+          On the product&apos;s <strong>Learn from repo</strong> tab, an admin presses <strong>Connect GitHub</strong> and
+          chooses the repositories it may read. On GitLab, or a public repo? Press{" "}
           <strong>Add a repository by address (GitLab or public)</strong> instead.
         </li>
         <li>

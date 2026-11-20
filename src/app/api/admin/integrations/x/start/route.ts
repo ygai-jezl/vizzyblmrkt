@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { getAdminContext } from "@/lib/auth/session";
+import { integrationsHopAdmin } from "@/lib/integrations/admin";
 import {
   isXConfigured,
   xClientId,
@@ -22,8 +22,15 @@ export const dynamic = "force-dynamic";
  * `[provider]` dynamic route for the `/integrations/x/*` path.
  */
 export async function GET(req: Request) {
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Admins only, checked before any cookie is set.
+  const gate = await integrationsHopAdmin();
+  if (!gate.ok) {
+    if (gate.why === "signed_out") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.redirect(
+      `${socialOrigin(req.headers)}/admin/account/connections?status=error&reason=forbidden&provider=x`,
+    );
+  }
+  const { ctx } = gate;
   if (!isXConfigured() || !isSocialCryptoConfigured()) {
     return NextResponse.json({ error: "x_not_configured" }, { status: 503 });
   }

@@ -8,6 +8,8 @@ import { z } from "zod";
 export interface MailchimpResult<T = unknown> {
   ok: boolean;
   reason?: string;
+  /** The HTTP status when Mailchimp answered with an error (absent on a timeout or network error). */
+  status?: number;
   data?: T;
 }
 

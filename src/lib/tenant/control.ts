@@ -21,6 +21,7 @@ import {
   type EmailStyleSuggestion,
   type StoredEmailStyle,
   type GitConnection,
+  type GitReconnectReason,
   type GitSelectedRepo,
   type SocialConnection,
   type Region,
@@ -648,21 +649,122 @@ export async function setTenantGitConnection(
     });
 }
 
-/** Replace the repos a tenant's git connection may be used for. */
+/**
+ * Replace the repos a tenant's git connection may be used for. A transaction that
+ * returns false and writes nothing when the connection is gone: a dotted write after a
+ * racing Disconnect would leave a partial map (repos with no provider or connectedAt)
+ * that TenantSchema.parse rejects, so the brand would fail to load for everyone.
+ */
 export async function setTenantGitRepos(
   id: string,
   provider: "github" | "gitlab",
   repos: GitSelectedRepo[],
-): Promise<void> {
-  const now = new Date().toISOString();
-  await getDb()
-    .collection("tenants")
-    .doc(id)
-    .update({
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || !storedGitConnection(snap.data(), provider)) return false;
+    const now = new Date().toISOString();
+    tx.update(ref, {
       [`gitConnections.${provider}.repos`]: repos,
       [`gitConnections.${provider}.reposUpdatedAt`]: now,
       updatedAt: now,
     });
+    return true;
+  });
+}
+
+type EncBlob = { ct: string; iv: string; tag: string };
+
+/** The raw stored connection for a provider, or null when there is none. */
+function storedGitConnection(
+  data: Record<string, unknown> | undefined,
+  provider: "github" | "gitlab",
+): { enc?: { ct?: unknown } } | null {
+  const conns = data?.gitConnections as Record<string, unknown> | undefined;
+  const conn = conns?.[provider];
+  return conn && typeof conn === "object" ? (conn as { enc?: { ct?: unknown } }) : null;
+}
+
+/**
+ * Store a refreshed git access token, compare-and-set on the access token it replaces.
+ * "gone" = the connection was removed (a Disconnect won: nothing is written, so a
+ * refresh never brings it back). "stale" = another request already stored a newer
+ * token (enc.ct differs): nothing is written, re-read and use the stored one. "saved"
+ * = the new enc, refreshEnc and expiresAt are stored and any reconnect mark is cleared.
+ * Dotted writes inside the transaction, so provider, connectedAt and repos stay.
+ */
+export async function swapTenantGitToken(
+  id: string,
+  provider: "github" | "gitlab",
+  expectedCt: string,
+  next: { enc: EncBlob; refreshEnc: EncBlob | null; expiresAt: string | null },
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"saved" | "stale" | "gone"> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const conn = snap.exists ? storedGitConnection(snap.data(), provider) : null;
+    if (!conn) return "gone";
+    if (conn.enc?.ct !== expectedCt) return "stale";
+    tx.update(ref, {
+      [`gitConnections.${provider}.enc`]: next.enc,
+      [`gitConnections.${provider}.refreshEnc`]: next.refreshEnc,
+      [`gitConnections.${provider}.expiresAt`]: next.expiresAt,
+      [`gitConnections.${provider}.reconnect`]: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
+    return "saved";
+  });
+}
+
+/**
+ * Mark a git connection as needing reconnecting, only while it still holds the access
+ * token the caller saw (enc.ct equals expectedCt). A slower request can't mark a
+ * connection another request has just refreshed, and nothing is written onto a
+ * deleted connection. Returns whether it wrote.
+ */
+export async function markTenantGitReconnect(
+  id: string,
+  provider: "github" | "gitlab",
+  expectedCt: string,
+  reason: GitReconnectReason,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const conn = snap.exists ? storedGitConnection(snap.data(), provider) : null;
+    if (!conn || conn.enc?.ct !== expectedCt) return false;
+    const now = new Date().toISOString();
+    tx.update(ref, {
+      [`gitConnections.${provider}.reconnect`]: { at: now, reason },
+      updatedAt: now,
+    });
+    return true;
+  });
+}
+
+/** Remove a git connection's reconnect mark, on the same compare-and-set terms as
+ *  markTenantGitReconnect. Returns whether it wrote. */
+export async function clearTenantGitReconnect(
+  id: string,
+  provider: "github" | "gitlab",
+  expectedCt: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const conn = snap.exists ? storedGitConnection(snap.data(), provider) : null;
+    if (!conn || conn.enc?.ct !== expectedCt) return false;
+    tx.update(ref, {
+      [`gitConnections.${provider}.reconnect`]: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  });
 }
 
 /** Remove a tenant's git OAuth connection for a provider. */
@@ -694,25 +796,79 @@ export async function setTenantSocialConnection(
     });
 }
 
-/** Remove a tenant's social OAuth connection for a platform (+ its webhook map). */
+/** The raw stored social connection for a platform, or null when there is none. */
+function storedSocialConnection(
+  data: Record<string, unknown> | undefined,
+  platform: string,
+): { enc?: { ct?: unknown } } | null {
+  const conns = data?.socialConnections as Record<string, unknown> | undefined;
+  const conn = conns?.[platform];
+  return conn && typeof conn === "object" ? (conn as { enc?: { ct?: unknown } }) : null;
+}
+
+/**
+ * Store a refreshed social token, compare-and-set on the access token it replaces (the
+ * same terms as swapTenantGitToken). "gone" = the connection was removed (a Disconnect
+ * won): nothing is written, so a refresh during a publish run never brings it back.
+ * "stale" = the stored token is no longer the one that was refreshed (a reconnect or
+ * another refresh got there first): nothing is written. "saved" = enc, refreshEnc,
+ * expiresAt and scope are stored as dotted writes inside the transaction, so platform,
+ * handle, userId, orgs and connectedAt stay as they are. A scope that isn't a string
+ * keeps the stored one (the schema has no null scope).
+ */
+export async function swapTenantSocialToken(
+  id: string,
+  platform: "x" | "instagram" | "linkedin" | "linkedin_org",
+  expectedCt: string,
+  next: { enc: EncBlob; refreshEnc: EncBlob | null; expiresAt: string | null; scope?: string | null },
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"saved" | "stale" | "gone"> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const conn = snap.exists ? storedSocialConnection(snap.data(), platform) : null;
+    if (!conn) return "gone";
+    if (conn.enc?.ct !== expectedCt) return "stale";
+    tx.update(ref, {
+      [`socialConnections.${platform}.enc`]: next.enc,
+      [`socialConnections.${platform}.refreshEnc`]: next.refreshEnc,
+      [`socialConnections.${platform}.expiresAt`]: next.expiresAt,
+      ...(typeof next.scope === "string" ? { [`socialConnections.${platform}.scope`]: next.scope } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    return "saved";
+  });
+}
+
+/**
+ * Remove a tenant's social OAuth connection for a platform, and its webhook map entry
+ * when THIS tenant holds it. One transaction: the connection and the map entry go
+ * together or not at all. Another brand that connected the same account first keeps
+ * its attribution (this brand got `held_by_other` when it connected). When the holder
+ * disconnects, the entry is freed, not handed to another brand.
+ */
 export async function deleteTenantSocialConnection(
   id: string,
   platform: "x" | "instagram" | "linkedin" | "linkedin_org",
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
 ): Promise<void> {
-  const ref = getDb().collection("tenants").doc(id);
-  // Read the connection's userId first so we can also drop the attribution map entry.
-  const snap = await ref.get();
-  const conns = (snap.data()?.socialConnections ?? {}) as Record<string, { userId?: string }>;
-  const userId = conns[platform]?.userId;
-  // Remove the attribution map FIRST (not swallowed): if this fails the disconnect
-  // aborts and is retryable, rather than orphaning a subscription that would keep
-  // routing inbound engagement to a now-disconnected tenant.
-  if (typeof userId === "string" && userId) {
-    await deleteSocialSubscription(platform, userId);
-  }
-  await ref.update({
-    [`socialConnections.${platform}`]: FieldValue.delete(),
-    updatedAt: new Date().toISOString(),
+  const ref = db.collection("tenants").doc(id);
+  await db.runTransaction(async (tx) => {
+    // All reads before any write.
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const conns = (snap.data()?.socialConnections ?? {}) as Record<string, { userId?: string }>;
+    const userId = conns[platform]?.userId;
+    const subRef =
+      typeof userId === "string" && userId
+        ? db.collection(SOCIAL_SUBSCRIPTIONS).doc(socialSubId(platform, userId))
+        : null;
+    const sub = subRef ? await tx.get(subRef) : null;
+    if (subRef && sub?.exists && sub.data()?.tenantId === id) tx.delete(subRef);
+    tx.update(ref, {
+      [`socialConnections.${platform}`]: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
   });
 }
 

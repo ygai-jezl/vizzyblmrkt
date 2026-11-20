@@ -76,9 +76,9 @@ export default function ProgrammesAndKnowledgeHelp() {
         </li>
         <li>
           For code, choose <strong>GitHub repo</strong> or <strong>GitLab repo</strong> and paste the repo&apos;s address. Add
-          a branch if you want one. A private repo needs your account connected first (
-          <Open href="/help/connected-accounts#github">Connected accounts</Open>). If a <strong>Connect</strong> link shows
-          under the address, press it.
+          a branch if you want one. A private repo needs an admin to connect it first (
+          <Open href="/help/connected-accounts#github">Connected accounts</Open>). If you&apos;re an admin and a{" "}
+          <strong>Connect</strong> link shows under the address, press it.
         </li>
       </Steps>
 
@@ -127,7 +127,7 @@ export default function ProgrammesAndKnowledgeHelp() {
           ["That source is already ingested.", "Nothing to do. To read it again, press Re-ingest on the source."],
           [
             "That repo isn't selected on your connection, so it's ingested without access",
-            "Choose the repo on your GitHub or GitLab connection in Settings › Integrations, then press Re-ingest. Until then only a public repo can be read.",
+            "Ask an admin to choose the repo on the GitHub or GitLab connection in Settings › Integrations, then press Re-ingest. Until then only a public repo can be read.",
           ],
           ["Too many ingestions in progress", "Wait for some sources to finish, then try again."],
           ["Wait until this source has finished being read.", "Press Cite in articles again once the source shows done."],

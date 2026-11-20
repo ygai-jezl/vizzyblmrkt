@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminContext } from "@/lib/auth/session";
-import { sameOriginGuard } from "@/lib/http/sameOrigin";
+import { integrationsAdmin } from "@/lib/integrations/admin";
 import { getTenantById } from "@/lib/tenant";
 import { githubAppConfig, listInstallationRepos, manageInstallationUrl } from "@/lib/integrations/githubApp";
 
@@ -14,10 +13,10 @@ export const dynamic = "force-dynamic";
  * change that choice. Never a token.
  */
 export async function GET(req: Request, { params }: { params: Promise<{ provider: string }> }) {
-  const blocked = sameOriginGuard(req);
-  if (blocked) return blocked;
-  const ctx = await getAdminContext();
-  if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Members can read this too: it shows what's connected, never a token.
+  const gate = await integrationsAdmin(req, { adminOnly: false });
+  if (!gate.ok) return gate.response;
+  const { ctx } = gate;
   if ((await params).provider !== "github") return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const app = githubAppConfig();

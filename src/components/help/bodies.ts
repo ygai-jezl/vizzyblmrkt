@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import GetSetUpHelp from "./pages/get-set-up";
+import PlanAndUsageHelp from "./pages/plan-and-usage";
 import EmailSendingHelp from "./pages/email-sending";
 import YourBrandHelp from "./pages/your-brand";
 import EmailStyleHelp from "./pages/email-style";
@@ -21,6 +22,7 @@ import TroubleshootingHelp from "./pages/troubleshooting";
 /** Each help page's body by slug ("" = Get set up): the /help routes, their Markdown copies and llms-full.txt render these. */
 export const HELP_BODIES: Record<string, () => ReactNode> = {
   "": GetSetUpHelp,
+  "plan-and-usage": PlanAndUsageHelp,
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,

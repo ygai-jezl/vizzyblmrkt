@@ -4,6 +4,130 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0006 · Connector security fixes (2026-11-20)
+
+Context: a security review on 17 Nov found these still true for connected accounts
+(GitHub, GitLab, X, LinkedIn, LinkedIn Pages) and Mailchimp settings:
+- any member of a brand could connect, disconnect or pick repos, and change the brand's
+  Mailchimp settings;
+- GitLab connections died 2 hours after connecting, because GitLab's refresh token was
+  never stored;
+- GitHub and GitLab sign-in were not bound to the browser that started them (X and
+  LinkedIn already were);
+- Disconnect never cancelled anything at the provider.
+
+Reviewing the fixes found four more:
+- a brand could claim the shared Mailchimp audience, or another brand's, and so receive
+  their unsubscribes, bounces and spam reports;
+- disconnecting an X account deleted its `social_subscriptions` row even when another
+  brand held it, which wiped that brand's X attribution;
+- a token refresh during a publish run wrote the whole connection back, so it could
+  bring back an account someone had just disconnected;
+- `setTenantGitRepos` wrote onto a connection that a racing Disconnect had removed,
+  leaving a partial map the tenant schema rejects, which locked everyone out of the brand.
+
+Decision (one PR, three groups of commits):
+- **Admins only.** Connecting, disconnecting, picking repos and changing Mailchimp
+  settings need the admin role. Every route under `/api/admin/integrations` goes through
+  `src/lib/integrations/admin.ts`: `integrationsAdmin` (origin check, sign-in, then the
+  role for anything that changes state) and `integrationsHopAdmin` for the OAuth start
+  and callback hops. `src/lib/integrations/routesGate.test.ts` fails when a route skips
+  it. The Mailchimp settings `PUT` checks the role in its own route. Members still see
+  what is connected, read only, and are told to ask an admin.
+- **Sign-in bound to the browser.** Every OAuth hop carries a nonce in its signed state
+  that must match a cookie the start set. GitHub (App install and classic OAuth) and
+  GitLab now use `git_oauth_state`: httpOnly, SameSite lax, Secure on https, 10 minutes,
+  scoped to that provider's callback path. A missing or different cookie goes back with
+  `bad_state` before any code exchange. X and LinkedIn already worked this way.
+- **Mailchimp only tightens.** A brand can turn `requiresOwnApiKey` on, never off. A new
+  audience id is refused when it is the shared audience, another brand holds it (the
+  answer never names that brand), the brand has no key of its own, or that key can't
+  read the list. Nothing is saved on a refusal, and an unchanged id is not checked again.
+- **X attribution.** `deleteTenantSocialConnection` is one transaction that deletes
+  `social_subscriptions/{platform}:{userId}` only when this brand is its holder.
+- **GitLab stays connected.** The GitLab callback stores the refresh token, sealed with
+  AAD `<tenantId>:gitlab:refresh` (`gitRefreshAad`, the pattern of the Mailchimp key
+  box), and its expiry. The access token keeps no AAD because the knowledge worker opens
+  it. Only the app refreshes, before every use (`src/lib/integrations/tokenRefresh.ts`);
+  the worker is unchanged. Before a worker trigger (knowledge ingest, Learn from repo)
+  the token must have 90 minutes left: the Job has a 60 minute task timeout and one
+  retry, so a retry clones at most about 60 minutes after the trigger and still has 30
+  minutes in hand. Every write is compare-and-set on the access token it replaces
+  (`swapTenantGitToken`, `markTenantGitReconnect`, `clearTenantGitReconnect`), so
+  overlapping refreshes settle on one token and a slower request never marks a
+  connection another request has just refreshed. `setTenantGitRepos` is a transaction
+  that writes nothing when the connection is gone.
+- **The reconnect line.** "This connection needs reconnecting." shows when a refresh was
+  refused, the provider rejected the token, an older GitLab connection with no refresh
+  token is over 2 hours old, or a social token has expired with no refresh token. Admins
+  get Reconnect, which keeps the chosen repos; members get "Ask an admin to reconnect
+  it." It is worked out when read (`src/lib/integrations/reconnect.ts`), so older
+  connections need no backfill. An uninstalled GitHub App shows in Learn from repo, not
+  on this line.
+- **Disconnect sticks.** Social token refresh writes are compare-and-set too
+  (`swapTenantSocialToken`): a refresh that finds the connection gone stores nothing,
+  and the post parks as not connected.
+
+Switches:
+- **No switch for these fixes.** AGENTS.md and CONTRIBUTING.md put switches on new
+  features, and these repair existing behaviour. The precedent is a2b48e0 (28 Oct, the
+  GDPR erase fix), which shipped without a switch after that rule came in on 19 Oct.
+  1a8c08f (5 Jul) is history only, because it came before the rule.
+- **Revoke on Disconnect is new behaviour**, so it sits behind `CONNECTOR_REVOKE_ENABLED`,
+  and X also behind `CONNECTOR_REVOKE_X_ENABLED`, which acts only with the first one on.
+  Both are "false" in `apphosting.yaml`, and turning one off again is a config change.
+  Revoke runs after the local delete, best effort, with an 8 second timeout, so a failed
+  or slow provider still disconnects.
+- **Revoke policy** (`src/lib/integrations/revoke.ts`, `src/lib/social/revoke.ts`):
+  - GitLab: yes, with the refresh token when there is one.
+  - The single classic GitHub token: yes, through the one token endpoint, never
+    `/grant`, which would end every brand's token for that GitHub user.
+  - X: only after the two-brand check passes, because an X account connected to two
+    brands may share one grant. That is why X has its own switch. X tokens minted by a
+    refresh that finds the connection gone are revoked as well.
+  - A GitHub App: never uninstalled, because other brands may use the installation.
+  - LinkedIn and LinkedIn Pages: skipped.
+  - A token replaced by a reconnect, or a classic GitHub token replaced by the GitHub
+    App, is revoked only when it differs from the new one.
+- **Classic GitHub revoke is a deliberate exception** to the rule that GitHub access
+  goes through the read-only GitHub App. It is allowed because it only removes access.
+  The classic OAuth path is to be retired later.
+
+Google's pattern, followed:
+- [developers.google.com/identity/protocols/oauth2/web-server](https://developers.google.com/identity/protocols/oauth2/web-server):
+  bind `state` to a cookie so the response comes from the same browser. That is the
+  nonce cookie.
+- [developers.google.com/identity/protocols/oauth2/resources/best-practices](https://developers.google.com/identity/protocols/oauth2/resources/best-practices):
+  encrypt stored tokens at rest, revoke tokens that are no longer needed, and keep client
+  secrets in Secret Manager. Those are the sealed refresh token, revoke on Disconnect,
+  and the existing secrets.
+- [developers.google.com/google-ads/api/docs/oauth/credential-management](https://developers.google.com/google-ads/api/docs/oauth/credential-management):
+  refresh tokens can be invalidated at any time, so plan for it. That is the reconnect
+  line.
+
+Consequences:
+- No app path creates a member today: the only `addTenantMember` call adds an admin, and
+  home brand claims are always minted as admin in `src/lib/auth/session.ts`. So nobody
+  loses access now. Members invited later will ask an admin.
+- ADR-0003 P2: its precondition ("before shipping admin-only surfaces") was crossed long
+  ago, with dozens of role checks across routes and gates. There is no way to lower a
+  role today, so nothing is exposed yet, but a session cookie keeps its role for up to
+  5 days after one is lowered. Pieces A and M must revoke refresh tokens or read live
+  claims before roles can be lowered.
+- These secrets still lack AAD on the global tenant document (every access token, and
+  the social refresh tokens), and are not kept in the brand's region. That is
+  connectors piece 5.
+- PR #46 (connect an already installed GitHub App, finish installs made on GitHub) is to
+  be closed and redone on this gate and nonce, behind `GITHUB_APP_LINK_ENABLED` set to
+  "false".
+
+Where: `src/lib/integrations/` (`admin.ts`, `providers.ts`, `crypto.ts`,
+`tokenRefresh.ts`, `reconnect.ts`, `revoke.ts`, `flags.ts`), `src/lib/social/revoke.ts`
+and `tokenRefresh.ts`, the compare-and-set writes in `src/lib/tenant/control.ts`; help
+`/help/connected-accounts` and `/developers/connect-your-code`.
+
+---
+
 ## ADR-0005 · Sign-ups from a brand's own site go to a launch, with a site key (2026-10-25)
 
 Context: a brand wanted its own "Get the weekly newsletter" box (not our embed) to feed

@@ -58,7 +58,14 @@ export default function PlanAndUsageHelp() {
           Owners see every brand on the plan, with its data region, and the totals across them. A brand that is suspended
           still counts, marked <strong>Suspended</strong>.
         </li>
-        <li>Everyone else sees their own brand&apos;s figures, and a line saying the plan is shared.</li>
+        <li>
+          When the plan holds only your brand, everyone in it sees the <strong>Your organisation</strong> box too, because
+          its totals are your brand&apos;s own.
+        </li>
+        <li>
+          When it holds other brands, everyone else sees their own brand&apos;s figures, and a line saying the plan is
+          shared.
+        </li>
       </UL>
 
       <H2 id="use">What is counted</H2>

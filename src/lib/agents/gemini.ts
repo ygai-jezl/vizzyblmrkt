@@ -467,33 +467,20 @@ export interface GeneratedImage {
   mimeType: string;
 }
 
-/** Generate a single image (Imagen), or null on missing config / error. */
+/**
+ * Generate a single square hero image with IMAGE_MODEL (Nano Banana: generateContent + IMAGE
+ * modality), or null on missing config / error / no image part. Imagen and its generateImages
+ * call were shut down by Google on 2026-08-17; this keeps Imagen's 1:1 shape.
+ */
 export async function generateImage(
   prompt: string,
 ): Promise<GeneratedImage | null> {
-  const ai = getClient();
-  if (!ai) return null;
-  try {
-    const res = await ai.models.generateImages({
-      model: IMAGE_MODEL,
-      prompt,
-      config: { numberOfImages: 1 },
-    });
-    const img = res.generatedImages?.[0]?.image;
-    if (!img?.imageBytes) return null;
-    return {
-      bytes: Buffer.from(img.imageBytes, "base64"),
-      mimeType: img.mimeType ?? "image/png",
-    };
-  } catch (err) {
-    console.warn("[gemini] generateImage failed:", err);
-    return null;
-  }
+  return generateBlockImage(prompt, "1:1", IMAGE_MODEL);
 }
 
 /**
  * Generate ONE carousel slide via the Gemini image model ("Nano Banana":
- * generateContent with an IMAGE response modality — better than Imagen at rendering
+ * generateContent with an IMAGE response modality, good at rendering
  * legible on-slide text). Null on missing config / error / no image part.
  *
  * NOTE: this path needs live validation once the Vertex carousel image model is

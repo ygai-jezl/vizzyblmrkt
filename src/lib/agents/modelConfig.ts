@@ -20,12 +20,14 @@
 export const DEFAULT_TEXT_MODEL = "gemini-3.8-flash";
 export const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? DEFAULT_TEXT_MODEL;
 
-/** Image generation (Imagen) — Agent 3 hero images. */
-export const DEFAULT_IMAGE_MODEL = "imagen-4.0-generate-001";
+/** Agent 3 hero images (the launch email hero with no image style). Gemini "Nano Banana 2.1",
+ *  Google's replacement for imagen-4.0-generate-001 (all Imagen models shut down 2026-08-17).
+ *  Served on the global endpoint only. */
+export const DEFAULT_IMAGE_MODEL = "gemini-nano-banana-2.1";
 export const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? DEFAULT_IMAGE_MODEL;
 
 /** Carousel slide images (Gemini "Nano Banana" image model — text-rich slides via
- *  generateContent + IMAGE modality; distinct from Imagen hero images above). */
+ *  generateContent + IMAGE modality; distinct from the hero image model above). */
 export const DEFAULT_CAROUSEL_IMAGE_MODEL = "gemini-2.5-flash-image";
 export const CAROUSEL_IMAGE_MODEL =
   process.env.GEMINI_CAROUSEL_IMAGE_MODEL ?? DEFAULT_CAROUSEL_IMAGE_MODEL;

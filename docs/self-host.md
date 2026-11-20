@@ -135,6 +135,12 @@ merged order). Turn on the Discovery Engine API (`gcloud services enable discove
 give the App Hosting runtime service account a role with `discoveryengine.rankingConfigs.rank`, then
 set the switch to `"true"`. Without it, or if a call fails, search keeps its merged order.
 
+**Cancelling access on Disconnect.** `npm run selfhost` turns on `CONNECTOR_REVOKE_ENABLED`, so
+Disconnect also cancels YouGrow's access at GitLab and on an older GitHub connection. It leaves
+`CONNECTOR_REVOKE_X_ENABLED` off: an X account connected to two brands may share one grant, so
+cancelling it for one brand could end the other's access. Connect one X account to two test brands,
+press Disconnect on one, and check the other still posts. Then set the switch to `"true"`.
+
 Each add-on writes its settings into `apphosting.live.yaml` and turns its switches on.
 Roll out afterwards: `npm run selfhost -- --project <id> --apply rollout` (or push).
 
@@ -203,6 +209,22 @@ Merges don't clash with your settings: they live in `apphosting.live.yaml`, a fi
 upstream repo never has. New features arrive as switches set to `"false"` in
 `apphosting.yaml`, so nothing changes until you turn them on. After a merge, run the plan:
 it shows anything new to set up (a new secret, say). Then push, or `--apply rollout`.
+
+### Enterprise features
+
+Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a
+licence key, and none is released yet. To add a key once you have one:
+
+1. Create the secret: `firebase apphosting:secrets:set enterprise-licence-key --project <id>`.
+2. Give the backend access:
+   `firebase apphosting:secrets:grantaccess enterprise-licence-key --backend <backend> --project <id>`.
+3. Only then add `ENTERPRISE_LICENCE_KEY` to `apphosting.live.yaml` as
+   `secret: enterprise-licence-key` (see [Your settings file](#your-settings-file)), and
+   roll out.
+
+**Keep that order.** A secret your settings file names but the project lacks, or the
+backend can't read, fails the build with `Error resolving secret version`. Deleting `src/ee` gives a build with no
+Enterprise code.
 
 ## When something goes wrong
 

@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminContext } from "@/lib/auth/session";
-import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { getTenantById, setTenantGitRepos } from "@/lib/tenant";
+import { integrationsAdmin } from "@/lib/integrations/admin";
+import {
+  clearTenantGitReconnect,
+  getTenantById,
+  markTenantGitReconnect,
+  setTenantGitRepos,
+} from "@/lib/tenant";
 import { PROVIDERS, isGitProvider, type GitProvider } from "@/lib/integrations/providers";
-import { decryptToken } from "@/lib/integrations/crypto";
+import { ensureFreshGitToken } from "@/lib/integrations/tokenRefresh";
 import {
   MAX_SELECTED_REPOS,
   RepoListError,
@@ -18,38 +22,83 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Resolved =
-  | { ok: true; ctx: TenantContext; provider: GitProvider; token: string; selected: string[] | null }
-  | { ok: false; res: NextResponse };
+  | {
+      ok: true;
+      ctx: TenantContext;
+      provider: GitProvider;
+      token: string;
+      /** The stored ciphertext of `token`, for the compare-and-set reconnect mark. */
+      ct: string;
+      /** The connection carries a reconnect mark this listing may clear. */
+      marked: boolean;
+      /** A due refresh failed softly, so the provider refusing `token` proves nothing. */
+      stale: boolean;
+      selected: string[] | null;
+    }
+  | { ok: false; res: Response };
 
-/** Shared guard: flag, same-origin, admin, provider, and a decryptable connection. */
+/**
+ * Shared guard: flag, same-origin, the admin role (the list shows every private repo the
+ * token can see across orgs, so members don't get it), provider, and a usable token. A
+ * GitLab token is refreshed first when it is about to expire.
+ */
 async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
   const fail = (error: string, status: number) => ({
     ok: false as const,
     res: NextResponse.json({ error }, { status }),
   });
   if (!isGitRepoSelectionEnabled()) return fail("not_found", 404);
-  const blocked = sameOriginGuard(req);
-  if (blocked) return { ok: false, res: blocked };
-  const ctx = await getAdminContext();
-  if (!ctx) return fail("unauthorized", 401);
+  const gate = await integrationsAdmin(req, { adminOnly: true });
+  if (!gate.ok) return { ok: false, res: gate.response };
+  const { ctx } = gate;
   if (!isGitProvider(rawProvider)) return fail("unknown_provider", 400);
 
   const conn = (await getTenantById(ctx.tenantId))?.gitConnections?.[rawProvider];
   if (!conn) return fail("not_connected", 409);
   // A read-only GitHub App connection: the repos are chosen on GitHub's install screen.
   if (conn.kind === "app" || !conn.enc) return fail("managed_on_github", 409);
-  let token: string;
-  try {
-    token = decryptToken(conn.enc);
-  } catch {
+  const fresh = await ensureFreshGitToken(ctx, rawProvider, conn);
+  // Removed meanwhile (a Disconnect, or a refresh that found it gone).
+  if (!fresh.ct) return fail("not_connected", 409);
+  if (!fresh.token) {
+    // A stored token that won't open (say the encryption key changed) can never be used:
+    // mark it, so the status API and the panel show Reconnect, not a plain Connected.
+    if (fresh.reconnect) {
+      await markTenantGitReconnect(ctx.tenantId, rawProvider, fresh.ct, "provider_rejected").catch(() => {
+        console.warn(`[git-refresh] ${rawProvider} reconnect mark failed for ${ctx.tenantId}`);
+      });
+    }
     return fail("reconnect_required", 409);
   }
   const selected = conn.repos ? conn.repos.map((r) => r.fullPath) : null;
-  return { ok: true, ctx, provider: rawProvider, token, selected };
+  return {
+    ok: true,
+    ctx,
+    provider: rawProvider,
+    token: fresh.token,
+    ct: fresh.ct,
+    // Only a provider_rejected mark is cleared by a listing that works. A refresh_failed
+    // mark stays until a refresh works (the swap clears it) or an admin reconnects: the
+    // access token can still list for up to 90 minutes after its refresh token was
+    // refused before a worker trigger. A refresh refused just now keeps its mark too.
+    marked: conn.reconnect?.reason === "provider_rejected" && !fresh.reconnect,
+    stale: fresh.stale === true,
+    selected,
+  };
 }
 
-function listFailure(err: unknown): NextResponse {
-  if (err instanceof RepoListError && err.code === "reconnect_required") {
+/** The provider rejected the token: mark the connection (only while it still holds
+ *  that token, so a refresh by another request isn't marked) and say reconnect. When a
+ *  due refresh failed softly the token may just have expired, so it is a provider error
+ *  with no mark, and the next use refreshes again. */
+async function listFailure(
+  err: unknown,
+  r: { ctx: TenantContext; provider: GitProvider; ct: string; stale: boolean },
+): Promise<NextResponse> {
+  if (err instanceof RepoListError && err.code === "reconnect_required" && !r.stale) {
+    await markTenantGitReconnect(r.ctx.tenantId, r.provider, r.ct, "provider_rejected").catch(() => {
+      console.warn(`[git-refresh] ${r.provider} reconnect mark failed for ${r.ctx.tenantId}`);
+    });
     return NextResponse.json({ error: "reconnect_required" }, { status: 409 });
   }
   return NextResponse.json({ error: "provider_error" }, { status: 502 });
@@ -67,6 +116,8 @@ export async function GET(
   if (!r.ok) return r.res;
   try {
     const { repos, truncated } = await listAccessibleRepos(r.provider, r.token);
+    // The provider accepted the token, so the connection no longer needs reconnecting.
+    if (r.marked) await clearTenantGitReconnect(r.ctx.tenantId, r.provider, r.ct).catch(() => false);
     const clientId = PROVIDERS[r.provider].clientId();
     return NextResponse.json({
       repos,
@@ -76,7 +127,7 @@ export async function GET(
       orgAccessUrl: r.provider === "github" && clientId ? githubOrgAccessUrl(clientId) : null,
     });
   } catch (err) {
-    return listFailure(err);
+    return listFailure(err, r);
   }
 }
 
@@ -101,7 +152,7 @@ export async function PUT(
   try {
     accessible = (await listAccessibleRepos(r.provider, r.token)).repos;
   } catch (err) {
-    return listFailure(err);
+    return listFailure(err, r);
   }
   const byPath = new Map(accessible.map((x) => [x.fullPath, x]));
   const wanted = [...new Set(parsed.data.repos.map((p) => p.toLowerCase()))];
@@ -119,6 +170,9 @@ export async function PUT(
       webUrl: x.webUrl,
     };
   });
-  await setTenantGitRepos(r.ctx.tenantId, r.provider, repos);
+  // Removed meanwhile (a Disconnect won): nothing is written onto the gone connection.
+  if (!(await setTenantGitRepos(r.ctx.tenantId, r.provider, repos))) {
+    return NextResponse.json({ error: "not_connected" }, { status: 409 });
+  }
   return NextResponse.json({ ok: true, selected: repos.map((x) => x.fullPath) });
 }

@@ -166,7 +166,8 @@ export default function BrandMapHelp() {
         <>
           <H2 id="autopilot">Autopilot</H2>
           <P>
-            <strong>Autopilot</strong> under Next up runs it for you, once a week on the day you choose:
+            <strong>Autopilot</strong> under Next up runs it for you, up to 10 articles a week. Runs start on the day you
+            choose and go one at a time; any that don&apos;t fit that day carry on over the rest of the week. Each run is one of two kinds:
           </P>
           <UL>
             <li>
@@ -180,7 +181,9 @@ export default function BrandMapHelp() {
           </UL>
           <P>
             Choose the programme drafts go into and add your focus right now, in your own words. The card shows this
-            month&apos;s Google lookups and drafts against the brand&apos;s limits. A draft&apos;s notes from What we&apos;ve seen count
+            month&apos;s Google lookups and drafts against the brand&apos;s limits. Once the month&apos;s drafts are used up, runs find
+            and sort the article for you to write instead. Each question is picked once: a run never takes one another run
+            had in the last 30 days. A draft&apos;s notes from What we&apos;ve seen count
             as used only once you approve it, and its questions for your team show in Review. When everyone has answered and
             nobody has changed the article, it is rewritten with the answers.
           </P>

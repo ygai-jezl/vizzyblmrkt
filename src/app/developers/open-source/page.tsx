@@ -1,5 +1,6 @@
 import { C, Code, H1, H2, H3, Lead, Note, OL, P, Pairs, UL } from "@/components/developers/Doc";
 import { sourceRepoUrl } from "@/lib/developers/flags";
+import { ENTERPRISE_FEATURES, HOSTED_ONLY } from "@/lib/enterprise/features";
 
 const SETUP_PROMPT = "Get YouGrow running on my laptop. Follow AGENTS.md.";
 const CURSOR_PROMPT_LINK = `https://cursor.com/link/prompt?text=${encodeURIComponent(SETUP_PROMPT)}`;
@@ -16,8 +17,9 @@ export default function OpenSourceDocs() {
     <article>
       <H1>Open source</H1>
       <Lead>
-        YouGrow is open source under the AGPL-3.0 licence. You can run it on your laptop in about 15 minutes with no
-        accounts, host your own copy on Google Cloud, and build on it. The repository is set up for coding agents, so
+        YouGrow is open source. The app is under the AGPL-3.0 licence, the Enterprise folder has its own licence and the
+        Node SDK is MIT. You can run it on your laptop in about 15 minutes with no accounts, host your own copy on Google
+        Cloud, and build on it. The repository is set up for coding agents, so
         Claude Code or Cursor can do most of the work: you mostly approve what it proposes.
       </Lead>
 
@@ -111,6 +113,48 @@ claude "${SETUP_PROMPT}"`}</Code>
       </OL>
       <P>Costs and every step: {link(file("docs/self-host.md"), "the self-host guide")}.</P>
 
+      <H2 id="licences">What is open and what is Enterprise</H2>
+      <Pairs
+        head={["Part", "Licence"]}
+        rows={[
+          ["The app: everything not listed below", "AGPL-3.0"],
+          [
+            <>
+              Enterprise code in <C>src/ee</C>
+            </>,
+            "YouGrow Enterprise Licence: read, change and test it freely. Production use needs a subscription and a licence key.",
+          ],
+          [
+            <>
+              The Node SDK in <C>sdk/node</C>
+            </>,
+            "MIT",
+          ],
+          ["Fonts", "SIL Open Font Licence"],
+        ]}
+      />
+      <H3>Enterprise features</H3>
+      <UL>
+        {ENTERPRISE_FEATURES.map((f) => (
+          <li key={f.id}>{f.label}</li>
+        ))}
+      </UL>
+      <P>None is released yet.</P>
+      <H3>Only on the hosted service</H3>
+      <UL>
+        {HOSTED_ONLY.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </UL>
+      <Note>
+        The app builds and runs without <C>src/ee</C>. Delete the folder for a build with no Enterprise code.
+      </Note>
+      <P>
+        Every part of the repository and its licence: {link(file("LICENSING.md"), "LICENSING.md")}. Contributions need a
+        contributor licence agreement: see {link(file("CONTRIBUTING.md"), "Contributing")}. The Enterprise Licence and the
+        contributor licence agreements are drafts under legal review, not yet in force.
+      </P>
+
       <H2 id="safety">What the agent asks before doing</H2>
       <UL>
         <li>Any deploy or rollout, and any setup step or script that changes a Google Cloud project.</li>
@@ -133,6 +177,7 @@ claude "${SETUP_PROMPT}"`}</Code>
         <li>{link(file("docs/self-host.md"), "Host it on your own Google Cloud")}: the full self-host guide.</li>
         <li>{link(file("docs/agents/cloud.md"), "Cloud coding agents")}: Claude Code on the web, Cursor Cloud Agents and Codespaces.</li>
         <li>{link(file("CONTRIBUTING.md"), "Contributing")}: send your changes back.</li>
+        <li>{link(file("docs/cla/individual.md"), "Contributor licence agreement")}: a draft under legal review, not yet in force.</li>
       </UL>
     </article>
   );

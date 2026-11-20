@@ -1,0 +1,82 @@
+YouGrow Enterprise Licence, version 1
+
+Draft under legal review, not yet in force.
+
+Copyright (C) 2026 YouGrow.AI Limited
+
+This licence covers the files in the src/ee folder of the YouGrow repository. The rest of
+the repository is under other licences: see section 6.
+
+
+1. Definitions
+
+"Licensor" means YouGrow.AI Limited.
+
+"Software" means the files in the src/ee folder of the YouGrow repository, and any copy or
+changed version of them, in whole or in part.
+
+"Production use" means any use of the Software other than development and testing, for
+example serving real users, holding real data or running a business with it.
+
+"Subscription" means a paid agreement with the Licensor that allows Production use for a
+set term.
+
+"Licence key" means a key issued by the Licensor that names the licensee, the Enterprise
+features it covers, the number of Users it allows and the date it ends.
+
+"User" means a person who can sign in to a deployment that includes the Software.
+
+"You" means the person or organisation using the Software under this licence.
+
+
+2. Development and testing
+
+You may read, copy and change the Software, and run it for development and testing, at no
+charge. You may share copies of the Software, changed or not, as long as they stay under
+this licence. Keep this licence and the copyright notice with every copy.
+
+
+3. Production use
+
+Production use needs an active Subscription and a Licence key that covers at least the
+number of Users of the deployment. Without both, you may not put the Software into
+Production use.
+
+
+4. The licence key check
+
+You may not remove, disable or work around the Licence key check, or any limit a Licence
+key sets, and you may not help anyone else to do so.
+
+
+5. Changes
+
+Any change you make to the Software stays under this licence, and so does any copy of a
+changed version.
+
+
+6. Code outside src/ee
+
+This licence does not cover code outside the src/ee folder. LICENSING.md, at the root of
+the repository, says which licence covers each part.
+
+
+7. No warranty, and a limit on liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. AS FAR AS THE LAW ALLOWS, THE LICENSOR IS NOT LIABLE FOR ANY CLAIM, LOSS
+OR DAMAGE, DIRECT OR INDIRECT, THAT ARISES FROM THE SOFTWARE OR ITS USE.
+
+
+8. Ending
+
+This licence ends automatically if you break any of its terms. When it ends, your rights
+under it end too, and you must stop any Production use of the Software.
+
+
+9. Licensor, law and contact
+
+Licensor: YouGrow.AI Limited
+Governing law: [JURISDICTION]
+Contact: [CONTACT]

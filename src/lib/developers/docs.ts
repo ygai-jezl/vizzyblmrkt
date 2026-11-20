@@ -71,7 +71,7 @@ export const DOC_PAGES: DocPage[] = [
     path: "/developers/open-source",
     label: "Open source",
     summary:
-      "YouGrow is open source: run it on your laptop with no accounts, host your own copy on Google Cloud, and build on it with Claude Code or Cursor, step by step.",
+      "YouGrow is open source: run it on your laptop with no accounts, host your own copy on Google Cloud, build on it with Claude Code or Cursor, and see what is open and what is Enterprise.",
   },
   {
     slug: "api",

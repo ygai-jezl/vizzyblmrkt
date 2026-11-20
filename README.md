@@ -94,5 +94,9 @@ Please report vulnerabilities privately, not in public issues. See
 
 ## Licence
 
-The app is licensed under [AGPL-3.0](LICENSE). The Node SDK in
-[sdk/node](sdk/node) is licensed under [MIT](sdk/node/LICENSE).
+- The app is licensed under [AGPL-3.0](LICENSE).
+- Enterprise code in [src/ee](src/ee) is under its own licence,
+  [src/ee/LICENSE](src/ee/LICENSE) (a draft under legal review).
+- The Node SDK in [sdk/node](sdk/node) is licensed under [MIT](sdk/node/LICENSE).
+- [LICENSING.md](LICENSING.md) maps every part to its licence. Contributions need a
+  contributor licence agreement: see [CONTRIBUTING.md](CONTRIBUTING.md).

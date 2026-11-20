@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isConnectorRevokeEnabled, isConnectorRevokeXEnabled } from "@/lib/integrations/flags";
 
 export default function ConnectedAccountsHelp() {
   return (
@@ -9,7 +10,11 @@ export default function ConnectedAccountsHelp() {
         Connect LinkedIn or X so your scheduled posts publish on time. Connect GitHub or GitLab only if your code is in a
         private repo.
       </Lead>
-      <Meta items={["About 5 minutes", "Anyone on your team", "Once per brand"]} />
+      <Meta items={["About 5 minutes", "Admins", "Once per brand"]} />
+      <P>
+        Only admins connect or disconnect accounts. Everyone else on your team sees what&apos;s connected, and asks an admin
+        when something needs connecting.
+      </P>
 
       <BeforeAndUnlocks
         before={
@@ -75,6 +80,8 @@ export default function ConnectedAccountsHelp() {
       </Steps>
       <P>
         Using GitLab? Press <strong>Connect</strong> next to <strong>GitLab</strong> and allow access. It&apos;s read only too.
+        YouGrow renews GitLab&apos;s access by itself. A GitLab connection made before YouGrow started renewing it needs
+        reconnecting once: press <strong>Reconnect</strong> next to it. The repos you chose stay chosen.
       </P>
       <P>
         In an organisation you don&apos;t own, GitHub shows <strong>Request</strong> instead of Install. Once an owner approves
@@ -95,6 +102,25 @@ export default function ConnectedAccountsHelp() {
         </li>
       </Checks>
 
+      <H2 id="disconnect">Disconnect an account</H2>
+      {isConnectorRevokeEnabled() ? (
+        <P>
+          Disconnect removes the connection from YouGrow. For{" "}
+          {isConnectorRevokeXEnabled() ? "GitLab, X and an older GitHub connection" : "GitLab and an older GitHub connection"}{" "}
+          it also cancels YouGrow&apos;s access on that service. It never removes the YouGrow app from GitHub, because other
+          brands may use the same installation. You can uninstall it on GitHub, but that stops it for every brand that uses
+          it.{" "}
+          {isConnectorRevokeXEnabled()
+            ? "For LinkedIn, you can remove YouGrow in your LinkedIn settings, but that stops it for every brand connected with the same LinkedIn account."
+            : "For LinkedIn or X, you can remove YouGrow in that service's settings, but that stops it for every brand connected with the same account."}
+        </P>
+      ) : (
+        <P>
+          Disconnect removes the connection from YouGrow. To cancel YouGrow&apos;s access on the service too, remove YouGrow
+          in that service&apos;s settings. That stops it for every brand connected with the same account.
+        </P>
+      )}
+
       <H2 id="messages">If you see this</H2>
       <Messages
         rows={[
@@ -103,21 +129,44 @@ export default function ConnectedAccountsHelp() {
             "Whoever runs your YouGrow hasn't added this service's app keys yet. Ask them to.",
           ],
           [
+            "Only admins can connect or disconnect accounts.",
+            "You're a member of this brand, so you see what's connected but can't change it. Ask an admin.",
+          ],
+          [
+            "Only admins can connect accounts. Ask an admin on your team.",
+            "You pressed Connect as a member. An admin on your brand connects it from the same page.",
+          ],
+          [
+            "Ask an admin to connect it for private repos.",
+            "Reading a private repo needs GitHub or GitLab connected, and only an admin can connect it. A public repo needs nothing.",
+          ],
+          [
             "Connect LinkedIn to publish this post",
-            "A post was due before LinkedIn was connected. Connect it, then pick a new time on the post and press Reschedule.",
+            "A post was due before LinkedIn was connected. Ask an admin to connect it, then pick a new time on the post and press Reschedule.",
           ],
           [
             "Connect your LinkedIn page to publish this post",
-            "Connect LinkedIn Pages while signed in to LinkedIn as an admin of the Page. Then reschedule the post.",
+            "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Then reschedule the post.",
           ],
-          ["Connect X to publish this post", "Connect X (Twitter), then pick a new time on the post and press Reschedule."],
+          [
+            "Connect X to publish this post",
+            "Ask an admin to connect X (Twitter), then pick a new time on the post and press Reschedule.",
+          ],
           [
             "Request sent",
             "Your GitHub organisation's owners must approve the app. Once one does, press Install on GitHub (read-only) again.",
           ],
           [
             "This older connection can also write to your repos.",
-            "Press Switch now to move to the read-only YouGrow app.",
+            "An admin presses Switch now to move to the read-only YouGrow app.",
+          ],
+          [
+            "This connection needs reconnecting.",
+            "The service no longer accepts YouGrow's access, or an older GitLab connection needs renewing. An admin presses Reconnect next to it. Chosen repos stay chosen.",
+          ],
+          [
+            "Ask an admin to reconnect it.",
+            "A connection needs reconnecting and you're a member, so you can't do it yourself. An admin presses Reconnect in Settings › Integrations.",
           ],
         ]}
       />

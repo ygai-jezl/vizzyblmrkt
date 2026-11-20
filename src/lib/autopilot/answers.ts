@@ -22,7 +22,7 @@ const hashOf = (s: string) => createHash("sha256").update(s).digest("hex").slice
 
 /** Done drafts whose team questions are all answered: rewritten, or flagged. Returns how many moved. */
 export async function takeAnswers(ctx: TenantContext, deps: AnswersDeps = {}): Promise<number> {
-  const waiting = (await recentRuns(ctx, 20, deps)).filter((r) => r.mode === "draft" && r.step === "done" && r.askedIds.length && r.planId && r.workspaceId);
+  const waiting = (await recentRuns(ctx, 60, deps)).filter((r) => r.mode === "draft" && r.step === "done" && r.askedIds.length && r.planId && r.workspaceId);
   if (!waiting.length) return 0;
   const notes = new Map((await listNotes(ctx, { db: deps.db })).map((n) => [n.id, n] as const));
   let moved = 0;

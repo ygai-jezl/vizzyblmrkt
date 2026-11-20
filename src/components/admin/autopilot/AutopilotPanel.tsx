@@ -143,18 +143,18 @@ function NextUpCard({
   programmes: Array<{ id: string; name: string }> | null;
 }) {
   const [current, setCurrent] = useState<NextUpDoc | null | undefined>(undefined);
-  const [ready, setReady] = useState<(RunView & { question: { questionId: string; text: string; subjectId: string; subjectName: string } }) | null>(null);
+  const [ready, setReady] = useState<Array<RunView & { question: { questionId: string; text: string; subjectId: string; subjectName: string } }>>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let gone = false;
     void fetch("/api/admin/brand-kit/autopilot/next-up")
-      .then((r) => (r.ok ? (r.json() as Promise<{ nextUp: NextUpDoc | null; ready?: typeof ready }>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<{ nextUp: NextUpDoc | null; ready?: (typeof ready)[number] | null; readyAll?: typeof ready }>) : null))
       .then((d) => {
         if (gone) return;
         setCurrent(d ? d.nextUp : null);
-        setReady(d?.ready ?? null);
+        setReady(d?.readyAll ?? (d?.ready ? [d.ready] : []));
       })
       .catch(() => !gone && setCurrent(null));
     return () => {
@@ -212,18 +212,24 @@ function NextUpCard({
           {message}
         </p>
       ) : null}
-      {ready ? (
-        <div className="mb-3 space-y-2 rounded-md border border-blue-400 p-3 dark:border-blue-500">
-          <p className="text-sm">
-            <b className="font-medium">Ready to write:</b> &ldquo;{ready.question.text}&rdquo;
-            <span className={`block ${HINT}`}>Autopilot found and sorted what buyers ask. Check the trays, then write it.</span>
-          </p>
-          <FoundTrays
-            pick={{ questionId: ready.question.questionId, question: ready.question.text, subjectId: ready.question.subjectId, subjectName: ready.question.subjectName, because: "", chips: [], from: "code" }}
-            isAdmin={isAdmin}
-            programmes={programmes}
-            initialRun={ready}
-          />
+      {ready.length ? (
+        <div className="mb-3 space-y-2">
+          {ready.map((r, i) => (
+            <details key={r.id} open={i === 0} className="rounded-md border border-blue-400 p-3 dark:border-blue-500">
+              <summary className="cursor-pointer text-sm">
+                <b className="font-medium">Ready to write:</b> &ldquo;{r.question.text}&rdquo;
+              </summary>
+              <div className="mt-2 space-y-2">
+                <p className={HINT}>Autopilot found and sorted what buyers ask. Check the trays, then write it.</p>
+                <FoundTrays
+                  pick={{ questionId: r.question.questionId, question: r.question.text, subjectId: r.question.subjectId, subjectName: r.question.subjectName, because: "", chips: [], from: "code" }}
+                  isAdmin={isAdmin}
+                  programmes={programmes}
+                  initialRun={r}
+                />
+              </div>
+            </details>
+          ))}
         </div>
       ) : null}
       {!current ? (

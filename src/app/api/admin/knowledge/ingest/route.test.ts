@@ -13,6 +13,8 @@ const queue = vi.hoisted(() => ({ enqueueIngestionTicket: vi.fn() }));
 vi.mock("@/lib/knowledge/tickets", () => queue);
 const job = vi.hoisted(() => ({ triggerIngestionJob: vi.fn(async () => {}), isIngestionJobConfigured: vi.fn(() => true) }));
 vi.mock("@/lib/knowledge/runJob", () => job);
+const refresh = vi.hoisted(() => ({ prepareGitTokenForWorker: vi.fn(async () => {}) }));
+vi.mock("@/lib/integrations/tokenRefresh", () => refresh);
 
 const { POST } = await import("./route");
 
@@ -71,5 +73,33 @@ describe("POST /api/admin/knowledge/ingest — a source read as one page", () =>
     await post({ ...study, onePage: true });
     expect("onePage" in queued()).toBe(false);
     expect(started().onePage).toBe(false);
+  });
+});
+
+describe("POST /api/admin/knowledge/ingest: a GitLab token outlasts the worker", () => {
+  it("prepares the GitLab token before the job starts", async () => {
+    const res = await post({ source: "gitlab", sourceUri: "https://gitlab.com/acme/app" });
+    expect(res.status).toBe(202);
+    expect(refresh.prepareGitTokenForWorker).toHaveBeenCalledTimes(1);
+    expect(refresh.prepareGitTokenForWorker).toHaveBeenCalledWith(admin, "gitlab");
+    expect(refresh.prepareGitTokenForWorker.mock.invocationCallOrder[0]).toBeLessThan(
+      job.triggerIngestionJob.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it.each([
+    ["GitHub", { source: "github", sourceUri: "https://github.com/acme/app" }],
+    ["a web page", study],
+  ])("doesn't prepare anything for %s", async (_label, body) => {
+    await post(body);
+    expect(refresh.prepareGitTokenForWorker).not.toHaveBeenCalled();
+    expect(job.triggerIngestionJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("still starts the job when the preparation fails", async () => {
+    refresh.prepareGitTokenForWorker.mockRejectedValueOnce(new Error("unavailable"));
+    const res = await post({ source: "gitlab", sourceUri: "https://gitlab.com/acme/app" });
+    expect(res.status).toBe(202);
+    expect(job.triggerIngestionJob).toHaveBeenCalledTimes(1);
   });
 });

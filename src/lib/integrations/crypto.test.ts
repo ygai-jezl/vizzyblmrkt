@@ -5,6 +5,7 @@ import {
   signState,
   verifyState,
   isGitCryptoConfigured,
+  gitRefreshAad,
 } from "./crypto";
 
 beforeAll(() => {
@@ -28,6 +29,31 @@ describe("git integration crypto", () => {
     bytes[0] = (bytes[0] ?? 0) ^ 0xff;
     const corrupt = { ...blob, ct: Buffer.from(bytes).toString("base64") };
     expect(() => decryptToken(corrupt)).toThrow();
+  });
+
+  it("names the refresh token AAD after the brand and provider", () => {
+    expect(gitRefreshAad("ten_demo", "gitlab")).toBe("ten_demo:gitlab:refresh");
+  });
+
+  it("round-trips a token sealed with AAD when opened with the same AAD", () => {
+    const aad = gitRefreshAad("ten_demo", "gitlab");
+    const blob = encryptToken("glrt-refresh-example", aad);
+    expect(blob.ct).not.toContain("glrt-");
+    expect(decryptToken(blob, aad)).toBe("glrt-refresh-example");
+  });
+
+  it("refuses to open an AAD-bound token with the wrong AAD, another brand's AAD or none", () => {
+    const blob = encryptToken("glrt-refresh-example", gitRefreshAad("ten_demo", "gitlab"));
+    expect(() => decryptToken(blob, gitRefreshAad("ten_demo", "github"))).toThrow();
+    expect(() => decryptToken(blob, gitRefreshAad("ten_other", "gitlab"))).toThrow();
+    expect(() => decryptToken(blob)).toThrow();
+  });
+
+  it("keeps calls without AAD unchanged (the worker opens enc without AAD)", () => {
+    const blob = encryptToken("glpat-access-example");
+    expect(Object.keys(blob).sort()).toEqual(["ct", "iv", "tag"]);
+    expect(decryptToken(blob)).toBe("glpat-access-example");
+    expect(() => decryptToken(blob, gitRefreshAad("ten_demo", "gitlab"))).toThrow();
   });
 
   it("signs and verifies a tenant-bound state", () => {

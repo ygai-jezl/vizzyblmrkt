@@ -37,6 +37,8 @@ describe("autopilot settings", () => {
     expect(await saveAutopilotSettings(ADMIN, { mode: "draft" }, d)).toEqual({ status: 400, body: { error: "programme_required" } });
     expect(await saveAutopilotSettings(ADMIN, { mode: "suggest", workspaceId: "ws_other" }, d)).toEqual({ status: 400, body: { error: "invalid_input" } });
     expect(await saveAutopilotSettings(ADMIN, { mode: "weekly" }, d)).toEqual({ status: 400, body: { error: "invalid_input" } });
+    expect(await saveAutopilotSettings(ADMIN, { mode: "suggest", perWeek: 10 }, d)).toMatchObject({ status: 200, body: { settings: { perWeek: 10 } } });
+    expect(await saveAutopilotSettings(ADMIN, { mode: "suggest", perWeek: 11 }, d)).toEqual({ status: 400, body: { error: "invalid_input" } });
     expect(await saveAutopilotSettings(ADMIN, { mode: "draft", workspaceId: "ws1", focus: "More agencies" }, d)).toMatchObject({ status: 200, body: { settings: { mode: "draft", workspaceId: "ws1" } } });
     expect(d.save).toHaveBeenCalledWith("ten_A", expect.objectContaining({ mode: "draft", focus: "More agencies" }));
     vi.stubEnv("GRANTED_ONLY_FEATURES", "next_up,article_autopilot");

@@ -11,6 +11,7 @@ import { zodReason } from "./protocol";
 import { recordCatalogRevision } from "./catalogHistory";
 import { invalidateConnectionCaches } from "./connectionAuth";
 import { isDateFactsEnabled } from "./v2/flags";
+import { prepareGitTokenForWorker } from "@/lib/integrations/tokenRefresh";
 
 /**
  * "Learn from your repo": propose a connection's catalog (onboarding steps and
@@ -71,6 +72,9 @@ export interface StartDeps {
   nowMs?: number;
   /** Dispatches the Job (tests inject a stub). */
   trigger?: (vars: { analysisId: string; tenantId: string; region: TenantContext["region"] }) => Promise<void>;
+  /** Refreshes a GitLab token before the Job clones (tests inject a stub). It gets
+   *  `db` too, so tests and the Vizzy path never reach the real database through it. */
+  prepareGit?: (ctx: TenantContext, provider: "gitlab", opts: { db?: FirestoreLike }) => Promise<void>;
 }
 
 export async function startRepoAnalysis(
@@ -120,6 +124,10 @@ export async function startRepoAnalysis(
     createdAt: now,
     createdBy: ctx.email ?? ctx.userId ?? null,
   });
+  // The Job can't refresh a GitLab token: make sure the stored one outlasts the run.
+  if (repos.some((r) => r.provider === "gitlab")) {
+    await (deps.prepareGit ?? prepareGitTokenForWorker)(ctx, "gitlab", { db: deps.db }).catch(() => {});
+  }
   try {
     await (deps.trigger ?? defaultTrigger)({ analysisId: id, tenantId: ctx.tenantId, region: ctx.region });
   } catch (err) {

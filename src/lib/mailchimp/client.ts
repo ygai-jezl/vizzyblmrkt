@@ -4,6 +4,7 @@ import type {
   ResolvedMailchimpConfig,
   UpsertMemberInput,
 } from "./types";
+import { isMailchimpServerPrefix } from "./serverPrefix";
 
 /**
  * Thin MailChimp Marketing API client over native fetch. Every call returns a
@@ -31,6 +32,8 @@ async function call<T>(
   path: string,
   body?: unknown,
 ): Promise<MailchimpResult<T>> {
+  // The key only ever goes to a Mailchimp data centre's host.
+  if (!isMailchimpServerPrefix(cfg.serverPrefix)) return { ok: false, reason: "invalid_server_prefix" };
   try {
     const res = await fetch(`${baseUrl(cfg)}${path}`, {
       method,
@@ -51,7 +54,7 @@ async function call<T>(
         (json.title as string) ||
         (json.detail as string) ||
         `http_${res.status}`;
-      return { ok: false, reason };
+      return { ok: false, reason, status: res.status };
     }
     return { ok: true, data: json as T };
   } catch (err) {
@@ -64,6 +67,20 @@ async function call<T>(
 }
 
 // ---- Audience / member operations -----------------------------------------
+
+/**
+ * Read one audience (list) by id: the proof that this key can see it. A 401 or 404 means
+ * the key can't read that audience; `timeout` or `request_error` means Mailchimp didn't answer.
+ */
+export async function getAudience(
+  cfg: Pick<ResolvedMailchimpConfig, "apiKey" | "serverPrefix" | "audienceId">,
+): Promise<MailchimpResult<{ id: string }>> {
+  return call<{ id: string }>(
+    { ...cfg, source: "tenant" },
+    "GET",
+    `/lists/${encodeURIComponent(cfg.audienceId)}?fields=id`,
+  );
+}
 
 /** Idempotent member upsert (PUT keyed by the subscriber hash). */
 export async function upsertMember(

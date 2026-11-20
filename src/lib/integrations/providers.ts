@@ -22,6 +22,9 @@ export interface ProviderConfig {
   listScope?: string;
   /** Field on the user API response that holds the account handle. */
   loginField: string;
+  /** OAuth token revocation endpoint (RFC 7009), when the provider has one we use.
+   *  Classic GitHub uses githubTokenRevokeUrl instead. */
+  revokeUrl?: string;
   clientId: () => string | undefined;
   clientSecret: () => string | undefined;
 }
@@ -50,13 +53,37 @@ export const PROVIDERS: Record<GitProvider, ProviderConfig> = {
     // read_repository/read_user don't cover GET /projects.
     listScope: "read_api",
     loginField: "username",
+    revokeUrl: "https://gitlab.com/oauth/revoke",
     clientId: () => process.env.GITLAB_OAUTH_CLIENT_ID,
     clientSecret: () => process.env.GITLAB_OAUTH_CLIENT_SECRET,
   },
 };
 
+/**
+ * Classic GitHub OAuth app: the endpoint that revokes ONE token
+ * (DELETE /applications/{client_id}/token). Never /applications/{client_id}/grant,
+ * which removes the app's grant for that GitHub user and so every brand's token.
+ */
+export function githubTokenRevokeUrl(clientId: string): string {
+  return `https://api.github.com/applications/${encodeURIComponent(clientId)}/token`;
+}
+
 export function isGitProvider(p: string): p is GitProvider {
   return p === "github" || p === "gitlab";
+}
+
+/**
+ * httpOnly cookie carrying the state nonce from /start to /callback. The callback only
+ * accepts a state whose nonce matches it, so a signed state can't be replayed in another
+ * browser to attach someone else's account (OAuth account fixation). Its name differs
+ * from the social ones (x_pkce, li_oauth_state, li_org_state).
+ */
+export const GIT_STATE_COOKIE = "git_oauth_state";
+
+/** A provider's callback path: the redirect_uri path, and the nonce cookie's path, so
+ *  GitHub's and GitLab's cookies never collide. */
+export function gitCallbackPath(p: GitProvider): string {
+  return `/api/admin/integrations/${p}/callback`;
 }
 
 /**

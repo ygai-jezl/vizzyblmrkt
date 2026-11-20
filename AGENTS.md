@@ -32,7 +32,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 | `npm run doctor` | Checks this machine (`-- --brief` for one line, `-- --json` for tools) |
 | `npm run local` | App plus emulators, seeded, scheduled work every 2 minutes |
 | `npm run typecheck` | TypeScript, no output files |
-| `npm run lint` | ESLint, including the tenant isolation rule |
+| `npm run lint` | ESLint, including the tenant isolation rule and the Enterprise boundary |
 | `npm test` | All unit tests with Vitest (`npx vitest run <path>` for one file) |
 | `npm run build` | Production build |
 | `npm run smoke` | End to end test on throwaway emulators (needs Java; builds first when there is no build) |
@@ -45,12 +45,13 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 ## Where things live
 
 - `src/app`: routes. `admin/` is the admin portal, `api/admin/` its APIs, `api/agent/` the routes Vizzy's tools call, `api/v2/` the API for connected products, `waitlist/` and `embed/` the public sign-up pages, `help/` the public how-tos.
-- `src/lib`: the logic. `tenant/` is the only code that touches Firestore. Also `auth/` (sessions, admin access), `http/` (origin checks), `lifecycle/` and `journey/` (journeys), `email/`, `distribute/` and `social/` (posts), `knowledge/` and `agents/` (AI and retrieval), `help/` (help page list), `content/writingRules.ts` (house style), `waitlist/siteKeys.ts` (a launch's site key, for sign-ups from a brand's own site).
+- `src/lib`: the logic. `tenant/` is the only code that touches Firestore. Also `auth/` (sessions, admin access), `http/` (origin checks), `lifecycle/` and `journey/` (journeys), `email/`, `distribute/` and `social/` (posts), `knowledge/` and `agents/` (AI and retrieval), `help/` (help page list), `content/writingRules.ts` (house style), `waitlist/siteKeys.ts` (a launch's site key, for sign-ups from a brand's own site), `enterprise/registry.ts` (licence keys and the one door to Enterprise code).
 - `src/components`: React components. Help page bodies are in `src/components/help/pages/`.
 - `agents/root_agent`: Vizzy, the Python ADK agent. It has its own AGENTS.md.
 - `workers/knowledge-scraper`: the Cloud Run Job that reads sites and repos into knowledge. Own AGENTS.md.
 - `infra`: setup scripts, each for one Google Cloud project. Own AGENTS.md.
 - `sdk/node`: the MIT Node SDK, `@yougrowai/node`. Own AGENTS.md.
+- `src/ee`: Enterprise code under its own licence (`src/ee/LICENSE`, map in `LICENSING.md`). Only `src/lib/enterprise/registry.ts` imports it, and the app must build without it. Own AGENTS.md.
 - `scripts`: doctor, local run, self-host, checks and seed. `docs`: architecture, decisions, self-hosting.
 
 ## The one rule

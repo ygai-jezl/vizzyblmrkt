@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { integrationsAdmin } from "@/lib/integrations/admin";
-import { getTenantById, setTenantGitRepos } from "@/lib/tenant";
+import {
+  clearTenantGitReconnect,
+  getTenantById,
+  markTenantGitReconnect,
+  setTenantGitRepos,
+} from "@/lib/tenant";
 import { PROVIDERS, isGitProvider, type GitProvider } from "@/lib/integrations/providers";
-import { decryptToken } from "@/lib/integrations/crypto";
+import { ensureFreshGitToken } from "@/lib/integrations/tokenRefresh";
 import {
   MAX_SELECTED_REPOS,
   RepoListError,
@@ -17,12 +22,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Resolved =
-  | { ok: true; ctx: TenantContext; provider: GitProvider; token: string; selected: string[] | null }
+  | {
+      ok: true;
+      ctx: TenantContext;
+      provider: GitProvider;
+      token: string;
+      /** The stored ciphertext of `token`, for the compare-and-set reconnect mark. */
+      ct: string;
+      /** The connection carries a reconnect mark this listing may clear. */
+      marked: boolean;
+      selected: string[] | null;
+    }
   | { ok: false; res: Response };
 
 /**
  * Shared guard: flag, same-origin, the admin role (the list shows every private repo the
- * token can see across orgs, so members don't get it), provider, and a decryptable connection.
+ * token can see across orgs, so members don't get it), provider, and a usable token. A
+ * GitLab token is refreshed first when it is about to expire.
  */
 async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
   const fail = (error: string, status: number) => ({
@@ -39,18 +55,31 @@ async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
   if (!conn) return fail("not_connected", 409);
   // A read-only GitHub App connection: the repos are chosen on GitHub's install screen.
   if (conn.kind === "app" || !conn.enc) return fail("managed_on_github", 409);
-  let token: string;
-  try {
-    token = decryptToken(conn.enc);
-  } catch {
-    return fail("reconnect_required", 409);
-  }
+  const fresh = await ensureFreshGitToken(ctx, rawProvider, conn);
+  if (!fresh.token || !fresh.ct) return fail("reconnect_required", 409);
   const selected = conn.repos ? conn.repos.map((r) => r.fullPath) : null;
-  return { ok: true, ctx, provider: rawProvider, token, selected };
+  return {
+    ok: true,
+    ctx,
+    provider: rawProvider,
+    token: fresh.token,
+    ct: fresh.ct,
+    // A refresh refused just now keeps its mark, even if the old token still lists.
+    marked: Boolean(conn.reconnect) && !fresh.reconnect,
+    selected,
+  };
 }
 
-function listFailure(err: unknown): NextResponse {
+/** The provider rejected the token: mark the connection (only while it still holds
+ *  that token, so a refresh by another request isn't marked) and say reconnect. */
+async function listFailure(
+  err: unknown,
+  r: { ctx: TenantContext; provider: GitProvider; ct: string },
+): Promise<NextResponse> {
   if (err instanceof RepoListError && err.code === "reconnect_required") {
+    await markTenantGitReconnect(r.ctx.tenantId, r.provider, r.ct, "provider_rejected").catch(() => {
+      console.warn(`[git-refresh] ${r.provider} reconnect mark failed for ${r.ctx.tenantId}`);
+    });
     return NextResponse.json({ error: "reconnect_required" }, { status: 409 });
   }
   return NextResponse.json({ error: "provider_error" }, { status: 502 });
@@ -68,6 +97,8 @@ export async function GET(
   if (!r.ok) return r.res;
   try {
     const { repos, truncated } = await listAccessibleRepos(r.provider, r.token);
+    // The provider accepted the token, so the connection no longer needs reconnecting.
+    if (r.marked) await clearTenantGitReconnect(r.ctx.tenantId, r.provider, r.ct).catch(() => false);
     const clientId = PROVIDERS[r.provider].clientId();
     return NextResponse.json({
       repos,
@@ -77,7 +108,7 @@ export async function GET(
       orgAccessUrl: r.provider === "github" && clientId ? githubOrgAccessUrl(clientId) : null,
     });
   } catch (err) {
-    return listFailure(err);
+    return listFailure(err, r);
   }
 }
 
@@ -102,7 +133,7 @@ export async function PUT(
   try {
     accessible = (await listAccessibleRepos(r.provider, r.token)).repos;
   } catch (err) {
-    return listFailure(err);
+    return listFailure(err, r);
   }
   const byPath = new Map(accessible.map((x) => [x.fullPath, x]));
   const wanted = [...new Set(parsed.data.repos.map((p) => p.toLowerCase()))];
@@ -120,6 +151,9 @@ export async function PUT(
       webUrl: x.webUrl,
     };
   });
-  await setTenantGitRepos(r.ctx.tenantId, r.provider, repos);
+  // Removed meanwhile (a Disconnect won): nothing is written onto the gone connection.
+  if (!(await setTenantGitRepos(r.ctx.tenantId, r.provider, repos))) {
+    return NextResponse.json({ error: "not_connected" }, { status: 409 });
+  }
   return NextResponse.json({ ok: true, selected: repos.map((x) => x.fullPath) });
 }

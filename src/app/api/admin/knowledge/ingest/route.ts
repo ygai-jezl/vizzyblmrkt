@@ -11,6 +11,7 @@ import { enqueueIngestionTicket } from "@/lib/knowledge/tickets";
 import { triggerIngestionJob, isIngestionJobConfigured } from "@/lib/knowledge/runJob";
 import { validateIngestUrl } from "@/lib/knowledge/url";
 import { isGitRepoSelectionEnabled, isRepoSelected } from "@/lib/integrations/repos";
+import { prepareGitTokenForWorker } from "@/lib/integrations/tokenRefresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,6 +115,9 @@ export async function POST(req: Request) {
       { status: 202 },
     );
   }
+  // The worker can't refresh a GitLab token, so make sure the stored one outlasts its
+  // run. Never fails the request: at worst the worker uses what is stored.
+  if (source === "gitlab") await prepareGitTokenForWorker(ctx, "gitlab").catch(() => {});
   try {
     await triggerIngestionJob({
       ticketId: enq.ticketId,

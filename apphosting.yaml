@@ -701,7 +701,8 @@ env:
     availability:
       - RUNTIME
   # Write Idea Board items to the index as idea_board, not idea (needs SEARCH_INDEX_ENABLED).
-  # Reads take both names; turn it off and wait one search check before any revert.
+  # Reads take both names. Before any revert: turn it off, then move every brand back with
+  # scripts/search-backfill.ts --apply and wait for it to end with no failures (ADR-0008).
   - variable: SEARCH_KIND_IDEA_BOARD_ENABLED
     value: "false"
     availability:

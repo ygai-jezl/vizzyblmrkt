@@ -11,9 +11,12 @@ connectors and later pieces build on one model. It ships as one pull request in 
 the registry (0a), the search kind rename (0b), person ids at write time (0c), and the event
 store with agent actions (0e). The owner answered the open questions in the build plan's
 decisions 11 to 26 and approved the plan for piece 0, which this record follows where it
-differs from the specs. With every switch off nothing people see changes: two new server
-switches ship `"false"`, nothing calls the event store's writers yet, and Vizzy keeps sending
-the old search kind name. No dependency, `firestore.rules`, infra or deploy change.
+differs from the specs. With every switch off, the only change people see is in search, as
+decision 11 approved: the result badge reads "Clipping", the filter group "Scrapbook and
+images", and the Search help page lists "Scrapbook clippings and templates", ahead of piece D
+renaming the Idea Board screen itself. Otherwise two new server switches ship `"false"`,
+nothing calls the event store's writers yet, and Vizzy keeps sending the old search kind name.
+No dependency, `firestore.rules`, infra or deploy change.
 
 Owner decisions (2026-11-19 and 2026-11-20):
 
@@ -77,7 +80,9 @@ Owner decisions (2026-11-19 and 2026-11-20):
   - `SEARCH_KIND_IDEA_BOARD_ENABLED` (server, `"false"`) picks the name the indexer writes
     (`storedKindOf` in `src/lib/search/indexer.ts`). Off: Idea Board items are still written as
     `idea`, so nothing moves at deploy. The scheduled search check, about every 10 minutes,
-    moves stored items to the name in use, either way.
+    moves stored items to the name in use, either way. It shares its time between brands and can
+    stop part way, so a move can take several checks; `scripts/search-backfill.ts --apply` moves
+    every brand in one run.
   - Labels follow decision 11: the result badge reads "Clipping", the filter group "Scrapbook
     and images" (its key unchanged), and the Search help page and Vizzy's `search_brand`
     docstring say "Scrapbook clippings and templates". The brand context pack and Next up keep
@@ -254,8 +259,12 @@ Owner decisions (2026-11-19 and 2026-11-20):
     consumer sets it. Who may approve, decline or undo is each consumer's gate: admins for now
     (decision 28).
 - **Rollback, in this order:**
-  1. Turn `SEARCH_KIND_IDEA_BOARD_ENABLED` off, then wait one search check (about 10 minutes),
-     so stored items are back under `idea`.
+  1. Turn `SEARCH_KIND_IDEA_BOARD_ENABLED` off, then move every brand's items back under
+     `idea` before going on: anything left under `idea_board` would never be read or removed by
+     the reverted code. Don't count on one search check, which shares 30 seconds a tick between
+     brands and can stop part way. Run `npx tsx scripts/search-backfill.ts --apply` once with the
+     switch unset in that shell (its header says what it needs), and go on only when it ends
+     with no failures.
   2. Turn `ONTOLOGY_PERSON_IDS_ENABLED` off, then wait one delivery drain, so queued
      `person_repoint` jobs drop themselves. A revert with jobs still queued makes the job switch
      in `src/lib/email/delivery.ts` throw for them until they park as failed after three
@@ -289,7 +298,10 @@ Owner steps:
   databases, then run the backfill: dry run, apply, dry run (stamped 0 and corrected 0).
 - Prod: promote with both switches off, deploy the indexes, then a private settings change
   turns on `ONTOLOGY_PERSON_IDS_ENABLED` and after it `SEARCH_KIND_IDEA_BOARD_ENABLED`. Run the
-  prod backfill the same way. Vizzy's search change rides the redeploy after piece B.
+  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --apply`
+  with `SEARCH_KIND_IDEA_BOARD_ENABLED=true` in that shell moves every brand's clippings in one
+  run, instead of some dropping out of search for a check or two. Vizzy's search change rides
+  the redeploy after piece B.
 
 Deferred:
 - Renaming the older product user meaning of `personId` (piece B).

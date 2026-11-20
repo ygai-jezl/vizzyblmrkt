@@ -214,7 +214,11 @@ Deferred:
 - Hosted keys, the seat count, the grace period and the status screen (piece M).
 - The production public key (the owner), and the tool that issues keys, which lives in the
   private operations repository.
-- Making the CLA check required, after the lawyer and the founder IP assignment.
+- Making the CLA check required, after the lawyer and the founder IP assignment. At the
+  same time, set fork pull request workflows to need approval for all outside
+  contributors. A required check matches on its name and on the GitHub Actions app, which
+  every workflow shares, so a pull request that adds its own job named CLA could otherwise
+  stand in for the real one. The `cla.yml` header says the same.
 - Trademark.
 
 Consequences: the CI job without `src/ee` uses runner minutes on every pull request.

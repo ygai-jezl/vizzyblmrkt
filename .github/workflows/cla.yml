@@ -13,6 +13,11 @@ name: CLA
 #
 # Signatures and the policy are in docs/cla. The check is advisory until a ruleset makes the
 # CLA check required; a maintainer's bypass of that ruleset is the override.
+#
+# When the check is made required, also set fork pull request workflows to need approval for
+# all outside contributors (Settings, Actions). A required check matches on its name and on
+# the GitHub Actions app, which every workflow shares, so a pull request that adds its own
+# job named CLA could otherwise stand in for this one.
 
 on:
   pull_request_target:

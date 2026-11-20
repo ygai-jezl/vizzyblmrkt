@@ -222,11 +222,23 @@ describe("a person repoint job in the queue", () => {
     repoint.calls = [];
     repoint.answer = "drop";
   });
+  /** The scheduled drain: the only one with a deadline, and the only one that runs repoints. */
+  const scheduled = (db: FakeFirestore) => processEmailJobs(ctx, 10, db, { deadlineAt: Date.now() + 60_000 });
+
+  it("is left queued by an inline drain inside a request, for the scheduled drain", async () => {
+    const db = new FakeFirestore();
+    queued(db);
+    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 0, done: 0, failed: 0 });
+    expect(repoint.calls).toHaveLength(0);
+    expect(db.raw("email_jobs", "pr_1")).toMatchObject({ status: "pending", attempts: 0, claimedAt: null });
+    expect(await scheduled(db)).toMatchObject({ processed: 1, done: 1 });
+    expect(repoint.calls).toHaveLength(1);
+  });
 
   it("is dispatched to the repoint job, and deleted when it answers drop", async () => {
     const db = new FakeFirestore();
     queued(db);
-    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    expect(await scheduled(db)).toMatchObject({ processed: 1, done: 1, failed: 0 });
     expect(repoint.calls).toEqual([expect.objectContaining({ id: "pr_1", type: "person_repoint", payload: { productUserId: "pu_1" } })]);
     expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
   });
@@ -236,7 +248,7 @@ describe("a person repoint job in the queue", () => {
     queued(db, 1);
     repoint.answer = "again";
     const before = Date.now();
-    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, done: 0, failed: 0 });
+    expect(await scheduled(db)).toMatchObject({ processed: 1, done: 0, failed: 0 });
     const job = db.raw("email_jobs", "pr_1")!;
     expect(job).toMatchObject({ status: "pending", attempts: 1, claimedAt: null });
     expect(Date.parse(String(job.scheduledAt))).toBeGreaterThanOrEqual(before - 1000);
@@ -244,7 +256,7 @@ describe("a person repoint job in the queue", () => {
     // The same drain doesn't run it twice; the next one does.
     expect(repoint.calls).toHaveLength(1);
     repoint.answer = "drop";
-    await processEmailJobs(ctx, 10, db);
+    await scheduled(db);
     expect(repoint.calls).toHaveLength(2);
     expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
   });
@@ -253,10 +265,10 @@ describe("a person repoint job in the queue", () => {
     const db = new FakeFirestore();
     queued(db);
     repoint.answer = "throw";
-    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, failed: 1 });
-    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, failed: 1 });
+    expect(await scheduled(db)).toMatchObject({ processed: 1, failed: 1 });
+    expect(await scheduled(db)).toMatchObject({ processed: 1, failed: 1 });
     expect(db.raw("email_jobs", "pr_1")).toMatchObject({ status: "pending", attempts: 2, lastError: "unavailable" });
-    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, failed: 1 });
+    expect(await scheduled(db)).toMatchObject({ processed: 1, failed: 1 });
     expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
   });
 });

@@ -302,7 +302,8 @@ Deferred:
 Consequences: two more regional stores hold personal data, so any new path that removes a
 person, company or idea calls `eraseHistory`. Every new collection or file store needs a
 registry entry and a regenerated `docs/ONTOLOGY.md`, so piece A and piece 0 rebase on each
-other's registry. `person_repoint` jobs share the email queue and run between sends. The fake
+other's registry. `person_repoint` jobs share the email queue and run between sends, in the
+scheduled drain only: an inline drain inside a request leaves them queued. The fake
 Firestore applies transaction writes in order and doesn't enforce reads before writes, so the
 writers' tests run through `src/lib/tenant/testing/readsFirst.ts`.
 

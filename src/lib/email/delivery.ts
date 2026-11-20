@@ -65,7 +65,12 @@ const RUN_BUDGET_MS = 90_000;
 
 /** Options for one drain. */
 export interface DrainOptions {
-  /** Epoch ms after which no NEW job is claimed; the job in flight finishes. */
+  /**
+   * Epoch ms after which no NEW job is claimed; the job in flight finishes. Only the scheduled
+   * drain sets one. Without it (an inline drain inside a request: a broadcast send, a journey
+   * activation, an invite wave) person_repoint jobs are left for the scheduled drain, since one
+   * can work for a 20 second slice.
+   */
   deadlineAt?: number;
 }
 
@@ -137,6 +142,8 @@ export async function processEmailJobs(
 
   for (const candidate of jobs) {
     if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
+    // Never inside a request: a person repoint waits for the scheduled drain (see DrainOptions).
+    if (candidate.type === "person_repoint" && opts.deadlineAt === undefined) continue;
     // EXACTLY-ONCE CLAIM: the queries above only find CANDIDATES — the claim is
     // authoritative. Inside a transaction we re-read the job FRESH and move
     // due-pending / stale-processing → processing atomically. Overlapping drains

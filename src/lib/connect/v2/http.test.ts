@@ -768,7 +768,8 @@ describe("person moves after a product write (ONTOLOGY_PERSON_IDS_ENABLED)", () 
     const w = await setup();
     await w.patch("u_1", { firstName: "Alex" });
     await w.patch("u_1", { email: "alex@example.com" });
-    await processEmailJobs(ctxA, 25, w.db);
+    // The scheduled drain (it has a deadline): inline drains leave person repoints to it.
+    await processEmailJobs(ctxA, 25, w.db, { deadlineAt: Date.now() + 60_000 });
     const ada = personIdForAddress(ctxA.tenantId, "alex@example.com");
     expect((w.db.dump("product_events") as Array<Record<string, unknown>>).map((r) => r.personId)).toEqual([ada, ada]);
     expect(w.db.dump("email_jobs").filter((j) => j.type === "person_repoint")).toHaveLength(0);

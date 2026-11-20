@@ -15,6 +15,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 const { GET, PUT } = await import("./route");
 const { encryptToken, decryptToken, gitRefreshAad } = await import("@/lib/integrations/crypto");
 const { getTenantById, deleteTenantGitConnection } = await import("@/lib/tenant");
+const { gitNeedsReconnect } = await import("@/lib/integrations/reconnect");
 
 const ORIGIN = "https://yougrow.test";
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
@@ -154,12 +155,36 @@ describe("GET /api/admin/integrations/gitlab/repos", () => {
     expect((await stored())?.reconnect?.reason).toBe("refresh_failed");
   });
 
-  it("a token that won't open is 409 reconnect_required with no call out", async () => {
+  it("a token that won't open is 409 reconnect_required with no call out, and marks it so Reconnect shows", async () => {
     seed({ enc: { ct: "x", iv: "x", tag: "x" } });
     const res = await GET(req(), gitlab);
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "reconnect_required" });
     expect(fetchMock).not.toHaveBeenCalled();
+    const conn = await stored();
+    expect(conn?.reconnect?.reason).toBe("provider_rejected");
+    // What the status API reports as needsReconnect.
+    expect(gitNeedsReconnect(conn, Date.now())).toBe(true);
+  });
+
+  it("a refresh_failed mark from an earlier refresh stays after a listing that works", async () => {
+    // A refresh before a worker trigger (90 minute margin) was refused while the access
+    // token still had time left; this listing (5 minute margin) doesn't refresh.
+    seed({ reconnect: { at: at(Date.now() - MIN), reason: "refresh_failed" } });
+    const res = await GET(req(), gitlab);
+    expect(res.status).toBe(200);
+    expect(calls()).toEqual([expect.objectContaining({ auth: "Bearer gl-old-access" })]);
+    expect((await stored())?.reconnect?.reason).toBe("refresh_failed");
+  });
+
+  it("an expired token whose refresh fails softly, then refused by the listing, is a 502 with no mark", async () => {
+    seed({ expiresAt: at(Date.now() - MIN) });
+    tokenReply = new Response("bad gateway", { status: 502 });
+    projects = new Response("{}", { status: 401 });
+    const res = await GET(req(), gitlab);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "provider_error" });
+    expect((await stored())?.reconnect).toBeUndefined();
   });
 
   it("keeps not_connected when there is no connection", async () => {

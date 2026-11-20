@@ -231,11 +231,11 @@ describe("ensureFreshGitToken", () => {
     ["a network error", () => Promise.reject(new TypeError("fetch failed"))],
     ["a 5xx", async () => new Response("bad gateway", { status: 502 })],
     ["a 429", async () => new Response("slow down", { status: 429 })],
-  ])("%s keeps the old token with no mark", async (_label, reply) => {
+  ])("%s keeps the old token with no mark, and says it may be stale", async (_label, reply) => {
     fetchMock.mockImplementationOnce(reply);
     const { db, conn, read } = await world();
     const r = await ensureFreshGitToken(ctx, "gitlab", conn, opts(db));
-    expect(r).toEqual({ token: "gl-old-access", ct: conn.enc!.ct, reconnect: false });
+    expect(r).toEqual({ token: "gl-old-access", ct: conn.enc!.ct, reconnect: false, stale: true });
     expect((await read())!.reconnect).toBeUndefined();
   });
 

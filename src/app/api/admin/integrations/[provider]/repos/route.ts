@@ -31,6 +31,8 @@ type Resolved =
       ct: string;
       /** The connection carries a reconnect mark this listing may clear. */
       marked: boolean;
+      /** A due refresh failed softly, so the provider refusing `token` proves nothing. */
+      stale: boolean;
       selected: string[] | null;
     }
   | { ok: false; res: Response };
@@ -56,7 +58,18 @@ async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
   // A read-only GitHub App connection: the repos are chosen on GitHub's install screen.
   if (conn.kind === "app" || !conn.enc) return fail("managed_on_github", 409);
   const fresh = await ensureFreshGitToken(ctx, rawProvider, conn);
-  if (!fresh.token || !fresh.ct) return fail("reconnect_required", 409);
+  // Removed meanwhile (a Disconnect, or a refresh that found it gone).
+  if (!fresh.ct) return fail("not_connected", 409);
+  if (!fresh.token) {
+    // A stored token that won't open (say the encryption key changed) can never be used:
+    // mark it, so the status API and the panel show Reconnect, not a plain Connected.
+    if (fresh.reconnect) {
+      await markTenantGitReconnect(ctx.tenantId, rawProvider, fresh.ct, "provider_rejected").catch(() => {
+        console.warn(`[git-refresh] ${rawProvider} reconnect mark failed for ${ctx.tenantId}`);
+      });
+    }
+    return fail("reconnect_required", 409);
+  }
   const selected = conn.repos ? conn.repos.map((r) => r.fullPath) : null;
   return {
     ok: true,
@@ -64,19 +77,25 @@ async function resolve(req: Request, rawProvider: string): Promise<Resolved> {
     provider: rawProvider,
     token: fresh.token,
     ct: fresh.ct,
-    // A refresh refused just now keeps its mark, even if the old token still lists.
-    marked: Boolean(conn.reconnect) && !fresh.reconnect,
+    // Only a provider_rejected mark is cleared by a listing that works. A refresh_failed
+    // mark stays until a refresh works (the swap clears it) or an admin reconnects: the
+    // access token can still list for up to 90 minutes after its refresh token was
+    // refused before a worker trigger. A refresh refused just now keeps its mark too.
+    marked: conn.reconnect?.reason === "provider_rejected" && !fresh.reconnect,
+    stale: fresh.stale === true,
     selected,
   };
 }
 
 /** The provider rejected the token: mark the connection (only while it still holds
- *  that token, so a refresh by another request isn't marked) and say reconnect. */
+ *  that token, so a refresh by another request isn't marked) and say reconnect. When a
+ *  due refresh failed softly the token may just have expired, so it is a provider error
+ *  with no mark, and the next use refreshes again. */
 async function listFailure(
   err: unknown,
-  r: { ctx: TenantContext; provider: GitProvider; ct: string },
+  r: { ctx: TenantContext; provider: GitProvider; ct: string; stale: boolean },
 ): Promise<NextResponse> {
-  if (err instanceof RepoListError && err.code === "reconnect_required") {
+  if (err instanceof RepoListError && err.code === "reconnect_required" && !r.stale) {
     await markTenantGitReconnect(r.ctx.tenantId, r.provider, r.ct, "provider_rejected").catch(() => {
       console.warn(`[git-refresh] ${r.provider} reconnect mark failed for ${r.ctx.tenantId}`);
     });

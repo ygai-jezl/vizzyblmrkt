@@ -128,6 +128,12 @@ export interface FreshGitToken {
   ct: string | null;
   /** True when this call found the connection needs reconnecting. */
   reconnect: boolean;
+  /**
+   * True when a refresh was due but failed softly (a network error, a 5xx or a 429), so
+   * `token` is the stored one and may have expired. The provider refusing it then says
+   * nothing about the connection, so a caller doesn't mark it.
+   */
+  stale?: true;
 }
 
 const NONE: FreshGitToken = { token: null, ct: null, reconnect: false };
@@ -195,7 +201,7 @@ async function ensureFresh(
   if (!res.ok) {
     if (res.status === 400 || res.status === 401) return refused(res.reason);
     console.warn(`[git-refresh] ${provider} refresh failed for ${ctx.tenantId}: ${res.reason}`);
-    return asIs;
+    return { ...asIs, stale: true };
   }
 
   const enc = encryptToken(res.bundle.accessToken);

@@ -67,6 +67,8 @@ const PEOPLE_WORDS = "people's words wait for the data processing agreement to c
 const COUNTS_GAP = "people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)";
 const BQ_GAP = "the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore";
 const LAUNCH_LEAVES_EMAIL = "deleting a launch removes its sign-ups but leaves their rows here";
+const PERSON_KEPT_ON_PRODUCT_ROWS =
+  "while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)";
 const NOT_PERSONAL = "the brand's own work, with no one's personal data";
 const NO_NUMBERS = "no numbers an agent reads";
 const planned = (piece: string) => `planned: ${piece} decides it with the store`;
@@ -254,7 +256,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { field: "signupId", stampedAtWrite: true },
       { field: "personId", stampedAtWrite: true },
     ],
-    erase: { paths: [CONTACT_ERASE, PU_HISTORY], gaps: [LAUNCH_LEAVES_EMAIL] },
+    erase: { paths: [CONTACT_ERASE, PU_HISTORY], gaps: [LAUNCH_LEAVES_EMAIL, PERSON_KEPT_ON_PRODUCT_ROWS] },
     export: { paths: [EXPORT_PERSON, EXPORT_PU] },
     search: { none: PEOPLE_WORDS },
     numbers: { meanings: [...EMAIL_MEANINGS], tool: "get_email_results" },
@@ -286,7 +288,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { field: "signupId", stampedAtWrite: true },
       { field: "personId", stampedAtWrite: true },
     ],
-    erase: { paths: [CONTACT_ERASE, PU_HISTORY], gaps: [LAUNCH_LEAVES_EMAIL, BQ_GAP] },
+    erase: { paths: [CONTACT_ERASE, PU_HISTORY], gaps: [LAUNCH_LEAVES_EMAIL, BQ_GAP, PERSON_KEPT_ON_PRODUCT_ROWS] },
     export: { paths: [EXPORT_PERSON, EXPORT_PU] },
     search: { none: PEOPLE_WORDS },
     numbers: {
@@ -520,6 +522,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     ],
     erase: {
       paths: [PU_HISTORY, CONTACT_ERASE_PRODUCTS, retention("EVENT_TTL_MS", "src/lib/connect/ingest.ts", "each event goes 90 days after it arrives")],
+      gaps: [PERSON_KEPT_ON_PRODUCT_ROWS],
     },
     export: { paths: [EXPORT_PU, EXPORT_PERSON] },
     search: { none: PEOPLE_WORDS },
@@ -657,7 +660,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { field: "signupId", stampedAtWrite: true },
       { field: "personId", stampedAtWrite: true },
     ],
-    erase: { paths: [PU_HISTORY, CONTACT_ERASE, LAUNCH_DELETE] },
+    erase: { paths: [PU_HISTORY, CONTACT_ERASE, LAUNCH_DELETE], gaps: [PERSON_KEPT_ON_PRODUCT_ROWS] },
     export: { paths: [EXPORT_PU, EXPORT_PERSON] },
     search: { none: PEOPLE_WORDS },
     numbers: { none: "journey numbers are counted from email sends" },
@@ -693,7 +696,34 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { field: "productUserId", stampedAtWrite: true },
       { field: "personId", stampedAtWrite: true },
     ],
-    erase: { paths: [PU_HISTORY, CONTACT_ERASE_PRODUCTS] },
+    erase: { paths: [PU_HISTORY, CONTACT_ERASE_PRODUCTS], gaps: [PERSON_KEPT_ON_PRODUCT_ROWS] },
+    export: { paths: [EXPORT_PU, EXPORT_PERSON] },
+    search: { none: PEOPLE_WORDS },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "person_move",
+    name: "Person move",
+    description:
+      "A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job. Ids only.",
+    place: "customers",
+    status: "built",
+    home: "brand",
+    personal: "people",
+    stores: [regional("person_moves", "pending until the job has moved their rows, then done; the event fields never change")],
+    links: [
+      { to: "product_user", via: "productUserId", many: false },
+      { to: "person", via: "personId and fromPersonId", many: false },
+      { to: "product", via: "connectionId", many: false },
+    ],
+    events: ["record.merged", "record.repointed"],
+    states: ["pending", "done"],
+    personFields: [
+      { field: "personId", stampedAtWrite: true },
+      { field: "fromPersonId", stampedAtWrite: true },
+      { field: "productUserId", stampedAtWrite: true },
+    ],
+    erase: { paths: [PU_HISTORY, { ...CONTACT_ERASE, when: "moves to or from the person, by personId and fromPersonId" }] },
     export: { paths: [EXPORT_PU, EXPORT_PERSON] },
     search: { none: PEOPLE_WORDS },
     numbers: { none: NO_NUMBERS },
@@ -1228,12 +1258,13 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "email_job",
     name: "Email job",
-    description: "The queue behind every email: a send, a step, a contact erase or a sync waiting to run, with retries.",
+    description:
+      "The queue behind every email: a send, a step, a contact erase, a sync or a person repoint (a product user's rows following them to another person) waiting to run, with retries.",
     place: "platform",
     status: "built",
     home: "brand",
     personal: "people",
-    stores: [regional("email_jobs", "a job's payload can name a person")],
+    stores: [regional("email_jobs", "a job's payload can name a person; a person_repoint job holds a product user id and goes when it is done")],
     links: [{ to: "idea", via: "campaignId", many: false }],
     events: [],
     erase: { paths: [LAUNCH_DELETE], gaps: ["a person's erase leaves their queued jobs; a queued send for a deleted sign-up drops when it runs"] },

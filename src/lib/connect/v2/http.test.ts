@@ -13,6 +13,9 @@ import { isSuppressedFor, suppressEmail } from "@/lib/email/suppression";
 import { handleBatch, handleDeleteUser, handleGetUser, handleMe, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
 import { createSiteKey } from "@/lib/waitlist/siteKeys";
 import { personIdForAddress, personIdForProductUser } from "@/lib/ontology/personRef";
+import { repointJobKey } from "@/lib/ontology/moves";
+import { personIdOf } from "@/lib/audience/personSync";
+import { processEmailJobs } from "@/lib/email/delivery";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
 const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -724,5 +727,81 @@ describe("the person on product events (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
       expect(rowsOf(w.db)).toHaveLength(2);
       for (const r of rowsOf(w.db)) expect(r).not.toHaveProperty("personId");
     }
+  });
+});
+
+describe("person moves after a product write (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const moves = (db: FakeFirestore) => db.dump("person_moves") as Array<Record<string, unknown>>;
+
+  it("a user saved with no address, then with one, is merged: a pending move and a queued repoint job", async () => {
+    const w = await setup();
+    const id = productUserDocId(w.connection.id, "u_1");
+    await w.patch("u_1", { firstName: "Alex" });
+    expect(moves(w.db)).toHaveLength(0);
+    await w.patch("u_1", { email: "alex@example.com" });
+    const ada = personIdForAddress(ctxA.tenantId, "alex@example.com")!;
+    expect(moves(w.db)).toEqual([
+      expect.objectContaining({
+        kind: "record.merged",
+        fromPersonId: personIdOf(ctxA.tenantId, `pu:${id}`),
+        personId: ada,
+        productUserId: id,
+        connectionId: w.connection.id,
+        repoint: "pending",
+      }),
+    ]);
+    expect(w.db.raw("email_jobs", repointJobKey(ctxA.tenantId, id, ada))).toMatchObject({ type: "person_repoint", status: "pending", payload: { productUserId: id } });
+    expect(JSON.stringify(moves(w.db))).not.toContain("alex@example.com");
+  });
+
+  it("the queued job brings their earlier rows along, then goes, and the move says done", async () => {
+    const w = await setup();
+    await w.patch("u_1", { firstName: "Alex" });
+    await w.patch("u_1", { email: "alex@example.com" });
+    await processEmailJobs(ctxA, 25, w.db);
+    const ada = personIdForAddress(ctxA.tenantId, "alex@example.com");
+    expect((w.db.dump("product_events") as Array<Record<string, unknown>>).map((r) => r.personId)).toEqual([ada, ada]);
+    expect(w.db.dump("email_jobs").filter((j) => j.type === "person_repoint")).toHaveLength(0);
+    expect(moves(w.db)).toEqual([expect.objectContaining({ repoint: "done" })]);
+  });
+
+  it("a later address change is repointed, and so is an address that goes", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "alex@example.com" });
+    w.setNow(NOW + 1000);
+    await w.patch("u_1", { email: "alex@new.example.com", updatedAt: new Date(NOW + 1000).toISOString() });
+    w.setNow(NOW + 2000);
+    await w.patch("u_1", { email: null, updatedAt: new Date(NOW + 2000).toISOString() });
+    expect(moves(w.db).map((m) => [m.kind, m.fromPersonId, m.personId])).toEqual([
+      ["record.repointed", personIdForAddress(ctxA.tenantId, "alex@example.com"), personIdForAddress(ctxA.tenantId, "alex@new.example.com")],
+      ["record.repointed", personIdForAddress(ctxA.tenantId, "alex@new.example.com"), personIdOf(ctxA.tenantId, `pu:${productUserDocId(w.connection.id, "u_1")}`)],
+    ]);
+  });
+
+  it("a batch with two writes for the same user at one time leaves two moves", async () => {
+    const w = await setup();
+    await w.patch("u_1", { firstName: "Alex" });
+    await handleBatch(
+      request("POST", w.auth, { users: [{ userId: "u_1", email: "one@example.com" }, { userId: "u_1", email: "two@example.com" }] }),
+      w.deps,
+    );
+    const rows = moves(w.db);
+    expect(rows.map((m) => m.kind)).toEqual(["record.merged", "record.repointed"]);
+    expect(new Set(w.db.cols.get("person_moves")!.keys()).size).toBe(2);
+  });
+
+  it("leaves no move or job while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup();
+    await w.patch("u_1", { firstName: "Alex" });
+    await w.patch("u_1", { email: "alex@example.com" });
+    expect(moves(w.db)).toHaveLength(0);
+    expect(w.db.dump("email_jobs").filter((j) => j.type === "person_repoint")).toHaveLength(0);
   });
 });

@@ -50,6 +50,7 @@ import { markInviteFailed, processInviteJob } from "@/lib/invites/send";
 import type { EndedReason, HeldReason } from "@/lib/types/emailJob";
 import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
 import { personIdForSignup } from "@/lib/ontology/personRef";
+import { processPersonRepointJob } from "@/lib/ontology/repoint";
 
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
@@ -75,8 +76,10 @@ export interface DrainOptions {
  * from (campaign, email) — so a job tombstoned as "done" for a now-absent
  * recipient would permanently block re-enrollment of a deleted-then-re-added
  * contact (same email → same signup id → same key). Dropping prevents that.
+ * "again" puts a job that worked a slice back in the queue at once, without spending an attempt
+ * (a person repoint that saved its cursor).
  */
-type JobOutcome = "done" | "drop" | "hold" | `held:${HeldReason}` | `ended:${EndedReason}`;
+type JobOutcome = "done" | "drop" | "hold" | "again" | `held:${HeldReason}` | `ended:${EndedReason}`;
 
 /** How long a held job waits before it's looked at again (e.g. invites while switched off). */
 const HOLD_MS = 30 * 60_000;
@@ -180,6 +183,9 @@ export async function processEmailJobs(
         case "invite":
           outcome = await processInviteJob(ctx, job, db);
           break;
+        case "person_repoint":
+          outcome = await processPersonRepointJob(ctx, job, db);
+          break;
         default: {
           const _exhaustive: never = job.type;
           throw new Error(`unknown job type: ${String(_exhaustive)}`);
@@ -191,6 +197,17 @@ export async function processEmailJobs(
         await forTenant(ctx, db).emailJobs.update(job.id, {
           status: "pending",
           scheduledAt: new Date(Date.now() + HOLD_MS).toISOString(),
+          attempts: Math.max(0, attempts - 1),
+          claimedAt: null,
+        });
+        continue;
+      }
+      if (outcome === "again") {
+        // A slice of a long job is done and its cursor saved: back in the queue now, without
+        // spending an attempt. The next drain picks it up; other jobs due first still go first.
+        await forTenant(ctx, db).emailJobs.update(job.id, {
+          status: "pending",
+          scheduledAt: new Date().toISOString(),
           attempts: Math.max(0, attempts - 1),
           claimedAt: null,
         });

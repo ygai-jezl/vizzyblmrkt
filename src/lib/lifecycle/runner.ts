@@ -53,6 +53,7 @@ import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } 
 import { runWaitlistTick } from "./waitlist/tick";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { sweepPeople } from "@/lib/audience/personSweep";
+import { repairPendingMoves } from "@/lib/ontology/moves";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { dateStartOf, JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
@@ -928,6 +929,8 @@ export async function runLifecycleTick(
         total.people.synced += p.synced;
         total.people.checked += p.checked;
         total.people.failed += p.failed;
+        // Person moves whose repoint job was lost go back in the queue (ONTOLOGY_PERSON_IDS_ENABLED).
+        await repairPendingMoves(ctx, { db: deps.db, now: clock() });
       } catch (err) {
         console.warn(`[lifecycle] tenant ${t.id} (${t.region}) person sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }

@@ -19,6 +19,9 @@ export const EmailJobType = z.enum([
   "contact_erase", // payload: { contactId } — GDPR Art.17 cascade
   // Invite your waitlist (nav v2 phase 4): one per person. payload: { inviteId }.
   "invite",
+  // A product user moved to another person: their rows follow (ONTOLOGY_PERSON_IDS_ENABLED).
+  // payload: { productUserId, cursor?: { store, after, target } }. Deleted when done.
+  "person_repoint",
 ]);
 export type EmailJobType = z.infer<typeof EmailJobType>;
 

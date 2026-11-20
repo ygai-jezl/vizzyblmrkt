@@ -7,6 +7,15 @@ import { activateJourney, enrollSignupInActiveJourney, processEmailJobs } from "
 import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
 import { suppressionDocId } from "./suppression";
 
+// The person repoint job itself is tested in src/lib/ontology/repoint.test.ts: here, only what the queue does with its answer.
+const repoint = vi.hoisted(() => ({ answer: "drop" as "drop" | "again", calls: [] as unknown[] }));
+vi.mock("@/lib/ontology/repoint", () => ({
+  processPersonRepointJob: async (_ctx: unknown, job: unknown) => {
+    repoint.calls.push(job);
+    return repoint.answer;
+  },
+}));
+
 /**
  * Engine move D1: a paused journey or an archived launch HOLDS each person's
  * next step instead of ending their sequence. Nothing here reaches a send: every
@@ -187,5 +196,55 @@ describe("the journey engine stamp (engine move D1)", () => {
     expect(db.raw("email_jobs", "journey:journey_camp1:email1:s1")).toBeDefined();
     expect(db.raw("email_jobs", "journey:journey_camp1:email1:s2")).toBeUndefined();
     expect(db.raw("signups", "s1")).toMatchObject({ journeyEngine: "legacy" });
+  });
+});
+
+describe("a person repoint job in the queue", () => {
+  function queued(db: FakeFirestore, attempts = 0) {
+    db.seed("email_jobs", "pr_1", {
+      tenantId: "ten_A",
+      campaignId: "",
+      type: "person_repoint",
+      status: "pending",
+      dedupeKey: "pr_1",
+      scheduledAt: "2026-09-20T09:00:00.000Z",
+      attempts,
+      claimedAt: null,
+      emailSentAt: null,
+      payload: { productUserId: "pu_1" },
+      lastError: null,
+      createdAt: "2026-09-19T09:00:00.000Z",
+      processedAt: null,
+    });
+  }
+  beforeEach(() => {
+    repoint.calls = [];
+    repoint.answer = "drop";
+  });
+
+  it("is dispatched to the repoint job, and deleted when it answers drop", async () => {
+    const db = new FakeFirestore();
+    queued(db);
+    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, done: 1, failed: 0 });
+    expect(repoint.calls).toEqual([expect.objectContaining({ id: "pr_1", type: "person_repoint", payload: { productUserId: "pu_1" } })]);
+    expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
+  });
+
+  it("goes back in the queue at once, without spending an attempt, when it answers again", async () => {
+    const db = new FakeFirestore();
+    queued(db, 1);
+    repoint.answer = "again";
+    const before = Date.now();
+    expect(await processEmailJobs(ctx, 10, db)).toMatchObject({ processed: 1, done: 0, failed: 0 });
+    const job = db.raw("email_jobs", "pr_1")!;
+    expect(job).toMatchObject({ status: "pending", attempts: 1, claimedAt: null });
+    expect(Date.parse(String(job.scheduledAt))).toBeGreaterThanOrEqual(before - 1000);
+    expect(Date.parse(String(job.scheduledAt))).toBeLessThanOrEqual(Date.now());
+    // The same drain doesn't run it twice; the next one does.
+    expect(repoint.calls).toHaveLength(1);
+    repoint.answer = "drop";
+    await processEmailJobs(ctx, 10, db);
+    expect(repoint.calls).toHaveLength(2);
+    expect(db.raw("email_jobs", "pr_1")).toBeUndefined();
   });
 });

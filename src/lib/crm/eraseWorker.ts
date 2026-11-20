@@ -64,6 +64,11 @@ export async function processContactEraseJob(
     }
   }
 
+  // 2b. Moves to or from this person (ONTOLOGY_PERSON_IDS_ENABLED): ids only, but about them.
+  //     Kept rows of a product user they still have go with that user's own erase.
+  await repo.personMoves.deleteWhere([["personId", "==", contactId]]);
+  await repo.personMoves.deleteWhere([["fromPersonId", "==", contactId]]);
+
   // 3. Opt-outs keep holding, without the address (the row id is a hash of it).
   if (email) await scrubSuppressionEmails(ctx, normalizeEmail(email), db);
 

@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-89 types: 60 built and 29 planned.
+90 types: 61 built and 29 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -144,6 +144,7 @@ One email sent to one person, and everything that happened to it: delivery, open
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - Gap: deleting a launch removes its sign-ups but leaves their rows here
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
@@ -170,6 +171,7 @@ One kind of thing that happened to an email for one person (sent, opened, clicke
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - Gap: deleting a launch removes its sign-ups but leaves their rows here
   - Gap: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
@@ -393,6 +395,7 @@ One identify or track message a product sent about one of its users, kept 90 day
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)
   - `EVENT_TTL_MS` in `src/lib/connect/ingest.ts`, on retention (each event goes 90 days after it arrives)
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Export:
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
@@ -538,6 +541,7 @@ One person's way through one journey: where they are, what they were sent and wh
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Export:
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
@@ -579,6 +583,29 @@ A plan for one product user, in the team's words, drafted by Vizzy and approved 
 - Erase:
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Person move (`person_move`)
+
+A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job. Ids only.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `person_moves`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Pending until the job has moved their rows, then done; the event fields never change.
+- Links: `product_user` through productUserId; `person` through personId and fromPersonId; `product` through connectionId
+- Events: `record.merged`, `record.repointed`
+- States: `pending`, `done`
+- Person fields: `personId` (written with the row), `fromPersonId` (written with the row), `productUserId` (written with the row)
+- Erase:
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (moves to or from the person, by personId and fromPersonId)
 - Export:
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
@@ -1338,13 +1365,13 @@ Short lived counters that keep each brand and caller within its limits, keyed by
 
 ### Email job (`email_job`)
 
-The queue behind every email: a send, a step, a contact erase or a sync waiting to run, with retries.
+The queue behind every email: a send, a step, a contact erase, a sync or a person repoint (a product user's rows following them to another person) waiting to run, with retries.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
-  - `email_jobs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. A job's payload can name a person.
+  - `email_jobs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. A job's payload can name a person; a person_repoint job holds a product user id and goes when it is done.
 - Links: `idea` through campaignId
 - Erase:
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
@@ -1490,9 +1517,11 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Email send (`email_send`):
   - Erase: deleting a launch removes its sign-ups but leaves their rows here
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Email event (`email_event`):
   - Erase: deleting a launch removes its sign-ups but leaves their rows here
   - Erase: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Form view (`widget_view`):
   - Numbers: form view counts have no meanings yet (connectors 2)
 - Product event count (`product_event_day`):
@@ -1507,6 +1536,7 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Product user (`product_user`):
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Product event (`product_event`):
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
   - Numbers: product event counts have no meanings yet (connectors 2)
 - Product webhook (`product_webhook`):
   - Erase: a product user's erase leaves webhooks still waiting to go; each expires after its retries
@@ -1516,6 +1546,10 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Engaged social profile (`social_profile`):
   - Erase: a person's erase does not reach engaged social profiles (`social_engaged`)
   - Export: a person's export does not include engaged social profiles (`social_engaged`)
+- Journey enrolment (`enrolment`):
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Person plan (`person_plan`):
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Knowledge (`knowledge`):
   - Erase: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
 - Programme (`workspace`):

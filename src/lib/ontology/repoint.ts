@@ -1,0 +1,153 @@
+import { forTenant } from "@/lib/tenant";
+import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import type { EmailJob } from "@/lib/types/emailJob";
+import { isOntologyPersonIdsEnabled } from "./flags";
+import type { ContactPersonId } from "./person";
+import { personIdForProductUser } from "./personRef";
+
+/**
+ * The person_repoint job (ONTOLOGY_PERSON_IDS_ENABLED): brings one product user's rows to the
+ * person they belong to now, after a move (./moves.ts). Self correcting: it works out the person
+ * when it runs, so the newest one always wins whatever order jobs run in, and it checks again
+ * before each page and at the end.
+ *
+ * It works in slices (20 seconds by default, well under the delivery lease) with a cursor saved on
+ * the job, and answers "again" to be put back in the queue; the next run resumes from the cursor
+ * while the person is still the same. When it is done it marks the user's pending moves done and
+ * answers "drop", so the job is deleted and no id outlives the work. Switch off: "drop", writing
+ * nothing.
+ */
+
+/** The stores a product user's person is written on, in the order the job walks them. */
+export const REPOINT_STORES = [
+  { store: "productEvents", field: "productUserId" },
+  { store: "lifecycleEnrolments", field: "productUserId" },
+  { store: "personPlans", field: "productUserId" },
+  { store: "emailSends", field: "signupId" },
+  { store: "emailEvents", field: "signupId" },
+] as const;
+type StoreName = (typeof REPOINT_STORES)[number]["store"];
+
+export interface RepointCursor {
+  store: StoreName;
+  /** The last document id done in that store, or null to start it. */
+  after: string | null;
+  /** The person the cursor was saved for: a cursor for anyone else is thrown away. */
+  target: ContactPersonId;
+}
+
+export interface RepointDeps {
+  now?: () => number;
+  sliceMs?: number;
+  pageSize?: number;
+}
+
+const DEFAULT_SLICE_MS = 20_000;
+const DEFAULT_PAGE = 300;
+
+function cursorOf(payload: Record<string, unknown>): RepointCursor | null {
+  const c = payload.cursor as Partial<RepointCursor> | undefined;
+  if (!c || typeof c !== "object") return null;
+  if (!REPOINT_STORES.some((s) => s.store === c.store)) return null;
+  if (typeof c.target !== "string") return null;
+  return { store: c.store as StoreName, after: typeof c.after === "string" ? c.after : null, target: c.target as ContactPersonId };
+}
+
+export async function processPersonRepointJob(
+  ctx: TenantContext,
+  job: EmailJob,
+  db?: FirestoreLike,
+  deps: RepointDeps = {},
+): Promise<"drop" | "again"> {
+  if (!isOntologyPersonIdsEnabled()) return "drop";
+  const productUserId = typeof job.payload.productUserId === "string" ? job.payload.productUserId : "";
+  if (!productUserId) return "drop";
+  const now = deps.now ?? Date.now;
+  const sliceMs = deps.sliceMs ?? DEFAULT_SLICE_MS;
+  const pageSize = deps.pageSize ?? DEFAULT_PAGE;
+  const started = now();
+  const repo = forTenant(ctx, db);
+
+  const user0 = await repo.productUsers.getById(productUserId);
+  if (!user0 || user0.status !== "active") return "drop";
+  const connection = await repo.productConnections.getById(user0.connectionId);
+  /** Their person now, or null when they're gone or no longer a person (a revoked product). */
+  const currentTarget = async (): Promise<ContactPersonId | null> => {
+    const user = await repo.productUsers.getById(productUserId);
+    return user ? personIdForProductUser(ctx.tenantId, user, connection) : null;
+  };
+  let target = personIdForProductUser(ctx.tenantId, user0, connection);
+  if (!target) return "drop";
+
+  const saved = cursorOf(job.payload);
+  let index = 0;
+  let after: string | null = null;
+  if (saved && saved.target === target) {
+    index = REPOINT_STORES.findIndex((s) => s.store === saved.store);
+    after = saved.after;
+  }
+
+  for (;;) {
+    if (index >= REPOINT_STORES.length) {
+      // The end: if they moved again meanwhile, start over for the new person.
+      const fresh = await currentTarget();
+      if (!fresh) return "drop";
+      if (fresh !== target) {
+        target = fresh;
+        index = 0;
+        after = null;
+        continue;
+      }
+      // Every pending move of theirs is now carried out.
+      let cursor: string | null = null;
+      for (;;) {
+        const page = await repo.personMoves.updateWhere(
+          [
+            ["productUserId", "==", productUserId],
+            ["repoint", "==", "pending"],
+          ],
+          () => ({ repoint: "done" as const }),
+          { startAfter: cursor, limit: pageSize },
+        );
+        cursor = page.last;
+        if (!page.more) break;
+      }
+      return "drop";
+    }
+    if (now() - started >= sliceMs) {
+      const cursor: RepointCursor = { store: REPOINT_STORES[index]!.store, after, target };
+      await repo.emailJobs.update(job.id, { payload: { ...job.payload, cursor } });
+      return "again";
+    }
+    // Before each page: still the same person? If not, the newest one wins and the walk starts over.
+    const fresh = await currentTarget();
+    if (!fresh) return "drop";
+    if (fresh !== target) {
+      target = fresh;
+      index = 0;
+      after = null;
+      continue;
+    }
+    const { store, field } = REPOINT_STORES[index]!;
+    const to = target;
+    const page = await (repo[store] as unknown as RepointCollection).updateWhere(
+      [[field, "==", productUserId]],
+      (row) => (row.personId === to ? null : { personId: to }),
+      { startAfter: after, limit: pageSize },
+    );
+    if (page.more) after = page.last;
+    else {
+      index += 1;
+      after = null;
+    }
+  }
+}
+
+/** The part of each store's TenantCollection the walk uses: they differ only in their row type. */
+interface RepointCollection {
+  updateWhere(
+    where: Array<[string, "==", unknown]>,
+    plan: (row: { personId?: string }) => { personId: ContactPersonId } | null,
+    opts: { startAfter?: string | null; limit: number },
+  ): Promise<{ last: string | null; more: boolean }>;
+}

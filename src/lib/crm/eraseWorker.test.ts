@@ -3,6 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { processContactEraseJob } from "./eraseWorker";
+import { eraseProductUser } from "@/lib/connect/erase";
 
 // The external audience is out of scope here (and reads the tenant registry directly).
 vi.mock("@/lib/mailchimp", () => ({ removeSignupFromAudience: vi.fn(async () => ({ ok: true })) }));
@@ -121,5 +122,42 @@ describe("processContactEraseJob", () => {
       expect(await processContactEraseJob(ctx, job, db)).toBe("done");
       expect(db.raw("product_users", "pu_linked")).toMatchObject({ status: "active" });
     });
+  });
+});
+
+describe("person moves on an erase", () => {
+  const move = (over: Record<string, unknown>) => ({
+    tenantId: "ten_A",
+    kind: "record.repointed",
+    productUserId: "pu_x",
+    connectionId: "pcn_1",
+    repoint: "done",
+    at: "2026-11-01T00:00:00.000Z",
+    createdAt: "2026-11-01T00:00:00.000Z",
+    ...over,
+  });
+
+  it("go with the person: moves to them and moves from them, and nobody else's", async () => {
+    const db = new FakeFirestore();
+    db.seed("contacts", "ct_1", { tenantId: "ten_A", email: "ada@example.test", companyId: null, campaigns: [] });
+    db.seed("person_moves", "mv_to", move({ personId: "ct_1", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_from", move({ personId: "ct_9", fromPersonId: "ct_1" }));
+    db.seed("person_moves", "mv_other", move({ personId: "ct_8", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_theirs", move({ tenantId: "ten_B", personId: "ct_1", fromPersonId: "ct_9" }));
+    expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+    expect(db.raw("person_moves", "mv_to")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_from")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_other")).toBeDefined();
+    expect(db.raw("person_moves", "mv_theirs")).toBeDefined();
+  });
+
+  it("go with the product user", async () => {
+    const db = new FakeFirestore();
+    db.seed("product_users", "pu_x", { tenantId: "ten_A", connectionId: "pcn_1", email: "ada@example.test", emailNormalized: "ada@example.test", status: "active" });
+    db.seed("person_moves", "mv_1", move({ personId: "ct_1", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_2", move({ productUserId: "pu_y", personId: "ct_1", fromPersonId: "ct_9" }));
+    expect(await eraseProductUser(ctx, "pcn_1", "pu_x", db)).toBe(true);
+    expect(db.raw("person_moves", "mv_1")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_2")).toBeDefined();
   });
 });

@@ -8,6 +8,7 @@ import {
   EMAIL_EVENT_KIND,
   EVENT_KINDS,
   fromEmailEvent,
+  fromPersonMove,
   fromProductEvent,
   isEventKind,
   PRODUCT_EVENT_KIND,
@@ -185,5 +186,44 @@ describe("AgentActionEvent", () => {
     };
     const kind: EventKind = e.kind;
     expect(kind.startsWith("agent.")).toBe(true);
+  });
+});
+
+describe("fromPersonMove", () => {
+  const FROM = deterministicContactId("ten_demo", "pu:pu_1") as ContactPersonId;
+  const move = (kind: "record.merged" | "record.repointed") => ({
+    id: "mv_1",
+    tenantId: "ten_demo",
+    kind,
+    fromPersonId: FROM,
+    personId: PERSON,
+    productUserId: "pu_1",
+    connectionId: "conn_1",
+    at: "2026-11-01T10:00:00.000Z",
+    repoint: "pending" as const,
+    createdAt: "2026-11-01T10:00:01.000Z",
+  });
+
+  it("maps both kinds, to the person they moved to, with the one they left", () => {
+    for (const kind of ["record.merged", "record.repointed"] as const) {
+      expect(fromPersonMove(move(kind))).toEqual({
+        id: "mv_1",
+        kind,
+        at: "2026-11-01T10:00:00.000Z",
+        person: PERSON,
+        identity: { productUserId: "pu_1", connectionId: "conn_1" },
+        ideaCredited: null,
+        source: { system: "connect", connectionId: "conn_1" },
+        actor: { type: "product", id: "conn_1" },
+        refs: {},
+        properties: { fromPersonId: FROM, repoint: "pending" },
+      });
+    }
+  });
+
+  it("names no person for an id that isn't a ct_ id", () => {
+    const e = fromPersonMove({ ...move("record.merged"), personId: "pu_1", fromPersonId: "pu_2" });
+    expect(e.person).toBeNull();
+    expect(e.properties.fromPersonId).toBeNull();
   });
 });

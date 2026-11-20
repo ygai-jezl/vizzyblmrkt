@@ -1,6 +1,7 @@
 import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailEvent, EmailEventType } from "@/lib/types/emailEvent";
 import type { ProductEvent } from "@/lib/types/productEvent";
+import type { PersonMove } from "@/lib/types/personMove";
 import { isContactPersonId, type ContactPersonId } from "./person";
 
 /**
@@ -187,6 +188,25 @@ export function fromProductEvent(row: Omit<ProductEvent, "personId"> & { personI
       applied: row.applied,
       ...(row.skipped ? { skipped: row.skipped } : {}),
     },
+  };
+}
+
+/**
+ * A person_moves row as an event: a product user merged into, or repointed to, another person. The
+ * person is the one they moved to; the one they left is in the properties. Ids only.
+ */
+export function fromPersonMove(row: Omit<PersonMove, "personId" | "fromPersonId"> & { personId?: string | null; fromPersonId?: string | null }): OntologyEvent {
+  return {
+    id: row.id,
+    kind: row.kind,
+    at: row.at,
+    person: personOn(row),
+    identity: { productUserId: row.productUserId, connectionId: row.connectionId },
+    ideaCredited: null,
+    source: { system: "connect", connectionId: row.connectionId },
+    actor: { type: "product", id: row.connectionId },
+    refs: {},
+    properties: { fromPersonId: isContactPersonId(row.fromPersonId) ? row.fromPersonId : null, repoint: row.repoint },
   };
 }
 

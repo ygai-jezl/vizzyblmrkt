@@ -188,8 +188,9 @@ Owner decisions (2026-11-19 and 2026-11-20):
     rows when the company is dropped.
   - A product user's erase removes rows by the product user and by their `pu:` person id
     (`productUserPersonId`, the same hash whether or not that record still exists, so it never
-    depends on 0c's switch). It also forgets the history of a person whose record went with
-    their last product user.
+    depends on 0c's switch). It also forgets the history of a person who goes with their last
+    product user, decided from the person's sources as the person sync decides, so it holds when
+    the record only goes at a later sweep (a sync that failed, or person links off).
   - Deleting a launch removes the idea's rows and the actions about it. An archived field's
     values are blanked in place, never deleted.
   - `exportPerson` gains events and agent actions by the product user, their `pu:` person and a

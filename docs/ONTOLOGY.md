@@ -628,7 +628,7 @@ One row per thing that happened to a person, company, idea or agent action and h
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (by their person id, and the pu: person id of each product user they link, whatever the one view says)
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
-  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person record went with their last product user)
+  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
@@ -1268,7 +1268,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (by their person id, and the pu: person id of each product user they link, whatever the one view says)
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
-  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person record went with their last product user)
+  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen

@@ -6,7 +6,7 @@ import { eraseProductUser } from "@/lib/connect/erase";
 import { productUserDocId } from "@/lib/connect/profile";
 import { patchUser } from "@/lib/connect/v2/users";
 import { recordSignupContact } from "@/lib/crm/contactService";
-import { personIdOf } from "@/lib/audience/personSync";
+import { personIdOf, syncPerson } from "@/lib/audience/personSync";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedWorld } from "@/lib/lifecycle/testing/fixtures";
 import { agentDedupeKey } from "@/lib/types/agentAction";
 import type { Campaign } from "@/lib/types/campaign";
@@ -182,6 +182,60 @@ describe("eraseProductUser", () => {
     expect(await eraseProductUser(ctx, CONNECTION_ID, productUserDocId(CONNECTION_ID, "bea"), db, T0 + 1000)).toBe(true);
     expect(db.raw("contacts", bea)).toBeUndefined();
     expect(held(db, TENANT_ID, bea)).toBe(0);
+  });
+
+  it("removes the person's rows when the sync fails at the erase and their record only goes at the sweep", async () => {
+    stubSwitches("true", "false");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await patchUser(ctx, connectionOf(db), "bea", { email: "bea@customer.test" }, { db, nowMs: T0 });
+    const bea = person("bea@customer.test");
+    await rowsAbout(db, ctx, bea, "b1");
+    const open = db.collection.bind(db);
+    let outage = true;
+    vi.spyOn(db, "collection").mockImplementation((name: string) => {
+      if (name === "signups" && outage) {
+        outage = false;
+        throw new Error("unavailable");
+      }
+      return open(name);
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await eraseProductUser(ctx, CONNECTION_ID, productUserDocId(CONNECTION_ID, "bea"), db, T0 + 1000)).toBe(true);
+    // The sync failed, so the record waits for the sweep; their history is gone already.
+    expect(db.raw("contacts", bea)).toMatchObject({ needsSync: true });
+    expect(held(db, TENANT_ID, bea)).toBe(0);
+    expect((await syncPerson(ctx, "bea@customer.test", { db, nowMs: T0 + 2000 })).outcome).toBe("deleted");
+    expect(held(db, TENANT_ID, bea)).toBe(0);
+  });
+
+  it("removes the person's rows when person links are off at the erase and the record goes later", async () => {
+    stubSwitches("true", "false");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await patchUser(ctx, connectionOf(db), "bea", { email: "bea@customer.test" }, { db, nowMs: T0 });
+    const bea = person("bea@customer.test");
+    await rowsAbout(db, ctx, bea, "b1");
+    stubSwitches("false", "false");
+    expect(await eraseProductUser(ctx, CONNECTION_ID, productUserDocId(CONNECTION_ID, "bea"), db, T0 + 1000)).toBe(true);
+    expect(db.raw("contacts", bea)).toBeDefined();
+    expect(held(db, TENANT_ID, bea)).toBe(0);
+    stubSwitches("true", "false");
+    expect((await syncPerson(ctx, "bea@customer.test", { db, nowMs: T0 + 2000 })).outcome).toBe("deleted");
+    expect(held(db, TENANT_ID, bea)).toBe(0);
+  });
+
+  it("keeps the person's rows while another product user still has the address, with or without a record", async () => {
+    stubSwitches("false", "false");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await patchUser(ctx, connectionOf(db), "bea", { email: "bea@customer.test" }, { db, nowMs: T0 });
+    await patchUser(ctx, connectionOf(db), "bea_work", { email: "bea@customer.test" }, { db, nowMs: T0 });
+    const bea = person("bea@customer.test");
+    expect(db.raw("contacts", bea)).toBeUndefined();
+    await rowsAbout(db, ctx, bea, "b1");
+    expect(await eraseProductUser(ctx, CONNECTION_ID, productUserDocId(CONNECTION_ID, "bea"), db, T0 + 1000)).toBe(true);
+    expect(held(db, TENANT_ID, bea)).toBe(3);
   });
 
   it("after a merge with ONTOLOGY_PERSON_IDS_ENABLED off: reaches the pu: person's rows from the product user", async () => {

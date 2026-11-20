@@ -80,7 +80,7 @@ const HISTORY_ERASE: PathDecision = {
     { ...CONTACT_ERASE, when: "by their person id, and the pu: person id of each product user they link, whatever the one view says" },
     { ...CONTACT_ERASE, when: "a company's rows, when the company has no contacts left" },
     { ...PU_HISTORY, when: "by the product user, and by their pu: person's id" },
-    { fn: "forgetGonePersonHistory", file: "src/lib/ontology/erase.ts", trigger: "product_user", when: "the person record went with their last product user" },
+    { fn: "forgetGonePersonHistory", file: "src/lib/ontology/erase.ts", trigger: "product_user", when: "the person goes with their last product user, whether their record goes then or at a later sweep" },
     { ...LAUNCH_DELETE, when: "an idea's rows, and the agent actions about it" },
   ],
   gaps: [

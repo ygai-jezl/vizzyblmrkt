@@ -83,6 +83,8 @@ describe("brand access with plans on", () => {
     expect(tenantMayUse(on("ultra"), "competitors")).toBe(true);
     expect(tenantMayUse(on("pro"), "competitors")).toBe(false);
     expect(tenantMayUse(on("pro"), "brand_search")).toBe(true);
+    expect(tenantMayUse(on("pro"), "article_autopilot")).toBe(false);
+    expect(tenantMayUse(on("ultra"), "article_autopilot")).toBe(true);
     expect(tenantMayUse(on("free"), "edit_vizzy")).toBe(false);
     expect(tenantMayUse(on("self_hosted"), "next_up")).toBe(true);
     expect(await brandCanUse(ctx, "next_up", async () => on("pro") as Tenant)).toBe(false);
@@ -119,9 +121,11 @@ describe("brand access with plans on", () => {
 
   it("reaches the autopilot only with the Next up it needs, and leaves the autopilot's own check alone", () => {
     expect(FEATURE_NEEDS).toEqual({ article_autopilot: "next_up" });
-    expect(tenantMayUse(on("pro"), "article_autopilot")).toBe(true);
-    expect(mayReachWith(on("pro"), "article_autopilot", true)).toBe(false);
-    expect(mayReachWith(on("pro", ["next_up"]), "article_autopilot", true)).toBe(true);
+    // No plan has the autopilot without Next up, but a brand's own grant can give it alone.
+    expect(tenantMayUse(on("pro", ["article_autopilot"]), "article_autopilot")).toBe(true);
+    expect(mayReachWith(on("pro", ["article_autopilot"]), "article_autopilot", true)).toBe(false);
+    expect(mayReachWith(on("pro", ["article_autopilot", "next_up"]), "article_autopilot", true)).toBe(true);
+    expect(mayReachWith(on("pro", ["next_up"]), "article_autopilot", true)).toBe(false);
     expect(mayReachWith(on("ultra"), "article_autopilot", true)).toBe(true);
     expect(mayReachWith(on("free", ["article_autopilot"]), "article_autopilot", true)).toBe(false);
     expect(mayReachWith(on("pro"), "article_autopilot", false)).toBe(true);

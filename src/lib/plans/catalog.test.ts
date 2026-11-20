@@ -53,10 +53,9 @@ describe("plan catalog", () => {
     expect(plan("pro").allowances).toEqual({ brands: 3, users: null, liveIdeas: 5, people: 10000, emailsPerMonth: 5000, aiCreditsPerMonth: 250 });
     expect(plan("ultra").allowances).toEqual({ brands: 10, users: null, liveIdeas: null, people: 100000, emailsPerMonth: 50000, aiCreditsPerMonth: 1200 });
     expect(plan("free").features).toEqual([]);
-    expect([...plan("pro").features].sort()).toEqual(["article_autopilot", "brand_search", "edit_vizzy"]);
+    expect([...plan("pro").features].sort()).toEqual(["brand_search", "edit_vizzy"]);
     expect([...plan("ultra").features].sort()).toEqual([...METERED_FEATURES].sort());
-    expect(plan("pro").monthlyCaps).toEqual({ article_autopilot: 4 });
-    expect(plan("ultra").monthlyCaps).toEqual({});
+    for (const p of PLANS) expect(p.monthlyCaps, p.id).toEqual({});
     expect(PLANS.map((p) => p.pricePerUserMonthUsd)).toEqual([0, 0, 9, 35, null]);
   });
 
@@ -104,7 +103,6 @@ describe("plan catalog", () => {
   });
 
   it("never promises in a summary a feature the plan can't reach without what it needs", () => {
-    // Pro includes the autopilot without Next up, which it needs (the owner decides which changes).
     for (const p of PLANS) {
       for (const [f, needs] of Object.entries(FEATURE_NEEDS)) {
         if (p.features.includes(f as PlanFeature) && !p.features.includes(needs as PlanFeature)) {
@@ -116,13 +114,16 @@ describe("plan catalog", () => {
   });
 
   it("keeps the features that need another together", () => {
-    // article_autopilot also sits behind next_up in today's code; the tiers table gives Pro the
-    // autopilot without Next up, which the owner decides (see the note on Pro in catalog.ts).
     const needs: Array<[PlanFeature, PlanFeature]> = [
       ["competitor_articles", "competitors"],
       ["edit_vizzy_learning", "edit_vizzy"],
+      // The autopilot drafts the top of Next up, so it is on Ultra only (2026-11-20).
+      ["article_autopilot", "next_up"],
     ];
+    for (const [f, base] of Object.entries(FEATURE_NEEDS)) expect(needs).toContainEqual([f, base]);
     for (const p of PLANS) for (const [f, base] of needs) if (p.features.includes(f)) expect(p.features, `${p.id}: ${f}`).toContain(base);
+    expect(plan("pro").features).not.toContain("article_autopilot");
+    expect(plan("ultra").features).toContain("article_autopilot");
   });
 
   it("sets caps only for limited features the plan includes, within the most a cap may be", () => {

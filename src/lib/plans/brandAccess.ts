@@ -48,7 +48,8 @@ export function mayUseWith(tenant: AccessFields | null | undefined, feature: Met
  * Features that only work alongside another. In today's code the article autopilot sits behind
  * Next up: its scheduled runs pick only brands with next_up (src/lib/autopilot/tick.ts) and every
  * autopilot route checks next_up first (src/lib/autopilot/adminApi.ts nextUpGate, agentApi.ts).
- * So a brand that may use the autopilot but not Next up can't reach it.
+ * So a brand that may use the autopilot but not Next up can't reach it. No plan includes one
+ * without the other (catalog.test.ts checks), but a brand's own grant can give it alone.
  */
 export const FEATURE_NEEDS: Partial<Record<MeteredFeature, MeteredFeature>> = { article_autopilot: "next_up" };
 

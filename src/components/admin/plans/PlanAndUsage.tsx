@@ -159,9 +159,10 @@ export function PlanAndUsage({ summary }: { summary: UsageSummary }) {
   const orgView = org?.view === "organisation";
   const since = plan && org && org.plan === plan.id ? sinceText(org.planSince) : null;
 
-  // A feature the plan leaves out (and no grant adds) is listed apart; the rest are pills.
-  const shown = summary.features.filter((f) => f.usable || f.included);
-  const left = summary.features.filter((f) => !f.usable && !f.included);
+  // A feature the plan leaves out (and no grant adds) is listed apart; the rest are pills. One
+  // granted without what it needs (the autopilot without Next up) is a pill that says so.
+  const shown = summary.features.filter((f) => f.usable || f.included || f.granted);
+  const left = summary.features.filter((f) => !f.usable && !f.included && !f.granted);
 
   const brand = summary.thisBrand;
   const liveOver = brand.liveLaunches !== null && brand.liveLaunchesLimit !== null && brand.liveLaunches > brand.liveLaunchesLimit;

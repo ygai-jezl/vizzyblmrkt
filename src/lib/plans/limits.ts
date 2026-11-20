@@ -14,7 +14,7 @@ import { isPlansEnabled } from "./flags";
  *   3. this copy's setting, FEATURE_MONTHLY_LIMITS ("next_up=100,competitor_articles=200"), else
  *   4. the default below.
  *
- * A plan that sets no cap for a feature (Ultra, Self-hosted) falls through to the copy's setting.
+ * A plan that sets no cap for a feature (none sets one today) falls through to the copy's setting.
  * A cap of 0 stops the feature for that brand without taking the grant away.
  */
 export const LIMITED_FEATURES = ["next_up", "competitor_articles", "article_autopilot"] as const;

@@ -58,10 +58,12 @@ function proOwner(over: Partial<UsageSummary> = {}): UsageSummary {
       row("emailsPerMonth", "Emails a month", null, 5_000, { counted: false }),
       row("aiCreditsPerMonth", "AI credits a month", null, 500, { counted: false, perUser: true }),
     ],
-    monthly: [{ feature: "article_autopilot", label: "Article autopilot", used: 1, limit: 4, from: "plan", included: true, needs: null }],
+    // Pro has no monthly feature of its own: competitor articles are granted to this brand.
+    monthly: [{ feature: "competitor_articles", label: "Competitor articles", used: 12, limit: 200, from: "default", included: true, needs: null }],
     features: [
       feature("edit_vizzy", "Vizzy in Edit mode", true),
       feature("competitors", "Competitors", false, { granted: true, usable: true }),
+      feature("competitor_articles", "Competitor articles", false, { granted: true, usable: true }),
       feature("brand_search", "Brand search", true, { usable: false }),
       feature("next_up", "Next up", false),
     ],
@@ -85,7 +87,7 @@ describe("Plan and usage", () => {
     expect(text).toContain("Emails Not counted yet 5,000 a month");
     expect(text).toContain("AI credits Not counted yet 500 a month, 250 per user");
     expect(text).toContain("Live launches 2 of 5");
-    expect(text).toContain("Autopilot drafts 1 of 4");
+    expect(text).toContain("Competitor articles read 12 of 200");
     expect(text).toContain(PLAN_AND_USAGE_COPY.change);
     expect(text).not.toContain(PLAN_AND_USAGE_COPY.brandView);
     expect(text).not.toContain(PLAN_AND_USAGE_COPY.over);
@@ -190,17 +192,20 @@ describe("Plan and usage", () => {
     expect(text).toContain(`Google lookups for Next up ${PLAN_AND_USAGE_COPY.notInPlan}`);
   });
 
-  it("says a feature in the plan needs another it lacks, never that it is ready", () => {
+  it("says what a feature granted on its own still needs, never that it is ready", () => {
+    // No plan has the autopilot without Next up, but a brand's own grant can give it alone.
     const text = render(
       proOwner({
-        monthly: [{ feature: "article_autopilot", label: "Article autopilot", used: 0, limit: 4, from: "plan", included: false, needs: "next_up" }],
-        features: [feature("article_autopilot", "Article autopilot", true, { usable: false, needs: "next_up" }), feature("next_up", "Next up", false)],
+        monthly: [{ feature: "article_autopilot", label: "Article autopilot", used: 0, limit: 8, from: "default", included: false, needs: "next_up" }],
+        features: [feature("article_autopilot", "Article autopilot", false, { granted: true, usable: false, needs: "next_up" }), feature("next_up", "Next up", false)],
       }),
     );
     expect(needsText("next_up")).toBe("Needs Next up");
     expect(text).toContain("Autopilot drafts Needs Next up");
     expect(text).toContain("Article autopilot · Needs Next up");
-    expect(text).not.toContain("Autopilot drafts 0 of 4");
+    expect(text).toContain(`${PLAN_AND_USAGE_COPY.notIncluded} Next up`);
+    expect(text).not.toContain(`${PLAN_AND_USAGE_COPY.notIncluded} Article autopilot`);
+    expect(text).not.toContain("Autopilot drafts 0 of 8");
   });
 
   it("has a neutral line when plans are off, never coming soon", () => {

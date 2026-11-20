@@ -43,15 +43,17 @@ Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
     and 1,200 per user on Ultra. Allowances are stored so that "per user" can be said
     (`perUser`), and the limit is the number times the organisation's users.
   - Each plan has its features, its allowances (null is no limit) and optional per brand
-    monthly caps for the limited features. Ultra and Self-hosted set no caps. Enterprise
-    lists the eight Enterprise ids from `src/lib/enterprise/features.ts` (ADR-0007), with
-    limits and price by agreement; a brand's own cap carries the agreed number.
-  - The tiers table gives Pro the article autopilot without Next up. In today's code the
-    autopilot sits behind Next up, so a Pro brand reaches it only when that changes or Pro
-    gains Next up, which the owner decides. Until then `FEATURE_NEEDS` in `brandAccess.ts`
-    records the need: Pro's summary leaves the autopilot out, Plan and usage shows it as
-    "Needs Next up", and the dry runs list it as lost or gained with Next up, never as a
-    cap change.
+    monthly caps for the limited features. No plan sets a cap today. Enterprise lists the
+    eight Enterprise ids from `src/lib/enterprise/features.ts` (ADR-0007), with limits and
+    price by agreement; a brand's own cap carries the agreed number.
+  - 2026-11-20, owner: the article autopilot is on Ultra only, not Pro. It drafts the top
+    of the Next up list, so it can't run without Next up, and Pro has no Next up. Giving
+    Pro Next up would cost margin, and 4 drafts at 45 credits each plus the lookups would
+    use most of Pro's 250 AI credits a month. Pro has Vizzy in Edit mode and brand search,
+    with no monthly caps. `FEATURE_NEEDS` in `brandAccess.ts` still records the need,
+    because a brand's own grant can give the autopilot without Next up: Plan and usage then
+    shows "Needs Next up", and the dry runs list it as lost or gained with Next up, never
+    as a cap change. A catalog test keeps every plan with the autopilot on Next up too.
   - No price appears on a public page: the help page reads each plan's summary, which
     names none.
 - **Resolution order (decision 18).** For a metered feature, `mayUseWith` in

@@ -205,25 +205,32 @@ describe("organisationUsage", () => {
     vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
     vi.stubEnv("CREATE_ARTICLE_AUTOPILOT_ENABLED", "true");
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
-    // Pro includes the autopilot but not Next up, which it needs: it reads as not usable.
+    // Pro has neither Next up nor the autopilot.
     expect(s.monthly).toEqual([
       { feature: "next_up", label: "Next up", used: 2, limit: 100, from: "default", included: false, needs: null },
-      { feature: "article_autopilot", label: "Article autopilot", used: 1, limit: 4, from: "plan", included: false, needs: "next_up" },
+      { feature: "article_autopilot", label: "Article autopilot", used: 1, limit: 8, from: "default", included: false, needs: null },
     ]);
 
-    control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["next_up"] }));
+    // A brand's own grant can give the autopilot without the Next up it needs: it says so.
+    control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["article_autopilot"] }));
+    const alone = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    expect(alone.monthly.find((r) => r.feature === "article_autopilot")).toMatchObject({ included: false, needs: "next_up" });
+
+    control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["article_autopilot", "next_up"], featureLimits: { article_autopilot: 4 } }));
     const granted = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
-    expect(granted.monthly.find((r) => r.feature === "article_autopilot")).toMatchObject({ included: true, needs: null, limit: 4 });
+    expect(granted.monthly.find((r) => r.feature === "article_autopilot")).toMatchObject({ included: true, needs: null, used: 1, limit: 4, from: "brand" });
   });
 
   it("lists what the plan includes, and a brand's own grants", async () => {
-    control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["competitors"] }));
+    control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["competitors", "article_autopilot"] }));
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
     const f = Object.fromEntries(s.features.map((r) => [r.feature, r]));
     expect(f.brand_search).toMatchObject({ included: true, granted: false, usable: true });
     expect(f.competitors).toMatchObject({ label: "Competitors", included: false, granted: true, usable: true });
     expect(f.next_up).toMatchObject({ included: false, granted: false, usable: false, needs: null });
-    expect(f.article_autopilot).toMatchObject({ included: true, usable: false, needs: "next_up" });
+    expect(f.competitor_articles).toMatchObject({ included: false, granted: false, usable: false, needs: null });
+    // Granted without the Next up it needs, which Pro leaves out.
+    expect(f.article_autopilot).toMatchObject({ included: false, granted: true, usable: false, needs: "next_up" });
     expect(f.sso).toBeUndefined();
   });
 

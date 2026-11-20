@@ -196,7 +196,7 @@ function monthOf(d: Date): string {
   return d.toISOString().slice(0, 7);
 }
 
-/** What a feature this brand may use still needs and can't use: the autopilot without Next up. */
+/** What a feature this brand may use still needs and can't use: a granted autopilot without Next up. */
 function missingNeed(tenant: Tenant | null, feature: MeteredFeature, plansOn: boolean): MeteredFeature | null {
   const needs = FEATURE_NEEDS[feature];
   return needs && mayUseWith(tenant, feature, plansOn) && !mayReachWith(tenant, needs, plansOn) ? needs : null;

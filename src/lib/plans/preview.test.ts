@@ -4,6 +4,7 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { METERED_FEATURES } from "./brandAccess";
 import { DEFAULT_MONTHLY_LIMITS } from "./limits";
 import { EXCLUDED_EFFECT, accessChangeLines, accessChanges, guardChanges, previewSettingsLines } from "./preview";
+import { withPlanCaps } from "./testing/planCaps";
 
 type Fields = Pick<Tenant, "grantedFeatures" | "featureLimits" | "orgPlan">;
 const brand = (over: Partial<Fields> = {}): Fields => ({ grantedFeatures: [], ...over });
@@ -42,23 +43,38 @@ describe("plan change previews", () => {
     expect(c.wider).toBe(false);
   });
 
-  it("lists gained features as wider (Pro to Ultra), the autopilot too, since Pro lacks the Next up it needs", () => {
+  it("lists what Pro to Ultra gains as wider, the autopilot with the Next up it needs", () => {
     const c = accessChanges(brand({ orgPlan: "pro" }), "ultra");
     expect(c.features.filter((f) => f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "competitor_articles", "competitors", "edit_vizzy_learning", "next_up"]);
+    expect(c.features.every((f) => !f.before && f.hidden === undefined)).toBe(true);
     expect(c.caps).toEqual([]);
     expect(c.wider).toBe(true);
     expect(c.narrower).toBe(false);
-    expect(accessChangeLines(c)).toContain("gains Article autopilot (article_autopilot)");
+    const lines = accessChangeLines(c);
+    expect(lines).toContain("gains Next up (next_up)");
+    expect(lines).toContain("gains Article autopilot (article_autopilot)");
+    expect(lines.join("\n")).not.toMatch(/ cap /);
   });
 
-  it("lists raised caps as wider when the brand keeps what the autopilot needs (Pro to Ultra)", () => {
-    const c = accessChanges(brand({ orgPlan: "pro", grantedFeatures: ["next_up"] }), "ultra");
-    expect(c.caps).toEqual([{ feature: "article_autopilot", before: 4, after: DEFAULT_MONTHLY_LIMITS.article_autopilot, beforeFrom: "plan", afterFrom: "default" }]);
-    expect(accessChangeLines(c)).toContain("article_autopilot cap raised from 4 to 8 a month (from the default)");
-  });
-
-  it("lists the autopilot as lost with Next up (Ultra to Pro), never as a lower cap", () => {
+  it("lists what Ultra to Pro loses, the autopilot with what it keeps, never as a lower cap", () => {
     const c = accessChanges(brand({ orgPlan: "ultra" }), "pro");
+    expect(c.features.filter((f) => f.before && !f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "competitor_articles", "competitors", "edit_vizzy_learning", "next_up"]);
+    expect(c.features.find((f) => f.feature === "article_autopilot")?.hidden).toBe(EXCLUDED_EFFECT.article_autopilot);
+    expect(c.caps).toEqual([]);
+    expect(c.narrower).toBe(true);
+    expect(c.wider).toBe(false);
+    const lines = accessChangeLines(c);
+    expect(lines).toContain(`loses Article autopilot (article_autopilot): ${EXCLUDED_EFFECT.article_autopilot}`);
+    expect(lines.join("\n")).not.toMatch(/article_autopilot cap/);
+    for (const line of lines) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
+  it("lists a granted autopilot as lost with Next up, never as a lower cap", () => {
+    // A brand's own grant can give the autopilot without Next up, which Pro lacks.
+    const c = accessChanges(brand({ orgPlan: "ultra", grantedFeatures: ["article_autopilot"] }), "pro");
     const autopilot = c.features.find((f) => f.feature === "article_autopilot");
     expect(autopilot).toEqual({ feature: "article_autopilot", before: true, after: false, hidden: "It needs Next up (next_up), which is lost too." });
     expect(c.caps).toEqual([]);
@@ -71,21 +87,38 @@ describe("plan change previews", () => {
     }
   });
 
-  it("lists a cap that drops from the copy's setting to a lower plan cap as narrower", () => {
-    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "article_autopilot=10");
-    // Grants keep the features Pro lacks, so only the cap changes.
-    const c = accessChanges(brand({ orgPlan: "ultra", grantedFeatures: ["next_up", "competitors", "competitor_articles", "edit_vizzy_learning"] }), "pro");
-    expect(c.features).toEqual([]);
-    expect(c.caps).toEqual([{ feature: "article_autopilot", before: 10, after: 4, beforeFrom: "copy", afterFrom: "plan" }]);
-    expect(c.narrower).toBe(true);
-    expect(c.wider).toBe(false);
-    expect(accessChangeLines(c)).toEqual(["article_autopilot cap lowered from 10 to 4 a month (from the plan's cap)"]);
+  // No plan sets a cap today, so the cap lines are tested with one set on Ultra for the test.
+  it("lists a raised cap as wider", async () => {
+    await withPlanCaps("ultra", { article_autopilot: 4 }, () => {
+      const c = accessChanges(brand({ orgPlan: "ultra" }), "enterprise");
+      expect(c.features).toEqual([]);
+      expect(c.caps).toEqual([{ feature: "article_autopilot", before: 4, after: DEFAULT_MONTHLY_LIMITS.article_autopilot, beforeFrom: "plan", afterFrom: "default" }]);
+      expect(c.wider).toBe(true);
+      expect(c.narrower).toBe(false);
+      expect(accessChangeLines(c)).toEqual(["article_autopilot cap raised from 4 to 8 a month (from the default)"]);
+    });
   });
 
-  it("keeps a granted feature and a brand's own cap whatever the plan", () => {
-    const c = accessChanges(brand({ grantedFeatures: ["competitors"], featureLimits: { article_autopilot: 2 } }), "pro");
-    expect(c.features.map((f) => f.feature)).not.toContain("competitors");
-    expect(c.caps).toEqual([]);
+  it("lists a cap that drops from the copy's setting to a lower plan cap as narrower", async () => {
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "article_autopilot=10");
+    await withPlanCaps("ultra", { article_autopilot: 4 }, () => {
+      const c = accessChanges(brand({ orgPlan: "enterprise" }), "ultra");
+      expect(c.features).toEqual([]);
+      expect(c.caps).toEqual([{ feature: "article_autopilot", before: 10, after: 4, beforeFrom: "copy", afterFrom: "plan" }]);
+      expect(c.narrower).toBe(true);
+      expect(c.wider).toBe(false);
+      expect(accessChangeLines(c)).toEqual(["article_autopilot cap lowered from 10 to 4 a month (from the plan's cap)"]);
+    });
+  });
+
+  it("keeps a granted feature and a brand's own cap whatever the plan", async () => {
+    const granted = brand({ grantedFeatures: ["competitors", "next_up", "article_autopilot"], featureLimits: { article_autopilot: 2 } });
+    await withPlanCaps("pro", { article_autopilot: 4 }, () => {
+      const c = accessChanges(granted, "pro");
+      expect(c.features.map((f) => f.feature)).not.toContain("competitors");
+      expect(c.features.map((f) => f.feature)).not.toContain("article_autopilot");
+      expect(c.caps).toEqual([]);
+    });
   });
 
   it("never counts a held back feature the brand isn't granted", () => {

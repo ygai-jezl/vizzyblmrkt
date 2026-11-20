@@ -9,7 +9,7 @@ import { LIMITED_FEATURES, monthlyLimitWith, type CapSource, type LimitedFeature
  * scripts/backfill-organisations.ts, set-plan.ts and move-brand.ts. Both sides are worked out
  * with plans on, so a brand with no plan yet shows today's access as "before". A feature counts
  * only when the brand can reach it, with what it needs (FEATURE_NEEDS: the autopilot needs Next
- * up), so a plan that includes the autopilot without Next up shows it as lost, not kept.
+ * up), so a brand granted the autopilot that loses Next up shows it as lost, not kept.
  *
  * It reads GRANTED_ONLY_FEATURES and FEATURE_MONTHLY_LIMITS from the environment, so an operator
  * running a script exports the deployment's own values first.

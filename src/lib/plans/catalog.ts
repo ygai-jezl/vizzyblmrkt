@@ -16,12 +16,14 @@ import { isPlansEnabled } from "./flags";
  * - allowances: what the organisation shares across its brands (live launches are per brand).
  *   null means no limit.
  * - monthlyCaps: a per brand cap for a LIMITED_FEATURE, between the brand's own cap and this
- *   copy's FEATURE_MONTHLY_LIMITS (src/lib/plans/limits.ts). Unset: the copy's cap applies.
+ *   copy's FEATURE_MONTHLY_LIMITS (src/lib/plans/limits.ts). Unset: the copy's cap applies. No
+ *   plan sets one today.
  *
- * The numbers follow the signed off tiers table (decision 17). Ultra sets no caps, so moving a
- * brand to Ultra changes neither its access nor its spend (decision 20). Enterprise limits, caps
- * and price are set by agreement: the catalog leaves them open, and a brand's own cap
- * (scripts/grant-feature.ts --limit) carries the agreed number.
+ * The numbers follow the signed off tiers table (decision 17), with the article autopilot on
+ * Ultra only (the owner, 2026-11-20). Ultra sets no caps, so moving a brand to Ultra changes
+ * neither its access nor its spend (decision 20). Enterprise limits, caps and price are set by
+ * agreement: the catalog leaves them open, and a brand's own cap (scripts/grant-feature.ts
+ * --limit) carries the agreed number.
  *
  * Pure and client safe (type only imports of the feature unions and the brand), so pages can
  * read it.
@@ -113,26 +115,23 @@ export const PLANS: readonly Plan[] = [
     allowanceNotes: {},
   },
   {
-    // The tiers table gives Pro the article autopilot (4 a month) without Next up. In today's code
-    // the autopilot sits behind Next up (FEATURE_NEEDS in brandAccess.ts), so a Pro brand can't
-    // reach it until that changes or Pro gains next_up: the owner decides which. Until then the
-    // summary leaves the autopilot out, and Plan and usage and the dry runs say it needs Next up.
+    // No article autopilot: it drafts the top of Next up, which Pro doesn't have (ADR-0009).
     id: "pro",
     name: "Pro",
     summary: "Up to three brands, with Vizzy in Edit mode and brand search.",
     pricePerUserMonthUsd: 9,
     hosted: true,
-    features: ["edit_vizzy", "brand_search", "article_autopilot"],
+    features: ["edit_vizzy", "brand_search"],
     allowances: { brands: 3, users: null, liveIdeas: 5, people: 10_000, emailsPerMonth: 5_000, aiCreditsPerMonth: 250 },
     perUser: ["aiCreditsPerMonth"],
-    monthlyCaps: { article_autopilot: 4 },
+    monthlyCaps: {},
     byAgreement: false,
     allowanceNotes: {},
   },
   {
     id: "ultra",
     name: "Ultra",
-    summary: "Up to ten brands, with Competitors, Next up and Vizzy learning from your edits.",
+    summary: "Up to ten brands, with Competitors, Next up, the article autopilot and Vizzy learning from your edits.",
     pricePerUserMonthUsd: 35,
     hosted: true,
     features: ALL_METERED,

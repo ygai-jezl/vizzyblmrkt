@@ -15,7 +15,7 @@ vi.mock("next/headers", () => ({
 }));
 
 const { GET } = await import("./route");
-const { signState } = await import("@/lib/integrations/crypto");
+const { signState, decryptToken, gitRefreshAad } = await import("@/lib/integrations/crypto");
 
 const ORIGIN = "https://yougrow.test";
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -48,7 +48,15 @@ const fetchMock = vi.fn(async (url: string) => {
   if (u.includes("login/oauth/access_token")) return new Response(JSON.stringify({ access_token: "ghu_user" }), { status: 200 });
   if (u.includes("/user/installations")) return new Response(JSON.stringify({ installations: installs }), { status: 200 });
   if (u.includes("gitlab.com/oauth/token")) {
-    return new Response(JSON.stringify({ access_token: "gl-test-token", scope: "read_repository read_user" }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        access_token: "gl-test-token",
+        refresh_token: "gl-test-refresh",
+        expires_in: 7200,
+        scope: "read_repository read_user",
+      }),
+      { status: 200 },
+    );
   }
   if (u.includes("gitlab.com/api/v4/user")) return new Response(JSON.stringify({ username: "acme-dev" }), { status: 200 });
   return new Response("{}", { status: 404 });
@@ -114,6 +122,67 @@ describe("GitLab callback: the nonce cookie", () => {
       expect.objectContaining({ kind: "oauth", accountLogin: "acme-dev" }),
     );
     clearsCookie(res, "gitlab");
+  });
+});
+
+describe("GitLab callback: the refresh token", () => {
+  const saved = () => tenant.setTenantGitConnection.mock.calls[0]?.[2] as Record<string, unknown>;
+
+  it("stores the refresh token sealed to this brand, and the expiry 2 hours ahead", async () => {
+    jar.set("git_oauth_state", "nonce-1");
+    const before = Date.now();
+    const res = await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    const after = Date.now();
+    expect(location(res).searchParams.get("status")).toBe("ok");
+    const conn = saved();
+    const refreshEnc = conn.refreshEnc as { ct: string; iv: string; tag: string };
+    expect(refreshEnc.ct).not.toContain("gl-test-refresh");
+    expect(decryptToken(refreshEnc, gitRefreshAad("ten_A", "gitlab"))).toBe("gl-test-refresh");
+    expect(() => decryptToken(refreshEnc, gitRefreshAad("ten_B", "gitlab"))).toThrow();
+    expect(() => decryptToken(refreshEnc)).toThrow();
+    // The access token keeps no AAD: the worker opens it.
+    expect(decryptToken(conn.enc as { ct: string; iv: string; tag: string })).toBe("gl-test-token");
+    const expires = Date.parse(conn.expiresAt as string);
+    expect(expires).toBeGreaterThanOrEqual(before + 7200 * 1000);
+    expect(expires).toBeLessThanOrEqual(after + 7200 * 1000);
+    expect(conn).not.toHaveProperty("reconnect");
+  });
+
+  it("stores null when GitLab sends no refresh token or expiry", async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      new Response(JSON.stringify({ access_token: "gl-test-token", scope: "read_repository read_user" }), { status: 200 }),
+    );
+    jar.set("git_oauth_state", "nonce-1");
+    await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(saved()).toMatchObject({ refreshEnc: null, expiresAt: null });
+  });
+
+  it("a reconnect keeps the chosen repos", async () => {
+    vi.stubEnv("GIT_REPO_SELECTION_ENABLED", "true");
+    const repos = [{ fullPath: "acme/app", owner: "acme", private: true, defaultBranch: "main", webUrl: "https://gitlab.com/acme/app" }];
+    tenant.getTenantById.mockResolvedValue({
+      gitConnections: { gitlab: { provider: "gitlab", kind: "oauth", connectedAt: "2026-01-01T00:00:00.000Z", repos, reconnect: { at: "x", reason: "refresh_failed" } } },
+    });
+    jar.set("git_oauth_state", "nonce-1");
+    const res = await call("gitlab", { code: "c", state: stateFor("gitlab") });
+    expect(Object.fromEntries(location(res).searchParams)).toEqual({ status: "ok", provider: "gitlab" });
+    expect(saved()).toMatchObject({ repos });
+    expect(saved()).not.toHaveProperty("reconnect");
+  });
+});
+
+describe("classic GitHub callback (no GitHub App)", () => {
+  it("stores the token as before, with no refresh token or expiry", async () => {
+    for (const k of Object.keys(APP_ENV)) vi.stubEnv(k, "");
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_ID", "github-test-client");
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_SECRET", "github-test-secret");
+    jar.set("git_oauth_state", "nonce-1");
+    const res = await call("github", { code: "c", state: stateFor("github") });
+    expect(location(res).searchParams.get("status")).toBe("ok");
+    const conn = tenant.setTenantGitConnection.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(conn).toMatchObject({ provider: "github", kind: "oauth" });
+    expect(conn).not.toHaveProperty("refreshEnc");
+    expect(conn).not.toHaveProperty("expiresAt");
   });
 });
 

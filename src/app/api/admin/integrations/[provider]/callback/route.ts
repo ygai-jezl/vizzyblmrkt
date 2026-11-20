@@ -9,7 +9,7 @@ import {
   oauthOrigin,
   grantedScopes,
 } from "@/lib/integrations/providers";
-import { verifyState, encryptToken } from "@/lib/integrations/crypto";
+import { verifyState, encryptToken, gitRefreshAad } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
 import { githubAppConfig, verifyUserInstallation } from "@/lib/integrations/githubApp";
@@ -136,6 +136,8 @@ export async function GET(
     const tok = (await tokRes.json().catch(() => ({}))) as {
       access_token?: string;
       scope?: string;
+      refresh_token?: string;
+      expires_in?: number;
     };
     if (!tokRes.ok || !tok.access_token) {
       return back(origin, { status: "error", reason: "token_exchange_failed", provider });
@@ -167,14 +169,32 @@ export async function GET(
     const priorRepos = repoSelection
       ? (await getTenantById(ctx.tenantId))?.gitConnections?.[provider]?.repos
       : undefined;
+    const now = Date.now();
+    // GitLab access tokens last 2 hours, so keep the refresh token (sealed and bound
+    // to this brand) and the expiry; src/lib/integrations/tokenRefresh.ts renews it
+    // before each use. Classic GitHub tokens don't expire and are stored as before.
+    // The whole connection is rewritten, so a reconnect also clears any reconnect mark.
+    const gitlabRefresh =
+      provider === "gitlab"
+        ? {
+            refreshEnc: tok.refresh_token
+              ? encryptToken(tok.refresh_token, gitRefreshAad(ctx.tenantId, provider))
+              : null,
+            expiresAt:
+              typeof tok.expires_in === "number" && tok.expires_in > 0
+                ? new Date(now + tok.expires_in * 1000).toISOString()
+                : null,
+          }
+        : {};
     await setTenantGitConnection(ctx.tenantId, provider, {
       provider,
       kind: "oauth",
       enc: encryptToken(tok.access_token),
+      ...gitlabRefresh,
       accountLogin,
       scope: tok.scope ?? cfg.scope,
       connectedBy: ctx.userId,
-      connectedAt: new Date().toISOString(),
+      connectedAt: new Date(now).toISOString(),
       ...(repoSelection ? { repos: priorRepos ?? [] } : {}),
     });
     return back(origin, {

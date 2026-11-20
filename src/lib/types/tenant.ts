@@ -184,11 +184,25 @@ export const GitSelectedRepoSchema = z.object({
 });
 export type GitSelectedRepo = z.infer<typeof GitSelectedRepoSchema>;
 
+/** Why a git connection was marked as needing reconnecting. */
+export const GIT_RECONNECT_REASONS = ["refresh_failed", "provider_rejected"] as const;
+export type GitReconnectReason = (typeof GIT_RECONNECT_REASONS)[number];
+
+/** Written only by markTenantGitReconnect; cleared by a token swap, a clear or a reconnect. */
+export const GitReconnectMarkSchema = z.object({
+  at: z.string(),
+  reason: z.enum(GIT_RECONNECT_REASONS),
+});
+export type GitReconnectMark = z.infer<typeof GitReconnectMarkSchema>;
+
 /**
  * A per-tenant OAuth connection to a git host (GitHub/GitLab), used to clone
  * PRIVATE repos during knowledge ingestion. The access token is stored ENCRYPTED
  * (AES-256-GCM; see src/lib/integrations/crypto.ts) — never plaintext. The worker
  * decrypts it at clone time.
+ *
+ * Not strict on purpose: older code drops keys it doesn't know (refreshEnc,
+ * expiresAt, reconnect), so a revert still reads documents written by newer code.
  */
 export const GitConnectionSchema = z.object({
   provider: z.enum(["github", "gitlab"]),
@@ -201,6 +215,20 @@ export const GitConnectionSchema = z.object({
   installationId: z.number().int().positive().optional(),
   /** Encrypted access token (ciphertext / iv / GCM tag), all base64. Absent for kind "app". */
   enc: z.object({ ct: z.string(), iv: z.string(), tag: z.string() }).optional(),
+  /**
+   * GitLab only: the encrypted refresh token, sealed with AAD
+   * gitRefreshAad(tenantId, "gitlab") so it opens only on its own brand. Only the
+   * app reads it (src/lib/integrations/tokenRefresh.ts); the worker reads `enc`.
+   */
+  refreshEnc: z
+    .object({ ct: z.string(), iv: z.string(), tag: z.string() })
+    .nullable()
+    .optional(),
+  /** GitLab only: ISO expiry of the access token in `enc` (about 2 hours after it was issued). */
+  expiresAt: z.string().nullable().optional(),
+  /** Set when the provider refused a refresh or rejected the token: an admin must reconnect.
+   *  Lenient on read, so a value this code doesn't know never breaks the tenant read. */
+  reconnect: GitReconnectMarkSchema.optional().catch(undefined),
   /** The connected account handle (for display). */
   accountLogin: z.string().optional(),
   scope: z.string().optional(),

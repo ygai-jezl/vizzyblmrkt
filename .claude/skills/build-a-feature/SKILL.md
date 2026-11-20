@@ -13,6 +13,8 @@ Find two or three files that already do something similar and copy their shape: 
 logic in `src/lib/<area>/`, its routes in `src/app/api/admin/<area>/`, its page in
 `src/app/admin/<area>/`, and the area's `flags.ts`.
 
+An Enterprise feature goes in `src/ee` and is asked about through `src/lib/enterprise/registry.ts`; core code never imports it.
+
 ## 2. A switch, off
 
 Use the `add-a-switch` skill. The feature does nothing until its switch is exactly `"true"`.

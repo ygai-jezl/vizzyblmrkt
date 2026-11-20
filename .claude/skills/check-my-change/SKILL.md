@@ -22,6 +22,10 @@ npm run agents:check
 - `lint`: no errors means it passed. "Direct Firestore access is forbidden outside
   src/lib/tenant/**" means code went around `forTenant(ctx)`. Move that access into
   `src/lib/tenant/`; never turn the rule off.
+  - The Enterprise boundary message ("Only src/lib/enterprise/registry.ts may import from
+    src/ee") means code reached into the Enterprise folder. Ask
+    `src/lib/enterprise/registry.ts` whether the feature is licensed instead, and never turn
+    the rule off.
 - `test`: Vitest ends with a `Test Files` line and a `Tests` line. For one file:
   `npx vitest run <path>`. A failure in `scripts/config/feature-switches.test.ts` means a switch
   isn't listed right (see the `add-a-switch` skill); in `src/lib/help/help.test.ts`, a help

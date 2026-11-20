@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { forTenant } from "@/lib/tenant";
@@ -12,6 +12,7 @@ import { SANDBOX_CATALOG } from "../sandbox";
 import { isSuppressedFor, suppressEmail } from "@/lib/email/suppression";
 import { handleBatch, handleDeleteUser, handleGetUser, handleMe, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
 import { createSiteKey } from "@/lib/waitlist/siteKeys";
+import { personIdForAddress, personIdForProductUser } from "@/lib/ontology/personRef";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
 const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -642,5 +643,86 @@ describe("erasure cascade", () => {
     const rows = await repo.emailSuppressions.find({ where: [["reason", "==", "unsubscribe"]], limit: 5 });
     expect(rows.map((r) => [r.email, r.normalizedEmail])).toEqual([["", ""]]);
     expect(await isSuppressedFor(ctxA, "alex@example.com", "onboarding", w.db)).toBe(true); // still honoured
+  });
+});
+
+describe("the person on product events (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const rowsOf = (db: FakeFirestore) => db.dump("product_events") as Array<Record<string, unknown>>;
+
+  it("writes the person on identify and track rows: their address, or their own pu: person before one", async () => {
+    const w = await setup();
+    const id = productUserDocId(w.connection.id, "u_1");
+    await w.patch("u_1", { firstName: "Alex" });
+    const noAddress = personIdForProductUser(ctxA.tenantId, { id, emailNormalized: null }, w.connection);
+    expect(rowsOf(w.db).map((r) => r.personId)).toEqual([noAddress]);
+
+    await w.patch("u_1", { email: "Alex@Example.com" });
+    await handleUserEvent(request("POST", w.auth, { event: "report.exported" }), "u_1", w.deps);
+    const withAddress = personIdForAddress(ctxA.tenantId, "alex@example.com");
+    const rows = rowsOf(w.db);
+    expect(rows).toHaveLength(3);
+    expect(rows.slice(1).map((r) => [r.type, r.personId])).toEqual([
+      ["identify", withAddress],
+      ["track", withAddress],
+    ]);
+    expect(withAddress).not.toBe(noAddress);
+  });
+
+  it("writes it on batch rows too", async () => {
+    const w = await setup();
+    await handleBatch(request("POST", w.auth, { users: [{ userId: "u_1", email: "one@example.com" }, { userId: "u_2", email: "two@example.com" }] }), w.deps);
+    expect(rowsOf(w.db).map((r) => r.personId).sort()).toEqual(
+      [personIdForAddress(ctxA.tenantId, "one@example.com"), personIdForAddress(ctxA.tenantId, "two@example.com")].sort(),
+    );
+  });
+
+  it("writes none on the erase row, or a late write after it", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "alex@example.com" });
+    await w.del("u_1");
+    await w.patch("u_1", { firstName: "Ghost", updatedAt: "2026-09-25T11:00:00Z" });
+    const rows = rowsOf(w.db);
+    const erase = rows.find((r) => r.type === "erase");
+    expect(erase).toBeDefined();
+    expect(erase).not.toHaveProperty("personId");
+    const late = rows.find((r) => r.skipped === "deleted_later");
+    expect(late).toBeDefined();
+    expect(late).not.toHaveProperty("personId");
+  });
+
+  it("writes none for a sandbox's users", async () => {
+    const db = new FakeFirestore();
+    const { connection, secret } = await createConnection(
+      ctxA,
+      {
+        name: "Sandbox",
+        kind: "sandbox",
+        catalog: SANDBOX_CATALOG,
+        sandboxUsers: [{ userId: "sandbox_alex", email: "alex@example.com", firstName: "Alex", timezone: "Europe/London", steps: {}, facts: [], insights: [] }],
+      },
+      db,
+    );
+    const res = await handlePatchUser(request("PATCH", { keyId: connection.keyId, secret }, { email: "alex@example.com" }), "sandbox_alex", { db, nowMs: () => NOW });
+    expect(res.status).toBe(200);
+    expect(rowsOf(db)).toHaveLength(1);
+    expect(rowsOf(db)[0]).not.toHaveProperty("personId");
+  });
+
+  it("writes none while the switch is off, or the person links are", async () => {
+    for (const [links, ids] of [["true", "false"], ["false", "true"]] as const) {
+      vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", links);
+      vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", ids);
+      const w = await setup();
+      await w.patch("u_1", { email: "alex@example.com" });
+      await handleUserEvent(request("POST", w.auth, { event: "report.exported" }), "u_1", w.deps);
+      expect(rowsOf(w.db)).toHaveLength(2);
+      for (const r of rowsOf(w.db)) expect(r).not.toHaveProperty("personId");
+    }
   });
 });

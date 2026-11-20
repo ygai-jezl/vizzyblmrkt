@@ -516,7 +516,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: ["product.identified", "product.tracked", "product.erased"],
     personFields: [
       { field: "productUserId", stampedAtWrite: true },
-      { field: "personId", stampedAtWrite: false },
+      { field: "personId", stampedAtWrite: true },
     ],
     erase: {
       paths: [PU_HISTORY, CONTACT_ERASE_PRODUCTS, retention("EVENT_TTL_MS", "src/lib/connect/ingest.ts", "each event goes 90 days after it arrives")],

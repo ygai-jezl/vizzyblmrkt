@@ -36,6 +36,7 @@ import {
 import { isDateFactsEnabled, isEntitiesEnabled, isQuietUnchangedWritesEnabled } from "./flags";
 import { personAfterProductErase, personAfterProductWrites, previousPersonKey } from "@/lib/audience/personHooks";
 import { dateFactIds } from "../dateFacts";
+import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
@@ -129,13 +130,18 @@ async function writeUser(
         // A re-sync resending the same state leaves no row (the tab counts those),
         // unless fields were left as they were: that's worth seeing.
         if (wasApplied && unchanged && ignoredFields.length === 0 && isQuietUnchangedWritesEnabled()) return null;
-        const skipped = result && "skipped" in result ? result.skipped : null;
+        const r = result as PatchResult | null;
+        const skipped = r && "skipped" in r ? r.skipped : null;
         // After an erasure, a late write keeps no user id or data, only that it came.
         const erased = skipped === "deleted_later";
+        // The person, from the state the write left (or found), with no extra read. None after an erasure.
+        const state = (r && "next" in r ? r.next : null) ?? (seen as ProductUser | null);
+        const person = erased ? null : personIdForProductUser(ctx.tenantId, { id: userDocId, emailNormalized: state?.emailNormalized ?? null }, connection);
         return {
           connectionId: connection.id,
           productUserId: erased ? "" : userDocId,
           externalUserId: erased ? "" : userId,
+          ...personStamp(person),
           messageId,
           type: "identify",
           event: null,
@@ -419,17 +425,24 @@ export async function recordUserEvent(
   const msg = { type: "track" as const, messageId, userId, timestamp, event: body.event, properties: body.properties ?? {} };
   const entityId = isEntitiesEnabled() ? (body.entityId ?? null) : null;
   const userDocId = productUserDocId(connection.id, userId);
+  let held: ProductUser | null = null;
   const result = await applyProductMessage(
     ctx,
     {
       eventId: productEventDocId(connection.id, messageId),
       userDocId,
-      mutate: (current) =>
-        !current || current.status !== "active" ? { reject: "not_found" } : applyMessage(current, msg, { connection, nowMs }),
+      mutate: (current) => {
+        held = current;
+        return !current || current.status !== "active" ? { reject: "not_found" } : applyMessage(current, msg, { connection, nowMs });
+      },
       buildEvent: (applied) => ({
         connectionId: connection.id,
         productUserId: userDocId,
         externalUserId: userId,
+        // The person, from the user the write found: a milestone never changes their address.
+        ...personStamp(
+          personIdForProductUser(ctx.tenantId, { id: userDocId, emailNormalized: (held as ProductUser | null)?.emailNormalized ?? null }, connection),
+        ),
         messageId,
         type: "track",
         event: body.event,

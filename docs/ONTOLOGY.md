@@ -388,7 +388,7 @@ One identify or track message a product sent about one of its users, kept 90 day
   - `product_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `product_user` through productUserId; `product` through connectionId
 - Events: `product.identified`, `product.tracked`, `product.erased`
-- Person fields: `productUserId` (written with the row), `personId` (not written with the row yet)
+- Person fields: `productUserId` (written with the row), `personId` (written with the row)
 - Erase:
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)

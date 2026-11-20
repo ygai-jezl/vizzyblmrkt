@@ -21,6 +21,24 @@ const compat = new FlatCompat({ baseDirectory: __dirname });
 const ISOLATION_MESSAGE =
   "Direct Firestore access is forbidden outside src/lib/tenant/**. Use the tenant-scoped repository (forTenant(ctx)) so every query is partitioned by tenantId. See docs/ARCHITECTURE-AND-DELIVERY.md §4.";
 
+/**
+ * The Enterprise boundary.
+ *
+ * Enterprise code lives in src/ee under its own licence, and the app must build and run without
+ * that folder. So only src/lib/enterprise/registry.ts may import from it; everything else asks
+ * the registry whether a feature is licensed (ADR-0007 in docs/DECISIONS.md).
+ *
+ * import/no-restricted-paths (eslint-plugin-import, registered with the node and TypeScript
+ * resolvers by eslint-config-next) sees import, export from, import() and require() in every
+ * file in the repo. It is not in no-restricted-imports: the blocks below turn that rule off for
+ * src/lib/tenant/** and scripts/diagnose-journey.ts, and it misses import() and require().
+ * The rule skips a specifier it can't resolve (a file that doesn't exist yet), and the ignores
+ * at the end leave out infra, agents and workers, so src/lib/enterprise/boundary.test.ts scans
+ * the source for both.
+ */
+const ENTERPRISE_MESSAGE =
+  "Only src/lib/enterprise/registry.ts may import from src/ee, so the app builds and runs without it. Ask the registry whether a feature is licensed. See ADR-0007 in docs/DECISIONS.md.";
+
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
@@ -95,6 +113,20 @@ const eslintConfig = [
     rules: {
       "no-restricted-syntax": "off",
       "no-restricted-imports": "off",
+    },
+  },
+  {
+    // The Enterprise boundary (ENTERPRISE_MESSAGE above), over every code file in the repo.
+    files: ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
+    ignores: ["src/ee/**", "src/lib/enterprise/registry.ts"],
+    rules: {
+      "import/no-restricted-paths": [
+        "error",
+        {
+          basePath: __dirname,
+          zones: [{ target: "./", from: "./src/ee", message: ENTERPRISE_MESSAGE }],
+        },
+      ],
     },
   },
   {

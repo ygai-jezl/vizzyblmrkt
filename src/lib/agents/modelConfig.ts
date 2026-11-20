@@ -17,7 +17,7 @@
 
 /** Text / multimodal generation: Agent 1 market-intel, Agent 3 creative, the
  *  compiler, templatize/deconstruct, the Create architect, and i18n translation. */
-export const DEFAULT_TEXT_MODEL = "gemini-3.6-flash";
+export const DEFAULT_TEXT_MODEL = "gemini-3.8-flash";
 export const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? DEFAULT_TEXT_MODEL;
 
 /** Image generation (Imagen) — Agent 3 hero images. */

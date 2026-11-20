@@ -112,6 +112,42 @@ describe("tenant registry", () => {
     expect(all.find((t) => t.id === "ten_B")?.emailStyle).toMatchObject({ ...style, headerImage: image });
   });
 
+  it("reads the organisation link and the plan copy", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ organisationId: "org_ten_A", orgPlan: "pro" }));
+
+    const one = await getTenantById("ten_A", db);
+    expect(one?.organisationId).toBe("org_ten_A");
+    expect(one?.orgPlan).toBe("pro");
+  });
+
+  it("a damaged plan copy or organisation link reads as none (open), and every brand still lists", async () => {
+    const db = new FakeFirestore();
+    db.seed("tenants", "ten_A", tenant({ organisationId: "org_ten_A", orgPlan: "platinum" }));
+    db.seed("tenants", "ten_B", tenant({ organisationId: 42, orgPlan: "free" }));
+    db.seed("tenants", "ten_C", tenant());
+
+    const a = await getTenantById("ten_A", db);
+    expect(a?.orgPlan).toBeUndefined();
+    expect(a?.organisationId).toBe("org_ten_A");
+    const all = await listAllTenants(db);
+    expect(all.map((t) => t.id).sort()).toEqual(["ten_A", "ten_B", "ten_C"]);
+    const b = all.find((t) => t.id === "ten_B");
+    expect(b?.organisationId).toBeUndefined();
+    expect(b?.orgPlan).toBe("free");
+    expect(all.find((t) => t.id === "ten_C")?.orgPlan).toBeUndefined();
+  });
+
+  it("a brand written without billingTier still parses (it is no longer written)", async () => {
+    const db = new FakeFirestore();
+    const { billingTier: _unused, ...rest } = tenant();
+    db.seed("tenants", "ten_A", rest);
+
+    const one = await getTenantById("ten_A", db);
+    expect(one?.id).toBe("ten_A");
+    expect(one?.billingTier).toBeUndefined();
+  });
+
   it("a damaged emailStyleSuggestion reads as none and the tenant still loads", async () => {
     const db = new FakeFirestore();
     db.seed("tenants", "ten_A", tenant({ emailStyleSuggestion: { headerColor: "navy", brief: "x".repeat(4000) } }));

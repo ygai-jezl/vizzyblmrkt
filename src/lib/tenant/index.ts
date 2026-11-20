@@ -155,5 +155,15 @@ export type {
   BlankResult,
   HistoryStore,
 } from "./ontologyEvents";
+// Agent actions: one record per suggestion and its agent.* trail. The transaction helpers stay in src/lib/tenant.
+export {
+  proposeAgentAction,
+  transitionAgentAction,
+  clearAgentActionDetails,
+  expireAgentActions,
+  blankFieldInAgentActions,
+  countFieldAgentActions,
+} from "./agentActions";
+export type { AgentProposal, AgentTransition, TransitionError } from "./agentActions";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

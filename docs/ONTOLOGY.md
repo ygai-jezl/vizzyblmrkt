@@ -620,7 +620,7 @@ One row per thing that happened to a person, company, idea or agent action and h
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
-  - `ontology_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/ontologyEvents.ts`; field changes hold personal values.
+  - `ontology_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/ontologyEvents.ts` and `src/lib/tenant/agentActions.ts`; field changes hold personal values.
 - Links: `person` through personId, and the subject when it is a person; `company` through the subject, when it is a company; `idea` through the subject, when it is an idea; `agent_action` through agentActionId
 - Events: `record.created`, `record.field_changed`, `consent.recorded`, `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - Person fields: `personId` (written with the row)
@@ -1248,7 +1248,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
-  - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion; its proposal, basis, result and undo may hold personal values.
+  - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
 - Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`

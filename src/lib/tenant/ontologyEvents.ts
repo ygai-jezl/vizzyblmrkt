@@ -6,7 +6,10 @@ import type { DocRefLike, FirestoreLike, QueryLike, TenantContext, TransactionLi
 import { deterministicEventId } from "@/lib/crm/identifiers";
 import { isAgentEventKind, isCanonicalInstant, subjectKey, USER_FIELD_ID } from "@/lib/ontology/events";
 import { EVENT_LIMITS, EventWriteSchema, type EventId, type EventWrite, type StoredEvent } from "@/lib/types/ontologyEvent";
-import type { AgentAction } from "@/lib/types/agentAction";
+import type { AgentAction, AgentActionId } from "@/lib/types/agentAction";
+// A cycle by design: agentActions.ts uses this file's helpers, and writeRecordWithEvents commits
+// an action's decision with the record. Neither file touches the other's exports at load time.
+import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransition, type AgentTransitionOk } from "./agentActions";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Company } from "@/lib/types/company";
 import type { Contact } from "@/lib/types/contact";
@@ -149,6 +152,20 @@ export function stageAgentEventTx(txn: TransactionLike, store: FirestoreLike, ct
   return stage(txn, store, ctx, e, nowIso);
 }
 
+/**
+ * One step of an agent action's trail, prepared with no read: its key is `agent|<actionId>|<rev>`
+ * and the transaction has read the action at the rev before it. A row at that key exists only if
+ * the action moved on since, which changes the record this transaction read, so the transaction
+ * retries and plans again. For src/lib/tenant/agentActions.ts alone (the append only guard checks).
+ */
+export function prepareTrailEvent(ctx: TenantContext, write: EventWrite): PreparedEvent {
+  const w = parseWrite(write);
+  if (!isAgentEventKind(w.kind) || !w.agentActionId || !new RegExp(`^agent\\|${w.agentActionId}\\|[1-9][0-9]*$`).test(w.key)) {
+    throw new TenantValidationError("a trail step is an agent.* event keyed agent|<actionId>|<rev>");
+  }
+  return { ...w, id: deterministicEventId(ctx.tenantId, w.key) } as PreparedEvent;
+}
+
 /** Runs a transaction, once more if a create raced another (the claimLifecycleSend pattern). */
 export async function retryOnceOnExists<T>(attempt: () => Promise<T>): Promise<T> {
   try {
@@ -210,13 +227,18 @@ export type RecordWriteResult<C extends RecordCollection> =
  * key). Outcomes: created, updated, unchanged (a null plan, or nothing to write), or rejected with
  * the plan's reason, "not_found" (a patch on nothing), "exists" (a create on something) or
  * "create_not_allowed". An event key already stored is skipped, not an error.
+ *
+ * With `agentAction`, the action is read with the record and passed to the plan, and its move is
+ * planned before any write, so a confirm commits the record, its events and the decision together.
+ * A move that can't happen rejects with "agent_action_not_found", "agent_action_wrong_state" or
+ * "agent_action_changed" and writes nothing.
  */
 export async function writeRecordWithEvents<C extends RecordCollection>(
   ctx: TenantContext,
   collection: C,
   id: string,
   plan: (current: RecordOf<C> | null, action: AgentAction | null) => RecordPlan<C>,
-  opts: { db?: FirestoreLike; nowIso?: string } = {},
+  opts: { db?: FirestoreLike; nowIso?: string; agentAction?: { id: AgentActionId; transition: AgentTransition } } = {},
 ): Promise<RecordWriteResult<C>> {
   if (!Object.prototype.hasOwnProperty.call(EVENT_RECORD_COLLECTIONS, collection)) {
     throw new TenantValidationError("writeRecordWithEvents takes contacts, companies or campaigns");
@@ -228,13 +250,20 @@ export async function writeRecordWithEvents<C extends RecordCollection>(
   return retryOnceOnExists(() =>
     store.runTransaction(async (txn): Promise<RecordWriteResult<C>> => {
       const snap = await txn.get(ref);
+      const action = opts.agentAction ? await readAgentActionTx(txn, store, ctx, opts.agentAction.id) : null;
       let current: RecordOf<C> | null = null;
       if (snap.exists) {
         const data = snap.data() ?? {};
         if (data[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${collection}/${id} belongs to another tenant`);
         current = { ...data, id: snap.id } as unknown as RecordOf<C>;
       }
-      const p = plan(current, null) as RecordPlan<RecordCollection>;
+      let move: AgentTransitionOk | null = null;
+      if (opts.agentAction) {
+        const planned = planAgentTransition(action, opts.agentAction.transition);
+        if (!planned.ok) return { outcome: "rejected", reason: `agent_action_${planned.error}` };
+        move = planned;
+      }
+      const p = plan(current, action) as RecordPlan<RecordCollection>;
       if (!p) return { outcome: "unchanged", doc: current };
       if ("reject" in p) return { outcome: "rejected", reason: p.reject };
       const events = p.events ?? [];
@@ -260,13 +289,14 @@ export async function writeRecordWithEvents<C extends RecordCollection>(
       } else {
         // As TenantCollection.update: identity and createdAt are never rewritten.
         const { tenantId: _t, id: _i, createdAt: _c, ...rest } = p.patch as Record<string, unknown>;
-        if (Object.keys(rest).length === 0 && fresh.length === 0) return { outcome: "unchanged", doc: current };
+        if (Object.keys(rest).length === 0 && fresh.length === 0 && !move) return { outcome: "unchanged", doc: current };
         if (Object.keys(rest).length > 0) txn.update(ref, rest);
         doc = { ...current, ...rest } as RecordOf<C>;
         outcome = "updated";
       }
       const written = fresh.map((e) => stageEvent(txn, store, ctx, e, now));
-      return { outcome, doc, events: written, agentAction: null };
+      if (move) written.push(...stageAgentTransition(txn, store, ctx, move));
+      return { outcome, doc, events: written, agentAction: move ? move.next : null };
     }),
   );
 }

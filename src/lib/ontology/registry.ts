@@ -742,7 +742,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
     status: "built",
     home: "brand",
     personal: "people",
-    stores: [regional("ontology_events", "written only through `src/lib/tenant/ontologyEvents.ts`; field changes hold personal values")],
+    stores: [
+      regional("ontology_events", "written only through `src/lib/tenant/ontologyEvents.ts` and `src/lib/tenant/agentActions.ts`; field changes hold personal values"),
+    ],
     links: [
       { to: "person", via: "personId, and the subject when it is a person", many: false },
       { to: "company", via: "the subject, when it is a company", many: false },
@@ -1802,7 +1804,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
     status: "built",
     home: "brand",
     personal: "people",
-    stores: [regional("agent_actions", "one record per suggestion; its proposal, basis, result and undo may hold personal values")],
+    stores: [
+      regional("agent_actions", "one record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values"),
+    ],
     links: [
       { to: "person", via: "personId, and the target when it is a person", many: false },
       { to: "company", via: "the target, when it is a company", many: false },

@@ -8,12 +8,13 @@ import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { helpFor } from "@/lib/help/places";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
+import { isPlansUiEnabled } from "@/lib/plans/flags";
 import { ThemeSwitch } from "./ThemeSwitch";
 
 /** The slim bar above every admin page: where you are on the left, the theme switch on the right. */
 export function AdminHeader({ names }: { names: CrumbNames }) {
   const pathname = usePathname() ?? "/admin";
-  const crumbs = breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled() });
+  const crumbs = breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled() });
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-shell-line bg-shell-side px-6">
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1">

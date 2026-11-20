@@ -1,0 +1,57 @@
+name: CLA
+
+# This is pull_request_target: never check out or run the pull request's code here. No ref on
+# actions/checkout, no npm ci or npm install, and no GitHub expression in a run line (pass
+# values through env instead).
+#
+# Only the default branch's code runs. The pull request's commits and files are read as data,
+# through the API, by scripts/check-cla.mjs (Node built-ins only).
+#
+# GitHub's "require approval for first-time contributors" setting does not apply to this
+# trigger. The workflow's safety rests on the read-only token, never checking out the pull
+# request, and scripts/lib/claWorkflow.test.ts, which fails if any of that changes.
+#
+# Signatures and the policy are in docs/cla. The check is advisory until a ruleset makes the
+# CLA check required; a maintainer's bypass of that ruleset is the override.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+    branches: [dev, main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to check
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  cla:
+    name: CLA
+    # Our public repository only: forks and our private mirror never run it.
+    if: github.repository == 'ygai-jezl/vizzyblmrkt'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Every author signed the CLA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: node scripts/check-cla.mjs --repo "$REPO" --pr "$PR" --summary "$GITHUB_STEP_SUMMARY"

@@ -59,6 +59,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 Never call Firestore directly. Get a tenant context on the server (`resolveTenantFromOrigin` for public requests, `getAdminContext()` from `@/lib/auth/session` in admin routes), then use `forTenant(ctx)` from `@/lib/tenant`.
 `ctx.tenantId` always comes from the server, never from a request body, query or header. ESLint bans raw Firestore calls and imports outside `src/lib/tenant/**`: never turn the rule off. Why: `docs/ARCHITECTURE-AND-DELIVERY.md` section 4.
 A new collection or file store needs an entry in `src/lib/ontology/registry.ts`, then `npm run ontology:doc` (`src/lib/ontology/coverage.test.ts` fails until it has one). Every type is mapped in `docs/ONTOLOGY.md`.
+Event history and agent actions (`ontology_events`, `agent_actions`) are written only through `src/lib/tenant/ontologyEvents.ts` and `src/lib/tenant/agentActions.ts`. A stored event never changes except through the repoint, blanking and erase helpers there.
 
 ## Switches
 

@@ -68,7 +68,7 @@ export function GitConnectHint({ provider }: { provider: "github" | "gitlab" }) 
     if (status.needsReconnect) {
       return (
         <span className="text-xs text-amber-600 dark:text-amber-400">
-          {label} needs reconnecting.{" "}
+          This connection needs reconnecting.{" "}
           {canEdit ? (
             <button type="button" onClick={connect} className="underline">
               Reconnect

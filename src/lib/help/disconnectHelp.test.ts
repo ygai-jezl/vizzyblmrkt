@@ -105,4 +105,19 @@ describe("/developers/connect-your-code: Disconnect", () => {
       expect(aiTellsIn(line), line).toEqual([]);
     }
   });
+
+  it.each(["", "true"])("the whole page has no dashes as punctuation, with revoke %j", (revoke) => {
+    vi.stubEnv("GIT_REPO_SELECTION_ENABLED", "");
+    expect(dashesIn(page(revoke))).toEqual([]);
+    vi.stubEnv("GIT_REPO_SELECTION_ENABLED", "true");
+    expect(dashesIn(page(revoke))).toEqual([]);
+  });
+
+  it("says where the reconnect line shows, with no doubled stop", () => {
+    const md = page("");
+    expect(md).toContain(
+      "shows **This connection needs reconnecting.** next to GitLab, an admin presses **Reconnect**.",
+    );
+    expect(md).not.toMatch(/reconnecting\.\*\*,/);
+  });
 });

@@ -35,9 +35,13 @@ export async function processContactEraseJob(
   if (!contactId) return "done";
 
   const repo = forTenant(ctx, db);
-  // Their event history and agent actions, before anything else: a retry for a contact already
-  // deleted still clears what is left.
+  // Their event history and agent actions, and moves to or from them (ONTOLOGY_PERSON_IDS_ENABLED:
+  // ids only, but about them), before anything else: a retry for a contact already deleted (step 2
+  // can remove a product-only record) still clears what is left. Kept rows of a product user they
+  // still have go with that user's own erase.
   const history = await eraseHistory(ctx, { personId: contactId }, { db });
+  await repo.personMoves.deleteWhere([["personId", "==", contactId]]);
+  await repo.personMoves.deleteWhere([["fromPersonId", "==", contactId]]);
   const contact = await repo.contacts.getById(contactId);
   if (!contact) return "done"; // already erased — idempotent
 
@@ -74,12 +78,7 @@ export async function processContactEraseJob(
     }
   }
 
-  // 2b. Moves to or from this person (ONTOLOGY_PERSON_IDS_ENABLED): ids only, but about them.
-  //     Kept rows of a product user they still have go with that user's own erase.
-  await repo.personMoves.deleteWhere([["personId", "==", contactId]]);
-  await repo.personMoves.deleteWhere([["fromPersonId", "==", contactId]]);
-
-  // 2c. History kept under the pu: person of each product user they link: from before a merge
+  // 2b. History kept under the pu: person of each product user they link: from before a merge
   //     that the repoint job hasn't moved (or can't, with its switch off). Whatever the one view says.
   for (const u of productUsers) {
     const h = await eraseHistory(ctx, { personId: productUserPersonId(ctx.tenantId, u.id) }, { db });

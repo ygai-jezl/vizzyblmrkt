@@ -157,6 +157,17 @@ describe("person moves on an erase", () => {
     expect(db.raw("person_moves", "mv_theirs")).toBeDefined();
   });
 
+  it("go with the person on a retry, when the contact is already gone", async () => {
+    const db = new FakeFirestore();
+    db.seed("person_moves", "mv_to", move({ personId: "ct_1", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_from", move({ personId: "ct_9", fromPersonId: "ct_1" }));
+    db.seed("person_moves", "mv_other", move({ personId: "ct_8", fromPersonId: "ct_9" }));
+    expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+    expect(db.raw("person_moves", "mv_to")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_from")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_other")).toBeDefined();
+  });
+
   it("go with the product user", async () => {
     const db = new FakeFirestore();
     db.seed("product_users", "pu_x", { tenantId: "ten_A", connectionId: "pcn_1", email: "ada@example.test", emailNormalized: "ada@example.test", status: "active" });

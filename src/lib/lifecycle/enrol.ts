@@ -11,6 +11,8 @@ import { allowsMarketing, isTestRecipient, lowestMode } from "./policy";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { DATE_PASSED_EVENT, dateStartOf, JOURNEY_ABOUT_DEFAULT, JOURNEY_COMPLETED_EVENT, type JourneyAbout } from "@/lib/types/lifecycle";
 import { enrolTargets } from "./entities";
+import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
+import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
 
 /**
  * Enrolment: a product user entering a published lifecycle journey. The
@@ -89,6 +91,12 @@ export async function enrolUser(
     fromJourneyId?: string | null;
     /** The date they enter on, for a journey that starts when a date passes (./dateStart.ts). */
     dateAt?: string | null;
+    /**
+     * The journey's connection, when the caller holds it: the person on the enrolment is worked
+     * out from it (ONTOLOGY_PERSON_IDS_ENABLED). Null when it is known to be missing. Left out,
+     * it is read once, only while the switch is on.
+     */
+    connection?: Pick<ProductConnection, "kind" | "status"> | null;
   },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<EnrolOutcome> {
@@ -108,13 +116,16 @@ export async function enrolUser(
   if (mode === "test" && !isTestRecipient(journey, user)) {
     return { outcome: "skipped", reason: "not_a_test_recipient" };
   }
+  const repo = forTenant(ctx, deps.db);
+  // The connection, read at most once here, and only when the caller didn't pass what's needed.
+  let read: ProductConnection | null | undefined;
+  const readConnection = async () => (read === undefined ? (read = await repo.productConnections.getById(journey.connectionId)) : read);
   // A consent-only journey admits people whose consent (as the product sent it) allows marketing.
   if (isLifecycleConsentAtSendEnabled() && version.settings.entry?.requireMarketingConsent) {
-    const policy = a.consentPolicy ?? (await forTenant(ctx, deps.db).productConnections.getById(journey.connectionId))?.consentPolicy;
+    const policy = a.consentPolicy ?? (await readConnection())?.consentPolicy;
     if (!policy || !allowsMarketing(policy, user.consent?.basis)) return { outcome: "skipped", reason: "no_marketing_consent" };
   }
 
-  const repo = forTenant(ctx, deps.db);
   const counterId = counterDocId(journey.id, nowMs);
   const counter = await repo.lifecycleCounters.getById(counterId);
   if ((counter?.enrolments ?? 0) >= journey.caps.enrolmentsPerDay) {
@@ -124,6 +135,9 @@ export async function enrolUser(
 
   const id = enrolmentIdFor(journey.id, user.id, aboutOf(version), a.entityId ?? null, reentryDateOf(version, a.dateAt));
   const cursor = entryCursor(version.graph);
+  // The person on the row. Callers pass the connection; reading it here is only a safety net.
+  const connection = a.connection !== undefined ? a.connection : isOntologyPersonIdsEnabled() ? await readConnection() : null;
+  const person = personIdForProductUser(ctx.tenantId, user, connection);
   try {
     await repo.lifecycleEnrolments.create(id, {
       journeyId: journey.id,
@@ -131,6 +145,7 @@ export async function enrolUser(
       connectionId: journey.connectionId,
       productUserId: user.id,
       externalUserId: user.externalUserId,
+      ...personStamp(person),
       mode: journey.deliveryMode,
       status: cursor ? "active" : "completed",
       stopReason: null,
@@ -212,8 +227,8 @@ export function pastSignupWindow(user: Pick<ProductUser, "signedUpAt" | "firstSe
   return !Number.isFinite(from) || nowMs - from > windowHours * 3600_000;
 }
 
-/** What the trigger paths need from the connection (its consent policy saves a read). */
-type EnrolConnection = Pick<ProductConnection, "id" | "status"> & Partial<Pick<ProductConnection, "consentPolicy">>;
+/** What the trigger paths need from the connection (its consent policy saves a read; its kind finds the person). */
+export type EnrolConnection = Pick<ProductConnection, "id" | "status" | "kind"> & Partial<Pick<ProductConnection, "consentPolicy">>;
 
 /** Active journeys on a connection, each with its published version. */
 export async function activeJourneysFor(
@@ -270,7 +285,7 @@ export async function enrolOnSignup(
           if (await repo.lifecycleEnrolments.getById(enrolmentIdFor(journey.id, user.id, about, entityId))) continue;
           const r = await enrolUser(
             ctx,
-            { journey, version, user, source: "trigger", anchorAt: user.signedUpAt!, consentPolicy: connection.consentPolicy, entityId },
+            { journey, version, user, source: "trigger", anchorAt: user.signedUpAt!, consentPolicy: connection.consentPolicy, entityId, connection },
             { db: deps.db, nowMs },
           );
           if (r.outcome === "enrolled") enrolled += 1;
@@ -319,7 +334,7 @@ export async function enrolOnEvents(
       try {
         const rs = await enrolPerson(
           ctx,
-          { journey, version, user: e.user, source: "trigger", anchorAt: e.timestamp, consentPolicy: connection.consentPolicy, triggerEntityId: e.entityId ?? null },
+          { journey, version, user: e.user, source: "trigger", anchorAt: e.timestamp, consentPolicy: connection.consentPolicy, triggerEntityId: e.entityId ?? null, connection },
           { db: deps.db, nowMs },
         );
         enrolled += rs.filter((r) => r.outcome === "enrolled").length;

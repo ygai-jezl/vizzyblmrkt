@@ -533,7 +533,7 @@ One person's way through one journey: where they are, what they were sent and wh
 - Links: `lifecycle_journey` through journeyId; `product_user` through productUserId; `signup` through signupId
 - Events: `journey.entered`, `journey.completed`, `journey.exited`
 - States: `active`, `completed`, `exited`
-- Person fields: `productUserId` (written with the row), `signupId` (written with the row), `personId` (not written with the row yet)
+- Person fields: `productUserId` (written with the row), `signupId` (written with the row), `personId` (written with the row)
 - Erase:
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
@@ -575,7 +575,7 @@ A plan for one product user, in the team's words, drafted by Vizzy and approved 
   - `person_plans`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `product_user` through productUserId
 - Events: `person_plan.drafted`, `person_plan.approved`
-- Person fields: `productUserId` (written with the row), `personId` (not written with the row yet)
+- Person fields: `productUserId` (written with the row), `personId` (written with the row)
 - Erase:
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)

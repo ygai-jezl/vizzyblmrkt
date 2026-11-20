@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import type { ConsentPolicy } from "@/lib/types/productConnection";
+import type { ConsentPolicy, ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import {
   continuesFromId,
@@ -133,6 +133,8 @@ export async function continueToNextJourneys(
     entityId?: string | null;
     consentPolicy?: ConsentPolicy;
     followers?: Follower[];
+    /** The connection, when the caller holds it: the person on each new enrolment comes from it. */
+    connection?: Pick<ProductConnection, "kind" | "status"> | null;
   },
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<Handover[]> {
@@ -151,6 +153,7 @@ export async function continueToNextJourneys(
         consentPolicy: a.consentPolicy,
         triggerEntityId: a.entityId ?? null,
         fromJourneyId: a.from.id,
+        connection: a.connection,
       },
       { db: deps.db, nowMs },
     );

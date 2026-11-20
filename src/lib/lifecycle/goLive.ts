@@ -6,6 +6,7 @@ import type { LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
 import { aboutOf, enrolmentIdFor, enrolUser, versionDocId } from "./enrol";
 import { enrolTargets } from "./entities";
 import { lifecycleModeCeiling } from "./flags";
+import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
 import { lowestMode } from "./policy";
 
 /**
@@ -75,6 +76,8 @@ async function sweepJourney(
   let cursor = journey.goLiveSweep?.cursor ?? null;
   let enrolled = journey.goLiveSweep?.enrolled ?? 0;
   let added = 0;
+  // The person on each enrolment comes from the connection: read once per sweep, only when it's needed.
+  const connection = isOntologyPersonIdsEnabled() ? await repo.productConnections.getById(journey.connectionId) : undefined;
   while (deps.now() < deps.deadlineMs) {
     const where: WhereClause[] = [
       ["connectionId", "==", journey.connectionId],
@@ -89,7 +92,7 @@ async function sweepJourney(
       for (const entityId of enrolTargets(user, about)) {
         // Already in: one read, no write.
         if (await repo.lifecycleEnrolments.getById(enrolmentIdFor(journey.id, user.id, about, entityId))) continue;
-        const r = await enrolUser(ctx, { journey, version, user, source: "trigger", anchorAt: user.signedUpAt, entityId }, { db: deps.db, nowMs });
+        const r = await enrolUser(ctx, { journey, version, user, source: "trigger", anchorAt: user.signedUpAt, entityId, connection }, { db: deps.db, nowMs });
         if (r.outcome === "enrolled") {
           enrolled += 1;
           added += 1;

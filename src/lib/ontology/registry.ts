@@ -655,7 +655,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     personFields: [
       { field: "productUserId", stampedAtWrite: true },
       { field: "signupId", stampedAtWrite: true },
-      { field: "personId", stampedAtWrite: false },
+      { field: "personId", stampedAtWrite: true },
     ],
     erase: { paths: [PU_HISTORY, CONTACT_ERASE, LAUNCH_DELETE] },
     export: { paths: [EXPORT_PU, EXPORT_PERSON] },
@@ -691,7 +691,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: ["person_plan.drafted", "person_plan.approved"],
     personFields: [
       { field: "productUserId", stampedAtWrite: true },
-      { field: "personId", stampedAtWrite: false },
+      { field: "personId", stampedAtWrite: true },
     ],
     erase: { paths: [PU_HISTORY, CONTACT_ERASE_PRODUCTS] },
     export: { paths: [EXPORT_PU, EXPORT_PERSON] },

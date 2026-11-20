@@ -395,6 +395,7 @@ export async function processEnrolment(
                   entityId: leased.entityId ?? null,
                   consentPolicy: connection.consentPolicy,
                   followers: await cache.followersOf(journey),
+                  connection,
                 },
                 { db: deps.db, nowMs: clock() },
               );

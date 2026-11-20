@@ -229,7 +229,7 @@ describe("journeys about entities, in the runner (CONNECT_ENTITIES_ENABLED)", ()
 
   it("about one brand (focus): the welcome's next step is the brand they're furthest along with", async () => {
     const w = await world(about(), { acme: entity({ name: "Acme", steps: done("create_brand", "run_audit") }), beta: entity({ name: "Beta" }) });
-    await enrolOnEvents(system, { id: CONNECTION_ID, status: "active" }, [{ user: w.user, event: "user.signed_up", timestamp: iso(T0) }], { db: w.db, nowMs: T0 });
+    await enrolOnEvents(system, { id: CONNECTION_ID, status: "active", kind: "custom" }, [{ user: w.user, event: "user.signed_up", timestamp: iso(T0) }], { db: w.db, nowMs: T0 });
     const id = enrolmentIdFor(w.journey.id, w.user.id, about(), null);
     await w.run(id, T0);
     expect(await w.run(id, T0 + 15 * MIN)).toBe("sent");
@@ -242,7 +242,7 @@ describe("journeys about entities, in the runner (CONNECT_ENTITIES_ENABLED)", ()
     const each = about({ mode: "each" });
     const w = await world(each, { acme: entity({ name: "Acme" }), beta: entity({ name: "Beta" }) });
     const events = ["acme", "beta"].map((entityId) => ({ user: w.user, event: "entity.created", timestamp: iso(T0), entityId }));
-    expect(await enrolOnEvents(system, { id: CONNECTION_ID, status: "active" }, events, { db: w.db, nowMs: T0 })).toEqual({ enrolled: 2 });
+    expect(await enrolOnEvents(system, { id: CONNECTION_ID, status: "active", kind: "custom" }, events, { db: w.db, nowMs: T0 })).toEqual({ enrolled: 2 });
     const [a, b] = ["acme", "beta"].map((e) => enrolmentIdFor(w.journey.id, w.user.id, each, e));
     const repo = forTenant(system, w.db).lifecycleEnrolments;
     expect(await repo.getById(a!)).toMatchObject({ entityId: "acme" });
@@ -262,7 +262,7 @@ describe("journeys about entities, in the runner (CONNECT_ENTITIES_ENABLED)", ()
   it("with the flag off, a journey about entities runs about the person", async () => {
     delete process.env.CONNECT_ENTITIES_ENABLED;
     const w = await world(about(), { acme: entity({ name: "Acme", steps: done("create_brand", "run_audit") }) });
-    await enrolOnEvents(system, { id: CONNECTION_ID, status: "active" }, [{ user: w.user, event: "user.signed_up", timestamp: iso(T0) }], { db: w.db, nowMs: T0 });
+    await enrolOnEvents(system, { id: CONNECTION_ID, status: "active", kind: "custom" }, [{ user: w.user, event: "user.signed_up", timestamp: iso(T0) }], { db: w.db, nowMs: T0 });
     const id = enrolmentIdFor(w.journey.id, w.user.id, about(), null);
     await w.run(id, T0);
     expect(await w.run(id, T0 + 15 * MIN)).toBe("sent");

@@ -3,6 +3,7 @@ import { CONDITION_FIELD_KEYS, ConditionOperator } from "./journey";
 import { EmailLayoutSchema } from "./emailLayout";
 import { ENTITY_KIND_RE } from "./productConnection";
 import { StoredJourneyStyleSchema } from "./tenant";
+import { ContactPersonIdSchema } from "@/lib/ontology/person";
 
 /**
  * Lifecycle journeys — branching email sequences for a CONNECTED PRODUCT's users
@@ -601,6 +602,8 @@ export const LifecycleEnrolmentSchema = EnrolmentRuntimeSchema.extend({
   connectionId: z.string(),
   productUserId: z.string(),
   externalUserId: z.string(),
+  /** The person (a `ct_` id), written with the enrolment (ONTOLOGY_PERSON_IDS_ENABLED) and moved when they move. */
+  personId: ContactPersonIdSchema.optional(),
 });
 export type LifecycleEnrolment = z.infer<typeof LifecycleEnrolmentSchema>;
 
@@ -622,6 +625,8 @@ export const WaitlistEnrolmentSchema = EnrolmentRuntimeSchema.extend({
   heldAt: z.string().nullable().optional(),
   /** A shadow rehearsal's enrolment: never stamps the person, deleted at the switch. */
   rehearsal: z.boolean().optional(),
+  /** The person (a `ct_` id), from the sign-up, written with the enrolment (ONTOLOGY_PERSON_IDS_ENABLED). Never on a rehearsal. */
+  personId: ContactPersonIdSchema.optional(),
 });
 export type WaitlistEnrolment = z.infer<typeof WaitlistEnrolmentSchema>;
 

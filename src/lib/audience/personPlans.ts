@@ -5,6 +5,8 @@ import { zodReason } from "@/lib/connect/protocol";
 import { personScrubber, type IdentityScrubber } from "./identityScrubber";
 import { isPersonId } from "./paths";
 import { personReach } from "./personStage";
+import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
+import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
 
 /**
  * A plan for one person (LIFECYCLE_PERSON_PLANS): Vizzy or staff save a DRAFT, and
@@ -78,19 +80,25 @@ export async function savePlanDraft(
   const body = parseBody(input, user);
   if (!body.ok) return body;
   const by = deps.by ?? "human";
+  // Vizzy needs the connection to check they can be emailed; the person on a new plan comes from it too.
+  const needConnection = by === "agent" || isOntologyPersonIdsEnabled();
+  const [connection, optOuts] = await Promise.all([
+    needConnection ? repo.productConnections.getById(user.connectionId) : Promise.resolve(null),
+    by === "agent" && user.emailNormalized
+      ? repo.emailSuppressions.find({ where: [["normalizedEmail", "==", user.emailNormalized]], limit: 50 })
+      : Promise.resolve([]),
+  ]);
   if (by === "agent") {
-    const [connection, optOuts] = await Promise.all([
-      repo.productConnections.getById(user.connectionId),
-      user.emailNormalized ? repo.emailSuppressions.find({ where: [["normalizedEmail", "==", user.emailNormalized]], limit: 50 }) : Promise.resolve([]),
-    ]);
     if (!connection) return fail(404, "person_not_found");
     if (personReach(user, connection.consentPolicy, optOuts).can === "no") return fail(409, "cannot_email");
   }
+  const person = personIdForProductUser(ctx.tenantId, user, connection);
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const draft = { ...body.value, by, at: now };
   const { doc } = await repo.personPlans.upsert(
     personPlanDocId(personId),
-    () => ({ connectionId: user.connectionId, productUserId: user.id, draft, approved: null, createdAt: now, updatedAt: now }),
+    // The person is written once, with the plan. A move later is the repoint job's.
+    () => ({ connectionId: user.connectionId, productUserId: user.id, ...personStamp(person), draft, approved: null, createdAt: now, updatedAt: now }),
     () => ({ draft, updatedAt: now }),
   );
   return { ok: true, value: doc };

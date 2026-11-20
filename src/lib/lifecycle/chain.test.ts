@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import { JOURNEY_COMPLETED_EVENT, LifecycleSettingsSchema, type LifecycleDraft, type LifecycleJourney } from "@/lib/types/lifecycle";
@@ -6,7 +6,8 @@ import type { ProductUser } from "@/lib/types/productUser";
 import { enrolOnEvents, enrolUser, enrolmentDocId } from "./enrol";
 import { processEnrolment } from "./runner";
 import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft, updateLifecycleDelivery } from "./service";
-import { followersOf, linkNextJourney } from "./chain";
+import { continueToNextJourneys, followersOf, linkNextJourney } from "./chain";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { getJourneyDetail, listJourneys, previewJourney } from "./adminApi";
 import { validateLifecycleDraft, NO_CATALOG } from "./graph";
 import { addDaysToKey, localDateKey } from "./sendWindow";
@@ -304,5 +305,32 @@ describe("the editor's view of the link", () => {
     // The first journey's own preview is unchanged.
     const own = (await previewJourney(ctx, w.first.id, { anchorAt: iso(T0), timezone: TZ }, w.db, T0)).body as { before?: unknown };
     expect(own.before).toBeUndefined();
+  });
+});
+
+describe("the person on a handed-on enrolment (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is written from the connection the caller holds, with no read of it", async () => {
+    const w = await world();
+    const next = await followOn(w.db, w.first, { testUserIds: ["alex"] });
+    const connection = await w.repo.productConnections.getById(CONNECTION_ID);
+    const before = w.db.collectionCalls("product_connections");
+    const handed = await continueToNextJourneys(system, { from: w.first, user: w.user, connection }, { db: w.db, nowMs: T0 });
+    expect(handed.map((h) => h.outcome)).toEqual(["enrolled"]);
+    expect(w.db.collectionCalls("product_connections")).toBe(before);
+    expect((await w.enrolment(next))?.personId).toBe(personIdForProductUser(system.tenantId, w.user, connection));
+  });
+
+  it("is written when the runner hands someone on at the end of a journey", async () => {
+    const w = await world();
+    const next = await followOn(w.db, w.first, { testUserIds: ["alex"] });
+    expect((await w.play(w.first))!.status).toBe("completed");
+    const connection = await w.repo.productConnections.getById(CONNECTION_ID);
+    expect((await w.enrolment(next))?.personId).toBe(personIdForProductUser(system.tenantId, w.user, connection));
   });
 });

@@ -26,4 +26,5 @@ export function asContactPersonId(value: unknown): ContactPersonId {
   return value;
 }
 
-export const ContactPersonIdSchema = z.string().regex(CONTACT_PERSON_ID);
+/** A row's `personId` field: checks the `ct_` shape and types it as a ContactPersonId, so a `pu_` id fails both. */
+export const ContactPersonIdSchema = z.custom<ContactPersonId>((value) => isContactPersonId(value), { message: "not_a_contact_person_id" });

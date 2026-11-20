@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { integrationsHopAdmin } from "@/lib/integrations/admin";
-import { PROVIDERS, isGitProvider, oauthOrigin, grantedScopes } from "@/lib/integrations/providers";
+import {
+  GIT_STATE_COOKIE,
+  PROVIDERS,
+  gitCallbackPath,
+  isGitProvider,
+  oauthOrigin,
+  grantedScopes,
+} from "@/lib/integrations/providers";
 import { verifyState, encryptToken } from "@/lib/integrations/crypto";
 import { getTenantById, setTenantGitConnection } from "@/lib/tenant";
 import { isGitRepoSelectionEnabled } from "@/lib/integrations/repos";
@@ -11,15 +19,22 @@ export const dynamic = "force-dynamic";
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
+/** Back to the connections page. Clears the nonce cookie whenever the provider is known. */
 function back(origin: string, params: Record<string, string>): NextResponse {
   const u = new URL(`${origin}/admin/account/connections`);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-  return NextResponse.redirect(u.toString());
+  const res = NextResponse.redirect(u.toString());
+  const provider = params.provider;
+  if (provider && isGitProvider(provider)) {
+    res.cookies.delete({ name: GIT_STATE_COOKIE, path: gitCallbackPath(provider) });
+  }
+  return res;
 }
 
 /**
  * OAuth callback: provider redirects here with code+state. CSRF is the signed,
- * tenant-bound state (no sameOriginGuard — this hop is cross-site by nature). On
+ * tenant-bound state plus the nonce cookie set by /start, which binds the flow to the
+ * browser that began it (no origin check: this hop is cross-site by nature). On
  * success: exchange code → token, fetch the account handle, encrypt + store, then
  * redirect back to the connections page. With repo selection on, a new connection
  * starts with NO repos chosen and the page opens the repo picker (`select=`), so the
@@ -68,8 +83,15 @@ export async function GET(
   if (typeof state.ts !== "number" || Date.now() - state.ts > STATE_MAX_AGE_MS) {
     return back(origin, { status: "error", reason: "state_expired", provider });
   }
+  // Bind to the browser that started: the state's nonce must match the cookie from
+  // /start, before any code is exchanged. Without it a signed state could be replayed
+  // in another admin's browser to attach an attacker's account.
+  const cookieNonce = (await cookies()).get(GIT_STATE_COOKIE)?.value ?? "";
+  if (!cookieNonce || typeof state.n !== "string" || cookieNonce !== state.n) {
+    return back(origin, { status: "error", reason: "bad_state", provider });
+  }
 
-  const redirectUri = `${origin}/api/admin/integrations/${provider}/callback`;
+  const redirectUri = `${origin}${gitCallbackPath(provider)}`;
 
   // GitHub App installation (read-only): store the installation, never a token.
   const app = provider === "github" ? githubAppConfig() : null;

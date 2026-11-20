@@ -60,6 +60,20 @@ export function isGitProvider(p: string): p is GitProvider {
 }
 
 /**
+ * httpOnly cookie carrying the state nonce from /start to /callback. The callback only
+ * accepts a state whose nonce matches it, so a signed state can't be replayed in another
+ * browser to attach someone else's account (OAuth account fixation). Its name differs
+ * from the social ones (x_pkce, li_oauth_state, li_org_state).
+ */
+export const GIT_STATE_COOKIE = "git_oauth_state";
+
+/** A provider's callback path: the redirect_uri path, and the nonce cookie's path, so
+ *  GitHub's and GitLab's cookies never collide. */
+export function gitCallbackPath(p: GitProvider): string {
+  return `/api/admin/integrations/${p}/callback`;
+}
+
+/**
  * Server-trusted origin for the OAuth `redirect_uri`. Pinned via GIT_OAUTH_ORIGIN
  * so a spoofed `Host`/`x-forwarded-host` header can't redirect the auth code to an
  * attacker, and so the redirect_uri ALWAYS matches the single callback URL

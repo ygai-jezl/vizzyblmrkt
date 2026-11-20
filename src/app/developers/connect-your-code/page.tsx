@@ -112,6 +112,11 @@ Details: ${origin}/developers/connect-your-code`}</Code>
         )}
       </OL>
       <P>GitLab access follows your own project permissions, so there&apos;s no separate group approval.</P>
+      <P>
+        YouGrow renews GitLab&apos;s access by itself. If <strong>Account → Connections</strong> says{" "}
+        <strong>This connection needs reconnecting.</strong>, an admin presses <strong>Reconnect</strong> next to GitLab.
+        The projects you chose stay chosen.
+      </P>
 
       <H2 id="public">Public repositories</H2>
       <P>

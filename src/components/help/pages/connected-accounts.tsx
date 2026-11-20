@@ -79,6 +79,8 @@ export default function ConnectedAccountsHelp() {
       </Steps>
       <P>
         Using GitLab? Press <strong>Connect</strong> next to <strong>GitLab</strong> and allow access. It&apos;s read only too.
+        YouGrow renews GitLab&apos;s access by itself. A GitLab connection made before it did needs reconnecting once: press{" "}
+        <strong>Reconnect</strong> next to it. The repos you chose stay chosen.
       </P>
       <P>
         In an organisation you don&apos;t own, GitHub shows <strong>Request</strong> instead of Install. Once an owner approves
@@ -137,6 +139,14 @@ export default function ConnectedAccountsHelp() {
           [
             "This older connection can also write to your repos.",
             "Press Switch now to move to the read-only YouGrow app.",
+          ],
+          [
+            "This connection needs reconnecting.",
+            "The service no longer accepts YouGrow's access, or an older GitLab connection needs renewing. An admin presses Reconnect next to it. Chosen repos stay chosen.",
+          ],
+          [
+            "Ask an admin to reconnect it.",
+            "A connection needs reconnecting and you're a member, so you can't do it yourself. An admin presses Reconnect in Settings › Integrations.",
           ],
         ]}
       />

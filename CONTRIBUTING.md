@@ -68,7 +68,8 @@ YouGrow Enterprise Licence ([src/ee/LICENSE](src/ee/LICENSE)), and the Node SDK 
 Outside contributions need a contributor licence agreement (CLA). The agreements are
 drafts under legal review. Until they are final, and the founder IP assignment they rest
 on is signed, pull requests from outside contributors can't be merged. You can still open
-one, and sign the CLA in it.
+one, and sign the CLA in it. If the agreement's text changes before it is final, it gets
+a new id (such as `individual-v2`), and anyone who signed the draft signs again.
 
 - **Before your first pull request,** read
   [docs/cla/individual.md](docs/cla/individual.md), then add

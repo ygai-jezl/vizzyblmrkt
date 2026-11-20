@@ -89,13 +89,25 @@ Contributions only; the licences for Contributions already submitted stay in pla
 
 ## Schedule A: Named Accounts
 
-The GitHub logins this agreement covers, listed when the Entity signs.
+The GitHub logins this agreement covers, listed when the Entity signs:
+
+1. GitHub login: ____________________
+2. GitHub login: ____________________
+3. GitHub login: ____________________
+
+## Signed for the Entity
+
+- Entity's legal name: ____________________
+- Name of the person signing: ____________________
+- Role: ____________________
+- Date: ____________________
+- Signature: ____________________
 
 ## How to sign
 
-1. A person with authority for the Entity fills in the Entity's legal name, Schedule A
-   and their own name and role, signs, and sends the signed copy by email to the contact
-   above.
+1. A person with authority for the Entity fills in Schedule A and "Signed for the Entity"
+   (the Entity's legal name, their own name and role, and the date), signs, and sends the
+   signed copy by email to the contact above.
 2. A maintainer records the agreement in `docs/cla/policy.json`: an id for the Entity,
    `entity-v1`, the date it was signed, the Named Accounts' logins and who recorded it.
    No names or emails go in the repository.

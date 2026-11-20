@@ -1,7 +1,8 @@
 # YouGrow Individual Contributor Licence Agreement v1
 
 > Draft under legal review, not yet in force. Outside pull requests can't be merged until
-> it is final (see [CONTRIBUTING.md](../../CONTRIBUTING.md)).
+> it is final (see [CONTRIBUTING.md](../../CONTRIBUTING.md)). If the text changes before
+> then, it gets a new id, and anyone who signed this draft signs again.
 
 This agreement is between you and YouGrow.AI Limited ("we" or "us"). It covers every
 Contribution you submit to the Project from your GitHub account, now and later. Its id is
@@ -53,8 +54,8 @@ under this agreement for that Contribution ends on the date the litigation is fi
 
 - Each Contribution is yours to give: you made it, or you have the right to submit it
   under this agreement.
-- If your employer has rights in what you make, your employer agreed to this
-  Contribution, or has signed the [entity agreement](entity.md) for your GitHub account.
+- If your employer has rights in what you make, your employer has signed the
+  [entity agreement](entity.md) for your GitHub account.
 - If any part of a Contribution is someone else's work, you say so when you submit it,
   with its source and its licence.
 - You are responsible for work you make with AI tools, as if you wrote it yourself. You

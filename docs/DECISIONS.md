@@ -129,6 +129,11 @@ Owner decisions (2026-11-19):
   records only an id, the date and the logins in `docs/cla/policy.json`; the signed copy
   stays outside the repository. Every legal text here says "Draft under legal review, not
   yet in force". The AGPL, MIT, OFL and ISC licences already apply.
+  - An employer with rights in a person's work signs the entity agreement; the individual
+    agreement says so in its opening and in section 5.
+  - If a draft's text changes before it is final, it gets a new id (such as
+    `individual-v2`) and the policy accepts only that one, so anyone who signed the draft
+    signs again. A signature never stands for terms the signer didn't see.
 - **The legal chain.** All of today's code was written from the maintainer's own accounts.
   The licensor line, the Enterprise Licence on `src/ee`, the section 7 permission and the
   CLAs' outbound grant all rest on a founder IP assignment of that work to the legal
@@ -192,6 +197,12 @@ Open questions for the lawyer:
 - Work made with AI tools: is the CLA's clause on it enough, and what does the outbound
   grant cover there?
 - Is adding a signature file in one's own pull request a valid way to sign?
+- Is a signature made against the draft valid once the text is final, if the text didn't
+  change, or should everyone sign again?
+- Should an employer's written permission be enough, as in the Apache ICLA, or must an
+  employer with rights always sign the entity agreement, as the draft says today?
+- The entity agreement's Schedule A and signing block: are they enough, or does it need
+  its own execution page?
 - How long should signed entity CLAs be kept?
 - The governing law and the contact, both placeholders today.
 

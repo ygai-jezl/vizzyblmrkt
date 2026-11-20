@@ -82,7 +82,7 @@ describe("verifyLicenceKey", () => {
     ["a / character", `ygel_${h}.${p}.${s.slice(0, -1)}/`, "malformed"],
     ["a part whose length mod 4 is 1", `ygel_${lengthMod1(h)}.${p}.${s}`, "malformed"],
     ["stray bits in the last character", `ygel_${h}.${p}.${strayBits(s)}`, "malformed"],
-    ["over 4096 characters", `ygel_${"A".repeat(MAX_LICENCE_KEY_LENGTH)}.${p}.${s}`, "malformed"],
+    ["a header of zero bytes", `ygel_${"A".repeat(MAX_LICENCE_KEY_LENGTH)}.${p}.${s}`, "malformed"],
     // malformed: the header
     ["a header that isn't JSON", `ygel_${b64("nope")}.${p}.${s}`, "malformed"],
     ["a header that is a JSON array", `ygel_${b64("[1,2]")}.${p}.${s}`, "malformed"],
@@ -136,6 +136,20 @@ describe("verifyLicenceKey", () => {
 
   it.each(cases.map(([label, key, reason]) => [label, reason, key] as const))("%s gives %s", (_label, reason, key) => {
     expect(reasonOf(verify(key))).toBe(reason);
+  });
+
+  it("refuses a correctly signed key over 4096 characters, and accepts one at or under it", () => {
+    // Long features make the key grow in steps of about 90 characters, with valid claims.
+    const keyWith = (n: number) => pair.mint(goodClaims(NOW, { features: Array.from({ length: n }, (_, i) => `f${i}`.padEnd(64, "x")) }));
+    let n = 1;
+    while (keyWith(n + 1).length <= MAX_LICENCE_KEY_LENGTH) n++;
+    const under = keyWith(n);
+    const over = keyWith(n + 1);
+    expect(under.length).toBeLessThanOrEqual(MAX_LICENCE_KEY_LENGTH);
+    expect(over.length).toBeGreaterThan(MAX_LICENCE_KEY_LENGTH);
+    expect(n + 1).toBeLessThanOrEqual(64);
+    expect(reasonOf(verify(under))).toBe("ok");
+    expect(reasonOf(verify(over))).toBe("malformed");
   });
 
   it("keeps the claims of an expired licence, so a screen can say when it ended", () => {

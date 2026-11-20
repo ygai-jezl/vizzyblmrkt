@@ -27,6 +27,10 @@ export default function DevelopersHome() {
         <Link className="underline" href="/developers/open-source">
           Open source
         </Link>
+        . To see what is open and what is Enterprise, see{" "}
+        <Link className="underline" href="/developers/open-source#licences">
+          the licences
+        </Link>
         .
       </P>
 

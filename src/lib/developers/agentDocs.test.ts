@@ -13,6 +13,8 @@ import SiteSignupsDocs from "@/app/developers/site-signups/page";
 import WebhooksDocs from "@/app/developers/webhooks/page";
 import { RESERVED_EVENTS } from "@/lib/connect/protocol";
 import { EventRequestSchema, UserPatchSchema } from "@/lib/connect/v2/contract";
+import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { ENTERPRISE_FEATURES, HOSTED_ONLY } from "@/lib/enterprise/features";
 import vectors from "../../../sdk/node/test/vectors.json";
 import { agentFile, agentRedirect, llmsFullTxt, llmsTxt, MARKDOWN, pageMarkdown } from "./agentDocs";
 import { DOC_PAGES, hasMarkdown } from "./docs";
@@ -120,6 +122,22 @@ describe("docs as Markdown", () => {
     const full = llmsFullTxt(ORIGIN);
     const v1 = full.split("\n").filter((l) => /api\/v1|HMAC-SHA256|x-yougrow-signature|x-yougrow-timestamp|messageId|identify|onboarding\.step_completed` events/i.test(l));
     expect(v1).toEqual([expect.stringContaining("Removed on 2026-09-25")]);
+  });
+
+  it("says what is open and what is Enterprise, in the house style", () => {
+    const md = pageMarkdown("open-source", ORIGIN)!;
+    expect(md).toContain("\n## What is open and what is Enterprise\n");
+    const section = md.split("\n## ").find((s) => s.startsWith("What is open and what is Enterprise\n"))!;
+    for (const f of ENTERPRISE_FEATURES) expect(section, f.id).toContain(`- ${f.label}\n`);
+    for (const item of HOSTED_ONLY) expect(section, item).toContain(`- ${item}\n`);
+    expect(section).toContain("None is released yet.");
+    expect(section).toContain("/blob/main/LICENSING.md)");
+    expect(section).not.toMatch(/[\u2014\u2013]/);
+    expect(dashesIn(section)).toEqual([]);
+    expect(aiTellsIn(section)).toEqual([]);
+    expect(md).toContain("/blob/main/docs/cla/individual.md)");
+    expect(pageMarkdown("", ORIGIN)).toContain(`see [the licences](${ORIGIN}/developers/open-source.md)`);
+    expect(llmsTxt(ORIGIN)).toContain("and see what is open and what is Enterprise.");
   });
 
   it("returns null for a page that doesn't exist", () => {

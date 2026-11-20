@@ -2,6 +2,8 @@ import type { MeteredFeature } from "./brandAccess";
 import type { LimitedFeature } from "./limits";
 import { ENTERPRISE_FEATURES, ENTERPRISE_FEATURE_IDS, type EnterpriseFeature } from "@/lib/enterprise/features";
 import { PLAN_IDS, type PlanId } from "@/lib/types/organisation";
+import type { Tenant } from "@/lib/types/tenant";
+import { isPlansEnabled } from "./flags";
 
 /**
  * The five plans an organisation can be on, kept in code (PLANS_ENABLED). An organisation record
@@ -20,7 +22,8 @@ import { PLAN_IDS, type PlanId } from "@/lib/types/organisation";
  * and price are set by agreement: the catalog leaves them open, and a brand's own cap
  * (scripts/grant-feature.ts --limit) carries the agreed number.
  *
- * Pure and client safe: type only imports of the feature unions, so pages can read it.
+ * Pure and client safe (type only imports of the feature unions and the brand), so pages can
+ * read it.
  */
 
 /** The Enterprise features, in the order of src/lib/enterprise/features.ts. */
@@ -184,6 +187,15 @@ export const INCLUDED_IN_EVERY_PLAN: readonly PlanFeature[] = PLANS.reduce<reado
 export function planById(id: unknown): Plan | null {
   if (typeof id !== "string" || !(PLAN_IDS as readonly string[]).includes(id)) return null;
   return PLANS.find((p) => p.id === id) ?? null;
+}
+
+/**
+ * The plan a brand is on, from its copy of the organisation's plan (tenants.orgPlan). Null when
+ * plans are off, the brand has no copy, or the id is unknown: no plan means open, never locked.
+ */
+export function activePlanOf(tenant: Pick<Tenant, "orgPlan"> | null | undefined, plansOn: boolean = isPlansEnabled()): Plan | null {
+  if (!plansOn || !tenant) return null;
+  return planById(tenant.orgPlan);
 }
 
 /**

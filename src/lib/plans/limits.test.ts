@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Tenant } from "@/lib/types/tenant";
-import { brandMonthlyLimit, copyMonthlyLimits, DEFAULT_MONTHLY_LIMITS, monthlyLimit, monthlyLimitOf, parseLimitArg } from "./limits";
+import { brandMonthlyLimit, copyMonthlyLimits, DEFAULT_MONTHLY_LIMITS, LIMITED_FEATURES, monthlyLimit, monthlyLimitOf, monthlyLimitWith, parseLimitArg } from "./limits";
+import { PLANS } from "./catalog";
 
 const brand = (featureLimits?: Record<string, number>) => ({ featureLimits }) as Pick<Tenant, "featureLimits">;
 
@@ -48,5 +49,63 @@ describe("monthly caps", () => {
     expect(parseLimitArg("-3")).toBe("invalid");
     expect(parseLimitArg("12.5")).toBe("invalid");
     expect(parseLimitArg("100001")).toBe("invalid");
+  });
+});
+
+describe("monthly caps and plans", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  const on = (orgPlan: unknown, featureLimits?: Record<string, number>) => ({ orgPlan, featureLimits }) as Pick<Tenant, "featureLimits" | "orgPlan">;
+
+  it("ignores the plan with plans off, and never says it came from the plan", () => {
+    vi.stubEnv("PLANS_ENABLED", "false");
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "");
+    for (const p of PLANS) {
+      for (const f of LIMITED_FEATURES) {
+        expect(monthlyLimitOf(on(p.id), f)).toEqual({ limit: DEFAULT_MONTHLY_LIMITS[f], from: "default" });
+      }
+    }
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "article_autopilot=12");
+    expect(monthlyLimitOf(on("pro"), "article_autopilot")).toEqual({ limit: 12, from: "copy" });
+    expect(monthlyLimit(on("pro", { article_autopilot: 30 }), "article_autopilot")).toBe(30);
+  });
+
+  it("with plans on: the brand's own cap, then the plan's, then the copy's, then the default", () => {
+    vi.stubEnv("PLANS_ENABLED", "true");
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "article_autopilot=12");
+    expect(monthlyLimitOf(on("pro", { article_autopilot: 30 }), "article_autopilot")).toEqual({ limit: 30, from: "brand" });
+    expect(monthlyLimitOf(on("pro"), "article_autopilot")).toEqual({ limit: 4, from: "plan" });
+    expect(monthlyLimitOf(on(undefined), "article_autopilot")).toEqual({ limit: 12, from: "copy" });
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "");
+    expect(monthlyLimitOf(on(undefined), "article_autopilot")).toEqual({ limit: DEFAULT_MONTHLY_LIMITS.article_autopilot, from: "default" });
+  });
+
+  it("falls through to the copy and the default on plans that set no cap", () => {
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "next_up=40");
+    for (const plan of ["self_hosted", "ultra", "platinum"]) {
+      expect(monthlyLimitWith(on(plan), "next_up", true), plan).toEqual({ limit: 40, from: "copy" });
+      expect(monthlyLimitWith(on(plan), "competitor_articles", true), plan).toEqual({ limit: 200, from: "default" });
+    }
+  });
+
+  it("ignores a plan cap that isn't a valid cap", () => {
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "");
+    const pro = PLANS.find((p) => p.id === "pro")!;
+    const saved = { ...pro.monthlyCaps };
+    try {
+      (pro.monthlyCaps as Record<string, number>).article_autopilot = 2.5;
+      expect(monthlyLimitWith(on("pro"), "article_autopilot", true)).toEqual({ limit: DEFAULT_MONTHLY_LIMITS.article_autopilot, from: "default" });
+      (pro.monthlyCaps as Record<string, number>).article_autopilot = 1_000_000;
+      expect(monthlyLimitWith(on("pro"), "article_autopilot", true).from).toBe("default");
+    } finally {
+      (pro as { monthlyCaps: unknown }).monthlyCaps = saved;
+    }
+    expect(monthlyLimitWith(on("pro"), "article_autopilot", true)).toEqual({ limit: 4, from: "plan" });
+  });
+
+  it("reads the plan copy from the brand record", async () => {
+    vi.stubEnv("PLANS_ENABLED", "true");
+    vi.stubEnv("FEATURE_MONTHLY_LIMITS", "");
+    expect(await brandMonthlyLimit({ tenantId: "ten_A" }, "article_autopilot", async () => on("pro") as Tenant)).toBe(4);
   });
 });

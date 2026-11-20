@@ -51,6 +51,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 - `workers/knowledge-scraper`: the Cloud Run Job that reads sites and repos into knowledge. Own AGENTS.md.
 - `infra`: setup scripts, each for one Google Cloud project. Own AGENTS.md.
 - `sdk/node`: the MIT Node SDK, `@yougrowai/node`. Own AGENTS.md.
+- `src/ee`: Enterprise code under its own licence (`src/ee/LICENSE`, map in `LICENSING.md`). Only `src/lib/enterprise/registry.ts` imports it, and the app must build without it. Own AGENTS.md.
 - `scripts`: doctor, local run, self-host, checks and seed. `docs`: architecture, decisions, self-hosting.
 
 ## The one rule

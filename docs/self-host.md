@@ -204,6 +204,22 @@ upstream repo never has. New features arrive as switches set to `"false"` in
 `apphosting.yaml`, so nothing changes until you turn them on. After a merge, run the plan:
 it shows anything new to set up (a new secret, say). Then push, or `--apply rollout`.
 
+### Enterprise features
+
+Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a
+licence key, and none is released yet. To add a key once you have one:
+
+1. Create the secret: `firebase apphosting:secrets:set enterprise-licence-key --project <id>`.
+2. Give the backend access:
+   `firebase apphosting:secrets:grantaccess enterprise-licence-key --backend <backend> --project <id>`.
+3. Only then add `ENTERPRISE_LICENCE_KEY` to `apphosting.live.yaml` as
+   `secret: enterprise-licence-key` (see [Your settings file](#your-settings-file)), and
+   roll out.
+
+**Keep that order.** A secret your settings file names but the project lacks, or the
+backend can't read, fails the build with `Error resolving secret version`. Deleting `src/ee` gives a build with no
+Enterprise code.
+
 ## When something goes wrong
 
 Start with the read-only checks. Each problem comes with the command that fixes it:

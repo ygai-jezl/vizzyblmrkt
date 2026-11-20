@@ -59,7 +59,28 @@ pull request template (`.github/pull_request_template.md`) reminds you.
 
 Don't open a public issue. Follow [SECURITY.md](SECURITY.md).
 
-## Licence
+## Licences and the contributor licence agreement
 
-By contributing, you agree your work is licensed under the licence of the code
-you change: AGPL-3.0 for the app, MIT for the SDK in `sdk/node`.
+The app is AGPL-3.0 ([LICENSE](LICENSE)). Enterprise code in `src/ee` is under the
+YouGrow Enterprise Licence ([src/ee/LICENSE](src/ee/LICENSE)), and the Node SDK in
+`sdk/node` is MIT. [LICENSING.md](LICENSING.md) maps every part, fonts included.
+
+Outside contributions need a contributor licence agreement (CLA). The agreements are
+drafts under legal review. Until they are final, and the founder IP assignment they rest
+on is signed, pull requests from outside contributors can't be merged. You can still open
+one, and sign the CLA in it.
+
+- **Before your first pull request,** read
+  [docs/cla/individual.md](docs/cla/individual.md), then add
+  `docs/cla/signatures/<your login>.json` in that pull request: your GitHub login in
+  lowercase, with the three keys in
+  [docs/cla/signatures/README.md](docs/cla/signatures/README.md).
+- **Contributing for an employer?** If your employer has rights in your work, it signs
+  [docs/cla/entity.md](docs/cla/entity.md) instead, by email to the contact in it.
+- **The CLA check** on your pull request says in its job summary what is missing.
+- **Co-authors:** every human co-author needs a CLA too. Write their GitHub noreply
+  address (`<id>+<login>@users.noreply.github.com`) in the Co-authored-by line.
+- **AI coding tools:** Co-authored-by lines for the tools listed in
+  `docs/cla/policy.json` need no signature. You are responsible for that work as if you
+  wrote it yourself.
+- **Changes in `src/ee`** are under the Enterprise licence.

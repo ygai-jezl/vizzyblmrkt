@@ -18,7 +18,7 @@ import type { ContactPersonId } from "./person";
 
 const PERSON = deterministicContactId("ten_demo", "ada@example.com") as ContactPersonId;
 
-function emailRow(over: Partial<EmailEvent & { personId?: string | null }> = {}): EmailEvent & { personId?: string | null } {
+function emailRow(over: Partial<Omit<EmailEvent, "personId"> & { personId?: string | null }> = {}): Omit<EmailEvent, "personId"> & { personId?: string | null } {
   return {
     id: "evt:j1:n1:s1:control:open",
     tenantId: "ten_demo",
@@ -34,7 +34,7 @@ function emailRow(over: Partial<EmailEvent & { personId?: string | null }> = {})
   };
 }
 
-function productRow(over: Partial<ProductEvent & { personId?: string | null }> = {}): ProductEvent & { personId?: string | null } {
+function productRow(over: Partial<Omit<ProductEvent, "personId"> & { personId?: string | null }> = {}): Omit<ProductEvent, "personId"> & { personId?: string | null } {
   return {
     id: "pe_1",
     tenantId: "ten_demo",

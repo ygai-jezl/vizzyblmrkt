@@ -49,6 +49,7 @@ import { processContactEraseJob } from "@/lib/crm/eraseWorker";
 import { markInviteFailed, processInviteJob } from "@/lib/invites/send";
 import type { EndedReason, HeldReason } from "@/lib/types/emailJob";
 import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
+import { personIdForSignup } from "@/lib/ontology/personRef";
 
 const MAX_ATTEMPTS = 3;
 /** Visibility timeout: a "processing" claim older than this is reclaimable. */
@@ -687,6 +688,8 @@ async function processJourneyStepJob(
   // Send once per job: if a prior attempt already dispatched (then failed during
   // the next-step enqueue), don't re-send — just continue to scheduling.
   if (!job.emailSentAt) {
+    // The person, on the send record and the send row (ONTOLOGY_PERSON_IDS_ENABLED); never in the metadata.
+    const personId = personIdForSignup(ctx.tenantId, signup);
     const res = await sendEmail({
       to: signup.email,
       subject: compiled.subject,
@@ -713,6 +716,7 @@ async function processJourneyStepJob(
           variantId,
         },
         "waitlist",
+        { db, personId },
       ),
       tags: ["journey", `node-${node.id}`],
     });
@@ -745,6 +749,7 @@ async function processJourneyStepJob(
         type: "send",
         ts: new Date().toISOString(),
         mandrillMessageId: res.id ?? null,
+        personId,
       },
       db,
     ).catch(() => {});

@@ -139,7 +139,7 @@ One email sent to one person, and everything that happened to it: delivery, open
   - `email_sends`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `signup` through signupId (a sign-up id, or a product user id for product journeys); `idea` through campaignId; `enrolment` through enrolmentId
 - Events: `email.sent`, `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.soft_bounced`, `email.complained`, `email.rejected`, `email.unsubscribed`
-- Person fields: `signupId` (written with the row), `personId` (not written with the row yet)
+- Person fields: `signupId` (written with the row), `personId` (written with the row)
 - Erase:
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
@@ -164,7 +164,7 @@ One kind of thing that happened to an email for one person (sent, opened, clicke
   - `email_events`, BigQuery, in `extensions/fsbq-email-events-asia.env`. Dataset waitlist_asia, mirrored from Firestore by the firestore-bigquery-export extension.
 - Links: `email_send` through the same journey, step, person and arm; `idea` through campaignId
 - Events: `email.sent`, `email.opened`, `email.clicked`, `email.bounced`, `email.soft_bounced`, `email.complained`, `email.rejected`, `email.unsubscribed`
-- Person fields: `signupId` (written with the row), `personId` (not written with the row yet)
+- Person fields: `signupId` (written with the row), `personId` (written with the row)
 - Erase:
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export

@@ -252,7 +252,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: [...EMAIL_KINDS],
     personFields: [
       { field: "signupId", stampedAtWrite: true },
-      { field: "personId", stampedAtWrite: false },
+      { field: "personId", stampedAtWrite: true },
     ],
     erase: { paths: [CONTACT_ERASE, PU_HISTORY], gaps: [LAUNCH_LEAVES_EMAIL] },
     export: { paths: [EXPORT_PERSON, EXPORT_PU] },
@@ -284,7 +284,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     ],
     personFields: [
       { field: "signupId", stampedAtWrite: true },
-      { field: "personId", stampedAtWrite: false },
+      { field: "personId", stampedAtWrite: true },
     ],
     erase: { paths: [CONTACT_ERASE, PU_HISTORY], gaps: [LAUNCH_LEAVES_EMAIL, BQ_GAP] },
     export: { paths: [EXPORT_PERSON, EXPORT_PU] },

@@ -4,6 +4,7 @@ import { mandrillSignedData } from "@/lib/email/mandrillWebhook";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { EmailSend } from "@/lib/types/emailSend";
+import { personIdForAddress } from "@/lib/ontology/personRef";
 
 // The webhook with EMAIL_ENGAGEMENT_DETAIL_ENABLED: every open, click and bounce detail lands on
 // the email's send record, through the real tenant layer on an in-memory database.
@@ -63,6 +64,19 @@ describe("the webhook keeps every open, click and bounce detail", () => {
     expect(s).toMatchObject({ tenantId: "ten_a", engine: "earlier", journeyId: "lcjw_1", signupId: "sig_1", mandrillMessageId: "m_1" });
     expect(s?.opens?.count).toBe(2);
     expect(s?.clicks).toMatchObject({ count: 1, links: [{ url: "https://acme.test/pricing", count: 1 }] });
+  });
+
+  it("writes a sign-up's person on a record it makes (ONTOLOGY_PERSON_IDS_ENABLED), and none with the switch off", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "Sam@Customer.test", metadata: LONG } }]));
+    expect((await read())?.personId).toBe(personIdForAddress("ten_a", "sam@customer.test"));
+
+    fake.db = new FakeFirestore();
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    await POST(post([{ event: "open", ts: 1_790_000_000, msg: { _id: "m_1", email: "sam@customer.test", metadata: LONG } }]));
+    expect(await read()).toBeDefined();
+    expect(await read()).not.toHaveProperty("personId");
   });
 
   it("keeps a delivery on the send without recording an event type for it", async () => {

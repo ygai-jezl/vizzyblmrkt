@@ -41,6 +41,7 @@ import {
   lifecycleModeCeiling,
 } from "./flags";
 import { continueToNextJourneys, followersOf, type Follower } from "./chain";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { sweepGoLive } from "./goLive";
 import { sweepDateStarts } from "./dateStart";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
@@ -630,6 +631,8 @@ async function deliver(
   const version: "standard" | "ai" | "fallback" = !isAi ? "standard" : useAi ? "ai" : "fallback";
   const fallbackNote = v?.version === "fallback" ? v.reason : null;
   const insightId = v?.version === "ai" ? v.insightId : standard.insightUsed ? (standardInsight?.id ?? null) : null;
+  // The person as they are now (ONTOLOGY_PERSON_IDS_ENABLED): on the send record and the send row, never in the metadata.
+  const personId = personIdForProductUser(ctx.tenantId, user, connection);
 
   const result = await (deps.send ?? sendEmail)({
     to,
@@ -663,6 +666,7 @@ async function deliver(
                   connectionId: connection.id,
                 },
                 "lifecycle",
+                { db: deps.db, personId },
               ),
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
@@ -697,6 +701,7 @@ async function deliver(
           type: "send",
           ts: iso(atMs),
           mandrillMessageId: result.id ?? null,
+          personId,
         },
         deps.db,
       ).catch(() => {});

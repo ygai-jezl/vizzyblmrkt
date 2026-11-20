@@ -141,7 +141,7 @@ function linkOf(url: string | null | undefined): string | null {
 }
 
 /** An email_events row as an event. The person comes from the row's personId, or is null. */
-export function fromEmailEvent(row: EmailEvent & { personId?: string | null }): OntologyEvent {
+export function fromEmailEvent(row: Omit<EmailEvent, "personId"> & { personId?: string | null }): OntologyEvent {
   const person = personOn(row);
   const isProductUser = row.recipientKind === "product_user";
   const connectionId = row.connectionId ?? undefined;
@@ -170,7 +170,7 @@ export function fromEmailEvent(row: EmailEvent & { personId?: string | null }): 
  * erase never names one. The product's payload and its own user id stay out: they can hold an
  * address.
  */
-export function fromProductEvent(row: ProductEvent & { personId?: string | null }): OntologyEvent {
+export function fromProductEvent(row: Omit<ProductEvent, "personId"> & { personId?: string | null }): OntologyEvent {
   const erased = row.type === "erase";
   return {
     id: row.id,

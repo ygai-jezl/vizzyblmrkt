@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContactPersonIdSchema } from "@/lib/ontology/person";
 
 /**
  * Email engagement event — one row per (journey step, recipient, A/B arm,
@@ -47,6 +48,8 @@ export const EmailEventSchema = z.object({
   ts: z.string(),
   /** Click target URL (click events only). */
   url: z.string().nullable().optional(),
+  /** The person (a `ct_` id), written with the row (ONTOLOGY_PERSON_IDS_ENABLED). Not the signupId. */
+  personId: ContactPersonIdSchema.optional(),
   createdAt: z.string(),
 });
 export type EmailEvent = z.infer<typeof EmailEventSchema>;

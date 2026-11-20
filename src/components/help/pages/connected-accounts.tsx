@@ -80,8 +80,8 @@ export default function ConnectedAccountsHelp() {
       </Steps>
       <P>
         Using GitLab? Press <strong>Connect</strong> next to <strong>GitLab</strong> and allow access. It&apos;s read only too.
-        YouGrow renews GitLab&apos;s access by itself. A GitLab connection made before it did needs reconnecting once: press{" "}
-        <strong>Reconnect</strong> next to it. The repos you chose stay chosen.
+        YouGrow renews GitLab&apos;s access by itself. A GitLab connection made before YouGrow started renewing it needs
+        reconnecting once: press <strong>Reconnect</strong> next to it. The repos you chose stay chosen.
       </P>
       <P>
         In an organisation you don&apos;t own, GitHub shows <strong>Request</strong> instead of Install. Once an owner approves
@@ -142,7 +142,7 @@ export default function ConnectedAccountsHelp() {
           ],
           [
             "Connect LinkedIn to publish this post",
-            "A post was due before LinkedIn was connected. An admin connects it, then pick a new time on the post and press Reschedule.",
+            "A post was due before LinkedIn was connected. Ask an admin to connect it, then pick a new time on the post and press Reschedule.",
           ],
           [
             "Connect your LinkedIn page to publish this post",
@@ -150,7 +150,7 @@ export default function ConnectedAccountsHelp() {
           ],
           [
             "Connect X to publish this post",
-            "An admin connects X (Twitter), then pick a new time on the post and press Reschedule.",
+            "Ask an admin to connect X (Twitter), then pick a new time on the post and press Reschedule.",
           ],
           [
             "Request sent",
@@ -158,7 +158,7 @@ export default function ConnectedAccountsHelp() {
           ],
           [
             "This older connection can also write to your repos.",
-            "Press Switch now to move to the read-only YouGrow app.",
+            "An admin presses Switch now to move to the read-only YouGrow app.",
           ],
           [
             "This connection needs reconnecting.",

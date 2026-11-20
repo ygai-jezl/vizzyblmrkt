@@ -294,9 +294,9 @@ export default function WriteAndScheduleHelp() {
           ["That item isn't generated yet", "Open it in Drafts and generate it first."],
           [
             "Connect LinkedIn in Settings › Integrations first",
-            "An admin connects it in Settings › Integrations, then press Schedule again.",
+            "Ask an admin to connect it in Settings › Integrations, then press Schedule again.",
           ],
-          ["Connect X in Settings › Integrations first", "An admin connects it in Settings › Integrations, then press Schedule again."],
+          ["Connect X in Settings › Integrations first", "Ask an admin to connect it in Settings › Integrations, then press Schedule again."],
           [
             "That LinkedIn Page isn't connected.",
             "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Or choose to post as yourself.",
@@ -335,7 +335,7 @@ export default function WriteAndScheduleHelp() {
                 ],
                 [
                   "Reconnect it in Settings › Integrations so your next posts get results.",
-                  "Reconnect the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
+                  "An admin reconnects the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
                 ],
                 [
                   "wouldn't give this post's numbers, so YouGrow stopped reading them.",

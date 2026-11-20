@@ -9,7 +9,11 @@ export default function ConnectedAccountsHelp() {
         Connect LinkedIn or X so your scheduled posts publish on time. Connect GitHub or GitLab only if your code is in a
         private repo.
       </Lead>
-      <Meta items={["About 5 minutes", "Anyone on your team", "Once per brand"]} />
+      <Meta items={["About 5 minutes", "Admins", "Once per brand"]} />
+      <P>
+        Only admins connect or disconnect accounts. Everyone else on your team sees what&apos;s connected, and asks an admin
+        when something needs connecting.
+      </P>
 
       <BeforeAndUnlocks
         before={
@@ -103,14 +107,29 @@ export default function ConnectedAccountsHelp() {
             "Whoever runs your YouGrow hasn't added this service's app keys yet. Ask them to.",
           ],
           [
+            "Only admins can connect or disconnect accounts.",
+            "You're a member of this brand, so you see what's connected but can't change it. Ask an admin.",
+          ],
+          [
+            "Only admins can connect accounts. Ask an admin on your team.",
+            "You pressed Connect as a member. An admin on your brand connects it from the same page.",
+          ],
+          [
+            "Ask an admin to connect it for private repos.",
+            "Reading a private repo needs GitHub or GitLab connected, and only an admin can connect it. A public repo needs nothing.",
+          ],
+          [
             "Connect LinkedIn to publish this post",
-            "A post was due before LinkedIn was connected. Connect it, then pick a new time on the post and press Reschedule.",
+            "A post was due before LinkedIn was connected. An admin connects it, then pick a new time on the post and press Reschedule.",
           ],
           [
             "Connect your LinkedIn page to publish this post",
-            "Connect LinkedIn Pages while signed in to LinkedIn as an admin of the Page. Then reschedule the post.",
+            "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Then reschedule the post.",
           ],
-          ["Connect X to publish this post", "Connect X (Twitter), then pick a new time on the post and press Reschedule."],
+          [
+            "Connect X to publish this post",
+            "An admin connects X (Twitter), then pick a new time on the post and press Reschedule.",
+          ],
           [
             "Request sent",
             "Your GitHub organisation's owners must approve the app. Once one does, press Install on GitHub (read-only) again.",

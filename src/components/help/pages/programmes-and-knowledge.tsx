@@ -76,9 +76,9 @@ export default function ProgrammesAndKnowledgeHelp() {
         </li>
         <li>
           For code, choose <strong>GitHub repo</strong> or <strong>GitLab repo</strong> and paste the repo&apos;s address. Add
-          a branch if you want one. A private repo needs your account connected first (
-          <Open href="/help/connected-accounts#github">Connected accounts</Open>). If a <strong>Connect</strong> link shows
-          under the address, press it.
+          a branch if you want one. A private repo needs an admin to connect it first (
+          <Open href="/help/connected-accounts#github">Connected accounts</Open>). If you&apos;re an admin and a{" "}
+          <strong>Connect</strong> link shows under the address, press it.
         </li>
       </Steps>
 

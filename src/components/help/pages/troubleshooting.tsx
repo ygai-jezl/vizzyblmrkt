@@ -32,7 +32,7 @@ export default function TroubleshootingHelp() {
       <P>
         The post on your programme&apos;s <strong>Calendar</strong> tab says why. Usually the account was disconnected
         before it was due, or its connection expired: <Open href="/admin/approvals">Review</Open> shows &quot;Connect LinkedIn
-        to publish this post&quot; or the same for X. Connect it in{" "}
+        to publish this post&quot; or the same for X. An admin connects it in{" "}
         <Open href="/admin/account/connections">Settings › Integrations</Open>, then press <strong>Reschedule</strong>. If it
         says LinkedIn or X may have posted it, check there first so it doesn&apos;t go out twice.
       </P>

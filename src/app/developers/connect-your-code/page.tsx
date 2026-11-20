@@ -30,8 +30,8 @@ export default function ConnectYourCodeDocs() {
       <H2 id="github">Connect GitHub (about a minute)</H2>
       <OL>
         <li>
-          In YouGrow, open <strong>Products → your product → Learn from repo</strong> and press <strong>Connect GitHub</strong>{" "}
-          (or use <strong>Account → Connections</strong>).
+          In YouGrow, an admin of your brand opens <strong>Products → your product → Learn from repo</strong> and presses{" "}
+          <strong>Connect GitHub</strong> (or uses <strong>Account → Connections</strong>). Only brand admins can connect.
         </li>
         <li>
           GitHub shows the <strong>YouGrow</strong> app{app ? (
@@ -86,7 +86,10 @@ Details: ${origin}/developers/connect-your-code`}</Code>
 
       <H2 id="gitlab">Connect GitLab</H2>
       <OL>
-        <li>In YouGrow, open <strong>Account → Connections</strong> and press <strong>Connect</strong> next to GitLab.</li>
+        <li>
+          In YouGrow, an admin of your brand opens <strong>Account → Connections</strong> and presses <strong>Connect</strong>{" "}
+          next to GitLab.
+        </li>
         {selection ? (
           <>
             <li>

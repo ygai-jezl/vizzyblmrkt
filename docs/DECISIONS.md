@@ -10,7 +10,7 @@ Context: wave 2's Connectors 1 (build plan decisions 13, 32 and 33; the Connecto
 nine decisions were all accepted) builds a shared connector core and the first three connectors:
 Cloudflare with an API token, then Google Search Console and Google Analytics 4. It ships as one
 pull request in three commit groups. This record covers group 1, the core and Cloudflare; groups 2
-(sign in with Google, Search Console) and 3 (share access, GA4, Vizzy) add their own sections. The
+(sign in with Google, Search Console) and 3 (share access, GA4, Vizzy) have their own sections below. The
 Browse, Listing and Connected screens wait for the owner's OK on their mockups. No dependency, index,
 rules or infra project change. Switches, all `"false"` in a new "== Connectors ==" group in
 `apphosting.yaml`, empty in `.env.example` and kept off by `npm run selfhost`: `CONNECTORS_ENABLED`,
@@ -180,6 +180,92 @@ API reference, read through the Developer Knowledge MCP.
 - **No index change**: states and connections are read by id or equality (shape tests). Self-hosted
   copies follow "Connect Google data on your own copy" in `docs/self-host.md`; there is no selfhost
   step for the identities project yet.
+
+### Group 3: Share access, Google Analytics 4 and Vizzy
+
+Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
+`npm run selfhost`: `CONNECTOR_GA4_ENABLED` (needs `CONNECTORS_ENABLED`, and a Google client or the
+identities project) and `CONNECTORS_CHAT_ENABLED` (needs `CONNECTORS_ENABLED`; addon `vizzy`). One
+new setting, by name only in the public repo: `CONNECTORS_IDENTITIES_PROJECT`. No new collection,
+index, rules or dependency. The screens (Share access steps on the Listing, Check access, the
+property picker) wait for the mockups; every route they call is built. Grounded in Google's IAM docs
+(projects.serviceAccounts create, delete and list; iamcredentials generateAccessToken; the IAM roles
+reference; service account quotas) and the Analytics Admin and Data API references, read through the
+Developer Knowledge MCP.
+
+- **One Google address per connection** (`src/lib/connectors/shareAccess.ts`). Share access makes a
+  service account for that one connection in the identities project, so removing one brand's access
+  never touches another's, and Disconnect can delete it outright. Its account id is `ygc-` and 20
+  random characters (Google's rule: 6 to 30 characters, `[a-z]([-a-z0-9]*[a-z0-9])`); it never holds
+  the brand, because the admin pastes the address into their property. The description names the
+  connection and a one way brand tag (a SHA-256 prefix), so the operator purge can find a brand's
+  leftovers; only the identities project's operators can read it.
+- **Least privilege.** The app's runtime account holds three roles on the identities project only:
+  Create Service Accounts (`iam.serviceAccounts.create`, `get`, `list`), Delete Service Accounts and
+  a custom role with only `iam.serviceAccounts.getAccessToken`; not Service Account Admin or Token
+  Creator. The addresses get no roles of their own. Calls are the app's own, with its token from
+  `google-auth-library`, through `security/ssrf.ts` safeFetch to `iam.googleapis.com` and
+  `iamcredentials.googleapis.com` only, with no redirects, on 443, a timeout and a capped body.
+- **Tokens last 300 seconds and are never stored.** `generateAccessToken` with the connector's one
+  read scope and `lifetime: "300s"`, on `projects/-/serviceAccounts/{email}` (the wildcard Google
+  requires), kept in the server's memory until a minute before they run out and forgotten on
+  disconnect. A shared connection keeps no sealed secret; its record holds the address
+  (`serviceAccount {email, uniqueId, createdAt, deletedAt}`).
+- **Check access retries.** IAM reads are eventually consistent and Google says a new account can
+  take 60 seconds or more to work, so minting a token for an account younger than 10 minutes retries
+  after 1, 2 and 4 seconds, then answers `share_pending` ("Google is still setting up this
+  connection's address"), which leaves health alone. `POST .../connections/[id]/access` lists what
+  the address sees for the picker and checks the picked one, recorded as `access_checked`. Nothing
+  visible is `share_not_visible` ("We can't see your property yet"), which marks it broken.
+- **Starting share access** is `POST /api/admin/connectors/[connectorId]/share`, admins only. A brand
+  with a shared connection still waiting for its property gets that one back, and making addresses
+  is limited per brand (3 a minute, 10 an hour), so the project's quota isn't spent by double
+  clicks. A shared connection's failures read in its own words: a refused token or property is
+  `share_not_visible`, an API or permission missing in the identities project `share_unconfigured`.
+- **Quota plan and fallback.** A project holds a limited number of service accounts (100 by
+  default; deleted ones don't count). The owner asks Google for more on the identities project. A
+  full project answers `share_quota`, which says so plainly and offers Sign in with Google.
+- **Self-hosted copies.** Without `CONNECTORS_IDENTITIES_PROJECT` the share access method is not
+  offered (the registry's readiness check), which is how a copy without one behaves; Sign in with
+  Google still works. `docs/self-host.md` says how to set one up. A selfhost add-on is a follow up.
+- **Disconnect deletes the address** at Google after the disconnect is saved, by its unique id, so a
+  later account with the same name is never touched; already gone counts as done. A failed delete is
+  recorded as `cleanup_failed` and the address stays on the record. The address's entry in the
+  property's users stays until the admin removes it; the help says it does no harm.
+- **The purge reconciles.** `scripts/connectors-purge.ts` deletes each purged connection's address,
+  lists YouGrow's addresses in the identities project and deletes the brand's that no live
+  connection owns (a crash between making an address and saving its connection, or a failed
+  delete). `--addresses` does only that, plus disconnected connections' leftover addresses, and
+  leaves every record and its history alone; `--local` never reaches a real identities project.
+- **Search Console by share access**: the admin adds the address as a Restricted user. Google
+  documents service accounts as Search Console users only for the Indexing API; the dev check proves
+  it reads search analytics before prod turns it on.
+- **Google Analytics 4** (`google-analytics`, `analytics.readonly`, which Google classes as
+  sensitive: Sign in waits for Google's sensitive scope review, share access as a Viewer doesn't).
+  The picker is the Admin API's `accountSummaries.list` (3 pages of 200 at most). Live reads are the
+  Data API's `runReport` by `date` or `pagePath` (the path without its query string), at most 93
+  days and 100 rows, with `returnPropertyQuota`; metrics are matched by Google's header names;
+  `(other)` and `(not set)` rows are left out; thresholding, sampling, a property low on tokens and
+  days not yet final each become a note. Lag 2 days, in the property's time zone. Meanings
+  `ga4Sessions`, `ga4ActiveUsers`, `ga4Views` and `ga4KeyEvents`, claimed by `data_connection`.
+- **Vizzy reads, never manages.** `GET /api/agent/connectors` and `POST /api/agent/connectors/live`
+  go through `src/lib/connectors/agentGate.ts`, a copy of `resultsAgentGate`: the switch (503 when
+  off), the signed canvas token (the brand comes only from it) and 10 a minute, 60 an hour per brand,
+  because each read spends the provider's quota. Vizzy reads for the token's person: anything but
+  admin reads as a member, so a connection needs `{to: "agent:vizzy", can: "read"}` (403
+  `no_agent_grant` without it) and, for a member, the members grant (403 `no_read_grant`). The list
+  shows only granted connections and says only that others aren't shared. A read is the people's
+  bounded read; every number comes with its meaning and nothing else in an answer is a number. Each
+  read is logged as `read` by `agent:vizzy`, kept off the record's recent list
+  (`ActivityWrite.recent: false`) so Vizzy never pushes an admin's changes off the Connected view.
+- **Vizzy's tools** `list_connections` and `read_connected_live`: a pure client and a thin ADK
+  wrapper, the brand only from the session token, input checked before any call, and a system
+  instruction to read numbers by their meaning and lag, say plainly when it has no access and that an
+  admin can allow it, and never claim a change. Tools change only with a Vizzy redeploy (ask first);
+  the ontology names `read_connected_live` as `data_connection`'s number tool.
+- **Help.** Generated words cover share access (what is kept, Check access, why it may be hidden,
+  what Disconnect leaves, the Workspace sharing message), Google Analytics and letting Vizzy read,
+  and the troubleshooting quotes.
 
 ---
 

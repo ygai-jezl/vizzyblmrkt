@@ -4,6 +4,115 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0011 · Connected data: the connector core and Cloudflare (Connectors 1) (2026-11-21)
+
+Context: wave 2's Connectors 1 (build plan decisions 13, 32 and 33; the Connectors plan v5, whose
+nine decisions were all accepted) builds a shared connector core and the first three connectors:
+Cloudflare with an API token, then Google Search Console and Google Analytics 4. It ships as one
+pull request in three commit groups. This record covers group 1, the core and Cloudflare; groups 2
+(sign in with Google, Search Console) and 3 (share access, GA4, Vizzy) add their own sections. The
+Browse, Listing and Connected screens wait for the owner's OK on their mockups. No dependency, index,
+rules or infra project change. Switches, all `"false"` in a new "== Connectors ==" group in
+`apphosting.yaml`, empty in `.env.example` and kept off by `npm run selfhost`: `CONNECTORS_ENABLED`,
+`NEXT_PUBLIC_CONNECTORS_ENABLED` and `CONNECTOR_CLOUDFLARE_ENABLED`.
+
+Decisions:
+
+- **Names.** A connection's record is `data_connections` (ids `dcn_`), its activity
+  `data_connection_activity` (ids `dca_`), and people read "Connected data". "Connection" already
+  means a connected product (`product_connections`, `pcn_`) and a Review kind.
+- **A manifest is pure data** (`src/lib/connectors/manifest.ts`): connect methods, fields, api
+  hosts and limits, one verify request, shares, produces, uses and hooks. Code a connector needs is
+  named by a hook id (`cloudflare.zoneProbe`) and lives in `src/lib/connectors/handlers`, so the
+  same file could come from a contributor or a vendor later. A test proves every manifest survives
+  a JSON round trip. The ids `browse`, `callback` and `connections` are reserved because routes and
+  pages sit beside `[connectorId]`. Every permission or scope a sign-in asks for needs a shares line
+  that names it, and shares must say what is never read or written.
+- **The registry** (`src/lib/connectors/registry.ts`) offers a connector only while its own switch
+  is on (each needs `CONNECTORS_ENABLED`), refuses a sign-in method not built yet (token_fields now,
+  oauth_pkce with group 2, share_access with group 3) and any stream marked personal until the data
+  processing agreement covers it.
+- **Switch off and rollback.** With `CONNECTORS_ENABLED` off every connector route answers 404
+  before it reads the session, nothing calls a provider, and sealed tokens stay sealed, working
+  again when the switch is turned back on. Rolling back means turning the switch off; removing the
+  data means `scripts/connectors-purge.ts` (dry run first, then `--apply --by <label>`), which works
+  whatever the switches say.
+- **The vault** (decision 32, `src/lib/connectors/vault.ts`). Its own root key,
+  `CONNECTORS_VAULT_KEY` (core secret `connectors-vault-key`), AES-256-GCM through `secretBox`, with
+  AAD `tenant:connection:slot` so a blob opens nowhere else. `secretBox` gains `keyId(label)`: the
+  first 8 bytes, in hex, of an HMAC of the root. Each blob stores `encKeyId`, because `keyId`
+  already means a ygk_ connection key id. Saving with no root is refused.
+  - Rotation: set the old root as `CONNECTORS_VAULT_KEY_PREVIOUS` and a new current root, roll out,
+    run `scripts/reseal-connector-secrets.ts` as a dry run, then with `--apply`, then the dry run
+    again. Remove the previous root only when it counts 0 off the current key, or every token still
+    on it is lost. API tokens never refresh, so "reseal on the next refresh" would never reach them.
+  - The reseal works per connection in a transaction, opens and compares each new blob before it
+    replaces the old one, reports a blob that won't open and never replaces it, and runs on the
+    emulators with `--local` as the organisation scripts do.
+- **Tokens live per connection in the brand's regional database.** Social and git tokens stay on
+  the control plane brand record without AAD, so two patterns sit side by side until Connectors 5
+  moves them.
+- **One writer, one transaction.** `src/lib/tenant/dataConnections.ts` writes a connection and the
+  activity row of each change together. Activity rows carry `ttlAt` as a Date, 90 days on, deleted
+  by the TTL that `infra/lifecycle/setup.sh ttl` turns on. The record keeps the last 20 changes for
+  the Connected view, so the activity log is written and never queried. `forTenant` gives the records
+  read only and the activity a count. Every query is by id or equality with no sort (a shape test
+  holds it), so no composite index is needed.
+- **Safe fetch** (`src/lib/connectors/safeFetch.ts`), the one outbound call for connector APIs:
+  the exact host must be declared in the manifest, over https on 443, before any request; a paused
+  connection is refused; rate limits per connection and per brand for the connector
+  (`isRateLimited`); `security/ssrf.ts` `safeFetch` with `maxRedirects: 0` and `allowedPorts: [443]`.
+  That helper copies the same init, Authorization included, into every redirect hop, so with 0 any
+  3xx ends the call after one request, and a 3xx that comes back anyway is refused: a token is never
+  sent to a second address. Its own timeout; the body read up to the manifest's cap, 512 KB at most
+  (`readBytesUpTo`, which tells an empty body from one cut short); logs name the host and the code,
+  never the path, query, body or token.
+- **Health.** ok, check, broken and paused. A refused token, an account the token can't read or a
+  token that won't open sets broken. A provider's rate limit pauses calls for its Retry-After (1 to
+  60 minutes, 15 when it gives none) and five failures in a row pause them for an hour. Because
+  `isRateLimited` fails open, that pause on the record is the hard stop. Each code has plain words
+  (`src/lib/connectors/messages.ts`); a provider's own words are never stored.
+- **Grants** (`src/lib/connectors/grants.ts`, tested cell by cell):
+
+  | Who | Sees name and health | Sees details | Reads live | Manages |
+  | --- | --- | --- | --- | --- |
+  | Admin | yes | yes | yes | yes |
+  | Member | yes | no | with `{to: "members", can: "read"}` | no |
+  | Vizzy | with `{to: "agent:vizzy", can: "read"}` | no | with its grant, and the members grant when reading for a member | never |
+
+  Only admins change grants, and a new connection starts with none. "Manage" is the admin role, not
+  a grant. The admin who connected (`ownerUid`) gets nothing extra, and the connection stays when
+  they leave. Grants don't fit the settings log's fixed subjects and archive only model, so they live
+  on the record and each change goes into the activity log; piece O part 2 can move them.
+- **Routes** under `/api/admin/connectors` check the switch, then go through `integrationsAdmin`
+  (origin check, sign-in, role). Only the list, one connection and its live read let a member in;
+  the grants table decides the rest. `src/lib/connectors/routesGate.test.ts` fails when a route
+  skips the switch or the gate. Connect runs the manifest's verify request before anything is
+  saved, and one account is connected once per brand.
+- **Cloudflare.** The token is checked with a GraphQL zone query, not `user/tokens/verify`, which
+  may refuse account tokens and doesn't prove the token reads this zone. GraphQL answers HTTP 200 on
+  errors, so the `errors` array is read first. Requests and page views come from
+  `httpRequests1dGroups`; visits only from `httpRequestsAdaptiveGroups` (`sum.visits`, sampled,
+  about 31 days on every plan), so when only that part fails the totals come back with a note. The
+  token needs one permission, Zone, Analytics, Read, from a pre-filled link. Disconnect deletes the
+  stored token; Cloudflare can't cancel it for us, so the answer says to delete it there.
+- **Live reads** are bounded: at most 93 days and 100 rows, a fixed list of dimensions per stream,
+  page paths without query strings, and every number with its meaning. A number with no meaning is
+  dropped.
+- **Meaning keys are namespaced** (`cfRequests`, `cfPageViews`, `cfVisits`), because plain
+  impressions and clicks already mean social post numbers.
+- **The ontology.** `data_connection` (personal: the team's; a secret, never exported or searched)
+  is built with both regional stores and claims the cf meanings through `readLive`.
+  `connector_manifest` stays planned: manifests live in code, with no store.
+- **Not metered** (owner, 21 Nov): every plan can connect. A plan hook comes later if a connector
+  gets costly.
+- **Self-hosted copies.** `connectors-vault-key` is a core secret. The `backend` step now reads each
+  core secret's IAM policy and gives the backend access to any added since it last ran, which before
+  failed the next rollout with `Error resolving secret version`. `docs/self-host.md` has Connected
+  data and the upgrade note: existing copies run `--apply core`, then `setup.sh ttl` once.
+
+---
+
 ## ADR-0010 · People (piece B) (2026-11-21)
 
 Context: piece B of the CRM and tiers plan turns Audience into People and adds what a CRM

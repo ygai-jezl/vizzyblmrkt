@@ -217,7 +217,7 @@ export default function YourAudienceHelp({
             <li>a voice chat on a sign-up page, which an admin can read;</li>
             {addPerson ? <li>being added by hand, and agreeing to marketing emails;</li> : null}
             {fields ? <li>each change to your own fields, with who made it and the values before and after;</li> : null}
-            <li>what Vizzy suggested, and what came of it.</li>
+            {vizzyFields || vizzyAdds ? <li>what Vizzy suggested, and what came of it.</li> : null}
           </UL>
           <P>
             Moves are recorded from the day the timeline was turned on in your copy of YouGrow; nothing from before then is added.

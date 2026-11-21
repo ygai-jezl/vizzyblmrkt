@@ -1,5 +1,6 @@
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
+import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
 
@@ -98,7 +99,7 @@ export const HELP_PAGES: HelpPage[] = [
     "your-audience",
     "Your audience",
     "grow",
-    "Everyone from your launches, your own site and your products in one list, one page per person, your own fields on people and companies, and erasing or exporting them everywhere.",
+    "Everyone from your launches, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
     "audience_one_view",
   ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
@@ -118,24 +119,30 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   return true;
 }
 
+/** The People list page's summary while fields are on: it names them only then. */
+const AUDIENCE_SUMMARY_WITH_FIELDS =
+  "Everyone from your launches, your own site and your products in one list, one page per person, your own fields on people and companies, and erasing or exporting them everywhere.";
+
 /**
  * A page's entry in the words used now: with People on, the page about the People list is listed
- * as People. Its slug stays your-audience so links and llms.txt keep working.
+ * as People, and with fields on its summary names them. Its slug stays your-audience so links and
+ * llms.txt keep working.
  */
-function inWords(p: HelpPage, people: boolean): HelpPage {
-  return people && p.slug === "your-audience" ? { ...p, label: "People" } : p;
+function inWords(p: HelpPage, now: { people: boolean; fields: boolean }): HelpPage {
+  if (p.slug !== "your-audience") return p;
+  return { ...p, ...(now.people ? { label: "People" } : {}), ...(now.fields ? { summary: AUDIENCE_SUMMARY_WITH_FIELDS } : {}) };
 }
 
 /** The pages to list now: every page, less those whose switch is off. */
 export function shownHelpPages(): HelpPage[] {
-  const people = isPeopleNameEnabled();
-  return HELP_PAGES.filter(isHelpPageShown).map((p) => inWords(p, people));
+  const now = { people: isPeopleNameEnabled(), fields: isFieldsEnabled() };
+  return HELP_PAGES.filter(isHelpPageShown).map((p) => inWords(p, now));
 }
 
-/** One page's entry; `people` overrides the server's answer (the How to drawer passes the shell's). */
+/** One page's entry; `people` and `fields` override the server's answer (the How to drawer passes the shell's). */
 export function helpPage(slug: string, opts: HelpBodyProps = {}): HelpPage | null {
   const p = HELP_PAGES.find((x) => x.slug === slug);
-  return p ? inWords(p, opts.people ?? isPeopleNameEnabled()) : null;
+  return p ? inWords(p, { people: opts.people ?? isPeopleNameEnabled(), fields: opts.fields ?? isFieldsEnabled() }) : null;
 }
 
 /** The page after this one in reading order, for "Next" links (skipping pages that are switched off). */
@@ -143,7 +150,7 @@ export function nextHelpPage(slug: string): HelpPage | null {
   const i = HELP_PAGES.findIndex((p) => p.slug === slug);
   if (i < 0) return null;
   const next = HELP_PAGES.slice(i + 1).find(isHelpPageShown);
-  return next ? inWords(next, isPeopleNameEnabled()) : null;
+  return next ? inWords(next, { people: isPeopleNameEnabled(), fields: isFieldsEnabled() }) : null;
 }
 
 /** `/help/email-sending` → `/help/email-sending.md`; the Get set up page is `/help.md`. */

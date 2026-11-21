@@ -293,6 +293,20 @@ describe("links into the help", () => {
 describe("the fields sections", () => {
   const md = (fields: boolean, fieldFilters = fields) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields, fieldFilters }), "https://app.example.com");
 
+  it("name fields in the page's summary only while they are on", () => {
+    expect(helpPage("your-audience", { fields: false })?.summary).not.toContain("fields");
+    expect(helpPage("your-audience", { fields: true })?.summary).toContain("your own fields on people and companies");
+    // The server's answer, used by llms.txt, the page's description and the list Vizzy reads.
+    expect(shownHelpPages().find((p) => p.slug === "your-audience")?.summary).toContain("your own fields");
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    try {
+      expect(shownHelpPages().find((p) => p.slug === "your-audience")?.summary).not.toContain("fields");
+      expect(helpPage("your-audience")?.summary).not.toContain("fields");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("show while fields are on, and How to on Data model opens them", () => {
     expect(md(true)).toContain("## Your own fields");
     expect(md(true)).toContain("## Company fields");
@@ -341,6 +355,14 @@ describe("the timeline section", () => {
 
   it("stays hidden while it is off", () => {
     expect(md(false)).not.toContain("timeline");
+  });
+
+  it("lists what Vizzy suggested only while a Vizzy switch for people is on", () => {
+    const at = (over: Record<string, boolean>) =>
+      docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline: true, vizzyFields: false, vizzyAddPerson: false, ...over }), "https://app.example.com");
+    expect(at({})).not.toContain("what Vizzy suggested");
+    expect(at({ vizzyFields: true })).toContain("what Vizzy suggested");
+    expect(at({ vizzyAddPerson: true })).toContain("what Vizzy suggested");
   });
 });
 

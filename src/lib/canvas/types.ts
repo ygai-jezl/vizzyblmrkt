@@ -21,7 +21,9 @@ import type { TenantContext } from "@/lib/tenant";
  *  - `image_style`: a suggested image style (scope: the whole brand) that an admin
  *    reviews and saves on Brand › Image style;
  *  - `person_fields`: suggested changes to one person's fields (scope: the person, by
- *    our `ct_` id for them), which an admin confirms on their page or from Review.
+ *    our `ct_` id for them), which an admin confirms on their page or from Review;
+ *  - `new_person`: the New person form filled in from the chat (scope: the whole brand),
+ *    which an admin opens, checks and confirms, recording consent themselves.
  * Each kind owns its request shape, scope loading, content fill, validation,
  * persistence and the words it says back, behind one `authorDraft`, so the
  * agent endpoint stays generic.
@@ -40,7 +42,8 @@ export type CanvasScope =
   | { kind: "person_plan"; personId: string }
   | { kind: "brand_map" }
   | { kind: "image_style" }
-  | { kind: "person_fields"; personId: string };
+  | { kind: "person_fields"; personId: string }
+  | { kind: "new_person" };
 
 /** What the chat shows for a saved draft (a card with an "Open canvas" link). */
 export interface CanvasCard {

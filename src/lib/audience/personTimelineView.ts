@@ -163,6 +163,8 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
       return { ...base, kind: "field", text, detail };
     }
     case "agent.proposed":
+      // A New person draft: filled in for them before they were added.
+      if (e.properties.action === "new_person.draft") return { ...base, kind: "agent", text: "Vizzy filled in New person for them", detail: "Nobody is added until an admin confirms" };
       return { ...base, kind: "agent", text: "Vizzy suggested a change", detail: "Nothing changes until someone confirms" };
     case "agent.declined":
       return { ...base, kind: "agent", text: "A suggestion from Vizzy was set aside", detail: null };

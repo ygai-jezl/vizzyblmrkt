@@ -259,6 +259,7 @@ def person_fields_propose(changes: dict, why: str, tool_context: ToolContext, pe
             (an option id, a list of option ids, true or false, a number, whole minor
             units for currency, a day as YYYY-MM-DD, or plain text of at most 500
             characters with no [name], [email] or [id] in it). null clears a value.
+            A text value the read marked "cut" can only be cleared with null.
         why: One sentence on what you saw that supports it. No name or email address.
         person_id: Leave empty for the person whose page the operator is on.
 

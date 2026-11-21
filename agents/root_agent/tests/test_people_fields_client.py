@@ -88,6 +88,7 @@ def test_errors_become_plain_messages_and_switch_the_rules_off(monkeypatch):
         (404, {"error": "person_not_found"}, "person_not_found"),
         (400, {"error": "field_not_allowed", "issues": ["fld_1"]}, "field_not_allowed"),
         (400, {"error": "too_large"}, "too_large"),
+        (400, {"error": "invalid_value", "issues": ["fld_1"]}, "invalid_value"),
         (409, {"error": "already_decided"}, "already_decided"),
         (429, {"error": "rate_limited"}, "rate_limited"),
         (500, "not json", "http_500"),
@@ -100,6 +101,8 @@ def test_errors_become_plain_messages_and_switch_the_rules_off(monkeypatch):
         assert state["personFieldsEnabled"] is (code != "unavailable")
         if code == "too_large":
             assert out["message"].startswith("That suggestion is too big to save")
+        if code == "invalid_value":
+            assert "a text value marked cut can only be cleared with null" in out["message"]
 
 
 def test_messages_name_no_area_and_use_no_dashes():

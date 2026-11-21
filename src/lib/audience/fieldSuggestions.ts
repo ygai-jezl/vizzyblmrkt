@@ -6,7 +6,7 @@ import { getAgentAction, listAgentActionsForPerson } from "@/lib/ontology/agentA
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
 import { jsonBytes } from "@/lib/ontology/events";
 import { AGENT_ACTION_LIMITS, agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
-import { checkFieldValue, sameFieldValue, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldType, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { checkFieldValue, cutText, sameFieldValue, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldType, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { readFieldList } from "./fieldList";
 import { setFieldValues, valueText } from "./fields";
 import { holdsScrubbedMark, identityScrubber } from "./identityScrubber";
@@ -20,7 +20,8 @@ import { isVizzyTextFieldsEnabled } from "./peopleFlags";
  * Review. Nothing changes until then.
  *
  * - Only fields Vizzy may read (vizzyReadsField), in use, values their type allows. A text value
- *   is at most VIZZY_TEXT_CHARS and holds none of the scrubber's marks (vizzyValueFits).
+ *   is at most VIZZY_TEXT_CHARS and holds none of the scrubber's marks (vizzyValueFits). A text
+ *   value Vizzy read cut (vizzyTextView) can be cleared, never written over.
  * - A suggestion too big to save as an agent action is refused (`too_large`), before anything
  *   waiting is replaced.
  * - The proposal holds the suggested values under `fields` and a short reason; the basis holds the
@@ -70,6 +71,14 @@ export type SuggestError =
 export function vizzyValueFits(field: Pick<RecordField, "type">, value: FieldValue | null): boolean {
   if (field.type !== "text" || typeof value !== "string") return true;
   return value.length <= VIZZY_TEXT_CHARS && !holdsScrubbedMark(value);
+}
+
+/**
+ * A stored text value as Vizzy reads it: through the person's scrubber first, then cut to
+ * VIZZY_TEXT_CHARS, so a cut never leaves part of a name behind, and whether it was cut. Pure.
+ */
+export function vizzyTextView(scrub: (s: string) => string, stored: unknown): { text: string; cut: boolean } {
+  return cutText(scrub(String(stored)), VIZZY_TEXT_CHARS);
 }
 
 /** Whether a proposal and its basis fit an agent action (AGENT_ACTION_LIMITS). */
@@ -132,6 +141,7 @@ export async function suggestFieldChanges(
   const byId = new Map(list.items.map((f) => [f.key, f]));
   const current = (contact.fields ?? {}) as Record<string, FieldValue>;
   const textFields = isVizzyTextFieldsEnabled();
+  const scrub = identityScrubber({ name: [contact.firstName, contact.lastName].filter(Boolean).join(" "), email: contact.email ?? null });
 
   const proposed: Record<string, FieldValue | null> = {};
   const basis: Record<string, FieldValue | null> = {};
@@ -143,6 +153,8 @@ export async function suggestFieldChanges(
     const check = checkFieldValue(field, raw);
     if (!check.ok || !vizzyValueFits(field, check.value)) return { ok: false, error: "invalid_value", fieldId };
     const was = current[fieldId] ?? null;
+    // Vizzy saw only the start of a cut text value, so it may clear it but never write over it.
+    if (field.type === "text" && check.value !== null && typeof was === "string" && vizzyTextView(scrub, was).cut) return { ok: false, error: "invalid_value", fieldId };
     if (sameFieldValue(was, check.value)) continue;
     proposed[fieldId] = check.value;
     basis[fieldId] = was;
@@ -150,7 +162,6 @@ export async function suggestFieldChanges(
   const fieldIds = Object.keys(proposed);
   if (!fieldIds.length) return { ok: false, error: "no_change" };
 
-  const scrub = identityScrubber({ name: [contact.firstName, contact.lastName].filter(Boolean).join(" "), email: contact.email ?? null });
   const why = input.why ? scrub(input.why.replace(/\s+/g, " ").trim()).slice(0, SUGGESTION_WHY_CHARS) : "";
   // Checked before anything waiting is replaced: a proposal or basis over the limit would throw.
   if (!fitsAgentAction({ fields: proposed, why }, { fields: basis })) return { ok: false, error: "too_large" };

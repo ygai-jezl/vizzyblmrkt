@@ -129,15 +129,30 @@ describe("the person_fields kind", () => {
     }
   });
 
+  it("lets Vizzy clear a text value it read cut, but never write over it", async () => {
+    textFieldsOn();
+    // 600 characters: Vizzy read only the first 500.
+    db.seed("contacts", PRIYA, { ...db.raw("contacts", PRIYA), fields: { [SEATS]: 12, [TITLE]: "t".repeat(600) } });
+    expect(await suggest({ [TITLE]: "Head of Sales" })).toMatchObject({ ok: false, status: 400, error: "invalid_value", issues: [TITLE] });
+    expect(await suggest({ [TITLE]: null })).toMatchObject({ ok: true, status: "suggested" });
+    // 500 characters as stored, but longer once their name is taken out: Vizzy read it cut too.
+    db.seed("contacts", PRIYA, { ...db.raw("contacts", PRIYA), fields: { [SEATS]: 12, [TITLE]: `${"t".repeat(489)} Priya Shah` } });
+    expect(await suggest({ [TITLE]: "Head of Sales" })).toMatchObject({ ok: false, status: 400, error: "invalid_value", issues: [TITLE] });
+    // Whole as Vizzy read it: a new value is fine.
+    db.seed("contacts", PRIYA, { ...db.raw("contacts", PRIYA), fields: { [SEATS]: 12, [TITLE]: "t".repeat(500) } });
+    expect(await suggest({ [TITLE]: "Head of Sales" })).toMatchObject({ ok: true, status: "suggested" });
+  });
+
   it("answers too_large for a suggestion too big to save, and leaves the one waiting in place", async () => {
     textFieldsOn();
     // Six text fields Vizzy may read, each holding 2000 characters that take 6 bytes each as JSON.
     const big = ["fld_ccccccccccd1", "fld_ccccccccccd2", "fld_ccccccccccd3", "fld_ccccccccccd4", "fld_ccccccccccd5", "fld_ccccccccccd6"];
     for (const [i, id] of big.entries()) await add(id, { op: "add", label: `Long ${i}`, type: "text", vizzyReads: true });
     db.seed("contacts", PRIYA, { ...db.raw("contacts", PRIYA), fields: { [SEATS]: 12, ...Object.fromEntries(big.map((id) => [id, "\u0001".repeat(2000)])) } });
-    const waiting = await suggest({ [big[0]!]: "Short" });
+    // Vizzy read each one cut, so it can only clear them, and clearing all six keeps a basis over the limit.
+    const waiting = await suggest({ [big[0]!]: null });
     if (!waiting.ok) throw new Error(waiting.error);
-    const r = await suggest(Object.fromEntries(big.map((id) => [id, "New"])));
+    const r = await suggest(Object.fromEntries(big.map((id) => [id, null])));
     expect(r).toMatchObject({ ok: false, status: 400, error: "too_large" });
     expect((await openFieldSuggestions(admin, PRIYA as `ct_${string}`, db)).map((a) => a.id)).toEqual([waiting.id]);
   });

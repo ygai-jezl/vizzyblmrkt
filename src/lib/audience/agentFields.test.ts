@@ -154,6 +154,7 @@ describe("text fields an admin let Vizzy read", () => {
     expect(JSON.stringify(body)).not.toMatch(/Sam|Rivera|example\.com/);
     expect(body.note).toContain("Text takes plain words, at most 500 characters");
     expect(body.note).toContain("never write them in a value");
+    expect(body.note).toContain('marked "cut" was longer and shows only its start, so a new value for it is refused; null still clears it.');
   });
 
   it("cut a long value at 500 characters after scrubbing it, and mark it cut", async () => {

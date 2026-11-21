@@ -37,7 +37,7 @@ _ERRORS = {
     "unknown_field": "One of those fields isn't on the list any more. Let me read the fields again.",
     "archived_field": "That field was archived, so I can't suggest a value for it.",
     "field_not_allowed": "I can only suggest select, multi select, status, checkbox, number, currency and date fields, and text fields the brand lets me read.",
-    "invalid_value": "One of the values doesn't fit its field. Use the option ids and value shapes the fields read gives; text is at most 500 characters, with no [name], [email] or [id] in it.",
+    "invalid_value": "One of the values doesn't fit its field. Use the option ids and value shapes the fields read gives; text is at most 500 characters, with no [name], [email] or [id] in it, and a text value marked cut can only be cleared with null.",
     "no_change": "Their fields already hold those values, so there's nothing to suggest.",
     "already_decided": "Someone on the team already decided that exact suggestion, so I won't raise it again.",
     "too_many_fields": "That's too many fields for one suggestion. Suggest up to 20 at once.",

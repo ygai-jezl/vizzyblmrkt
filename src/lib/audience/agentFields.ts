@@ -2,10 +2,10 @@ import { forTenant, isRateLimited, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { isContactPersonId } from "@/lib/ontology/person";
-import { cutText, liveOptions, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { liveOptions, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { readFieldList } from "./fieldList";
 import { valueText } from "./fields";
-import { openFieldSuggestions } from "./fieldSuggestions";
+import { openFieldSuggestions, vizzyTextView } from "./fieldSuggestions";
 import { identityScrubber, type IdentityScrubber } from "./identityScrubber";
 import { isVizzyFieldsEnabled, isVizzyTextFieldsEnabled } from "./peopleFlags";
 
@@ -29,7 +29,7 @@ const VALUE_SHAPES =
   "Values: select and status take one option id, multi select a list of option ids, checkbox true or false, number a number, currency whole minor units of the field's currency (1250 means 12.50 USD, and 1250 JPY means 1250 yen, since the yen has no minor unit), date a day as YYYY-MM-DD. null clears a value.";
 
 /** How a text value is written, added while text fields are on. */
-const TEXT_SHAPE = ` Text takes plain words, at most ${VIZZY_TEXT_CHARS} characters. A text value marked "cut" was longer and shows only its start. [name], [email] and [id] stand for what was taken out about the person: never write them in a value.`;
+const TEXT_SHAPE = ` Text takes plain words, at most ${VIZZY_TEXT_CHARS} characters. A text value marked "cut" was longer and shows only its start, so a new value for it is refused; null still clears it. [name], [email] and [id] stand for what was taken out about the person: never write them in a value.`;
 
 const valueShapes = (textFields: boolean) => (textFields ? `${VALUE_SHAPES}${TEXT_SHAPE}` : VALUE_SHAPES);
 
@@ -99,7 +99,7 @@ export async function agentPersonFields(ctx: TenantContext, personId: string, db
     const set = v !== undefined && v !== null;
     if (f.type === "text" && set) {
       // Scrubbed first, then cut, so a cut never leaves part of a name behind.
-      const { text, cut } = cutText(scrub(String(v)), VIZZY_TEXT_CHARS);
+      const { text, cut } = vizzyTextView(scrub, v);
       return { ...describe(f, scrub), value: text, text, ...(cut ? { cut: true } : {}) };
     }
     return { ...describe(f, scrub), value: set ? v : null, text: set ? scrub(words(f, v)) : null };

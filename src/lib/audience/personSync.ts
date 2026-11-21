@@ -1,4 +1,4 @@
-import { forTenant, type WhereClause } from "@/lib/tenant";
+import { appendEvents, forTenant, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Contact, ContactCampaignLink, PersonProductLink } from "@/lib/types/contact";
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
@@ -10,6 +10,9 @@ import { suppressionDocId } from "@/lib/email/suppression";
 import { deterministicContactId, domainFromEmail } from "@/lib/crm/identifiers";
 import { buildSearchTokens } from "@/lib/crm/searchTokens";
 import { contactFieldsFromSignup, linkFromSignup, recomputeContactStatus } from "@/lib/crm/contactService";
+import { isContactPersonId } from "@/lib/ontology/person";
+import { isTimelineEnabled } from "./peopleFlags";
+import { moveEvents, movesOf } from "./personMoves";
 import {
   handAddedOf,
   linkFromProductUser,
@@ -38,6 +41,11 @@ import {
  * Someone added by hand (`addedBy` on their record, piece B) is a source of their own, with no
  * switch: no path deletes them, renames them from a product or marks them deleted. The tags
  * other writers own (`field:` tags and `added:hand`) are kept as they are on every write.
+ *
+ * With AUDIENCE_TIMELINE_ENABLED, both functions record the person's moves (launch, product,
+ * stage and quiet, src/lib/audience/personMoves.ts) after their commit, so every caller is
+ * covered. Best effort, keyed so a retry writes nothing twice; never on a dry run, a person who
+ * was deleted, or a caller that passes `moves: "skip"` (the erase path and the backfill).
  */
 
 /** The key prefix for a product user with no email address: they're their own person until one arrives. */
@@ -92,6 +100,12 @@ export interface SyncDeps {
   connections?: PeopleConnections;
   /** Work out what would change and report it, writing nothing (the backfill's dry run). */
   dryRun?: boolean;
+  /**
+   * Whether to record the person's moves for their timeline (AUDIENCE_TIMELINE_ENABLED). "skip"
+   * on the erase path, where a row written after the history was erased would outlive it, and in
+   * the backfill, so a rebuild never floods timelines. Default "record".
+   */
+  moves?: "record" | "skip";
 }
 
 export type SyncOutcome = "created" | "updated" | "unchanged" | "deleted" | "none";
@@ -102,6 +116,37 @@ export interface SyncResult {
   outcome: SyncOutcome;
   added: string[];
   removed: string[];
+  /** When this sync changed the record (its changedAt, or when it was created); null when it wrote nothing. */
+  changedAt: string | null;
+}
+
+/** Each product's user on a person, by connection, where the product has just one of them. */
+function productUsersOf(...lists: Array<readonly PersonProductLink[] | null | undefined>): Map<string, string> {
+  const users = new Map<string, Set<string>>();
+  for (const list of lists) for (const p of list ?? []) users.set(p.connectionId, (users.get(p.connectionId) ?? new Set()).add(p.productUserId));
+  return new Map([...users].flatMap(([c, ids]) => (ids.size === 1 ? [[c, [...ids][0]!] as [string, string]] : [])));
+}
+
+/**
+ * Record one sync's moves on the person's timeline (AUDIENCE_TIMELINE_ENABLED), in one batch after
+ * its commit. Best effort: a lost move leaves a gap in the timeline, never a wrong value. Counts
+ * only in the log.
+ */
+async function recordMoves(
+  ctx: TenantContext,
+  result: SyncResult,
+  products: Map<string, string>,
+  deps: SyncDeps,
+): Promise<void> {
+  if (deps.moves === "skip" || deps.dryRun || !result.changedAt || result.outcome === "deleted" || !isTimelineEnabled()) return;
+  if (!isContactPersonId(result.personId)) return;
+  const moves = movesOf(result);
+  if (!moves.length) return;
+  try {
+    await appendEvents(ctx, moveEvents(result.personId, result.changedAt, moves, products), { db: deps.db });
+  } catch (err) {
+    warn(`recording ${moves.length} moves`, ctx, err);
+  }
 }
 
 /** A sign-up from the brand's own site joins the person once it's confirmed, as it joins the contact today. */
@@ -197,7 +242,7 @@ function patchFor(personId: string, current: Contact, next: Derived, nowIso: str
 /** Rebuild one person from their sources. */
 export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncDeps = {}): Promise<SyncResult> {
   const key = normalizeKey(rawKey);
-  if (!key) return { personId: "", outcome: "none", added: [], removed: [] };
+  if (!key) return { personId: "", outcome: "none", added: [], removed: [], changedAt: null };
   const personId = personIdOf(ctx.tenantId, key);
   const repo = forTenant(ctx, deps.db);
   const nowMs = deps.nowMs ?? Date.now();
@@ -241,13 +286,13 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
   const { summary } = next;
 
   if (!summary.live) {
-    if (!existing) return { personId, outcome: "none", added: [], removed: [] };
+    if (!existing) return { personId, outcome: "none", added: [], removed: [], changedAt: null };
     // A record that only ever came from products goes with its last product user. One with
     // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it).
     // Someone added by hand is live, so never reaches here; addedBy spares them all the same.
     if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length && !existing.addedBy) {
       if (!deps.dryRun) await repo.contacts.delete(personId);
-      return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [] };
+      return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [], changedAt: deps.dryRun ? null : nowIso };
     }
   }
 
@@ -270,13 +315,16 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       personId,
       outcome: !existing ? "created" : patch ? "updated" : "unchanged",
       ...tagChanges(existing?.memberOf ?? [], summary.memberOf),
+      changedAt: null,
     };
   }
 
   let before: string[] = [];
+  let beforeProducts: PersonProductLink[] = [];
   let patched = false;
   const { doc, created } = await repo.contacts.upsert(personId, create, (current) => {
     before = current.memberOf ?? [];
+    beforeProducts = current.products ?? [];
     // A person who only uses products is named as their product names them, kept in step. A
     // contact from a sign-up keeps its own name and address: none is copied in from a product,
     // so erasing them in the product leaves nothing of theirs behind here. Nor does someone added
@@ -295,7 +343,14 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     return { ...(patch ?? { updatedAt: nowIso }), ...(renamed ?? {}) } as never;
   });
   const changes = tagChanges(created ? [] : before, doc.memberOf ?? []);
-  return { personId, outcome: created ? "created" : patched ? "updated" : "unchanged", ...changes };
+  const result: SyncResult = {
+    personId,
+    outcome: created ? "created" : patched ? "updated" : "unchanged",
+    ...changes,
+    changedAt: created || patched ? nowIso : null,
+  };
+  await recordMoves(ctx, result, productUsersOf(beforeProducts, doc.products), deps);
+  return result;
 }
 
 /** The fields of a person who so far only uses a product: no consent from a sign-up, no company. */
@@ -350,6 +405,7 @@ export async function syncProductLink(
   }
   const nowIso = new Date(deps.nowMs ?? Date.now()).toISOString();
   let before: string[] = [];
+  let beforeProducts: PersonProductLink[] = [];
   let owed = false;
   const updated = await repo.contacts.claim(personId, (fresh) => {
     // A full rebuild is owed (a sync failed, a launch went): this can't stand in for it.
@@ -360,11 +416,14 @@ export async function syncProductLink(
     const link = linkFromProductUser(user, connection, fresh.optOuts, deps.nowMs ?? Date.now());
     const products = (fresh.products ?? []).map((p) => (p.productUserId === user.id ? link : p));
     before = fresh.memberOf ?? [];
+    beforeProducts = fresh.products ?? [];
     return patchFor(personId, fresh, derive(fresh, fresh.campaigns ?? [], products, fresh.optOuts), nowIso) as never;
   });
   if (owed) return syncPerson(ctx, key, deps);
-  if (!updated) return { personId, outcome: "unchanged", added: [], removed: [] };
-  return { personId, outcome: "updated", ...tagChanges(before, updated.memberOf ?? []) };
+  if (!updated) return { personId, outcome: "unchanged", added: [], removed: [], changedAt: null };
+  const result: SyncResult = { personId, outcome: "updated", ...tagChanges(before, updated.memberOf ?? []), changedAt: nowIso };
+  await recordMoves(ctx, result, productUsersOf(beforeProducts, updated.products), deps);
+  return result;
 }
 
 /** Flag everyone with a tag for a full rebuild by the sweep (a product revoked, say), a page at a time. */

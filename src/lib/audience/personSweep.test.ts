@@ -98,3 +98,35 @@ describe("sweepPeople", () => {
     expect((await syncPerson(ctx, "ivy@customer.test", { db, nowMs: T0 + 3 * DAY, dryRun: true })).outcome).toBe("updated");
   });
 });
+
+describe("sweepPeople and the timeline", () => {
+  it("records the stage moves the daily check finds, inside its deadline", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+    try {
+      const db = new FakeFirestore();
+      seedWorld(db);
+      const bea = seedUser(db, "bea");
+      await syncPerson(ctx, "bea@customer.test", { db, nowMs: T0 });
+      const later = T0 + 20 * DAY;
+      const r = await sweepPeople(ctx, { db, ...at(later) });
+      expect(r).toMatchObject({ checked: 1, failed: 0 });
+      const rows = (db.dump("ontology_events") as Array<{ fieldId: string; productUserId: string; properties: { before: unknown; after: unknown }; at: string }>).filter(
+        (e) => e.at === new Date(later).toISOString(),
+      );
+      expect(rows.map((e) => [e.fieldId, e.properties.before, e.properties.after, e.productUserId])).toEqual([[`sys.stage.${CONNECTION_ID}`, "new", "stuck", bea.id]]);
+      expect(person(db, "bea@customer.test")!.memberOf).toContain(`stage:${CONNECTION_ID}:stuck`);
+      // Past its deadline the check reads nobody, and records nothing.
+      const count = db.dump("ontology_events").length;
+      seedUser(db, "cal");
+      await syncPerson(ctx, "cal@customer.test", { db, nowMs: T0 });
+      const late = T0 + 40 * DAY;
+      expect(await sweepPeople(ctx, { db, now: () => late, deadlineMs: late - 1 })).toEqual({ synced: 0, checked: 0, failed: 0 });
+      expect(db.dump("ontology_events")).toHaveLength(count + 2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

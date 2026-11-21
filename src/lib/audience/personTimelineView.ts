@@ -2,10 +2,13 @@ import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Contact } from "@/lib/types/contact";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
+import type { AgentAction, AgentActionId } from "@/lib/types/agentAction";
+import type { EventActor } from "@/lib/ontology/events";
 import type { FieldValue, RecordField } from "@/lib/types/recordField";
 import { getContactEmailHistory, type ContactEmailHistoryEntry } from "@/lib/crm/emailHistory";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import { decodeTimelineCursor, InvalidCursorError, listPersonEvents, TIMELINE_PAGE } from "@/lib/ontology/timeline";
+import { getAgentAction } from "@/lib/ontology/agentActions";
 import { isContactPersonId } from "@/lib/ontology/person";
 import { memberLabel, teamMemberNames, type UserLookup } from "@/lib/team/names";
 import { readFieldList } from "./fieldList";
@@ -46,6 +49,30 @@ export interface TimelineViewPage {
 /** The most of each other source one timeline reads. */
 const BESIDE_MAX = 200;
 
+/**
+ * Entries at the same moment, in this order down the page: being added before agreeing, a
+ * suggestion's step before the change it made, and so on. Ties after that go by id.
+ */
+export const TIMELINE_KIND_ORDER: readonly TimelineEntry["kind"][] = [
+  "created",
+  "consent",
+  "agent",
+  "field",
+  "stage",
+  "product",
+  "quiet",
+  "launch",
+  "signup",
+  "voice_chat",
+  "email",
+];
+const kindRank = (k: TimelineEntry["kind"]) => TIMELINE_KIND_ORDER.indexOf(k);
+
+/** Newest first; at the same moment, TIMELINE_KIND_ORDER, then id. */
+export function compareTimelineEntries(a: TimelineEntry, b: TimelineEntry): number {
+  return b.at.localeCompare(a.at) || kindRank(a.kind) - kindRank(b.kind) || b.id.localeCompare(a.id);
+}
+
 const STAGE: Record<string, string> = { new: "New", onboarding: "Onboarding", stuck: "Stuck", activated: "Activated", member: "Using the product" };
 const LAUNCH_STATUS: Record<string, string> = { verified_active: "Confirmed their email", unverified: "Not confirmed yet", offboarded: "Offboarded" };
 
@@ -75,6 +102,9 @@ interface Names {
   products: Map<string, string>;
   fields: Map<string, RecordField>;
   people: Record<string, string>;
+  /** The agent actions this page's suggestions belong to, as they stand now; null when gone. */
+  actions: Map<string, AgentAction | null>;
+  now: string;
 }
 
 function fieldValueText(field: RecordField | undefined, v: unknown, people: Record<string, string>): string {
@@ -89,6 +119,54 @@ function byWhom(e: StoredEvent, people: Record<string, string>): string | null {
   if (e.actor.type === "member") return memberLabel(e.actor.id, people);
   if (e.actor.type === "agent") return "Vizzy";
   return null;
+}
+
+function actorName(a: EventActor | null, people: Record<string, string>): string | null {
+  return a?.type === "member" && a.id ? memberLabel(a.id, people) : null;
+}
+
+/**
+ * What came of a suggestion, for its "Vizzy suggested" entry: the waiting note only while nobody
+ * has decided it, else what happened. Null when the suggestion is gone (erased).
+ */
+function suggestionOutcome(a: AgentAction | null | undefined, names: Names): string | null {
+  if (!a) return null;
+  if (a.state === "proposed" || a.state === "approved") return a.expiresAt > names.now ? "Nothing changes until someone confirms" : "Expired before anyone decided";
+  if (a.state === "acted") {
+    const by = actorName(a.actedBy ?? a.decidedBy, names.people);
+    return by ? `Confirmed by ${by}` : "Confirmed";
+  }
+  if (a.state === "undone") {
+    const by = actorName(a.undoneBy, names.people);
+    return by ? `Confirmed, then undone by ${by}` : "Confirmed, then undone";
+  }
+  switch (a.declined?.reason) {
+    case "dismissed": {
+      const by = actorName(a.decidedBy, names.people);
+      return by ? `Dismissed by ${by}` : "Dismissed";
+    }
+    case "expired":
+      return "Expired before anyone decided";
+    case "stale":
+      return "Set aside, as a field changed since";
+    case "superseded":
+      return "Replaced by a newer suggestion";
+    default:
+      return "Set aside";
+  }
+}
+
+/** What came of a New person draft: nobody is added until an admin confirms it. */
+function draftOutcome(a: AgentAction | null | undefined, names: Names): string | null {
+  if (!a) return null;
+  if (a.state === "proposed" || a.state === "approved") return a.expiresAt > names.now ? "Nobody is added until an admin confirms" : "Expired before anyone decided";
+  if (a.state === "acted") {
+    const by = actorName(a.actedBy ?? a.decidedBy, names.people);
+    return by ? `Added by ${by}` : "Added";
+  }
+  if (a.declined?.reason === "superseded") return "Replaced by a newer draft";
+  if (a.declined?.reason === "expired") return "Expired before anyone decided";
+  return "Not used";
 }
 
 /** One stored event as an entry, or null for one the timeline leaves out. */
@@ -164,8 +242,10 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
     }
     case "agent.proposed":
       // A New person draft: filled in for them before they were added.
-      if (e.properties.action === "new_person.draft") return { ...base, kind: "agent", text: "Vizzy filled in New person for them", detail: "Nobody is added until an admin confirms" };
-      return { ...base, kind: "agent", text: "Vizzy suggested a change", detail: "Nothing changes until someone confirms" };
+      // Each says what came of it once someone decided, read from the action as it stands now.
+      if (e.properties.action === "new_person.draft")
+        return { ...base, kind: "agent", text: "Vizzy filled in New person for them", detail: draftOutcome(names.actions.get(e.agentActionId ?? ""), names) };
+      return { ...base, kind: "agent", text: "Vizzy suggested a change", detail: suggestionOutcome(names.actions.get(e.agentActionId ?? ""), names) };
     case "agent.declined":
       return { ...base, kind: "agent", text: "A suggestion from Vizzy was set aside", detail: null };
     case "agent.undone":
@@ -219,9 +299,17 @@ async function besideEntries(ctx: TenantContext, contact: Contact, names: Names,
   });
 }
 
-/** Names for what this page's entries mention: launches, products, fields and team members. */
-async function namesFor(ctx: TenantContext, contact: Contact, events: readonly StoredEvent[], db: FirestoreLike | undefined, lookup?: UserLookup): Promise<Names> {
+/** The agent actions behind this page's suggestions, as they stand now (null when gone). */
+async function suggestionActions(ctx: TenantContext, events: readonly StoredEvent[], db: FirestoreLike | undefined): Promise<Map<string, AgentAction | null>> {
+  const ids = [...new Set(events.flatMap((e) => (e.kind === "agent.proposed" && e.agentActionId ? [e.agentActionId] : [])))];
+  const rows = await Promise.all(ids.map(async (id) => [id, await getAgentAction(ctx, id as AgentActionId, { db }).catch(() => null)] as const));
+  return new Map(rows);
+}
+
+/** Names for what this page's entries mention: launches, products, fields, team members and suggestions. */
+async function namesFor(ctx: TenantContext, contact: Contact, events: readonly StoredEvent[], db: FirestoreLike | undefined, lookup: UserLookup | undefined, nowMs: number): Promise<Names> {
   const repo = forTenant(ctx, db);
+  const actions = await suggestionActions(ctx, events, db);
   const launchIds = new Set((contact.campaigns ?? []).map((c) => c.campaignId));
   const productIds = new Set((contact.products ?? []).map((p) => p.connectionId));
   const people = new Set<string>();
@@ -235,6 +323,8 @@ async function namesFor(ctx: TenantContext, contact: Contact, events: readonly S
     const recordedBy = (e.properties as { recordedBy?: unknown }).recordedBy;
     if (typeof recordedBy === "string") people.add(recordedBy);
   }
+  // Who decided each suggestion.
+  for (const a of actions.values()) for (const who of [a?.actedBy, a?.decidedBy, a?.undoneBy]) if (who?.type === "member" && who.id) people.add(who.id);
   const fieldList = userFields ? await readFieldList(ctx, "person", db).catch(() => null) : null;
   const fields = new Map((fieldList?.items ?? []).map((f) => [f.key, f]));
   // Team member values name people too.
@@ -258,6 +348,8 @@ async function namesFor(ctx: TenantContext, contact: Contact, events: readonly S
     ),
     fields,
     people: names,
+    actions,
+    now: new Date(nowMs).toISOString(),
   };
 }
 
@@ -268,7 +360,7 @@ async function namesFor(ctx: TenantContext, contact: Contact, events: readonly S
 export async function loadPersonTimeline(
   ctx: TenantContext,
   personId: string,
-  opts: { cursor?: string | null; limit?: number; db?: FirestoreLike; lookup?: UserLookup } = {},
+  opts: { cursor?: string | null; limit?: number; db?: FirestoreLike; lookup?: UserLookup; nowMs?: number } = {},
 ): Promise<TimelineViewPage | null> {
   if (!isContactPersonId(personId)) return null;
   const after = opts.cursor ? decode(opts.cursor) : null;
@@ -280,11 +372,9 @@ export async function loadPersonTimeline(
   // still bounds what else it shows.
   const lower = page.next ? (decodeTimelineCursor(page.next)?.at ?? page.events.at(-1)?.at ?? null) : null;
   const upper = after?.b ?? null;
-  const names = await namesFor(ctx, contact, page.events, opts.db, opts.lookup);
+  const names = await namesFor(ctx, contact, page.events, opts.db, opts.lookup, opts.nowMs ?? Date.now());
   const joined = new Set((contact.campaigns ?? []).filter((l) => l.status !== "deleted").map((l) => l.campaignId));
   const beside = (await besideEntries(ctx, contact, names, opts.db)).filter((e) => (upper === null || e.at < upper) && (lower === null || e.at >= lower));
-  const entries = [...page.events.flatMap((e) => fromEvent(e, names, joined) ?? []), ...beside].sort(
-    (a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id),
-  );
+  const entries = [...page.events.flatMap((e) => fromEvent(e, names, joined) ?? []), ...beside].sort(compareTimelineEntries);
   return { entries, next: page.next ? encode({ e: page.next, b: lower }) : null };
 }

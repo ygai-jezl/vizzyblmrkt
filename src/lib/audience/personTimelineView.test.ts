@@ -8,7 +8,8 @@ import { addPerson } from "./addPerson";
 import { decideFieldSuggestion, suggestFieldChanges } from "./fieldSuggestions";
 import { parseNewPerson } from "./newPerson";
 import { personIdOf, syncPerson, syncProductLink } from "./personSync";
-import { loadPersonTimeline, type TimelineEntry } from "./personTimelineView";
+import { expireAgentActions } from "@/lib/tenant";
+import { compareTimelineEntries, loadPersonTimeline, TIMELINE_KIND_ORDER, type TimelineEntry } from "./personTimelineView";
 
 /** Made-up people at .test, with a launch, a product, a field and a voice chat. */
 
@@ -131,9 +132,10 @@ describe("loadPersonTimeline", () => {
     if (!sam.ok) throw new Error(sam.error);
     await addPerson(ctx, sam.value, { db, nowIso: iso(T0 + 6 * DAY) });
     const page = (await loadPersonTimeline(ctx, personIdOf(TENANT_ID, "sam@labs.test"), { db, lookup }))!;
+    // Both at the same moment: being added comes first, whatever their ids.
     expect(page.entries.map((e) => [e.text, e.detail])).toEqual([
-      ["Agreed to marketing emails", "Told me in person. Recorded by Alex Morgan"],
       ["Added by hand", "By Alex Morgan, from ⌘K"],
+      ["Agreed to marketing emails", "Told me in person. Recorded by Alex Morgan"],
     ]);
     expect(await loadPersonTimeline({ ...ctx, tenantId: "ten_other" }, personIdOf(TENANT_ID, "sam@labs.test"), { db })).toBeNull();
   });
@@ -147,19 +149,66 @@ describe("loadPersonTimeline", () => {
     const admin = { ...ctx, userId: "usr_1", role: "admin" as const };
     expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db, nowMs: T0 + 7 * DAY })).toEqual({ ok: true, state: "acted" });
     expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev + 2, decision: "undo" }, { db, nowMs: T0 + 8 * DAY })).toEqual({ ok: true, state: "undone" });
-    const page = (await loadPersonTimeline(ctx, id, { db, lookup }))!;
+    const page = (await loadPersonTimeline(ctx, id, { db, lookup, nowMs: T0 + 8 * DAY }))!;
     const pairs = page.entries.map((e) => [e.text, e.detail]);
-    // The undo and its value change share a moment: either may come first.
-    expect(pairs.slice(0, 2)).toEqual(
-      expect.arrayContaining([
-        ["A change was undone", "By Alex Morgan"],
-        ["Plan changed from Starter to Pro", "Alex Morgan undid Vizzy's suggestion"],
-      ]),
-    );
-    expect(pairs.slice(2, 4)).toEqual([
+    // The undo and its value change share a moment: the suggestion's step comes first.
+    expect(pairs.slice(0, 4)).toEqual([
+      ["A change was undone", "By Alex Morgan"],
+      ["Plan changed from Starter to Pro", "Alex Morgan undid Vizzy's suggestion"],
       ["Plan changed from Pro to Starter", "Alex Morgan confirmed Vizzy's suggestion"],
-      ["Vizzy suggested a change", "Nothing changes until someone confirms"],
+      // Decided, so it says what came of it, not that it is waiting.
+      ["Vizzy suggested a change", "Confirmed, then undone by Alex Morgan"],
     ]);
+  });
+
+  it("says a suggestion is waiting only until someone decides it", async () => {
+    const { db, id } = await world();
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    const agent = { ...ctx, source: "agent" as const, userId: "usr_1", role: "admin" as const };
+    const admin = { ...ctx, userId: "usr_1", role: "admin" as const };
+    const suggestion = () => loadPersonTimeline(ctx, id, { db, lookup, nowMs: T0 + 7 * DAY }).then((p) => p!.entries.find((e) => e.text === "Vizzy suggested a change")!.detail);
+
+    const s = await suggestFieldChanges(agent, { personId: id, changes: { [PLAN]: STARTER } }, { db, nowMs: T0 + 6 * DAY });
+    if (!s.ok) throw new Error(s.error);
+    expect(await suggestion()).toBe("Nothing changes until someone confirms");
+
+    expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db, nowMs: T0 + 7 * DAY })).toEqual({ ok: true, state: "acted" });
+    expect(await suggestion()).toBe("Confirmed by Alex Morgan");
+  });
+
+  it("says a suggestion was dismissed, or expired, once it was", async () => {
+    const { db, id } = await world();
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    const agent = { ...ctx, source: "agent" as const, userId: "usr_1", role: "admin" as const };
+    const admin = { ...ctx, userId: "usr_1", role: "admin" as const };
+    const s = await suggestFieldChanges(agent, { personId: id, changes: { [PLAN]: STARTER } }, { db, nowMs: T0 + 6 * DAY });
+    if (!s.ok) throw new Error(s.error);
+    expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "dismiss" }, { db, nowMs: T0 + 7 * DAY })).toMatchObject({ ok: true });
+    const dismissed = (await loadPersonTimeline(ctx, id, { db, lookup, nowMs: T0 + 7 * DAY }))!.entries.find((e) => e.text === "Vizzy suggested a change");
+    expect(dismissed?.detail).toBe("Dismissed by Alex Morgan");
+
+    const { db: db2, id: id2 } = await world();
+    const t = await suggestFieldChanges(agent, { personId: id2, changes: { [PLAN]: STARTER } }, { db: db2, nowMs: T0 + 6 * DAY });
+    if (!t.ok) throw new Error(t.error);
+    const later = T0 + 60 * DAY;
+    // Past its expiry before the sweep runs, and after it.
+    const before = (await loadPersonTimeline(ctx, id2, { db: db2, lookup, nowMs: later }))!.entries.find((e) => e.text === "Vizzy suggested a change");
+    expect(before?.detail).toBe("Expired before anyone decided");
+    await expireAgentActions(ctx, { now: new Date(later).toISOString(), db: db2 });
+    const after = (await loadPersonTimeline(ctx, id2, { db: db2, lookup, nowMs: later }))!.entries.find((e) => e.text === "Vizzy suggested a change");
+    expect(after?.detail).toBe("Expired before anyone decided");
+    for (const e of [dismissed, before, after]) expect(e?.detail).not.toContain("Nothing changes");
+  });
+
+  it("orders entries at the same moment by a fixed kind order, then id", () => {
+    const at = iso(T0);
+    const entry = (kind: TimelineEntry["kind"], id: string): TimelineEntry => ({ id, at, kind, text: kind, detail: null });
+    const shuffled = [entry("email", "a"), entry("consent", "z"), entry("created", "a"), entry("field", "b"), entry("field", "c"), { ...entry("signup", "a"), at: iso(T0 + 1) }];
+    expect(shuffled.sort(compareTimelineEntries).map((e) => `${e.kind}:${e.id}`)).toEqual(["signup:a", "created:a", "consent:z", "field:c", "field:b", "email:a"]);
+    expect(TIMELINE_KIND_ORDER.indexOf("created")).toBeLessThan(TIMELINE_KIND_ORDER.indexOf("consent"));
+    expect(new Set(TIMELINE_KIND_ORDER).size).toBe(11);
   });
 
   it("refuses a cursor it didn't make, and finds nobody for an unknown person", async () => {

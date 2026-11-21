@@ -103,7 +103,7 @@ export function FieldsPanel({
       title={title}
       actions={
         <Link href="/admin/account/data-model" className="text-xs underline underline-offset-2">
-          Manage fields
+          {canEdit ? "Manage fields" : "See all fields"}
         </Link>
       }
     >

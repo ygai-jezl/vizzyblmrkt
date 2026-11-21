@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { FieldValue, RecordField } from "@/lib/types/recordField";
-import { FieldInput } from "./FieldsPanel";
+import { FieldInput, FieldsPanel } from "./FieldsPanel";
 
 // One field's input, as the Fields panel and the New person form draw it before anyone types.
 const AT = "2026-11-21T10:00:00.000Z";
@@ -32,5 +32,15 @@ describe("FieldInput", () => {
     const select = draw(field({ type: "select", label: "Plan", options }), "opt_00000003");
     expect(select).toContain("Legacy (no longer in use)");
     expect(select).not.toContain("Exports");
+  });
+});
+
+describe("FieldsPanel", () => {
+  const panel = (canEdit: boolean) => renderToStaticMarkup(createElement(FieldsPanel, { object: "person", recordId: "ct_1", initialValues: {}, canEdit }));
+
+  it("offers admins Manage fields, and members only See all fields, since Data model is read only for them", () => {
+    expect(panel(true)).toContain("Manage fields");
+    expect(panel(false)).toContain("See all fields");
+    expect(panel(false)).not.toContain("Manage fields");
   });
 });

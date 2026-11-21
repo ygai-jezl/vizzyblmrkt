@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
+import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -89,6 +90,12 @@ export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnab
         <li>Read the draft and change anything you like.</li>
         <li>When you&apos;re happy, publish it, send it or approve it on that page. It then leaves Review.</li>
       </Steps>
+      {isBlogLiveWatchEnabled() ? (
+        <P>
+          A blog article you publish on your own site doesn&apos;t need approving here: once YouGrow finds it live, it is
+          approved and its rows leave Review on their own (<Open href="/help/write-and-schedule#live">Check it&apos;s live</Open>).
+        </P>
+      ) : null}
 
       <H2 id="ai-lines">Approve AI lines</H2>
       <P>

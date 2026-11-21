@@ -64,6 +64,8 @@ export interface BlogHubControls {
   editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
   onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
+  /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
+  liveWatch?: boolean;
   /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */
   hero?: BlogHeroControls;
 }

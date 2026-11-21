@@ -37,6 +37,7 @@ vi.hoisted(() => {
   process.env.ONTOLOGY_PERSON_IDS_ENABLED = "true";
   process.env.AUDIENCE_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_FIELD_FILTERS_ENABLED = "true";
+  process.env.AUDIENCE_ADD_PERSON_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -305,5 +306,23 @@ describe("the fields sections", () => {
     expect(md(true, true)).toContain("Everyone in this group");
     expect(md(true, false)).not.toContain("Filter by a field");
     expect(md(true, false)).toContain("Tick **Only people we can email**");
+  });
+});
+
+describe("the New person section", () => {
+  const md = (slug: string, addPerson: boolean) => docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson }), "https://app.example.com");
+
+  it("shows while New person is on, with the four ways to agree and the plan's people", () => {
+    const text = md("your-audience", true);
+    expect(text).toContain("## Add someone by hand");
+    for (const way of ["Told me in person", "Signed a form", "Replied by email", "Other"]) expect(text).toContain(`**${way}**`);
+    expect(text).toContain("Nothing is sent to them yet");
+    expect(md("plan-and-usage", true)).toContain("New person");
+  });
+
+  it("stays hidden while it is off", () => {
+    expect(md("your-audience", false)).not.toContain("Add someone by hand");
+    expect(md("your-audience", false)).not.toContain("New person");
+    expect(md("plan-and-usage", false)).not.toContain("New person");
   });
 });

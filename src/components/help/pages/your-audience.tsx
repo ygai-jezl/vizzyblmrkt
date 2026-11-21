@@ -1,8 +1,9 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
-import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
+import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
 
@@ -10,12 +11,14 @@ import { peopleArea } from "@/lib/nav/terms";
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
  * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays. The
  * fields sections show while AUDIENCE_FIELDS_ENABLED is on, and the filters section while
- * AUDIENCE_FIELD_FILTERS_ENABLED is too.
+ * AUDIENCE_FIELD_FILTERS_ENABLED is too. Adding someone by hand shows while
+ * AUDIENCE_ADD_PERSON_ENABLED is on.
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
   fields = isFieldsEnabled(),
   fieldFilters = isFieldFiltersEnabled(),
+  addPerson = isAddPersonEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   return (
@@ -28,7 +31,9 @@ export default function YourAudienceHelp({
       <Meta
         items={[
           "2 minutes",
-          fields ? "Anyone on your team; erasing, exporting and changing fields are for admins" : "Anyone on your team; erasing and exporting are for admins",
+          fields || addPerson
+            ? `Anyone on your team; erasing, exporting${addPerson ? ", adding people" : ""}${fields ? " and changing fields" : ""} are for admins`
+            : "Anyone on your team; erasing and exporting are for admins",
           "Whenever you need it",
         ]}
       />
@@ -48,6 +53,7 @@ export default function YourAudienceHelp({
             <li>One page for each person, with their launches and their product together</li>
             <li>Erasing or exporting a person everywhere at once</li>
             {fields ? <li>Your own fields on people and companies, with every change kept</li> : null}
+            {addPerson ? <li>Adding someone you met by hand, with how they agreed to hear from you</li> : null}
           </>
         }
       />
@@ -104,6 +110,51 @@ export default function YourAudienceHelp({
           </P>
           <P>
             An archived field or option leaves the menus, and the people who had it keep it: bring it back and its filter returns.
+          </P>
+        </>
+      ) : null}
+
+      {addPerson ? (
+        <>
+          <H2 id="add">Add someone by hand</H2>
+          <Steps>
+            <li>
+              On the People list press <strong>New person</strong>, or pick <strong>New person</strong> under Create in the search box
+              (⌘K). Only admins can.
+            </li>
+            <li>
+              Type their email, or leave it empty and type a phone number, then their name. A work address shows the company it
+              matches.{fields ? " Fill in any of your own fields; More of your fields shows the rest." : ""}
+            </li>
+            <li>
+              Under <strong>Marketing emails</strong>, leave <strong>Not yet</strong>, or pick <strong>They agreed</strong> and say how:{" "}
+              {CONSENT_WAYS.map((w, i) => (
+                <span key={w.how}>
+                  {i ? (i === CONSENT_WAYS.length - 1 ? " or " : ", ") : null}
+                  <strong>{w.label}</strong>
+                </span>
+              ))}
+              . Other needs a short note. Your name and the time are saved with it. Joining a list never counts as agreeing.
+            </li>
+            <li>
+              Press <strong>Add person</strong>. Their page opens. If their email or phone is already in People, you go to that person
+              instead and nothing is added.
+            </li>
+          </Steps>
+          <P>
+            On the page of someone added by hand, <strong>Consent, in one place</strong> says who added them and whether they agreed. An
+            admin can press <strong>Record that they agreed</strong> later. Consent for people from a launch or your product comes from
+            there, not from here.
+          </P>
+          <P>
+            For someone added by hand, can email means your team recorded that they agreed. Nothing is sent to them yet: journeys and
+            broadcasts reach people added by hand once lists come. They stay in People whatever happens to their launches or products,
+            keep the name you typed, and are exported and erased like anyone else.
+          </P>
+          <P>
+            Someone added with only a phone is their own person. If they later sign up with an email, that sign-up becomes a separate
+            person. People added by hand count towards your plan&apos;s people; near or over the limit the form says so and still adds
+            them.
           </P>
         </>
       ) : null}
@@ -202,6 +253,7 @@ export default function YourAudienceHelp({
       <Checks>
         <li>Someone who signed up to a launch appears in People, under that launch.</li>
         <li>The same email sent by your product shows on the same row, with the product beside the launch.</li>
+        {addPerson ? <li>Someone you add by hand shows in People marked Added by hand, and adding them again opens their page.</li> : null}
       </Checks>
 
       <H2 id="messages">If you see this</H2>
@@ -222,6 +274,16 @@ export default function YourAudienceHelp({
                 [FIELD_MESSAGES.field_list_full, "Archive fields you no longer use, or a field with fewer options. Archived fields and options still count towards the total."],
                 [FIELD_MESSAGES.not_on_team, "They left your team, so pick someone who is, or Nobody."],
                 [FIELD_MESSAGES.archived_field, "Someone archived the field while you were editing. Reload the page; Bring back returns it."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(addPerson
+            ? ([
+                [NEW_PERSON_MESSAGES.email_or_phone, "Type an email address, or a phone number for someone with no email."],
+                [NEW_PERSON_MESSAGES.note_needed, "With Other picked, say in a few words how they agreed."],
+                [NEW_PERSON_MESSAGES.consent_elsewhere, "Nothing to fix. Their consent shows under Consent, in one place, from their launch or product."],
+                [NEW_PERSON_MESSAGES.fields_not_saved, "Open their page and set the values in Fields."],
+                [NEW_PERSON_NOTES.nothingSent, "Nothing to fix. People added by hand get emails once lists reach them."],
+                ["You can still add people.", "Nothing to fix now. See Plan and usage for your plan's people."],
               ] as Array<[string, string]>)
             : []),
         ]}

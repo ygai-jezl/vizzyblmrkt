@@ -2,10 +2,11 @@ import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
 import { PLANS } from "@/lib/plans/catalog";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change. */
-export default function PlanAndUsageHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
+export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPerson = isAddPersonEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Plan and usage</H1>
@@ -103,6 +104,12 @@ export default function PlanAndUsageHelp({ people = isPeopleNameEnabled() }: Hel
         <li>A monthly allowance that runs out stops that feature for the rest of the month. It starts again on the 1st.</li>
         <li>A plan that has all the brands it allows takes no more until there is room.</li>
         <li>Over a shared allowance, owners see it in the Your organisation box on Plan and usage.</li>
+        {addPerson ? (
+          <li>
+            When your plan&apos;s people are nearly used up or over, <Open href="/help/your-audience#add">New person</Open> says so, and
+            still adds them.
+          </li>
+        ) : null}
         <li>
           To make room, archive a launch you have finished, or ask whoever runs your copy of YouGrow about another plan.
         </li>

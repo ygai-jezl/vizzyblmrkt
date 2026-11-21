@@ -39,6 +39,8 @@ export interface HelpBodyProps {
   fields?: boolean;
   /** People can be filtered by fields and product groups (isFieldFiltersEnabled()). */
   fieldFilters?: boolean;
+  /** Admins can add someone by hand (isAddPersonEnabled()). */
+  addPerson?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

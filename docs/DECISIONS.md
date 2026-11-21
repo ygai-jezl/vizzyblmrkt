@@ -10,7 +10,7 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 6 and grows with the rest. The only Firestore changes are the two composite
+groups 1 to 7 and grows with the rest. The only Firestore changes are the two composite
 indexes and the two field exemptions below. No dependency, rules or infra change.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
@@ -142,12 +142,45 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     the sync's keep-field-tags rule has no switch. `scripts/backfill-field-tags.ts` rebuilds them
     from stored values (dry run, then `--apply`), for values written without them.
 
+- **New person (group 7, decisions 28 and 29, answers 6 and 8).** `AUDIENCE_ADD_PERSON_ENABLED`
+  (RUNTIME, `"false"`) needs the one People list and the person ids (decision 25). Admins add
+  someone by hand from a New person button on People, the empty list, and Create in ⌘K (the
+  layout passes `canAddPerson`, which opens `/admin/crm?new=person`). Members can't.
+  - **Keyed like a sign-up:** the normalised address, or the phone trimmed and nothing more,
+    so a later sign-up with the same address or phone joins them. Someone can be added with
+    only a phone; the form notes that a later sign-up with an email becomes a separate person.
+    Normalising phones is its own decision. A key already held opens that person (200
+    `existing`) and writes nothing.
+  - **One transaction:** `addPerson` (`src/lib/audience/addPerson.ts`) creates the contact, its
+    `record.created` event and, when they agreed, its `consent.recorded` event through
+    `writeRecordWithEvents`. The record is group 3's hand-added summary (tagged `all` and
+    `added:hand`, live, active from now), with the address's opt-outs read first,
+    `needsSync: false`, no launches, `addedBy` (member, user id, when, form or palette) and the
+    company a work address matches. It is never enriched (enrichment needs a confirmed
+    sign-up) and never on a launch's Signups tab. Field values are checked against the list
+    first and set through the one writer once the person exists.
+  - **Ways to agree:** Told me in person, Signed a form, Replied by email, and Other, which
+    needs a note (`in_person`, `signed_form`, `email_reply`, `other`). Kept on the record as
+    `consent.marketing_email` (granted, how, note, who by user id, when) and as a
+    `consent.recorded` event, which is the proof. Reach is yes only with it and no brand-wide
+    opt-out. `PATCH .../everyone/[personId]/consent` records it later for someone added by hand
+    only; anyone else answers 409 `consent_elsewhere`, because their consent comes from their
+    launch or product (piece F decides the rest).
+  - **Can email** on someone added by hand means the team recorded that they agreed. No send
+    path reads them yet: journeys and broadcasts reach people added by hand with lists (piece
+    E). The form, the list ("Yes, recorded", "Not yet") and the person's page say so.
+  - **The plan's people:** the form reads piece A's `checkAllowance` and says when under 1% of
+    the limit is left or it is passed. It never blocks (gates guide, never lock).
+  - Rate limited per admin; export and erase cover `addedBy`, the consent and both events
+    whatever the switch says, with no code change.
+
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
 anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
 field values exist, turn `AUDIENCE_FIELDS_ENABLED` off rather than reverting: the values stay on
 the records, and export and erase still cover them. Turning the filters off hides the pills; the
-tags stay. If the field writer were reverted, rerun the backfill once it is back.
+tags stay. If the field writer were reverted, rerun the backfill once it is back. Turning
+`AUDIENCE_ADD_PERSON_ENABLED` off hides the form and its routes; everyone added stays.
 
 ---
 

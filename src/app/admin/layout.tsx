@@ -171,6 +171,7 @@ export default async function AdminLayout({
             people={people}
             fields={isFieldsEnabled()}
             fieldFilters={isFieldFiltersEnabled()}
+            addPerson={isAddPersonEnabled()}
           >
             {shell}
           </ShellProvider>

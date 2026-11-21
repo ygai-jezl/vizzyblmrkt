@@ -122,6 +122,7 @@ export function ContentCanvas({
   footerBrand = null,
   brandMap = null,
   pagesOn = false,
+  liveWatchOn = false,
   editorialOn = false,
   seenOn = false,
   seenQuestionsOn = false,
@@ -143,6 +144,8 @@ export function ContentCanvas({
   brandMap?: ArticleMap | null;
   /** The brand map's pages switch (BRAND_MAP_PAGES_ENABLED): the article's address can be set here. */
   pagesOn?: boolean;
+  /** Found live (BLOG_LIVE_WATCH_ENABLED): the check reads the page's text, and YouGrow checks on its own. */
+  liveWatchOn?: boolean;
   /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
   editorialOn?: boolean;
   /** Articles draw on the brand's notes (BRAND_NOTES_ENABLED with the editorial writer). */
@@ -1005,7 +1008,7 @@ export function ContentCanvas({
           logoUrl: primaryLogoUrl ?? null,
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
-          ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
+          ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),

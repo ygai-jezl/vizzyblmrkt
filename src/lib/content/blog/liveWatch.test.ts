@@ -235,6 +235,16 @@ describe("the live watch lane", () => {
     expect(blocked.opened).not.toContain(`${SITE}/blog/${SLUG}`);
   });
 
+  it("one brand's watch is its own: another brand can't read it, and waking one leaves the other alone", async () => {
+    const db = new FakeFirestore();
+    const B: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
+    await wakeLiveWatch(A, { db, now: () => new Date(T0) });
+    expect(await forTenant(B, db).liveWatch.getById("lw_ten_A")).toBeNull();
+    await wakeLiveWatch(B, { db, now: () => new Date(T0 + H) });
+    expect((await watchDoc(db))!.nextAt).toBe(new Date(T0).toISOString());
+    await expect(forTenant(B, db).liveWatch.update("lw_ten_A", { nextAt: "x" })).rejects.toThrow();
+  });
+
   it("keeps its list of opened pages small", async () => {
     const db = new FakeFirestore();
     const lines = Array.from({ length: LIVE_WATCH.MAX_SEEN }, (_, i) => `${i.toString(16).padStart(16, "0")}\t2026-11-20`);

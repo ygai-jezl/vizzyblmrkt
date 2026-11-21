@@ -9,6 +9,7 @@ import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distrib
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
+import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -181,6 +182,29 @@ export default function WriteAndScheduleHelp() {
         LinkedIn series about our launch&quot;. Vizzy only drafts. You approve, schedule and publish.
       </P>
 
+      {isBlogLiveWatchEnabled() ? (
+        <>
+          <H2 id="live">Check it&apos;s live</H2>
+          <P>
+            Once you know where a blog article will live, put its address under <strong>Article address</strong> on the hub.
+            YouGrow opens the page and looks for the article&apos;s text there, so it finds the article even when your site
+            gives the page its own title. It checks as soon as you save the address, then every few hours for two weeks.
+          </P>
+          <P>
+            Or leave the address empty. YouGrow reads your site&apos;s sitemap every few hours while articles are waiting to go
+            up. It opens new pages whose address shares the article&apos;s words, and when most of the article&apos;s text is
+            on one, it saves that address for you. Your site is the <strong>Site</strong> on your{" "}
+            <Open href="/help/brand-map">brand map</Open>, or your brand&apos;s domain.
+          </P>
+          <P>
+            An article found live is approved, as if you had pressed <strong>Approve</strong>: your brand map counts its
+            question as answered and its rows leave Review. <strong>Check it&apos;s live</strong> checks straight away.{" "}
+            <strong>It&apos;s live</strong> is for a site that turns the check away, and approves it too.{" "}
+            <strong>Not live</strong> takes the live mark away and keeps the approval.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
@@ -306,6 +330,15 @@ export default function WriteAndScheduleHelp() {
             "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
           ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
+          ...(isBlogLiveWatchEnabled()
+            ? ([
+                [
+                  "The page answers, but it isn't this article yet",
+                  "Most of the article's text isn't on that page. Check the address, or wait until the article is up. If it is the right page, press It's live.",
+                ],
+                ["Your site turned the check away. If the article is up, say so.", "Your site doesn't let checks read it. Press It's live once the article is up."],
+              ] as Array<[string, string]>)
+            : []),
           ...(isSignalsDataForSeoEnabled()
             ? ([
                 [

@@ -24,8 +24,28 @@ export type DataConnectionMethod = (typeof DATA_CONNECTION_METHODS)[number];
 export const HEALTH_STATES = ["ok", "check", "broken", "paused"] as const;
 export type HealthState = (typeof HEALTH_STATES)[number];
 
-/** account_picked: an admin picked which site or property a signed in connection reads. */
-export const ACTIVITY_KINDS = ["connected", "verified", "failed", "paused", "resumed", "grants_changed", "account_picked", "disconnected", "purged"] as const;
+/**
+ * - account_picked: an admin picked which site or property a signed in or shared connection reads;
+ * - shared: an admin started share access, and YouGrow made the connection's Google address;
+ * - access_checked: an admin pressed Check access on a shared connection (code ok, or why not);
+ * - read: Vizzy read the connection live (kept in the log, not on the record's recent list);
+ * - cleanup_failed: deleting a shared connection's Google address failed; the purge tries again.
+ */
+export const ACTIVITY_KINDS = [
+  "connected",
+  "verified",
+  "failed",
+  "paused",
+  "resumed",
+  "grants_changed",
+  "account_picked",
+  "shared",
+  "access_checked",
+  "read",
+  "disconnected",
+  "cleanup_failed",
+  "purged",
+] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /** Who may read a connection beyond its admins. "manage" is never a grant: it is the admin role. */
@@ -52,6 +72,19 @@ export const RefreshLeaseSchema = z.object({
   leaseUntil: z.string().nullable(),
 });
 export type RefreshLease = z.infer<typeof RefreshLeaseSchema>;
+
+/**
+ * A shared connection's Google address (Connectors 1c): a service account in the identities
+ * project made for this one connection. Not a secret: the admin pastes the email into their
+ * property. deletedAt is set once Disconnect or the purge deleted it at Google.
+ */
+export const ServiceAccountSchema = z.object({
+  email: z.string(),
+  uniqueId: z.string(),
+  createdAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+export type ConnectionServiceAccount = z.infer<typeof ServiceAccountSchema>;
 
 export const ConnectionHealthSchema = z.object({
   state: z.enum(HEALTH_STATES),
@@ -91,14 +124,16 @@ export const DataConnectionSchema = z.object({
   ownerUid: z.string(),
   grants: z.array(ConnectionGrantSchema),
   /**
-   * Sealed secrets by slot: "token" for a pasted token, "access" and "refresh" for a sign in.
-   * Emptied on disconnect and purge.
+   * Sealed secrets by slot: "token" for a pasted token, "access" and "refresh" for a sign in;
+   * none for share access, whose tokens are never stored. Emptied on disconnect and purge.
    */
   secrets: z.record(z.string(), SealedSecretSchema),
   /** A sign in's access token expiry (canonical ISO). Unset for a pasted token. */
   tokenExpiresAt: z.string().nullable().optional(),
   /** A sign in's refresh lease. Unset for a pasted token. */
   refresh: RefreshLeaseSchema.optional(),
+  /** A shared connection's Google address. Unset for the other methods. It holds no secret. */
+  serviceAccount: ServiceAccountSchema.nullable().optional(),
   health: ConnectionHealthSchema,
   /** Set while an admin has paused it. */
   pausedAt: z.string().nullable(),

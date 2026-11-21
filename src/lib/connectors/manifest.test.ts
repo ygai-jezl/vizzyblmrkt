@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
-import { ConnectorManifestSchema, oauthMethod, parseManifest, RESERVED_CONNECTOR_IDS, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
+import { ConnectorManifestSchema, oauthMethod, parseManifest, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { MANIFESTS } from "./registry";
@@ -105,6 +105,19 @@ describe("connector manifests", () => {
     expect(issues({ ...sc, shares: sc.shares.map((s) => ({ ...s, needs: [] })) }).join()).toContain("has no shares line");
     expect(issues({ ...sc, hooks: { live: sc.hooks.live } }).join()).toContain("needs hooks.accounts");
     expect(issues({ ...sc, hooks: { ...sc.hooks, accounts: "cloudflare.zones" } }).join()).toContain("connector's own name");
+  });
+
+  it("has share access name its role, its one scope with a shares line, and where to add the address", () => {
+    const sc = clone(searchConsoleManifest) as ConnectorManifestInput;
+    const parsed = parseManifest(sc);
+    expect(shareMethod(parsed)).toMatchObject({ role: "Restricted", scopes: ["https://www.googleapis.com/auth/webmasters.readonly"] });
+    expect(shareMethod(parseManifest(cloudflareManifest))).toBeNull();
+    const share = sc.connect.find((c) => c.method === "share_access")!;
+    const other = { ...share, scopes: ["https://www.googleapis.com/auth/analytics.readonly"] };
+    expect(issues({ ...sc, connect: [sc.connect[0]!, other] }).join()).toContain("has no shares line");
+    expect(issues({ ...sc, connect: [sc.connect[0]!, { ...share, steps: [] }] }).length).toBeGreaterThan(0);
+    expect(issues({ ...sc, connect: [sc.connect[0]!, { ...share, scopes: [] }] }).length).toBeGreaterThan(0);
+    expect(issues({ ...sc, connect: [share], hooks: { live: sc.hooks.live } }).join()).toContain("needs hooks.accounts");
   });
 
   it("finds a manifest's token method and streams", () => {

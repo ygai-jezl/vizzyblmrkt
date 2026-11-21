@@ -36,7 +36,7 @@ describe("the connected data help words", () => {
     expect(help.token).toBeNull();
     expect(help.signIn?.steps[0]).toBe("On Google Search Console in Connected data, press Sign in with Google.");
     expect(help.signIn?.steps.at(-1)).toContain("pick which site or property");
-    expect(help.signIn?.reads).toEqual(["Search numbers for the site you pick", "The sites your Google account can see in Search Console"]);
+    expect(help.signIn?.reads).toEqual(["Search numbers for the site you pick", "The sites your Google account, or the address you share with, can see in Search Console"]);
     expect(help.numbers.map((n) => n.name)).toEqual(["Search clicks", "Search impressions", "Search click rate", "Average search position"]);
     expect(help.lag).toBe("A day's numbers are complete about 3 days later.");
     expect(connectorHelp(parseManifest(cloudflareManifest)).signIn).toBeNull();

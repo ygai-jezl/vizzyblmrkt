@@ -87,6 +87,12 @@ export function newShareAccountId(): string {
   return out;
 }
 
+/** The project an address lives in, read from its email, or null for an address YouGrow didn't make. */
+export function projectOfShareAccount(email: string): string | null {
+  const m = /^ygc-[a-z2-7]{20}@([a-z][a-z0-9-]{4,28}[a-z0-9])\.iam\.gserviceaccount\.com$/.exec(email);
+  return m ? m[1]! : null;
+}
+
 /** A short, one way tag for a brand, so the purge can tell its accounts from another brand's. */
 export function brandTag(tenantId: string): string {
   return createHash("sha256").update(`yougrow-connector-brand:${tenantId}`).digest("hex").slice(0, 16);

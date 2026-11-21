@@ -1,20 +1,21 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { changeDataConnection, createDataConnection, forTenant, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
+import { changeDataConnection, createDataConnection, forTenant, isRateLimited, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { meaningsOf } from "@/lib/metrics/meanings";
-import { ConnectionGrantSchema, type ConnectionGrant, type DataConnection } from "@/lib/types/dataConnection";
+import { ConnectionGrantSchema, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
 import { can, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
+import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
 import { connectorMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
+import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
 import { freshAccessToken, REFRESH_SLOT, type KeeperDeps } from "./tokenKeeper";
 import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenError, type SealedSecret } from "./vault";
 
@@ -26,7 +27,7 @@ import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenE
  * and never leave here.
  */
 
-export interface ServiceDeps extends ConnectorFetchDeps, KeeperDeps {
+export interface ServiceDeps extends ConnectorFetchDeps, KeeperDeps, ShareDeps {
   db?: FirestoreLike;
   newId?: () => string;
 }
@@ -49,15 +50,38 @@ function refuse(status: 400 | 403 | 404 | 409 | 429 | 502 | 503, error: string, 
   return { ok: false, status, error, ...(message ? { message } : {}) };
 }
 
-const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed"]);
+const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_pending"]);
+const UNCONFIGURED: ReadonlySet<ConnectorErrorCode> = new Set(["vault_unconfigured", "signin_unconfigured", "share_unconfigured", "share_quota"]);
 
 /**
- * A provider or vault failure: busy is 429; a pause, a dead token or sign in, or no site picked
- * yet 409; this copy missing a key or a Google client 503; the rest 502.
+ * A provider or vault failure: busy is 429; a pause, a dead token or sign in, no site picked yet,
+ * or a shared address that can't see the property yet 409; this copy missing a key, a Google
+ * client or its identities project, or that project being full, 503; the rest 502.
  */
 export function providerRefusal(code: ConnectorErrorCode): ServiceResult<never> {
-  const status = code === "busy" ? 429 : CONFLICTS.has(code) ? 409 : code === "vault_unconfigured" || code === "signin_unconfigured" ? 503 : 502;
+  const status = code === "busy" ? 429 : CONFLICTS.has(code) ? 409 : UNCONFIGURED.has(code) ? 503 : 502;
   return refuse(status, code, connectorMessage(code));
+}
+
+/**
+ * A shared connection's failures in its own words: Google turning its address down means the
+ * property isn't shared with it (yet), and an API or permission missing is the identities project.
+ */
+const SHARE_CODES: Partial<Record<ConnectorErrorCode, ConnectorErrorCode>> = {
+  account_refused: "share_not_visible",
+  token_refused: "share_not_visible",
+  signin_refused: "share_not_visible",
+  signin_unconfigured: "share_unconfigured",
+};
+
+export function codeFor(method: DataConnection["method"], code: ConnectorErrorCode): ConnectorErrorCode {
+  return method === "share_access" ? (SHARE_CODES[code] ?? code) : code;
+}
+
+function forMethod<T extends { ok: boolean }>(method: DataConnection["method"], r: T): T {
+  if (r.ok || method !== "share_access") return r;
+  const failed = r as T & { code: ConnectorErrorCode };
+  return { ...failed, code: codeFor(method, failed.code) };
 }
 
 const nowOf = (deps: ServiceDeps) => deps.now ?? new Date();
@@ -123,6 +147,8 @@ export interface ConnectionView {
     recent: DataConnection["recent"];
     /** Which secrets are kept and when they were sealed, never the secrets. */
     secrets: Array<{ slot: string; sealedAt: string }>;
+    /** A shared connection's Google address, to add to the property; null for the other methods. */
+    serviceAccount: { email: string; deletedAt: string | null } | null;
     pausedAt: string | null;
     pausedBy: string | null;
     createdAt: string;
@@ -159,6 +185,7 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       grants: conn.grants,
       recent: conn.recent,
       secrets: Object.entries(conn.secrets).map(([slot, s]) => ({ slot, sealedAt: s.sealedAt })),
+      serviceAccount: conn.serviceAccount ? { email: conn.serviceAccount.email, deletedAt: conn.serviceAccount.deletedAt } : null,
       pausedAt: conn.pausedAt,
       pausedBy: conn.pausedBy,
       createdAt: conn.createdAt,
@@ -306,6 +333,16 @@ function outcomePlan(cur: DataConnection, outcome: { ok: true } | HookFailure, a
 
 type Usable = { ok: true; conn: DataConnection; manifest: ConnectorManifest; token: string } | { ok: false; result: ServiceResult<never> };
 
+/** A token for a shared connection's address, with the connector's one read scope. */
+async function shareToken(conn: DataConnection, manifest: ConnectorManifest, deps: ServiceDeps): Promise<ShareResult<{ token: string }>> {
+  const share = shareMethod(manifest);
+  const sa = conn.serviceAccount;
+  if (!share) return { ok: false, code: "share_unconfigured", retryAfterSec: null };
+  if (!sa || sa.deletedAt) return { ok: false, code: "disconnected", retryAfterSec: null };
+  if (!identitiesProject()) return { ok: false, code: "share_unconfigured", retryAfterSec: null };
+  return shareAccessToken(sa, share.scopes[0]!, deps);
+}
+
 /**
  * Load a connection for a call: allowed, connected, its connector on, not paused, a site picked
  * for a live read, and its token: a pasted one opened, or a Google sign in's kept fresh.
@@ -320,6 +357,13 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
   const now = nowOf(deps);
   if (isCallPaused(conn, now)) return { ok: false, result: providerRefusal("paused") };
   if (action === "read_live" && !conn.account) return { ok: false, result: providerRefusal("account_needed") };
+  if (conn.method === "share_access") {
+    // A shared address: a 300 second token minted for it, kept only in this server's memory.
+    const kept = await shareToken(conn, manifest, deps);
+    if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
+    await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
+    return { ok: false, result: providerRefusal(kept.code) };
+  }
   if (conn.method === "oauth_pkce") {
     // A Google sign in: the token keeper refreshes the access token under its lease when it is due.
     const kept = await freshAccessToken(ctx, conn, byOf(actor), deps);
@@ -355,7 +399,7 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
   const now = nowOf(deps);
   const verify = VERIFY_HOOKS[u.manifest.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
-  const outcome = await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps);
+  const outcome = forMethod(u.conn.method, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
   const r = await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, outcome, actor, now, "verified"), deps.db);
   const conn = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
@@ -369,16 +413,26 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
   };
 }
 
-/** A live read, for an admin or a member with the read grant. Records failures on health. */
-export async function readLiveFor(ctx: TenantContext, actor: ConnectorActor, id: string, rawQuery: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<LiveAnswer>> {
+/**
+ * A live read, for an admin, a member with the read grant, or Vizzy with its grant. Records
+ * failures on health; `record` also logs a successful read (Vizzy's reads are logged as "read").
+ */
+export async function readLiveFor(
+  ctx: TenantContext,
+  actor: ConnectorActor,
+  id: string,
+  rawQuery: unknown,
+  deps: ServiceDeps = {},
+  record: ActivityKind | null = null,
+): Promise<ServiceResult<LiveAnswer>> {
   const u = await usable(ctx, actor, id, "read_live", deps);
   if (!u.ok) return u.result;
   const now = nowOf(deps);
   const checked = checkLiveRequest(u.manifest, rawQuery, now);
   if (!checked.ok) return refuse(400, checked.error);
-  const r = await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: checked.query }, deps);
+  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: checked.query }, deps));
   if (!r.ok && r.code === "busy") return providerRefusal("busy");
-  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, null), deps.db);
+  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, record), deps.db);
   if (!r.ok) return providerRefusal(r.code);
   return { ok: true, status: 200, value: r.answer };
 }
@@ -403,7 +457,7 @@ export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id
   const hook = u.manifest.hooks.accounts ? ACCOUNT_HOOKS[u.manifest.hooks.accounts] : undefined;
   if (!hook) return refuse(400, "method_not_supported");
   const now = nowOf(deps);
-  const r = await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps);
+  const r = forMethod(u.conn.method, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!r.ok) {
     if (r.code !== "busy") await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r, actor, now, null), deps.db);
     return providerRefusal(r.code);
@@ -433,8 +487,8 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   if (!verify) return refuse(503, "connector_unavailable");
   const checked = await verify({ manifest: u.manifest, connection: u.conn, account, token: u.token }, deps);
   if (!checked.ok) {
-    if (checked.code === "account_refused") return refuse(400, "account_refused", "That site isn't one this sign in can read. Pick one from the list.");
-    return providerRefusal(checked.code);
+    if (checked.code === "account_refused") return refuse(400, "account_refused", "That site or property isn't one this connection can read. Pick one from the list.");
+    return providerRefusal(codeFor(u.conn.method, checked.code));
   }
   const existing = await forTenant(ctx, deps.db).dataConnections.find({
     where: [
@@ -458,6 +512,184 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   );
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
   return { ok: true, status: 200, value: viewOf(r.ok ? r.connection : r.connection, actor, now) };
+}
+
+// --- Share access (Connectors 1c) --------------------------------------------------------------
+
+export const ShareBodySchema = z.object({ label: z.string().trim().min(1).max(60).optional() }).strict();
+
+export interface ShareOutcome {
+  connection: ConnectionView;
+  /** The address to add to the property, the role to give it and where. */
+  share: { email: string; role: string; steps: string[] };
+  /** True when the brand already had a shared connection waiting for its property: no new address was made. */
+  reused: boolean;
+}
+
+/** New shared addresses one brand may make for one connector: a few a minute, ten an hour. */
+const SHARE_CREATE_LIMIT = { burst: 3, hourly: 10 };
+
+/** A shared connection's health before Check access first works. */
+function notYetChecked(): DataConnection["health"] {
+  return { state: "check", lastOkAt: null, lastCheckedAt: null, lastErrorCode: null, failures: 0, pausedUntil: null };
+}
+
+/**
+ * Start share access: make the connection's own Google address in the identities project and save
+ * the connection with it, reading nothing until an admin adds the address to the property, presses
+ * Check access and picks what it reads. A brand with a shared connection still waiting for its
+ * property gets that one back instead of a new address, so pressing twice never spends the project's
+ * quota. A full project says so (share_quota), and the screen offers Sign in with Google. Admins only.
+ */
+export async function shareConnect(ctx: TenantContext, actor: ConnectorActor, connectorId: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ShareOutcome>> {
+  const m = getConnector(connectorId);
+  if (!m) return refuse(404, "not_found");
+  if (!can(actor, "connect")) return refuse(403, "forbidden");
+  const share = shareMethod(m);
+  if (!share) return refuse(400, "method_not_supported");
+  const parsed = ShareBodySchema.safeParse(body ?? {});
+  if (!parsed.success) return refuse(400, "invalid_input");
+  const project = identitiesProject();
+  if (!project) return providerRefusal("share_unconfigured");
+  const shareOf = (c: DataConnection) => ({ email: c.serviceAccount!.email, role: share.role, steps: share.steps });
+  const now = nowOf(deps);
+
+  const waiting = await forTenant(ctx, deps.db).dataConnections.find({
+    where: [
+      ["connectorId", "==", m.id],
+      ["method", "==", "share_access"],
+      ["account", "==", ""],
+      ["status", "==", "connected"],
+    ],
+    limit: 5,
+  });
+  const reuse = waiting.find((c) => c.serviceAccount && !c.serviceAccount.deletedAt);
+  if (reuse) return { ok: true, status: 200, value: { connection: viewOf(reuse, actor, now), share: shareOf(reuse), reused: true } };
+
+  const limit = deps.limit ?? ((subject: string, config: Parameters<typeof isRateLimited>[1]) => isRateLimited(subject, config));
+  if (await limit(ctx.tenantId, { prefix: `connector-share:${m.id}`, burstLimit: SHARE_CREATE_LIMIT.burst, hourlyLimit: SHARE_CREATE_LIMIT.hourly })) return providerRefusal("busy");
+
+  const id = (deps.newId ?? newDataConnectionId)();
+  const made = await createShareAccount(project, ctx.tenantId, id, deps);
+  if (!made.ok) return providerRefusal(made.code === "rate_limited" ? "busy" : made.code);
+  const at = now.toISOString();
+  const serviceAccount: ConnectionServiceAccount = { email: made.account.email, uniqueId: made.account.uniqueId, createdAt: at, deletedAt: null };
+  let conn: DataConnection;
+  try {
+    conn = await createDataConnection(
+      ctx,
+      {
+        id,
+        connectorId: m.id,
+        method: "share_access",
+        label: cleanLabel(parsed.data.label, m.name),
+        account: "",
+        ownerUid: byOf(actor),
+        grants: [],
+        secrets: {},
+        serviceAccount,
+        health: notYetChecked(),
+        pausedAt: null,
+        pausedBy: null,
+        status: "connected",
+        createdAt: at,
+        updatedAt: at,
+        disconnectedAt: null,
+      },
+      [{ kind: "shared", by: byOf(actor), at }],
+      deps.db,
+    );
+  } catch (err) {
+    // Not saved: delete the address at once. One left behind is found by the purge.
+    await deleteShareAccount(project, made.account.uniqueId, deps).catch(() => null);
+    throw err;
+  }
+  return { ok: true, status: 201, value: { connection: viewOf(conn, actor, now), share: shareOf(conn), reused: false } };
+}
+
+export interface AccessOutcome extends AccountsList {
+  connection: ConnectionView;
+  /** True when the address sees the property: something to pick, or the one picked. */
+  visible: boolean;
+  /** Why not, in plain words, or null. */
+  message: string | null;
+}
+
+/**
+ * Check access for a shared connection: mint a token for its address (retrying while Google sets
+ * a new one up), list what it can see for the picker and, when one is picked, check that one. The
+ * outcome goes on its health and into its activity as access_checked. Admins only.
+ */
+export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<AccessOutcome>> {
+  const conn = await load(ctx, id, deps);
+  if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
+  if (!can(actor, "check", conn.grants)) return refuse(403, "forbidden");
+  if (conn.method !== "share_access") return refuse(400, "method_not_supported");
+  const u = await usable(ctx, actor, id, "check", deps);
+  if (!u.ok) return u.result;
+  const hook = u.manifest.hooks.accounts ? ACCOUNT_HOOKS[u.manifest.hooks.accounts] : undefined;
+  const verify = VERIFY_HOOKS[u.manifest.verify.hook];
+  if (!hook || !verify) return refuse(503, "connector_unavailable");
+  const input = { manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token };
+  const listed = forMethod(u.conn.method, await hook(input, deps));
+  if (!listed.ok && listed.code === "busy") return providerRefusal("busy");
+  let outcome: { ok: true } | HookFailure = listed.ok ? { ok: true } : listed;
+  if (listed.ok && !listed.accounts.length) outcome = { ok: false, code: "share_not_visible", retryAfterSec: null };
+  else if (listed.ok && u.conn.account) outcome = forMethod(u.conn.method, await verify(input, deps));
+  if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
+
+  const now = nowOf(deps);
+  const at = now.toISOString();
+  const r = await changeDataConnection(
+    ctx,
+    id,
+    (cur) => {
+      if (cur.status !== "connected") return null;
+      const activity: ActivityWrite[] = [{ kind: "access_checked", by: byOf(actor), at, code: outcome.ok ? "ok" : outcome.code }];
+      if (outcome.ok) return { patch: { health: healthAfterSuccess(cur.health, now) }, activity };
+      const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
+      if (next?.pausedNow) activity.push({ kind: "paused", by: "system", at, code: outcome.code });
+      return { patch: next ? { health: next.health } : {}, activity };
+    },
+    deps.db,
+  );
+  if (!outcome.ok && outcome.code !== "share_not_visible") return providerRefusal(outcome.code);
+  const saved = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
+  return {
+    ok: true,
+    status: 200,
+    value: {
+      connection: viewOf(saved, actor, now),
+      accounts: listed.ok ? listed.accounts : [],
+      more: listed.ok ? listed.more : false,
+      current: u.conn.account,
+      visible: outcome.ok,
+      message: outcome.ok ? null : connectorMessage(outcome.code),
+    },
+  };
+}
+
+/**
+ * Delete a shared connection's Google address at Google, after its disconnect or purge is saved.
+ * Done (or already gone): deletedAt is set. Failed: a cleanup_failed row, and the address stays on
+ * the record for the purge to try again. Its tokens are forgotten either way. True when deleted.
+ */
+export async function deleteConnectionAddress(ctx: TenantContext, id: string, sa: ConnectionServiceAccount, by: string, deps: ServiceDeps = {}): Promise<boolean> {
+  forgetShareTokens(sa.email);
+  const project = projectOfShareAccount(sa.email);
+  const r = project ? await deleteShareAccount(project, sa.uniqueId, deps) : ({ ok: false, code: "share_unconfigured", retryAfterSec: null } as const);
+  const at = nowOf(deps).toISOString();
+  if (r.ok) {
+    await changeDataConnection(
+      ctx,
+      id,
+      (cur) => (cur.serviceAccount && cur.serviceAccount.uniqueId === sa.uniqueId && !cur.serviceAccount.deletedAt ? { patch: { serviceAccount: { ...cur.serviceAccount, deletedAt: at }, updatedAt: at }, activity: [] } : null),
+      deps.db,
+    );
+    return true;
+  }
+  await changeDataConnection(ctx, id, () => ({ patch: {}, activity: [{ kind: "cleanup_failed", by, at, code: r.code }] }), deps.db);
+  return false;
 }
 
 // --- Manage ------------------------------------------------------------------------------------
@@ -522,9 +754,18 @@ export interface DisconnectOutcome {
   connection: ConnectionView;
   /** Whether access was cancelled at the provider. Never for a pasted token. */
   revoked: boolean;
-  /** What to do at the provider, from the manifest, or what revoking did. */
+  /** A shared connection: whether its Google address was deleted. Null for the other methods. */
+  addressDeleted: boolean | null;
+  /** What to do at the provider, from the manifest, or what revoking or deleting did. */
   message: string;
 }
+
+/** What Disconnect says for a shared connection, once its Google address is deleted. */
+export const ADDRESS_DELETED_MESSAGE =
+  "Disconnected, and its Google address was deleted, so it reads nothing any more. Its entry stays in your property's users until you remove it there; it does no harm.";
+/** What Disconnect says when deleting the address failed: the purge tries again. */
+export const ADDRESS_KEPT_MESSAGE =
+  "Disconnected. YouGrow couldn't delete its Google address just now and tries again later; it reads nothing for this brand any more. You can also remove it from your property's users.";
 
 /** What Disconnect says after Google revoked the sign in: every grant of that account ends. */
 export const REVOKED_MESSAGE =
@@ -538,10 +779,13 @@ export const REVOKED_MESSAGE =
  * Google sign in is revoked at Google only with CONNECTOR_GOOGLE_REVOKE_ENABLED on, after the
  * disconnect is saved and best effort, because Google's revoke ends every grant that Google
  * account gave this app, for every brand (decision 2 of the Connectors 1 plan). Off, the answer
- * says how to remove access in the Google account.
+ * says how to remove access in the Google account. A shared connection's Google address is deleted
+ * at Google after the disconnect is saved; a failed delete is recorded as cleanup_failed and the
+ * purge tries again. Its entry in the property's users stays until the admin removes it, harmless.
  */
 export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<DisconnectOutcome>> {
   let signIn: SealedSecret | null = null;
+  let address: ConnectionServiceAccount | null = null;
   const r = await manage(
     ctx,
     actor,
@@ -549,8 +793,10 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     "disconnect",
     (cur, at) => {
       signIn = null;
+      address = null;
       if (cur.status === "disconnected") return null;
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
+      address = cur.method === "share_access" && cur.serviceAccount && !cur.serviceAccount.deletedAt ? cur.serviceAccount : null;
       return { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null }, activity: [{ kind: "disconnected", by: byOf(actor), at }] };
     },
     deps,
@@ -565,6 +811,13 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
       if (!(err instanceof VaultOpenError)) throw err;
     }
   }
+  const sa = address as ConnectionServiceAccount | null;
+  if (sa) {
+    const deleted = await deleteConnectionAddress(ctx, id, sa, byOf(actor), deps);
+    const after = await load(ctx, id, deps);
+    const connection = after ? viewOf(after, actor, nowOf(deps)) : r.value;
+    return { ok: true, status: 200, value: { connection, revoked: false, addressDeleted: deleted, message: deleted ? ADDRESS_DELETED_MESSAGE : ADDRESS_KEPT_MESSAGE } };
+  }
   const m = knownConnector(r.value.connectorId);
-  return { ok: true, status: 200, value: { connection: r.value, revoked, message: revoked ? REVOKED_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
+  return { ok: true, status: 200, value: { connection: r.value, revoked, addressDeleted: null, message: revoked ? REVOKED_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
 }

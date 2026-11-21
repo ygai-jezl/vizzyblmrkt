@@ -3,13 +3,16 @@ import type { ConnectorManifestInput } from "../manifest";
 const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
 /**
- * Google Search Console, by signing in with Google (Connectors 1b). Read only: search clicks,
- * impressions, click rate and position for one site, read live when someone asks. Collecting them
- * every day is Connectors 2; share access (no sign in) is 1c.
+ * Google Search Console, by signing in with Google (Connectors 1b) or by sharing access (1c). Read
+ * only: search clicks, impressions, click rate and position for one site, read live when someone
+ * asks. Collecting them every day is Connectors 2.
  *
  * - One scope, webmasters.readonly, which Google's console classes as non sensitive.
  * - Sign in gives a token for every site the Google account can see, so an admin then picks one
  *   from sites.list, with unverified sites left out (src/lib/connectors/handlers/searchConsole.ts).
+ * - Share access: the admin adds the connection's own Google address as a Restricted user of the
+ *   site, and the same hooks read with a 300 second token for that address. Google documents
+ *   service accounts as Search Console users only for the Indexing API; the dev check proves it.
  * - Search analytics: POST .../sites/{site}/searchAnalytics/query, grouped by date, page or
  *   query, web results only, finalized data only (dataState final), so a day settles about 3
  *   days later. Dates are Pacific time. Docs: developers.google.com/webmaster-tools/v1.
@@ -26,7 +29,20 @@ export const searchConsoleManifest = {
   category: "search",
   publisher: "yougrow",
   switch: "CONNECTOR_SEARCH_CONSOLE_ENABLED",
-  connect: [{ method: "oauth_pkce", client: "google", scopes: [SCOPE] }],
+  connect: [
+    { method: "oauth_pkce", client: "google", scopes: [SCOPE] },
+    {
+      method: "share_access",
+      google: "search-console",
+      role: "Restricted",
+      scopes: [SCOPE],
+      steps: [
+        "In Search Console, open your site, then Settings, then Users and permissions.",
+        "Press Add user, paste the address YouGrow shows, choose Restricted, then press Add.",
+        "Back in YouGrow, press Check access, then pick the site.",
+      ],
+    },
+  ],
   api: {
     hosts: ["searchconsole.googleapis.com", "oauth2.googleapis.com"],
     limits: { connection: { perMinute: 20, perHour: 300 }, brand: { perMinute: 40, perHour: 600 } },
@@ -43,7 +59,7 @@ export const searchConsoleManifest = {
       needs: [SCOPE],
     },
     {
-      what: "The sites your Google account can see in Search Console",
+      what: "The sites your Google account, or the address you share with, can see in Search Console",
       direction: "read",
       where: "Listed once so you can pick one. Sites you haven't verified are left out.",
       needs: [SCOPE],

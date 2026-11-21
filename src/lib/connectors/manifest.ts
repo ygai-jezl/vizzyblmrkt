@@ -10,8 +10,8 @@ import { MEANINGS } from "@/lib/metrics/meanings";
  * survives a JSON round trip and writes in house style.
  *
  * Fields, in the order of the plan's design:
- * - connect: the sign-in methods. token_fields (connectors 1a) and oauth_pkce, Sign in with
- *   Google (1b), are built; the registry refuses share_access until 1c builds it.
+ * - connect: the sign-in methods: token_fields (connectors 1a), oauth_pkce, Sign in with Google
+ *   (1b), and share_access, a Google address made for the connection (1c).
  * - api: every outbound call. Only these hosts are reachable, under these limits
  *   (src/lib/connectors/safeFetch.ts enforces them).
  * - verify: the one request that proves a connection works, run before anything is saved.
@@ -125,12 +125,21 @@ const OAuthMethodSchema = z
   })
   .strict();
 
+/**
+ * Share access (Connectors 1c): the admin adds a Google address made for this one connection as a
+ * user of their property, with this role, and YouGrow reads with a short lived token for that
+ * address with only this scope. Needs the identities project (CONNECTORS_IDENTITIES_PROJECT).
+ */
 const ShareAccessMethodSchema = z
   .object({
     method: z.literal("share_access"),
     google: z.enum(["search-console", "ga4"]),
     /** The role to give the connection's own address, in the product's words. */
     role: Copy(60),
+    /** The one read scope its tokens carry. */
+    scopes: z.array(HttpsUrl).length(1),
+    /** Where to add the address, step by step, in the product's words. */
+    steps: z.array(Copy()).min(1).max(8),
   })
   .strict();
 
@@ -247,7 +256,7 @@ export const ConnectorManifestSchema = z
         if (!auth || !auth.secret) ctx.addIssue({ code: "custom", message: "auth.field must name a secret field" });
         for (const p of c.permissions) if (!needs.has(p)) ctx.addIssue({ code: "custom", message: `the permission "${p}" has no shares line` });
       }
-      if (c.method === "oauth_pkce") {
+      if (c.method === "oauth_pkce" || c.method === "share_access") {
         for (const s of c.scopes) if (!needs.has(s)) ctx.addIssue({ code: "custom", message: `the scope ${s} has no shares line` });
       }
       // A sign in or a shared address can see many sites or properties: an admin picks one.
@@ -265,6 +274,7 @@ export type ConnectorManifestInput = z.input<typeof ConnectorManifestSchema>;
 export type ConnectMethod = z.infer<typeof ConnectMethodSchema>;
 export type TokenFieldsMethod = Extract<ConnectMethod, { method: "token_fields" }>;
 export type OAuthMethod = Extract<ConnectMethod, { method: "oauth_pkce" }>;
+export type ShareAccessMethod = Extract<ConnectMethod, { method: "share_access" }>;
 export type TokenField = z.infer<typeof TokenFieldSchema>;
 export type ProducedStream = z.infer<typeof ProduceSchema>;
 
@@ -287,6 +297,11 @@ export function parseManifest(input: unknown): ConnectorManifest {
 /** The oauth_pkce method of a manifest, when it has one. */
 export function oauthMethod(m: ConnectorManifest): OAuthMethod | null {
   return (m.connect.find((c) => c.method === "oauth_pkce") as OAuthMethod | undefined) ?? null;
+}
+
+/** The share_access method of a manifest, when it has one. */
+export function shareMethod(m: ConnectorManifest): ShareAccessMethod | null {
+  return (m.connect.find((c) => c.method === "share_access") as ShareAccessMethod | undefined) ?? null;
 }
 
 /** The token_fields method of a manifest, when it has one. */

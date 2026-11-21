@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
-import { allConnectors, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, readyMethods, refusals } from "./registry";
+import { allConnectors, BUILT_METHODS, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, readyMethods, refusals } from "./registry";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -41,14 +41,13 @@ describe("the connector registry", () => {
     for (const m of allConnectors()) expect(refusals(m), m.id).toEqual([]);
   });
 
-  it("refuses a sign-in method that isn't built yet", () => {
-    const withShare = parseManifest({
-      ...cloudflareManifest,
-      connect: [...cloudflareManifest.connect, { method: "share_access", google: "ga4", role: "Viewer" }],
-      hooks: { ...cloudflareManifest.hooks, accounts: "cloudflare.zones" },
-    });
-    expect(refusals(withShare)).toEqual(["cloudflare: the share_access sign-in is not built yet"]);
-    expect(readyMethods(withShare)).toEqual(["token_fields"]);
+  it("builds every sign-in method, and refuses one a piece hasn't built", () => {
+    expect([...BUILT_METHODS]).toEqual(["token_fields", "oauth_pkce", "share_access"]);
+    const sc = knownConnector("search-console")!;
+    expect(refusals(sc, ["token_fields", "oauth_pkce"])).toEqual(["search-console: the share_access sign-in is not built yet"]);
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
+    expect(readyMethods(sc, ["token_fields", "oauth_pkce"])).toEqual([]);
+    expect(readyMethods(sc)).toEqual(["share_access"]);
   });
 
   it("offers Search Console only with its switch, the core and a Google client", () => {

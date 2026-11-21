@@ -224,3 +224,38 @@ describe("event history and agent actions in an export, with every switch off", 
     expect(whole).toMatchObject({ complete: false, truncated: { events: expect.any(String), agentActions: expect.any(String) } });
   });
 });
+
+describe("field values in an export, with every switch off", () => {
+  it("lists each value with its field's label, archived ones marked, beside their field changes", async () => {
+    const { saveFieldListChange } = await import("./fieldList");
+    const { setRecordFieldValues } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const id = personIdOf(TENANT_ID, "ada@customer.test");
+    const by = { type: "member", id: "u_admin" } as const;
+    const at = new Date(T0).toISOString();
+    await saveFieldListChange(ctx, "person", { baseRev: 0, change: { op: "add", label: "Plan", type: "select", options: ["Pro"] }, by, nowIso: at, newFieldId: () => "fld_000000000001", newOptionId: () => "opt_00000001" }, db);
+    await saveFieldListChange(ctx, "person", { baseRev: 1, change: { op: "add", label: "Old segment", type: "text" }, by, nowIso: at, newFieldId: () => "fld_000000000002" }, db);
+    await setRecordFieldValues(ctx, { object: "person", recordId: id, changes: { fld_000000000001: "opt_00000001", fld_000000000002: "B2B" }, by, source: "editor", nowIso: at }, { db });
+    await saveFieldListChange(ctx, "person", { baseRev: 2, change: { op: "archive", key: "fld_000000000002" }, by, nowIso: at }, db);
+
+    const r = await exportWholePerson(ctx, id, { db, nowMs: T0 });
+    const doc = (r as { document: Record<string, unknown> }).document;
+    expect(doc.fields).toEqual([
+      { fieldId: "fld_000000000001", label: "Plan", type: "select", typeLabel: "select", archived: false, value: "opt_00000001", text: "Pro" },
+      { fieldId: "fld_000000000002", label: "Old segment", type: "text", typeLabel: "text", archived: true, value: "B2B", text: "B2B" },
+    ]);
+    expect((doc.events as Array<{ kind: string }>).filter((e) => e.kind === "record.field_changed")).toHaveLength(2);
+  });
+
+  it("has no field values for someone without any", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const r = await exportWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), { db, nowMs: T0 });
+    expect((r as { document: Record<string, unknown> }).document.fields).toEqual([]);
+  });
+});

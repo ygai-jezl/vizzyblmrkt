@@ -273,3 +273,35 @@ describe("event history and agent actions on an erase, with every switch off", (
     expect(companyRows(shared, "co_team")).toBe(1);
   });
 });
+
+describe("field values on an erase, with every switch off", () => {
+  const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+  const ADA = deterministicContactId("ten_demo", "ada@example.test");
+  const BOB = deterministicContactId("ten_demo", "bob@example.test");
+  const AT = "2026-11-01T10:00:00.000Z";
+  const by = { type: "member" as const, id: "uid_1" };
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("go with the person and their company, with every field change", async () => {
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    const { saveFieldListChange } = await import("@/lib/audience/fieldList");
+    const { setRecordFieldValues } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", companyId: "co_solo", campaigns: [] });
+    db.seed("contacts", BOB, { tenantId: "ten_demo", email: "bob@example.test", companyId: null, campaigns: [] });
+    db.seed("companies", "co_solo", { tenantId: "ten_demo", domain: "solo.test", contactCount: 1 });
+    await saveFieldListChange(demo, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by, nowIso: AT, newFieldId: () => "fld_000000000001" }, db);
+    await saveFieldListChange(demo, "company", { baseRev: 0, change: { op: "add", label: "Region", type: "text" }, by, nowIso: AT, newFieldId: () => "fld_000000000002" }, db);
+    for (const id of [ADA, BOB]) await setRecordFieldValues(demo, { object: "person", recordId: id, changes: { fld_000000000001: 3 }, by, source: "editor", nowIso: AT }, { db });
+    await setRecordFieldValues(demo, { object: "company", recordId: "co_solo", changes: { fld_000000000002: "Europe" }, by, source: "editor", nowIso: AT }, { db });
+
+    const eraseAda = { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob;
+    expect(await processContactEraseJob(demo, eraseAda, db)).toBe("done");
+    expect(db.raw("contacts", ADA)).toBeUndefined();
+    expect(db.raw("companies", "co_solo")).toBeUndefined();
+    const left = db.dump("ontology_events").filter((r) => r.kind === "record.field_changed");
+    expect(left.map((r) => r.personId)).toEqual([BOB]);
+    expect((db.raw("contacts", BOB) as { fields?: unknown }).fields).toEqual({ fld_000000000001: 3 });
+  });
+});
